@@ -1,17 +1,19 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import {
+  bigint,
+  decimal,
+  int,
+  json,
+  mysqlEnum,
+  mysqlTable,
+  text,
+  timestamp,
+  varchar,
+  boolean,
+  float,
+} from "drizzle-orm/mysql-core";
 
-/**
- * Core user table backing auth flow.
- * Extend this file with additional tables as your product grows.
- * Columns use camelCase to match both database fields and generated types.
- */
 export const users = mysqlTable("users", {
-  /**
-   * Surrogate primary key. Auto-incremented numeric value managed by the database.
-   * Use this for relations between tables.
-   */
   id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
@@ -25,4 +27,158 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+// Meta Ads accounts connected by each user
+export const metaAdAccounts = mysqlTable("meta_ad_accounts", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  accountId: varchar("accountId", { length: 64 }).notNull(),
+  accountName: varchar("accountName", { length: 255 }),
+  accessToken: text("accessToken").notNull(),
+  tokenExpiresAt: timestamp("tokenExpiresAt"),
+  currency: varchar("currency", { length: 8 }),
+  timezone: varchar("timezone", { length: 64 }),
+  isActive: boolean("isActive").default(true).notNull(),
+  lastSyncAt: timestamp("lastSyncAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MetaAdAccount = typeof metaAdAccounts.$inferSelect;
+export type InsertMetaAdAccount = typeof metaAdAccounts.$inferInsert;
+
+// Campaigns fetched from Meta Ads API
+export const campaigns = mysqlTable("campaigns", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  metaCampaignId: varchar("metaCampaignId", { length: 64 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  status: mysqlEnum("status", ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED"]).default("ACTIVE"),
+  objective: varchar("objective", { length: 64 }),
+  dailyBudget: decimal("dailyBudget", { precision: 12, scale: 2 }),
+  lifetimeBudget: decimal("lifetimeBudget", { precision: 12, scale: 2 }),
+  startTime: timestamp("startTime"),
+  stopTime: timestamp("stopTime"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Campaign = typeof campaigns.$inferSelect;
+export type InsertCampaign = typeof campaigns.$inferInsert;
+
+// Daily metrics per campaign (historical storage)
+export const campaignMetrics = mysqlTable("campaign_metrics", {
+  id: int("id").autoincrement().primaryKey(),
+  campaignId: int("campaignId").notNull(),
+  accountId: int("accountId").notNull(),
+  date: varchar("date", { length: 10 }).notNull(), // YYYY-MM-DD
+  impressions: bigint("impressions", { mode: "number" }).default(0),
+  clicks: bigint("clicks", { mode: "number" }).default(0),
+  spend: decimal("spend", { precision: 12, scale: 2 }).default("0"),
+  conversions: decimal("conversions", { precision: 12, scale: 4 }).default("0"),
+  conversionValue: decimal("conversionValue", { precision: 12, scale: 2 }).default("0"),
+  reach: bigint("reach", { mode: "number" }).default(0),
+  frequency: decimal("frequency", { precision: 8, scale: 4 }).default("0"),
+  ctr: decimal("ctr", { precision: 8, scale: 4 }).default("0"),
+  cpc: decimal("cpc", { precision: 10, scale: 4 }).default("0"),
+  cpm: decimal("cpm", { precision: 10, scale: 4 }).default("0"),
+  cpa: decimal("cpa", { precision: 12, scale: 4 }).default("0"),
+  roas: decimal("roas", { precision: 10, scale: 4 }).default("0"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CampaignMetrics = typeof campaignMetrics.$inferSelect;
+export type InsertCampaignMetrics = typeof campaignMetrics.$inferInsert;
+
+// Anomalies detected by the analysis engine
+export const anomalies = mysqlTable("anomalies", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  campaignId: int("campaignId"),
+  type: mysqlEnum("type", [
+    "ROAS_DROP",
+    "CPA_SPIKE",
+    "CTR_DROP",
+    "SPEND_SPIKE",
+    "DELIVERY_CHANGE",
+    "FREQUENCY_HIGH",
+    "CONVERSION_DROP",
+    "BUDGET_EXHAUSTED",
+  ]).notNull(),
+  severity: mysqlEnum("severity", ["LOW", "MEDIUM", "HIGH", "CRITICAL"]).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  metricName: varchar("metricName", { length: 64 }),
+  currentValue: decimal("currentValue", { precision: 12, scale: 4 }),
+  previousValue: decimal("previousValue", { precision: 12, scale: 4 }),
+  changePercent: decimal("changePercent", { precision: 8, scale: 2 }),
+  detectedAt: timestamp("detectedAt").defaultNow().notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+  isRead: boolean("isRead").default(false).notNull(),
+  isResolved: boolean("isResolved").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Anomaly = typeof anomalies.$inferSelect;
+export type InsertAnomaly = typeof anomalies.$inferInsert;
+
+// AI-generated suggestions for campaign improvement
+export const aiSuggestions = mysqlTable("ai_suggestions", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  campaignId: int("campaignId"),
+  category: mysqlEnum("category", [
+    "BUDGET",
+    "TARGETING",
+    "CREATIVE",
+    "BIDDING",
+    "SCHEDULE",
+    "AUDIENCE",
+    "GENERAL",
+  ]).notNull(),
+  priority: mysqlEnum("priority", ["LOW", "MEDIUM", "HIGH"]).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  expectedImpact: text("expectedImpact"),
+  actionItems: json("actionItems"),
+  isApplied: boolean("isApplied").default(false).notNull(),
+  isDismissed: boolean("isDismissed").default(false).notNull(),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AiSuggestion = typeof aiSuggestions.$inferSelect;
+export type InsertAiSuggestion = typeof aiSuggestions.$inferInsert;
+
+// Scheduled reports configuration
+export const scheduledReports = mysqlTable("scheduled_reports", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  accountId: int("accountId").notNull(),
+  frequency: mysqlEnum("frequency", ["DAILY", "WEEKLY"]).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  lastRunAt: timestamp("lastRunAt"),
+  nextRunAt: timestamp("nextRunAt"),
+  lastReportContent: text("lastReportContent"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ScheduledReport = typeof scheduledReports.$inferSelect;
+export type InsertScheduledReport = typeof scheduledReports.$inferInsert;
+
+// Alert notifications
+export const alerts = mysqlTable("alerts", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  accountId: int("accountId").notNull(),
+  anomalyId: int("anomalyId"),
+  title: varchar("title", { length: 255 }).notNull(),
+  message: text("message").notNull(),
+  type: mysqlEnum("type", ["ANOMALY", "REPORT", "SYNC_ERROR", "BUDGET_WARNING"]).notNull(),
+  severity: mysqlEnum("severity", ["INFO", "WARNING", "CRITICAL"]).notNull(),
+  isRead: boolean("isRead").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Alert = typeof alerts.$inferSelect;
+export type InsertAlert = typeof alerts.$inferInsert;
