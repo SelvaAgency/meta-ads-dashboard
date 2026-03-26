@@ -5,22 +5,21 @@
 
 import { invokeLLM } from "./_core/llm";
 import {
-  createAlert,
-  createAnomaly,
   createAiSuggestion,
   getAccountMetricsSummary,
   getCampaignPerformanceSummary,
 } from "./db";
 import type { CampaignMetrics } from "../drizzle/schema";
+import { getObjectiveProfile, detectDominantObjective } from "./campaignObjectives";
 
 // ─── Anomaly Detection ────────────────────────────────────────────────────────
 
 interface AnomalyThresholds {
-  roasDropPercent: number;   // e.g. 25 = 25% drop triggers anomaly
-  cpaSpikePercent: number;   // e.g. 30 = 30% spike triggers anomaly
-  ctrDropPercent: number;    // e.g. 30 = 30% drop triggers anomaly
-  spendSpikePercent: number; // e.g. 50 = 50% spike triggers anomaly
-  frequencyHighValue: number; // e.g. 4.0 = frequency > 4 triggers anomaly
+  roasDropPercent: number;
+  cpaSpikePercent: number;
+  ctrDropPercent: number;
+  spendSpikePercent: number;
+  frequencyHighValue: number;
 }
 
 const DEFAULT_THRESHOLDS: AnomalyThresholds = {
@@ -46,7 +45,6 @@ export function detectAnomalies(
   changePercent: number;
 }> {
   const detected: ReturnType<typeof detectAnomalies> = [];
-
   const pctChange = (curr: number, prev: number) =>
     prev === 0 ? 0 : ((curr - prev) / prev) * 100;
 
@@ -160,10 +158,7 @@ export async function generateAiSuggestions(
 ): Promise<void> {
   if (campaignData.length === 0) return;
 
-  const topPerformers = [...campaignData]
-    .sort((a, b) => b.avgRoas - a.avgRoas)
-    .slice(0, 3);
-
+  const topPerformers = [...campaignData].sort((a, b) => b.avgRoas - a.avgRoas).slice(0, 3);
   const underPerformers = [...campaignData]
     .filter((c) => c.totalSpend > 0)
     .sort((a, b) => a.avgRoas - b.avgRoas)
@@ -187,30 +182,12 @@ ${underPerformers.map((c) => `- ${c.campaignName}: ROAS ${c.avgRoas.toFixed(2)}x
 - ROAS médio: ${(campaignData.reduce((s, c) => s + c.avgRoas, 0) / campaignData.length).toFixed(2)}x
 - CPA médio: R$${(campaignData.reduce((s, c) => s + c.avgCpa, 0) / campaignData.length).toFixed(2)}
 
-Gere exatamente 5 sugestões de melhoria em formato JSON. Cada sugestão deve ser específica, acionável e baseada nos dados fornecidos.
-
-Responda APENAS com JSON válido no seguinte formato:
-{
-  "suggestions": [
-    {
-      "category": "BUDGET|TARGETING|CREATIVE|BIDDING|SCHEDULE|AUDIENCE|GENERAL",
-      "priority": "HIGH|MEDIUM|LOW",
-      "title": "Título curto e direto (máx 80 chars)",
-      "description": "Descrição detalhada explicando o problema e a solução recomendada (2-3 frases)",
-      "expectedImpact": "Impacto esperado em métricas específicas (ex: aumento de 15-20% no ROAS)",
-      "actionItems": ["Ação 1", "Ação 2", "Ação 3"]
-    }
-  ]
-}`;
+Gere exatamente 5 sugestões de melhoria em formato JSON. Cada sugestão deve ser específica, acionável e baseada nos dados fornecidos.`;
 
   try {
     const response = await invokeLLM({
       messages: [
-        {
-          role: "system",
-          content:
-            "Você é um especialista em Meta Ads. Responda sempre em português brasileiro com JSON válido.",
-        },
+        { role: "system", content: "Você é um especialista em Meta Ads. Responda sempre em português brasileiro com JSON válido." },
         { role: "user", content: prompt },
       ],
       response_format: {
@@ -246,7 +223,7 @@ Responda APENAS com JSON válido no seguinte formato:
     });
 
     const rawContent = response.choices[0]?.message?.content;
-    const content = typeof rawContent === 'string' ? rawContent : null;
+    const content = typeof rawContent === "string" ? rawContent : null;
     if (!content) return;
 
     const parsed = JSON.parse(content) as {
@@ -276,8 +253,268 @@ Responda APENAS com JSON válido no seguinte formato:
   }
 }
 
-// ─── Report Generator ─────────────────────────────────────────────────────────
+// ─── Agency Report Generator ──────────────────────────────────────────────────
 
+export interface CampaignReportData {
+  campaignId: number;
+  campaignName: string;
+  campaignObjective: string;
+  campaignStatus: string;
+  totalSpend: number;
+  totalImpressions: number;
+  totalClicks: number;
+  totalConversions: number;
+  totalConversionValue: number;
+  totalReach: number;
+  avgRoas: number;
+  avgCpa: number;
+  avgCtr: number;
+  avgCpc: number;
+  avgCpm: number;
+  avgFrequency: number;
+}
+
+function formatCurrency(value: number, currency = "BRL"): string {
+  return `R$ ${value.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
+}
+
+function formatNumber(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return value.toFixed(0);
+}
+
+function getObjectiveLabel(objective: string): string {
+  const profile = getObjectiveProfile(objective);
+  return `${profile.emoji} ${profile.label}`;
+}
+
+/**
+ * Build the campaign metrics block for the report based on objective.
+ */
+function buildCampaignBlock(campaign: CampaignReportData): string {
+  const profile = getObjectiveProfile(campaign.campaignObjective);
+  const lines: string[] = [];
+
+  lines.push(`🔵 ${getObjectiveLabel(campaign.campaignObjective)} - ${campaign.campaignName}`);
+  lines.push("");
+
+  // Always show spend
+  lines.push(`Valor usado: ${formatCurrency(campaign.totalSpend)}`);
+
+  // Objective-specific metrics
+  const obj = campaign.campaignObjective;
+
+  if (["OUTCOME_SALES", "CONVERSIONS"].includes(obj)) {
+    lines.push(`Compras no site: ${formatNumber(campaign.totalConversions)}`);
+    lines.push(`Valor de conversão: ${formatCurrency(campaign.totalConversionValue)}`);
+    lines.push(`ROAS: ${campaign.avgRoas.toFixed(2)}x`);
+    lines.push(`Custo por compra: ${formatCurrency(campaign.avgCpa)}`);
+    lines.push(`Alcance: ${formatNumber(campaign.totalReach)}`);
+    lines.push(`Impressões: ${formatNumber(campaign.totalImpressions)}`);
+    lines.push(`Cliques: ${formatNumber(campaign.totalClicks)}`);
+    lines.push(`CTR: ${campaign.avgCtr.toFixed(2)}%`);
+    lines.push(`CPM: ${formatCurrency(campaign.avgCpm)}`);
+  } else if (["OUTCOME_LEADS", "LEAD_GENERATION"].includes(obj)) {
+    lines.push(`Leads gerados: ${formatNumber(campaign.totalConversions)}`);
+    lines.push(`Custo por lead: ${formatCurrency(campaign.avgCpa)}`);
+    lines.push(`Alcance: ${formatNumber(campaign.totalReach)}`);
+    lines.push(`Impressões: ${formatNumber(campaign.totalImpressions)}`);
+    lines.push(`Cliques: ${formatNumber(campaign.totalClicks)}`);
+    lines.push(`CTR: ${campaign.avgCtr.toFixed(2)}%`);
+    lines.push(`CPC: ${formatCurrency(campaign.avgCpc)}`);
+    lines.push(`CPM: ${formatCurrency(campaign.avgCpm)}`);
+  } else if (obj === "MESSAGES") {
+    lines.push(`Mensagens iniciadas: ${formatNumber(campaign.totalConversions)}`);
+    lines.push(`Custo por mensagem: ${formatCurrency(campaign.avgCpa)}`);
+    lines.push(`Alcance: ${formatNumber(campaign.totalReach)}`);
+    lines.push(`Impressões: ${formatNumber(campaign.totalImpressions)}`);
+    lines.push(`CTR: ${campaign.avgCtr.toFixed(2)}%`);
+    lines.push(`CPM: ${formatCurrency(campaign.avgCpm)}`);
+    lines.push(`Frequência: ${campaign.avgFrequency.toFixed(2)}`);
+  } else if (["OUTCOME_ENGAGEMENT", "POST_ENGAGEMENT"].includes(obj)) {
+    lines.push(`Engajamentos: ${formatNumber(campaign.totalConversions)}`);
+    lines.push(`Custo por engajamento: ${formatCurrency(campaign.avgCpa)}`);
+    lines.push(`Alcance: ${formatNumber(campaign.totalReach)}`);
+    lines.push(`Impressões: ${formatNumber(campaign.totalImpressions)}`);
+    lines.push(`Frequência: ${campaign.avgFrequency.toFixed(2)}`);
+    lines.push(`CPM: ${formatCurrency(campaign.avgCpm)}`);
+    lines.push(`CTR: ${campaign.avgCtr.toFixed(2)}%`);
+  } else if (obj === "PAGE_LIKES") {
+    lines.push(`Novos seguidores: ${formatNumber(campaign.totalConversions)}`);
+    lines.push(`Custo por seguidor: ${formatCurrency(campaign.avgCpa)}`);
+    lines.push(`Alcance: ${formatNumber(campaign.totalReach)}`);
+    lines.push(`Impressões: ${formatNumber(campaign.totalImpressions)}`);
+    lines.push(`Frequência: ${campaign.avgFrequency.toFixed(2)}`);
+    lines.push(`CPM: ${formatCurrency(campaign.avgCpm)}`);
+  } else if (["OUTCOME_AWARENESS", "REACH", "BRAND_AWARENESS"].includes(obj)) {
+    lines.push(`Alcance: ${formatNumber(campaign.totalReach)}`);
+    lines.push(`Impressões: ${formatNumber(campaign.totalImpressions)}`);
+    lines.push(`Frequência: ${campaign.avgFrequency.toFixed(2)}`);
+    lines.push(`CPM: ${formatCurrency(campaign.avgCpm)}`);
+    lines.push(`CTR: ${campaign.avgCtr.toFixed(2)}%`);
+    lines.push(`Cliques: ${formatNumber(campaign.totalClicks)}`);
+  } else if (["OUTCOME_TRAFFIC", "LINK_CLICKS"].includes(obj)) {
+    lines.push(`Cliques: ${formatNumber(campaign.totalClicks)}`);
+    lines.push(`CTR: ${campaign.avgCtr.toFixed(2)}%`);
+    lines.push(`CPC: ${formatCurrency(campaign.avgCpc)}`);
+    lines.push(`Alcance: ${formatNumber(campaign.totalReach)}`);
+    lines.push(`Impressões: ${formatNumber(campaign.totalImpressions)}`);
+    lines.push(`CPM: ${formatCurrency(campaign.avgCpm)}`);
+  } else if (obj === "VIDEO_VIEWS") {
+    lines.push(`Visualizações: ${formatNumber(campaign.totalConversions)}`);
+    lines.push(`Custo por visualização: ${formatCurrency(campaign.avgCpa)}`);
+    lines.push(`Alcance: ${formatNumber(campaign.totalReach)}`);
+    lines.push(`Impressões: ${formatNumber(campaign.totalImpressions)}`);
+    lines.push(`Frequência: ${campaign.avgFrequency.toFixed(2)}`);
+    lines.push(`CPM: ${formatCurrency(campaign.avgCpm)}`);
+  } else {
+    // Default: show all main metrics
+    lines.push(`Alcance: ${formatNumber(campaign.totalReach)}`);
+    lines.push(`Impressões: ${formatNumber(campaign.totalImpressions)}`);
+    lines.push(`Cliques: ${formatNumber(campaign.totalClicks)}`);
+    lines.push(`CTR: ${campaign.avgCtr.toFixed(2)}%`);
+    lines.push(`CPM: ${formatCurrency(campaign.avgCpm)}`);
+    if (campaign.totalConversions > 0) {
+      lines.push(`Resultados: ${formatNumber(campaign.totalConversions)}`);
+      lines.push(`Custo por resultado: ${formatCurrency(campaign.avgCpa)}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Generate agency-formatted report using AI analysis.
+ * Output is plain text with emojis — ready for copy-paste on mobile.
+ */
+export async function generateAgencyReport(
+  accountName: string,
+  frequency: "DAILY" | "WEEKLY",
+  campaigns: CampaignReportData[],
+  dateStart: string,
+  dateEnd: string
+): Promise<string> {
+  if (campaigns.length === 0) {
+    return "Sem dados de campanhas disponíveis para o período selecionado.";
+  }
+
+  const activeCampaigns = campaigns.filter(
+    (c) => c.campaignStatus === "ACTIVE" || c.totalSpend > 0
+  );
+
+  const objectives = activeCampaigns.map((c) => c.campaignObjective).filter(Boolean);
+  const dominantObjective = detectDominantObjective(objectives);
+  const objectiveLabel = getObjectiveProfile(dominantObjective).label;
+
+  const totalSpend = activeCampaigns.reduce((s, c) => s + c.totalSpend, 0);
+  const totalConversions = activeCampaigns.reduce((s, c) => s + c.totalConversions, 0);
+  const totalConversionValue = activeCampaigns.reduce((s, c) => s + c.totalConversionValue, 0);
+  const totalReach = activeCampaigns.reduce((s, c) => s + c.totalReach, 0);
+  const totalImpressions = activeCampaigns.reduce((s, c) => s + c.totalImpressions, 0);
+  const overallRoas = totalSpend > 0 ? totalConversionValue / totalSpend : 0;
+  const overallCpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
+
+  // Build campaign blocks for the prompt
+  const campaignBlocksText = activeCampaigns
+    .map((c) => buildCampaignBlock(c))
+    .join("\n\n");
+
+  const reportType = frequency === "DAILY" ? "Diário" : "Semanal";
+
+  const prompt = `Você é um analista especialista em Meta Ads de uma agência de marketing digital. 
+Gere um relatório profissional em português brasileiro seguindo EXATAMENTE o formato abaixo.
+
+DADOS DO RELATÓRIO:
+- Cliente: ${accountName}
+- Tipo: ${reportType}
+- Período: ${dateStart} a ${dateEnd}
+- Objetivo principal: ${objectiveLabel}
+- Total investido: ${formatCurrency(totalSpend)}
+- Total de resultados: ${formatNumber(totalConversions)}
+- Valor de conversão total: ${formatCurrency(totalConversionValue)}
+- ROAS geral: ${overallRoas.toFixed(2)}x
+- Custo por resultado geral: ${formatCurrency(overallCpa)}
+- Alcance total: ${formatNumber(totalReach)}
+- Impressões totais: ${formatNumber(totalImpressions)}
+
+DADOS POR CAMPANHA:
+${campaignBlocksText}
+
+INSTRUÇÕES DE FORMATO:
+Gere o relatório EXATAMENTE neste formato (sem markdown, sem bold, sem asteriscos):
+
+📊 ${accountName} – Relatório ${reportType}
+📆 ${dateStart} a ${dateEnd}
+📍 Meta Ads | 🎯 [liste os objetivos das campanhas ativas]
+
+——————————
+
+[Para cada campanha ativa, repita este bloco:]
+🔵 [Tipo da Campanha] - [Nome da Campanha]
+[Métrica 1]: [valor]
+[Métrica 2]: [valor]
+[Métrica 3]: [valor]
+[todas as métricas relevantes para o objetivo]
+
+📌 Análise
+
+- [insight sobre a métrica principal]
+- [insight sobre outra métrica relevante]
+- [insight sobre eficiência/custo]
+- [insight sobre frequência/saturação se aplicável]
+- [insight sobre tendência ou comparativo]
+
+——————————
+
+[Repetir bloco para cada campanha]
+
+——————————
+
+🎯 Resumo Estratégico
+
+- [dado consolidado 1]
+- [dado consolidado 2]
+- [dado consolidado 3]
+- [contexto ou observação relevante]
+
+——————————
+
+🧭 Recomendações e Próximos Passos
+
+- [recomendação 1 baseada nos dados — específica sobre conjuntos de anúncios ou criativos]
+- [recomendação 2 — específica sobre orçamento ou segmentação]
+- [recomendação 3 — específica sobre criativos ou testes A/B]
+- [recomendação 4 — próxima ação prioritária]
+
+REGRAS OBRIGATÓRIAS:
+- NÃO use markdown (sem **, sem __, sem #)
+- Use apenas emojis como separadores visuais
+- Use —————————— como separador entre seções
+- Bullets sempre no formato "- texto"
+- Uma linha em branco entre cada bullet da análise
+- Texto legível e bem espaçado para leitura no celular
+- Análise deve ser específica e baseada nos dados reais fornecidos`;
+
+  try {
+    const response = await invokeLLM({
+      messages: [
+        {
+          role: "system",
+          content: "Você é um analista especialista em Meta Ads de agência. Escreva relatórios profissionais em português brasileiro sem formatação markdown.",
+        },
+        { role: "user", content: prompt },
+      ],
+    });
+    const raw = response.choices[0]?.message?.content;
+    return typeof raw === "string" ? raw : "Erro ao gerar relatório.";
+  } catch (err) {
+    console.error("[Agency Report] Failed:", err);
+    return "Erro ao gerar relatório de performance.";
+  }
+}
+
+// Keep legacy function for backward compatibility
 export async function generatePerformanceReport(
   accountId: number,
   frequency: "DAILY" | "WEEKLY",
@@ -293,9 +530,7 @@ export async function generatePerformanceReport(
     avgCtr: number;
   }>
 ): Promise<string> {
-  if (metricsData.length === 0) {
-    return "Sem dados disponíveis para o período selecionado.";
-  }
+  if (metricsData.length === 0) return "Sem dados disponíveis para o período selecionado.";
 
   const totalSpend = metricsData.reduce((s, d) => s + d.totalSpend, 0);
   const totalConversions = metricsData.reduce((s, d) => s + d.totalConversions, 0);
@@ -305,11 +540,9 @@ export async function generatePerformanceReport(
   const avgCtr = metricsData.reduce((s, d) => s + d.avgCtr, 0) / metricsData.length;
 
   const period = frequency === "DAILY" ? "últimas 24 horas" : "última semana";
+  const prompt = `Você é um analista de mídia paga especialista em Meta Ads. Gere um relatório executivo conciso em português brasileiro.
 
-  const prompt = `Você é um analista de mídia paga especialista em Meta Ads. Gere um relatório executivo conciso e profissional em português brasileiro.
-
-## Dados de Performance — ${period}
-
+Dados de Performance — ${period}:
 - Investimento total: R$${totalSpend.toFixed(2)}
 - Conversões: ${totalConversions.toFixed(0)}
 - Valor de conversão: R$${totalConversionValue.toFixed(2)}
@@ -317,35 +550,17 @@ export async function generatePerformanceReport(
 - CPA médio: R$${avgCpa.toFixed(2)}
 - CTR médio: ${avgCtr.toFixed(2)}%
 
-## Evolução diária:
-${metricsData
-  .slice(-7)
-  .map(
-    (d) =>
-      `${d.date}: Gasto R$${d.totalSpend.toFixed(2)}, ROAS ${d.avgRoas.toFixed(2)}x, Conversões ${d.totalConversions.toFixed(0)}`
-  )
-  .join("\n")}
-
-Gere um relatório executivo com:
-1. **Resumo de Performance** (2-3 frases sobre os resultados gerais)
-2. **Destaques Positivos** (o que está funcionando bem)
-3. **Pontos de Atenção** (o que precisa de ação)
-4. **Recomendação Principal** (uma ação prioritária para o próximo período)
-
-Use markdown para formatação. Seja direto, específico e acionável.`;
+Gere um relatório executivo com Resumo, Destaques Positivos, Pontos de Atenção e Recomendação Principal.`;
 
   try {
     const response = await invokeLLM({
       messages: [
-        {
-          role: "system",
-          content: "Você é um analista especialista em Meta Ads. Escreva em português brasileiro.",
-        },
+        { role: "system", content: "Você é um analista especialista em Meta Ads. Escreva em português brasileiro." },
         { role: "user", content: prompt },
       ],
     });
     const raw = response.choices[0]?.message?.content;
-    return typeof raw === 'string' ? raw : "Erro ao gerar relatório.";
+    return typeof raw === "string" ? raw : "Erro ao gerar relatório.";
   } catch (err) {
     console.error("[Report Generator] Failed:", err);
     return "Erro ao gerar relatório de performance.";

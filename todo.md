@@ -62,3 +62,38 @@
 - [x] Card de saldo no dashboard com indicador visual (verde/amarelo/vermelho)
 - [x] Alerta automático quando saldo remanescente < R$200
 - [x] Notificação push ao owner quando saldo crítico detectado
+
+## Correção de Cálculos de Métricas
+- [ ] Investigar discrepância: dashboard mostra ROAS 26.97x mas Meta Ads Manager mostra 5.92 e 3.26
+- [ ] Corrigir cálculo de ROAS (purchase_roas da API, não calcular manualmente)
+- [ ] Corrigir cálculo de CPA (spend / conversions, não dividir por valor incorreto)
+- [ ] Corrigir Investimento Total (soma de spend das campanhas, não multiplicar por 100)
+- [ ] Corrigir Valor de Conversão (campo action_values da API)
+- [ ] Corrigir Conversões (campo actions com action_type = purchase ou offsite_conversion)
+- [ ] Verificar se os campos da API estão sendo lidos com as unidades corretas (centavos vs reais)
+
+## Dashboard Adaptativo por Objetivo de Campanha
+- [x] Backend: detectar objetivo dominante da conta (OUTCOME_SALES, OUTCOME_LEADS, MESSAGES, REACH, ENGAGEMENT, etc.)
+- [x] Backend: mapear quais métricas exibir por objetivo (ex: vendas → ROAS, CPA, valor de conversão; mensagens → custo por mensagem, nº mensagens; alcance → CPM, frequência)
+- [x] Backend: buscar métricas específicas por objetivo na API do Meta (purchase, lead, onsite_conversion.messaging_conversation_started_7d, etc.)
+- [x] Frontend: Dashboard exibe KPI cards dinâmicos de acordo com o objetivo detectado da conta (8 cards em 2 linhas de 4)
+- [x] Frontend: Badge de objetivo visível no header do dashboard por conta
+- [x] Frontend: Top Performers e Underperformers ordenados pelo KPI primário do objetivo
+
+## Relatórios no Formato Padrão de Agência
+- [x] Backend: gerador de relatório diário (dados de ontem) no formato padrão com emojis e seções
+- [x] Backend: gerador de relatório semanal (últimos 7 dias) no formato padrão
+- [x] Backend: relatório inclui análise por campanha, resumo estratégico e recomendações de conjuntos e criativos via IA
+- [x] Backend: endpoint de geração sob demanda (diário e semanal) com dados reais da API
+- [x] Frontend: botão "Gerar Relatório Diário" e "Gerar Relatório Semanal" na página de Relatórios
+- [x] Frontend: exibição do relatório gerado em texto puro com botão "Copiar" para área de transferência
+- [x] Frontend: agendamento de relatórios (diário às 08h / semanal toda segunda às 08h) com notificação
+- [x] Frontend: seção de agendamentos com toggle ativo/pausado e exclusão
+
+## Correção de Cálculos de Métricas (Discrepância com Meta Ads Manager)
+- [x] Corrigir ROAS: usar cálculo ponderado (total_conversion_value / total_spend) em vez de AVG simples
+- [x] Corrigir CPA: usar cálculo ponderado (total_spend / total_conversions) em vez de AVG simples
+- [x] Corrigir CTR: usar cálculo ponderado (total_clicks / total_impressions * 100) em vez de AVG simples
+- [x] Corrigir CPC: usar cálculo ponderado (total_spend / total_clicks) em vez de AVG simples
+- [x] Corrigir CPM: usar cálculo ponderado (total_spend / total_impressions * 1000) em vez de AVG simples
+- [x] Corrigir Frequência: usar cálculo ponderado (total_impressions / total_reach) em vez de AVG simples

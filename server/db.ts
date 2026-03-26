@@ -182,9 +182,18 @@ export async function getAccountMetricsSummary(accountId: number, startDate: str
       totalClicks: sql<number>`SUM(${campaignMetrics.clicks})`,
       totalConversions: sql<number>`SUM(${campaignMetrics.conversions})`,
       totalConversionValue: sql<number>`SUM(${campaignMetrics.conversionValue})`,
-      avgRoas: sql<number>`AVG(${campaignMetrics.roas})`,
-      avgCpa: sql<number>`AVG(${campaignMetrics.cpa})`,
-      avgCtr: sql<number>`AVG(${campaignMetrics.ctr})`,
+      totalReach: sql<number>`SUM(${campaignMetrics.reach})`,
+      // Weighted ROAS: total conversion value / total spend (more accurate than AVG of ratios)
+      avgRoas: sql<number>`CASE WHEN SUM(${campaignMetrics.spend}) > 0 THEN SUM(${campaignMetrics.conversionValue}) / SUM(${campaignMetrics.spend}) ELSE 0 END`,
+      // Weighted CPA: total spend / total conversions
+      avgCpa: sql<number>`CASE WHEN SUM(${campaignMetrics.conversions}) > 0 THEN SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.conversions}) ELSE 0 END`,
+      // Weighted CTR: total clicks / total impressions * 100
+      avgCtr: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.clicks}) / SUM(${campaignMetrics.impressions})) * 100 ELSE 0 END`,
+      // Weighted CPC: total spend / total clicks
+      avgCpc: sql<number>`CASE WHEN SUM(${campaignMetrics.clicks}) > 0 THEN SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.clicks}) ELSE 0 END`,
+      // Weighted CPM: total spend / total impressions * 1000
+      avgCpm: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.impressions})) * 1000 ELSE 0 END`,
+      avgFrequency: sql<number>`AVG(${campaignMetrics.frequency})`,
     })
     .from(campaignMetrics)
     .where(
@@ -206,14 +215,20 @@ export async function getCampaignPerformanceSummary(accountId: number, startDate
       campaignId: campaignMetrics.campaignId,
       campaignName: campaigns.name,
       campaignStatus: campaigns.status,
+      campaignObjective: campaigns.objective,
       totalSpend: sql<number>`SUM(${campaignMetrics.spend})`,
       totalImpressions: sql<number>`SUM(${campaignMetrics.impressions})`,
       totalClicks: sql<number>`SUM(${campaignMetrics.clicks})`,
       totalConversions: sql<number>`SUM(${campaignMetrics.conversions})`,
       totalConversionValue: sql<number>`SUM(${campaignMetrics.conversionValue})`,
-      avgRoas: sql<number>`AVG(${campaignMetrics.roas})`,
-      avgCpa: sql<number>`AVG(${campaignMetrics.cpa})`,
-      avgCtr: sql<number>`AVG(${campaignMetrics.ctr})`,
+      totalReach: sql<number>`SUM(${campaignMetrics.reach})`,
+      // Weighted metrics (more accurate than simple AVG of daily ratios)
+      avgRoas: sql<number>`CASE WHEN SUM(${campaignMetrics.spend}) > 0 THEN SUM(${campaignMetrics.conversionValue}) / SUM(${campaignMetrics.spend}) ELSE 0 END`,
+      avgCpa: sql<number>`CASE WHEN SUM(${campaignMetrics.conversions}) > 0 THEN SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.conversions}) ELSE 0 END`,
+      avgCtr: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.clicks}) / SUM(${campaignMetrics.impressions})) * 100 ELSE 0 END`,
+      avgCpc: sql<number>`CASE WHEN SUM(${campaignMetrics.clicks}) > 0 THEN SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.clicks}) ELSE 0 END`,
+      avgCpm: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.impressions})) * 1000 ELSE 0 END`,
+      avgFrequency: sql<number>`CASE WHEN SUM(${campaignMetrics.reach}) > 0 THEN SUM(${campaignMetrics.impressions}) / SUM(${campaignMetrics.reach}) ELSE 0 END`,
     })
     .from(campaignMetrics)
     .innerJoin(campaigns, eq(campaignMetrics.campaignId, campaigns.id))
@@ -224,7 +239,7 @@ export async function getCampaignPerformanceSummary(accountId: number, startDate
         lte(campaignMetrics.date, endDate)
       )
     )
-    .groupBy(campaignMetrics.campaignId, campaigns.name, campaigns.status)
+    .groupBy(campaignMetrics.campaignId, campaigns.name, campaigns.status, campaigns.objective)
     .orderBy(desc(sql`SUM(${campaignMetrics.spend})`));
 }
 

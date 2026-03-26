@@ -43,7 +43,8 @@ import {
   calculateRoas,
   calculateCpa,
 } from "./metaAdsService";
-import { generateAiSuggestions, generatePerformanceReport, detectAnomalies } from "./analysisService";
+import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
+import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 
 // ─── Helper: date range ───────────────────────────────────────────────────────
@@ -545,27 +546,56 @@ export const appRouter = router({
         const account = await getMetaAdAccountById(input.accountId);
         if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
 
-        const days = input.frequency === "DAILY" ? 1 : 7;
-        const { startDate, endDate } = getDateRange(days);
-        const metrics = await getAccountMetricsSummary(input.accountId, startDate, endDate);
+        // Date range: DAILY = yesterday, WEEKLY = last 7 days ending yesterday
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const endDate = yesterday.toISOString().split("T")[0]!;
 
-        const mapped = metrics.map((m) => ({
-          date: m.date,
-          totalSpend: Number(m.totalSpend ?? 0),
-          totalImpressions: Number(m.totalImpressions ?? 0),
-          totalClicks: Number(m.totalClicks ?? 0),
-          totalConversions: Number(m.totalConversions ?? 0),
-          totalConversionValue: Number(m.totalConversionValue ?? 0),
-          avgRoas: Number(m.avgRoas ?? 0),
-          avgCpa: Number(m.avgCpa ?? 0),
-          avgCtr: Number(m.avgCtr ?? 0),
+        const startDateObj = new Date(yesterday);
+        if (input.frequency === "WEEKLY") {
+          startDateObj.setDate(startDateObj.getDate() - 6);
+        }
+        const startDate = startDateObj.toISOString().split("T")[0]!;
+
+        // Get campaign-level data for the period
+        const campaignData = await getCampaignPerformanceSummary(input.accountId, startDate, endDate);
+
+        const campaigns: CampaignReportData[] = campaignData.map((c) => ({
+          campaignId: c.campaignId,
+          campaignName: c.campaignName ?? "Campanha",
+          campaignObjective: c.campaignObjective ?? "OUTCOME_SALES",
+          campaignStatus: c.campaignStatus ?? "ACTIVE",
+          totalSpend: Number(c.totalSpend ?? 0),
+          totalImpressions: Number(c.totalImpressions ?? 0),
+          totalClicks: Number(c.totalClicks ?? 0),
+          totalConversions: Number(c.totalConversions ?? 0),
+          totalConversionValue: Number(c.totalConversionValue ?? 0),
+          totalReach: Number(c.totalReach ?? 0),
+          avgRoas: Number(c.avgRoas ?? 0),
+          avgCpa: Number(c.avgCpa ?? 0),
+          avgCtr: Number(c.avgCtr ?? 0),
+          avgCpc: Number(c.avgCpc ?? 0),
+          avgCpm: Number(c.avgCpm ?? 0),
+          avgFrequency: Number(c.avgFrequency ?? 0),
         }));
 
-        const report = await generatePerformanceReport(input.accountId, input.frequency, mapped);
+        // Format dates for display
+        const fmt = (d: string) => {
+          const [y, m, day] = d.split("-");
+          return `${day}/${m}/${y}`;
+        };
+
+        const report = await generateAgencyReport(
+          account.accountName ?? "Conta",
+          input.frequency,
+          campaigns,
+          fmt(startDate),
+          fmt(endDate)
+        );
 
         await notifyOwner({
-          title: `📊 Relatório ${input.frequency === "DAILY" ? "Diário" : "Semanal"} de Campanhas`,
-          content: report,
+          title: `📊 Relatório ${input.frequency === "DAILY" ? "Diário" : "Semanal"} — ${account.accountName}`,
+          content: report.substring(0, 500) + (report.length > 500 ? "..." : ""),
         });
 
         return { success: true, report };
