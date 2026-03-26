@@ -48,6 +48,7 @@ import {
   calculateRoas,
   calculateCpa,
 } from "./metaAdsService";
+import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
@@ -305,12 +306,27 @@ export const appRouter = router({
         const overallCpa = totals.conversions > 0 ? totals.spend / totals.conversions : 0;
         const overallCtr = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
 
+        // Detect dominant optimization_goal from campaigns (NOT campaign objective)
+        // This is the correct way: use what the adsets are actually optimizing for
+        const optimizationGoals = campaigns
+          .map((c) => (c as any).campaignOptimizationGoal as string | undefined)
+          .filter((g): g is string => !!g);
+        const dominantGoal = detectDominantGoal(optimizationGoals);
+        const goalProfile = getPerformanceGoalProfile(dominantGoal);
+
         return {
           totals: { ...totals, roas: overallRoas, cpa: overallCpa, ctr: overallCtr },
           timeSeries: metrics,
           campaigns,
           unreadAlerts,
           unreadAnomalies,
+          dominantGoal,
+          goalProfile: {
+            label: goalProfile.label,
+            emoji: goalProfile.emoji,
+            resultLabel: goalProfile.resultLabel,
+            primaryMetrics: goalProfile.primaryMetrics,
+          },
         };
       }),
   }),

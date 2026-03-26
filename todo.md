@@ -107,3 +107,10 @@
 - [x] Salvar optimizationGoal e resultLabel na tabela campaigns (migration aplicada)
 - [x] Frontend: coluna Resultados mostra o tipo correto (Compras, Mensagens, Leads etc.)
 - [x] Frontend: subtítulo abaixo do nome da campanha mostra o tipo de resultado
+
+## Refatoração: Dashboard por Meta de Desempenho (optimization_goal)
+- [x] Backend: retornar optimization_goal dominante da conta no endpoint dashboard.overview
+- [x] Backend: mapear optimization_goal → KPI cards (não objective da campanha)
+- [x] Frontend: Dashboard usa optimization_goal (não objective) para escolher KPI cards
+- [x] Frontend: badge no header mostra a meta de desempenho real (ex: "Compras no site", "Mensagens")
+- [x] Frontend: KPI cards mostram métricas relevantes para a meta de desempenho configurada

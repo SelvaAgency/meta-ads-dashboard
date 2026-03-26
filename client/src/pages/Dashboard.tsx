@@ -55,29 +55,37 @@ function fmtNumber(n: number | null | undefined) {
 function fmtPercent(n: number | null | undefined) { return `${Number(n ?? 0).toFixed(2)}%`; }
 function fmtMultiplier(n: number | null | undefined) { return `${Number(n ?? 0).toFixed(2)}x`; }
 
-// ─── Objective detection (client-side mirror of backend logic) ───────────────
+// ─── Goal detection: map optimization_goal → KPI type ───────────────────────
+// Uses the goalProfile returned by the backend (which uses optimization_goal from adsets)
+// NOT the campaign.objective — that is the broad marketing goal, not the performance target
 
-type ObjectiveType =
-  | "SALES" | "LEADS" | "MESSAGES" | "ENGAGEMENT" | "FOLLOWERS"
+type GoalType =
+  | "SALES" | "VALUE" | "LEADS" | "MESSAGES" | "ENGAGEMENT" | "FOLLOWERS"
   | "AWARENESS" | "TRAFFIC" | "VIDEO" | "APP" | "DEFAULT";
 
-function detectObjective(campaigns: Array<{ campaignObjective?: string | null }>): ObjectiveType {
-  const priority: Array<[string[], ObjectiveType]> = [
-    [["OUTCOME_SALES", "CONVERSIONS"], "SALES"],
-    [["OUTCOME_LEADS", "LEAD_GENERATION"], "LEADS"],
-    [["MESSAGES"], "MESSAGES"],
-    [["OUTCOME_ENGAGEMENT", "POST_ENGAGEMENT"], "ENGAGEMENT"],
-    [["PAGE_LIKES"], "FOLLOWERS"],
-    [["OUTCOME_TRAFFIC", "LINK_CLICKS"], "TRAFFIC"],
-    [["VIDEO_VIEWS"], "VIDEO"],
-    [["OUTCOME_AWARENESS", "REACH", "BRAND_AWARENESS"], "AWARENESS"],
-    [["OUTCOME_APP_PROMOTION"], "APP"],
-  ];
-  const objectives = campaigns.map((c) => c.campaignObjective ?? "").filter(Boolean);
-  for (const [keys, type] of priority) {
-    if (objectives.some((o) => keys.includes(o))) return type;
-  }
-  return "DEFAULT";
+function mapGoalToType(dominantGoal: string | undefined): GoalType {
+  if (!dominantGoal) return "DEFAULT";
+  const map: Record<string, GoalType> = {
+    OFFSITE_CONVERSIONS: "SALES",
+    ONSITE_CONVERSIONS: "SALES",
+    VALUE: "VALUE",
+    LEAD_GENERATION: "LEADS",
+    QUALITY_LEAD: "LEADS",
+    REPLIES: "MESSAGES",
+    CONVERSATIONS: "MESSAGES",
+    LINK_CLICKS: "TRAFFIC",
+    LANDING_PAGE_VIEWS: "TRAFFIC",
+    REACH: "AWARENESS",
+    IMPRESSIONS: "AWARENESS",
+    POST_ENGAGEMENT: "ENGAGEMENT",
+    PAGE_LIKES: "FOLLOWERS",
+    VIDEO_VIEWS: "VIDEO",
+    THRUPLAY: "VIDEO",
+    APP_INSTALLS: "APP",
+    VISIT_INSTAGRAM_PROFILE: "TRAFFIC",
+    INSTAGRAM_PROFILE_REACH: "AWARENESS",
+  };
+  return map[dominantGoal] ?? "DEFAULT";
 }
 
 // ─── KPI card config per objective ───────────────────────────────────────────
@@ -98,7 +106,7 @@ const ICON_MAP = {
   Users, Eye, MessageCircle, Target, Play, Heart, BarChart3,
 };
 
-const KPI_CONFIGS: Record<ObjectiveType, KpiDef[]> = {
+const KPI_CONFIGS: Record<GoalType, KpiDef[]> = {
   SALES: [
     { key: "spend", label: "Investimento Total", icon: DollarSign, color: "blue", format: (t) => fmtCurrency(t.spend) },
     { key: "roas", label: "ROAS", subtitle: "Retorno sobre investimento", icon: TrendingUp, color: "green",
@@ -195,6 +203,20 @@ const KPI_CONFIGS: Record<ObjectiveType, KpiDef[]> = {
     { key: "cpc", label: "CPC Médio", icon: DollarSign, color: "orange", format: (t) => fmtCurrency(t.cpc ?? 0) },
     { key: "clicks", label: "Cliques", icon: MousePointer, color: "purple", format: (t) => fmtNumber(t.clicks) },
   ],
+  // VALUE = optimization for ROAS (maximize conversion value)
+  VALUE: [
+    { key: "spend", label: "Investimento Total", icon: DollarSign, color: "blue", format: (t) => fmtCurrency(t.spend) },
+    { key: "roas", label: "ROAS", subtitle: "Retorno sobre investimento", icon: TrendingUp, color: "green",
+      format: (t) => fmtMultiplier(t.roas),
+      trend: (t) => t.roas >= 2 ? "up" : "down",
+      trendLabel: (t) => t.roas >= 2 ? "Bom" : "Baixo" },
+    { key: "conversionValue", label: "Valor de Conversão", icon: DollarSign, color: "green", format: (t) => fmtCurrency(t.conversionValue) },
+    { key: "cpa", label: "Custo por Compra", subtitle: "CPA médio", icon: ShoppingCart, color: "purple", format: (t) => fmtCurrency(t.cpa) },
+    { key: "conversions", label: "Compras no site", icon: Target, color: "blue", format: (t) => fmtNumber(t.conversions) },
+    { key: "reach", label: "Alcance", icon: Users, color: "blue", format: (t) => fmtNumber(t.reach) },
+    { key: "impressions", label: "Impressões", icon: Eye, color: "blue", format: (t) => fmtNumber(t.impressions) },
+    { key: "ctr", label: "CTR", subtitle: "Taxa de cliques", icon: MousePointer, color: "purple", format: (t) => fmtPercent(t.ctr) },
+  ],
   DEFAULT: [
     { key: "spend", label: "Investimento Total", icon: DollarSign, color: "blue", format: (t) => fmtCurrency(t.spend) },
     { key: "impressions", label: "Impressões", icon: Eye, color: "blue", format: (t) => fmtNumber(t.impressions) },
@@ -202,21 +224,22 @@ const KPI_CONFIGS: Record<ObjectiveType, KpiDef[]> = {
     { key: "reach", label: "Alcance", icon: Users, color: "blue", format: (t) => fmtNumber(t.reach) },
     { key: "ctr", label: "CTR", icon: MousePointer, color: "purple", format: (t) => fmtPercent(t.ctr) },
     { key: "cpm", label: "CPM Médio", icon: DollarSign, color: "orange", format: (t) => fmtCurrency(t.cpm ?? 0) },
-    { key: "conversions", label: "Conversões", icon: Target, color: "green", format: (t) => fmtNumber(t.conversions) },
+    { key: "conversions", label: "Resultados", icon: Target, color: "green", format: (t) => fmtNumber(t.conversions) },
     { key: "cpa", label: "Custo por Resultado", icon: ShoppingCart, color: "purple", format: (t) => fmtCurrency(t.cpa) },
   ],
 };
 
-const OBJECTIVE_LABELS: Record<ObjectiveType, { label: string; emoji: string }> = {
-  SALES: { label: "Vendas", emoji: "🛒" },
-  LEADS: { label: "Geração de Leads", emoji: "📋" },
+const GOAL_LABELS: Record<GoalType, { label: string; emoji: string }> = {
+  SALES: { label: "Compras no site", emoji: "🛍" },
+  VALUE: { label: "Valor de conversão (ROAS)", emoji: "💰" },
+  LEADS: { label: "Geração de leads", emoji: "📋" },
   MESSAGES: { label: "Mensagens", emoji: "💬" },
   ENGAGEMENT: { label: "Engajamento", emoji: "❤️" },
-  FOLLOWERS: { label: "Seguidores", emoji: "👥" },
-  AWARENESS: { label: "Reconhecimento", emoji: "📣" },
-  TRAFFIC: { label: "Tráfego", emoji: "🌐" },
-  VIDEO: { label: "Visualizações de Vídeo", emoji: "▶️" },
-  APP: { label: "Promoção de App", emoji: "📱" },
+  FOLLOWERS: { label: "Curtidas na página", emoji: "👥" },
+  AWARENESS: { label: "Alcance", emoji: "📣" },
+  TRAFFIC: { label: "Cliques no link", emoji: "🔗" },
+  VIDEO: { label: "Visualizações de vídeo", emoji: "▶️" },
+  APP: { label: "Instalações de app", emoji: "📱" },
   DEFAULT: { label: "Campanhas", emoji: "📊" },
 };
 
@@ -287,14 +310,20 @@ export default function Dashboard() {
     { enabled: !!selectedAccountId, refetchInterval: 60000 }
   );
 
-  // Detect dominant objective from campaigns
-  const objective = useMemo<ObjectiveType>(() => {
-    if (!data?.campaigns?.length) return "DEFAULT";
-    return detectObjective(data.campaigns);
-  }, [data?.campaigns]);
+  // Use goalProfile from backend (based on optimization_goal, NOT campaign.objective)
+  // This ensures KPI cards reflect the actual performance target of the adsets
+  const goalType = useMemo<GoalType>(() => {
+    return mapGoalToType(data?.dominantGoal);
+  }, [data?.dominantGoal]);
 
-  const kpiDefs = KPI_CONFIGS[objective];
-  const objInfo = OBJECTIVE_LABELS[objective];
+  // Use label/emoji from backend goalProfile when available, fallback to local map
+  const goalLabelFromBackend = data?.goalProfile?.label;
+  const goalEmojiFromBackend = data?.goalProfile?.emoji;
+  const kpiDefs = KPI_CONFIGS[goalType];
+  const objInfo = {
+    label: goalLabelFromBackend ?? GOAL_LABELS[goalType]?.label ?? "Campanhas",
+    emoji: goalEmojiFromBackend ?? GOAL_LABELS[goalType]?.emoji ?? "📊",
+  };
 
   // Build extended totals including cpc, cpm, frequency
   const totals = useMemo(() => {
@@ -318,9 +347,9 @@ export default function Dashboard() {
     }));
   }, [data]);
 
-  // For top/under performers — use primary metric based on objective
-  const primarySortKey = ["SALES"].includes(objective) ? "avgRoas"
-    : ["LEADS", "MESSAGES", "VIDEO", "APP", "FOLLOWERS"].includes(objective) ? "avgCpa"
+  // For top/under performers — use primary metric based on optimization_goal
+  const primarySortKey = ["SALES", "VALUE"].includes(goalType) ? "avgRoas"
+    : ["LEADS", "MESSAGES", "VIDEO", "APP", "FOLLOWERS"].includes(goalType) ? "avgCpa"
     : "totalSpend";
 
   const topCampaigns = useMemo(() => {
@@ -374,7 +403,7 @@ export default function Dashboard() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold text-foreground">Visão Geral</h1>
-              {objective !== "DEFAULT" && (
+              {goalType !== "DEFAULT" && (
                 <Badge variant="outline" className="text-xs border-primary/30 text-primary">
                   {objInfo.emoji} {objInfo.label}
                 </Badge>
@@ -484,7 +513,7 @@ export default function Dashboard() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold">
-                {["SALES", "LEADS", "MESSAGES", "VIDEO", "APP", "FOLLOWERS"].includes(objective)
+                {["SALES", "VALUE", "LEADS", "MESSAGES", "VIDEO", "APP", "FOLLOWERS"].includes(goalType)
                   ? `Resultados Diários (${objInfo.emoji} ${objInfo.label})`
                   : "ROAS Diário"}
               </CardTitle>
@@ -504,7 +533,7 @@ export default function Dashboard() {
                   <Tooltip content={<CustomTooltip />} />
                   <Area
                     type="monotone"
-                    dataKey={objective === "SALES" ? "ROAS" : "Resultado"}
+                    dataKey={["SALES", "VALUE"].includes(goalType) ? "ROAS" : "Resultado"}
                     stroke="oklch(0.62 0.22 255)"
                     fill="url(#resultGrad)"
                     strokeWidth={2}

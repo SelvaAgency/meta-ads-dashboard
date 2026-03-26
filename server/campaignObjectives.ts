@@ -1,28 +1,41 @@
 /**
- * Campaign Objectives Module
- * Maps Meta Ads campaign objectives to relevant KPIs and metrics.
- * Ensures each account's dashboard shows only metrics that make sense for its campaigns.
+ * Campaign Performance Goals Module
+ *
+ * Maps Meta Ads optimization_goal (meta de desempenho dos adsets) to relevant KPIs.
+ * This is the correct source of truth for "what result does this campaign optimize for".
+ *
+ * KEY DISTINCTION:
+ * - campaign.objective (ex: OUTCOME_ENGAGEMENT) = broad marketing goal, set at campaign level
+ * - adset.optimization_goal (ex: OFFSITE_CONVERSIONS) = actual performance target, set at adset level
+ *
+ * The dashboard MUST use optimization_goal, not objective, to determine which KPIs to show.
+ * A campaign with objective=OUTCOME_ENGAGEMENT can have optimization_goal=OFFSITE_CONVERSIONS
+ * (e.g., optimizing for purchases even though the campaign "objective" is engagement).
+ *
+ * Meta API optimization_goal values (v19+):
+ * https://developers.facebook.com/docs/marketing-api/reference/ad-set/#fields
  */
 
-// Meta Ads API objective values (v19+)
-export type CampaignObjective =
-  | "OUTCOME_SALES"
-  | "OUTCOME_LEADS"
-  | "OUTCOME_ENGAGEMENT"
-  | "OUTCOME_AWARENESS"
-  | "OUTCOME_TRAFFIC"
-  | "OUTCOME_APP_PROMOTION"
-  | "MESSAGES"
-  | "PAGE_LIKES"
-  | "POST_ENGAGEMENT"
-  | "VIDEO_VIEWS"
-  | "REACH"
-  | "BRAND_AWARENESS"
-  | "CONVERSIONS"
-  | "LEAD_GENERATION"
-  | "LINK_CLICKS"
-  | "STORE_VISITS"
-  | string; // fallback for unknown objectives
+export type OptimizationGoal =
+  | "OFFSITE_CONVERSIONS"     // Compras no site / conversões
+  | "ONSITE_CONVERSIONS"      // Conversões no site (Meta Shop)
+  | "VALUE"                   // Valor de conversão (ROAS otimizado)
+  | "LEAD_GENERATION"         // Leads (formulário Meta)
+  | "QUALITY_LEAD"            // Leads qualificados
+  | "REPLIES"                 // Mensagens / respostas
+  | "CONVERSATIONS"           // Conversas iniciadas
+  | "LINK_CLICKS"             // Cliques no link
+  | "LANDING_PAGE_VIEWS"      // Visualizações de página de destino
+  | "REACH"                   // Alcance único
+  | "IMPRESSIONS"             // Impressões
+  | "POST_ENGAGEMENT"         // Engajamento com publicação
+  | "PAGE_LIKES"              // Curtidas na página
+  | "VIDEO_VIEWS"             // Visualizações de vídeo (2s+)
+  | "THRUPLAY"                // ThruPlay (vídeo assistido até o fim)
+  | "APP_INSTALLS"            // Instalações de app
+  | "VISIT_INSTAGRAM_PROFILE" // Visitas ao perfil do Instagram
+  | "INSTAGRAM_PROFILE_REACH" // Alcance no perfil do Instagram
+  | string;                   // fallback
 
 export type MetricKey =
   | "spend"
@@ -52,7 +65,7 @@ export interface MetricConfig {
   description: string;
   format: "currency" | "number" | "percent" | "multiplier";
   higherIsBetter: boolean;
-  primary?: boolean; // show as top KPI card
+  primary?: boolean;
 }
 
 // Full metric definitions
@@ -75,8 +88,8 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricConfig> = {
   },
   cpa: {
     key: "cpa",
-    label: "CPA",
-    description: "Custo por aquisição",
+    label: "Custo por Resultado",
+    description: "Custo médio por resultado principal",
     format: "currency",
     higherIsBetter: false,
     primary: true,
@@ -139,8 +152,8 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricConfig> = {
   },
   conversions: {
     key: "conversions",
-    label: "Conversões",
-    description: "Total de conversões",
+    label: "Resultados",
+    description: "Total de resultados principais da campanha",
     format: "number",
     higherIsBetter: true,
     primary: true,
@@ -219,70 +232,78 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricConfig> = {
   },
 };
 
-export interface ObjectiveProfile {
-  label: string;
+export interface PerformanceGoalProfile {
+  label: string;       // human-readable label for the goal
   emoji: string;
-  primaryMetrics: MetricKey[];   // shown as KPI cards
-  tableColumns: MetricKey[];     // shown in campaigns table
-  insightMetrics: MetricKey[];   // used in AI analysis
-  actionTypes: string[];         // Meta API action_type values to extract
+  resultLabel: string; // what "results" means for this goal (shown in table header)
+  primaryMetrics: MetricKey[];   // KPI cards to show in dashboard
+  tableColumns: MetricKey[];     // columns in campaigns table
+  insightMetrics: MetricKey[];   // metrics used in AI analysis
+  actionTypes: string[];         // Meta API action_type values that represent "results"
 }
 
-// Objective → metrics mapping
-export const OBJECTIVE_PROFILES: Record<string, ObjectiveProfile> = {
-  OUTCOME_SALES: {
-    label: "Vendas",
+/**
+ * optimization_goal → KPI profile mapping.
+ *
+ * This is the CORRECT way to determine dashboard metrics.
+ * Each entry maps the adset's optimization_goal to the relevant KPIs.
+ */
+export const PERFORMANCE_GOAL_PROFILES: Record<string, PerformanceGoalProfile> = {
+  // ── Conversions / Sales ──────────────────────────────────────────────────────
+  OFFSITE_CONVERSIONS: {
+    label: "Compras no site",
     emoji: "🛒",
-    primaryMetrics: ["spend", "roas", "cpa", "conversions", "conversionValue", "reach"],
-    tableColumns: ["spend", "roas", "cpa", "conversions", "conversionValue", "ctr", "impressions"],
+    resultLabel: "Compras no site",
+    primaryMetrics: ["spend", "roas", "cpa", "conversions", "conversionValue", "reach", "impressions", "ctr"],
+    tableColumns: ["spend", "roas", "cpa", "conversions", "conversionValue", "ctr", "reach", "impressions"],
     insightMetrics: ["roas", "cpa", "conversions", "conversionValue", "spend", "ctr"],
-    actionTypes: [
-      "purchase",
-      "offsite_conversion.fb_pixel_purchase",
-      "onsite_web_purchase",
-    ],
+    actionTypes: ["purchase", "offsite_conversion.fb_pixel_purchase", "onsite_web_purchase"],
   },
-  CONVERSIONS: {
-    label: "Conversões",
-    emoji: "🎯",
-    primaryMetrics: ["spend", "roas", "cpa", "conversions", "conversionValue", "reach"],
-    tableColumns: ["spend", "roas", "cpa", "conversions", "conversionValue", "ctr", "impressions"],
+  ONSITE_CONVERSIONS: {
+    label: "Conversões no site",
+    emoji: "🛒",
+    resultLabel: "Conversões no site",
+    primaryMetrics: ["spend", "roas", "cpa", "conversions", "conversionValue", "reach", "impressions", "ctr"],
+    tableColumns: ["spend", "roas", "cpa", "conversions", "conversionValue", "ctr", "reach", "impressions"],
     insightMetrics: ["roas", "cpa", "conversions", "conversionValue", "spend", "ctr"],
-    actionTypes: [
-      "purchase",
-      "offsite_conversion.fb_pixel_purchase",
-      "complete_registration",
-      "offsite_conversion.fb_pixel_complete_registration",
-    ],
+    actionTypes: ["purchase", "onsite_web_purchase", "offsite_conversion.fb_pixel_purchase"],
   },
-  OUTCOME_LEADS: {
-    label: "Geração de Leads",
-    emoji: "📋",
-    primaryMetrics: ["spend", "leads", "costPerLead", "reach", "impressions", "ctr"],
-    tableColumns: ["spend", "leads", "costPerLead", "ctr", "cpc", "reach", "impressions"],
-    insightMetrics: ["leads", "costPerLead", "ctr", "cpc", "spend", "reach"],
-    actionTypes: [
-      "lead",
-      "offsite_conversion.fb_pixel_lead",
-      "onsite_conversion.lead_grouped",
-    ],
+  VALUE: {
+    label: "Valor de conversão (ROAS)",
+    emoji: "💰",
+    resultLabel: "Compras no site",
+    primaryMetrics: ["spend", "roas", "conversionValue", "cpa", "conversions", "reach", "impressions", "ctr"],
+    tableColumns: ["spend", "roas", "conversionValue", "cpa", "conversions", "ctr", "reach", "impressions"],
+    insightMetrics: ["roas", "conversionValue", "cpa", "conversions", "spend", "ctr"],
+    actionTypes: ["purchase", "offsite_conversion.fb_pixel_purchase", "onsite_web_purchase"],
   },
+
+  // ── Leads ────────────────────────────────────────────────────────────────────
   LEAD_GENERATION: {
-    label: "Geração de Leads",
+    label: "Geração de leads",
     emoji: "📋",
-    primaryMetrics: ["spend", "leads", "costPerLead", "reach", "impressions", "ctr"],
+    resultLabel: "Leads",
+    primaryMetrics: ["spend", "leads", "costPerLead", "ctr", "reach", "impressions", "cpc", "cpm"],
     tableColumns: ["spend", "leads", "costPerLead", "ctr", "cpc", "reach", "impressions"],
     insightMetrics: ["leads", "costPerLead", "ctr", "cpc", "spend", "reach"],
-    actionTypes: [
-      "lead",
-      "offsite_conversion.fb_pixel_lead",
-      "onsite_conversion.lead_grouped",
-    ],
+    actionTypes: ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
   },
-  MESSAGES: {
+  QUALITY_LEAD: {
+    label: "Leads qualificados",
+    emoji: "📋",
+    resultLabel: "Leads qualificados",
+    primaryMetrics: ["spend", "leads", "costPerLead", "ctr", "reach", "impressions", "cpc", "cpm"],
+    tableColumns: ["spend", "leads", "costPerLead", "ctr", "cpc", "reach", "impressions"],
+    insightMetrics: ["leads", "costPerLead", "ctr", "cpc", "spend", "reach"],
+    actionTypes: ["lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"],
+  },
+
+  // ── Messages ─────────────────────────────────────────────────────────────────
+  REPLIES: {
     label: "Mensagens",
     emoji: "💬",
-    primaryMetrics: ["spend", "messages", "costPerMessage", "reach", "impressions", "ctr"],
+    resultLabel: "Mensagens iniciadas",
+    primaryMetrics: ["spend", "messages", "costPerMessage", "reach", "impressions", "ctr", "cpm", "frequency"],
     tableColumns: ["spend", "messages", "costPerMessage", "ctr", "cpm", "reach", "impressions"],
     insightMetrics: ["messages", "costPerMessage", "ctr", "cpm", "spend", "reach"],
     actionTypes: [
@@ -290,145 +311,244 @@ export const OBJECTIVE_PROFILES: Record<string, ObjectiveProfile> = {
       "onsite_conversion.messaging_first_reply",
     ],
   },
-  OUTCOME_ENGAGEMENT: {
-    label: "Engajamento",
-    emoji: "❤️",
-    primaryMetrics: ["spend", "engagement", "reach", "impressions", "frequency", "cpm"],
-    tableColumns: ["spend", "engagement", "reach", "impressions", "frequency", "cpm", "ctr"],
-    insightMetrics: ["engagement", "reach", "impressions", "frequency", "cpm", "spend"],
+  CONVERSATIONS: {
+    label: "Conversas",
+    emoji: "💬",
+    resultLabel: "Conversas iniciadas",
+    primaryMetrics: ["spend", "messages", "costPerMessage", "reach", "impressions", "ctr", "cpm", "frequency"],
+    tableColumns: ["spend", "messages", "costPerMessage", "ctr", "cpm", "reach", "impressions"],
+    insightMetrics: ["messages", "costPerMessage", "ctr", "cpm", "spend", "reach"],
     actionTypes: [
-      "post_engagement",
-      "page_engagement",
-      "like",
-      "comment",
-      "post",
+      "onsite_conversion.messaging_conversation_started_7d",
+      "onsite_conversion.messaging_first_reply",
     ],
   },
-  POST_ENGAGEMENT: {
-    label: "Engajamento",
-    emoji: "❤️",
-    primaryMetrics: ["spend", "engagement", "reach", "impressions", "frequency", "cpm"],
-    tableColumns: ["spend", "engagement", "reach", "impressions", "frequency", "cpm", "ctr"],
-    insightMetrics: ["engagement", "reach", "impressions", "frequency", "cpm", "spend"],
-    actionTypes: ["post_engagement", "page_engagement", "like", "comment"],
+
+  // ── Traffic ───────────────────────────────────────────────────────────────────
+  LINK_CLICKS: {
+    label: "Cliques no link",
+    emoji: "🔗",
+    resultLabel: "Cliques no link",
+    primaryMetrics: ["spend", "clicks", "ctr", "cpc", "reach", "impressions", "cpm", "frequency"],
+    tableColumns: ["spend", "clicks", "ctr", "cpc", "reach", "impressions", "cpm"],
+    insightMetrics: ["clicks", "ctr", "cpc", "reach", "impressions", "spend"],
+    actionTypes: ["link_click", "outbound_click"],
   },
-  PAGE_LIKES: {
-    label: "Seguidores",
-    emoji: "👥",
-    primaryMetrics: ["spend", "pageFollowers", "costPerResult", "reach", "impressions", "cpm"],
-    tableColumns: ["spend", "pageFollowers", "costPerResult", "reach", "impressions", "cpm", "frequency"],
-    insightMetrics: ["pageFollowers", "costPerResult", "reach", "impressions", "cpm", "spend"],
-    actionTypes: ["like", "page_engagement"],
+  LANDING_PAGE_VIEWS: {
+    label: "Visualizações de página",
+    emoji: "🌐",
+    resultLabel: "Visualizações de página",
+    primaryMetrics: ["spend", "clicks", "ctr", "cpc", "reach", "impressions", "cpm", "frequency"],
+    tableColumns: ["spend", "clicks", "ctr", "cpc", "reach", "impressions", "cpm"],
+    insightMetrics: ["clicks", "ctr", "cpc", "reach", "impressions", "spend"],
+    actionTypes: ["landing_page_view"],
   },
-  OUTCOME_AWARENESS: {
-    label: "Reconhecimento",
-    emoji: "📣",
-    primaryMetrics: ["spend", "reach", "impressions", "frequency", "cpm", "ctr"],
-    tableColumns: ["spend", "reach", "impressions", "frequency", "cpm", "ctr", "clicks"],
-    insightMetrics: ["reach", "impressions", "frequency", "cpm", "ctr", "spend"],
-    actionTypes: [],
-  },
+
+  // ── Awareness / Reach ─────────────────────────────────────────────────────────
   REACH: {
     label: "Alcance",
     emoji: "📣",
-    primaryMetrics: ["spend", "reach", "impressions", "frequency", "cpm", "ctr"],
+    resultLabel: "Pessoas alcançadas",
+    primaryMetrics: ["spend", "reach", "impressions", "frequency", "cpm", "ctr", "clicks", "cpc"],
     tableColumns: ["spend", "reach", "impressions", "frequency", "cpm", "ctr", "clicks"],
     insightMetrics: ["reach", "impressions", "frequency", "cpm", "ctr", "spend"],
     actionTypes: [],
   },
-  BRAND_AWARENESS: {
-    label: "Reconhecimento de Marca",
-    emoji: "✨",
-    primaryMetrics: ["spend", "reach", "impressions", "frequency", "cpm", "ctr"],
-    tableColumns: ["spend", "reach", "impressions", "frequency", "cpm", "ctr", "clicks"],
-    insightMetrics: ["reach", "impressions", "frequency", "cpm", "ctr", "spend"],
+  IMPRESSIONS: {
+    label: "Impressões",
+    emoji: "👁️",
+    resultLabel: "Impressões",
+    primaryMetrics: ["spend", "impressions", "reach", "frequency", "cpm", "ctr", "clicks", "cpc"],
+    tableColumns: ["spend", "impressions", "reach", "frequency", "cpm", "ctr", "clicks"],
+    insightMetrics: ["impressions", "reach", "frequency", "cpm", "ctr", "spend"],
     actionTypes: [],
   },
-  OUTCOME_TRAFFIC: {
-    label: "Tráfego",
-    emoji: "🌐",
-    primaryMetrics: ["spend", "clicks", "ctr", "cpc", "reach", "impressions"],
-    tableColumns: ["spend", "clicks", "ctr", "cpc", "reach", "impressions", "cpm"],
-    insightMetrics: ["clicks", "ctr", "cpc", "reach", "impressions", "spend"],
-    actionTypes: ["link_click", "outbound_click"],
+
+  // ── Engagement ────────────────────────────────────────────────────────────────
+  POST_ENGAGEMENT: {
+    label: "Engajamento",
+    emoji: "❤️",
+    resultLabel: "Engajamentos",
+    primaryMetrics: ["spend", "engagement", "costPerResult", "reach", "impressions", "frequency", "cpm", "ctr"],
+    tableColumns: ["spend", "engagement", "costPerResult", "reach", "impressions", "frequency", "cpm"],
+    insightMetrics: ["engagement", "costPerResult", "reach", "impressions", "frequency", "spend"],
+    actionTypes: ["post_engagement", "page_engagement", "like", "comment", "post"],
   },
-  LINK_CLICKS: {
-    label: "Cliques no Link",
-    emoji: "🔗",
-    primaryMetrics: ["spend", "clicks", "ctr", "cpc", "reach", "impressions"],
-    tableColumns: ["spend", "clicks", "ctr", "cpc", "reach", "impressions", "cpm"],
-    insightMetrics: ["clicks", "ctr", "cpc", "reach", "impressions", "spend"],
-    actionTypes: ["link_click", "outbound_click"],
+  PAGE_LIKES: {
+    label: "Curtidas na página",
+    emoji: "👥",
+    resultLabel: "Novos seguidores",
+    primaryMetrics: ["spend", "pageFollowers", "costPerResult", "reach", "impressions", "frequency", "cpm", "ctr"],
+    tableColumns: ["spend", "pageFollowers", "costPerResult", "reach", "impressions", "frequency", "cpm"],
+    insightMetrics: ["pageFollowers", "costPerResult", "reach", "impressions", "frequency", "spend"],
+    actionTypes: ["like", "page_engagement"],
   },
+
+  // ── Video ─────────────────────────────────────────────────────────────────────
   VIDEO_VIEWS: {
-    label: "Visualizações de Vídeo",
+    label: "Visualizações de vídeo",
     emoji: "▶️",
-    primaryMetrics: ["spend", "videoViews", "costPerResult", "reach", "impressions", "frequency"],
+    resultLabel: "Visualizações de vídeo",
+    primaryMetrics: ["spend", "videoViews", "costPerResult", "reach", "impressions", "frequency", "cpm", "ctr"],
     tableColumns: ["spend", "videoViews", "costPerResult", "reach", "impressions", "frequency", "cpm"],
     insightMetrics: ["videoViews", "costPerResult", "reach", "impressions", "frequency", "spend"],
     actionTypes: ["video_view"],
   },
-  OUTCOME_APP_PROMOTION: {
-    label: "Promoção de App",
+  THRUPLAY: {
+    label: "ThruPlay",
+    emoji: "▶️",
+    resultLabel: "ThruPlay",
+    primaryMetrics: ["spend", "videoViews", "costPerResult", "reach", "impressions", "frequency", "cpm", "ctr"],
+    tableColumns: ["spend", "videoViews", "costPerResult", "reach", "impressions", "frequency", "cpm"],
+    insightMetrics: ["videoViews", "costPerResult", "reach", "impressions", "frequency", "spend"],
+    actionTypes: ["video_thruplay_watched"],
+  },
+
+  // ── App ───────────────────────────────────────────────────────────────────────
+  APP_INSTALLS: {
+    label: "Instalações de app",
     emoji: "📱",
-    primaryMetrics: ["spend", "conversions", "cpa", "ctr", "reach", "impressions"],
+    resultLabel: "Instalações",
+    primaryMetrics: ["spend", "conversions", "cpa", "ctr", "reach", "impressions", "cpc", "cpm"],
     tableColumns: ["spend", "conversions", "cpa", "ctr", "cpc", "reach", "impressions"],
     insightMetrics: ["conversions", "cpa", "ctr", "cpc", "spend", "reach"],
     actionTypes: ["app_install", "mobile_app_install"],
   },
+
+  // ── Instagram Profile ─────────────────────────────────────────────────────────
+  VISIT_INSTAGRAM_PROFILE: {
+    label: "Visitas ao perfil",
+    emoji: "📸",
+    resultLabel: "Visitas ao perfil",
+    primaryMetrics: ["spend", "conversions", "costPerResult", "reach", "impressions", "frequency", "cpm", "ctr"],
+    tableColumns: ["spend", "conversions", "costPerResult", "reach", "impressions", "frequency", "cpm"],
+    insightMetrics: ["conversions", "costPerResult", "reach", "impressions", "frequency", "spend"],
+    actionTypes: ["instagram_profile_visit"],
+  },
+  INSTAGRAM_PROFILE_REACH: {
+    label: "Alcance no Instagram",
+    emoji: "📸",
+    resultLabel: "Alcance no Instagram",
+    primaryMetrics: ["spend", "reach", "impressions", "frequency", "cpm", "ctr", "clicks", "cpc"],
+    tableColumns: ["spend", "reach", "impressions", "frequency", "cpm", "ctr", "clicks"],
+    insightMetrics: ["reach", "impressions", "frequency", "cpm", "ctr", "spend"],
+    actionTypes: [],
+  },
 };
 
-// Default profile for unknown objectives
-export const DEFAULT_PROFILE: ObjectiveProfile = {
+// Default profile when optimization_goal is unknown
+export const DEFAULT_PERFORMANCE_PROFILE: PerformanceGoalProfile = {
   label: "Campanha",
   emoji: "📊",
-  primaryMetrics: ["spend", "impressions", "clicks", "reach", "ctr", "cpm"],
-  tableColumns: ["spend", "impressions", "clicks", "reach", "ctr", "cpm", "frequency"],
-  insightMetrics: ["spend", "impressions", "clicks", "reach", "ctr", "cpm"],
+  resultLabel: "Resultados",
+  primaryMetrics: ["spend", "conversions", "cpa", "reach", "impressions", "clicks", "ctr", "cpm"],
+  tableColumns: ["spend", "conversions", "cpa", "reach", "impressions", "clicks", "ctr", "cpm"],
+  insightMetrics: ["spend", "conversions", "cpa", "reach", "impressions", "clicks", "ctr"],
   actionTypes: [],
 };
 
 /**
- * Detect the dominant objective from a list of campaign objectives.
- * Returns the most common objective, with OUTCOME_SALES taking priority.
+ * Get the performance goal profile for a given optimization_goal.
+ * This is the CORRECT function to use for determining dashboard KPIs.
  */
-export function detectDominantObjective(objectives: string[]): string {
-  if (!objectives || objectives.length === 0) return "DEFAULT";
+export function getPerformanceGoalProfile(optimizationGoal: string): PerformanceGoalProfile {
+  return PERFORMANCE_GOAL_PROFILES[optimizationGoal] ?? DEFAULT_PERFORMANCE_PROFILE;
+}
 
-  // Priority order: sales > leads > messages > engagement > traffic > awareness
+/**
+ * Detect the dominant optimization_goal from a list of adset optimization goals.
+ * Priority order: revenue-generating goals first, then engagement, then awareness.
+ */
+export function detectDominantGoal(optimizationGoals: string[]): string {
+  if (!optimizationGoals || optimizationGoals.length === 0) return "DEFAULT";
+
   const priority = [
-    "OUTCOME_SALES", "CONVERSIONS",
-    "OUTCOME_LEADS", "LEAD_GENERATION",
-    "MESSAGES",
-    "OUTCOME_ENGAGEMENT", "POST_ENGAGEMENT", "PAGE_LIKES",
-    "OUTCOME_TRAFFIC", "LINK_CLICKS",
-    "VIDEO_VIEWS",
-    "OUTCOME_AWARENESS", "REACH", "BRAND_AWARENESS",
-    "OUTCOME_APP_PROMOTION",
+    "VALUE",                    // ROAS-optimized purchases (highest value)
+    "OFFSITE_CONVERSIONS",      // purchases
+    "ONSITE_CONVERSIONS",       // on-site purchases
+    "LEAD_GENERATION",          // leads
+    "QUALITY_LEAD",             // quality leads
+    "REPLIES",                  // messages
+    "CONVERSATIONS",            // conversations
+    "APP_INSTALLS",             // app installs
+    "LANDING_PAGE_VIEWS",       // landing page views
+    "LINK_CLICKS",              // link clicks
+    "POST_ENGAGEMENT",          // engagement
+    "PAGE_LIKES",               // page likes
+    "VIDEO_VIEWS",              // video views
+    "THRUPLAY",                 // thruplay
+    "VISIT_INSTAGRAM_PROFILE",  // instagram profile visits
+    "REACH",                    // reach
+    "IMPRESSIONS",              // impressions
+    "INSTAGRAM_PROFILE_REACH",  // instagram reach
   ];
 
   for (const p of priority) {
-    if (objectives.includes(p)) return p;
+    if (optimizationGoals.includes(p)) return p;
   }
 
   // Return most frequent
-  const counts = objectives.reduce((acc, obj) => {
-    acc[obj] = (acc[obj] ?? 0) + 1;
+  const counts = optimizationGoals.reduce((acc, g) => {
+    acc[g] = (acc[g] ?? 0) + 1;
     return acc;
   }, {} as Record<string, number>);
 
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "DEFAULT";
 }
 
-/**
- * Get the objective profile for a given objective string.
- */
-export function getObjectiveProfile(objective: string): ObjectiveProfile {
-  return OBJECTIVE_PROFILES[objective] ?? DEFAULT_PROFILE;
+// ── Legacy compatibility ──────────────────────────────────────────────────────
+// Keep these for backward compatibility with existing code that uses objective-based profiles
+
+/** @deprecated Use getPerformanceGoalProfile with optimization_goal instead */
+export function getObjectiveProfile(objective: string): PerformanceGoalProfile {
+  // Map campaign objectives to the closest optimization_goal profile
+  const objectiveToGoalMap: Record<string, string> = {
+    OUTCOME_SALES: "OFFSITE_CONVERSIONS",
+    CONVERSIONS: "OFFSITE_CONVERSIONS",
+    OUTCOME_LEADS: "LEAD_GENERATION",
+    LEAD_GENERATION: "LEAD_GENERATION",
+    MESSAGES: "REPLIES",
+    OUTCOME_ENGAGEMENT: "POST_ENGAGEMENT",
+    POST_ENGAGEMENT: "POST_ENGAGEMENT",
+    PAGE_LIKES: "PAGE_LIKES",
+    OUTCOME_AWARENESS: "REACH",
+    REACH: "REACH",
+    BRAND_AWARENESS: "REACH",
+    OUTCOME_TRAFFIC: "LINK_CLICKS",
+    LINK_CLICKS: "LINK_CLICKS",
+    VIDEO_VIEWS: "VIDEO_VIEWS",
+    OUTCOME_APP_PROMOTION: "APP_INSTALLS",
+  };
+  const mappedGoal = objectiveToGoalMap[objective] ?? objective;
+  return getPerformanceGoalProfile(mappedGoal);
+}
+
+/** @deprecated Use detectDominantGoal with optimization_goals instead */
+export function detectDominantObjective(objectives: string[]): string {
+  // Map objectives to goals and use the new function
+  const objectiveToGoalMap: Record<string, string> = {
+    OUTCOME_SALES: "OFFSITE_CONVERSIONS",
+    CONVERSIONS: "OFFSITE_CONVERSIONS",
+    OUTCOME_LEADS: "LEAD_GENERATION",
+    LEAD_GENERATION: "LEAD_GENERATION",
+    MESSAGES: "REPLIES",
+    OUTCOME_ENGAGEMENT: "POST_ENGAGEMENT",
+    POST_ENGAGEMENT: "POST_ENGAGEMENT",
+    PAGE_LIKES: "PAGE_LIKES",
+    OUTCOME_AWARENESS: "REACH",
+    REACH: "REACH",
+    BRAND_AWARENESS: "REACH",
+    OUTCOME_TRAFFIC: "LINK_CLICKS",
+    LINK_CLICKS: "LINK_CLICKS",
+    VIDEO_VIEWS: "VIDEO_VIEWS",
+    OUTCOME_APP_PROMOTION: "APP_INSTALLS",
+  };
+  const goals = objectives.map((o) => objectiveToGoalMap[o] ?? o);
+  return detectDominantGoal(goals);
 }
 
 /**
- * Extract specific action values from Meta API actions array based on objective.
+ * Extract specific action values from Meta API actions array based on action types.
  */
 export function extractActionsByObjective(
   actions: Array<{ action_type: string; value: string }> | undefined,
