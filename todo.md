@@ -64,13 +64,11 @@
 - [x] Notificação push ao owner quando saldo crítico detectado
 
 ## Correção de Cálculos de Métricas
-- [ ] Investigar discrepância: dashboard mostra ROAS 26.97x mas Meta Ads Manager mostra 5.92 e 3.26
-- [ ] Corrigir cálculo de ROAS (purchase_roas da API, não calcular manualmente)
-- [ ] Corrigir cálculo de CPA (spend / conversions, não dividir por valor incorreto)
-- [ ] Corrigir Investimento Total (soma de spend das campanhas, não multiplicar por 100)
-- [ ] Corrigir Valor de Conversão (campo action_values da API)
-- [ ] Corrigir Conversões (campo actions com action_type = purchase ou offsite_conversion)
-- [ ] Verificar se os campos da API estão sendo lidos com as unidades corretas (centavos vs reais)
+- [x] Investigar discrepância: dashboard mostra ROAS 26.97x mas Meta Ads Manager mostra 5.92 e 3.26
+- [x] Corrigir cálculo de ROAS (purchase_roas da API, não calcular manualmente)
+- [x] Corrigir cálculo de CPA (spend / conversions, usando resultado correto por meta de desempenho)
+- [x] Corrigir Valor de Conversão (filtrar apenas action_values de compra, não somar funil todo)
+- [x] Corrigir Conversões (usar optimization_goal do adset para extrair o tipo correto de resultado)
 
 ## Dashboard Adaptativo por Objetivo de Campanha
 - [x] Backend: detectar objetivo dominante da conta (OUTCOME_SALES, OUTCOME_LEADS, MESSAGES, REACH, ENGAGEMENT, etc.)
@@ -97,3 +95,15 @@
 - [x] Corrigir CPC: usar cálculo ponderado (total_spend / total_clicks) em vez de AVG simples
 - [x] Corrigir CPM: usar cálculo ponderado (total_spend / total_impressions * 1000) em vez de AVG simples
 - [x] Corrigir Frequência: usar cálculo ponderado (total_impressions / total_reach) em vez de AVG simples
+
+## Diagnóstico e Correção de Discrepâncias (Meta Ads Manager vs Dashboard)
+- [x] Diagnóstico: identificar 3 bugs de integração com Meta API
+- [x] Corrigir: buscar purchase_roas da API diretamente (não calcular manualmente)
+- [x] Corrigir: buscar resultados usando optimization_goal do adset (não só purchase)
+- [x] Corrigir: custo_por_resultado = spend / results (usando resultado correto por meta de desempenho)
+- [x] Corrigir: valor de conversão filtrado apenas para action_values de compra
+- [x] Refatorar: usar optimization_goal do adset (não objective da campanha) para determinar métricas
+- [x] Refatorar: buscar adsets com optimization_goal via API do Meta
+- [x] Salvar optimizationGoal e resultLabel na tabela campaigns (migration aplicada)
+- [x] Frontend: coluna Resultados mostra o tipo correto (Compras, Mensagens, Leads etc.)
+- [x] Frontend: subtítulo abaixo do nome da campanha mostra o tipo de resultado

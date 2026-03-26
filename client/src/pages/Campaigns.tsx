@@ -1,7 +1,7 @@
 import { MetaDashboardLayout, useSelectedAccount } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ArrowDown, ArrowUp, BarChart3, Link2, Search, Zap } from "lucide-react";
@@ -9,10 +9,19 @@ import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 
+const fmtCurrency = (v: number) =>
+  `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const fmtNum = (v: number) => {
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
+  return v.toLocaleString("pt-BR");
+};
+
 export default function Campaigns() {
   const [days, setDays] = useState("30");
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<"roas" | "spend" | "cpa" | "ctr">("roas");
+  const [sortBy, setSortBy] = useState<"roas" | "spend" | "cpa" | "ctr" | "results">("spend");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
@@ -28,8 +37,12 @@ export default function Campaigns() {
       (c.campaignName ?? "").toLowerCase().includes(search.toLowerCase())
     );
     list = list.sort((a, b) => {
-      const av = Number(a[sortBy === "roas" ? "avgRoas" : sortBy === "spend" ? "totalSpend" : sortBy === "cpa" ? "avgCpa" : "avgCtr"] ?? 0);
-      const bv = Number(b[sortBy === "roas" ? "avgRoas" : sortBy === "spend" ? "totalSpend" : sortBy === "cpa" ? "avgCpa" : "avgCtr"] ?? 0);
+      let av = 0, bv = 0;
+      if (sortBy === "roas") { av = Number(a.avgRoas ?? 0); bv = Number(b.avgRoas ?? 0); }
+      else if (sortBy === "spend") { av = Number(a.totalSpend ?? 0); bv = Number(b.totalSpend ?? 0); }
+      else if (sortBy === "cpa") { av = Number(a.avgCpa ?? 0); bv = Number(b.avgCpa ?? 0); }
+      else if (sortBy === "ctr") { av = Number(a.avgCtr ?? 0); bv = Number(b.avgCtr ?? 0); }
+      else if (sortBy === "results") { av = Number(a.totalConversions ?? 0); bv = Number(b.totalConversions ?? 0); }
       return sortDir === "desc" ? bv - av : av - bv;
     });
     return list;
@@ -41,6 +54,19 @@ export default function Campaigns() {
     DELETED: "text-red-400 border-red-400/30",
     ARCHIVED: "text-muted-foreground border-border",
   };
+
+  // Determine the dominant result label across all campaigns for the table header
+  const dominantResultLabel = useMemo(() => {
+    if (!campaigns || campaigns.length === 0) return "Resultados";
+    const labels = campaigns
+      .map((c) => (c as any).campaignResultLabel as string | undefined)
+      .filter(Boolean);
+    if (labels.length === 0) return "Resultados";
+    // Most common label
+    const counts: Record<string, number> = {};
+    for (const l of labels) { counts[l!] = (counts[l!] ?? 0) + 1; }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  }, [campaigns]);
 
   if (!accounts || accounts.length === 0) {
     return (
@@ -92,14 +118,15 @@ export default function Campaigns() {
             />
           </div>
           <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
-            <SelectTrigger className="w-32 h-8 text-xs">
+            <SelectTrigger className="w-36 h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="roas">Por ROAS</SelectItem>
               <SelectItem value="spend">Por Gasto</SelectItem>
-              <SelectItem value="cpa">Por CPA</SelectItem>
+              <SelectItem value="roas">Por ROAS</SelectItem>
+              <SelectItem value="cpa">Por Custo/Resultado</SelectItem>
               <SelectItem value="ctr">Por CTR</SelectItem>
+              <SelectItem value="results">Por Resultados</SelectItem>
             </SelectContent>
           </Select>
           <Button
@@ -120,27 +147,28 @@ export default function Campaigns() {
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left px-4 py-3 text-muted-foreground font-medium">Campanha</th>
-                    <th className="text-right px-4 py-3 text-muted-foreground font-medium">Status</th>
-                    <th className="text-right px-4 py-3 text-muted-foreground font-medium">Gasto</th>
-                    <th className="text-right px-4 py-3 text-muted-foreground font-medium">ROAS</th>
-                    <th className="text-right px-4 py-3 text-muted-foreground font-medium">CPA</th>
-                    <th className="text-right px-4 py-3 text-muted-foreground font-medium">CTR</th>
-                    <th className="text-right px-4 py-3 text-muted-foreground font-medium">Conversões</th>
-                    <th className="text-right px-4 py-3 text-muted-foreground font-medium">Impressões</th>
+                    <th className="text-right px-3 py-3 text-muted-foreground font-medium">Status</th>
+                    <th className="text-right px-3 py-3 text-muted-foreground font-medium">Gasto</th>
+                    <th className="text-right px-3 py-3 text-muted-foreground font-medium">{dominantResultLabel}</th>
+                    <th className="text-right px-3 py-3 text-muted-foreground font-medium">Custo/Resultado</th>
+                    <th className="text-right px-3 py-3 text-muted-foreground font-medium">ROAS</th>
+                    <th className="text-right px-3 py-3 text-muted-foreground font-medium">CTR</th>
+                    <th className="text-right px-3 py-3 text-muted-foreground font-medium">Alcance</th>
+                    <th className="text-right px-3 py-3 text-muted-foreground font-medium">Impressões</th>
                   </tr>
                 </thead>
                 <tbody>
                   {isLoading ? (
                     [...Array(5)].map((_, i) => (
                       <tr key={i} className="border-b border-border/50">
-                        <td colSpan={8} className="px-4 py-3">
+                        <td colSpan={9} className="px-4 py-3">
                           <div className="h-4 bg-muted rounded animate-pulse" />
                         </td>
                       </tr>
                     ))
                   ) : filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="text-center py-12 text-muted-foreground">
+                      <td colSpan={9} className="text-center py-12 text-muted-foreground">
                         <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-30" />
                         <p>Nenhuma campanha encontrada. Sincronize sua conta.</p>
                       </td>
@@ -148,34 +176,52 @@ export default function Campaigns() {
                   ) : (
                     filtered.map((c) => {
                       const roas = Number(c.avgRoas ?? 0);
-                      const roasColor = roas >= 3 ? "text-emerald-400" : roas >= 1.5 ? "text-yellow-400" : "text-red-400";
+                      const spend = Number(c.totalSpend ?? 0);
+                      const results = Math.round(Number(c.totalConversions ?? 0));
+                      const cpa = Number(c.avgCpa ?? 0);
+                      const ctr = Number(c.avgCtr ?? 0);
+                      const reach = Number((c as any).totalReach ?? 0);
+                      const impressions = Number(c.totalImpressions ?? 0);
+                      const resultLabel = (c as any).campaignResultLabel as string | undefined;
+
+                      const roasColor = roas >= 3 ? "text-emerald-400" : roas >= 1.5 ? "text-yellow-400" : roas > 0 ? "text-red-400" : "text-muted-foreground";
+                      const cpaColor = cpa === 0 ? "text-muted-foreground" : cpa < 50 ? "text-emerald-400" : cpa < 150 ? "text-yellow-400" : "text-red-400";
+
                       return (
                         <tr key={c.campaignId} className="border-b border-border/50 hover:bg-accent/30 transition-colors">
                           <td className="px-4 py-3">
-                            <p className="font-medium text-foreground truncate max-w-[200px]">{c.campaignName}</p>
+                            <p className="font-medium text-foreground truncate max-w-[180px]" title={c.campaignName ?? ""}>
+                              {c.campaignName}
+                            </p>
+                            {resultLabel && (
+                              <p className="text-[10px] text-muted-foreground mt-0.5">{resultLabel}</p>
+                            )}
                           </td>
-                          <td className="px-4 py-3 text-right">
-                            <Badge variant="outline" className={`text-xs ${statusColor[c.campaignStatus ?? "ACTIVE"]}`}>
-                              {c.campaignStatus}
+                          <td className="px-3 py-3 text-right">
+                            <Badge variant="outline" className={`text-[10px] ${statusColor[c.campaignStatus ?? "ACTIVE"]}`}>
+                              {c.campaignStatus === "ACTIVE" ? "Ativo" : c.campaignStatus === "PAUSED" ? "Pausado" : c.campaignStatus}
                             </Badge>
                           </td>
-                          <td className="px-4 py-3 text-right text-foreground font-medium">
-                            R$ {Number(c.totalSpend ?? 0).toFixed(2)}
+                          <td className="px-3 py-3 text-right text-foreground font-medium">
+                            {fmtCurrency(spend)}
                           </td>
-                          <td className={`px-4 py-3 text-right font-bold ${roasColor}`}>
-                            {roas.toFixed(2)}x
+                          <td className="px-3 py-3 text-right text-foreground font-semibold">
+                            {results > 0 ? fmtNum(results) : <span className="text-muted-foreground">—</span>}
                           </td>
-                          <td className="px-4 py-3 text-right text-foreground">
-                            R$ {Number(c.avgCpa ?? 0).toFixed(2)}
+                          <td className={`px-3 py-3 text-right font-medium ${cpaColor}`}>
+                            {cpa > 0 ? fmtCurrency(cpa) : <span className="text-muted-foreground">—</span>}
                           </td>
-                          <td className="px-4 py-3 text-right text-foreground">
-                            {Number(c.avgCtr ?? 0).toFixed(2)}%
+                          <td className={`px-3 py-3 text-right font-bold ${roasColor}`}>
+                            {roas > 0 ? `${roas.toFixed(2)}x` : <span className="text-muted-foreground">—</span>}
                           </td>
-                          <td className="px-4 py-3 text-right text-foreground">
-                            {Math.round(Number(c.totalConversions ?? 0))}
+                          <td className="px-3 py-3 text-right text-foreground">
+                            {ctr.toFixed(2)}%
                           </td>
-                          <td className="px-4 py-3 text-right text-muted-foreground">
-                            {Number(c.totalImpressions ?? 0).toLocaleString("pt-BR")}
+                          <td className="px-3 py-3 text-right text-muted-foreground">
+                            {reach > 0 ? fmtNum(reach) : <span>—</span>}
+                          </td>
+                          <td className="px-3 py-3 text-right text-muted-foreground">
+                            {fmtNum(impressions)}
                           </td>
                         </tr>
                       );
@@ -186,6 +232,14 @@ export default function Campaigns() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Legend */}
+        {campaigns && campaigns.length > 0 && (
+          <p className="text-[10px] text-muted-foreground">
+            * "Resultados" e "Custo/Resultado" refletem a meta de desempenho real de cada campanha (ex: Compras no site, Mensagens, Leads).
+            Sincronize para atualizar os dados.
+          </p>
+        )}
       </div>
     </MetaDashboardLayout>
   );

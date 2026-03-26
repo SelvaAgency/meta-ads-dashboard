@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `campaigns` ADD `optimizationGoal` varchar(64); ALTER TABLE `campaigns` ADD `resultLabel` varchar(128);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 47k5kQkoq9oHa8j.root --database YKCqwPqSgxUTxNQRFe3oLu --execute ALTER TABLE `campaigns` ADD `optimizationGoal` varchar(64); ALTER TABLE `campaigns` ADD `resultLabel` varchar(128);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 441
+}

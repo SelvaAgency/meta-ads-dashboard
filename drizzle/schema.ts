@@ -54,6 +54,12 @@ export const campaigns = mysqlTable("campaigns", {
   name: varchar("name", { length: 255 }).notNull(),
   status: mysqlEnum("status", ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED"]).default("ACTIVE"),
   objective: varchar("objective", { length: 64 }),
+  // optimization_goal comes from the adsets (performance_goal) — more specific than objective
+  // e.g. OFFSITE_CONVERSIONS, LEAD_GENERATION, REPLIES, LINK_CLICKS, etc.
+  optimizationGoal: varchar("optimizationGoal", { length: 64 }),
+  // Human-readable label for the result type shown in dashboard
+  // e.g. "Compras no site", "Mensagens", "Leads"
+  resultLabel: varchar("resultLabel", { length: 128 }),
   dailyBudget: decimal("dailyBudget", { precision: 12, scale: 2 }),
   lifetimeBudget: decimal("lifetimeBudget", { precision: 12, scale: 2 }),
   startTime: timestamp("startTime"),

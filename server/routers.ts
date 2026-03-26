@@ -37,9 +37,14 @@ import {
   getAdAccounts,
   getAccountBilling,
   getCampaigns,
+  getAdSets,
+  buildCampaignGoalMap,
   getCampaignInsights,
   extractConversions,
   extractConversionValue,
+  extractPurchaseRoas,
+  extractResultsByGoal,
+  getResultLabel,
   calculateRoas,
   calculateCpa,
 } from "./metaAdsService";
@@ -188,15 +193,25 @@ export const appRouter = router({
 
         const { startDate, endDate } = getDateRange(input.days);
 
-        // Fetch and upsert campaigns
+        // Fetch campaigns and adsets together to get performance_goal
         const metaCampaigns = await getCampaigns(account.accountId, account.accessToken);
+
+        // Fetch adsets to determine performance_goal per campaign
+        const adsets = await getAdSets(account.accountId, account.accessToken);
+        const campaignGoalMap = buildCampaignGoalMap(adsets);
+
+        // Upsert campaigns with optimization_goal and result_label
         for (const mc of metaCampaigns) {
+          const optimizationGoal = campaignGoalMap.get(mc.id);
+          const resultLabel = optimizationGoal ? getResultLabel(optimizationGoal) : undefined;
           await upsertCampaign({
             accountId: account.id,
             metaCampaignId: mc.id,
             name: mc.name,
             status: mc.status as any,
             objective: mc.objective,
+            optimizationGoal: optimizationGoal,
+            resultLabel: resultLabel,
             dailyBudget: mc.daily_budget ? mc.daily_budget : undefined,
             lifetimeBudget: mc.lifetime_budget ? mc.lifetime_budget : undefined,
             startTime: mc.start_time ? new Date(mc.start_time) : undefined,
@@ -204,7 +219,7 @@ export const appRouter = router({
           });
         }
 
-        // Fetch insights
+        // Fetch insights with purchase_roas and all action fields
         const insights = await getCampaignInsights(account.accountId, account.accessToken, startDate, endDate);
 
         // Get local campaigns to map metaCampaignId -> id
@@ -216,9 +231,21 @@ export const appRouter = router({
           if (!localId) continue;
 
           const spend = parseFloat(insight.spend ?? "0");
-          const conversions = extractConversions(insight.actions);
+
+          // Use performance_goal (from adsets) to extract the correct "results" count
+          const optimizationGoal = campaignGoalMap.get(insight.campaign_id) ?? "";
+          const conversions = optimizationGoal
+            ? extractResultsByGoal(insight.actions, optimizationGoal)
+            : extractConversions(insight.actions);
+
+          // Conversion value: only purchase-related action_values
           const conversionValue = extractConversionValue(insight.action_values);
-          const roas = calculateRoas(spend, conversionValue);
+
+          // ROAS: use purchase_roas from Meta API directly (authoritative)
+          // Falls back to manual calculation only if not available
+          const roas = extractPurchaseRoas(insight.purchase_roas, spend, conversionValue);
+
+          // CPA = spend / results (using the correct result type for the goal)
           const cpa = calculateCpa(spend, conversions);
 
           await upsertCampaignMetrics({

@@ -145,6 +145,8 @@ export async function upsertCampaign(data: InsertCampaign) {
         name: data.name,
         status: data.status,
         objective: data.objective,
+        optimizationGoal: data.optimizationGoal,
+        resultLabel: data.resultLabel,
         dailyBudget: data.dailyBudget,
         lifetimeBudget: data.lifetimeBudget,
         stopTime: data.stopTime,
@@ -216,6 +218,8 @@ export async function getCampaignPerformanceSummary(accountId: number, startDate
       campaignName: campaigns.name,
       campaignStatus: campaigns.status,
       campaignObjective: campaigns.objective,
+      campaignOptimizationGoal: campaigns.optimizationGoal,
+      campaignResultLabel: campaigns.resultLabel,
       totalSpend: sql<number>`SUM(${campaignMetrics.spend})`,
       totalImpressions: sql<number>`SUM(${campaignMetrics.impressions})`,
       totalClicks: sql<number>`SUM(${campaignMetrics.clicks})`,
@@ -239,7 +243,7 @@ export async function getCampaignPerformanceSummary(accountId: number, startDate
         lte(campaignMetrics.date, endDate)
       )
     )
-    .groupBy(campaignMetrics.campaignId, campaigns.name, campaigns.status, campaigns.objective)
+    .groupBy(campaignMetrics.campaignId, campaigns.name, campaigns.status, campaigns.objective, campaigns.optimizationGoal, campaigns.resultLabel)
     .orderBy(desc(sql`SUM(${campaignMetrics.spend})`));
 }
 
