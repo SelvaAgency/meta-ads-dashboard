@@ -13,14 +13,18 @@ import {
   deleteScheduledReport,
   dismissSuggestion,
   getAccountMetricsSummary,
-  getAnomaliesByAccountId,
   getAlertsByUserId,
   getCampaignPerformanceSummary,
   getCampaignsByAccountId,
   getMetaAdAccountById,
   getMetaAdAccountsByUserId,
   getScheduledReportsByUserId,
+  getAnomaliesByAccountId,
   getSuggestionsByAccountId,
+  getSuggestionsHistory,
+  updateSuggestionStatus,
+  saveSuggestionMonitorResult,
+  getSuggestionsUnderMonitoring,
   getUnreadAlertsCount,
   getUnreadAnomaliesCount,
   markAlertRead,
@@ -489,16 +493,25 @@ export const appRouter = router({
         if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
         return getSuggestionsByAccountId(input.accountId);
       }),
-
+    history: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        return getSuggestionsHistory(input.accountId);
+      }),
     generate: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const account = await getMetaAdAccountById(input.accountId);
         if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-
         const { startDate, endDate } = getDateRange(30);
         const campaignData = await getCampaignPerformanceSummary(input.accountId, startDate, endDate);
-
+        const historyRaw = await getSuggestionsHistory(input.accountId);
+        const rejectedFeedback = historyRaw
+          .filter((s) => s.status === "rejected" && s.rejectionReason)
+          .slice(0, 10)
+          .map((s) => ({ title: s.title, rejectionReason: s.rejectionReason }));
         const mapped = campaignData.map((c) => ({
           campaignId: c.campaignId,
           campaignName: c.campaignName ?? "Campanha",
@@ -511,23 +524,36 @@ export const appRouter = router({
           avgRoas: Number(c.avgRoas ?? 0),
           avgCpa: Number(c.avgCpa ?? 0),
           avgCtr: Number(c.avgCtr ?? 0),
+          optimizationGoal: c.campaignOptimizationGoal ?? undefined,
+          resultLabel: c.campaignResultLabel ?? undefined,
         }));
-
-        await generateAiSuggestions(input.accountId, ctx.user.id, mapped);
+        const result = await generateAiSuggestions(input.accountId, ctx.user.id, mapped, rejectedFeedback);
+        return result;
+      }),
+    updateStatus: protectedProcedure
+      .input(z.object({
+        suggestionId: z.number(),
+        status: z.enum(["applied", "rejected", "pending"]),
+        rejectionReason: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const metricsSnapshot = input.status === "applied" ? { snapshotAt: Date.now() } : undefined;
+        await updateSuggestionStatus(input.suggestionId, input.status, {
+          rejectionReason: input.rejectionReason,
+          metricsSnapshot,
+        });
         return { success: true };
       }),
-
     dismiss: protectedProcedure
       .input(z.object({ suggestionId: z.number() }))
       .mutation(async ({ input }) => {
-        await dismissSuggestion(input.suggestionId);
+        await updateSuggestionStatus(input.suggestionId, "rejected");
         return { success: true };
       }),
-
     markApplied: protectedProcedure
       .input(z.object({ suggestionId: z.number() }))
       .mutation(async ({ input }) => {
-        await applySuggestion(input.suggestionId);
+        await updateSuggestionStatus(input.suggestionId, "applied");
         return { success: true };
       }),
   }),

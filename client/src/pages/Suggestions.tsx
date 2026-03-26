@@ -2,25 +2,30 @@ import { MetaDashboardLayout, useSelectedAccount } from "@/components/MetaDashbo
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Brain,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Clock,
   DollarSign,
+  History,
   Lightbulb,
   Link2,
   RefreshCw,
   Target,
   Users,
-  X,
+  XCircle,
   Zap,
+  Eye,
+  AlertCircle,
+  RotateCcw,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
-import { Streamdown } from "streamdown";
 
 const categoryConfig: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; color: string }> = {
   BUDGET: { label: "Orçamento", icon: DollarSign, color: "text-blue-400" },
@@ -38,9 +43,300 @@ const priorityConfig: Record<string, { label: string; color: string }> = {
   LOW: { label: "Baixa", color: "text-blue-400 border-blue-400/30" },
 };
 
+function formatDate(d: Date | string | null | undefined) {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function daysLeft(d: Date | string | null | undefined) {
+  if (!d) return null;
+  const diff = Math.ceil((new Date(d).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  return diff > 0 ? diff : 0;
+}
+
+// ─── Rejection Dialog (inline) ───────────────────────────────────────────────
+function RejectionForm({
+  onConfirm,
+  onCancel,
+  isPending,
+}: {
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  const [reason, setReason] = useState("");
+  return (
+    <div className="mt-3 p-3 rounded-lg bg-destructive/5 border border-destructive/20 space-y-2">
+      <p className="text-xs font-medium text-destructive">Marcar como Não Aplicado</p>
+      <Textarea
+        placeholder="Motivo (opcional) — ex: já testamos isso, não se aplica ao nosso público..."
+        className="text-xs min-h-[60px] resize-none"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+      />
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant="destructive"
+          className="h-7 text-xs gap-1"
+          onClick={() => onConfirm(reason)}
+          disabled={isPending}
+        >
+          <XCircle className="w-3 h-3" />
+          Confirmar
+        </Button>
+        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onCancel}>
+          Cancelar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Suggestion Card (Pending) ────────────────────────────────────────────────
+function PendingSuggestionCard({ s, onStatusChange }: {
+  s: any;
+  onStatusChange: (id: number, status: "applied" | "rejected", reason?: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [showRejectForm, setShowRejectForm] = useState(false);
+  const [isPending, setIsPending] = useState(false);
+
+  const cat = categoryConfig[s.category] ?? categoryConfig.GENERAL;
+  const pri = priorityConfig[s.priority] ?? priorityConfig.LOW;
+  const CatIcon = cat.icon;
+  const actionItems = Array.isArray(s.actionItems) ? s.actionItems as string[] : [];
+
+  const handleApply = () => {
+    setIsPending(true);
+    onStatusChange(s.id, "applied");
+  };
+
+  const handleReject = (reason: string) => {
+    setIsPending(true);
+    onStatusChange(s.id, "rejected", reason);
+  };
+
+  return (
+    <Card className="border-border hover:border-primary/30 transition-all">
+      <CardContent className="p-4">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center flex-shrink-0">
+            <CatIcon className={`w-4 h-4 ${cat.color}`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <p className="text-sm font-semibold text-foreground">{s.title}</p>
+              <Badge variant="outline" className={`text-xs ${pri.color}`}>
+                {pri.label} prioridade
+              </Badge>
+              <Badge variant="outline" className={`text-xs ${cat.color}`}>
+                {cat.label}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
+
+            {expanded && (
+              <div className="mt-3 space-y-3">
+                {s.expectedImpact && (
+                  <div className="p-3 rounded-lg bg-emerald-400/5 border border-emerald-400/20">
+                    <p className="text-xs font-medium text-emerald-400 mb-1">Impacto Esperado</p>
+                    <p className="text-xs text-muted-foreground">{s.expectedImpact}</p>
+                  </div>
+                )}
+                {actionItems.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-foreground mb-2">Ações para Aplicar Manualmente</p>
+                    <ul className="space-y-1.5">
+                      {actionItems.map((action: string, i: number) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                          <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
+                            {i + 1}
+                          </span>
+                          {action}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 text-xs text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10 hover:border-emerald-400/60"
+                onClick={handleApply}
+                disabled={isPending}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Aplicado
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 text-xs text-red-400 border-red-400/30 hover:bg-red-400/10 hover:border-red-400/60"
+                onClick={() => setShowRejectForm(!showRejectForm)}
+                disabled={isPending}
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                Não Aplicado
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-xs text-muted-foreground ml-auto"
+                onClick={() => setExpanded(!expanded)}
+              >
+                {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                {expanded ? "Menos" : "Ver ações"}
+              </Button>
+            </div>
+
+            {showRejectForm && (
+              <RejectionForm
+                onConfirm={handleReject}
+                onCancel={() => setShowRejectForm(false)}
+                isPending={isPending}
+              />
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── History Card ─────────────────────────────────────────────────────────────
+function HistoryCard({ s, onStatusChange }: {
+  s: any;
+  onStatusChange: (id: number, status: "applied" | "rejected" | "pending", reason?: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const isApplied = s.status === "applied";
+  const isMonitoring = isApplied && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult;
+  const cat = categoryConfig[s.category] ?? categoryConfig.GENERAL;
+  const CatIcon = cat.icon;
+  const actionItems = Array.isArray(s.actionItems) ? s.actionItems as string[] : [];
+
+  return (
+    <Card className={`border-border transition-all ${isApplied ? "border-emerald-400/20" : "border-red-400/20 opacity-80"}`}>
+      <CardContent className="p-4">
+        <div className="flex items-start gap-3">
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${isApplied ? "bg-emerald-400/10" : "bg-red-400/10"}`}>
+            {isApplied ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            ) : (
+              <XCircle className="w-4 h-4 text-red-400" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <p className="text-sm font-semibold text-foreground">{s.title}</p>
+              <Badge variant="outline" className={`text-xs ${isApplied ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                {isApplied ? "Aplicado" : "Não Aplicado"}
+              </Badge>
+              <Badge variant="outline" className={`text-xs ${cat.color}`}>
+                {cat.label}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{s.description}</p>
+
+            {/* Monitoring badge */}
+            {isMonitoring && (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-blue-400">
+                <Eye className="w-3 h-3" />
+                Monitorando por {daysLeft(s.monitorUntil)} dias ainda
+              </div>
+            )}
+
+            {/* Monitor result */}
+            {s.monitorResult && (
+              <div className="mt-2 p-2 rounded-lg bg-blue-400/5 border border-blue-400/20">
+                <p className="text-xs font-medium text-blue-400 mb-1">Resultado do Monitoramento (7 dias)</p>
+                <p className="text-xs text-muted-foreground">{s.monitorResult}</p>
+              </div>
+            )}
+
+            {/* Rejection reason */}
+            {!isApplied && s.rejectionReason && (
+              <div className="mt-2 p-2 rounded-lg bg-muted/50">
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Motivo: </span>
+                  {s.rejectionReason}
+                </p>
+              </div>
+            )}
+
+            {expanded && actionItems.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs font-medium text-foreground mb-2">Ações</p>
+                <ul className="space-y-1">
+                  {actionItems.map((action: string, i: number) => (
+                    <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                      <span className="text-primary mt-0.5">•</span>
+                      {action}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <span className="text-xs text-muted-foreground">
+                <Clock className="w-3 h-3 inline mr-1" />
+                {formatDate(s.generatedAt)}
+                {s.expiresAt && ` · expira ${formatDate(s.expiresAt)}`}
+              </span>
+              {/* Allow switching status within 30 days */}
+              <div className="ml-auto flex gap-1.5">
+                {!isApplied && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 text-xs gap-1 text-emerald-400 hover:bg-emerald-400/10"
+                    onClick={() => onStatusChange(s.id, "applied")}
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Marcar Aplicado
+                  </Button>
+                )}
+                {isApplied && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 text-xs gap-1 text-red-400 hover:bg-red-400/10"
+                    onClick={() => onStatusChange(s.id, "rejected")}
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Marcar Não Aplicado
+                  </Button>
+                )}
+                {actionItems.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 text-xs text-muted-foreground"
+                    onClick={() => setExpanded(!expanded)}
+                  >
+                    {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Suggestions() {
   const [, navigate] = useLocation();
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<"pending" | "history">("pending");
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
 
@@ -49,24 +345,44 @@ export default function Suggestions() {
     { enabled: !!selectedAccountId }
   );
 
+  const { data: history, isLoading: isLoadingHistory } = trpc.suggestions.history.useQuery(
+    { accountId: selectedAccountId! },
+    { enabled: !!selectedAccountId && activeTab === "history" }
+  );
+
   const generate = trpc.suggestions.generate.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
       utils.suggestions.list.invalidate();
-      toast.success("Novas sugestões geradas com IA!");
+      utils.suggestions.history.invalidate();
+      if (data.skippedReason) {
+        toast.warning(data.skippedReason, { duration: 6000 });
+      } else if (data.generated === 0) {
+        toast.info("Nenhuma sugestão nova foi gerada. Os dados podem não ter variações significativas no momento.");
+      } else {
+        toast.success(`${data.generated} sugestão(ões) gerada(s) com base nos dados reais das campanhas!`);
+      }
     },
-    onError: () => toast.error("Erro ao gerar sugestões. Verifique se há dados de campanha."),
+    onError: () => toast.error("Erro ao analisar campanhas. Verifique se há dados sincronizados."),
   });
 
-  const dismiss = trpc.suggestions.dismiss.useMutation({
-    onSuccess: () => utils.suggestions.list.invalidate(),
+  const updateStatus = trpc.suggestions.updateStatus.useMutation({
+    onSuccess: (_, vars) => {
+      utils.suggestions.list.invalidate();
+      utils.suggestions.history.invalidate();
+      if (vars.status === "applied") {
+        toast.success("Marcado como Aplicado. Monitoraremos os resultados por 7 dias.");
+      } else if (vars.status === "rejected") {
+        toast.success("Marcado como Não Aplicado. O feedback será usado para melhorar futuras sugestões.");
+      } else {
+        toast.success("Status atualizado.");
+      }
+    },
+    onError: () => toast.error("Erro ao atualizar status."),
   });
 
-  const markApplied = trpc.suggestions.markApplied.useMutation({
-    onSuccess: () => {
-      utils.suggestions.list.invalidate();
-      toast.success("Sugestão marcada como aplicada!");
-    },
-  });
+  const handleStatusChange = (id: number, status: "applied" | "rejected" | "pending", reason?: string) => {
+    updateStatus.mutate({ suggestionId: id, status, rejectionReason: reason });
+  };
 
   if (!accounts || accounts.length === 0) {
     return (
@@ -85,17 +401,19 @@ export default function Suggestions() {
     );
   }
 
-  const active = suggestions?.filter((s) => !s.isDismissed && !s.isApplied) ?? [];
-  const applied = suggestions?.filter((s) => s.isApplied) ?? [];
+  const pending = suggestions ?? [];
+  const hist = history ?? [];
+  const monitoring = hist.filter((s) => s.status === "applied" && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult);
 
   return (
     <MetaDashboardLayout title="Sugestões IA">
       <div className="space-y-5">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-foreground">Sugestões de Melhoria</h1>
             <p className="text-sm text-muted-foreground">
-              Recomendações geradas por IA com base nos dados das suas campanhas
+              Análise real das campanhas — sugestões geradas apenas quando há dados suficientes
             </p>
           </div>
           <Button
@@ -105,16 +423,17 @@ export default function Suggestions() {
             disabled={generate.isPending || !selectedAccountId}
           >
             <Brain className={`w-3.5 h-3.5 ${generate.isPending ? "animate-pulse" : ""}`} />
-            {generate.isPending ? "Gerando..." : "Gerar com IA"}
+            {generate.isPending ? "Analisando..." : "Analisar Conta"}
           </Button>
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           {[
-            { label: "Pendentes", value: active.length, color: "text-primary" },
-            { label: "Alta Prioridade", value: active.filter((s) => s.priority === "HIGH").length, color: "text-red-400" },
-            { label: "Aplicadas", value: applied.length, color: "text-emerald-400" },
+            { label: "Pendentes", value: pending.length, color: "text-primary" },
+            { label: "Alta Prioridade", value: pending.filter((s) => s.priority === "HIGH").length, color: "text-red-400" },
+            { label: "Em Monitoramento", value: monitoring.length, color: "text-blue-400" },
+            { label: "Histórico (30d)", value: hist.length, color: "text-muted-foreground" },
           ].map((stat) => (
             <Card key={stat.label}>
               <CardContent className="p-4">
@@ -125,141 +444,109 @@ export default function Suggestions() {
           ))}
         </div>
 
-        {/* Suggestions list */}
-        {isLoading ? (
-          <div className="space-y-3">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-24 bg-muted rounded-xl animate-pulse" />
-            ))}
-          </div>
-        ) : active.length === 0 ? (
-          <Card>
-            <CardContent className="py-16 text-center">
-              <Brain className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-              <p className="text-sm font-medium text-foreground mb-2">Nenhuma sugestão pendente</p>
-              <p className="text-xs text-muted-foreground mb-6 max-w-sm mx-auto">
-                Clique em "Gerar com IA" para analisar suas campanhas e receber recomendações personalizadas.
+        {/* Monitoring alert */}
+        {monitoring.length > 0 && (
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-400/5 border border-blue-400/20">
+            <Eye className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-blue-400">
+                {monitoring.length} sugestão(ões) em monitoramento
               </p>
-              <Button
-                size="sm"
-                onClick={() => selectedAccountId && generate.mutate({ accountId: selectedAccountId })}
-                disabled={generate.isPending}
-                className="gap-2"
-              >
-                <Brain className="w-3.5 h-3.5" />
-                Gerar Sugestões
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {active.map((s) => {
-              const cat = categoryConfig[s.category] ?? categoryConfig.GENERAL;
-              const pri = priorityConfig[s.priority] ?? priorityConfig.LOW;
-              const CatIcon = cat.icon;
-              const isOpen = expanded === s.id;
-              const actionItems = Array.isArray(s.actionItems) ? s.actionItems as string[] : [];
-
-              return (
-                <Card key={s.id} className="border-border hover:border-primary/30 transition-all">
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center flex-shrink-0">
-                        <CatIcon className={`w-4 h-4 ${cat.color}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <p className="text-sm font-semibold text-foreground">{s.title}</p>
-                          <Badge variant="outline" className={`text-xs ${pri.color}`}>
-                            {pri.label} prioridade
-                          </Badge>
-                          <Badge variant="outline" className={`text-xs ${cat.color}`}>
-                            {cat.label}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
-
-                        {isOpen && (
-                          <div className="mt-3 space-y-3">
-                            {s.expectedImpact && (
-                              <div className="p-3 rounded-lg bg-emerald-400/5 border border-emerald-400/20">
-                                <p className="text-xs font-medium text-emerald-400 mb-1">Impacto Esperado</p>
-                                <p className="text-xs text-muted-foreground">{s.expectedImpact}</p>
-                              </div>
-                            )}
-                            {actionItems.length > 0 && (
-                              <div>
-                                <p className="text-xs font-medium text-foreground mb-2">Ações Recomendadas</p>
-                                <ul className="space-y-1.5">
-                                  {actionItems.map((action, i) => (
-                                    <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
-                                      <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
-                                        {i + 1}
-                                      </span>
-                                      {action}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-muted-foreground"
-                          onClick={() => setExpanded(isOpen ? null : s.id)}
-                        >
-                          {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 gap-1 text-xs text-emerald-400 hover:text-emerald-400 hover:bg-emerald-400/10"
-                          onClick={() => markApplied.mutate({ suggestionId: s.id })}
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Aplicar
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                          onClick={() => dismiss.mutate({ suggestionId: s.id })}
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Estamos acompanhando os resultados das modificações aplicadas. Você receberá um relatório após 7 dias.
+              </p>
+            </div>
           </div>
         )}
 
-        {/* Applied */}
-        {applied.length > 0 && (
-          <div>
-            <h2 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              Aplicadas ({applied.length})
-            </h2>
-            <div className="space-y-2">
-              {applied.slice(0, 5).map((s) => (
-                <Card key={s.id} className="opacity-60">
-                  <CardContent className="p-3">
-                    <div className="flex items-center gap-3">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                      <p className="text-xs font-medium text-foreground truncate">{s.title}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
+        {/* Tabs */}
+        <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+          <button
+            className={`px-4 py-1.5 text-sm rounded-md transition-all font-medium ${activeTab === "pending" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            onClick={() => setActiveTab("pending")}
+          >
+            Pendentes ({pending.length})
+          </button>
+          <button
+            className={`px-4 py-1.5 text-sm rounded-md transition-all font-medium flex items-center gap-1.5 ${activeTab === "history" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            onClick={() => setActiveTab("history")}
+          >
+            <History className="w-3.5 h-3.5" />
+            Histórico 30 dias
+          </button>
+        </div>
+
+        {/* Pending Tab */}
+        {activeTab === "pending" && (
+          <>
+            {isLoading ? (
+              <div className="space-y-3">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="h-24 bg-muted rounded-xl animate-pulse" />
+                ))}
+              </div>
+            ) : pending.length === 0 ? (
+              <Card>
+                <CardContent className="py-16 text-center">
+                  <Brain className="w-12 h-12 text-primary/30 mx-auto mb-4" />
+                  <p className="text-sm font-medium text-foreground mb-2">Nenhuma sugestão pendente</p>
+                  <p className="text-xs text-muted-foreground mb-6 max-w-sm mx-auto">
+                    Clique em "Analisar Conta" para que a IA examine os dados reais das suas campanhas e gere recomendações baseadas em evidências.
+                  </p>
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50 text-left max-w-sm mx-auto mb-6">
+                    <AlertCircle className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-muted-foreground">
+                      A análise só gera sugestões quando há dados reais de performance. Se a conta não tiver gasto registrado, a IA avisará que não há dados suficientes.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => selectedAccountId && generate.mutate({ accountId: selectedAccountId })}
+                    disabled={generate.isPending}
+                    className="gap-2"
+                  >
+                    <Brain className="w-3.5 h-3.5" />
+                    {generate.isPending ? "Analisando..." : "Analisar Conta"}
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {pending.map((s) => (
+                  <PendingSuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* History Tab */}
+        {activeTab === "history" && (
+          <>
+            {isLoadingHistory ? (
+              <div className="space-y-3">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="h-20 bg-muted rounded-xl animate-pulse" />
+                ))}
+              </div>
+            ) : hist.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <History className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-foreground mb-1">Nenhum histórico ainda</p>
+                  <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                    Sugestões marcadas como Aplicado ou Não Aplicado aparecerão aqui por 30 dias.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {hist.map((s) => (
+                  <HistoryCard key={s.id} s={s} onStatusChange={handleStatusChange} />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </MetaDashboardLayout>

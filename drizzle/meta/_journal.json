@@ -22,6 +22,13 @@
       "when": 1774539755158,
       "tag": "0002_aromatic_whizzer",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1774542865388,
+      "tag": "0003_charming_giant_girl",
+      "breakpoints": true
     }
   ]
 }

@@ -154,40 +154,76 @@ export async function generateAiSuggestions(
     avgRoas: number;
     avgCpa: number;
     avgCtr: number;
-  }>
-): Promise<void> {
-  if (campaignData.length === 0) return;
+    optimizationGoal?: string;
+    resultLabel?: string;
+  }>,
+  rejectedFeedback?: Array<{ title: string; rejectionReason: string | null }>
+): Promise<{ generated: number; skippedReason?: string }> {
+  // — Guard: need at least one campaign with real spend data
+  const campaignsWithData = campaignData.filter((c) => c.totalSpend > 0 || c.totalImpressions > 0);
+  if (campaignsWithData.length === 0) {
+    return { generated: 0, skippedReason: "Não há dados de performance suficientes para análise. Sincronize a conta e tente novamente após pelo menos 1 dia de veiculacão." };
+  }
 
-  const topPerformers = [...campaignData].sort((a, b) => b.avgRoas - a.avgRoas).slice(0, 3);
-  const underPerformers = [...campaignData]
+  const totalSpend = campaignsWithData.reduce((s, c) => s + c.totalSpend, 0);
+  if (totalSpend < 1) {
+    return { generated: 0, skippedReason: "O investimento registrado é muito baixo para gerar sugestões confiáveis. Aguarde pelo menos R$ 1,00 em gasto para análise." };
+  }
+
+  // Detect dominant goal from campaign data
+  const goalCounts: Record<string, number> = {};
+  for (const c of campaignsWithData) {
+    if (c.optimizationGoal) {
+      goalCounts[c.optimizationGoal] = (goalCounts[c.optimizationGoal] ?? 0) + 1;
+    }
+  }
+  const dominantGoal = Object.entries(goalCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "OFFSITE_CONVERSIONS";
+  const resultLabel = campaignsWithData.find((c) => c.resultLabel)?.resultLabel ?? "Resultados";
+
+  // Sort by results (conversions) for top/under — not ROAS
+  const sorted = [...campaignsWithData].sort((a, b) => b.totalConversions - a.totalConversions);
+  const topPerformers = sorted.slice(0, 3);
+  const underPerformers = [...campaignsWithData]
     .filter((c) => c.totalSpend > 0)
-    .sort((a, b) => a.avgRoas - b.avgRoas)
+    .sort((a, b) => a.totalConversions - b.totalConversions)
     .slice(0, 3);
 
-  const prompt = `Você é um especialista em Meta Ads com mais de 10 anos de experiência em otimização de campanhas de performance.
+  // Include rejection feedback to improve suggestions
+  const feedbackBlock = rejectedFeedback && rejectedFeedback.length > 0
+    ? `\n\n### Sugestões anteriores recusadas (não repita esses padrões):\n${rejectedFeedback.map((f) => `- "${f.title}"${f.rejectionReason ? ` — Motivo da recusa: ${f.rejectionReason}` : " (sem justificativa)"}`).join("\n")}`
+    : "";
 
-Analise os dados de performance das campanhas abaixo e gere sugestões práticas e específicas de melhoria.
+  const prompt = `Você é um especialista sênior em Meta Ads com mais de 10 anos de experiência em otimização de campanhas de performance.
+
+Analise os dados REAIS de performance abaixo e gere sugestões PRÁTICAS e ESPECÍFICAS baseadas exclusivamente nesses dados.
+
+REGRAS IMPORTANTES:
+- Só gere sugestões que sejam justificadas pelos dados fornecidos
+- Não invente problemas que não aparecem nos dados
+- Se os dados mostrarem boa performance, diga isso e sugira escalar ou testar variações
+- Cada sugestão deve ter um actionItem concreto e manual (o gestor vai aplicar manualmente)
+- Meta de desempenho principal da conta: ${dominantGoal} (${resultLabel})
 
 ## Dados das Campanhas (últimos 30 dias)
 
-### Top Performers:
-${topPerformers.map((c) => `- ${c.campaignName}: ROAS ${c.avgRoas.toFixed(2)}x, CPA R$${c.avgCpa.toFixed(2)}, CTR ${c.avgCtr.toFixed(2)}%, Gasto R$${c.totalSpend.toFixed(2)}, Conversões ${c.totalConversions}`).join("\n")}
+### Campanhas com melhor resultado (${resultLabel}):
+${topPerformers.map((c) => `- ${c.campaignName}: ${resultLabel} ${c.totalConversions}, Gasto R$${c.totalSpend.toFixed(2)}, CPA R$${c.avgCpa.toFixed(2)}, CTR ${c.avgCtr.toFixed(2)}%, CPM R$${(c.totalSpend > 0 && c.totalImpressions > 0 ? (c.totalSpend / c.totalImpressions) * 1000 : 0).toFixed(2)}`).join("\n")}
 
-### Underperformers:
-${underPerformers.map((c) => `- ${c.campaignName}: ROAS ${c.avgRoas.toFixed(2)}x, CPA R$${c.avgCpa.toFixed(2)}, CTR ${c.avgCtr.toFixed(2)}%, Gasto R$${c.totalSpend.toFixed(2)}, Conversões ${c.totalConversions}`).join("\n")}
+### Campanhas com pior resultado:
+${underPerformers.map((c) => `- ${c.campaignName}: ${resultLabel} ${c.totalConversions}, Gasto R$${c.totalSpend.toFixed(2)}, CPA R$${c.avgCpa.toFixed(2)}, CTR ${c.avgCtr.toFixed(2)}%, Impressões ${c.totalImpressions}`).join("\n")}
 
 ### Resumo Geral:
-- Total de campanhas: ${campaignData.length}
-- Total investido: R$${campaignData.reduce((s, c) => s + c.totalSpend, 0).toFixed(2)}
-- ROAS médio: ${(campaignData.reduce((s, c) => s + c.avgRoas, 0) / campaignData.length).toFixed(2)}x
-- CPA médio: R$${(campaignData.reduce((s, c) => s + c.avgCpa, 0) / campaignData.length).toFixed(2)}
+- Total de campanhas analisadas: ${campaignsWithData.length}
+- Total investido: R$${totalSpend.toFixed(2)}
+- Total de ${resultLabel}: ${campaignsWithData.reduce((s, c) => s + c.totalConversions, 0)}
+- CPA médio: R$${(totalSpend / Math.max(1, campaignsWithData.reduce((s, c) => s + c.totalConversions, 0))).toFixed(2)}${feedbackBlock}
 
-Gere exatamente 5 sugestões de melhoria em formato JSON. Cada sugestão deve ser específica, acionável e baseada nos dados fornecidos.`;
+Gere entre 3 e 5 sugestões de melhoria em formato JSON. Cada sugestão deve ser específica, acionável e baseada nos dados fornecidos. Se não houver problemas evidentes, gere sugestões de escala e testes.`;
 
   try {
     const response = await invokeLLM({
       messages: [
-        { role: "system", content: "Você é um especialista em Meta Ads. Responda sempre em português brasileiro com JSON válido." },
+        { role: "system", content: "Você é um especialista em Meta Ads. Responda sempre em português brasileiro com JSON válido. Seja direto e prático." },
         { role: "user", content: prompt },
       ],
       response_format: {
@@ -224,7 +260,7 @@ Gere exatamente 5 sugestões de melhoria em formato JSON. Cada sugestão deve se
 
     const rawContent = response.choices[0]?.message?.content;
     const content = typeof rawContent === "string" ? rawContent : null;
-    if (!content) return;
+    if (!content) return { generated: 0, skippedReason: "Erro ao processar resposta da IA." };
 
     const parsed = JSON.parse(content) as {
       suggestions: Array<{
@@ -237,19 +273,27 @@ Gere exatamente 5 sugestões de melhoria em formato JSON. Cada sugestão deve se
       }>;
     };
 
+    let count = 0;
     for (const s of parsed.suggestions) {
+      const validCategories = ["BUDGET", "TARGETING", "CREATIVE", "BIDDING", "SCHEDULE", "AUDIENCE", "GENERAL"];
+      const validPriorities = ["LOW", "MEDIUM", "HIGH"];
+      const category = validCategories.includes(s.category.toUpperCase()) ? s.category.toUpperCase() : "GENERAL";
+      const priority = validPriorities.includes(s.priority.toUpperCase()) ? s.priority.toUpperCase() : "MEDIUM";
       await createAiSuggestion({
         accountId,
-        category: s.category as any,
-        priority: s.priority as any,
+        category: category as any,
+        priority: priority as any,
         title: s.title,
         description: s.description,
         expectedImpact: s.expectedImpact,
         actionItems: s.actionItems,
       });
+      count++;
     }
+    return { generated: count };
   } catch (err) {
     console.error("[AI Suggestions] Failed to generate:", err);
+    return { generated: 0, skippedReason: "Erro interno ao gerar sugestões. Tente novamente." };
   }
 }
 

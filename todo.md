@@ -129,3 +129,19 @@
 - [x] Underperformers: filtrar apenas campanhas ATIVAS com pior resultado; mensagem explicativa quando ≤2 ativas
 - [x] Gráfico direito: mostrar métrica principal da conta (Resultados para mensagens/leads, ROAS só para vendas)
 - [x] Gráfico direito: título e dataKey dinâmicos baseados no goalType (chartMetricKey/chartMetricLabel)
+
+## Refatoração Módulo Sugestões IA
+- [x] Schema: adicionar campos status (pending/applied/rejected), justificativa, appliedAt, monitoredUntil, monitorResult
+- [x] Migration SQL aplicada via webdev_execute_sql
+- [x] Backend: análise real da conta antes de gerar sugestões (não gerar se não houver dados suficientes)
+- [x] Backend: endpoint para atualizar status (aplicado/não aplicado) com justificativa opcional
+- [x] Backend: monitoramento pós-aplicação (7 dias) com monitorUntil no banco
+- [x] Backend: retroalimentação — salvar justificativas de recusa para melhorar futuras sugestões
+- [x] Frontend: botão "Analisar Conta" com feedback condicional (avisa quando não há dados)
+- [x] Frontend: mensagem clara quando não há sugestões plausíveis
+- [x] Frontend: botões "Aplicado" e "Não Aplicado" em vez de "Aplicar Sugestão"
+- [x] Frontend: campo opcional de justificativa ao marcar "Não Aplicado"
+- [x] Frontend: possibilidade de trocar entre Aplicado/Não Aplicado em qualquer momento nos 30 dias
+- [x] Frontend: aba "Histórico 30 dias" com sugestões aplicadas e recusadas
+- [x] Frontend: badge de monitoramento ativo nas sugestões aplicadas (7 dias)
+- [x] Frontend: resultado do monitoramento exibido após 7 dias

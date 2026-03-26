@@ -146,6 +146,21 @@ export const aiSuggestions = mysqlTable("ai_suggestions", {
   description: text("description").notNull(),
   expectedImpact: text("expectedImpact"),
   actionItems: json("actionItems"),
+  // Status: pending = aguardando decisão, applied = marcado como aplicado, rejected = marcado como não aplicado
+  status: mysqlEnum("status", ["pending", "applied", "rejected"]).default("pending").notNull(),
+  // Justificativa opcional quando marcado como rejected
+  rejectionReason: text("rejectionReason"),
+  // Quando foi marcado como aplicado
+  appliedAt: timestamp("appliedAt"),
+  // Monitoramento pós-aplicação: até quando monitorar (appliedAt + 7 dias)
+  monitorUntil: timestamp("monitorUntil"),
+  // Snapshot das métricas no momento da aplicação (para comparar depois)
+  metricsSnapshot: json("metricsSnapshot"),
+  // Resultado do monitoramento após 7 dias (gerado automaticamente)
+  monitorResult: text("monitorResult"),
+  // Data de expiração do histórico (generatedAt + 30 dias)
+  expiresAt: timestamp("expiresAt"),
+  // Campos legados mantidos para compatibilidade
   isApplied: boolean("isApplied").default(false).notNull(),
   isDismissed: boolean("isDismissed").default(false).notNull(),
   generatedAt: timestamp("generatedAt").defaultNow().notNull(),

@@ -318,21 +318,71 @@ export async function markAnomalyResolved(id: number) {
 
 // ─── AI Suggestions ───────────────────────────────────────────────────────────
 
+// Get pending suggestions (status = pending, not expired)
 export async function getSuggestionsByAccountId(accountId: number, limit = 50) {
   const db = await getDb();
   if (!db) return [];
+  const now = new Date();
   return db
     .select()
     .from(aiSuggestions)
-    .where(and(eq(aiSuggestions.accountId, accountId), eq(aiSuggestions.isDismissed, false)))
+    .where(
+      and(
+        eq(aiSuggestions.accountId, accountId),
+        eq(aiSuggestions.status, "pending"),
+        eq(aiSuggestions.isDismissed, false)
+      )
+    )
     .orderBy(desc(aiSuggestions.generatedAt))
     .limit(limit);
+}
+
+// Get history (applied or rejected, within 30 days)
+export async function getSuggestionsHistory(accountId: number, limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  return db
+    .select()
+    .from(aiSuggestions)
+    .where(
+      and(
+        eq(aiSuggestions.accountId, accountId),
+        sql`${aiSuggestions.status} IN ('applied', 'rejected')`,
+        sql`${aiSuggestions.generatedAt} >= ${thirtyDaysAgo}`
+      )
+    )
+    .orderBy(desc(aiSuggestions.generatedAt))
+    .limit(limit);
+}
+
+// Get suggestions being monitored (applied, monitorUntil in the future)
+export async function getSuggestionsUnderMonitoring(accountId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const now = new Date();
+  return db
+    .select()
+    .from(aiSuggestions)
+    .where(
+      and(
+        eq(aiSuggestions.accountId, accountId),
+        eq(aiSuggestions.status, "applied"),
+        sql`${aiSuggestions.monitorUntil} IS NOT NULL`,
+        sql`${aiSuggestions.monitorUntil} > ${now}`,
+        sql`${aiSuggestions.monitorResult} IS NULL`
+      )
+    );
 }
 
 export async function createAiSuggestion(data: InsertAiSuggestion) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  await db.insert(aiSuggestions).values(data);
+  // Set expiry to 30 days from now
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 30);
+  await db.insert(aiSuggestions).values({ ...data, expiresAt, status: "pending" });
 }
 
 export async function dismissSuggestion(id: number) {
@@ -345,6 +395,37 @@ export async function applySuggestion(id: number) {
   const db = await getDb();
   if (!db) return;
   await db.update(aiSuggestions).set({ isApplied: true }).where(eq(aiSuggestions.id, id));
+}
+
+// Update suggestion status (applied or rejected) with optional rejection reason
+export async function updateSuggestionStatus(
+  id: number,
+  status: "applied" | "rejected" | "pending",
+  opts?: { rejectionReason?: string; metricsSnapshot?: Record<string, number> }
+) {
+  const db = await getDb();
+  if (!db) return;
+  const now = new Date();
+  const monitorUntil = status === "applied" ? new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) : null;
+  await db
+    .update(aiSuggestions)
+    .set({
+      status,
+      appliedAt: status === "applied" ? now : null,
+      monitorUntil: monitorUntil ?? undefined,
+      rejectionReason: opts?.rejectionReason ?? null,
+      metricsSnapshot: opts?.metricsSnapshot ?? null,
+      isApplied: status === "applied",
+      isDismissed: status === "rejected",
+    })
+    .where(eq(aiSuggestions.id, id));
+}
+
+// Save monitoring result after 7 days
+export async function saveSuggestionMonitorResult(id: number, result: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(aiSuggestions).set({ monitorResult: result }).where(eq(aiSuggestions.id, id));
 }
 
 // ─── Scheduled Reports ────────────────────────────────────────────────────────

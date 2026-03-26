@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `ai_suggestions` ADD `status` enum('pending','applied','rejected') DEFAULT 'pending' NOT NULL;\nALTER TABLE `ai_suggestions` ADD `rejectionReason` text;\nALTER TABLE `ai_suggestions` ADD `appliedAt` timestamp;\nALTER TABLE `ai_suggestions` ADD `monitorUntil` timestamp;\nALTER TABLE `ai_suggestions` ADD `metricsSnapshot` json;\nALTER TABLE `ai_suggestions` ADD `monitorResult` text;\nALTER TABLE `ai_suggestions` ADD `expiresAt` timestamp;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 47k5kQkoq9oHa8j.root --database YKCqwPqSgxUTxNQRFe3oLu --execute ALTER TABLE `ai_suggestions` ADD `status` enum('pending','applied','rejected') DEFAULT 'pending' NOT NULL;\nALTER TABLE `ai_suggestions` ADD `rejectionReason` text;\nALTER TABLE `ai_suggestions` ADD `appliedAt` timestamp;\nALTER TABLE `ai_suggestions` ADD `monitorUntil` timestamp;\nALTER TABLE `ai_suggestions` ADD `metricsSnapshot` json;\nALTER TABLE `ai_suggestions` ADD `monitorResult` text;\nALTER TABLE `ai_suggestions` ADD `expiresAt` timestamp;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1167
+}
