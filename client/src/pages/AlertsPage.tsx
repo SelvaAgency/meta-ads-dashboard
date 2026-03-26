@@ -10,6 +10,7 @@ import {
   CheckCheck,
   Info,
   TrendingDown,
+  Wallet,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -18,6 +19,7 @@ const typeConfig: Record<string, { icon: React.ComponentType<{ className?: strin
   ANOMALY: { icon: AlertTriangle, color: "text-red-400" },
   PERFORMANCE: { icon: TrendingDown, color: "text-yellow-400" },
   REPORT: { icon: Bell, color: "text-blue-400" },
+  BUDGET_WARNING: { icon: Wallet, color: "text-yellow-400" },
   SYSTEM: { icon: Info, color: "text-muted-foreground" },
 };
 

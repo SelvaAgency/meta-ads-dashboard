@@ -35,6 +35,7 @@ import {
 import {
   validateToken,
   getAdAccounts,
+  getAccountBilling,
   getCampaigns,
   getCampaignInsights,
   extractConversions,
@@ -114,11 +115,66 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    // Connect ALL accounts from a portfolio token at once
+    connectAll: protectedProcedure
+      .input(z.object({ accessToken: z.string().min(10) }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await validateToken(input.accessToken);
+        if (!user) throw new TRPCError({ code: "BAD_REQUEST", message: "Token inválido ou expirado." });
+
+        const adAccounts = await getAdAccounts(input.accessToken);
+        let connected = 0;
+        for (const acc of adAccounts) {
+          const rawId = acc.id.replace("act_", "");
+          await createMetaAdAccount({
+            userId: ctx.user.id,
+            accountId: rawId,
+            accountName: acc.name ?? `Conta ${rawId}`,
+            accessToken: input.accessToken,
+            currency: acc.currency ?? "BRL",
+            timezone: acc.timezone_name ?? "America/Sao_Paulo",
+          });
+          connected++;
+        }
+        return { connected, total: adAccounts.length };
+      }),
+
     disconnect: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         await deleteMetaAdAccount(input.accountId, ctx.user.id);
         return { success: true };
+      }),
+
+    // Get billing info (balance, payment method) for the active account
+    billing: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account || account.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Conta não encontrada." });
+        }
+        const billing = await getAccountBilling(account.accountId, account.accessToken);
+
+        // Fire low-balance alert if pre-paid and remaining < R$200
+        if (billing?.isPrePaid && billing.remainingBalance !== null && billing.remainingBalance < 200) {
+          // Create an alert in the DB
+          await createAlert({
+            userId: ctx.user.id,
+            accountId: input.accountId,
+            type: "BUDGET_WARNING",
+            severity: billing.remainingBalance < 50 ? "CRITICAL" : "WARNING",
+            title: "Saldo baixo na conta de anúncios",
+            message: `Saldo remanescente: ${billing.currency} ${billing.remainingBalance.toFixed(2)}. Recomendamos recarregar antes que as campanhas sejam pausadas automaticamente.`,
+          });
+          // Notify owner
+          await notifyOwner({
+            title: `⚠️ Saldo baixo — ${account.accountName ?? account.accountId}`,
+            content: `Saldo remanescente: ${billing.currency} ${billing.remainingBalance.toFixed(2)}. Recarregue para evitar interrupção das campanhas.`,
+          });
+        }
+
+        return billing;
       }),
 
     sync: protectedProcedure

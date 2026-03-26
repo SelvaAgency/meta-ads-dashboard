@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
+import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import {
   AlertTriangle,
   BarChart3,
@@ -14,8 +15,10 @@ import {
   RefreshCw,
   TrendingUp,
   Zap,
+  ChevronRight,
+  Building2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -24,11 +27,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 
 interface NavItem {
   path: string;
@@ -45,20 +47,13 @@ interface MetaDashboardLayoutProps {
 export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProps) {
   const { user, loading, isAuthenticated, logout } = useAuth();
   const [location] = useLocation();
-  const [selectedAccountId, setSelectedAccountId] = useState<string>("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { activeAccount, activeAccountId, accounts, setActiveAccountId } = useActiveAccount();
 
-  const { data: accounts } = trpc.accounts.list.useQuery(undefined, { enabled: isAuthenticated });
   const { data: unreadCount } = trpc.alerts.unreadCount.useQuery(undefined, {
     enabled: isAuthenticated,
     refetchInterval: 30000,
   });
-
-  useEffect(() => {
-    if (accounts && accounts.length > 0 && !selectedAccountId) {
-      setSelectedAccountId(String(accounts[0].id));
-    }
-  }, [accounts, selectedAccountId]);
 
   const navItems: NavItem[] = [
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -125,22 +120,103 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           )}
         </div>
 
-        {/* Account Selector */}
-        {sidebarOpen && accounts && accounts.length > 0 && (
+        {/* Account Selector — fixed, always visible */}
+        {sidebarOpen && (
           <div className="px-3 py-3 border-b border-sidebar-border">
-            <p className="text-xs text-muted-foreground mb-1.5 px-1">Conta de Anúncios</p>
-            <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
-              <SelectTrigger className="h-8 text-xs bg-sidebar-accent border-sidebar-border text-sidebar-foreground">
-                <SelectValue placeholder="Selecionar conta" />
-              </SelectTrigger>
-              <SelectContent>
+            <p className="text-xs text-muted-foreground mb-1.5 px-1 uppercase tracking-wide">Conta Ativa</p>
+            {accounts.length === 0 ? (
+              <Link href="/connect">
+                <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-sidebar-border text-muted-foreground hover:border-primary/50 hover:text-primary transition-all text-xs">
+                  <Link2 className="w-3.5 h-3.5" />
+                  Conectar conta
+                </button>
+              </Link>
+            ) : (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 hover:bg-primary/15 transition-all group">
+                    <div className="w-6 h-6 rounded-md bg-primary/20 flex items-center justify-center flex-shrink-0">
+                      <Building2 className="w-3 h-3 text-primary" />
+                    </div>
+                    <div className="flex-1 text-left overflow-hidden">
+                      <p className="text-xs font-semibold text-sidebar-foreground truncate">
+                        {activeAccount?.accountName ?? activeAccount?.accountId ?? "Selecionar"}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {activeAccount?.currency ?? ""} · ID {activeAccount?.accountId ?? "—"}
+                      </p>
+                    </div>
+                    <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0 group-hover:text-primary transition-colors" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-60">
+                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                    Trocar conta ({accounts.length} conectada{accounts.length !== 1 ? "s" : ""})
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {accounts.map((acc) => (
+                    <DropdownMenuItem
+                      key={acc.id}
+                      onClick={() => setActiveAccountId(acc.id)}
+                      className="flex items-center gap-2.5 cursor-pointer"
+                    >
+                      <div className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 ${acc.id === activeAccountId ? "bg-primary/20" : "bg-muted"}`}>
+                        <Building2 className={`w-3 h-3 ${acc.id === activeAccountId ? "text-primary" : "text-muted-foreground"}`} />
+                      </div>
+                      <div className="flex-1 overflow-hidden">
+                        <p className="text-xs font-medium truncate">{acc.accountName ?? acc.accountId}</p>
+                        <p className="text-xs text-muted-foreground truncate">{acc.currency} · {acc.accountId}</p>
+                      </div>
+                      {acc.id === activeAccountId && (
+                        <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/connect">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer w-full">
+                        <Link2 className="w-3.5 h-3.5" />
+                        Gerenciar contas
+                      </div>
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        )}
+
+        {/* Collapsed account indicator */}
+        {!sidebarOpen && accounts.length > 0 && (
+          <div className="px-3 py-3 border-b border-sidebar-border flex justify-center">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="w-8 h-8 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center hover:bg-primary/20 transition-colors">
+                  <Building2 className="w-4 h-4 text-primary" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="right" className="w-60">
+                <DropdownMenuLabel className="text-xs text-muted-foreground">Trocar conta</DropdownMenuLabel>
+                <DropdownMenuSeparator />
                 {accounts.map((acc) => (
-                  <SelectItem key={acc.id} value={String(acc.id)} className="text-xs">
-                    {acc.accountName ?? acc.accountId}
-                  </SelectItem>
+                  <DropdownMenuItem
+                    key={acc.id}
+                    onClick={() => setActiveAccountId(acc.id)}
+                    className="flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <Building2 className={`w-3.5 h-3.5 ${acc.id === activeAccountId ? "text-primary" : "text-muted-foreground"}`} />
+                    <div className="flex-1 overflow-hidden">
+                      <p className="text-xs font-medium truncate">{acc.accountName ?? acc.accountId}</p>
+                      <p className="text-xs text-muted-foreground">{acc.currency}</p>
+                    </div>
+                    {acc.id === activeAccountId && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                    )}
+                  </DropdownMenuItem>
                 ))}
-              </SelectContent>
-            </Select>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )}
 
@@ -187,7 +263,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 }`}
               >
                 <Link2 className="w-4 h-4 flex-shrink-0" />
-                {sidebarOpen && <span className="text-sm font-medium">Conectar Conta</span>}
+                {sidebarOpen && <span className="text-sm font-medium">Gerenciar Contas</span>}
               </div>
             </Link>
           </div>
@@ -239,12 +315,19 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
               <LayoutDashboard className="w-4 h-4" />
             </button>
             {title && <h1 className="text-sm font-semibold text-foreground">{title}</h1>}
+            {/* Active account breadcrumb */}
+            {activeAccount && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <ChevronRight className="w-3 h-3" />
+                <span className="font-medium text-foreground/70">{activeAccount.accountName ?? activeAccount.accountId}</span>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
             {/* Quick sync button */}
-            {selectedAccountId && (
-              <SyncButton accountId={parseInt(selectedAccountId)} />
+            {activeAccountId && (
+              <SyncButton accountId={activeAccountId} />
             )}
 
             {/* Alerts bell */}
@@ -291,16 +374,12 @@ function SyncButton({ accountId }: { accountId: number }) {
   );
 }
 
-// Export selectedAccountId context for child pages
+// Legacy hook kept for backward compatibility with pages that still use it
 export function useSelectedAccount() {
-  const { data: accounts } = trpc.accounts.list.useQuery();
-  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (accounts && accounts.length > 0 && !selectedAccountId) {
-      setSelectedAccountId(accounts[0].id);
-    }
-  }, [accounts, selectedAccountId]);
-
-  return { selectedAccountId, setSelectedAccountId, accounts };
+  const { activeAccountId, accounts, setActiveAccountId } = useActiveAccount();
+  return {
+    selectedAccountId: activeAccountId,
+    setSelectedAccountId: setActiveAccountId,
+    accounts,
+  };
 }

@@ -19,14 +19,18 @@ import {
 import {
   ArrowDown,
   ArrowUp,
+  AlertTriangle,
   BarChart3,
+  CreditCard,
   DollarSign,
   Link2,
+  Loader2,
   Minus,
   MousePointer,
   ShoppingCart,
   TrendingUp,
   Users,
+  Wallet,
   Zap,
 } from "lucide-react";
 import { useState, useMemo } from "react";
@@ -263,6 +267,9 @@ export default function Dashboard() {
           />
         </div>
 
+        {/* Billing / Balance Card */}
+        {selectedAccountId && <BillingCard accountId={selectedAccountId} />}
+
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* ROAS Trend */}
@@ -426,5 +433,137 @@ export default function Dashboard() {
         </div>
       </div>
     </MetaDashboardLayout>
+  );
+}
+
+// ─── Billing / Balance Card ───────────────────────────────────────────────────
+function BillingCard({ accountId }: { accountId: number }) {
+  const { data: billing, isLoading } = trpc.accounts.billing.useQuery({ accountId });
+
+  if (isLoading) {
+    return (
+      <Card className="border-border">
+        <CardContent className="p-5 flex items-center gap-3">
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Carregando informações de pagamento...</span>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!billing) return null;
+
+  const remaining = billing.remainingBalance;
+  const isLow = remaining !== null && remaining < 200;
+  const isCritical = remaining !== null && remaining < 50;
+
+  const fundingLabel = (() => {
+    const map: Record<number, string> = {
+      0: "Não configurado",
+      1: "Cartão de crédito",
+      2: "Saldo Meta (pré-pago)",
+      3: "Crédito pago Meta",
+      4: "Crédito estendido Meta",
+      5: "Ordem",
+      6: "Fatura",
+      12: "PayPal",
+      13: "PayPal (recorrente)",
+      15: "Depósito externo (PIX / Boleto)",
+      17: "Débito direto",
+      19: "Pagamento alternativo",
+      20: "Saldo armazenado (pré-pago)",
+    };
+    return billing.fundingSourceDisplay ?? (billing.fundingSourceType !== null ? (map[billing.fundingSourceType] ?? `Tipo ${billing.fundingSourceType}`) : "Não configurado");
+  })();
+
+  const isPrePaid = billing.isPrePaid;
+
+  return (
+    <Card
+      className={`border ${
+        isCritical
+          ? "border-red-500/40 bg-red-500/5"
+          : isLow
+          ? "border-yellow-500/40 bg-yellow-500/5"
+          : "border-border"
+      }`}
+    >
+      <CardContent className="p-5">
+        <div className="flex flex-wrap items-center gap-6">
+          {/* Payment method */}
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-lg bg-purple-400/10 flex items-center justify-center flex-shrink-0">
+              {isPrePaid ? (
+                <Wallet className="w-4 h-4 text-purple-400" />
+              ) : (
+                <CreditCard className="w-4 h-4 text-purple-400" />
+              )}
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Forma de pagamento</p>
+              <p className="text-sm font-semibold text-foreground">{fundingLabel}</p>
+            </div>
+          </div>
+
+          {/* Balance (pre-paid only) */}
+          {isPrePaid && remaining !== null && (
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  isCritical ? "bg-red-400/10" : isLow ? "bg-yellow-400/10" : "bg-emerald-400/10"
+                }`}
+              >
+                {isCritical || isLow ? (
+                  <AlertTriangle
+                    className={`w-4 h-4 ${isCritical ? "text-red-400" : "text-yellow-400"}`}
+                  />
+                ) : (
+                  <DollarSign className="w-4 h-4 text-emerald-400" />
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Saldo remanescente</p>
+                <p
+                  className={`text-sm font-bold ${
+                    isCritical ? "text-red-400" : isLow ? "text-yellow-400" : "text-emerald-400"
+                  }`}
+                >
+                  {billing.currency}{" "}
+                  {remaining.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Spend cap (non-prepaid) */}
+          {!isPrePaid && billing.spendCap && (
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-lg bg-blue-400/10 flex items-center justify-center flex-shrink-0">
+                <DollarSign className="w-4 h-4 text-blue-400" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Limite de gasto</p>
+                <p className="text-sm font-semibold text-foreground">
+                  {billing.currency}{" "}
+                  {(parseFloat(billing.spendCap) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Low balance warning */}
+          {isPrePaid && isLow && remaining !== null && (
+            <div className={`ml-auto flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${
+              isCritical ? "bg-red-500/10 text-red-400 border border-red-500/20" : "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+            }`}>
+              <AlertTriangle className="w-3.5 h-3.5" />
+              {isCritical
+                ? "Saldo crítico! Recarregue imediatamente."
+                : `Saldo abaixo de R$ 200 — Recarregue em breve.`}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

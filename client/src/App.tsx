@@ -4,6 +4,7 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { ActiveAccountProvider } from "./contexts/ActiveAccountContext";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Campaigns from "./pages/Campaigns";
@@ -35,8 +36,10 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
-          <Toaster richColors theme="dark" />
-          <Router />
+          <ActiveAccountProvider>
+            <Toaster richColors theme="dark" />
+            <Router />
+          </ActiveAccountProvider>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

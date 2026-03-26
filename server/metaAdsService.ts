@@ -19,6 +19,26 @@ export interface MetaAdAccountInfo {
   account_status: number;
 }
 
+export interface MetaFundingSourceDetails {
+  id?: string;
+  type?: number;
+  display_string?: string;
+  amount?: number;
+  currency?: string;
+}
+
+export interface MetaAccountBilling {
+  accountId: string;
+  balance: string | null;           // Bill amount due (cents)
+  spendCap: string | null;          // Lifetime spend cap (cents)
+  amountSpent: string | null;       // Total spent so far (cents)
+  currency: string;
+  fundingSourceType: number | null;  // 0=UNSET,1=CREDIT_CARD,2=FB_WALLET,20=STORED_BALANCE,etc.
+  fundingSourceDisplay: string | null; // Human-readable payment method
+  isPrePaid: boolean;               // true when type is STORED_BALANCE (20) or FB_WALLET (2)
+  remainingBalance: number | null;  // Calculated: spendCap - amountSpent (in account currency units)
+}
+
 export interface MetaCampaign {
   id: string;
   name: string;
@@ -89,6 +109,59 @@ export async function getAdAccounts(accessToken: string): Promise<MetaAdAccountI
     limit: "50",
   });
   return data.data ?? [];
+}
+
+/**
+ * Get billing info: balance, spend cap, amount spent and funding source for an ad account.
+ * Returns null on permission error (account may not have MANAGE access).
+ */
+export async function getAccountBilling(
+  accountId: string,
+  accessToken: string
+): Promise<MetaAccountBilling | null> {
+  try {
+    const data = await metaFetch<{
+      id: string;
+      balance?: string;
+      spend_cap?: string;
+      amount_spent?: string;
+      currency: string;
+      funding_source_details?: MetaFundingSourceDetails;
+    }>(`act_${accountId}`, {
+      access_token: accessToken,
+      fields: "id,balance,spend_cap,amount_spent,currency,funding_source_details",
+    });
+
+    const fsd = data.funding_source_details;
+    const type = fsd?.type ?? null;
+    // Types considered pre-paid: 2=FACEBOOK_WALLET, 20=STORED_BALANCE, 15=EXTERNAL_DEPOSIT
+    const isPrePaid = type !== null && [2, 15, 20].includes(type);
+
+    // Remaining balance calculation (values come in cents from Meta)
+    let remainingBalance: number | null = null;
+    if (data.spend_cap && data.amount_spent) {
+      const cap = parseFloat(data.spend_cap) / 100;
+      const spent = parseFloat(data.amount_spent) / 100;
+      remainingBalance = Math.max(0, cap - spent);
+    } else if (isPrePaid && data.balance) {
+      // For pre-paid accounts balance field may represent available funds
+      remainingBalance = parseFloat(data.balance) / 100;
+    }
+
+    return {
+      accountId,
+      balance: data.balance ?? null,
+      spendCap: data.spend_cap ?? null,
+      amountSpent: data.amount_spent ?? null,
+      currency: data.currency,
+      fundingSourceType: type,
+      fundingSourceDisplay: fsd?.display_string ?? null,
+      isPrePaid,
+      remainingBalance,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**

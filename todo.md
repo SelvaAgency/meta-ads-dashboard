@@ -47,3 +47,18 @@
 - [x] Testes de cálculos Meta Ads (ROAS, CPA, conversões)
 - [x] Testes de detecção de anomalias
 - [x] Testes de autenticação (logout)
+
+## Melhorias de Multi-Conta (Agência)
+- [x] Importar todas as contas do portfólio de uma vez ao validar token
+- [x] Seletor de conta fixo na sidebar com nome e avatar da conta ativa
+- [x] Contexto global de conta ativa (ActiveAccountContext) compartilhado entre todas as páginas
+- [x] Dashboard, Campanhas, Anomalias, Sugestões e Relatórios filtram dados pela conta ativa
+- [x] Alternância instantânea de conta sem precisar inserir token novamente
+
+## Monitoramento de Saldo e Forma de Pagamento
+- [x] Buscar campos balance, funding_source_details, spend_cap, amount_spent da API do Meta por conta
+- [x] Exibir forma de pagamento (cartão, PIX/boleto, saldo pré-pago) no dashboard e na tela de contas
+- [x] Calcular saldo remanescente para contas pré-pagas (spend_cap - amount_spent ou balance)
+- [x] Card de saldo no dashboard com indicador visual (verde/amarelo/vermelho)
+- [x] Alerta automático quando saldo remanescente < R$200
+- [x] Notificação push ao owner quando saldo crítico detectado
