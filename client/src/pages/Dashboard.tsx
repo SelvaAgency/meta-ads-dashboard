@@ -325,7 +325,7 @@ export default function Dashboard() {
     emoji: goalEmojiFromBackend ?? GOAL_LABELS[goalType]?.emoji ?? "📊",
   };
 
-  // Build extended totals including cpc, cpm, frequency
+  // Build extended totals including cpc, cpm, frequency, reach
   const totals = useMemo(() => {
     if (!data?.totals) return null;
     const t = data.totals;
@@ -334,7 +334,9 @@ export default function Dashboard() {
     // frequency: average from timeSeries
     const freqSum = data.timeSeries?.reduce((s: number, m: any) => s + parseFloat(String(m.avgFrequency ?? 0)), 0) ?? 0;
     const frequency = data.timeSeries?.length ? freqSum / data.timeSeries.length : 0;
-    return { ...t, cpc, cpm, frequency };
+    // reach: sum from backend totals (already aggregated)
+    const reach = Number(t.reach ?? 0);
+    return { ...t, cpc, cpm, frequency, reach };
   }, [data]);
 
   const chartData = useMemo(() => {

@@ -114,3 +114,10 @@
 - [x] Frontend: Dashboard usa optimization_goal (não objective) para escolher KPI cards
 - [x] Frontend: badge no header mostra a meta de desempenho real (ex: "Compras no site", "Mensagens")
 - [x] Frontend: KPI cards mostram métricas relevantes para a meta de desempenho configurada
+
+## Correção de Discrepâncias - Conta C1 ELWING (Mar/26)
+- [x] Diagnosticar: badge mostrava "Engajamento" porque campanhas inativas com objective=OUTCOME_ENGAGEMENT tinham optimization_goal=POST_ENGAGEMENT no banco e influenciavam o detectDominantGoal
+- [x] Corrigir: Alcance mostrava 0 porque totals no backend não somava reach (só somava spend/impressions/clicks/conversions)
+- [x] Corrigir: optimization_goal agora usa fallback pelo objective quando adsets não retornam o campo
+- [x] Corrigir: detectDominantGoal agora filtra apenas campanhas com spend > 0 no período selecionado
+- [x] Corrigir: reach é agora somado no totals do backend e passado ao frontend

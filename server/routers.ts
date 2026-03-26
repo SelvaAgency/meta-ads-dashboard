@@ -202,8 +202,27 @@ export const appRouter = router({
         const campaignGoalMap = buildCampaignGoalMap(adsets);
 
         // Upsert campaigns with optimization_goal and result_label
+        // If no adsets found for a campaign (e.g., all paused), fall back to objective mapping
+        const objectiveToGoalFallback: Record<string, string> = {
+          OUTCOME_SALES: "OFFSITE_CONVERSIONS",
+          CONVERSIONS: "OFFSITE_CONVERSIONS",
+          OUTCOME_LEADS: "LEAD_GENERATION",
+          LEAD_GENERATION: "LEAD_GENERATION",
+          MESSAGES: "CONVERSATIONS",
+          OUTCOME_ENGAGEMENT: "POST_ENGAGEMENT",
+          POST_ENGAGEMENT: "POST_ENGAGEMENT",
+          PAGE_LIKES: "PAGE_LIKES",
+          OUTCOME_AWARENESS: "REACH",
+          REACH: "REACH",
+          BRAND_AWARENESS: "REACH",
+          OUTCOME_TRAFFIC: "LINK_CLICKS",
+          LINK_CLICKS: "LINK_CLICKS",
+          VIDEO_VIEWS: "VIDEO_VIEWS",
+          OUTCOME_APP_PROMOTION: "APP_INSTALLS",
+        };
         for (const mc of metaCampaigns) {
-          const optimizationGoal = campaignGoalMap.get(mc.id);
+          const optimizationGoal = campaignGoalMap.get(mc.id)
+            ?? objectiveToGoalFallback[mc.objective ?? ""];
           const resultLabel = optimizationGoal ? getResultLabel(optimizationGoal) : undefined;
           await upsertCampaign({
             accountId: account.id,
@@ -298,8 +317,9 @@ export const appRouter = router({
             clicks: acc.clicks + Number(m.totalClicks ?? 0),
             conversions: acc.conversions + Number(m.totalConversions ?? 0),
             conversionValue: acc.conversionValue + Number(m.totalConversionValue ?? 0),
+            reach: acc.reach + Number(m.totalReach ?? 0),
           }),
-          { spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionValue: 0 }
+          { spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionValue: 0, reach: 0 }
         );
 
         const overallRoas = totals.spend > 0 ? totals.conversionValue / totals.spend : 0;
@@ -307,8 +327,10 @@ export const appRouter = router({
         const overallCtr = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
 
         // Detect dominant optimization_goal from campaigns (NOT campaign objective)
-        // This is the correct way: use what the adsets are actually optimizing for
-        const optimizationGoals = campaigns
+        // IMPORTANT: Only use campaigns that actually had spend in the selected period
+        // so inactive campaigns with old optimization_goal don't pollute the badge
+        const activeCampaigns = campaigns.filter((c) => Number((c as any).totalSpend ?? 0) > 0);
+        const optimizationGoals = (activeCampaigns.length > 0 ? activeCampaigns : campaigns)
           .map((c) => (c as any).campaignOptimizationGoal as string | undefined)
           .filter((g): g is string => !!g);
         const dominantGoal = detectDominantGoal(optimizationGoals);
