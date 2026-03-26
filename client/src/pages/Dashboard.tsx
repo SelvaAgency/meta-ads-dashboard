@@ -339,6 +339,13 @@ export default function Dashboard() {
     return { ...t, cpc, cpm, frequency, reach };
   }, [data]);
 
+  // Chart: use primary metric based on goalType
+  // ROAS only for SALES/VALUE; for everything else use Resultados (conversions)
+  const chartMetricKey = ["SALES", "VALUE"].includes(goalType) ? "ROAS" : "Resultado";
+  const chartMetricLabel = ["SALES", "VALUE"].includes(goalType)
+    ? "ROAS"
+    : (data?.goalProfile?.resultLabel ?? objInfo.label);
+
   const chartData = useMemo(() => {
     if (!data?.timeSeries) return [];
     return data.timeSeries.map((d) => ({
@@ -349,33 +356,41 @@ export default function Dashboard() {
     }));
   }, [data]);
 
-  // For top/under performers — use primary metric based on optimization_goal
-  const primarySortKey = ["SALES", "VALUE"].includes(goalType) ? "avgRoas"
-    : ["LEADS", "MESSAGES", "VIDEO", "APP", "FOLLOWERS"].includes(goalType) ? "avgCpa"
-    : "totalSpend";
+  // Top/Underperformers:
+  // 1. Filter ONLY campaigns with status ACTIVE
+  // 2. Sort by totalConversions (results) — the actual performance metric, not ROAS
+  //    Exception: SALES/VALUE accounts also consider ROAS as secondary signal
+  // 3. If ≤2 active campaigns: all go to Top Performers, none to Underperformers
+  //    If >2 active campaigns: top N-1 in Top, worst 1 in Underperformers
+  const activeCampaignsWithData = useMemo(() => {
+    if (!data?.campaigns) return [];
+    return [...data.campaigns].filter(
+      (c) => String((c as any).campaignStatus ?? "").toUpperCase() === "ACTIVE"
+    );
+  }, [data]);
 
   const topCampaigns = useMemo(() => {
-    if (!data?.campaigns) return [];
-    return [...data.campaigns]
-      .sort((a, b) => {
-        if (primarySortKey === "avgRoas") return Number(b.avgRoas ?? 0) - Number(a.avgRoas ?? 0);
-        if (primarySortKey === "avgCpa") return Number(a.avgCpa ?? 0) - Number(b.avgCpa ?? 0); // lower is better
-        return Number(b.totalSpend ?? 0) - Number(a.totalSpend ?? 0);
-      })
-      .slice(0, 5);
-  }, [data, primarySortKey]);
+    const sorted = [...activeCampaignsWithData].sort(
+      (a, b) => Number(b.totalConversions ?? 0) - Number(a.totalConversions ?? 0)
+    );
+    // If ≤2 active campaigns, show all in top performers
+    if (sorted.length <= 2) return sorted;
+    // Otherwise show all except the worst one
+    return sorted.slice(0, sorted.length - 1);
+  }, [activeCampaignsWithData]);
 
   const underCampaigns = useMemo(() => {
-    if (!data?.campaigns) return [];
-    return [...data.campaigns]
-      .filter((c) => Number(c.totalSpend ?? 0) > 0)
-      .sort((a, b) => {
-        if (primarySortKey === "avgRoas") return Number(a.avgRoas ?? 0) - Number(b.avgRoas ?? 0);
-        if (primarySortKey === "avgCpa") return Number(b.avgCpa ?? 0) - Number(a.avgCpa ?? 0); // higher is worse
-        return Number(a.totalSpend ?? 0) - Number(b.totalSpend ?? 0);
-      })
-      .slice(0, 5);
-  }, [data, primarySortKey]);
+    const sorted = [...activeCampaignsWithData].sort(
+      (a, b) => Number(a.totalConversions ?? 0) - Number(b.totalConversions ?? 0)
+    );
+    // Only show underperformers if there are more than 2 active campaigns
+    if (sorted.length <= 2) return [];
+    // Show the worst performer
+    return sorted.slice(0, 1);
+  }, [activeCampaignsWithData]);
+
+  // Label for the result metric in Top/Under performers
+  const resultLabel = data?.goalProfile?.resultLabel ?? "Resultados";
 
   if (!accounts || accounts.length === 0) {
     return (
@@ -515,9 +530,9 @@ export default function Dashboard() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold">
-                {["SALES", "VALUE", "LEADS", "MESSAGES", "VIDEO", "APP", "FOLLOWERS"].includes(goalType)
-                  ? `Resultados Diários (${objInfo.emoji} ${objInfo.label})`
-                  : "ROAS Diário"}
+                {chartMetricKey === "ROAS"
+                  ? "ROAS Diário"
+                  : `${objInfo.emoji} ${chartMetricLabel} Diários`}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -535,7 +550,7 @@ export default function Dashboard() {
                   <Tooltip content={<CustomTooltip />} />
                   <Area
                     type="monotone"
-                    dataKey={["SALES", "VALUE"].includes(goalType) ? "ROAS" : "Resultado"}
+                    dataKey={chartMetricKey}
                     stroke="oklch(0.62 0.22 255)"
                     fill="url(#resultGrad)"
                     strokeWidth={2}
@@ -546,7 +561,7 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Campaign Comparison */}
+        {/* Campaign Comparison — only ACTIVE campaigns, sorted by results */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
             <CardHeader className="pb-3">
@@ -556,7 +571,7 @@ export default function Dashboard() {
                   Top Performers
                 </CardTitle>
                 <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-400/30">
-                  {primarySortKey === "avgRoas" ? "Por ROAS" : primarySortKey === "avgCpa" ? "Menor custo" : "Por Gasto"}
+                  Por {resultLabel}
                 </Badge>
               </div>
             </CardHeader>
@@ -564,7 +579,7 @@ export default function Dashboard() {
               {isLoading ? (
                 <div className="space-y-2">{[...Array(3)].map((_, i) => <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />)}</div>
               ) : topCampaigns.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">Nenhum dado disponível. Sincronize sua conta.</p>
+                <p className="text-sm text-muted-foreground text-center py-4">Nenhuma campanha ativa encontrada. Sincronize sua conta.</p>
               ) : (
                 topCampaigns.map((c, i) => (
                   <div key={c.campaignId} className="flex items-center gap-3 p-2.5 rounded-lg bg-accent/30">
@@ -574,17 +589,8 @@ export default function Dashboard() {
                       <p className="text-xs text-muted-foreground">R$ {Number(c.totalSpend ?? 0).toFixed(2)} gasto</p>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      {primarySortKey === "avgRoas" ? (
-                        <>
-                          <p className="text-xs font-bold text-emerald-400">{Number(c.avgRoas ?? 0).toFixed(2)}x</p>
-                          <p className="text-xs text-muted-foreground">ROAS</p>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-xs font-bold text-emerald-400">R$ {Number(c.avgCpa ?? 0).toFixed(2)}</p>
-                          <p className="text-xs text-muted-foreground">Custo/resultado</p>
-                        </>
-                      )}
+                      <p className="text-xs font-bold text-emerald-400">{fmtNumber(Number(c.totalConversions ?? 0))}</p>
+                      <p className="text-xs text-muted-foreground">{resultLabel}</p>
                     </div>
                   </div>
                 ))
@@ -606,20 +612,22 @@ export default function Dashboard() {
               {isLoading ? (
                 <div className="space-y-2">{[...Array(3)].map((_, i) => <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />)}</div>
               ) : underCampaigns.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">Nenhum dado disponível. Sincronize sua conta.</p>
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  {activeCampaignsWithData.length <= 2
+                    ? "Com 2 ou menos campanhas ativas, todas aparecem em Top Performers."
+                    : "Nenhuma campanha ativa encontrada."}
+                </p>
               ) : (
                 underCampaigns.map((c, i) => (
                   <div key={c.campaignId} className="flex items-center gap-3 p-2.5 rounded-lg bg-accent/30">
                     <span className="w-5 h-5 rounded-full bg-red-400/20 text-red-400 text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium text-foreground truncate">{c.campaignName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {primarySortKey === "avgRoas" ? `ROAS: ${Number(c.avgRoas ?? 0).toFixed(2)}x` : `Custo: R$ ${Number(c.avgCpa ?? 0).toFixed(2)}`}
-                      </p>
+                      <p className="text-xs text-muted-foreground">R$ {Number(c.totalSpend ?? 0).toFixed(2)} gasto</p>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <p className="text-xs font-bold text-red-400">R$ {Number(c.totalSpend ?? 0).toFixed(2)}</p>
-                      <p className="text-xs text-muted-foreground">gasto</p>
+                      <p className="text-xs font-bold text-red-400">{fmtNumber(Number(c.totalConversions ?? 0))}</p>
+                      <p className="text-xs text-muted-foreground">{resultLabel}</p>
                     </div>
                   </div>
                 ))

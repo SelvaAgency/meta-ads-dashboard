@@ -121,3 +121,11 @@
 - [x] Corrigir: optimization_goal agora usa fallback pelo objective quando adsets não retornam o campo
 - [x] Corrigir: detectDominantGoal agora filtra apenas campanhas com spend > 0 no período selecionado
 - [x] Corrigir: reach é agora somado no totals do backend e passado ao frontend
+
+## Top/Underperformers e Gráficos por Meta de Desempenho
+- [x] Top Performers: filtrar apenas campanhas com status ACTIVE
+- [x] Top Performers: ordenar por totalConversions (resultados) não por ROAS
+- [x] Top Performers: se 2 campanhas ativas, ambas aparecem em Top; se >2, as melhores em Top e a pior em Under
+- [x] Underperformers: filtrar apenas campanhas ATIVAS com pior resultado; mensagem explicativa quando ≤2 ativas
+- [x] Gráfico direito: mostrar métrica principal da conta (Resultados para mensagens/leads, ROAS só para vendas)
+- [x] Gráfico direito: título e dataKey dinâmicos baseados no goalType (chartMetricKey/chartMetricLabel)
