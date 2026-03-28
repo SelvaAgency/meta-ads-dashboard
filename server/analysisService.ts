@@ -217,7 +217,49 @@ export async function generateAiSuggestions(
     optimizationGoal?: string;
     resultLabel?: string;
   }>,
-  rejectedFeedback?: Array<{ title: string; rejectionReason: string | null }>
+  rejectedFeedback?: Array<{ title: string; rejectionReason: string | null }>,
+  adsetData?: Array<{
+    id: string;
+    name: string;
+    campaign_id: string;
+    campaign_name?: string;
+    optimization_goal: string;
+    daily_budget?: string;
+    spend: number;
+    impressions: number;
+    clicks: number;
+    reach: number;
+    frequency: number;
+    ctr: number;
+    cpc: number;
+    conversions: number;
+    costPerResult: number;
+    targeting?: {
+      age_min?: number;
+      age_max?: number;
+      genders?: number[];
+      geo_locations?: { countries?: string[]; regions?: Array<{ name: string }>; cities?: Array<{ name: string }> };
+      interests?: Array<{ id: string; name: string }>;
+      custom_audiences?: Array<{ id: string; name: string }>;
+    };
+  }>,
+  adData?: Array<{
+    id: string;
+    name: string;
+    adset_id: string;
+    adset_name?: string;
+    campaign_id: string;
+    campaign_name?: string;
+    creative_type: string;
+    spend: number;
+    impressions: number;
+    clicks: number;
+    frequency: number;
+    ctr: number;
+    cpc: number;
+    conversions: number;
+    costPerResult: number;
+  }>
 ): Promise<{ generated: number; skippedReason?: string }> {
   // — Guard: need at least one campaign with real spend data
   const campaignsWithData = campaignData.filter((c) => c.totalSpend > 0 || c.totalImpressions > 0);
@@ -253,32 +295,109 @@ export async function generateAiSuggestions(
     ? `\n\n### Sugestões anteriores recusadas (não repita esses padrões):\n${rejectedFeedback.map((f) => `- "${f.title}"${f.rejectionReason ? ` — Motivo da recusa: ${f.rejectionReason}` : " (sem justificativa)"}`).join("\n")}`
     : "";
 
+  // ─── Build 3-level context blocks ───────────────────────────────────────────
+  const hasEcommerce = campaignsWithData.some(c =>
+    ["OUTCOME_SALES", "CONVERSIONS", "OFFSITE_CONVERSIONS", "VALUE"].includes(c.optimizationGoal ?? "")
+  );
+
+  let adsetBlock = "";
+  if (adsetData && adsetData.length > 0) {
+    const adsetsByCampaign = new Map<string, typeof adsetData>();
+    for (const a of adsetData) {
+      if (!adsetsByCampaign.has(a.campaign_id)) adsetsByCampaign.set(a.campaign_id, []);
+      adsetsByCampaign.get(a.campaign_id)!.push(a);
+    }
+    const lines: string[] = ["\n## NÍVEL 2 — CONJUNTOS DE ANÚNCIOS (últimos 30 dias)"];
+    adsetsByCampaign.forEach((sets) => {
+      const campName = sets[0]?.campaign_name ?? sets[0]?.campaign_id ?? "";
+      lines.push(`\n### Campanha: ${campName}`);
+      const campAvgCtr = sets.reduce((s, a) => s + a.ctr, 0) / Math.max(1, sets.length);
+      const setsWithConv = sets.filter(a => a.conversions > 0);
+      const campAvgCostPerResult = setsWithConv.length > 0
+        ? setsWithConv.reduce((s, a) => s + a.costPerResult, 0) / setsWithConv.length
+        : 0;
+      const campAvgFreq = sets.reduce((s, a) => s + a.frequency, 0) / Math.max(1, sets.length);
+      lines.push(`  Médias da campanha: CTR ${campAvgCtr.toFixed(2)}%, Custo/resultado R$${campAvgCostPerResult.toFixed(2)}, Frequência ${campAvgFreq.toFixed(2)}`);
+      for (const a of sets) {
+        const budget = a.daily_budget ? `R$${(parseFloat(a.daily_budget)/100).toFixed(2)}/dia` : "sem orçamento próprio";
+        const targeting = a.targeting ? (() => {
+          const parts: string[] = [];
+          if (a.targeting.age_min || a.targeting.age_max) parts.push(`${a.targeting.age_min ?? 18}-${a.targeting.age_max ?? 65} anos`);
+          if (a.targeting.genders?.length) parts.push(a.targeting.genders.map((g: number) => g === 1 ? "Masculino" : "Feminino").join("/"));
+          if (a.targeting.geo_locations?.cities?.length) parts.push(a.targeting.geo_locations.cities.map((c: { name: string }) => c.name).slice(0, 3).join(", "));
+          else if (a.targeting.geo_locations?.regions?.length) parts.push(a.targeting.geo_locations.regions.map((r: { name: string }) => r.name).slice(0, 3).join(", "));
+          if (a.targeting.interests?.length) parts.push(`Interesses: ${a.targeting.interests.map((i: { name: string }) => i.name).slice(0, 3).join(", ")}`);
+          if (a.targeting.custom_audiences?.length) parts.push(`Públicos: ${a.targeting.custom_audiences.map((p: { name: string }) => p.name).slice(0, 2).join(", ")}`);
+          return parts.length ? parts.join(" | ") : "Segmentação ampla";
+        })() : "Segmentação não disponível";
+        lines.push(`  - [${a.name}] Gasto: R$${a.spend.toFixed(2)} | Orçamento: ${budget} | CTR: ${a.ctr.toFixed(2)}% | CPC: R$${a.cpc.toFixed(2)} | Freq: ${a.frequency.toFixed(2)} | Resultados: ${a.conversions} | Custo/resultado: R$${a.costPerResult.toFixed(2)} | Segmentação: ${targeting}`);
+      }
+    });
+    adsetBlock = lines.join("\n");
+  }
+
+  let adBlock = "";
+  if (adData && adData.length > 0) {
+    const adsByAdset = new Map<string, typeof adData>();
+    for (const a of adData) {
+      if (!adsByAdset.has(a.adset_id)) adsByAdset.set(a.adset_id, []);
+      adsByAdset.get(a.adset_id)!.push(a);
+    }
+    const lines: string[] = ["\n## NÍVEL 3 — CRIATIVOS/ANÚNCIOS (últimos 30 dias)"];
+    adsByAdset.forEach((ads) => {
+      const adsetName = ads[0]?.adset_name ?? ads[0]?.adset_id ?? "";
+      const campName = ads[0]?.campaign_name ?? "";
+      lines.push(`\n### Conjunto: ${adsetName} (Campanha: ${campName})`);
+      const setAvgCtr = ads.reduce((s, a) => s + a.ctr, 0) / Math.max(1, ads.length);
+      const setAvgCpc = ads.reduce((s, a) => s + a.cpc, 0) / Math.max(1, ads.length);
+      const adsWithConv = ads.filter(a => a.conversions > 0);
+      const setAvgCostPerResult = adsWithConv.length > 0
+        ? adsWithConv.reduce((s, a) => s + a.costPerResult, 0) / adsWithConv.length
+        : 0;
+      lines.push(`  Médias do conjunto: CTR ${setAvgCtr.toFixed(2)}%, CPC R$${setAvgCpc.toFixed(2)}, Custo/resultado R$${setAvgCostPerResult.toFixed(2)}`);
+      for (const a of ads) {
+        lines.push(`  - [${a.name}] Formato: ${a.creative_type} | Gasto: R$${a.spend.toFixed(2)} | CTR: ${a.ctr.toFixed(2)}% | CPC: R$${a.cpc.toFixed(2)} | Freq: ${a.frequency.toFixed(2)} | Resultados: ${a.conversions} | Custo/resultado: R$${a.costPerResult.toFixed(2)}`);
+      }
+    });
+    adBlock = lines.join("\n");
+  }
+
   const prompt = `Você é um especialista sênior em Meta Ads com mais de 10 anos de experiência em otimização de campanhas de performance.
+Analise os dados REAIS de performance abaixo (3 níveis: campanha, conjunto, criativo) e gere sugestões ESPECÍFICAS e ACIONÁVEIS.
 
-Analise os dados REAIS de performance abaixo e gere sugestões PRÁTICAS e ESPECÍFICAS baseadas exclusivamente nesses dados.
+## REGRAS ABSOLUTAS:
+1. TODA sugestão deve conter: ação específica + nomenclatura EXATA (nome da campanha/conjunto/criativo) + métrica que justifica + resultado esperado
+2. NUNCA gerar sugestões genéricas sem referenciar nomes e números específicos da conta
+3. NUNCA sugerir aumento do orçamento total — apenas redistribuição dentro do R$${totalSpend.toFixed(2)} já investido
+4. NUNCA dar briefing criativo (roteiro, copy, conceito) — apenas o FORMATO (Vídeo, Estático, Carrossel${hasEcommerce ? ", Catálogo" : ""})
+5. SEMPRE comparar métricas individuais com a média do nível acima (criativo vs conjunto, conjunto vs campanha)
+6. SEMPRE considerar fase de aprendizado (mínimo 50 conversões) antes de sugerir pausas
+7. Meta de desempenho principal: ${dominantGoal} (${resultLabel})
 
-REGRAS IMPORTANTES:
-- Só gere sugestões que sejam justificadas pelos dados fornecidos
-- Não invente problemas que não aparecem nos dados
-- Se os dados mostrarem boa performance, diga isso e sugira escalar ou testar variações
-- Cada sugestão deve ter um actionItem concreto e manual (o gestor vai aplicar manualmente)
-- Meta de desempenho principal da conta: ${dominantGoal} (${resultLabel})
+## TIPOS DE SUGESTÃO PERMITIDOS (use apenas estes como category):
+- PAUSAR_CRIATIVO: criativo com CPC 2x acima da média do conjunto, CTR 50% abaixo, zero conversões com gasto >20% do orçamento, frequência >3.5, ou custo/resultado 2x acima da média
+- PAUSAR_CONJUNTO: conjunto com custo/resultado 2.5x acima da média da campanha, zero resultados com gasto >30% do orçamento, frequência >3.0, ou CTR <0.5% em tráfego/conversão
+- NOVO_PUBLICO: baseado em dados demográficos (gênero, faixa etária, região) ou oportunidade de lookalike/remarketing identificada nos dados
+- REALOCAR_ORCAMENTO: transferência específica de R$X de [campanha/conjunto ruim] para [campanha/conjunto bom], mantendo orçamento total
+- NOVO_CRIATIVO: quando conjunto tem poucos criativos, frequência alta ou todos em declínio — indicar formato e conjunto exatos
+- NOVO_CONJUNTO: quando há oportunidade de testar novo segmento dentro de campanha existente, com orçamento realocado
 
-## Dados das Campanhas (últimos 30 dias)
+## PRIORIZAÇÃO OBRIGATÓRIA (use como priority):
+- P1: pausar o que está queimando orçamento sem retorno, corrigir problemas de entrega
+- P2: realocar orçamento, pausar criativos/conjuntos abaixo da média, ajustes de segmentação com dados claros
+- P3: novos conjuntos, novos criativos, novos públicos para crescimento
 
-### Campanhas com melhor resultado (${resultLabel}):
-${topPerformers.map((c) => `- ${c.campaignName}: ${resultLabel} ${c.totalConversions}, Gasto R$${c.totalSpend.toFixed(2)}, CPA R$${c.avgCpa.toFixed(2)}, CTR ${c.avgCtr.toFixed(2)}%, CPM R$${(c.totalSpend > 0 && c.totalImpressions > 0 ? (c.totalSpend / c.totalImpressions) * 1000 : 0).toFixed(2)}`).join("\n")}
+## NÍVEL 1 — CAMPANHAS (últimos 30 dias)
+### Top performers (${resultLabel}):
+${topPerformers.map((c) => `- [${c.campaignName}] ${resultLabel}: ${c.totalConversions} | Gasto: R$${c.totalSpend.toFixed(2)} | Custo/resultado: R$${c.avgCpa.toFixed(2)} | CTR: ${c.avgCtr.toFixed(2)}% | ROAS: ${c.avgRoas.toFixed(2)}x`).join("\n")}
+### Underperformers:
+${underPerformers.map((c) => `- [${c.campaignName}] ${resultLabel}: ${c.totalConversions} | Gasto: R$${c.totalSpend.toFixed(2)} | Custo/resultado: R$${c.avgCpa.toFixed(2)} | CTR: ${c.avgCtr.toFixed(2)}% | Impressões: ${c.totalImpressions}`).join("\n")}
+### Resumo:
+- Campanhas: ${campaignsWithData.length} | Total investido: R$${totalSpend.toFixed(2)} | Total ${resultLabel}: ${campaignsWithData.reduce((s, c) => s + c.totalConversions, 0)} | Custo médio/resultado: R$${(totalSpend / Math.max(1, campaignsWithData.reduce((s, c) => s + c.totalConversions, 0))).toFixed(2)}
+${adsetBlock}
+${adBlock}${feedbackBlock}
 
-### Campanhas com pior resultado:
-${underPerformers.map((c) => `- ${c.campaignName}: ${resultLabel} ${c.totalConversions}, Gasto R$${c.totalSpend.toFixed(2)}, CPA R$${c.avgCpa.toFixed(2)}, CTR ${c.avgCtr.toFixed(2)}%, Impressões ${c.totalImpressions}`).join("\n")}
-
-### Resumo Geral:
-- Total de campanhas analisadas: ${campaignsWithData.length}
-- Total investido: R$${totalSpend.toFixed(2)}
-- Total de ${resultLabel}: ${campaignsWithData.reduce((s, c) => s + c.totalConversions, 0)}
-- CPA médio: R$${(totalSpend / Math.max(1, campaignsWithData.reduce((s, c) => s + c.totalConversions, 0))).toFixed(2)}${feedbackBlock}
-
-Gere entre 3 e 5 sugestões de melhoria em formato JSON. Cada sugestão deve ser específica, acionável e baseada nos dados fornecidos. Se não houver problemas evidentes, gere sugestões de escala e testes.`;
+Gere entre 4 e 7 sugestões em formato JSON. Se não houver dados suficientes para ser específico em algum tipo, omita esse tipo em vez de generalizar.`;
 
   try {
     const response = await invokeLLM({

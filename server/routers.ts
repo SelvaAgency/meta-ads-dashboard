@@ -52,6 +52,8 @@ import {
   getResultLabel,
   calculateRoas,
   calculateCpa,
+  getAdSetsWithInsights,
+  getAdsWithInsights,
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
@@ -540,7 +542,18 @@ export const appRouter = router({
           optimizationGoal: c.campaignOptimizationGoal ?? undefined,
           resultLabel: c.campaignResultLabel ?? undefined,
         }));
-        const result = await generateAiSuggestions(input.accountId, ctx.user.id, mapped, rejectedFeedback);
+        // Fetch 3-level data for richer AI analysis
+        let adsetInsights: Awaited<ReturnType<typeof getAdSetsWithInsights>> = [];
+        let adInsights: Awaited<ReturnType<typeof getAdsWithInsights>> = [];
+        try {
+          adsetInsights = await getAdSetsWithInsights(account.accountId, account.accessToken, startDate, endDate);
+          // Build adset->goal map for correct result extraction at ad level
+          const adsetGoalMap = new Map(adsetInsights.map(a => [a.id, a.optimization_goal]));
+          adInsights = await getAdsWithInsights(account.accountId, account.accessToken, startDate, endDate, adsetGoalMap);
+        } catch (e) {
+          console.error("[suggestions.generate] 3-level fetch failed, falling back to campaign-only:", e);
+        }
+        const result = await generateAiSuggestions(input.accountId, ctx.user.id, mapped, rejectedFeedback, adsetInsights, adInsights);
         return result;
       }),
     updateStatus: protectedProcedure

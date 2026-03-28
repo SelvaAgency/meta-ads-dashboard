@@ -27,20 +27,33 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-const categoryConfig: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; color: string }> = {
-  BUDGET: { label: "Orçamento", icon: DollarSign, color: "text-blue-400" },
-  TARGETING: { label: "Segmentação", icon: Target, color: "text-purple-400" },
-  CREATIVE: { label: "Criativo", icon: Lightbulb, color: "text-yellow-400" },
-  BIDDING: { label: "Lances", icon: DollarSign, color: "text-green-400" },
-  SCHEDULE: { label: "Agendamento", icon: RefreshCw, color: "text-orange-400" },
-  AUDIENCE: { label: "Público", icon: Users, color: "text-pink-400" },
-  GENERAL: { label: "Geral", icon: Brain, color: "text-primary" },
+const categoryConfig: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; color: string; description: string }> = {
+  // New 6 specific types
+  PAUSAR_CRIATIVO: { label: "Pausar Criativo", icon: XCircle, color: "text-red-400", description: "Criativo com performance abaixo da média do conjunto" },
+  PAUSAR_CONJUNTO: { label: "Pausar Conjunto", icon: XCircle, color: "text-orange-400", description: "Conjunto com custo/resultado acima da média da campanha" },
+  NOVO_PUBLICO: { label: "Novo Público", icon: Users, color: "text-purple-400", description: "Oportunidade de segmentação identificada nos dados" },
+  REALOCAR_ORCAMENTO: { label: "Realocar Orçamento", icon: DollarSign, color: "text-blue-400", description: "Transferência de orçamento entre campanhas/conjuntos" },
+  NOVO_CRIATIVO: { label: "Novo Criativo", icon: Lightbulb, color: "text-yellow-400", description: "Novo formato de criativo para conjunto específico" },
+  NOVO_CONJUNTO: { label: "Novo Conjunto", icon: Target, color: "text-emerald-400", description: "Novo segmento de público dentro de campanha existente" },
+  // Legacy types (backward compatibility)
+  BUDGET: { label: "Orçamento", icon: DollarSign, color: "text-blue-400", description: "Ajuste de orçamento" },
+  TARGETING: { label: "Segmentação", icon: Target, color: "text-purple-400", description: "Ajuste de segmentação" },
+  CREATIVE: { label: "Criativo", icon: Lightbulb, color: "text-yellow-400", description: "Ajuste de criativo" },
+  BIDDING: { label: "Lances", icon: DollarSign, color: "text-green-400", description: "Ajuste de lances" },
+  SCHEDULE: { label: "Agendamento", icon: RefreshCw, color: "text-orange-400", description: "Ajuste de agendamento" },
+  AUDIENCE: { label: "Público", icon: Users, color: "text-pink-400", description: "Ajuste de público" },
+  GENERAL: { label: "Geral", icon: Brain, color: "text-primary", description: "Sugestão geral" },
 };
 
-const priorityConfig: Record<string, { label: string; color: string }> = {
-  HIGH: { label: "Alta", color: "text-red-400 border-red-400/30" },
-  MEDIUM: { label: "Média", color: "text-yellow-400 border-yellow-400/30" },
-  LOW: { label: "Baixa", color: "text-blue-400 border-blue-400/30" },
+const priorityConfig: Record<string, { label: string; badge: string; color: string; bgColor: string }> = {
+  // New P1/P2/P3 system
+  P1: { label: "P1 — Urgente", badge: "P1", color: "text-red-400 border-red-400/30", bgColor: "bg-red-400/5 border-red-400/20" },
+  P2: { label: "P2 — Alto Impacto", badge: "P2", color: "text-orange-400 border-orange-400/30", bgColor: "bg-orange-400/5 border-orange-400/20" },
+  P3: { label: "P3 — Oportunidade", badge: "P3", color: "text-blue-400 border-blue-400/30", bgColor: "bg-blue-400/5 border-blue-400/20" },
+  // Legacy
+  HIGH: { label: "Alta", badge: "P1", color: "text-red-400 border-red-400/30", bgColor: "bg-red-400/5 border-red-400/20" },
+  MEDIUM: { label: "Média", badge: "P2", color: "text-yellow-400 border-yellow-400/30", bgColor: "bg-yellow-400/5 border-yellow-400/20" },
+  LOW: { label: "Baixa", badge: "P3", color: "text-blue-400 border-blue-400/30", bgColor: "bg-blue-400/5 border-blue-400/20" },
 };
 
 function formatDate(d: Date | string | null | undefined) {
@@ -103,7 +116,7 @@ function PendingSuggestionCard({ s, onStatusChange }: {
   const [isPending, setIsPending] = useState(false);
 
   const cat = categoryConfig[s.category] ?? categoryConfig.GENERAL;
-  const pri = priorityConfig[s.priority] ?? priorityConfig.LOW;
+  const pri = priorityConfig[s.priority] ?? priorityConfig.P3;
   const CatIcon = cat.icon;
   const actionItems = Array.isArray(s.actionItems) ? s.actionItems as string[] : [];
 
@@ -118,18 +131,18 @@ function PendingSuggestionCard({ s, onStatusChange }: {
   };
 
   return (
-    <Card className="border-border hover:border-primary/30 transition-all">
+    <Card className={`border-border hover:border-primary/30 transition-all ${pri.bgColor}`}>
       <CardContent className="p-4">
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 rounded-lg bg-accent/80 flex items-center justify-center flex-shrink-0">
             <CatIcon className={`w-4 h-4 ${cat.color}`} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <p className="text-sm font-semibold text-foreground">{s.title}</p>
-              <Badge variant="outline" className={`text-xs ${pri.color}`}>
-                {pri.label} prioridade
+              <Badge variant="outline" className={`text-xs font-bold ${pri.color}`}>
+                {pri.badge}
               </Badge>
+              <p className="text-sm font-semibold text-foreground">{s.title}</p>
               <Badge variant="outline" className={`text-xs ${cat.color}`}>
                 {cat.label}
               </Badge>

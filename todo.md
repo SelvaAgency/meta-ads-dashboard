@@ -223,3 +223,17 @@
 - [x] Geração de PDF profissional: sem gráficos, cores apenas nos indicadores de variação, design limpo
 - [x] Rota /dashboard-builder e /dashboard-builder/:id no App.tsx
 - [x] Item "Dashboard Builder" no menu lateral
+
+## Aprimoramento Sugestões IA (v2 — 3 níveis)
+- [x] Backend: buscar adsets com métricas (segmentação, orçamento, CTR, CPA, frequência, conversões) por conta
+- [x] Backend: buscar ads/criativos com métricas (formato, CTR, CPC, frequência, conversões) por adset
+- [x] Backend: cruzar dados campanha + adset + criativo antes de gerar sugestões
+- [x] Backend: prompt LLM reescrito com 6 tipos de sugestão (pausar criativo, pausar conjunto, novos públicos, realocação, novos criativos, novos conjuntos)
+- [x] Backend: sugestões com nomenclatura exata (nome da campanha, conjunto e criativo)
+- [x] Backend: sugestões com comparação de métricas (individual vs média do nível acima)
+- [x] Backend: priorização P1/P2/P3 por urgência e impacto
+- [x] Backend: regra de nunca sugerir aumento de orçamento total
+- [x] Backend: regra de não dar briefing criativo (apenas formato)
+- [x] Frontend: exibir badge de prioridade (P1 urgente, P2 alto impacto, P3 oportunidade)
+- [x] Frontend: exibir tipo de sugestão (Pausar Criativo, Pausar Conjunto, Novo Público, etc.)
+- [x] Frontend: exibir métricas de justificativa em cada sugestão

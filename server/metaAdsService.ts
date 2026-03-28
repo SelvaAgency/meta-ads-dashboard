@@ -758,3 +758,258 @@ export async function checkRealTimeAlerts(
 
   return alerts;
 }
+
+// ─── 3-Level Data Fetching for AI Suggestions ────────────────────────────────
+
+export interface AdSetWithInsights {
+  id: string;
+  name: string;
+  campaign_id: string;
+  campaign_name?: string;
+  status: string;
+  effective_status: string;
+  optimization_goal: string;
+  daily_budget?: string;
+  lifetime_budget?: string;
+  targeting?: {
+    age_min?: number;
+    age_max?: number;
+    genders?: number[]; // 1=male, 2=female
+    geo_locations?: {
+      countries?: string[];
+      regions?: Array<{ name: string }>;
+      cities?: Array<{ name: string }>;
+    };
+    interests?: Array<{ id: string; name: string }>;
+    custom_audiences?: Array<{ id: string; name: string }>;
+  };
+  // Insights (period)
+  spend: number;
+  impressions: number;
+  clicks: number;
+  reach: number;
+  frequency: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  conversions: number;
+  costPerResult: number;
+  roas: number;
+}
+
+export interface AdWithInsights {
+  id: string;
+  name: string;
+  adset_id: string;
+  adset_name?: string;
+  campaign_id: string;
+  campaign_name?: string;
+  status: string;
+  effective_status: string;
+  creative_type: string; // VIDEO, IMAGE, CAROUSEL, CATALOG
+  // Insights (period)
+  spend: number;
+  impressions: number;
+  clicks: number;
+  frequency: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  conversions: number;
+  costPerResult: number;
+  roas: number;
+}
+
+/**
+ * Fetch adsets with full insights for 3-level AI analysis.
+ * Returns adsets with targeting info + performance metrics.
+ */
+export async function getAdSetsWithInsights(
+  accountId: string,
+  accessToken: string,
+  startDate: string,
+  endDate: string
+): Promise<AdSetWithInsights[]> {
+  try {
+    // Step 1: Get adsets with targeting
+    const adsetData = await metaFetch<{
+      data: Array<{
+        id: string;
+        name: string;
+        campaign_id: string;
+        status: string;
+        effective_status: string;
+        optimization_goal: string;
+        daily_budget?: string;
+        lifetime_budget?: string;
+        targeting?: AdSetWithInsights["targeting"];
+      }>;
+    }>(`act_${accountId}/adsets`, {
+      access_token: accessToken,
+      fields: "id,name,campaign_id,status,effective_status,optimization_goal,daily_budget,lifetime_budget,targeting",
+      filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED"] }]),
+      limit: "200",
+    });
+
+    const adsets = adsetData.data ?? [];
+    if (adsets.length === 0) return [];
+
+    // Step 2: Get insights for all adsets in the period
+    const insightData = await metaFetch<{
+      data: Array<{
+        adset_id: string;
+        adset_name: string;
+        campaign_id: string;
+        campaign_name: string;
+        spend: string;
+        impressions: string;
+        clicks: string;
+        reach: string;
+        frequency: string;
+        ctr: string;
+        cpc: string;
+        cpm: string;
+        actions?: Array<{ action_type: string; value: string }>;
+        purchase_roas?: Array<{ action_type: string; value: string }>;
+      }>;
+    }>(`act_${accountId}/insights`, {
+      access_token: accessToken,
+      level: "adset",
+      fields: "adset_id,adset_name,campaign_id,campaign_name,spend,impressions,clicks,reach,frequency,ctr,cpc,cpm,actions,purchase_roas",
+      time_range: JSON.stringify({ since: startDate, until: endDate }),
+      limit: "500",
+    });
+
+    const insightMap = new Map<string, (typeof insightData.data)[0]>();
+    for (const ins of insightData.data ?? []) {
+      insightMap.set(ins.adset_id, ins);
+    }
+
+    return adsets.map((adset) => {
+      const ins = insightMap.get(adset.id);
+      const spend = parseFloat(ins?.spend ?? "0") || 0;
+      const impressions = parseInt(ins?.impressions ?? "0") || 0;
+      const clicks = parseInt(ins?.clicks ?? "0") || 0;
+      const reach = parseInt(ins?.reach ?? "0") || 0;
+      const frequency = parseFloat(ins?.frequency ?? "0") || 0;
+      const ctr = parseFloat(ins?.ctr ?? "0") || 0;
+      const cpc = parseFloat(ins?.cpc ?? "0") || 0;
+      const cpm = parseFloat(ins?.cpm ?? "0") || 0;
+      const conversions = extractResultsByGoal(ins?.actions, adset.optimization_goal);
+      const costPerResult = spend > 0 && conversions > 0 ? spend / conversions : 0;
+      const roas = extractPurchaseRoas(ins?.purchase_roas, spend, 0);
+      return {
+        ...adset,
+        campaign_name: ins?.campaign_name,
+        spend, impressions, clicks, reach, frequency, ctr, cpc, cpm,
+        conversions, costPerResult, roas,
+      };
+    });
+  } catch (err) {
+    console.error("[getAdSetsWithInsights] Failed:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetch ads/creatives with full insights for 3-level AI analysis.
+ */
+export async function getAdsWithInsights(
+  accountId: string,
+  accessToken: string,
+  startDate: string,
+  endDate: string,
+  adsetGoalMap?: Map<string, string>
+): Promise<AdWithInsights[]> {
+  try {
+    // Step 1: Get ads with creative type
+    const adData = await metaFetch<{
+      data: Array<{
+        id: string;
+        name: string;
+        adset_id: string;
+        campaign_id: string;
+        status: string;
+        effective_status: string;
+        creative?: { object_type?: string };
+      }>;
+    }>(`act_${accountId}/ads`, {
+      access_token: accessToken,
+      fields: "id,name,adset_id,campaign_id,status,effective_status,creative{object_type}",
+      filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED"] }]),
+      limit: "500",
+    });
+
+    const ads = adData.data ?? [];
+    if (ads.length === 0) return [];
+
+    // Step 2: Get insights for all ads
+    const insightData = await metaFetch<{
+      data: Array<{
+        ad_id: string;
+        ad_name: string;
+        adset_id: string;
+        adset_name: string;
+        campaign_id: string;
+        campaign_name: string;
+        spend: string;
+        impressions: string;
+        clicks: string;
+        frequency: string;
+        ctr: string;
+        cpc: string;
+        cpm: string;
+        actions?: Array<{ action_type: string; value: string }>;
+        purchase_roas?: Array<{ action_type: string; value: string }>;
+      }>;
+    }>(`act_${accountId}/insights`, {
+      access_token: accessToken,
+      level: "ad",
+      fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,impressions,clicks,frequency,ctr,cpc,cpm,actions,purchase_roas",
+      time_range: JSON.stringify({ since: startDate, until: endDate }),
+      limit: "1000",
+    });
+
+    const insightMap = new Map<string, (typeof insightData.data)[0]>();
+    for (const ins of insightData.data ?? []) {
+      insightMap.set(ins.ad_id, ins);
+    }
+
+    return ads.map((ad) => {
+      const ins = insightMap.get(ad.id);
+      const spend = parseFloat(ins?.spend ?? "0") || 0;
+      const impressions = parseInt(ins?.impressions ?? "0") || 0;
+      const clicks = parseInt(ins?.clicks ?? "0") || 0;
+      const frequency = parseFloat(ins?.frequency ?? "0") || 0;
+      const ctr = parseFloat(ins?.ctr ?? "0") || 0;
+      const cpc = parseFloat(ins?.cpc ?? "0") || 0;
+      const cpm = parseFloat(ins?.cpm ?? "0") || 0;
+      const goal = adsetGoalMap?.get(ad.adset_id) ?? "OFFSITE_CONVERSIONS";
+      const conversions = extractResultsByGoal(ins?.actions, goal);
+      const costPerResult = spend > 0 && conversions > 0 ? spend / conversions : 0;
+      const roas = extractPurchaseRoas(ins?.purchase_roas, spend, 0);
+      // Map creative type from object_type
+      const objType = (ad.creative?.object_type ?? "").toUpperCase();
+      let creative_type = "IMAGE";
+      if (objType.includes("VIDEO")) creative_type = "VIDEO";
+      else if (objType.includes("CAROUSEL") || objType.includes("MULTI")) creative_type = "CAROUSEL";
+      else if (objType.includes("COLLECTION") || objType.includes("CATALOG")) creative_type = "CATALOG";
+      return {
+        id: ad.id,
+        name: ad.name,
+        adset_id: ad.adset_id,
+        adset_name: ins?.adset_name,
+        campaign_id: ad.campaign_id,
+        campaign_name: ins?.campaign_name,
+        status: ad.status,
+        effective_status: ad.effective_status,
+        creative_type,
+        spend, impressions, clicks, frequency, ctr, cpc, cpm,
+        conversions, costPerResult, roas,
+      };
+    });
+  } catch (err) {
+    console.error("[getAdsWithInsights] Failed:", err);
+    return [];
+  }
+}
