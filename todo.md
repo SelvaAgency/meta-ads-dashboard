@@ -160,3 +160,23 @@
 - [x] Frontend: anomalias carregam automaticamente a cada 5 min (sem botão "Executar Detecção")
 - [x] Frontend: alertas somem da lista ao marcar como lido (optimistic update)
 - [x] Frontend: "Marcar todos como lidos" remove todos os alertas de uma vez
+
+## Regras de Anomalias e Alertas em Tempo Real
+- [ ] Anomalia: queda de performance geral (CTR, impressões, entrega)
+- [ ] Anomalia: queda de ROAS ≥ 10% em relação à média dos 7 dias anteriores
+- [ ] Anomalia: queda de resultados ≥ 20% após análise de 7 dias
+- [ ] Anomalia: alteração abrupta de métricas que prejudique a campanha (pico de CPA, queda de CTR > 30%)
+- [ ] Alerta em tempo real: campanha pausada por erro (effective_status = WITH_ISSUES ou CAMPAIGN_PAUSED)
+- [ ] Alerta em tempo real: saldo abaixo de R$200 na conta
+- [ ] Alerta em tempo real: falha no pagamento (funding_source_details com status de erro)
+- [ ] Alerta em tempo real: criativo rejeitado (ad com review_feedback ou status DISAPPROVED)
+- [ ] Alerta em tempo real: erros no conjunto ou nos criativos (adset/ad com effective_status problemático)
+- [ ] Backend: buscar effective_status de campanhas, adsets e ads na API do Meta para detectar problemas
+- [ ] Backend: buscar review_feedback dos ads para detectar criativos rejeitados
+- [ ] Backend: verificar funding_source_details para detectar falha de pagamento
+
+## Agendamento Personalizável e Filtro de Campanhas
+- [ ] Frontend: horário de agendamento de relatório personalizável (input de hora/minuto)
+- [ ] Backend: salvar horário personalizado no scheduled_reports e usar no cron
+- [ ] Frontend: página de Campanhas mostra apenas ATIVAS + PAUSADAS nos últimos 7 dias
+- [ ] Backend: filtrar campanhas por status ACTIVE ou (PAUSED com updatedAt nos últimos 7 dias)

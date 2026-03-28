@@ -38,6 +38,7 @@ import {
   extractPurchaseRoas,
   calculateCpa,
   getResultLabel,
+  checkRealTimeAlerts,
 } from "./metaAdsService";
 
 const SYNC_DAYS = 30; // Always sync 30 days to ensure complete data for all dashboard filters
@@ -249,6 +250,36 @@ async function runAnomalyDetection() {
 
       if (detected.length > 0) {
         console.log(`[AutoAnomalies] ✓ ${detected.length} anomalia(s) detectada(s) na conta "${account.accountName ?? account.accountId}"`);
+      }
+
+      // ── Real-time alerts (campanha pausada, saldo baixo, pagamento, criativo rejeitado)
+      try {
+        const realTimeAlerts = await checkRealTimeAlerts(account.accountId, account.accessToken);
+        for (const rta of realTimeAlerts) {
+          const alertResult = await createAlert({
+            userId: account.userId,
+            accountId: account.id,
+            title: rta.title,
+            message: rta.message,
+            type: rta.type as any,
+            severity: rta.severity === "CRITICAL" ? "CRITICAL" : "WARNING",
+          });
+          const alertId = (alertResult as any).insertId as number | undefined;
+
+          // Send email only once per alert (emailSentAt guards against duplicates)
+          if (rta.severity === "CRITICAL" && alertId) {
+            const sent = await notifyOwner({
+              title: `🚨 ${rta.title}`,
+              content: `Conta: ${account.accountName ?? account.accountId}\n\n${rta.message}`,
+            });
+            if (sent) await markAlertEmailSent(alertId);
+          }
+        }
+        if (realTimeAlerts.length > 0) {
+          console.log(`[AutoAnomalies] ✓ ${realTimeAlerts.length} alerta(s) em tempo real na conta "${account.accountName ?? account.accountId}"`);
+        }
+      } catch (err) {
+        console.error(`[AutoAnomalies] Erro ao verificar alertas em tempo real na conta ${account.accountId}:`, err);
       }
     } catch (err) {
       console.error(`[AutoAnomalies] Erro ao detectar anomalias na conta ${account.accountId}:`, err);

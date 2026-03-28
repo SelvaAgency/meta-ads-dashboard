@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -137,6 +137,34 @@ export async function getCampaignsByAccountId(accountId: number) {
     .from(campaigns)
     .where(eq(campaigns.accountId, accountId))
     .orderBy(desc(campaigns.updatedAt));
+}
+
+/**
+ * Get campaigns for the Campaigns page:
+ * - All ACTIVE campaigns
+ * - PAUSED campaigns updated in the last 7 days (recently paused)
+ * Excludes DELETED and ARCHIVED campaigns, and old PAUSED ones.
+ */
+export async function getActiveCampaignsForDisplay(accountId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  return db
+    .select()
+    .from(campaigns)
+    .where(
+      and(
+        eq(campaigns.accountId, accountId),
+        or(
+          eq(campaigns.status, "ACTIVE"),
+          and(
+            eq(campaigns.status, "PAUSED"),
+            gte(campaigns.updatedAt, sevenDaysAgo)
+          )
+        )
+      )
+    )
+    .orderBy(desc(campaigns.status), desc(campaigns.updatedAt));
 }
 
 export async function upsertCampaign(data: InsertCampaign) {

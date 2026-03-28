@@ -111,6 +111,8 @@ export const anomalies = mysqlTable("anomalies", {
     "FREQUENCY_HIGH",
     "CONVERSION_DROP",
     "BUDGET_EXHAUSTED",
+    "PERFORMANCE_DROP",
+    "RESULTS_DROP",
   ]).notNull(),
   severity: mysqlEnum("severity", ["LOW", "MEDIUM", "HIGH", "CRITICAL"]).notNull(),
   title: varchar("title", { length: 255 }).notNull(),
@@ -180,6 +182,9 @@ export const scheduledReports = mysqlTable("scheduled_reports", {
   accountId: int("accountId").notNull(),
   frequency: mysqlEnum("frequency", ["DAILY", "WEEKLY"]).notNull(),
   isActive: boolean("isActive").default(true).notNull(),
+  // Horário personalizável (0-23 para hora, 0-59 para minuto)
+  scheduleHour: int("scheduleHour").default(8).notNull(),
+  scheduleMinute: int("scheduleMinute").default(0).notNull(),
   lastRunAt: timestamp("lastRunAt"),
   nextRunAt: timestamp("nextRunAt"),
   lastReportContent: text("lastReportContent"),
@@ -198,7 +203,7 @@ export const alerts = mysqlTable("alerts", {
   anomalyId: int("anomalyId"),
   title: varchar("title", { length: 255 }).notNull(),
   message: text("message").notNull(),
-  type: mysqlEnum("type", ["ANOMALY", "REPORT", "SYNC_ERROR", "BUDGET_WARNING"]).notNull(),
+  type: mysqlEnum("type", ["ANOMALY", "REPORT", "SYNC_ERROR", "BUDGET_WARNING", "CAMPAIGN_PAUSED", "PAYMENT_FAILED", "AD_REJECTED", "AD_ERROR"]).notNull(),
   severity: mysqlEnum("severity", ["INFO", "WARNING", "CRITICAL"]).notNull(),
    isRead: boolean("isRead").default(false).notNull(),
   // Controle de envio de email: null = ainda não enviado, data = já enviado (enviar apenas uma vez)

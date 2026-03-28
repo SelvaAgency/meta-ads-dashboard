@@ -16,6 +16,7 @@ import {
   getAlertsByUserId,
   getCampaignPerformanceSummary,
   getCampaignsByAccountId,
+  getActiveCampaignsForDisplay,
   getMetaAdAccountById,
   getMetaAdAccountsByUserId,
   getScheduledReportsByUserId,
@@ -364,7 +365,7 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         const account = await getMetaAdAccountById(input.accountId);
         if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-        return getCampaignsByAccountId(input.accountId);
+        return getActiveCampaignsForDisplay(input.accountId);
       }),
 
     performance: protectedProcedure
@@ -587,33 +588,39 @@ export const appRouter = router({
       return getScheduledReportsByUserId(ctx.user.id);
     }),
 
-    create: protectedProcedure
+     create: protectedProcedure
       .input(
         z.object({
           accountId: z.number(),
           frequency: z.enum(["DAILY", "WEEKLY"]),
+          scheduleHour: z.number().min(0).max(23).default(8),
+          scheduleMinute: z.number().min(0).max(59).default(0),
         })
       )
       .mutation(async ({ ctx, input }) => {
         const account = await getMetaAdAccountById(input.accountId);
         if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-
+        const h = input.scheduleHour;
+        const m = input.scheduleMinute;
         const nextRun = new Date();
         if (input.frequency === "DAILY") {
-          nextRun.setDate(nextRun.getDate() + 1);
-          nextRun.setHours(8, 0, 0, 0);
+          // Next occurrence of the chosen time (today if not yet passed, else tomorrow)
+          nextRun.setHours(h, m, 0, 0);
+          if (nextRun <= new Date()) nextRun.setDate(nextRun.getDate() + 1);
         } else {
-          nextRun.setDate(nextRun.getDate() + (7 - nextRun.getDay()));
-          nextRun.setHours(8, 0, 0, 0);
+          // Next Monday at the chosen time
+          const daysUntilMonday = (8 - nextRun.getDay()) % 7 || 7;
+          nextRun.setDate(nextRun.getDate() + daysUntilMonday);
+          nextRun.setHours(h, m, 0, 0);
         }
-
         await createScheduledReport({
           userId: ctx.user.id,
           accountId: input.accountId,
           frequency: input.frequency,
           nextRunAt: nextRun,
+          scheduleHour: h,
+          scheduleMinute: m,
         });
-
         return { success: true };
       }),
 

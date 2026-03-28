@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `alerts` MODIFY COLUMN `type` enum('ANOMALY','REPORT','SYNC_ERROR','BUDGET_WARNING','CAMPAIGN_PAUSED','PAYMENT_FAILED','AD_REJECTED','AD_ERROR') NOT NULL;\nALTER TABLE `anomalies` MODIFY COLUMN `type` enum('ROAS_DROP','CPA_SPIKE','CTR_DROP','SPEND_SPIKE','DELIVERY_CHANGE','FREQUENCY_HIGH','CONVERSION_DROP','BUDGET_EXHAUSTED','PERFORMANCE_DROP','RESULTS_DROP') NOT NULL;\nALTER TABLE `scheduled_reports` ADD `scheduleHour` int DEFAULT 8 NOT NULL;\nALTER TABLE `scheduled_reports` ADD `scheduleMinute` int DEFAULT 0 NOT NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 47k5kQkoq9oHa8j.root --database YKCqwPqSgxUTxNQRFe3oLu --execute ALTER TABLE `alerts` MODIFY COLUMN `type` enum('ANOMALY','REPORT','SYNC_ERROR','BUDGET_WARNING','CAMPAIGN_PAUSED','PAYMENT_FAILED','AD_REJECTED','AD_ERROR') NOT NULL;\nALTER TABLE `anomalies` MODIFY COLUMN `type` enum('ROAS_DROP','CPA_SPIKE','CTR_DROP','SPEND_SPIKE','DELIVERY_CHANGE','FREQUENCY_HIGH','CONVERSION_DROP','BUDGET_EXHAUSTED','PERFORMANCE_DROP','RESULTS_DROP') NOT NULL;\nALTER TABLE `scheduled_reports` ADD `scheduleHour` int DEFAULT 8 NOT NULL;\nALTER TABLE `scheduled_reports` ADD `scheduleMinute` int DEFAULT 0 NOT NULL;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 475
+}

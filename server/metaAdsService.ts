@@ -475,3 +475,160 @@ export function calculateCpa(spend: number, conversions: number): number {
   if (conversions <= 0) return 0;
   return spend / conversions;
 }
+
+// ─── Real-time Alert Detection ────────────────────────────────────────────────
+
+export interface RealTimeAlert {
+  type: "CAMPAIGN_PAUSED" | "PAYMENT_FAILED" | "AD_REJECTED" | "AD_ERROR" | "BUDGET_WARNING";
+  severity: "WARNING" | "CRITICAL";
+  title: string;
+  message: string;
+  campaignId?: string;
+  campaignName?: string;
+  adId?: string;
+  adName?: string;
+}
+
+/**
+ * Check for real-time issues in an ad account:
+ * - Campaigns paused due to errors (effective_status = WITH_ISSUES)
+ * - Balance below R$200
+ * - Payment failures (no valid funding source)
+ * - Rejected creatives (ads with DISAPPROVED status)
+ * - Errors in ad sets or ads (WITH_ISSUES)
+ */
+export async function checkRealTimeAlerts(
+  accountId: string,
+  accessToken: string
+): Promise<RealTimeAlert[]> {
+  const alerts: RealTimeAlert[] = [];
+
+  // 1. Check account billing for low balance and payment failures
+  try {
+    const billing = await getAccountBilling(accountId, accessToken);
+    if (billing) {
+      if (billing.remainingBalance !== null && billing.remainingBalance < 200) {
+        alerts.push({
+          type: "BUDGET_WARNING",
+          severity: billing.remainingBalance < 50 ? "CRITICAL" : "WARNING",
+          title: "Saldo baixo na conta",
+          message: `Saldo disponível: R$${billing.remainingBalance.toFixed(2)}. Recarregue em breve para evitar interrupção das campanhas.`,
+        });
+      }
+      if (billing.fundingSourceType === null && billing.fundingSourceDisplay === null) {
+        alerts.push({
+          type: "PAYMENT_FAILED",
+          severity: "CRITICAL",
+          title: "Falha na forma de pagamento",
+          message: "Nenhuma forma de pagamento válida encontrada. Verifique as configurações de pagamento no Business Manager.",
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[RealTimeAlerts] Billing check failed:", err);
+  }
+
+  // 2. Check campaigns for issues (effective_status = WITH_ISSUES)
+  try {
+    const data = await metaFetch<{ data: Array<{
+      id: string;
+      name: string;
+      status: string;
+      effective_status: string;
+      issues_info?: Array<{ error_code: number; error_message: string; level: string; error_summary: string }>;
+    }> }>(`act_${accountId}/campaigns`, {
+      access_token: accessToken,
+      fields: "id,name,status,effective_status,issues_info",
+      limit: "200",
+      effective_status: JSON.stringify(["WITH_ISSUES"]),
+    });
+
+    for (const campaign of (data.data ?? [])) {
+      const issueMsg = campaign.issues_info?.[0]?.error_summary ?? "Verifique os detalhes no Meta Ads Manager.";
+      alerts.push({
+        type: "CAMPAIGN_PAUSED",
+        severity: "CRITICAL",
+        title: `Campanha com problema: ${campaign.name}`,
+        message: `A campanha "${campaign.name}" está com problemas de entrega. ${issueMsg}`,
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+      });
+    }
+  } catch (err) {
+    console.error("[RealTimeAlerts] Campaign status check failed:", err);
+  }
+
+  // 3. Check ads for rejected creatives and errors
+  try {
+    const data = await metaFetch<{ data: Array<{
+      id: string;
+      name: string;
+      effective_status: string;
+      review_feedback?: Record<string, string>;
+      issues_info?: Array<{ error_code: number; error_message: string; level: string; error_summary: string }>;
+    }> }>(`act_${accountId}/ads`, {
+      access_token: accessToken,
+      fields: "id,name,effective_status,review_feedback,issues_info",
+      limit: "500",
+      effective_status: JSON.stringify(["DISAPPROVED", "WITH_ISSUES"]),
+    });
+
+    for (const ad of (data.data ?? [])) {
+      if (ad.effective_status === "DISAPPROVED") {
+        const feedbackEntries = Object.entries(ad.review_feedback ?? {});
+        const reason = feedbackEntries.length > 0
+          ? feedbackEntries.map(([, v]) => v).join("; ")
+          : "Verifique o motivo no Meta Ads Manager.";
+        alerts.push({
+          type: "AD_REJECTED",
+          severity: "CRITICAL",
+          title: `Criativo rejeitado: ${ad.name}`,
+          message: `O anúncio "${ad.name}" foi reprovado pela Meta. Motivo: ${reason}`,
+          adId: ad.id,
+          adName: ad.name,
+        });
+      } else if (ad.effective_status === "WITH_ISSUES") {
+        const issueMsg = ad.issues_info?.[0]?.error_summary ?? "Verifique os detalhes no Meta Ads Manager.";
+        alerts.push({
+          type: "AD_ERROR",
+          severity: "WARNING",
+          title: `Erro no anúncio: ${ad.name}`,
+          message: `O anúncio "${ad.name}" está com problemas. ${issueMsg}`,
+          adId: ad.id,
+          adName: ad.name,
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[RealTimeAlerts] Ad status check failed:", err);
+  }
+
+  // 4. Check adsets for errors
+  try {
+    const data = await metaFetch<{ data: Array<{
+      id: string;
+      name: string;
+      effective_status: string;
+      issues_info?: Array<{ error_code: number; error_message: string; level: string; error_summary: string }>;
+    }> }>(`act_${accountId}/adsets`, {
+      access_token: accessToken,
+      fields: "id,name,effective_status,issues_info",
+      limit: "500",
+      effective_status: JSON.stringify(["WITH_ISSUES"]),
+    });
+
+    for (const adset of (data.data ?? [])) {
+      const issueMsg = adset.issues_info?.[0]?.error_summary ?? "Verifique os detalhes no Meta Ads Manager.";
+      alerts.push({
+        type: "AD_ERROR",
+        severity: "WARNING",
+        title: `Erro no conjunto: ${adset.name}`,
+        message: `O conjunto "${adset.name}" está com problemas. ${issueMsg}`,
+      });
+    }
+  } catch (err) {
+    console.error("[RealTimeAlerts] Adset status check failed:", err);
+  }
+
+  return alerts;
+}

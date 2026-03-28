@@ -35,6 +35,12 @@ export default function Reports() {
   const [generatingFreq, setGeneratingFreq] = useState<"DAILY" | "WEEKLY" | null>(null);
   const [copied, setCopied] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [scheduleModal, setScheduleModal] = useState<{ open: boolean; frequency: "DAILY" | "WEEKLY" | null }>({
+    open: false,
+    frequency: null,
+  });
+  const [scheduleHour, setScheduleHour] = useState(8);
+  const [scheduleMinute, setScheduleMinute] = useState(0);
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
 
@@ -161,14 +167,11 @@ export default function Reports() {
                   <Button
                     variant="outline"
                     size="icon"
-                    title="Agendar diário às 08h"
-                    onClick={() =>
-                      selectedAccountId &&
-                      createReport.mutate({ accountId: selectedAccountId, frequency: "DAILY" })
-                    }
+                    title="Agendar relatório diário"
+                    onClick={() => setScheduleModal({ open: true, frequency: "DAILY" })}
                     disabled={createReport.isPending}
                   >
-                    <Plus className="w-4 h-4" />
+                    <Clock className="w-4 h-4" />
                   </Button>
                 ) : null}
               </div>
@@ -216,14 +219,11 @@ export default function Reports() {
                   <Button
                     variant="outline"
                     size="icon"
-                    title="Agendar semanal às segundas 08h"
-                    onClick={() =>
-                      selectedAccountId &&
-                      createReport.mutate({ accountId: selectedAccountId, frequency: "WEEKLY" })
-                    }
+                    title="Agendar relatório semanal"
+                    onClick={() => setScheduleModal({ open: true, frequency: "WEEKLY" })}
                     disabled={createReport.isPending}
                   >
-                    <Plus className="w-4 h-4" />
+                    <Clock className="w-4 h-4" />
                   </Button>
                 ) : null}
               </div>
@@ -363,7 +363,9 @@ export default function Reports() {
                       </div>
                       <div>
                         <p className="text-sm font-medium">
-                          {schedule.frequency === "DAILY" ? "Diário — 08h" : "Semanal — Segunda às 08h"}
+                          {schedule.frequency === "DAILY"
+                            ? `Diário — ${String(schedule.scheduleHour ?? 8).padStart(2, "0")}:${String(schedule.scheduleMinute ?? 0).padStart(2, "0")}h`
+                            : `Semanal — Segunda às ${String(schedule.scheduleHour ?? 8).padStart(2, "0")}:${String(schedule.scheduleMinute ?? 0).padStart(2, "0")}h`}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           Próximo envio:{" "}
@@ -440,6 +442,103 @@ export default function Reports() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Schedule Time Picker Modal */}
+      {scheduleModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Clock className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-foreground">
+                  Agendar Relatório {scheduleModal.frequency === "DAILY" ? "Diário" : "Semanal"}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  {scheduleModal.frequency === "DAILY"
+                    ? "Enviado todos os dias no horário escolhido"
+                    : "Enviado toda segunda-feira no horário escolhido"}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-foreground">Horário de envio (Brasília)</p>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 space-y-1">
+                  <label className="text-xs text-muted-foreground">Hora</label>
+                  <select
+                    value={scheduleHour}
+                    onChange={(e) => setScheduleHour(Number(e.target.value))}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    {Array.from({ length: 24 }, (_, i) => (
+                      <option key={i} value={i}>
+                        {String(i).padStart(2, "0")}h
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="text-xl font-bold text-muted-foreground mt-4">:</div>
+                <div className="flex-1 space-y-1">
+                  <label className="text-xs text-muted-foreground">Minuto</label>
+                  <select
+                    value={scheduleMinute}
+                    onChange={(e) => setScheduleMinute(Number(e.target.value))}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    {[0, 15, 30, 45].map((m) => (
+                      <option key={m} value={m}>
+                        {String(m).padStart(2, "0")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 bg-primary/5 border border-primary/20 rounded-lg px-3 py-2">
+                <Info className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  Agendado para{" "}
+                  <span className="text-foreground font-medium">
+                    {String(scheduleHour).padStart(2, "0")}:{String(scheduleMinute).padStart(2, "0")} (Brasília)
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setScheduleModal({ open: false, frequency: null })}
+              >
+                Cancelar
+              </Button>
+              <Button
+                className="flex-1"
+                disabled={createReport.isPending}
+                onClick={() => {
+                  if (!selectedAccountId || !scheduleModal.frequency) return;
+                  createReport.mutate({
+                    accountId: selectedAccountId,
+                    frequency: scheduleModal.frequency,
+                    scheduleHour,
+                    scheduleMinute,
+                  });
+                  setScheduleModal({ open: false, frequency: null });
+                }}
+              >
+                {createReport.isPending ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Agendando...</>
+                ) : (
+                  <><Check className="w-4 h-4 mr-2" /> Confirmar Agendamento</>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </MetaDashboardLayout>
   );
 }

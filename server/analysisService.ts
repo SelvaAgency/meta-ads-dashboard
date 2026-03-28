@@ -23,10 +23,10 @@ interface AnomalyThresholds {
 }
 
 const DEFAULT_THRESHOLDS: AnomalyThresholds = {
-  roasDropPercent: 25,
-  cpaSpikePercent: 30,
-  ctrDropPercent: 30,
-  spendSpikePercent: 50,
+  roasDropPercent: 10,   // Alerta a partir de -10% de queda no ROAS
+  cpaSpikePercent: 30,   // Alerta a partir de +30% de aumento no CPA
+  ctrDropPercent: 30,    // Alerta a partir de -30% de queda no CTR
+  spendSpikePercent: 50, // Alerta a partir de +50% de aumento no gasto
   frequencyHighValue: 4.0,
 };
 
@@ -132,6 +132,46 @@ export function detectAnomalies(
       previousValue: 0,
       changePercent: 0,
     });
+  }
+
+  // PERFORMANCE_DROP: queda geral de performance (CTR + impressions juntos)
+  const currImpressions = parseFloat(String(current.impressions ?? 0));
+  const prevImpressions = parseFloat(String(previous.impressions ?? 0));
+  if (prevImpressions > 0 && prevCtr > 0) {
+    const impressionChange = pctChange(currImpressions, prevImpressions);
+    const ctrChange = prevCtr > 0 ? pctChange(currCtr, prevCtr) : 0;
+    // Queda abrupta em ambas as métricas indica problema de entrega
+    if (impressionChange <= -40 && ctrChange <= -20) {
+      detected.push({
+        type: "PERFORMANCE_DROP",
+        severity: impressionChange <= -60 ? "CRITICAL" : "HIGH",
+        title: "Queda abrupta de performance detectada",
+        description: `Impressões caíram ${Math.abs(impressionChange).toFixed(1)}% e CTR caiu ${Math.abs(ctrChange).toFixed(1)}% em relação ao período anterior. Verifique a entrega das campanhas, orçamento e aprovação de criativos.`,
+        metricName: "impressions",
+        currentValue: currImpressions,
+        previousValue: prevImpressions,
+        changePercent: impressionChange,
+      });
+    }
+  }
+
+  // RESULTS_DROP: queda de resultados ≥ 20% após análise de 7 dias
+  const currConversions = parseFloat(String(current.conversions ?? 0));
+  const prevConversions = parseFloat(String(previous.conversions ?? 0));
+  if (prevConversions > 0) {
+    const change = pctChange(currConversions, prevConversions);
+    if (change <= -20) {
+      detected.push({
+        type: "RESULTS_DROP",
+        severity: change <= -50 ? "CRITICAL" : change <= -35 ? "HIGH" : "MEDIUM",
+        title: "Queda de resultados detectada",
+        description: `Os resultados caíram de ${prevConversions.toFixed(0)} para ${currConversions.toFixed(0)} (${Math.abs(change).toFixed(1)}% de queda). Revise os criativos, segmentação e página de destino.`,
+        metricName: "conversions",
+        currentValue: currConversions,
+        previousValue: prevConversions,
+        changePercent: change,
+      });
+    }
   }
 
   return detected;

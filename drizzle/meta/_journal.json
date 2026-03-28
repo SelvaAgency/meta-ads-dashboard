@@ -36,6 +36,13 @@
       "when": 1774668176989,
       "tag": "0004_mature_corsair",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1774668633650,
+      "tag": "0005_bizarre_talos",
+      "breakpoints": true
     }
   ]
 }
