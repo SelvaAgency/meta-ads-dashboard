@@ -29,6 +29,13 @@
       "when": 1774542865388,
       "tag": "0003_charming_giant_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1774668176989,
+      "tag": "0004_mature_corsair",
+      "breakpoints": true
     }
   ]
 }

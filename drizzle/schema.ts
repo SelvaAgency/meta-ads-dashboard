@@ -123,9 +123,10 @@ export const anomalies = mysqlTable("anomalies", {
   resolvedAt: timestamp("resolvedAt"),
   isRead: boolean("isRead").default(false).notNull(),
   isResolved: boolean("isResolved").default(false).notNull(),
+  // Controle de envio de email: null = ainda não enviado, data = já enviado (enviar apenas uma vez)
+  emailSentAt: timestamp("emailSentAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
-
 export type Anomaly = typeof anomalies.$inferSelect;
 export type InsertAnomaly = typeof anomalies.$inferInsert;
 
@@ -199,9 +200,10 @@ export const alerts = mysqlTable("alerts", {
   message: text("message").notNull(),
   type: mysqlEnum("type", ["ANOMALY", "REPORT", "SYNC_ERROR", "BUDGET_WARNING"]).notNull(),
   severity: mysqlEnum("severity", ["INFO", "WARNING", "CRITICAL"]).notNull(),
-  isRead: boolean("isRead").default(false).notNull(),
+   isRead: boolean("isRead").default(false).notNull(),
+  // Controle de envio de email: null = ainda não enviado, data = já enviado (enviar apenas uma vez)
+  emailSentAt: timestamp("emailSentAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
-
 export type Alert = typeof alerts.$inferSelect;
 export type InsertAlert = typeof alerts.$inferInsert;

@@ -152,3 +152,11 @@
 - [x] Corrigir schema Drizzle para registrar o índice único
 - [x] Adicionar sync automático diário às 06h (cron job node-cron, 09:00 UTC)
 - [x] Salvar checkpoint e avisar usuário para ressincronizar
+
+## Anomalias e Alertas
+- [x] Backend: detecção automática de anomalias a cada hora via cron job
+- [x] Backend: campo emailSentAt na tabela de anomalias/alertas para controlar envio único
+- [x] Backend: notificação por email apenas uma vez por anomalia/alerta (não repetir)
+- [x] Frontend: anomalias carregam automaticamente a cada 5 min (sem botão "Executar Detecção")
+- [x] Frontend: alertas somem da lista ao marcar como lido (optimistic update)
+- [x] Frontend: "Marcar todos como lidos" remove todos os alertas de uma vez

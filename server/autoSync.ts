@@ -12,7 +12,21 @@
  */
 
 import cron from "node-cron";
-import { getAllActiveMetaAdAccounts, getCampaignsByAccountId, updateMetaAdAccountSync, upsertCampaign, upsertCampaignMetrics } from "./db";
+import { detectAnomalies } from "./analysisService";
+import { notifyOwner } from "./_core/notification";
+import {
+  getAllActiveMetaAdAccounts,
+  getCampaignsByAccountId,
+  updateMetaAdAccountSync,
+  upsertCampaign,
+  upsertCampaignMetrics,
+  getAccountMetricsSummary,
+  createAnomaly,
+  createAlert,
+  markAnomalyEmailSent,
+  markAlertEmailSent,
+  getMetaAdAccountsByUserId,
+} from "./db";
 import {
   getCampaigns,
   getAdSets,
@@ -149,17 +163,118 @@ async function runAutoSync() {
   console.log(`[AutoSync] Daily sync complete — ${accounts.length} account(s) processed.`);
 }
 
+// ─── Auto Anomaly Detection ────────────────────────────────────────────────────
+
+async function runAnomalyDetection() {
+  console.log("[AutoAnomalies] Running hourly anomaly detection...");
+  const accounts = await getAllActiveMetaAdAccounts();
+  if (accounts.length === 0) return;
+
+  for (const account of accounts) {
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
+      const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().split("T")[0];
+
+      const [recentMetrics, prevMetrics] = await Promise.all([
+        getAccountMetricsSummary(account.id, yesterday, today),
+        getAccountMetricsSummary(account.id, sevenDaysAgo, yesterday),
+      ]);
+
+      if (recentMetrics.length === 0 || prevMetrics.length === 0) continue;
+
+      const recent = recentMetrics[recentMetrics.length - 1];
+      const n = prevMetrics.length;
+      const prev = prevMetrics.reduce(
+        (acc, m) => ({
+          roas: acc.roas + Number(m.avgRoas ?? 0),
+          cpa: acc.cpa + Number(m.avgCpa ?? 0),
+          ctr: acc.ctr + Number(m.avgCtr ?? 0),
+          spend: acc.spend + Number(m.totalSpend ?? 0),
+          frequency: acc.frequency + 0,
+        }),
+        { roas: 0, cpa: 0, ctr: 0, spend: 0, frequency: 0 }
+      );
+      const avgPrev = {
+        roas: prev.roas / n,
+        cpa: prev.cpa / n,
+        ctr: prev.ctr / n,
+        spend: prev.spend / n,
+        frequency: 0,
+      };
+
+      const detected = detectAnomalies(
+        { roas: String(recent.avgRoas), cpa: String(recent.avgCpa), ctr: String(recent.avgCtr), spend: String(recent.totalSpend), frequency: "0" } as any,
+        { roas: String(avgPrev.roas), cpa: String(avgPrev.cpa), ctr: String(avgPrev.ctr), spend: String(avgPrev.spend), frequency: "0" } as any
+      );
+
+      for (const anomaly of detected) {
+        // Save anomaly to DB
+        const result = await createAnomaly({
+          accountId: account.id,
+          type: anomaly.type as any,
+          severity: anomaly.severity,
+          title: anomaly.title,
+          description: anomaly.description,
+          metricName: anomaly.metricName,
+          currentValue: String(anomaly.currentValue),
+          previousValue: String(anomaly.previousValue),
+          changePercent: String(anomaly.changePercent),
+        });
+
+        // Get the inserted anomaly ID
+        const insertId = (result as any).insertId as number | undefined;
+
+        // Create alert for account owner — only once (emailSentAt guards against duplicates)
+        const alertResult = await createAlert({
+          userId: account.userId,
+          accountId: account.id,
+          title: anomaly.title,
+          message: anomaly.description,
+          type: "ANOMALY",
+          severity: anomaly.severity === "CRITICAL" || anomaly.severity === "HIGH" ? "CRITICAL" : "WARNING",
+        });
+        const alertId = (alertResult as any).insertId as number | undefined;
+
+        // Send email notification only once per anomaly (HIGH or CRITICAL)
+        if ((anomaly.severity === "CRITICAL" || anomaly.severity === "HIGH") && insertId) {
+          const sent = await notifyOwner({
+            title: `🚨 ${anomaly.severity === "CRITICAL" ? "Anomalia Crítica" : "Anomalia Alta"}: ${anomaly.title}`,
+            content: `Conta: ${account.accountName ?? account.accountId}\n\n${anomaly.description}`,
+          });
+          if (sent && insertId) await markAnomalyEmailSent(insertId);
+          if (sent && alertId) await markAlertEmailSent(alertId);
+        }
+      }
+
+      if (detected.length > 0) {
+        console.log(`[AutoAnomalies] ✓ ${detected.length} anomalia(s) detectada(s) na conta "${account.accountName ?? account.accountId}"`);
+      }
+    } catch (err) {
+      console.error(`[AutoAnomalies] Erro ao detectar anomalias na conta ${account.accountId}:`, err);
+    }
+
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  console.log("[AutoAnomalies] Hourly detection complete.");
+}
+
 /**
  * Start the auto-sync cron job.
  * Runs every day at 06:00 Brasília time (UTC-3 = 09:00 UTC).
+ * Anomaly detection runs every hour.
  * Cron format: second minute hour day month weekday
  */
 export function startAutoSync() {
-  // Run at 09:00 UTC = 06:00 Brasília (UTC-3)
+  // Daily sync at 09:00 UTC = 06:00 Brasília (UTC-3)
   cron.schedule("0 9 * * *", () => {
     runAutoSync().catch(console.error);
-  }, {
-    timezone: "UTC",
-  });
+  }, { timezone: "UTC" });
   console.log("[AutoSync] Daily sync scheduled at 06:00 Brasília time (09:00 UTC)");
+
+  // Hourly anomaly detection (runs at minute 0 of every hour)
+  cron.schedule("0 * * * *", () => {
+    runAnomalyDetection().catch(console.error);
+  }, { timezone: "UTC" });
+  console.log("[AutoAnomalies] Hourly anomaly detection scheduled (every hour at :00)");
 }

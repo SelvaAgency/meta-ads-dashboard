@@ -39,17 +39,13 @@ export default function Anomalies() {
 
   const { data: anomalies, isLoading } = trpc.anomalies.list.useQuery(
     { accountId: selectedAccountId! },
-    { enabled: !!selectedAccountId }
+    {
+      enabled: !!selectedAccountId,
+      // Auto-refresh every 5 minutes so new anomalies appear automatically
+      refetchInterval: 5 * 60 * 1000,
+      refetchIntervalInBackground: false,
+    }
   );
-
-  const runDetection = trpc.anomalies.runDetection.useMutation({
-    onSuccess: (data) => {
-      utils.anomalies.list.invalidate();
-      utils.alerts.unreadCount.invalidate();
-      toast.success(`Detecção concluída: ${data.detected} anomalia(s) encontrada(s).`);
-    },
-    onError: () => toast.error("Erro ao executar detecção."),
-  });
 
   const markRead = trpc.anomalies.markRead.useMutation({
     onSuccess: () => utils.anomalies.list.invalidate(),
@@ -92,16 +88,10 @@ export default function Anomalies() {
               Monitoramento automático de quedas de ROAS, picos de CPA e mudanças de entrega
             </p>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-2"
-            onClick={() => selectedAccountId && runDetection.mutate({ accountId: selectedAccountId })}
-            disabled={runDetection.isPending || !selectedAccountId}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${runDetection.isPending ? "animate-spin" : ""}`} />
-            {runDetection.isPending ? "Analisando..." : "Executar Detecção"}
-          </Button>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <RefreshCw className="w-3 h-3" />
+            Detecção automática a cada hora
+          </div>
         </div>
 
         {/* Stats */}
@@ -138,7 +128,7 @@ export default function Anomalies() {
                 <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-3" />
                 <p className="text-sm font-medium text-foreground">Nenhuma anomalia ativa</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Execute a detecção para verificar anomalias nas últimas 24h.
+                  Anomalias são detectadas automaticamente a cada hora com base nos dados sincronizados.
                 </p>
               </CardContent>
             </Card>

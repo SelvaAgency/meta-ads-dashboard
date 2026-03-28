@@ -483,10 +483,11 @@ export async function getDueScheduledReports() {
 export async function getAlertsByUserId(userId: number, limit = 50) {
   const db = await getDb();
   if (!db) return [];
+  // Only return unread alerts — read alerts are deleted on markRead
   return db
     .select()
     .from(alerts)
-    .where(eq(alerts.userId, userId))
+    .where(and(eq(alerts.userId, userId), eq(alerts.isRead, false)))
     .orderBy(desc(alerts.createdAt))
     .limit(limit);
 }
@@ -504,20 +505,34 @@ export async function getUnreadAlertsCount(userId: number) {
 export async function createAlert(data: InsertAlert) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  await db.insert(alerts).values(data);
+  const result = await db.insert(alerts).values(data);
+  return result;
+}
+
+export async function markAlertEmailSent(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(alerts).set({ emailSentAt: new Date() }).where(eq(alerts.id, id));
+}
+
+export async function markAnomalyEmailSent(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(anomalies).set({ emailSentAt: new Date() }).where(eq(anomalies.id, id));
 }
 
 export async function markAlertRead(id: number, userId: number) {
   const db = await getDb();
   if (!db) return;
+  // Delete the alert when marked as read — it disappears from the list
   await db
-    .update(alerts)
-    .set({ isRead: true })
+    .delete(alerts)
     .where(and(eq(alerts.id, id), eq(alerts.userId, userId)));
 }
 
 export async function markAllAlertsRead(userId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(alerts).set({ isRead: true }).where(eq(alerts.userId, userId));
+  // Delete all alerts when marking all as read
+  await db.delete(alerts).where(eq(alerts.userId, userId));
 }
