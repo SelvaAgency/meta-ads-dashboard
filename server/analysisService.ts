@@ -1,6 +1,18 @@
 /**
  * AI Analysis Service
  * Handles anomaly detection, campaign diagnostics, and AI-powered improvement suggestions.
+ *
+ * ANOMALY DETECTION — métricas de campanha fora do padrão (janela de 7 dias):
+ * - Queda de ROAS ≥ 10%
+ * - Queda de resultados ≥ 20%
+ * - Queda de performance geral (impressões + CTR)
+ * - Pico de CPA ≥ 30%
+ * - Queda de CTR ≥ 25%
+ * - Pico de gasto ≥ 50%
+ * - Frequência elevada ≥ 4x
+ *
+ * NÃO são anomalias: erros técnicos (campanha parada, saldo baixo, pixel, Instagram, etc.)
+ * Esses são tratados como Alertas Técnicos em metaAdsService.ts > checkRealTimeAlerts().
  */
 
 import { invokeLLM } from "./_core/llm";
@@ -23,12 +35,15 @@ interface AnomalyThresholds {
 }
 
 const DEFAULT_THRESHOLDS: AnomalyThresholds = {
-  roasDropPercent: 10,   // Alerta a partir de -10% de queda no ROAS
+  roasDropPercent: 10,   // Alerta a partir de -10% de queda no ROAS (conforme especificado)
   cpaSpikePercent: 30,   // Alerta a partir de +30% de aumento no CPA
-  ctrDropPercent: 30,    // Alerta a partir de -30% de queda no CTR
+  ctrDropPercent: 25,    // Alerta a partir de -25% de queda no CTR
   spendSpikePercent: 50, // Alerta a partir de +50% de aumento no gasto
   frequencyHighValue: 4.0,
 };
+
+// Threshold fixo para queda de resultados (não configurável — definido pelo usuário)
+const RESULTS_DROP_THRESHOLD = 20; // -20% de queda nos resultados após análise de 7 dias
 
 export function detectAnomalies(
   current: Partial<CampaignMetrics>,
@@ -53,11 +68,13 @@ export function detectAnomalies(
   if (prevRoas > 0) {
     const change = pctChange(currRoas, prevRoas);
     if (change <= -thresholds.roasDropPercent) {
+      // Severity: ≥-50% = CRITICAL, ≥-35% = HIGH, ≥-10% = MEDIUM
+      const severity = change <= -50 ? "CRITICAL" : change <= -35 ? "HIGH" : "MEDIUM";
       detected.push({
         type: "ROAS_DROP",
-        severity: change <= -50 ? "CRITICAL" : change <= -35 ? "HIGH" : "MEDIUM",
-        title: "Queda de ROAS detectada",
-        description: `O ROAS caiu de ${prevRoas.toFixed(2)}x para ${currRoas.toFixed(2)}x (${Math.abs(change).toFixed(1)}% de queda). Verifique criativos, segmentação e orçamento.`,
+        severity,
+        title: `Queda de ROAS: ${prevRoas.toFixed(2)}x → ${currRoas.toFixed(2)}x (${Math.abs(change).toFixed(1)}%)`,
+        description: `O ROAS caiu ${Math.abs(change).toFixed(1)}% nos últimos 7 dias em relação ao período anterior (${prevRoas.toFixed(2)}x → ${currRoas.toFixed(2)}x). Verifique criativos, segmentação e página de destino.`,
         metricName: "roas",
         currentValue: currRoas,
         previousValue: prevRoas,
@@ -71,11 +88,12 @@ export function detectAnomalies(
   if (prevCpa > 0 && currCpa > 0) {
     const change = pctChange(currCpa, prevCpa);
     if (change >= thresholds.cpaSpikePercent) {
+      const severity = change >= 80 ? "CRITICAL" : change >= 50 ? "HIGH" : "MEDIUM";
       detected.push({
         type: "CPA_SPIKE",
-        severity: change >= 80 ? "CRITICAL" : change >= 50 ? "HIGH" : "MEDIUM",
-        title: "Pico de CPA detectado",
-        description: `O CPA aumentou de R$${prevCpa.toFixed(2)} para R$${currCpa.toFixed(2)} (+${change.toFixed(1)}%). Revise a segmentação e os criativos.`,
+        severity,
+        title: `Pico de CPA: R$${prevCpa.toFixed(2)} → R$${currCpa.toFixed(2)} (+${change.toFixed(1)}%)`,
+        description: `O custo por resultado aumentou ${change.toFixed(1)}% nos últimos 7 dias (R$${prevCpa.toFixed(2)} → R$${currCpa.toFixed(2)}). Revise a segmentação, criativos e lances.`,
         metricName: "cpa",
         currentValue: currCpa,
         previousValue: prevCpa,
@@ -89,11 +107,12 @@ export function detectAnomalies(
   if (prevCtr > 0) {
     const change = pctChange(currCtr, prevCtr);
     if (change <= -thresholds.ctrDropPercent) {
+      const severity = change <= -50 ? "HIGH" : "MEDIUM";
       detected.push({
         type: "CTR_DROP",
-        severity: change <= -50 ? "HIGH" : "MEDIUM",
-        title: "Queda de CTR detectada",
-        description: `O CTR caiu de ${prevCtr.toFixed(2)}% para ${currCtr.toFixed(2)}% (${Math.abs(change).toFixed(1)}% de queda). Pode indicar fadiga de criativos.`,
+        severity,
+        title: `Queda de CTR: ${prevCtr.toFixed(2)}% → ${currCtr.toFixed(2)}% (${Math.abs(change).toFixed(1)}%)`,
+        description: `O CTR caiu ${Math.abs(change).toFixed(1)}% nos últimos 7 dias (${prevCtr.toFixed(2)}% → ${currCtr.toFixed(2)}%). Pode indicar fadiga de criativos ou audiência saturada.`,
         metricName: "ctr",
         currentValue: currCtr,
         previousValue: prevCtr,
@@ -155,17 +174,18 @@ export function detectAnomalies(
     }
   }
 
-  // RESULTS_DROP: queda de resultados ≥ 20% após análise de 7 dias
+  // RESULTS_DROP: queda de resultados ≥ 20% após análise de 7 dias (threshold fixo)
   const currConversions = parseFloat(String(current.conversions ?? 0));
   const prevConversions = parseFloat(String(previous.conversions ?? 0));
   if (prevConversions > 0) {
     const change = pctChange(currConversions, prevConversions);
-    if (change <= -20) {
+    if (change <= -RESULTS_DROP_THRESHOLD) {
+      const severity = change <= -50 ? "CRITICAL" : change <= -35 ? "HIGH" : "MEDIUM";
       detected.push({
         type: "RESULTS_DROP",
-        severity: change <= -50 ? "CRITICAL" : change <= -35 ? "HIGH" : "MEDIUM",
-        title: "Queda de resultados detectada",
-        description: `Os resultados caíram de ${prevConversions.toFixed(0)} para ${currConversions.toFixed(0)} (${Math.abs(change).toFixed(1)}% de queda). Revise os criativos, segmentação e página de destino.`,
+        severity,
+        title: `Queda de resultados: ${prevConversions.toFixed(0)} → ${currConversions.toFixed(0)} (${Math.abs(change).toFixed(1)}%)`,
+        description: `Os resultados caíram ${Math.abs(change).toFixed(1)}% nos últimos 7 dias (${prevConversions.toFixed(0)} → ${currConversions.toFixed(0)}). Revise criativos, segmentação e página de destino.`,
         metricName: "conversions",
         currentValue: currConversions,
         previousValue: prevConversions,

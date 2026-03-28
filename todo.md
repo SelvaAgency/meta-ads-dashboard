@@ -193,3 +193,13 @@
 - [x] Alertas técnicos: anúncio rejeitado
 - [x] Schema: novos tipos de alerta (PAGE_UNLINKED, INSTAGRAM_UNLINKED, PIXEL_ERROR, ADSET_NO_DELIVERY)
 - [x] Frontend: ícones e labels específicos para cada tipo de alerta técnico
+
+## Revisão Alertas vs Anomalias (v2)
+- [x] Alertas: manter apenas erros técnicos (CAMPAIGN_PAUSED, BUDGET_WARNING, PAYMENT_FAILED, AD_REJECTED, AD_ERROR, PAGE_UNLINKED, INSTAGRAM_UNLINKED)
+- [x] Alertas: remover ADSET_NO_DELIVERY e PIXEL_ERROR da aba Alertas (mover para Anomalias ou suprimir)
+- [x] Anomalias: threshold ROAS queda ≥10%
+- [x] Anomalias: threshold resultados queda ≥20%
+- [x] Anomalias: detectar por campanha individual (não só conta agregada)
+- [x] Anomalias: remover tipos não-métricos (ANOMALY genérico de alertas)
+- [x] AlertsPage: labels e ícones corretos para PAGE_UNLINKED e INSTAGRAM_UNLINKED
+- [x] AnomaliesPage: exibir campanha afetada em cada anomalia

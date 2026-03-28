@@ -15,26 +15,28 @@ import {
   Instagram,
   Link2Off,
   Pause,
-  TrendingDown,
   Wallet,
-  Wifi,
-  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
-// ─── Type config: icon + color + human-readable label for each alert type ─────
+// ─── Alertas técnicos operacionais ────────────────────────────────────────────
+// Apenas erros que exigem ação imediata do gestor:
+// - Campanha parada por erro
+// - Saldo abaixo de R$200
+// - Falha de pagamento
+// - Criativo rejeitado
+// - Erros em conjuntos ou anúncios
+// - Página desvinculada da BM
+// - Instagram desvinculado da página
+//
+// NÃO aparecem aqui: anomalias de métricas (ROAS, CPA, CTR, resultados).
+// Essas ficam na aba Anomalias.
+// ─────────────────────────────────────────────────────────────────────────────
+
 const typeConfig: Record<
   string,
   { icon: React.ComponentType<{ className?: string }>; color: string; label: string; bg: string }
 > = {
-  // Anomalias de métricas (geradas pelo módulo de anomalias)
-  ANOMALY: {
-    icon: TrendingDown,
-    color: "text-orange-400",
-    label: "Anomalia de Métrica",
-    bg: "bg-orange-500/10",
-  },
-  // Erros técnicos operacionais
   CAMPAIGN_PAUSED: {
     icon: Pause,
     color: "text-red-400",
@@ -56,19 +58,19 @@ const typeConfig: Record<
   AD_REJECTED: {
     icon: FileX,
     color: "text-red-400",
-    label: "Anúncio Rejeitado",
+    label: "Criativo Rejeitado",
     bg: "bg-red-500/10",
   },
   AD_ERROR: {
     icon: AlertTriangle,
     color: "text-yellow-400",
-    label: "Erro em Anúncio",
+    label: "Erro em Anúncio / Conjunto",
     bg: "bg-yellow-500/10",
   },
   PAGE_UNLINKED: {
     icon: Link2Off,
     color: "text-red-400",
-    label: "Página Desvinculada",
+    label: "Página Desvinculada da BM",
     bg: "bg-red-500/10",
   },
   INSTAGRAM_UNLINKED: {
@@ -77,19 +79,7 @@ const typeConfig: Record<
     label: "Instagram Desvinculado",
     bg: "bg-pink-500/10",
   },
-  PIXEL_ERROR: {
-    icon: Wifi,
-    color: "text-red-400",
-    label: "Erro de Pixel",
-    bg: "bg-red-500/10",
-  },
-  ADSET_NO_DELIVERY: {
-    icon: Zap,
-    color: "text-yellow-400",
-    label: "Conjunto sem Entrega",
-    bg: "bg-yellow-500/10",
-  },
-  // Outros
+  // Fallbacks para outros tipos que possam chegar
   REPORT: {
     icon: Bell,
     color: "text-blue-400",
@@ -116,23 +106,24 @@ const severityConfig: Record<string, { label: string; color: string }> = {
   INFO: { label: "Info", color: "text-blue-400 border-blue-400/30" },
 };
 
-// Group alerts by category for better UX
-const TECHNICAL_TYPES = new Set([
+// Tipos que são alertas técnicos operacionais (exibidos nesta aba)
+const TECHNICAL_ALERT_TYPES = new Set([
   "CAMPAIGN_PAUSED",
   "PAYMENT_FAILED",
   "AD_REJECTED",
   "AD_ERROR",
   "PAGE_UNLINKED",
   "INSTAGRAM_UNLINKED",
-  "PIXEL_ERROR",
-  "ADSET_NO_DELIVERY",
   "BUDGET_WARNING",
 ]);
 
 export default function AlertsPage() {
   const utils = trpc.useUtils();
 
-  const { data: alerts, isLoading } = trpc.alerts.list.useQuery();
+  const { data: allAlerts, isLoading } = trpc.alerts.list.useQuery();
+
+  // Filtrar apenas alertas técnicos operacionais (excluir ANOMALY, PIXEL_ERROR, ADSET_NO_DELIVERY)
+  const alerts = (allAlerts ?? []).filter((a) => TECHNICAL_ALERT_TYPES.has(a.type));
 
   // Optimistic update: remove alert from list immediately on markRead
   const markRead = trpc.alerts.markRead.useMutation({
@@ -171,14 +162,13 @@ export default function AlertsPage() {
     },
   });
 
-  const unread = alerts ?? [];
-  const criticalCount = unread.filter((a) => a.severity === "CRITICAL").length;
+  const criticalCount = alerts.filter((a) => a.severity === "CRITICAL").length;
 
-  // Split into technical errors vs metric anomalies
-  const technicalAlerts = unread.filter((a) => TECHNICAL_TYPES.has(a.type));
-  const anomalyAlerts = unread.filter((a) => !TECHNICAL_TYPES.has(a.type));
+  // Group by type category for better readability
+  const criticalAlerts = alerts.filter((a) => a.severity === "CRITICAL");
+  const warningAlerts = alerts.filter((a) => a.severity !== "CRITICAL");
 
-  const renderAlert = (alert: (typeof unread)[number]) => {
+  const renderAlert = (alert: (typeof alerts)[number]) => {
     const tc = typeConfig[alert.type] ?? typeConfig.SYSTEM;
     const sc = severityConfig[alert.severity] ?? severityConfig.INFO;
     const AlertIcon = tc.icon;
@@ -188,7 +178,7 @@ export default function AlertsPage() {
         className={`border transition-colors ${
           alert.severity === "CRITICAL"
             ? "border-red-400/30 bg-red-400/5"
-            : "border-primary/20 bg-primary/5"
+            : "border-yellow-400/20 bg-yellow-400/5"
         }`}
       >
         <CardContent className="p-4">
@@ -233,12 +223,12 @@ export default function AlertsPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-foreground">Central de Alertas</h1>
+            <h1 className="text-xl font-bold text-foreground">Alertas Técnicos</h1>
             <p className="text-sm text-muted-foreground">
-              Erros técnicos e anomalias de métricas — alertas desaparecem ao marcar como lido
+              Erros operacionais que requerem ação imediata — campanha parada, pagamento, criativos rejeitados, vínculos quebrados
             </p>
           </div>
-          {unread.length > 0 && (
+          {alerts.length > 0 && (
             <Button
               variant="outline"
               size="sm"
@@ -255,9 +245,9 @@ export default function AlertsPage() {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: "Alertas pendentes", value: unread.length, color: "text-primary" },
-            { label: "Erros técnicos", value: technicalAlerts.length, color: technicalAlerts.length > 0 ? "text-red-400" : "text-muted-foreground" },
+            { label: "Alertas pendentes", value: alerts.length, color: alerts.length > 0 ? "text-primary" : "text-muted-foreground" },
             { label: "Críticos", value: criticalCount, color: criticalCount > 0 ? "text-red-400" : "text-muted-foreground" },
+            { label: "Atenção", value: warningAlerts.length, color: warningAlerts.length > 0 ? "text-yellow-400" : "text-muted-foreground" },
           ].map((stat) => (
             <Card key={stat.label}>
               <CardContent className="p-4">
@@ -275,51 +265,62 @@ export default function AlertsPage() {
               <div key={i} className="h-20 bg-muted rounded-xl animate-pulse" />
             ))}
           </div>
-        ) : unread.length === 0 ? (
+        ) : alerts.length === 0 ? (
           <Card>
             <CardContent className="py-16 text-center">
               <BellOff className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-              <p className="text-sm font-medium text-foreground mb-2">Nenhum alerta pendente</p>
-              <p className="text-xs text-muted-foreground">
-                Alertas técnicos e anomalias de métricas aparecerão aqui quando detectados automaticamente.
+              <p className="text-sm font-medium text-foreground mb-2">Nenhum alerta técnico pendente</p>
+              <p className="text-xs text-muted-foreground max-w-xs mx-auto">
+                Alertas aparecem automaticamente quando há campanhas paradas, saldo baixo, falha de pagamento, criativos rejeitados, erros em conjuntos ou vínculos quebrados.
               </p>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-6">
-            {/* Technical errors section */}
-            {technicalAlerts.length > 0 && (
+            {/* Critical alerts */}
+            {criticalAlerts.length > 0 && (
               <div>
                 <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-red-400" />
-                  Erros Técnicos ({technicalAlerts.length})
+                  Críticos — Ação Imediata ({criticalAlerts.length})
                 </h2>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Problemas operacionais que requerem ação imediata — campanha parada, pagamento, criativos rejeitados, vínculos quebrados.
-                </p>
                 <div className="space-y-2">
-                  {technicalAlerts.map(renderAlert)}
+                  {criticalAlerts.map(renderAlert)}
                 </div>
               </div>
             )}
 
-            {/* Metric anomalies section */}
-            {anomalyAlerts.length > 0 && (
+            {/* Warning alerts */}
+            {warningAlerts.length > 0 && (
               <div>
                 <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                  <TrendingDown className="w-4 h-4 text-orange-400" />
-                  Anomalias de Métricas ({anomalyAlerts.length})
+                  <AlertTriangle className="w-4 h-4 text-yellow-400" />
+                  Atenção ({warningAlerts.length})
                 </h2>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Desvios estatísticos detectados com base na análise de 7 dias — ROAS, CPA, CTR, resultados fora do padrão.
-                </p>
                 <div className="space-y-2">
-                  {anomalyAlerts.map(renderAlert)}
+                  {warningAlerts.map(renderAlert)}
                 </div>
               </div>
             )}
           </div>
         )}
+
+        {/* Info box explaining what's NOT here */}
+        <Card className="border-border/30 bg-muted/20">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <Info className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-xs font-medium text-foreground mb-1">O que é monitorado aqui</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Campanha pausada por erro · Saldo abaixo de R$200 · Falha de pagamento · Criativo rejeitado · Erros em conjuntos ou anúncios · Página desvinculada da BM · Instagram desvinculado da página.
+                  <br />
+                  <span className="text-muted-foreground/70">Quedas de ROAS, CPA, CTR e resultados são monitoradas na aba <strong className="text-foreground">Anomalias</strong>.</span>
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </MetaDashboardLayout>
   );
