@@ -56,8 +56,8 @@ import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjecti
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
-
-// ─── Helper: date range ───────────────────────────────────────────────────────
+import { startAutoSync } from "./autoSync";
+// ─── Helper: date range ────────────────────────────────────────────────────────
 
 function getDateRange(days: number) {
   const end = new Date();

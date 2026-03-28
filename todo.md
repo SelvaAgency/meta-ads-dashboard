@@ -145,3 +145,10 @@
 - [x] Frontend: aba "Histórico 30 dias" com sugestões aplicadas e recusadas
 - [x] Frontend: badge de monitoramento ativo nas sugestões aplicadas (7 dias)
 - [x] Frontend: resultado do monitoramento exibido após 7 dias
+
+## Correção Definitiva do Sync de Dados
+- [x] Limpar duplicatas no banco (DELETE com JOIN por campaignId + date)
+- [x] Adicionar índice único (campaignId, date) na tabela campaign_metrics
+- [x] Corrigir schema Drizzle para registrar o índice único
+- [x] Adicionar sync automático diário às 06h (cron job node-cron, 09:00 UTC)
+- [x] Salvar checkpoint e avisar usuário para ressincronizar

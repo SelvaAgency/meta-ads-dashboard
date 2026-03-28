@@ -10,6 +10,7 @@ import {
   varchar,
   boolean,
   float,
+  uniqueIndex,
 } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
@@ -88,10 +89,11 @@ export const campaignMetrics = mysqlTable("campaign_metrics", {
   cpc: decimal("cpc", { precision: 10, scale: 4 }).default("0"),
   cpm: decimal("cpm", { precision: 10, scale: 4 }).default("0"),
   cpa: decimal("cpa", { precision: 12, scale: 4 }).default("0"),
-  roas: decimal("roas", { precision: 10, scale: 4 }).default("0"),
+   roas: decimal("roas", { precision: 10, scale: 4 }).default("0"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
-
+}, (table) => ({
+  uqCampaignDate: uniqueIndex("uq_campaign_date").on(table.campaignId, table.date),
+}));
 export type CampaignMetrics = typeof campaignMetrics.$inferSelect;
 export type InsertCampaignMetrics = typeof campaignMetrics.$inferInsert;
 

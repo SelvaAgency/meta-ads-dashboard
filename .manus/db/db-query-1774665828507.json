@@ -1,0 +1,9 @@
+{
+  "query": "\nDELETE cm1\nFROM campaign_metrics cm1\nINNER JOIN campaign_metrics cm2\n  ON cm1.campaignId = cm2.campaignId\n  AND cm1.date = cm2.date\n  AND cm1.id < cm2.id;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 47k5kQkoq9oHa8j.root --database YKCqwPqSgxUTxNQRFe3oLu --execute \nDELETE cm1\nFROM campaign_metrics cm1\nINNER JOIN campaign_metrics cm2\n  ON cm1.campaignId = cm2.campaignId\n  AND cm1.date = cm2.date\n  AND cm1.id < cm2.id;\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 111
+}
