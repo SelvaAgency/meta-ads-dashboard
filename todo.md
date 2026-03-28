@@ -203,3 +203,6 @@
 - [x] Anomalias: remover tipos não-métricos (ANOMALY genérico de alertas)
 - [x] AlertsPage: labels e ícones corretos para PAGE_UNLINKED e INSTAGRAM_UNLINKED
 - [x] AnomaliesPage: exibir campanha afetada em cada anomalia
+
+## UX Anomalias
+- [x] Remover botão "Resolver" das anomalias — manter apenas botão "Visto"

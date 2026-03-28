@@ -14,7 +14,6 @@ import {
   TrendingUp,
   Zap,
 } from "lucide-react";
-import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 // ─── Anomalias de métricas de campanha ────────────────────────────────────────
@@ -126,14 +125,18 @@ export default function Anomalies() {
   );
 
   const markRead = trpc.anomalies.markRead.useMutation({
-    onSuccess: () => utils.anomalies.list.invalidate(),
-  });
-
-  const resolve = trpc.anomalies.resolve.useMutation({
-    onSuccess: () => {
-      utils.anomalies.list.invalidate();
-      toast.success("Anomalia marcada como resolvida.");
+    onMutate: async ({ anomalyId }) => {
+      await utils.anomalies.list.cancel({ accountId: selectedAccountId! });
+      const prev = utils.anomalies.list.getData({ accountId: selectedAccountId! });
+      utils.anomalies.list.setData({ accountId: selectedAccountId! }, (old) =>
+        old ? old.map((a) => a.id === anomalyId ? { ...a, isRead: true } : a) : []
+      );
+      return { prev };
     },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) utils.anomalies.list.setData({ accountId: selectedAccountId! }, ctx.prev);
+    },
+    onSettled: () => utils.anomalies.list.invalidate({ accountId: selectedAccountId! }),
   });
 
   if (!accounts || accounts.length === 0) {
@@ -154,8 +157,6 @@ export default function Anomalies() {
   }
 
   const active = anomalies?.filter((a) => !a.isResolved) ?? [];
-  const resolved = anomalies?.filter((a) => a.isResolved) ?? [];
-
   const criticalOrHigh = active.filter((a) => a.severity === "CRITICAL" || a.severity === "HIGH");
   const medium = active.filter((a) => a.severity === "MEDIUM" || a.severity === "LOW");
 
@@ -180,7 +181,7 @@ export default function Anomalies() {
           {[
             { label: "Anomalias Ativas", value: active.length, color: active.length > 0 ? "text-red-400" : "text-muted-foreground" },
             { label: "Alta / Crítica", value: criticalOrHigh.length, color: criticalOrHigh.length > 0 ? "text-red-400" : "text-muted-foreground" },
-            { label: "Resolvidas", value: resolved.length, color: "text-emerald-400" },
+            { label: "Resolvidas", value: (anomalies ?? []).filter((a) => a.isResolved).length, color: "text-emerald-400" },
           ].map((stat) => (
             <Card key={stat.label}>
               <CardContent className="p-4">
@@ -220,7 +221,7 @@ export default function Anomalies() {
                 <div>
                   <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">Alta prioridade</p>
                   <div className="space-y-2">
-                    {criticalOrHigh.map((anomaly) => renderAnomalyCard(anomaly, markRead, resolve))}
+                    {criticalOrHigh.map((anomaly) => renderAnomalyCard(anomaly, markRead))}
                   </div>
                 </div>
               )}
@@ -229,7 +230,7 @@ export default function Anomalies() {
                 <div>
                   <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">Média prioridade</p>
                   <div className="space-y-2">
-                    {medium.map((anomaly) => renderAnomalyCard(anomaly, markRead, resolve))}
+                    {medium.map((anomaly) => renderAnomalyCard(anomaly, markRead))}
                   </div>
                 </div>
               )}
@@ -237,33 +238,7 @@ export default function Anomalies() {
           )}
         </div>
 
-        {/* Resolved */}
-        {resolved.length > 0 && (
-          <div>
-            <h2 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              Resolvidas ({resolved.length})
-            </h2>
-            <div className="space-y-2">
-              {resolved.slice(0, 5).map((anomaly) => (
-                <Card key={anomaly.id} className="opacity-60">
-                  <CardContent className="p-3">
-                    <div className="flex items-center gap-3">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-foreground truncate">{anomaly.title}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {typeConfig[anomaly.type]?.label ?? anomaly.type} · Resolvida em{" "}
-                          {anomaly.resolvedAt ? new Date(anomaly.resolvedAt).toLocaleDateString("pt-BR") : "—"}
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
+
 
         {/* Info box */}
         <Card className="border-border/30 bg-muted/20">
@@ -303,8 +278,7 @@ function renderAnomalyCard(
     previousValue: string | null;
     changePercent: string | null;
   },
-  markRead: { mutate: (args: { anomalyId: number }) => void },
-  resolve: { mutate: (args: { anomalyId: number }) => void }
+  markRead: { mutate: (args: { anomalyId: number }) => void; isPending?: boolean }
 ) {
   const sev = severityConfig[anomaly.severity] ?? severityConfig.LOW;
   const tc = typeConfig[anomaly.type];
@@ -340,28 +314,19 @@ function renderAnomalyCard(
               Detectada em {new Date(anomaly.detectedAt).toLocaleString("pt-BR")}
             </p>
           </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            {!anomaly.isRead && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0"
-                onClick={() => markRead.mutate({ anomalyId: anomaly.id })}
-                title="Marcar como lida"
-              >
-                <Eye className="w-3.5 h-3.5" />
-              </Button>
-            )}
+          {!anomaly.isRead && (
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 gap-1 text-xs text-emerald-400 hover:text-emerald-400 hover:bg-emerald-400/10"
-              onClick={() => resolve.mutate({ anomalyId: anomaly.id })}
+              className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
+              onClick={() => markRead.mutate({ anomalyId: anomaly.id })}
+              disabled={markRead.isPending}
+              title="Marcar como visto"
             >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Resolver
+              <Eye className="w-3.5 h-3.5" />
+              Visto
             </Button>
-          </div>
+          )}
         </div>
       </CardContent>
     </Card>
