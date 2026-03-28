@@ -180,3 +180,16 @@
 - [ ] Backend: salvar horário personalizado no scheduled_reports e usar no cron
 - [ ] Frontend: página de Campanhas mostra apenas ATIVAS + PAUSADAS nos últimos 7 dias
 - [ ] Backend: filtrar campanhas por status ACTIVE ou (PAUSED com updatedAt nos últimos 7 dias)
+
+## Separação Anomalias vs Alertas Técnicos
+- [x] Anomalias: restringir a desvios estatísticos de métricas com base em janela de 7 dias
+- [x] Alertas técnicos: página desvinculada da BM
+- [x] Alertas técnicos: Instagram desvinculado da página
+- [x] Alertas técnicos: pixel com erro ou inativo
+- [x] Alertas técnicos: adset sem entrega por >24h
+- [x] Alertas técnicos: campanha parada por erro (WITH_ISSUES)
+- [x] Alertas técnicos: saldo insuficiente (<R$200)
+- [x] Alertas técnicos: falha de pagamento
+- [x] Alertas técnicos: anúncio rejeitado
+- [x] Schema: novos tipos de alerta (PAGE_UNLINKED, INSTAGRAM_UNLINKED, PIXEL_ERROR, ADSET_NO_DELIVERY)
+- [x] Frontend: ícones e labels específicos para cada tipo de alerta técnico

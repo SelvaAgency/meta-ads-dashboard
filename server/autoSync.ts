@@ -9,6 +9,13 @@
  * Isso significa que dados de ontem ainda podem mudar hoje (conversões atribuídas
  * com atraso). Ao ressincronizar os últimos 30 dias diariamente, garantimos que
  * todas as conversões atribuídas com atraso sejam capturadas.
+ *
+ * ANOMALIAS vs ALERTAS TÉCNICOS:
+ * - Anomalias: desvios estatísticos de métricas (ROAS, CPA, CTR, resultados)
+ *   detectados comparando a média dos últimos 7 dias com os 7 dias anteriores.
+ * - Alertas técnicos: erros operacionais (campanha parada, saldo baixo, pagamento,
+ *   anúncio rejeitado, página desvinculada, Instagram desvinculado, pixel com erro,
+ *   adset sem entrega) — verificados em tempo real a cada hora.
  */
 
 import cron from "node-cron";
@@ -21,6 +28,7 @@ import {
   upsertCampaign,
   upsertCampaignMetrics,
   getAccountMetricsSummary,
+  getCampaignPerformanceSummary,
   createAnomaly,
   createAlert,
   markAnomalyEmailSent,
@@ -166,6 +174,32 @@ async function runAutoSync() {
 
 // ─── Auto Anomaly Detection ────────────────────────────────────────────────────
 
+/**
+ * Aggregate weighted metrics from per-campaign performance rows.
+ * Uses weighted averages (total / total) instead of simple AVG of ratios.
+ */
+function aggregateCampaignRows(rows: Awaited<ReturnType<typeof getCampaignPerformanceSummary>>) {
+  const totals = rows.reduce(
+    (acc, r) => ({
+      spend: acc.spend + Number(r.totalSpend ?? 0),
+      impressions: acc.impressions + Number(r.totalImpressions ?? 0),
+      clicks: acc.clicks + Number(r.totalClicks ?? 0),
+      conversions: acc.conversions + Number(r.totalConversions ?? 0),
+      conversionValue: acc.conversionValue + Number(r.totalConversionValue ?? 0),
+    }),
+    { spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionValue: 0 }
+  );
+  return {
+    roas: totals.spend > 0 ? totals.conversionValue / totals.spend : 0,
+    cpa: totals.conversions > 0 ? totals.spend / totals.conversions : 0,
+    ctr: totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0,
+    spend: totals.spend,
+    conversions: totals.conversions,
+    impressions: totals.impressions,
+    frequency: 0,
+  };
+}
+
 async function runAnomalyDetection() {
   console.log("[AutoAnomalies] Running hourly anomaly detection...");
   const accounts = await getAllActiveMetaAdAccounts();
@@ -173,40 +207,98 @@ async function runAnomalyDetection() {
 
   for (const account of accounts) {
     try {
-      const today = new Date().toISOString().split("T")[0];
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
-      const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().split("T")[0];
+      // ── Janela deslizante de 7 dias ─────────────────────────────────────────
+      // Período atual:    últimos 7 dias (D-7 até D-1 inclusive)
+      // Período anterior: 7 dias antes disso (D-14 até D-8 inclusive)
+      // Comparar a média ponderada dos dois períodos detecta desvios estatísticos reais.
+      const daysAgo = (n: number) =>
+        new Date(Date.now() - n * 86400000).toISOString().split("T")[0]!;
 
-      const [recentMetrics, prevMetrics] = await Promise.all([
-        getAccountMetricsSummary(account.id, yesterday, today),
-        getAccountMetricsSummary(account.id, sevenDaysAgo, yesterday),
+      const currentStart = daysAgo(7);  // D-7
+      const currentEnd   = daysAgo(1);  // D-1 (inclusive)
+      const prevStart    = daysAgo(14); // D-14
+      const prevEnd      = daysAgo(8);  // D-8 (inclusive)
+
+      const [currentRows, prevRows] = await Promise.all([
+        getCampaignPerformanceSummary(account.id, currentStart, currentEnd),
+        getCampaignPerformanceSummary(account.id, prevStart, prevEnd),
       ]);
 
-      if (recentMetrics.length === 0 || prevMetrics.length === 0) continue;
-
-      const recent = recentMetrics[recentMetrics.length - 1];
-      const n = prevMetrics.length;
-      const prev = prevMetrics.reduce(
-        (acc, m) => ({
-          roas: acc.roas + Number(m.avgRoas ?? 0),
-          cpa: acc.cpa + Number(m.avgCpa ?? 0),
-          ctr: acc.ctr + Number(m.avgCtr ?? 0),
-          spend: acc.spend + Number(m.totalSpend ?? 0),
-          frequency: acc.frequency + 0,
-        }),
-        { roas: 0, cpa: 0, ctr: 0, spend: 0, frequency: 0 }
+      // Only consider campaigns that had spend in both windows (active campaigns)
+      const activeCampaignIds = new Set(
+        currentRows
+          .filter((r) => Number(r.totalSpend ?? 0) > 0)
+          .map((r) => r.campaignId)
       );
-      const avgPrev = {
-        roas: prev.roas / n,
-        cpa: prev.cpa / n,
-        ctr: prev.ctr / n,
-        spend: prev.spend / n,
-        frequency: 0,
-      };
+      const currentActive = currentRows.filter((r) => activeCampaignIds.has(r.campaignId));
+      const prevActive = prevRows.filter((r) => activeCampaignIds.has(r.campaignId));
 
+      let currentAgg: ReturnType<typeof aggregateCampaignRows>;
+      let prevAgg: ReturnType<typeof aggregateCampaignRows>;
+
+      if (currentActive.length > 0 && prevActive.length > 0) {
+        // Primary path: use per-campaign data with proper weighting
+        currentAgg = aggregateCampaignRows(currentActive);
+        prevAgg = aggregateCampaignRows(prevActive);
+      } else {
+        // Fallback: account-level daily summary (less accurate but better than nothing)
+        const [recentMetrics, prevMetrics] = await Promise.all([
+          getAccountMetricsSummary(account.id, currentStart, currentEnd),
+          getAccountMetricsSummary(account.id, prevStart, prevEnd),
+        ]);
+        if (recentMetrics.length === 0 || prevMetrics.length === 0) {
+          // No data at all — skip anomaly detection for this account
+          console.log(`[AutoAnomalies] No data for account "${account.accountName ?? account.accountId}", skipping.`);
+          // Still run real-time alerts below
+          await runRealTimeAlerts(account);
+          continue;
+        }
+        // Aggregate daily rows into a single weighted summary
+        const sumMetrics = (rows: typeof recentMetrics) => {
+          const totals = rows.reduce(
+            (acc, m) => ({
+              spend: acc.spend + Number(m.totalSpend ?? 0),
+              impressions: acc.impressions + Number(m.totalImpressions ?? 0),
+              clicks: acc.clicks + Number(m.totalClicks ?? 0),
+              conversions: acc.conversions + Number(m.totalConversions ?? 0),
+              conversionValue: acc.conversionValue + Number(m.totalConversionValue ?? 0),
+            }),
+            { spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionValue: 0 }
+          );
+          return {
+            roas: totals.spend > 0 ? totals.conversionValue / totals.spend : 0,
+            cpa: totals.conversions > 0 ? totals.spend / totals.conversions : 0,
+            ctr: totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0,
+            spend: totals.spend,
+            conversions: totals.conversions,
+            impressions: totals.impressions,
+            frequency: 0,
+          };
+        };
+        currentAgg = sumMetrics(recentMetrics);
+        prevAgg = sumMetrics(prevMetrics);
+      }
+
+      // ── Detect metric anomalies (statistical deviations only) ──────────────
       const detected = detectAnomalies(
-        { roas: String(recent.avgRoas), cpa: String(recent.avgCpa), ctr: String(recent.avgCtr), spend: String(recent.totalSpend), frequency: "0" } as any,
-        { roas: String(avgPrev.roas), cpa: String(avgPrev.cpa), ctr: String(avgPrev.ctr), spend: String(avgPrev.spend), frequency: "0" } as any
+        {
+          roas: String(currentAgg.roas),
+          cpa: String(currentAgg.cpa),
+          ctr: String(currentAgg.ctr),
+          spend: String(currentAgg.spend),
+          conversions: String(currentAgg.conversions),
+          impressions: String(currentAgg.impressions),
+          frequency: "0",
+        } as any,
+        {
+          roas: String(prevAgg.roas),
+          cpa: String(prevAgg.cpa),
+          ctr: String(prevAgg.ctr),
+          spend: String(prevAgg.spend),
+          conversions: String(prevAgg.conversions),
+          impressions: String(prevAgg.impressions),
+          frequency: "0",
+        } as any
       );
 
       for (const anomaly of detected) {
@@ -241,7 +333,7 @@ async function runAnomalyDetection() {
         if ((anomaly.severity === "CRITICAL" || anomaly.severity === "HIGH") && insertId) {
           const sent = await notifyOwner({
             title: `🚨 ${anomaly.severity === "CRITICAL" ? "Anomalia Crítica" : "Anomalia Alta"}: ${anomaly.title}`,
-            content: `Conta: ${account.accountName ?? account.accountId}\n\n${anomaly.description}`,
+            content: `Conta: ${account.accountName ?? account.accountId}\n\nPeríodo: ${currentStart} a ${currentEnd} vs ${prevStart} a ${prevEnd}\n\n${anomaly.description}`,
           });
           if (sent && insertId) await markAnomalyEmailSent(insertId);
           if (sent && alertId) await markAlertEmailSent(alertId);
@@ -252,35 +344,9 @@ async function runAnomalyDetection() {
         console.log(`[AutoAnomalies] ✓ ${detected.length} anomalia(s) detectada(s) na conta "${account.accountName ?? account.accountId}"`);
       }
 
-      // ── Real-time alerts (campanha pausada, saldo baixo, pagamento, criativo rejeitado)
-      try {
-        const realTimeAlerts = await checkRealTimeAlerts(account.accountId, account.accessToken);
-        for (const rta of realTimeAlerts) {
-          const alertResult = await createAlert({
-            userId: account.userId,
-            accountId: account.id,
-            title: rta.title,
-            message: rta.message,
-            type: rta.type as any,
-            severity: rta.severity === "CRITICAL" ? "CRITICAL" : "WARNING",
-          });
-          const alertId = (alertResult as any).insertId as number | undefined;
+      // ── Real-time technical alerts ─────────────────────────────────────────
+      await runRealTimeAlerts(account);
 
-          // Send email only once per alert (emailSentAt guards against duplicates)
-          if (rta.severity === "CRITICAL" && alertId) {
-            const sent = await notifyOwner({
-              title: `🚨 ${rta.title}`,
-              content: `Conta: ${account.accountName ?? account.accountId}\n\n${rta.message}`,
-            });
-            if (sent) await markAlertEmailSent(alertId);
-          }
-        }
-        if (realTimeAlerts.length > 0) {
-          console.log(`[AutoAnomalies] ✓ ${realTimeAlerts.length} alerta(s) em tempo real na conta "${account.accountName ?? account.accountId}"`);
-        }
-      } catch (err) {
-        console.error(`[AutoAnomalies] Erro ao verificar alertas em tempo real na conta ${account.accountId}:`, err);
-      }
     } catch (err) {
       console.error(`[AutoAnomalies] Erro ao detectar anomalias na conta ${account.accountId}:`, err);
     }
@@ -288,6 +354,49 @@ async function runAnomalyDetection() {
     await new Promise((r) => setTimeout(r, 1000));
   }
   console.log("[AutoAnomalies] Hourly detection complete.");
+}
+
+/**
+ * Check and save real-time technical alerts for an account.
+ * These are operational errors (campaign stopped, low balance, payment failure,
+ * rejected creatives, page unlinked, Instagram unlinked, pixel errors, adset no delivery).
+ * Separated from metric anomaly detection to keep concerns clear.
+ */
+async function runRealTimeAlerts(account: {
+  id: number;
+  userId: number;
+  accountId: string;
+  accessToken: string;
+  accountName: string | null;
+}) {
+  try {
+    const realTimeAlerts = await checkRealTimeAlerts(account.accountId, account.accessToken);
+    for (const rta of realTimeAlerts) {
+      const alertResult = await createAlert({
+        userId: account.userId,
+        accountId: account.id,
+        title: rta.title,
+        message: rta.message,
+        type: rta.type as any,
+        severity: rta.severity === "CRITICAL" ? "CRITICAL" : "WARNING",
+      });
+      const alertId = (alertResult as any).insertId as number | undefined;
+
+      // Send email only once per alert (emailSentAt guards against duplicates)
+      if (rta.severity === "CRITICAL" && alertId) {
+        const sent = await notifyOwner({
+          title: `🚨 ${rta.title}`,
+          content: `Conta: ${account.accountName ?? account.accountId}\n\n${rta.message}`,
+        });
+        if (sent) await markAlertEmailSent(alertId);
+      }
+    }
+    if (realTimeAlerts.length > 0) {
+      console.log(`[AutoAnomalies] ✓ ${realTimeAlerts.length} alerta(s) técnico(s) na conta "${account.accountName ?? account.accountId}"`);
+    }
+  } catch (err) {
+    console.error(`[AutoAnomalies] Erro ao verificar alertas técnicos na conta ${account.accountId}:`, err);
+  }
 }
 
 /**
