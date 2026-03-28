@@ -237,3 +237,10 @@
 - [x] Frontend: exibir badge de prioridade (P1 urgente, P2 alto impacto, P3 oportunidade)
 - [x] Frontend: exibir tipo de sugestão (Pausar Criativo, Pausar Conjunto, Novo Público, etc.)
 - [x] Frontend: exibir métricas de justificativa em cada sugestão
+
+## Dashboard Builder — Correções e Melhorias
+- [x] Campo de data digitada (dd/mm/aaaa) no formulário — modo único e comparativo
+- [x] Corrigir erro ao clicar em Gerar relatório
+- [x] Prompt LLM: extrair TODAS as métricas visíveis nos prints (não apenas as fixas)
+- [x] Análise por campanha com status de veiculação (ativa/inativa no período analisado)
+- [x] Página de resultado: exibir todas as métricas extraídas e status por campanha

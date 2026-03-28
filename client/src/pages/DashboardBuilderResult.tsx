@@ -16,8 +16,32 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  Radio,
+  PauseCircle,
 } from "lucide-react";
-import type { DashboardReportData, CampaignMetric } from "@shared/dashboardBuilderTypes";
+import type { DashboardReportData, CampaignMetric, CampaignAnalysis } from "@shared/dashboardBuilderTypes";
+
+// ─── Badge de status de veiculação ───────────────────────────────────────────
+
+function DeliveryStatusBadge({ status }: { status: CampaignAnalysis["deliveryStatus"] }) {
+  if (status === "active") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+        <Radio size={10} className="shrink-0" />
+        Ativa no período
+      </span>
+    );
+  }
+  if (status === "inactive") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+        <PauseCircle size={10} className="shrink-0" />
+        Inativa no período
+      </span>
+    );
+  }
+  return null;
+}
 
 // ─── Indicador de variação ────────────────────────────────────────────────────
 
@@ -174,10 +198,13 @@ export default function DashboardBuilderResult() {
           >
             {/* Cabeçalho da campanha */}
             <div className="bg-muted/30 px-5 py-4 border-b border-border">
-              <div className="flex items-center gap-3">
+              <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-foreground text-sm leading-tight">{camp.name}</h3>
-                  <span className="text-xs text-muted-foreground">{camp.objective}</span>
+                  <h3 className="font-semibold text-foreground text-sm leading-tight mb-1.5">{camp.name}</h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{camp.objective}</span>
+                    <DeliveryStatusBadge status={camp.deliveryStatus ?? "unknown"} />
+                  </div>
                 </div>
                 {camp.hasDataQualityWarning && (
                   <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs shrink-0">

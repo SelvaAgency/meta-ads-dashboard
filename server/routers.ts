@@ -772,7 +772,7 @@ export const appRouter = router({
 
           // Gerar HTML e fazer upload
           const html = generateReportHtml(reportData);
-          const pdfUrl = await generateAndUploadPdf(reportId, ctx.user.id, html);
+          const pdfUrl = await generateAndUploadPdf(reportId, String(ctx.user.id), html);
 
           // Salvar resultado
           await updateDashboardReport(reportId, {

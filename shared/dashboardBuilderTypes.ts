@@ -15,6 +15,8 @@ export interface CampaignMetric {
 export interface CampaignAnalysis {
   name: string;
   objective: string;
+  /** Status de veiculação no período analisado: ativa, inativa ou desconhecido */
+  deliveryStatus?: "active" | "inactive" | "unknown";
   metrics: CampaignMetric[];
   analysis: string;
   hasDataQualityWarning: boolean;

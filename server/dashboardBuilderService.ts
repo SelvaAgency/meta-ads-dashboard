@@ -21,6 +21,8 @@ export interface CampaignMetric {
 export interface CampaignAnalysis {
   name: string;
   objective: string;
+  /** Status de veiculação no período analisado: ativa ou inativa */
+  deliveryStatus: "active" | "inactive" | "unknown";
   metrics: CampaignMetric[];
   analysis: string;
   hasDataQualityWarning: boolean;
@@ -77,44 +79,59 @@ REGRAS ABSOLUTAS:
 1. NÃO invente dados que não estejam no print/dados fornecidos
 2. NÃO inclua gráficos ou seção de "melhores campanhas"
 3. Identifique automaticamente a plataforma (Meta Ads, Google Ads, TikTok Ads, etc.)
-4. Analise TODAS as campanhas visíveis — não ignore nenhuma
+4. Analise TODAS as campanhas visíveis no print — não ignore nenhuma, mesmo que esteja inativa
 5. Cada análise deve referenciar números específicos — NUNCA seja genérico
 6. Use o contexto semanal para enriquecer análise e recomendações
 7. NUNCA sugira novos criativos ou remarketing a menos que o contexto indique necessidade
 8. Alerte sobre frequência acima de 2.5 como ponto de atenção
+9. Extraia TODAS as métricas visíveis no print para cada campanha — não limite a um conjunto fixo
+10. Para cada campanha, identifique o status de veiculação: "active" se estava veiculando no período, "inactive" se estava pausada/desativada, "unknown" se não for possível determinar
+
+EXTRAÇÃO DE MÉTRICAS:
+- Extraia TODAS as colunas/métricas visíveis no print para cada campanha
+- Exemplos de métricas possíveis (não limitado a estas): Resultados, Alcance, Impressões, Cliques, CTR, CPC, CPM, ROAS, Valor de conversão, Frequência, Investimento, Custo por resultado, Leads, Mensagens, Compras, ThruPlays, Visualizações de vídeo, Engajamento, Curtidas, Comentários, Compartilhamentos, Cliques no link, Cliques únicos, Taxa de conversão, CPA, CPL
+- Se uma métrica está visível no print, DEVE aparecer no JSON
+
+STATUS DE VEICULAÇÃO:
+- "active": campanha estava ativa/veiculando durante o período analisado (mesmo que agora esteja pausada)
+- "inactive": campanha estava pausada, desativada ou sem entrega no período
+- "unknown": não é possível determinar pelo print
 
 POLARIDADE DAS MÉTRICAS (para definir cor do indicador):
-- AUMENTO É POSITIVO (polarity: "positive"): Resultados, Conversões, Compras, Leads, Alcance, Impressões, CTR, ROAS, Taxa de conversão, Valor de conversão, Cliques, Engajamento, ThruPlays
+- AUMENTO É POSITIVO (polarity: "positive"): Resultados, Conversões, Compras, Leads, Alcance, Impressões, CTR, ROAS, Taxa de conversão, Valor de conversão, Cliques, Engajamento, ThruPlays, Visualizações de vídeo
 - DIMINUIÇÃO É POSITIVA (polarity: "negative"): CPC, CPM, CPL, Custo por resultado, CPA, Custo por conversão, Frequência
-- NEUTRO (polarity: "neutral"): Valor gasto / Investimento
+- NEUTRO (polarity: "neutral"): Valor gasto / Investimento / Verba
 
 LÓGICA DE COR:
 - Se polarity="positive" e variação > 0: indicatorColor="green"; se < 0: indicatorColor="red"
 - Se polarity="negative" e variação < 0: indicatorColor="green"; se > 0: indicatorColor="red"
 - Se polarity="neutral": indicatorColor="gray"
+- Se não há variação (modo único): indicatorColor="gray"
 
 ${
   mode === "COMPARATIVE"
     ? `MODO COMPARATIVO:
 - Para cada métrica: exibir valor atual (currentValue), valor anterior (previousValue) e variação percentual (changePercent como número, ex: 15.3 ou -8.2)
 - Associar campanhas pelo NOME entre os dois períodos
-- Se campanha existe no atual mas não no anterior: incluir sem previousValue/changePercent`
+- Se campanha existe no atual mas não no anterior: incluir sem previousValue/changePercent
+- Se campanha existe no anterior mas não no atual: incluir com currentValue="—" e previousValue preenchido`
     : `MODO PERÍODO ÚNICO:
 - Para cada métrica: exibir apenas currentValue, sem previousValue ou changePercent`
 }
 
-Responda EXCLUSIVAMENTE com um JSON válido no seguinte formato (sem markdown, sem explicações):
+Responda EXCLUSIVAMENTE com um JSON válido no seguinte formato (sem markdown, sem explicações, sem blocos de código):
 
 {
   "platform": "Meta Ads",
   "clientName": "${clientName}",
-  "period": "período extraído do print ou 'Período analisado'",
+  "period": "período extraído do print, das datas informadas no contexto, ou 'Período analisado'",
   "mode": "${mode}",
   "objectives": ["Vendas", "Tráfego"],
   "campaigns": [
     {
-      "name": "Nome exato da campanha",
+      "name": "Nome exato da campanha conforme aparece no print",
       "objective": "Vendas",
+      "deliveryStatus": "active",
       "metrics": [
         {
           "name": "Resultados",
@@ -123,6 +140,14 @@ Responda EXCLUSIVAMENTE com um JSON válido no seguinte formato (sem markdown, s
           "changePercent": 20.3,
           "polarity": "positive",
           "indicatorColor": "green"
+        },
+        {
+          "name": "Investimento",
+          "currentValue": "R$ 1.250,00",
+          "previousValue": "R$ 980,00",
+          "changePercent": 27.6,
+          "polarity": "neutral",
+          "indicatorColor": "gray"
         }
       ],
       "analysis": "Análise específica e acionável desta campanha, referenciando números. Considerar o contexto semanal quando relevante.",
@@ -144,7 +169,10 @@ Responda EXCLUSIVAMENTE com um JSON válido no seguinte formato (sem markdown, s
   "contextWarning": null
 }
 
-IMPORTANTE: urgentAlerts só deve ter itens se o contexto semanal mencionar algo urgente (erro de pagamento, conta bloqueada, queda brusca, reprovação, etc.). Se não houver urgência, deixe como array vazio [].`;
+IMPORTANTE:
+- urgentAlerts só deve ter itens se o contexto semanal mencionar algo urgente (erro de pagamento, conta bloqueada, queda brusca, reprovação, etc.). Se não houver urgência, deixe como array vazio [].
+- O campo "period" deve usar as datas informadas no contexto (se houver) ou extrair do print.
+- Inclua TODAS as campanhas visíveis, mesmo as inativas — elas podem ter tido dados no período.`;
 }
 
 // ─── Função principal de análise ──────────────────────────────────────────────
@@ -158,41 +186,60 @@ export async function analyzeCampaignData(
   const prompt = buildPrompt(clientName, weeklyContext, mode, imageUrls.length);
 
   // Build messages with images if provided
-  const userContent: Array<{ type: string; text?: string; image_url?: { url: string; detail: string } }> = [];
+  type ContentPart =
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string; detail: string } };
 
+  const textInstruction = `Analise os dados de campanhas ${imageUrls.length > 0 ? "nas imagens acima" : "fornecidos"} e gere o relatório JSON conforme as instruções do sistema. Lembre-se: extraia TODAS as métricas visíveis e identifique o status de veiculação de cada campanha.`;
+
+  // Build user content: images + text instruction
+  const userContent: any[] = [];
   if (imageUrls.length > 0) {
     for (const url of imageUrls) {
-      userContent.push({
-        type: "image_url",
-        image_url: { url, detail: "high" },
-      });
+      userContent.push({ type: "image_url", image_url: { url, detail: "high" } });
     }
+    userContent.push({ type: "text", text: textInstruction });
   }
-
-  userContent.push({
-    type: "text",
-    text: `Analise os dados de campanhas ${imageUrls.length > 0 ? "nas imagens acima" : "fornecidos"} e gere o relatório JSON conforme as instruções do sistema.`,
-  });
 
   const response = await invokeLLM({
     messages: [
       { role: "system", content: prompt },
       {
         role: "user",
-        content: imageUrls.length > 0 ? (userContent as any) : userContent[userContent.length - 1].text!,
+        content: imageUrls.length > 0 ? userContent : textInstruction,
       },
     ],
   });
 
-  const rawContent = String(response.choices?.[0]?.message?.content ?? "");
+  const rawContent = String(response?.choices?.[0]?.message?.content ?? "");
+
+  if (!rawContent) {
+    throw new Error("LLM não retornou conteúdo. Tente novamente.");
+  }
 
   // Extract JSON from response (handle cases where LLM wraps in markdown)
   const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    throw new Error("LLM não retornou JSON válido");
+    console.error("[DashboardBuilder] LLM raw response:", rawContent.slice(0, 500));
+    throw new Error("LLM não retornou JSON válido. Tente novamente com um print mais nítido.");
   }
 
-  const parsed = JSON.parse(jsonMatch[0]) as DashboardReportData;
+  let parsed: DashboardReportData;
+  try {
+    parsed = JSON.parse(jsonMatch[0]) as DashboardReportData;
+  } catch (e) {
+    console.error("[DashboardBuilder] JSON parse error:", e, "Raw:", jsonMatch[0].slice(0, 500));
+    throw new Error("Erro ao interpretar resposta da IA. Tente novamente.");
+  }
+
+  // Garantir que deliveryStatus existe em todas as campanhas
+  if (parsed.campaigns) {
+    parsed.campaigns = parsed.campaigns.map((c) => ({
+      ...c,
+      deliveryStatus: c.deliveryStatus ?? "unknown",
+    }));
+  }
+
   return parsed;
 }
 
@@ -201,6 +248,16 @@ export async function analyzeCampaignData(
 export function generateReportHtml(report: DashboardReportData): string {
   const colorMap = { green: "#16a34a", red: "#dc2626", gray: "#6b7280" };
   const arrowMap = { green: "↑", red: "↓", gray: "→" };
+
+  const deliveryBadge = (status: string) => {
+    if (status === "active") {
+      return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:#dcfce7;color:#166534;">● Ativa no período</span>`;
+    }
+    if (status === "inactive") {
+      return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:#f1f5f9;color:#64748b;">○ Inativa no período</span>`;
+    }
+    return "";
+  };
 
   const formatChangePercent = (metric: CampaignMetric) => {
     if (metric.changePercent === undefined || metric.changePercent === null) return "";
@@ -215,9 +272,12 @@ export function generateReportHtml(report: DashboardReportData): string {
       (camp) => `
     <div style="margin-bottom:32px;padding:24px;border:1px solid #e5e7eb;border-radius:8px;page-break-inside:avoid;">
       <div style="border-bottom:2px solid #1e293b;padding-bottom:12px;margin-bottom:20px;">
-        <h2 style="font-size:16px;font-weight:700;color:#1e293b;margin:0 0 4px 0;">${camp.name}</h2>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px;">
+          <h2 style="font-size:16px;font-weight:700;color:#1e293b;margin:0;">${camp.name}</h2>
+          ${deliveryBadge(camp.deliveryStatus ?? "unknown")}
+        </div>
         <span style="font-size:12px;color:#64748b;background:#f1f5f9;padding:2px 8px;border-radius:4px;">${camp.objective}</span>
-        ${camp.hasDataQualityWarning ? `<div style="margin-top:8px;padding:8px 12px;background:#fef9c3;border:1px solid #fde047;border-radius:4px;font-size:12px;color:#854d0e;">⚠️ Algumas métricas podem estar imprecisas devido à qualidade da imagem. Recomendamos conferir os valores.</div>` : ""}
+        ${camp.hasDataQualityWarning ? `<div style="margin-top:8px;padding:8px 12px;background:#fef9c3;border:1px solid #fde047;border-radius:4px;font-size:12px;color:#854d0e;">⚠️ Algumas métricas podem estar imprecisas devido à qualidade da imagem.</div>` : ""}
       </div>
 
       <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
@@ -265,8 +325,37 @@ export function generateReportHtml(report: DashboardReportData): string {
         </div>`
       : "";
 
+  const highlightsHtml = report.strategicSummary.highlights.length > 0
+    ? `<div style="margin-bottom:16px;">
+        <p style="font-size:12px;font-weight:700;color:#166534;margin:0 0 8px 0;text-transform:uppercase;letter-spacing:0.05em;">✅ Destaques Positivos</p>
+        <ul style="margin:0;padding-left:20px;">
+          ${report.strategicSummary.highlights.map((h) => `<li style="font-size:13px;color:#374151;margin-bottom:4px;line-height:1.5;">${h}</li>`).join("")}
+        </ul>
+      </div>`
+    : "";
+
+  const attentionHtml = report.strategicSummary.attentionPoints.length > 0
+    ? `<div style="margin-bottom:16px;">
+        <p style="font-size:12px;font-weight:700;color:#92400e;margin:0 0 8px 0;text-transform:uppercase;letter-spacing:0.05em;">⚠️ Pontos de Atenção</p>
+        <ul style="margin:0;padding-left:20px;">
+          ${report.strategicSummary.attentionPoints.map((a) => `<li style="font-size:13px;color:#374151;margin-bottom:4px;line-height:1.5;">${a}</li>`).join("")}
+        </ul>
+      </div>`
+    : "";
+
+  const recommendationsHtml = report.recommendations.length > 0
+    ? `<div style="margin-bottom:32px;padding:24px;border:1px solid #e5e7eb;border-radius:8px;page-break-inside:avoid;">
+        <h2 style="font-size:15px;font-weight:700;color:#1e293b;margin:0 0 16px 0;">Recomendações</h2>
+        <ol style="margin:0;padding-left:20px;">
+          ${report.recommendations.map((r, i) => `<li style="font-size:13px;color:#374151;margin-bottom:8px;line-height:1.6;">${r}</li>`).join("")}
+        </ol>
+      </div>`
+    : "";
+
   const contextWarningHtml = report.contextWarning
-    ? `<div style="margin-bottom:24px;padding:12px 16px;background:#fef9c3;border:1px solid #fde047;border-radius:6px;font-size:12px;color:#854d0e;">⚠️ ${report.contextWarning}</div>`
+    ? `<div style="margin-bottom:24px;padding:12px 16px;background:#fef9c3;border:1px solid #fde047;border-radius:6px;">
+        <p style="font-size:12px;color:#854d0e;margin:0;">⚠️ ${report.contextWarning}</p>
+      </div>`
     : "";
 
   return `<!DOCTYPE html>
@@ -274,120 +363,85 @@ export function generateReportHtml(report: DashboardReportData): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard de Performance — ${report.clientName}</title>
+  <title>Dashboard — ${report.clientName}</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color: #1e293b; background: #ffffff; }
-    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 0; background: #fff; color: #1e293b; }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .no-print { display: none !important; }
+    }
   </style>
 </head>
-<body style="padding:40px;max-width:900px;margin:0 auto;">
-
-  <!-- CABEÇALHO -->
-  <div style="border-bottom:3px solid #1e293b;padding-bottom:24px;margin-bottom:32px;">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-      <div>
-        <p style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">${report.platform}</p>
-        <h1 style="font-size:28px;font-weight:800;color:#1e293b;margin-bottom:4px;">${report.clientName}</h1>
-        <p style="font-size:14px;color:#64748b;">${report.period}</p>
-      </div>
-      <div style="text-align:right;">
-        <span style="display:inline-block;padding:4px 12px;background:${report.mode === "COMPARATIVE" ? "#dbeafe" : "#f0fdf4"};color:${report.mode === "COMPARATIVE" ? "#1e40af" : "#166534"};border-radius:20px;font-size:12px;font-weight:600;">
-          ${report.mode === "COMPARATIVE" ? "Modo Comparativo" : "Período Único"}
-        </span>
-        <p style="font-size:12px;color:#94a3b8;margin-top:6px;">Objetivos: ${report.objectives.join(", ")}</p>
-      </div>
-    </div>
-  </div>
-
-  ${contextWarningHtml}
-
-  <!-- CAMPANHAS -->
-  <div style="margin-bottom:8px;">
-    <h2 style="font-size:18px;font-weight:700;color:#1e293b;margin-bottom:20px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;">
-      Análise por Campanha
-    </h2>
-    ${campaignsHtml}
-  </div>
-
-  ${urgentAlertsHtml}
-
-  <!-- RESUMO ESTRATÉGICO -->
-  <div style="margin-bottom:32px;padding:24px;background:#f8fafc;border-radius:8px;page-break-inside:avoid;">
-    <h2 style="font-size:18px;font-weight:700;color:#1e293b;margin-bottom:20px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;">
-      Resumo Estratégico
-    </h2>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px;">
-      <div style="background:#ffffff;padding:16px;border-radius:6px;border:1px solid #e2e8f0;text-align:center;">
-        <p style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Total Investido</p>
-        <p style="font-size:20px;font-weight:700;color:#1e293b;">${report.strategicSummary.totalInvested}</p>
-      </div>
-      <div style="background:#ffffff;padding:16px;border-radius:6px;border:1px solid #e2e8f0;text-align:center;">
-        <p style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Total de Resultados</p>
-        <p style="font-size:20px;font-weight:700;color:#1e293b;">${report.strategicSummary.totalResults}</p>
-      </div>
-      <div style="background:#ffffff;padding:16px;border-radius:6px;border:1px solid #e2e8f0;text-align:center;">
-        <p style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Custo Médio / Resultado</p>
-        <p style="font-size:20px;font-weight:700;color:#1e293b;">${report.strategicSummary.avgCostPerResult}</p>
+<body>
+  <div style="max-width:900px;margin:0 auto;padding:40px 32px;">
+    <!-- Cabeçalho -->
+    <div style="border-bottom:3px solid #1e293b;padding-bottom:24px;margin-bottom:32px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
+        <div>
+          <h1 style="font-size:24px;font-weight:800;color:#1e293b;margin:0 0 4px 0;">Dashboard de Performance</h1>
+          <p style="font-size:16px;color:#64748b;margin:0;">${report.clientName}</p>
+        </div>
+        <div style="text-align:right;">
+          <p style="font-size:13px;color:#64748b;margin:0 0 4px 0;">${report.platform}</p>
+          <p style="font-size:13px;font-weight:600;color:#1e293b;margin:0;">${report.period}</p>
+          <p style="font-size:12px;color:#94a3b8;margin:4px 0 0 0;">${report.mode === "COMPARATIVE" ? "Modo Comparativo" : "Período Único"}</p>
+        </div>
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;">
-      <div>
-        <p style="font-size:12px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">✓ Destaques Positivos</p>
-        <ul style="padding-left:16px;">
-          ${report.strategicSummary.highlights.map((h) => `<li style="font-size:13px;color:#374151;margin-bottom:4px;line-height:1.5;">${h}</li>`).join("")}
-        </ul>
+    ${contextWarningHtml}
+    ${urgentAlertsHtml}
+
+    <!-- Resumo Estratégico -->
+    <div style="margin-bottom:32px;padding:24px;background:#f8fafc;border-radius:8px;page-break-inside:avoid;">
+      <h2 style="font-size:15px;font-weight:700;color:#1e293b;margin:0 0 20px 0;">Resumo Estratégico</h2>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px;">
+        <div style="text-align:center;padding:16px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+          <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.05em;">Investimento Total</p>
+          <p style="font-size:20px;font-weight:700;color:#1e293b;margin:0;">${report.strategicSummary.totalInvested}</p>
+        </div>
+        <div style="text-align:center;padding:16px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+          <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.05em;">Total de Resultados</p>
+          <p style="font-size:20px;font-weight:700;color:#1e293b;margin:0;">${report.strategicSummary.totalResults}</p>
+        </div>
+        <div style="text-align:center;padding:16px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+          <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.05em;">Custo por Resultado</p>
+          <p style="font-size:20px;font-weight:700;color:#1e293b;margin:0;">${report.strategicSummary.avgCostPerResult}</p>
+        </div>
       </div>
-      <div>
-        <p style="font-size:12px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">⚠ Pontos de Atenção</p>
-        <ul style="padding-left:16px;">
-          ${report.strategicSummary.attentionPoints.map((a) => `<li style="font-size:13px;color:#374151;margin-bottom:4px;line-height:1.5;">${a}</li>`).join("")}
-        </ul>
-      </div>
+      ${highlightsHtml}
+      ${attentionHtml}
+      ${report.strategicSummary.contextNotes ? `<div style="padding:12px 16px;background:#eff6ff;border-left:3px solid #3b82f6;border-radius:0 6px 6px 0;"><p style="font-size:13px;color:#1e40af;margin:0;line-height:1.6;">${report.strategicSummary.contextNotes}</p></div>` : ""}
     </div>
 
-    ${
-      report.strategicSummary.contextNotes
-        ? `<div style="padding:12px 16px;background:#eff6ff;border-left:3px solid #3b82f6;border-radius:0 4px 4px 0;">
-            <p style="font-size:12px;font-weight:700;color:#1e40af;margin-bottom:4px;">Contexto da Semana</p>
-            <p style="font-size:13px;color:#374151;line-height:1.5;">${report.strategicSummary.contextNotes}</p>
-          </div>`
-        : ""
-    }
-  </div>
+    <!-- Análise por Campanha -->
+    <div style="margin-bottom:32px;">
+      <h2 style="font-size:15px;font-weight:700;color:#1e293b;margin:0 0 20px 0;">Análise por Campanha</h2>
+      ${campaignsHtml}
+    </div>
 
-  <!-- RECOMENDAÇÕES -->
-  <div style="padding:24px;background:#1e293b;border-radius:8px;page-break-inside:avoid;">
-    <h2 style="font-size:18px;font-weight:700;color:#f8fafc;margin-bottom:16px;">
-      Recomendações e Próximos Passos
-    </h2>
-    <ol style="padding-left:20px;">
-      ${report.recommendations.map((r, i) => `<li style="font-size:13px;color:#cbd5e1;margin-bottom:10px;line-height:1.6;"><span style="color:#60a5fa;font-weight:600;">${i + 1}.</span> ${r}</li>`).join("")}
-    </ol>
-  </div>
+    ${recommendationsHtml}
 
-  <!-- RODAPÉ -->
-  <div style="margin-top:32px;padding-top:16px;border-top:1px solid #e2e8f0;text-align:center;">
-    <p style="font-size:11px;color:#94a3b8;">Relatório gerado automaticamente · ${new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}</p>
+    <!-- Rodapé -->
+    <div style="border-top:1px solid #e2e8f0;padding-top:16px;margin-top:32px;">
+      <p style="font-size:11px;color:#94a3b8;margin:0;text-align:center;">
+        Relatório gerado automaticamente · ${report.clientName} · ${report.period}
+      </p>
+    </div>
   </div>
-
 </body>
 </html>`;
 }
 
-// ─── Geração e upload do PDF ──────────────────────────────────────────────────
+// ─── Upload do HTML como "PDF" para o S3 ─────────────────────────────────────
 
 export async function generateAndUploadPdf(
   reportId: number,
-  userId: number,
+  userId: string,
   html: string
 ): Promise<string> {
-  // Use html-pdf-node or puppeteer if available; fallback to storing HTML as PDF placeholder
-  // Since puppeteer may not be installed, we'll use the html content directly
-  // and store it as an HTML file that can be printed to PDF from the browser
-  const htmlBuffer = Buffer.from(html, "utf-8");
-  const fileKey = `dashboard-reports/${userId}/${reportId}-${Date.now()}.html`;
-  const { url } = await storagePut(fileKey, htmlBuffer, "text/html");
+  const fileKey = `dashboard-builder/reports/${userId}/${reportId}-${Date.now()}.html`;
+  const { url } = await storagePut(fileKey, Buffer.from(html, "utf-8"), "text/html");
   return url;
 }

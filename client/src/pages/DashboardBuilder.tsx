@@ -25,6 +25,7 @@ import {
   ChevronRight,
   BarChart2,
   GitCompare,
+  Calendar,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -43,6 +44,62 @@ async function uploadImageToS3(file: File): Promise<string> {
   }
   const data = await res.json();
   return data.url as string;
+}
+
+// ─── Máscara de data dd/mm/aaaa ───────────────────────────────────────────────
+
+function maskDate(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+function isValidDate(value: string): boolean {
+  if (value.length !== 10) return false;
+  const [d, m, y] = value.split("/").map(Number);
+  if (!d || !m || !y) return false;
+  if (m < 1 || m > 12) return false;
+  if (d < 1 || d > 31) return false;
+  if (y < 2020 || y > 2099) return false;
+  return true;
+}
+
+// ─── Componente de campo de data ──────────────────────────────────────────────
+
+function DateField({
+  label,
+  value,
+  onChange,
+  disabled,
+  placeholder = "dd/mm/aaaa",
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const valid = value.length === 0 || isValidDate(value);
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+        <Calendar size={12} />
+        {label}
+      </Label>
+      <Input
+        value={value}
+        onChange={(e) => onChange(maskDate(e.target.value))}
+        placeholder={placeholder}
+        disabled={disabled}
+        maxLength={10}
+        className={`font-mono text-sm ${!valid && value.length > 0 ? "border-destructive" : ""}`}
+      />
+      {!valid && value.length > 0 && (
+        <p className="text-xs text-destructive">Data inválida</p>
+      )}
+    </div>
+  );
 }
 
 // ─── Componente de upload de imagem ──────────────────────────────────────────
@@ -120,6 +177,12 @@ export default function DashboardBuilder() {
   const [mode, setMode] = useState<"SINGLE" | "COMPARATIVE">("SINGLE");
   const [clientName, setClientName] = useState("");
   const [weeklyContext, setWeeklyContext] = useState("");
+
+  // Datas — modo único: apenas dateSingle; modo comparativo: dateCurrent + datePrevious
+  const [dateSingle, setDateSingle] = useState("");
+  const [dateCurrent, setDateCurrent] = useState("");
+  const [datePrevious, setDatePrevious] = useState("");
+
   const [file1, setFile1] = useState<File | null>(null);
   const [preview1, setPreview1] = useState<string | null>(null);
   const [file2, setFile2] = useState<File | null>(null);
@@ -158,6 +221,17 @@ export default function DashboardBuilder() {
     setPreview2(URL.createObjectURL(f));
   };
 
+  // Monta a string de período para enviar ao LLM
+  const buildPeriodString = (): string => {
+    if (mode === "SINGLE") {
+      return dateSingle ? `Período: ${dateSingle}` : "";
+    }
+    const parts: string[] = [];
+    if (dateCurrent) parts.push(`Período atual: ${dateCurrent}`);
+    if (datePrevious) parts.push(`Período anterior: ${datePrevious}`);
+    return parts.join(" | ");
+  };
+
   const handleGenerate = async () => {
     if (!clientName.trim()) {
       toast.error("Informe o nome do cliente");
@@ -176,6 +250,22 @@ export default function DashboardBuilder() {
       return;
     }
 
+    // Validar datas preenchidas
+    if (mode === "SINGLE" && dateSingle && !isValidDate(dateSingle)) {
+      toast.error("Data inválida no campo de período");
+      return;
+    }
+    if (mode === "COMPARATIVE") {
+      if (dateCurrent && !isValidDate(dateCurrent)) {
+        toast.error("Data inválida no campo 'Período Atual'");
+        return;
+      }
+      if (datePrevious && !isValidDate(datePrevious)) {
+        toast.error("Data inválida no campo 'Período Anterior'");
+        return;
+      }
+    }
+
     setIsGenerating(true);
     try {
       const imageUrls: string[] = [];
@@ -190,10 +280,15 @@ export default function DashboardBuilder() {
         imageUrls.push(url2);
       }
 
+      const periodString = buildPeriodString();
+      const contextWithPeriod = periodString
+        ? `${periodString}\n\n${weeklyContext.trim()}`
+        : weeklyContext.trim();
+
       toast.info("Analisando campanhas com IA...");
       await generateMutation.mutateAsync({
         clientName: clientName.trim(),
-        weeklyContext: weeklyContext.trim(),
+        weeklyContext: contextWithPeriod,
         mode,
         imageUrls,
       });
@@ -215,7 +310,7 @@ export default function DashboardBuilder() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Dashboard Builder</h1>
           <p className="text-muted-foreground text-sm mt-0.5">
-            Gere dashboards analíticos profissionais em PDF a partir dos prints do gerenciador de anúncios
+            Gere dashboards analíticos profissionais a partir dos prints do gerenciador de anúncios
           </p>
         </div>
       </div>
@@ -234,7 +329,7 @@ export default function DashboardBuilder() {
                 <Label className="text-sm font-semibold">Modo de Operação</Label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={() => { setMode("SINGLE"); setFile2(null); setPreview2(null); }}
+                    onClick={() => { setMode("SINGLE"); setFile2(null); setPreview2(null); setDateCurrent(""); setDatePrevious(""); }}
                     className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
                       mode === "SINGLE"
                         ? "border-primary bg-primary/5"
@@ -250,7 +345,7 @@ export default function DashboardBuilder() {
                     </div>
                   </button>
                   <button
-                    onClick={() => setMode("COMPARATIVE")}
+                    onClick={() => { setMode("COMPARATIVE"); setDateSingle(""); }}
                     className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
                       mode === "COMPARATIVE"
                         ? "border-primary bg-primary/5"
@@ -283,6 +378,46 @@ export default function DashboardBuilder() {
                   disabled={isGenerating}
                 />
               </div>
+
+              {/* Campos de data */}
+              {mode === "SINGLE" ? (
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Período Analisado</Label>
+                  <DateField
+                    label="Data do período (opcional)"
+                    value={dateSingle}
+                    onChange={setDateSingle}
+                    disabled={isGenerating}
+                    placeholder="dd/mm/aaaa"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Se o print não mostrar a data, informe aqui para constar no relatório.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Datas dos Períodos</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <DateField
+                      label="Data — Período Atual"
+                      value={dateCurrent}
+                      onChange={setDateCurrent}
+                      disabled={isGenerating}
+                      placeholder="dd/mm/aaaa"
+                    />
+                    <DateField
+                      label="Data — Período Anterior"
+                      value={datePrevious}
+                      onChange={setDatePrevious}
+                      disabled={isGenerating}
+                      placeholder="dd/mm/aaaa"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Informe as datas para que o relatório identifique corretamente os períodos comparados.
+                  </p>
+                </div>
+              )}
 
               {/* Contexto semanal */}
               <div className="space-y-2">
@@ -319,8 +454,8 @@ export default function DashboardBuilder() {
                 </Label>
                 <div className={`grid gap-4 ${mode === "COMPARATIVE" ? "grid-cols-2" : "grid-cols-1"}`}>
                   <ImageUploadSlot
-                    label={mode === "COMPARATIVE" ? "Período Atual" : "Print das Campanhas"}
-                    sublabel={mode === "COMPARATIVE" ? "Referência principal" : "Screenshot do gerenciador de anúncios"}
+                    label={mode === "COMPARATIVE" ? "Print — Período Atual" : "Print das Campanhas"}
+                    sublabel={mode === "COMPARATIVE" ? "Screenshot do período de referência" : "Screenshot do gerenciador de anúncios"}
                     file={file1}
                     preview={preview1}
                     onSelect={handleSelectFile1}
@@ -328,8 +463,8 @@ export default function DashboardBuilder() {
                   />
                   {mode === "COMPARATIVE" && (
                     <ImageUploadSlot
-                      label="Período Anterior"
-                      sublabel="Para cálculo de variação"
+                      label="Print — Período Anterior"
+                      sublabel="Para cálculo de variação %"
                       file={file2}
                       preview={preview2}
                       onSelect={handleSelectFile2}
