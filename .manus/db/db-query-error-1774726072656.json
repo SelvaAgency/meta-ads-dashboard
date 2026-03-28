@@ -1,0 +1,16 @@
+{
+  "query": "CREATE TABLE `dashboard_reports` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`clientName` varchar(255) NOT NULL,\n\t`weeklyContext` text NOT NULL,\n\t`mode` enum('SINGLE','COMPARATIVE') NOT NULL DEFAULT 'SINGLE',\n\t`platform` varchar(100),\n\t`imageUrls` text NOT NULL DEFAULT ('[]'),\n\t`reportJson` text,\n\t`pdfUrl` text,\n\t`status` enum('PENDING','PROCESSING','DONE','ERROR') NOT NULL DEFAULT 'PENDING',\n\t`errorMessage` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `dashboard_reports_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 47k5kQkoq9oHa8j.root --database YKCqwPqSgxUTxNQRFe3oLu --execute CREATE TABLE `dashboard_reports` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`clientName` varchar(255) NOT NULL,\n\t`weeklyContext` text NOT NULL,\n\t`mode` enum('SINGLE','COMPARATIVE') NOT NULL DEFAULT 'SINGLE',\n\t`platform` varchar(100),\n\t`imageUrls` text NOT NULL DEFAULT ('[]'),\n\t`reportJson` text,\n\t`pdfUrl` text,\n\t`status` enum('PENDING','PROCESSING','DONE','ERROR') NOT NULL DEFAULT 'PENDING',\n\t`errorMessage` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `dashboard_reports_id` PRIMARY KEY(`id`)\n);",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your TiDB version for the right syntax to use line 8 column 41 near \"'[]'),",
+    "\t`reportJson` text,",
+    "\t`pdfUrl` text,",
+    "\t`status` enum('PENDING','PROCESSING','DONE','ERROR') NOT NULL DEFAULT 'PENDING',",
+    "\t`errorMessage` text,",
+    "\t`createdAt` timestamp NOT NULL DEFAULT (now()),",
+    "\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,",
+    "\tCONSTRAINT `dashboard_reports_id` PRIMARY KEY(`id`)",
+    ")\""
+  ]
+}

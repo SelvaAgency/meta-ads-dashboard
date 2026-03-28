@@ -17,6 +17,7 @@ import {
   Zap,
   ChevronRight,
   Building2,
+  PieChart,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
@@ -62,6 +63,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/suggestions", label: "Sugestões IA", icon: Lightbulb },
     { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/alerts", label: "Alertas", icon: Bell, badge: unreadCount ?? 0 },
+    { path: "/dashboard-builder", label: "Dashboard Builder", icon: PieChart },
   ];
 
   if (loading) {

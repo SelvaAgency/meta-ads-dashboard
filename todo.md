@@ -211,3 +211,15 @@
 - [x] Anomalias marcadas como "Visto" vão para seção colapsável "Histórico (30 dias)"
 - [x] Limpeza automática de anomalias lidas com mais de 30 dias no autoSync
 - [x] Seção histórico recolhida por padrão, expansível com clique
+
+## Dashboard Builder de Tráfego Pago (módulo independente)
+- [x] Schema: tabela dashboard_reports (id, userId, clientName, context, mode, platform, reportJson, pdfUrl, createdAt)
+- [x] tRPC procedure: dashboardBuilder.generate (recebe imagens S3 + dados, chama LLM, salva relatório)
+- [x] tRPC procedure: dashboardBuilder.list e dashboardBuilder.getById
+- [x] tRPC procedure: dashboardBuilder.exportPdf (gera HTML e salva no S3 para impressão)
+- [x] Página DashboardBuilder.tsx: formulário com upload de 1 ou 2 prints, nome do cliente, contexto semanal, toggle modo
+- [x] Página DashboardBuilderResult.tsx: exibe relatório gerado com botão de exportar PDF
+- [x] Lógica LLM: prompt especializado seguindo todas as regras do escopo (polaridade, análise por campanha, resumo estratégico)
+- [x] Geração de PDF profissional: sem gráficos, cores apenas nos indicadores de variação, design limpo
+- [x] Rota /dashboard-builder e /dashboard-builder/:id no App.tsx
+- [x] Item "Dashboard Builder" no menu lateral

@@ -225,3 +225,27 @@ export const alerts = mysqlTable("alerts", {
 });
 export type Alert = typeof alerts.$inferSelect;
 export type InsertAlert = typeof alerts.$inferInsert;
+
+// ─── Dashboard Builder de Tráfego Pago ──────────────────────────────────────
+// Módulo independente para geração de dashboards analíticos em PDF.
+export const dashboardReports = mysqlTable("dashboard_reports", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  clientName: varchar("clientName", { length: 255 }).notNull(),
+  weeklyContext: text("weeklyContext").notNull(),
+  mode: mysqlEnum("mode", ["SINGLE", "COMPARATIVE"]).notNull().default("SINGLE"),
+  platform: varchar("platform", { length: 100 }),
+  // URLs das imagens enviadas (JSON array de strings) — armazenado como JSON string
+  imageUrls: text("imageUrls").notNull(),
+  // Conteúdo do relatório gerado pelo LLM (JSON estruturado)
+  reportJson: text("reportJson"),
+  // URL do PDF gerado no S3
+  pdfUrl: text("pdfUrl"),
+  // Status do processamento
+  status: mysqlEnum("status", ["PENDING", "PROCESSING", "DONE", "ERROR"]).notNull().default("PENDING"),
+  errorMessage: text("errorMessage"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type DashboardReport = typeof dashboardReports.$inferSelect;
+export type InsertDashboardReport = typeof dashboardReports.$inferInsert;
