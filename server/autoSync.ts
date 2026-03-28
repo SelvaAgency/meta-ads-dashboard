@@ -34,6 +34,7 @@ import {
   markAnomalyEmailSent,
   markAlertEmailSent,
   getMetaAdAccountsByUserId,
+  purgeOldReadAnomalies,
 } from "./db";
 import {
   getCampaigns,
@@ -411,6 +412,17 @@ export function startAutoSync() {
     runAutoSync().catch(console.error);
   }, { timezone: "UTC" });
   console.log("[AutoSync] Daily sync scheduled at 06:00 Brasília time (09:00 UTC)");
+
+  // Daily cleanup: delete read anomalies older than 30 days (runs at 09:05 UTC)
+  cron.schedule("5 9 * * *", async () => {
+    try {
+      const deleted = await purgeOldReadAnomalies();
+      if (deleted > 0) console.log(`[AutoSync] Limpeza: ${deleted} anomalia(s) lida(s) com mais de 30 dias removida(s).`);
+    } catch (err) {
+      console.error("[AutoSync] Erro na limpeza de anomalias antigas:", err);
+    }
+  }, { timezone: "UTC" });
+  console.log("[AutoSync] Daily cleanup scheduled at 09:05 UTC (anomalias lidas >30 dias)");
 
   // Hourly anomaly detection (runs at minute 0 of every hour)
   cron.schedule("0 * * * *", () => {

@@ -206,3 +206,8 @@
 
 ## UX Anomalias
 - [x] Remover botão "Resolver" das anomalias — manter apenas botão "Visto"
+
+## Histórico de Anomalias
+- [x] Anomalias marcadas como "Visto" vão para seção colapsável "Histórico (30 dias)"
+- [x] Limpeza automática de anomalias lidas com mais de 30 dias no autoSync
+- [x] Seção histórico recolhida por padrão, expansível com clique

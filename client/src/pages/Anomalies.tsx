@@ -6,7 +6,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Clock,
   Eye,
+  FolderOpen,
   Info,
   Link2,
   RefreshCw,
@@ -14,20 +18,13 @@ import {
   TrendingUp,
   Zap,
 } from "lucide-react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 
 // ─── Anomalias de métricas de campanha ────────────────────────────────────────
-// Detectadas automaticamente com base em janela deslizante de 7 dias:
-// - ROAS_DROP: queda de ROAS ≥ 10%
-// - RESULTS_DROP: queda de resultados ≥ 20%
-// - PERFORMANCE_DROP: queda abrupta de impressões + CTR juntos
-// - CPA_SPIKE: pico de CPA ≥ 30%
-// - CTR_DROP: queda de CTR ≥ 25%
-// - SPEND_SPIKE: pico de gasto ≥ 50%
-// - FREQUENCY_HIGH: frequência ≥ 4x
-//
-// NÃO aparecem aqui: erros técnicos (campanha parada, saldo, pixel, etc.)
-// Esses ficam na aba Alertas.
+// Detectadas automaticamente com base em janela deslizante de 7 dias.
+// Anomalias não lidas = ativas (aparecem na lista principal).
+// Anomalias lidas = histórico (seção colapsável, ficam por 30 dias).
 // ─────────────────────────────────────────────────────────────────────────────
 
 const severityConfig: Record<string, { label: string; color: string; bg: string }> = {
@@ -42,83 +39,46 @@ const typeConfig: Record<
   {
     icon: React.ComponentType<{ className?: string }>;
     label: string;
-    description: string;
     color: string;
   }
 > = {
-  ROAS_DROP: {
-    icon: TrendingDown,
-    label: "Queda de ROAS",
-    description: "Retorno sobre investimento caiu ≥ 10% em relação aos 7 dias anteriores",
-    color: "text-red-400",
-  },
-  RESULTS_DROP: {
-    icon: TrendingDown,
-    label: "Queda de Resultados",
-    description: "Número de resultados (conversões, leads, mensagens) caiu ≥ 20%",
-    color: "text-red-400",
-  },
-  PERFORMANCE_DROP: {
-    icon: TrendingDown,
-    label: "Queda de Performance",
-    description: "Queda abrupta em impressões e CTR simultaneamente — possível problema de entrega",
-    color: "text-orange-400",
-  },
-  CPA_SPIKE: {
-    icon: TrendingUp,
-    label: "Pico de CPA",
-    description: "Custo por resultado aumentou ≥ 30% em relação aos 7 dias anteriores",
-    color: "text-orange-400",
-  },
-  CTR_DROP: {
-    icon: TrendingDown,
-    label: "Queda de CTR",
-    description: "Taxa de cliques caiu ≥ 25% — possível fadiga de criativos",
-    color: "text-yellow-400",
-  },
-  SPEND_SPIKE: {
-    icon: TrendingUp,
-    label: "Pico de Investimento",
-    description: "Gasto aumentou ≥ 50% em relação ao período anterior",
-    color: "text-yellow-400",
-  },
-  FREQUENCY_HIGH: {
-    icon: AlertTriangle,
-    label: "Frequência Elevada",
-    description: "Frequência acima de 4x — audiência pode estar saturada",
-    color: "text-yellow-400",
-  },
-  // Legados (mantidos para compatibilidade com dados antigos)
-  CONVERSION_DROP: {
-    icon: TrendingDown,
-    label: "Queda de Conversões",
-    description: "Queda no volume de conversões detectada",
-    color: "text-red-400",
-  },
-  DELIVERY_CHANGE: {
-    icon: AlertTriangle,
-    label: "Mudança de Entrega",
-    description: "Alteração significativa na entrega das campanhas",
-    color: "text-orange-400",
-  },
-  BUDGET_EXHAUSTED: {
-    icon: AlertTriangle,
-    label: "Orçamento Esgotado",
-    description: "Orçamento da campanha foi consumido",
-    color: "text-yellow-400",
-  },
+  ROAS_DROP: { icon: TrendingDown, label: "Queda de ROAS", color: "text-red-400" },
+  RESULTS_DROP: { icon: TrendingDown, label: "Queda de Resultados", color: "text-red-400" },
+  PERFORMANCE_DROP: { icon: TrendingDown, label: "Queda de Performance", color: "text-orange-400" },
+  CPA_SPIKE: { icon: TrendingUp, label: "Pico de CPA", color: "text-orange-400" },
+  CTR_DROP: { icon: TrendingDown, label: "Queda de CTR", color: "text-yellow-400" },
+  SPEND_SPIKE: { icon: TrendingUp, label: "Pico de Investimento", color: "text-yellow-400" },
+  FREQUENCY_HIGH: { icon: AlertTriangle, label: "Frequência Elevada", color: "text-yellow-400" },
+  CONVERSION_DROP: { icon: TrendingDown, label: "Queda de Conversões", color: "text-red-400" },
+  DELIVERY_CHANGE: { icon: AlertTriangle, label: "Mudança de Entrega", color: "text-orange-400" },
+  BUDGET_EXHAUSTED: { icon: AlertTriangle, label: "Orçamento Esgotado", color: "text-yellow-400" },
+};
+
+type AnomalyItem = {
+  id: number;
+  type: string;
+  severity: string;
+  title: string;
+  description: string;
+  detectedAt: Date;
+  isRead: boolean;
+  resolvedAt: Date | null;
+  metricName: string | null;
+  currentValue: string | null;
+  previousValue: string | null;
+  changePercent: string | null;
 };
 
 export default function Anomalies() {
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const { data: anomalies, isLoading } = trpc.anomalies.list.useQuery(
     { accountId: selectedAccountId! },
     {
       enabled: !!selectedAccountId,
-      // Auto-refresh every 5 minutes so new anomalies appear automatically
       refetchInterval: 5 * 60 * 1000,
       refetchIntervalInBackground: false,
     }
@@ -156,13 +116,17 @@ export default function Anomalies() {
     );
   }
 
-  const active = anomalies?.filter((a) => !a.isResolved) ?? [];
-  const criticalOrHigh = active.filter((a) => a.severity === "CRITICAL" || a.severity === "HIGH");
-  const medium = active.filter((a) => a.severity === "MEDIUM" || a.severity === "LOW");
+  // Unread = active (shown in main list); Read = history (collapsible section)
+  const unread = (anomalies ?? []).filter((a) => !a.isRead && !a.isResolved);
+  const history = (anomalies ?? []).filter((a) => a.isRead);
+
+  const criticalOrHigh = unread.filter((a) => a.severity === "CRITICAL" || a.severity === "HIGH");
+  const medium = unread.filter((a) => a.severity === "MEDIUM" || a.severity === "LOW");
 
   return (
     <MetaDashboardLayout title="Anomalias">
       <div className="space-y-5">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-foreground">Anomalias de Métricas</h1>
@@ -179,9 +143,9 @@ export default function Anomalies() {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: "Anomalias Ativas", value: active.length, color: active.length > 0 ? "text-red-400" : "text-muted-foreground" },
+            { label: "Anomalias Ativas", value: unread.length, color: unread.length > 0 ? "text-red-400" : "text-muted-foreground" },
             { label: "Alta / Crítica", value: criticalOrHigh.length, color: criticalOrHigh.length > 0 ? "text-red-400" : "text-muted-foreground" },
-            { label: "Resolvidas", value: (anomalies ?? []).filter((a) => a.isResolved).length, color: "text-emerald-400" },
+            { label: "No Histórico", value: history.length, color: history.length > 0 ? "text-muted-foreground" : "text-muted-foreground" },
           ].map((stat) => (
             <Card key={stat.label}>
               <CardContent className="p-4">
@@ -196,7 +160,7 @@ export default function Anomalies() {
         <div>
           <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-red-400" />
-            Anomalias Ativas ({active.length})
+            Anomalias Ativas ({unread.length})
           </h2>
           {isLoading ? (
             <div className="space-y-2">
@@ -204,7 +168,7 @@ export default function Anomalies() {
                 <div key={i} className="h-20 bg-muted rounded-xl animate-pulse" />
               ))}
             </div>
-          ) : active.length === 0 ? (
+          ) : unread.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
                 <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-3" />
@@ -216,21 +180,23 @@ export default function Anomalies() {
             </Card>
           ) : (
             <div className="space-y-6">
-              {/* Critical / High */}
               {criticalOrHigh.length > 0 && (
                 <div>
                   <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">Alta prioridade</p>
                   <div className="space-y-2">
-                    {criticalOrHigh.map((anomaly) => renderAnomalyCard(anomaly, markRead))}
+                    {criticalOrHigh.map((anomaly) => (
+                      <AnomalyCard key={anomaly.id} anomaly={anomaly} markRead={markRead} />
+                    ))}
                   </div>
                 </div>
               )}
-              {/* Medium / Low */}
               {medium.length > 0 && (
                 <div>
                   <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">Média prioridade</p>
                   <div className="space-y-2">
-                    {medium.map((anomaly) => renderAnomalyCard(anomaly, markRead))}
+                    {medium.map((anomaly) => (
+                      <AnomalyCard key={anomaly.id} anomaly={anomaly} markRead={markRead} />
+                    ))}
                   </div>
                 </div>
               )}
@@ -238,7 +204,50 @@ export default function Anomalies() {
           )}
         </div>
 
+        {/* ─── Histórico colapsável ─────────────────────────────────────────── */}
+        <div>
+          <button
+            onClick={() => setHistoryOpen((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-border/50 bg-muted/20 hover:bg-muted/40 transition-colors group"
+          >
+            <div className="flex items-center gap-2.5">
+              <FolderOpen className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+              <span className="text-sm font-medium text-foreground">
+                Histórico
+              </span>
+              <span className="text-xs text-muted-foreground">
+                ({history.length} {history.length === 1 ? "anomalia vista" : "anomalias vistas"} · ficam por 30 dias)
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock className="w-3 h-3" />
+              {historyOpen ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronRight className="w-4 h-4" />
+              )}
+            </div>
+          </button>
 
+          {historyOpen && (
+            <div className="mt-2 space-y-2">
+              {history.length === 0 ? (
+                <Card className="border-border/30">
+                  <CardContent className="py-8 text-center">
+                    <FolderOpen className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                    <p className="text-xs text-muted-foreground">
+                      Anomalias marcadas como vistas aparecerão aqui por 30 dias.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                history.map((anomaly) => (
+                  <HistoryCard key={anomaly.id} anomaly={anomaly} />
+                ))
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Info box */}
         <Card className="border-border/30 bg-muted/20">
@@ -248,10 +257,9 @@ export default function Anomalies() {
               <div>
                 <p className="text-xs font-medium text-foreground mb-1">Como funciona a detecção</p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  A cada hora, o sistema compara a média ponderada dos <strong className="text-foreground">últimos 7 dias</strong> com os <strong className="text-foreground">7 dias anteriores</strong> para cada campanha ativa.
-                  Anomalias são geradas quando: ROAS cai ≥ 10% · Resultados caem ≥ 20% · CPA sobe ≥ 30% · CTR cai ≥ 25% · Gasto sobe ≥ 50% · Frequência ≥ 4x.
-                  <br />
-                  <span className="text-muted-foreground/70">Erros técnicos (campanha parada, saldo baixo, etc.) ficam na aba <strong className="text-foreground">Alertas</strong>.</span>
+                  A cada hora, o sistema compara a média dos <strong className="text-foreground">últimos 7 dias</strong> com os <strong className="text-foreground">7 dias anteriores</strong> por campanha.
+                  Anomalias: ROAS cai ≥ 10% · Resultados caem ≥ 20% · CPA sobe ≥ 30% · CTR cai ≥ 25% · Gasto sobe ≥ 50% · Frequência ≥ 4x.
+                  Anomalias vistas ficam no histórico por 30 dias e são removidas automaticamente.
                 </p>
               </div>
             </div>
@@ -262,33 +270,20 @@ export default function Anomalies() {
   );
 }
 
-// ─── Extracted render function to keep JSX clean ──────────────────────────────
-function renderAnomalyCard(
-  anomaly: {
-    id: number;
-    type: string;
-    severity: string;
-    title: string;
-    description: string;
-    detectedAt: Date;
-    isRead: boolean;
-    resolvedAt: Date | null;
-    metricName: string | null;
-    currentValue: string | null;
-    previousValue: string | null;
-    changePercent: string | null;
-  },
-  markRead: { mutate: (args: { anomalyId: number }) => void; isPending?: boolean }
-) {
+// ─── Card de anomalia ativa (com botão Visto) ─────────────────────────────────
+function AnomalyCard({
+  anomaly,
+  markRead,
+}: {
+  anomaly: AnomalyItem;
+  markRead: { mutate: (args: { anomalyId: number }) => void; isPending?: boolean };
+}) {
   const sev = severityConfig[anomaly.severity] ?? severityConfig.LOW;
   const tc = typeConfig[anomaly.type];
   const AnomalyIcon = tc?.icon ?? AlertTriangle;
 
   return (
-    <Card
-      key={anomaly.id}
-      className={`border ${!anomaly.isRead ? "border-primary/30" : "border-border"}`}
-    >
+    <Card className="border border-primary/20 bg-primary/5">
       <CardContent className="p-4">
         <div className="flex items-start gap-3">
           <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${sev.bg}`}>
@@ -305,28 +300,64 @@ function renderAnomalyCard(
                   {tc.label}
                 </Badge>
               )}
-              {!anomaly.isRead && (
-                <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
-              )}
+              <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">{anomaly.description}</p>
             <p className="text-xs text-muted-foreground/60 mt-1.5">
               Detectada em {new Date(anomaly.detectedAt).toLocaleString("pt-BR")}
             </p>
           </div>
-          {!anomaly.isRead && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
-              onClick={() => markRead.mutate({ anomalyId: anomaly.id })}
-              disabled={markRead.isPending}
-              title="Marcar como visto"
-            >
-              <Eye className="w-3.5 h-3.5" />
-              Visto
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
+            onClick={() => markRead.mutate({ anomalyId: anomaly.id })}
+            disabled={markRead.isPending}
+            title="Marcar como visto — move para o histórico"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            Visto
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Card do histórico (compacto, sem ação) ───────────────────────────────────
+function HistoryCard({ anomaly }: { anomaly: AnomalyItem }) {
+  const sev = severityConfig[anomaly.severity] ?? severityConfig.LOW;
+  const tc = typeConfig[anomaly.type];
+
+  // Calculate days remaining before auto-deletion (30 days from detectedAt)
+  const detectedMs = new Date(anomaly.detectedAt).getTime();
+  const expiresMs = detectedMs + 30 * 24 * 60 * 60 * 1000;
+  const daysLeft = Math.max(0, Math.ceil((expiresMs - Date.now()) / (24 * 60 * 60 * 1000)));
+
+  return (
+    <Card className="border-border/30 opacity-70 hover:opacity-100 transition-opacity">
+      <CardContent className="p-3">
+        <div className="flex items-center gap-3">
+          <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${sev.bg}`}>
+            {tc ? (
+              <tc.icon className={`w-3.5 h-3.5 ${tc.color}`} />
+            ) : (
+              <AlertTriangle className={`w-3.5 h-3.5 ${sev.color}`} />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-xs font-medium text-foreground truncate">{anomaly.title}</p>
+              <Badge variant="outline" className={`text-xs ${sev.color} border-border/40 py-0`}>
+                {sev.label}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground/70 mt-0.5">
+              {new Date(anomaly.detectedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}
+              {" · "}
+              <span className="text-muted-foreground/50">expira em {daysLeft}d</span>
+            </p>
+          </div>
         </div>
       </CardContent>
     </Card>

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -347,6 +347,27 @@ export async function markAnomalyResolved(id: number) {
     .update(anomalies)
     .set({ isResolved: true, resolvedAt: new Date() })
     .where(eq(anomalies.id, id));
+}
+
+/**
+ * Deleta anomalias que foram marcadas como lidas (isRead = true)
+ * e foram detectadas há mais de 30 dias.
+ * Chamada diária pelo cron job de limpeza.
+ */
+export async function purgeOldReadAnomalies() {
+  const db = await getDb();
+  if (!db) return 0;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const result = await db
+    .delete(anomalies)
+    .where(
+      and(
+        eq(anomalies.isRead, true),
+        lt(anomalies.detectedAt, cutoff)
+      )
+    );
+  return (result as any).affectedRows ?? 0;
 }
 
 // ─── AI Suggestions ───────────────────────────────────────────────────────────
