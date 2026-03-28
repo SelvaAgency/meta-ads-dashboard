@@ -26,6 +26,7 @@ import {
   BarChart2,
   GitCompare,
   Calendar,
+  CalendarDays,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -63,6 +64,36 @@ function isValidDate(value: string): boolean {
   if (d < 1 || d > 31) return false;
   if (y < 2020 || y > 2099) return false;
   return true;
+}
+
+function todayBR(): string {
+  return new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function yesterdayBR(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+// ─── Tipos de período ─────────────────────────────────────────────────────────
+
+type PeriodPreset = "TODAY" | "YESTERDAY" | "TODAY_YESTERDAY" | "CUSTOM";
+
+const PERIOD_OPTIONS: { id: PeriodPreset; label: string; sublabel: string }[] = [
+  { id: "TODAY", label: "Hoje", sublabel: todayBR() },
+  { id: "YESTERDAY", label: "Ontem", sublabel: yesterdayBR() },
+  { id: "TODAY_YESTERDAY", label: "Hoje e Ontem", sublabel: `${yesterdayBR()} – ${todayBR()}` },
+  { id: "CUSTOM", label: "Personalizado", sublabel: "Informe as datas" },
+];
+
+function buildPeriodLabel(preset: PeriodPreset, customDate: string): string {
+  switch (preset) {
+    case "TODAY": return `Hoje (${todayBR()})`;
+    case "YESTERDAY": return `Ontem (${yesterdayBR()})`;
+    case "TODAY_YESTERDAY": return `Hoje e Ontem (${yesterdayBR()} – ${todayBR()})`;
+    case "CUSTOM": return customDate ? customDate : "Período personalizado";
+  }
 }
 
 // ─── Componente de campo de data ──────────────────────────────────────────────
@@ -178,9 +209,13 @@ export default function DashboardBuilder() {
   const [clientName, setClientName] = useState("");
   const [weeklyContext, setWeeklyContext] = useState("");
 
-  // Datas — modo único: apenas dateSingle; modo comparativo: dateCurrent + datePrevious
-  const [dateSingle, setDateSingle] = useState("");
-  const [dateCurrent, setDateCurrent] = useState("");
+  // Período — modo único
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("YESTERDAY");
+  const [customDate, setCustomDate] = useState("");
+
+  // Período — modo comparativo
+  const [periodPresetCurrent, setPeriodPresetCurrent] = useState<PeriodPreset>("YESTERDAY");
+  const [customDateCurrent, setCustomDateCurrent] = useState("");
   const [datePrevious, setDatePrevious] = useState("");
 
   const [file1, setFile1] = useState<File | null>(null);
@@ -224,10 +259,11 @@ export default function DashboardBuilder() {
   // Monta a string de período para enviar ao LLM
   const buildPeriodString = (): string => {
     if (mode === "SINGLE") {
-      return dateSingle ? `Período: ${dateSingle}` : "";
+      const label = buildPeriodLabel(periodPreset, customDate);
+      return `Período de análise: ${label}`;
     }
-    const parts: string[] = [];
-    if (dateCurrent) parts.push(`Período atual: ${dateCurrent}`);
+    const currentLabel = buildPeriodLabel(periodPresetCurrent, customDateCurrent);
+    const parts = [`Período atual: ${currentLabel}`];
     if (datePrevious) parts.push(`Período anterior: ${datePrevious}`);
     return parts.join(" | ");
   };
@@ -250,20 +286,18 @@ export default function DashboardBuilder() {
       return;
     }
 
-    // Validar datas preenchidas
-    if (mode === "SINGLE" && dateSingle && !isValidDate(dateSingle)) {
-      toast.error("Data inválida no campo de período");
+    // Validar datas personalizadas
+    if (mode === "SINGLE" && periodPreset === "CUSTOM" && !isValidDate(customDate)) {
+      toast.error("Informe uma data válida no campo personalizado (dd/mm/aaaa)");
       return;
     }
-    if (mode === "COMPARATIVE") {
-      if (dateCurrent && !isValidDate(dateCurrent)) {
-        toast.error("Data inválida no campo 'Período Atual'");
-        return;
-      }
-      if (datePrevious && !isValidDate(datePrevious)) {
-        toast.error("Data inválida no campo 'Período Anterior'");
-        return;
-      }
+    if (mode === "COMPARATIVE" && periodPresetCurrent === "CUSTOM" && !isValidDate(customDateCurrent)) {
+      toast.error("Informe uma data válida para o período atual (dd/mm/aaaa)");
+      return;
+    }
+    if (mode === "COMPARATIVE" && datePrevious && !isValidDate(datePrevious)) {
+      toast.error("Data inválida no campo 'Período Anterior'");
+      return;
     }
 
     setIsGenerating(true);
@@ -281,9 +315,7 @@ export default function DashboardBuilder() {
       }
 
       const periodString = buildPeriodString();
-      const contextWithPeriod = periodString
-        ? `${periodString}\n\n${weeklyContext.trim()}`
-        : weeklyContext.trim();
+      const contextWithPeriod = `${periodString}\n\n${weeklyContext.trim()}`;
 
       toast.info("Analisando campanhas com IA...");
       await generateMutation.mutateAsync({
@@ -299,6 +331,61 @@ export default function DashboardBuilder() {
   };
 
   const contextWordCount = weeklyContext.trim().split(/\s+/).filter(Boolean).length;
+
+  // ─── Seletor de período ───────────────────────────────────────────────────
+
+  function PeriodSelector({
+    selected,
+    onSelect,
+    customValue,
+    onCustomChange,
+    disabled,
+    label = "Período de Análise",
+  }: {
+    selected: PeriodPreset;
+    onSelect: (p: PeriodPreset) => void;
+    customValue: string;
+    onCustomChange: (v: string) => void;
+    disabled?: boolean;
+    label?: string;
+  }) {
+    return (
+      <div className="space-y-3">
+        <Label className="text-sm font-semibold flex items-center gap-1.5">
+          <CalendarDays size={14} className="text-muted-foreground" />
+          {label} <span className="text-destructive">*</span>
+        </Label>
+        <div className="grid grid-cols-2 gap-2">
+          {PERIOD_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onSelect(opt.id)}
+              className={`flex flex-col items-start p-3 rounded-lg border-2 transition-all text-left ${
+                selected === opt.id
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-border/60 hover:bg-muted/20"
+              } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+            >
+              <span className={`text-sm font-medium ${selected === opt.id ? "text-primary" : "text-foreground"}`}>
+                {opt.label}
+              </span>
+              <span className="text-xs text-muted-foreground mt-0.5">{opt.sublabel}</span>
+            </button>
+          ))}
+        </div>
+        {selected === "CUSTOM" && (
+          <DateField
+            label="Data do período (dd/mm/aaaa)"
+            value={customValue}
+            onChange={onCustomChange}
+            disabled={disabled}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-8">
@@ -329,7 +416,12 @@ export default function DashboardBuilder() {
                 <Label className="text-sm font-semibold">Modo de Operação</Label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={() => { setMode("SINGLE"); setFile2(null); setPreview2(null); setDateCurrent(""); setDatePrevious(""); }}
+                    type="button"
+                    onClick={() => {
+                      setMode("SINGLE");
+                      setFile2(null);
+                      setPreview2(null);
+                    }}
                     className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
                       mode === "SINGLE"
                         ? "border-primary bg-primary/5"
@@ -345,7 +437,8 @@ export default function DashboardBuilder() {
                     </div>
                   </button>
                   <button
-                    onClick={() => { setMode("COMPARATIVE"); setDateSingle(""); }}
+                    type="button"
+                    onClick={() => setMode("COMPARATIVE")}
                     className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
                       mode === "COMPARATIVE"
                         ? "border-primary bg-primary/5"
@@ -379,42 +472,35 @@ export default function DashboardBuilder() {
                 />
               </div>
 
-              {/* Campos de data */}
+              {/* Seletor de período */}
               {mode === "SINGLE" ? (
-                <div className="space-y-2">
-                  <Label className="text-sm font-semibold">Período Analisado</Label>
+                <PeriodSelector
+                  selected={periodPreset}
+                  onSelect={setPeriodPreset}
+                  customValue={customDate}
+                  onCustomChange={setCustomDate}
+                  disabled={isGenerating}
+                  label="Período de Análise"
+                />
+              ) : (
+                <div className="space-y-4">
+                  <PeriodSelector
+                    selected={periodPresetCurrent}
+                    onSelect={setPeriodPresetCurrent}
+                    customValue={customDateCurrent}
+                    onCustomChange={setCustomDateCurrent}
+                    disabled={isGenerating}
+                    label="Período Atual (print 1)"
+                  />
                   <DateField
-                    label="Data do período (opcional)"
-                    value={dateSingle}
-                    onChange={setDateSingle}
+                    label="Período Anterior (dd/mm/aaaa)"
+                    value={datePrevious}
+                    onChange={setDatePrevious}
                     disabled={isGenerating}
                     placeholder="dd/mm/aaaa"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Se o print não mostrar a data, informe aqui para constar no relatório.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <Label className="text-sm font-semibold">Datas dos Períodos</Label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <DateField
-                      label="Data — Período Atual"
-                      value={dateCurrent}
-                      onChange={setDateCurrent}
-                      disabled={isGenerating}
-                      placeholder="dd/mm/aaaa"
-                    />
-                    <DateField
-                      label="Data — Período Anterior"
-                      value={datePrevious}
-                      onChange={setDatePrevious}
-                      disabled={isGenerating}
-                      placeholder="dd/mm/aaaa"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Informe as datas para que o relatório identifique corretamente os períodos comparados.
+                    O período anterior é o referente ao print 2. Informe a data para que o relatório identifique corretamente os períodos comparados.
                   </p>
                 </div>
               )}

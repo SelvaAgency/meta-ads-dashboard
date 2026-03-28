@@ -214,52 +214,102 @@ export default function DashboardBuilderResult() {
               </div>
             </div>
 
-            {/* Métricas */}
+              {/* Métricas */}
             <div className="p-5">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-2 pr-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                        Métrica
-                      </th>
-                      <th className="text-right py-2 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                        {report.mode === "COMPARATIVE" ? "Atual" : "Valor"}
-                      </th>
+              {/* Métrica principal em destaque */}
+              {camp.metrics.length > 0 && (
+                <div className="mb-4 p-4 rounded-xl bg-primary/5 border border-primary/20">
+                  <p className="text-xs font-bold text-primary uppercase tracking-widest mb-2">Métrica Principal</p>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-base font-bold text-foreground">{camp.metrics[0].name}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl font-bold text-foreground">{camp.metrics[0].currentValue}</span>
                       {report.mode === "COMPARATIVE" && (
                         <>
-                          <th className="text-right py-2 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                            Anterior
-                          </th>
-                          <th className="text-right py-2 pl-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                            Variação
-                          </th>
+                          {camp.metrics[0].previousValue && (
+                            <span className="text-sm text-muted-foreground">
+                              ant. {camp.metrics[0].previousValue}
+                            </span>
+                          )}
+                          <VariationBadge metric={camp.metrics[0]} />
                         </>
                       )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {camp.metrics.map((m, mi) => (
-                      <tr key={mi} className="border-b border-border/50 last:border-0">
-                        <td className="py-2.5 pr-4 text-foreground">{m.name}</td>
-                        <td className="py-2.5 px-4 text-right font-semibold text-foreground">
-                          {m.currentValue}
-                        </td>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Métricas fixas (indices 1-4) em grid */}
+              {camp.metrics.length > 1 && (
+                <div className="mb-4">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Métricas Fixas</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {camp.metrics.slice(1, 5).map((m, mi) => (
+                      <div key={mi} className="p-3 rounded-lg bg-muted/30 border border-border/50">
+                        <p className="text-xs text-muted-foreground mb-1">{m.name}</p>
+                        <p className="text-sm font-bold text-foreground">{m.currentValue}</p>
+                        {report.mode === "COMPARATIVE" && (
+                          <div className="mt-1">
+                            <VariationBadge metric={m} />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Demais métricas em tabela */}
+              {camp.metrics.length > 5 && (
+                <div className="overflow-x-auto">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Demais Métricas</p>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-2 pr-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                          Métrica
+                        </th>
+                        <th className="text-right py-2 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                          {report.mode === "COMPARATIVE" ? "Atual" : "Valor"}
+                        </th>
                         {report.mode === "COMPARATIVE" && (
                           <>
-                            <td className="py-2.5 px-4 text-right text-muted-foreground">
-                              {m.previousValue ?? "—"}
-                            </td>
-                            <td className="py-2.5 pl-4 text-right">
-                              <VariationBadge metric={m} />
-                            </td>
+                            <th className="text-right py-2 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                              Anterior
+                            </th>
+                            <th className="text-right py-2 pl-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                              Variação
+                            </th>
                           </>
                         )}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {camp.metrics.slice(5).map((m, mi) => (
+                        <tr key={mi} className="border-b border-border/50 last:border-0">
+                          <td className="py-2.5 pr-4 text-foreground">{m.name}</td>
+                          <td className="py-2.5 px-4 text-right font-semibold text-foreground">
+                            {m.currentValue}
+                          </td>
+                          {report.mode === "COMPARATIVE" && (
+                            <>
+                              <td className="py-2.5 px-4 text-right text-muted-foreground">
+                                {m.previousValue ?? "—"}
+                              </td>
+                              <td className="py-2.5 pl-4 text-right">
+                                <VariationBadge metric={m} />
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Fallback: se houver 5 ou menos métricas (sem demais), mostrar tabela completa exceto principal e fixas */}
+              {camp.metrics.length >= 1 && camp.metrics.length <= 5 && camp.metrics.length > 1 && null}
 
               {/* Análise */}
               <div className="mt-4 p-4 bg-blue-50/50 border-l-4 border-blue-400 rounded-r-lg">

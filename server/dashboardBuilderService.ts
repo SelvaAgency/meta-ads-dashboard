@@ -87,10 +87,30 @@ REGRAS ABSOLUTAS:
 9. Extraia TODAS as métricas visíveis no print para cada campanha — não limite a um conjunto fixo
 10. Para cada campanha, identifique o status de veiculação: "active" se estava veiculando no período, "inactive" se estava pausada/desativada, "unknown" se não for possível determinar
 
-EXTRAÇÃO DE MÉTRICAS:
-- Extraia TODAS as colunas/métricas visíveis no print para cada campanha
-- Exemplos de métricas possíveis (não limitado a estas): Resultados, Alcance, Impressões, Cliques, CTR, CPC, CPM, ROAS, Valor de conversão, Frequência, Investimento, Custo por resultado, Leads, Mensagens, Compras, ThruPlays, Visualizações de vídeo, Engajamento, Curtidas, Comentários, Compartilhamentos, Cliques no link, Cliques únicos, Taxa de conversão, CPA, CPL
-- Se uma métrica está visível no print, DEVE aparecer no JSON
+EXTRAÇÃO DE MÉTRICAS — ORDEM OBRIGATÓRIA:
+
+A) MÉTRICA PRINCIPAL (primeira da lista, em destaque — baseada no objetivo da campanha):
+   - Vendas/Conversão: Compras, ROAS, Valor de conversão, Custo por compra
+   - Cadastros/Leads: Leads, Custo por lead
+   - Tráfego: Cliques no link, CPC, Visualizações de página de destino
+   - Engajamento: Interações, Custo por engajamento
+   - Reconhecimento/Alcance: Alcance, CPM, Impressões
+   - Visualizações de vídeo: ThruPlays, Custo por ThruPlay
+   - Mensagens: Conversas iniciadas, Custo por conversa
+   Inclua a métrica principal MESMO QUE não apareça no print (marque como "Não disponível" se ausente)
+
+B) MÉTRICAS FIXAS (sempre presentes em TODA campanha, após a principal):
+   1. Seguidores ganhos (se disponível na plataforma)
+   2. Cliques
+   3. Alcance
+   4. CTR
+   Se alguma não estiver visível, inclua com currentValue="Não disponível"
+
+C) DEMAIS MÉTRICAS (todas as outras visíveis no print, após as fixas):
+   Exemplos: CPM, CPC, Impressões, Frequência, Investimento, ROAS, Valor de conversão, Custo por resultado, etc.
+   Se uma métrica está visível no print, DEVE aparecer no JSON
+
+A ordem das métricas no array DEVE ser: [métrica principal] → [4 fixas] → [demais métricas visíveis]
 
 STATUS DE VEICULAÇÃO:
 - "active": campanha estava ativa/veiculando durante o período analisado (mesmo que agora esteja pausada)

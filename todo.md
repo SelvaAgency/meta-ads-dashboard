@@ -244,3 +244,12 @@
 - [x] Prompt LLM: extrair TODAS as métricas visíveis nos prints (não apenas as fixas)
 - [x] Análise por campanha com status de veiculação (ativa/inativa no período analisado)
 - [x] Página de resultado: exibir todas as métricas extraídas e status por campanha
+
+## Dashboard Builder — Período e Métricas por Objetivo
+- [x] Seletor de período: Hoje / Ontem / Hoje e Ontem / Personalizado (dd/mm/aaaa)
+- [x] Período selecionado aparece no cabeçalho do relatório gerado
+- [x] Prompt LLM: métrica principal obrigatória por objetivo de campanha
+- [x] Prompt LLM: 4 métricas fixas em TODA campanha (Seguidores, Cliques, Alcance, CTR)
+- [x] Prompt LLM: demais métricas disponíveis exibidas após as fixas
+- [x] Resultado: destacar visualmente a métrica principal de cada campanha
+- [x] Resultado: seção de métricas fixas separada das demais
