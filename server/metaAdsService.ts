@@ -96,6 +96,10 @@ export interface MetaCampaignInsights {
   action_values?: Array<{ action_type: string; value: string }>;
   // Conversion value (authoritative from Meta)
   conversion_values?: Array<{ action_type: string; value: string }>;
+  // Profile visits (from page_actions)
+  page_actions?: Array<{ action_type: string; value: string }>;
+  // Outbound clicks (link clicks to external sites)
+  outbound_clicks?: Array<{ action_type: string; value: string }>;
 }
 
 async function metaFetch<T>(path: string, params: Record<string, string>): Promise<T> {
@@ -357,6 +361,9 @@ export async function getCampaignInsights(
       "action_values",
       // Conversion values
       "conversion_values",
+      // Profile visits and outbound clicks
+      "page_actions",
+      "outbound_clicks",
     ].join(","),
     time_range: JSON.stringify({ since: startDate, until: endDate }),
     time_increment: "1",

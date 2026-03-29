@@ -483,19 +483,30 @@ export const appRouter = router({
 
         const detected = detectAnomalies(
           {
-            roas: String(recent.avgRoas),
-            cpa: String(recent.avgCpa),
-            ctr: String(recent.avgCtr),
-            spend: String(recent.totalSpend),
-            frequency: "0",
-          } as any,
+            roas: Number(recent.avgRoas),
+            cpa: Number(recent.avgCpa),
+            ctr: Number(recent.avgCtr),
+            spend: Number(recent.totalSpend),
+            frequency: 0,
+          },
           {
-            roas: String(avgPrev.roas),
-            cpa: String(avgPrev.cpa),
-            ctr: String(avgPrev.ctr),
-            spend: String(avgPrev.spend),
-            frequency: "0",
-          } as any
+            roas: Number(avgPrev.roas),
+            cpa: Number(avgPrev.cpa),
+            ctr: Number(avgPrev.ctr),
+            spend: Number(avgPrev.spend),
+          },
+          {
+            roas: Number(avgPrev.roas),
+            cpa: Number(avgPrev.cpa),
+            ctr: Number(avgPrev.ctr),
+            spend: Number(avgPrev.spend),
+          },
+          {
+            roas: Number(avgPrev.roas),
+            cpa: Number(avgPrev.cpa),
+            ctr: Number(avgPrev.ctr),
+            spend: Number(avgPrev.spend),
+          }
         );
 
         for (const anomaly of detected) {

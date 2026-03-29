@@ -5,14 +5,9 @@
  * Busca sempre os últimos 30 dias para garantir que o banco tenha dados
  * completos para qualquer filtro do dashboard (7/14/30 dias).
  *
- * Por que 30 dias? A janela de atribuição do Meta é de 7 dias após clique.
- * Isso significa que dados de ontem ainda podem mudar hoje (conversões atribuídas
- * com atraso). Ao ressincronizar os últimos 30 dias diariamente, garantimos que
- * todas as conversões atribuídas com atraso sejam capturadas.
- *
  * ANOMALIAS vs ALERTAS TÉCNICOS:
- * - Anomalias: desvios estatísticos de métricas (ROAS, CPA, CTR, resultados)
- *   detectados comparando a média dos últimos 7 dias com os 7 dias anteriores.
+ * - Anomalias: desvios estatísticos de métricas validados em 3 janelas (7/14/30 dias).
+ *   Uma anomalia SÓ é confirmada se detectada em pelo menos 2/3 janelas.
  * - Alertas técnicos: erros operacionais (campanha parada, saldo baixo, pagamento,
  *   anúncio rejeitado, página desvinculada, Instagram desvinculado, pixel com erro,
  *   adset sem entrega) — verificados em tempo real a cada hora.
@@ -213,98 +208,52 @@ async function runAnomalyDetection() {
 
   for (const account of accounts) {
     try {
-      // ── Janela deslizante de 7 dias ─────────────────────────────────────────
-      // Período atual:    últimos 7 dias (D-7 até D-1 inclusive)
-      // Período anterior: 7 dias antes disso (D-14 até D-8 inclusive)
-      // Comparar a média ponderada dos dois períodos detecta desvios estatísticos reais.
+      // ── Três janelas de referência para validação multi-período ──────────────
+      // Anomalia SÓ confirmada se detectada em pelo menos 2/3 janelas.
       const daysAgo = (n: number) =>
         new Date(Date.now() - n * 86400000).toISOString().split("T")[0]!;
 
-      const currentStart = daysAgo(7);  // D-7
-      const currentEnd   = daysAgo(1);  // D-1 (inclusive)
-      const prevStart    = daysAgo(14); // D-14
-      const prevEnd      = daysAgo(8);  // D-8 (inclusive)
+      const w7Start  = daysAgo(7);  const w7End  = daysAgo(1);
+      const w14Start = daysAgo(14); const w14End = daysAgo(8);
+      const w30Start = daysAgo(30); const w30End = daysAgo(15);
 
-      const [currentRows, prevRows] = await Promise.all([
-        getCampaignPerformanceSummary(account.id, currentStart, currentEnd),
-        getCampaignPerformanceSummary(account.id, prevStart, prevEnd),
+      const [rows7, rows14, rows30] = await Promise.all([
+        getCampaignPerformanceSummary(account.id, w7Start, w7End),
+        getCampaignPerformanceSummary(account.id, w14Start, w14End),
+        getCampaignPerformanceSummary(account.id, w30Start, w30End),
       ]);
 
-      // Only consider campaigns that had spend in both windows (active campaigns)
+      // Only consider campaigns that had spend in the current window
       const activeCampaignIds = new Set(
-        currentRows
+        rows7
           .filter((r) => Number(r.totalSpend ?? 0) > 0)
           .map((r) => r.campaignId)
       );
-      const currentActive = currentRows.filter((r) => activeCampaignIds.has(r.campaignId));
-      const prevActive = prevRows.filter((r) => activeCampaignIds.has(r.campaignId));
 
-      let currentAgg: ReturnType<typeof aggregateCampaignRows>;
-      let prevAgg: ReturnType<typeof aggregateCampaignRows>;
-
-      if (currentActive.length > 0 && prevActive.length > 0) {
-        // Primary path: use per-campaign data with proper weighting
-        currentAgg = aggregateCampaignRows(currentActive);
-        prevAgg = aggregateCampaignRows(prevActive);
-      } else {
-        // Fallback: account-level daily summary (less accurate but better than nothing)
-        const [recentMetrics, prevMetrics] = await Promise.all([
-          getAccountMetricsSummary(account.id, currentStart, currentEnd),
-          getAccountMetricsSummary(account.id, prevStart, prevEnd),
-        ]);
-        if (recentMetrics.length === 0 || prevMetrics.length === 0) {
-          // No data at all — skip anomaly detection for this account
-          console.log(`[AutoAnomalies] No data for account "${account.accountName ?? account.accountId}", skipping.`);
-          // Still run real-time alerts below
-          await runRealTimeAlerts(account);
-          continue;
-        }
-        // Aggregate daily rows into a single weighted summary
-        const sumMetrics = (rows: typeof recentMetrics) => {
-          const totals = rows.reduce(
-            (acc, m) => ({
-              spend: acc.spend + Number(m.totalSpend ?? 0),
-              impressions: acc.impressions + Number(m.totalImpressions ?? 0),
-              clicks: acc.clicks + Number(m.totalClicks ?? 0),
-              conversions: acc.conversions + Number(m.totalConversions ?? 0),
-              conversionValue: acc.conversionValue + Number(m.totalConversionValue ?? 0),
-            }),
-            { spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionValue: 0 }
-          );
-          return {
-            roas: totals.spend > 0 ? totals.conversionValue / totals.spend : 0,
-            cpa: totals.conversions > 0 ? totals.spend / totals.conversions : 0,
-            ctr: totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0,
-            spend: totals.spend,
-            conversions: totals.conversions,
-            impressions: totals.impressions,
-            frequency: 0,
-          };
-        };
-        currentAgg = sumMetrics(recentMetrics);
-        prevAgg = sumMetrics(prevMetrics);
+      if (activeCampaignIds.size === 0) {
+        console.log(`[AutoAnomalies] No active campaigns for account "${account.accountName ?? account.accountId}", skipping.`);
+        await runRealTimeAlerts(account);
+        continue;
       }
 
-      // ── Detect metric anomalies (statistical deviations only) ──────────────
+      const active7  = rows7.filter((r) => activeCampaignIds.has(r.campaignId));
+      const active14 = rows14.filter((r) => activeCampaignIds.has(r.campaignId));
+      const active30 = rows30.filter((r) => activeCampaignIds.has(r.campaignId));
+
+      const agg7  = aggregateCampaignRows(active7);
+      const agg14 = active14.length > 0 ? aggregateCampaignRows(active14) : agg7;
+      const agg30 = active30.length > 0 ? aggregateCampaignRows(active30) : agg14;
+      const currentAgg = agg7;
+      const currentStart = w7Start;
+      const currentEnd   = w7End;
+
+      // ── Detect metric anomalies (multi-period: 2/3 windows required) ──────
       const detected = detectAnomalies(
-        {
-          roas: String(currentAgg.roas),
-          cpa: String(currentAgg.cpa),
-          ctr: String(currentAgg.ctr),
-          spend: String(currentAgg.spend),
-          conversions: String(currentAgg.conversions),
-          impressions: String(currentAgg.impressions),
-          frequency: "0",
-        } as any,
-        {
-          roas: String(prevAgg.roas),
-          cpa: String(prevAgg.cpa),
-          ctr: String(prevAgg.ctr),
-          spend: String(prevAgg.spend),
-          conversions: String(prevAgg.conversions),
-          impressions: String(prevAgg.impressions),
-          frequency: "0",
-        } as any
+        { roas: currentAgg.roas, cpa: currentAgg.cpa, ctr: currentAgg.ctr, spend: currentAgg.spend, conversions: currentAgg.conversions, impressions: currentAgg.impressions, frequency: currentAgg.frequency },
+        { roas: agg7.roas, cpa: agg7.cpa, ctr: agg7.ctr, spend: agg7.spend, conversions: agg7.conversions, impressions: agg7.impressions },
+        { roas: agg14.roas, cpa: agg14.cpa, ctr: agg14.ctr, spend: agg14.spend, conversions: agg14.conversions, impressions: agg14.impressions },
+        { roas: agg30.roas, cpa: agg30.cpa, ctr: agg30.ctr, spend: agg30.spend, conversions: agg30.conversions, impressions: agg30.impressions },
+        { hasLimitedHistory: active14.length === 0 }
       );
 
       for (const anomaly of detected) {
@@ -339,7 +288,7 @@ async function runAnomalyDetection() {
         if ((anomaly.severity === "CRITICAL" || anomaly.severity === "HIGH") && insertId) {
           const sent = await notifyOwner({
             title: `🚨 ${anomaly.severity === "CRITICAL" ? "Anomalia Crítica" : "Anomalia Alta"}: ${anomaly.title}`,
-            content: `Conta: ${account.accountName ?? account.accountId}\n\nPeríodo: ${currentStart} a ${currentEnd} vs ${prevStart} a ${prevEnd}\n\n${anomaly.description}`,
+            content: `Conta: ${account.accountName ?? account.accountId}\n\nPeríodo: ${currentStart} a ${currentEnd}\n\n${anomaly.description}`,
           });
           if (sent && insertId) await markAnomalyEmailSent(insertId);
           if (sent && alertId) await markAlertEmailSent(alertId);
@@ -359,197 +308,260 @@ async function runAnomalyDetection() {
 
     await new Promise((r) => setTimeout(r, 1000));
   }
-  console.log("[AutoAnomalies] Hourly detection complete.");
+
+  console.log("[AutoAnomalies] Anomaly detection cycle complete.");
 }
 
-/**
- * Check and save real-time technical alerts for an account.
- * These are operational errors (campaign stopped, low balance, payment failure,
- * rejected creatives, page unlinked, Instagram unlinked, pixel errors, adset no delivery).
- * Separated from metric anomaly detection to keep concerns clear.
- */
-async function runRealTimeAlerts(account: {
-  id: number;
-  userId: number;
-  accountId: string;
-  accessToken: string;
-  accountName: string | null;
-}) {
+// ─── Real-time Technical Alerts ───────────────────────────────────────────────
+
+async function runRealTimeAlerts(account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number }) {
   try {
-    const realTimeAlerts = await checkRealTimeAlerts(account.accountId, account.accessToken);
-    for (const rta of realTimeAlerts) {
-      const alertResult = await createAlert({
+    const alerts = await checkRealTimeAlerts(account.accountId, account.accessToken);
+    for (const alert of alerts) {
+      const result = await createAlert({
         userId: account.userId,
         accountId: account.id,
-        title: rta.title,
-        message: rta.message,
-        type: rta.type as any,
-        severity: rta.severity === "CRITICAL" ? "CRITICAL" : "WARNING",
+        title: alert.title,
+        message: alert.message,
+        type: alert.type as any,
+        severity: alert.severity,
+        priority: (alert as any).priority,
+        suggestedAction: (alert as any).suggestedAction,
       });
-      const alertId = (alertResult as any).insertId as number | undefined;
+      const alertId = (result as any).insertId as number | undefined;
 
-      // Send email only once per alert (emailSentAt guards against duplicates)
-      if (rta.severity === "CRITICAL" && alertId) {
+      // Notify owner for critical alerts
+      if (alert.severity === "CRITICAL" && alertId) {
         const sent = await notifyOwner({
-          title: `🚨 ${rta.title}`,
-          content: `Conta: ${account.accountName ?? account.accountId}\n\n${rta.message}`,
+          title: `🚨 Alerta Crítico: ${alert.title}`,
+          content: `Conta: ${account.accountName ?? account.accountId}\n\n${alert.message}`,
         });
         if (sent) await markAlertEmailSent(alertId);
       }
     }
-    if (realTimeAlerts.length > 0) {
-      console.log(`[AutoAnomalies] ✓ ${realTimeAlerts.length} alerta(s) técnico(s) na conta "${account.accountName ?? account.accountId}"`);
+    if (alerts.length > 0) {
+      console.log(`[RealTimeAlerts] ✓ ${alerts.length} alerta(s) técnico(s) para "${account.accountName ?? account.accountId}"`);
     }
   } catch (err) {
-    console.error(`[AutoAnomalies] Erro ao verificar alertas técnicos na conta ${account.accountId}:`, err);
+    console.error(`[RealTimeAlerts] Erro ao verificar alertas para ${account.accountId}:`, err);
   }
 }
+
+// ─── Scheduled Reports ────────────────────────────────────────────────────────
+
+// Map of accountId → cron job (for dynamic per-account scheduling)
+const scheduledReportJobs = new Map<number, ReturnType<typeof cron.schedule>>();
 
 /**
- * Gera o relatório de uma conta agendada e atualiza nextRunAt.
+ * Rebuild cron jobs for all active scheduled reports.
+ * Called at startup and whenever a report schedule is created/updated.
  */
-async function runScheduledReport(report: {
-  id: number;
-  userId: number;
-  accountId: number;
-  frequency: "DAILY" | "WEEKLY";
-  scheduleHour: number;
-  scheduleMinute: number;
-  scheduleDay: number;
-}) {
-  try {
-    const account = await getMetaAdAccountById(report.accountId);
-    if (!account) return;
+export async function rebuildScheduledReportJobs() {
+  // Stop all existing jobs
+  for (const [, job] of Array.from(scheduledReportJobs)) {
+    job.stop();
+  }
+  scheduledReportJobs.clear();
 
-    // Date range: DAILY = yesterday, WEEKLY = last 7 days ending yesterday
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const endDate = yesterday.toISOString().split("T")[0]!;
-    const startDateObj = new Date(yesterday);
-    if (report.frequency === "WEEKLY") startDateObj.setDate(startDateObj.getDate() - 6);
-    const startDate = startDateObj.toISOString().split("T")[0]!;
-    const fmt = (d: string) => { const [y, m, day] = d.split("-"); return `${day}/${m}/${y}`; };
-
-    const campaignData = await getCampaignPerformanceSummary(report.accountId, startDate, endDate);
-    const campaigns = campaignData.map((c) => ({
-      campaignId: c.campaignId,
-      campaignName: c.campaignName ?? "Campanha",
-      campaignObjective: c.campaignObjective ?? "OUTCOME_SALES",
-      campaignStatus: c.campaignStatus ?? "ACTIVE",
-      totalSpend: Number(c.totalSpend ?? 0),
-      totalImpressions: Number(c.totalImpressions ?? 0),
-      totalClicks: Number(c.totalClicks ?? 0),
-      totalConversions: Number(c.totalConversions ?? 0),
-      totalConversionValue: Number(c.totalConversionValue ?? 0),
-      totalReach: Number(c.totalReach ?? 0),
-      avgRoas: Number(c.avgRoas ?? 0),
-      avgCpa: Number(c.avgCpa ?? 0),
-      avgCtr: Number(c.avgCtr ?? 0),
-      avgCpc: Number(c.avgCpc ?? 0),
-      avgCpm: Number(c.avgCpm ?? 0),
-      avgFrequency: Number(c.avgFrequency ?? 0),
-    }));
-
-    const reportContent = await generateAgencyReport(
-      account.accountName ?? "Conta",
-      report.frequency,
-      campaigns,
-      fmt(startDate),
-      fmt(endDate)
-    );
-
-    // Compute next run
-    const nextRun = computeNextRunFromSchedule(report.frequency, report.scheduleHour, report.scheduleMinute, report.scheduleDay);
-    await updateScheduledReport(report.id, {
-      lastRunAt: new Date(),
-      nextRunAt: nextRun,
-      lastReportContent: reportContent,
-    });
-
-    await notifyOwner({
-      title: `📊 Relatório ${report.frequency === "DAILY" ? "Diário" : "Semanal"} — ${account.accountName}`,
-      content: reportContent.substring(0, 500) + (reportContent.length > 500 ? "..." : ""),
-    });
-    console.log(`[ScheduledReports] ✓ Relatório gerado para conta "${account.accountName ?? account.accountId}" (${report.frequency})`);
-  } catch (err) {
-    console.error(`[ScheduledReports] Erro ao gerar relatório para conta ${report.accountId}:`, err);
+  const accounts = await getAllActiveMetaAdAccounts();
+  for (const account of accounts) {
+    try {
+      // Get the scheduled report config for this account
+      const reports = await getDueScheduledReports();
+      const accountReports = reports.filter((r: any) => r.accountId === account.id || !r.accountId);
+      for (const report of accountReports) {
+        scheduleReportForAccount(account, report);
+      }
+    } catch (err) {
+      console.error(`[ScheduledReports] Error rebuilding jobs for account ${account.accountId}:`, err);
+    }
   }
 }
 
-/** Calcula o próximo disparo a partir das configurações do agendamento */
-function computeNextRunFromSchedule(frequency: "DAILY" | "WEEKLY", h: number, m: number, d: number): Date {
+function scheduleReportForAccount(
+  account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number },
+  report: { id: number; frequency: string; scheduleHour: number | null; scheduleMinute: number | null; scheduleDay: number | null }
+) {
+  const hour = report.scheduleHour ?? 8;
+  const minute = report.scheduleMinute ?? 0;
+  const day = report.scheduleDay ?? 1;
+
+  let cronExpr: string;
+  if (report.frequency === "WEEKLY") {
+    cronExpr = `0 ${minute} ${hour} * * ${day}`;
+  } else {
+    // DAILY
+    cronExpr = `0 ${minute} ${hour} * * *`;
+  }
+
+  const jobKey = report.id;
+  const existing = scheduledReportJobs.get(jobKey);
+  if (existing) existing.stop();
+
+  const job = cron.schedule(cronExpr, async () => {
+    console.log(`[ScheduledReports] Running scheduled report for account "${account.accountName ?? account.accountId}"`);
+    try {
+      const { startDate, endDate } = getDateRange(30);
+      const localCampaigns = await getCampaignsByAccountId(account.id);
+      const campaignData: CampaignReportData[] = localCampaigns.map((c) => ({
+        campaignId: c.id,
+        campaignName: c.name,
+        campaignObjective: c.objective ?? "OUTCOME_SALES",
+        campaignStatus: c.status ?? "ACTIVE",
+        totalSpend: 0,
+        totalImpressions: 0,
+        totalClicks: 0,
+        totalConversions: 0,
+        totalConversionValue: 0,
+        totalReach: 0,
+        avgRoas: 0,
+        avgCpa: 0,
+        avgCtr: 0,
+        avgCpc: 0,
+        avgCpm: 0,
+        avgFrequency: 0,
+      }));
+
+      const reportContent = await generateAgencyReport(
+        account.accountName ?? account.accountId,
+        report.frequency as "DAILY" | "WEEKLY",
+        campaignData,
+        startDate,
+        endDate
+      );
+
+      await updateScheduledReport(report.id, {
+        lastRunAt: new Date(),
+        nextRunAt: getNextRunDate(report.frequency, hour, minute, day),
+        lastReportContent: reportContent,
+      });
+
+      console.log(`[ScheduledReports] ✓ Report generated for "${account.accountName ?? account.accountId}"`);
+    } catch (err) {
+      console.error(`[ScheduledReports] Error generating report for ${account.accountId}:`, err);
+    }
+  });
+
+  scheduledReportJobs.set(jobKey, job);
+}
+
+function getNextRunDate(frequency: string, hour: number, minute: number, day: number): Date {
   const now = new Date();
   const next = new Date(now);
-  next.setHours(h, m, 0, 0);
-  if (frequency === "DAILY") {
-    if (next <= now) next.setDate(next.getDate() + 1);
+  next.setSeconds(0);
+  next.setMilliseconds(0);
+  next.setHours(hour);
+  next.setMinutes(minute);
+
+  if (frequency === "WEEKLY") {
+    const currentDay = now.getDay();
+    let daysUntil = (day - currentDay + 7) % 7;
+    if (daysUntil === 0 && now.getTime() >= next.getTime()) daysUntil = 7;
+    next.setDate(now.getDate() + daysUntil);
   } else {
-    const diff = (d - now.getDay() + 7) % 7;
-    next.setDate(now.getDate() + (diff === 0 ? 7 : diff));
-    next.setHours(h, m, 0, 0);
+    // DAILY
+    if (now.getTime() >= next.getTime()) {
+      next.setDate(next.getDate() + 1);
+    }
   }
   return next;
 }
 
-/**
- * Verifica e executa todos os relatórios agendados que estão vencidos.
- * Roda a cada minuto para garantir pontualidade.
- */
-async function checkAndRunScheduledReports() {
+// ─── Scheduled Report Runner (legacy polling fallback) ────────────────────────
+
+async function runScheduledReports() {
   try {
     const due = await getDueScheduledReports();
     if (due.length === 0) return;
-    console.log(`[ScheduledReports] ${due.length} relatório(s) agendado(s) para executar agora.`);
-    for (const r of due) {
-      await runScheduledReport({
-        id: r.id,
-        userId: r.userId,
-        accountId: r.accountId,
-        frequency: r.frequency as "DAILY" | "WEEKLY",
-        scheduleHour: r.scheduleHour,
-        scheduleMinute: r.scheduleMinute,
-        scheduleDay: r.scheduleDay,
-      });
+
+    console.log(`[ScheduledReports] ${due.length} report(s) due for generation`);
+    for (const report of due) {
+      try {
+        const account = await getMetaAdAccountById(report.accountId ?? 0);
+        if (!account) continue;
+
+        const { startDate, endDate } = getDateRange(30);
+        const localCampaigns = await getCampaignsByAccountId(account.id);
+      const campaignData: CampaignReportData[] = localCampaigns.map((c) => ({
+        campaignId: c.id,
+        campaignName: c.name,
+        campaignObjective: c.objective ?? "OUTCOME_SALES",
+        campaignStatus: c.status ?? "ACTIVE",
+        totalSpend: 0,
+        totalImpressions: 0,
+        totalClicks: 0,
+        totalConversions: 0,
+        totalConversionValue: 0,
+        totalReach: 0,
+        avgRoas: 0,
+        avgCpa: 0,
+        avgCtr: 0,
+        avgCpc: 0,
+        avgCpm: 0,
+        avgFrequency: 0,
+      }));
+
+        const reportContent = await generateAgencyReport(
+          account.accountName ?? account.accountId,
+          report.frequency as "DAILY" | "WEEKLY",
+          campaignData,
+          startDate,
+          endDate
+        );
+
+        await updateScheduledReport(report.id, {
+          lastRunAt: new Date(),
+          nextRunAt: getNextRunDate(
+            report.frequency,
+            report.scheduleHour ?? 8,
+            report.scheduleMinute ?? 0,
+            report.scheduleDay ?? 1
+          ),
+          lastReportContent: reportContent,
+        });
+
+        console.log(`[ScheduledReports] ✓ Report generated for account ${account.accountId}`);
+      } catch (err) {
+        console.error(`[ScheduledReports] Error generating report ${report.id}:`, err);
+      }
     }
   } catch (err) {
-    console.error("[ScheduledReports] Erro ao verificar relatórios agendados:", err);
+    console.error("[ScheduledReports] Error running scheduled reports:", err);
   }
 }
 
-/**
- * Start the auto-sync cron job.
- * Runs every day at 06:00 Brasília time (UTC-3 = 09:00 UTC).
- * Anomaly detection runs every hour.
- * Scheduled reports checker runs every minute.
- * Cron format: second minute hour day month weekday
- */
-export function startAutoSync() {
-  // Daily sync at 09:00 UTC = 06:00 Brasília (UTC-3)
-  cron.schedule("0 9 * * *", () => {
-    runAutoSync().catch(console.error);
-  }, { timezone: "UTC" });
-  console.log("[AutoSync] Daily sync scheduled at 06:00 Brasília time (09:00 UTC)");
+// ─── Startup ──────────────────────────────────────────────────────────────────
 
-  // Daily cleanup: delete read anomalies older than 30 days (runs at 09:05 UTC)
-  cron.schedule("5 9 * * *", async () => {
+export async function startAutoSync() {
+  console.log("[AutoSync] Initializing auto-sync service...");
+
+  // Daily sync at 09:00 UTC (06:00 Brasília)
+  cron.schedule("0 0 9 * * *", runAutoSync);
+
+  // Hourly anomaly detection + real-time alerts
+  cron.schedule("0 0 * * * *", runAnomalyDetection);
+
+  // Daily cleanup of old read anomalies (09:05 UTC)
+  cron.schedule("0 5 9 * * *", async () => {
     try {
       const deleted = await purgeOldReadAnomalies();
-      if (deleted > 0) console.log(`[AutoSync] Limpeza: ${deleted} anomalia(s) lida(s) com mais de 30 dias removida(s).`);
+      if (deleted > 0) {
+        console.log(`[AutoSync] Purged ${deleted} old read anomalies (>30 days)`);
+      }
     } catch (err) {
-      console.error("[AutoSync] Erro na limpeza de anomalias antigas:", err);
+      console.error("[AutoSync] Error purging old anomalies:", err);
     }
-  }, { timezone: "UTC" });
-  console.log("[AutoSync] Daily cleanup scheduled at 09:05 UTC (anomalias lidas >30 dias)");
+  });
 
-  // Hourly anomaly detection (runs at minute 0 of every hour)
-  cron.schedule("0 * * * *", () => {
-    runAnomalyDetection().catch(console.error);
-  }, { timezone: "UTC" });
-  console.log("[AutoAnomalies] Hourly anomaly detection scheduled (every hour at :00)");
+  // Polling fallback for scheduled reports (every 5 minutes)
+  cron.schedule("0 */5 * * * *", runScheduledReports);
 
-  // Scheduled reports checker: runs every minute to ensure on-time delivery
-  cron.schedule("* * * * *", () => {
-    checkAndRunScheduledReports().catch(console.error);
-  }, { timezone: "UTC" });
-  console.log("[ScheduledReports] Per-account report scheduler started (checks every minute)");
+  // Run initial sync after a short delay to let the server warm up
+  setTimeout(async () => {
+    await runAutoSync();
+    await runAnomalyDetection();
+    await rebuildScheduledReportJobs();
+  }, 15000);
+
+  console.log("[AutoSync] Auto-sync service initialized.");
 }

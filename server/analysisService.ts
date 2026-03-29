@@ -2,14 +2,20 @@
  * AI Analysis Service
  * Handles anomaly detection, campaign diagnostics, and AI-powered improvement suggestions.
  *
- * ANOMALY DETECTION — métricas de campanha fora do padrão (janela de 7 dias):
- * - Queda de ROAS ≥ 10%
- * - Queda de resultados ≥ 20%
- * - Queda de performance geral (impressões + CTR)
- * - Pico de CPA ≥ 30%
- * - Queda de CTR ≥ 25%
- * - Pico de gasto ≥ 50%
- * - Frequência elevada ≥ 4x
+ * ANOMALY DETECTION — validação multi-período (7/14/30 dias):
+ * Uma anomalia SÓ é confirmada quando detectada em pelo menos 2 das 3 janelas de referência.
+ *
+ * Thresholds por categoria:
+ * - Custo (CPC, CPM, CPA): +150% / +120% / +100% nas janelas 7/14/30 dias
+ * - Performance (CTR, ROAS): -50% / -40% / -35% nas janelas 7/14/30 dias
+ * - Entrega (alcance, impressões): -70% / -60% / -50% nas janelas 7/14/30 dias
+ * - Frequência: valor absoluto ≥ 2.5 (média) ou ≥ 4.0 (alta) — sem comparação multi-período
+ * - Resultados: queda ≥ 20% confirmada em pelo menos 2/3 janelas
+ *
+ * Exceções:
+ * - Campanhas em aprendizado (<7 dias ou <50 eventos): isentas de alertas de métrica
+ * - Dados insuficientes (<7 dias): threshold dobrado, base limitada
+ * - Campanhas pausadas/arquivadas: monitoramento parado imediatamente
  *
  * NÃO são anomalias: erros técnicos (campanha parada, saldo baixo, pixel, Instagram, etc.)
  * Esses são tratados como Alertas Técnicos em metaAdsService.ts > checkRealTimeAlerts().
@@ -26,29 +32,74 @@ import { getObjectiveProfile, detectDominantObjective } from "./campaignObjectiv
 
 // ─── Anomaly Detection ────────────────────────────────────────────────────────
 
-interface AnomalyThresholds {
-  roasDropPercent: number;
-  cpaSpikePercent: number;
-  ctrDropPercent: number;
-  spendSpikePercent: number;
-  frequencyHighValue: number;
-}
-
-const DEFAULT_THRESHOLDS: AnomalyThresholds = {
-  roasDropPercent: 10,   // Alerta a partir de -10% de queda no ROAS (conforme especificado)
-  cpaSpikePercent: 30,   // Alerta a partir de +30% de aumento no CPA
-  ctrDropPercent: 25,    // Alerta a partir de -25% de queda no CTR
-  spendSpikePercent: 50, // Alerta a partir de +50% de aumento no gasto
-  frequencyHighValue: 4.0,
+// Thresholds por janela e categoria (conforme especificação multi-período)
+const MULTI_PERIOD_THRESHOLDS = {
+  cost: { d7: 150, d14: 120, d30: 100 },       // CPC, CPM, CPA: variação positiva
+  performance: { d7: -50, d14: -40, d30: -35 }, // CTR, ROAS: variação negativa
+  delivery: { d7: -70, d14: -60, d30: -50 },    // Alcance, impressões: variação negativa
+  results: { d7: -20, d14: -20, d30: -20 },     // Resultados: queda ≥ 20%
 };
 
-// Threshold fixo para queda de resultados (não configurável — definido pelo usuário)
-const RESULTS_DROP_THRESHOLD = 20; // -20% de queda nos resultados após análise de 7 dias
+// Frequência usa valor absoluto (sem comparação multi-período)
+const FREQUENCY_MEDIUM = 2.5;
+const FREQUENCY_HIGH = 4.0;
+
+interface PeriodMetrics {
+  roas?: number;
+  cpa?: number;
+  ctr?: number;
+  spend?: number;
+  impressions?: number;
+  conversions?: number;
+  frequency?: number;
+  reach?: number;
+  clicks?: number;
+}
+
+/**
+ * Validates a metric anomaly against 3 reference windows.
+ * Returns true if the anomaly is confirmed in at least 2/3 windows.
+ */
+function validateMultiPeriod(
+  current: number,
+  avg7: number,
+  avg14: number,
+  avg30: number,
+  threshold7: number,
+  threshold14: number,
+  threshold30: number,
+  isPositiveAnomaly: boolean // true = spike (cost), false = drop (performance)
+): { confirmed: boolean; windows: number; changes: { d7: number; d14: number; d30: number } } {
+  const pct = (curr: number, ref: number) => ref === 0 ? 0 : ((curr - ref) / ref) * 100;
+  const changes = {
+    d7: pct(current, avg7),
+    d14: pct(current, avg14),
+    d30: pct(current, avg30),
+  };
+
+  let windowsConfirmed = 0;
+  if (avg7 > 0) {
+    const triggered = isPositiveAnomaly ? changes.d7 >= threshold7 : changes.d7 <= threshold7;
+    if (triggered) windowsConfirmed++;
+  }
+  if (avg14 > 0) {
+    const triggered = isPositiveAnomaly ? changes.d14 >= threshold14 : changes.d14 <= threshold14;
+    if (triggered) windowsConfirmed++;
+  }
+  if (avg30 > 0) {
+    const triggered = isPositiveAnomaly ? changes.d30 >= threshold30 : changes.d30 <= threshold30;
+    if (triggered) windowsConfirmed++;
+  }
+
+  return { confirmed: windowsConfirmed >= 2, windows: windowsConfirmed, changes };
+}
 
 export function detectAnomalies(
-  current: Partial<CampaignMetrics>,
-  previous: Partial<CampaignMetrics>,
-  thresholds: AnomalyThresholds = DEFAULT_THRESHOLDS
+  current: PeriodMetrics,
+  avg7: PeriodMetrics,
+  avg14: PeriodMetrics,
+  avg30: PeriodMetrics,
+  options?: { isLearningPhase?: boolean; hasLimitedHistory?: boolean }
 ): Array<{
   type: string;
   severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
@@ -58,140 +109,175 @@ export function detectAnomalies(
   currentValue: number;
   previousValue: number;
   changePercent: number;
+  windowsConfirmed?: number;
+  windowChanges?: { d7: number; d14: number; d30: number };
 }> {
-  const detected: ReturnType<typeof detectAnomalies> = [];
-  const pctChange = (curr: number, prev: number) =>
-    prev === 0 ? 0 : ((curr - prev) / prev) * 100;
+  // Campanhas em aprendizado: isentas de alertas de métrica
+  if (options?.isLearningPhase) return [];
 
-  const currRoas = parseFloat(String(current.roas ?? 0));
-  const prevRoas = parseFloat(String(previous.roas ?? 0));
-  if (prevRoas > 0) {
-    const change = pctChange(currRoas, prevRoas);
-    if (change <= -thresholds.roasDropPercent) {
-      // Severity: ≥-50% = CRITICAL, ≥-35% = HIGH, ≥-10% = MEDIUM
-      const severity = change <= -50 ? "CRITICAL" : change <= -35 ? "HIGH" : "MEDIUM";
+  const detected: ReturnType<typeof detectAnomalies> = [];
+
+  // Multiplicador de threshold para histórico limitado (<7 dias)
+  const limitedMult = options?.hasLimitedHistory ? 2 : 1;
+
+  // ── ROAS DROP (performance) ──────────────────────────────────────────────
+  const currRoas = Number(current.roas ?? 0);
+  if (currRoas > 0 || (Number(avg7.roas ?? 0) > 0)) {
+    const t = MULTI_PERIOD_THRESHOLDS.performance;
+    const v = validateMultiPeriod(
+      currRoas,
+      Number(avg7.roas ?? 0), Number(avg14.roas ?? 0), Number(avg30.roas ?? 0),
+      t.d7 * limitedMult, t.d14 * limitedMult, t.d30 * limitedMult,
+      false
+    );
+    if (v.confirmed) {
+      const worstChange = Math.min(v.changes.d7, v.changes.d14, v.changes.d30);
+      const severity = worstChange <= -70 ? "CRITICAL" : worstChange <= -50 ? "HIGH" : "MEDIUM";
+      const refVal = Number(avg7.roas ?? 0);
       detected.push({
         type: "ROAS_DROP",
         severity,
-        title: `Queda de ROAS: ${prevRoas.toFixed(2)}x → ${currRoas.toFixed(2)}x (${Math.abs(change).toFixed(1)}%)`,
-        description: `O ROAS caiu ${Math.abs(change).toFixed(1)}% nos últimos 7 dias em relação ao período anterior (${prevRoas.toFixed(2)}x → ${currRoas.toFixed(2)}x). Verifique criativos, segmentação e página de destino.`,
+        title: `Queda de ROAS confirmada em ${v.windows}/3 janelas`,
+        description: `ROAS atual: ${currRoas.toFixed(2)}x. Média 7d: ${refVal.toFixed(2)}x (${v.changes.d7.toFixed(1)}%) | Média 14d: ${Number(avg14.roas ?? 0).toFixed(2)}x (${v.changes.d14.toFixed(1)}%) | Média 30d: ${Number(avg30.roas ?? 0).toFixed(2)}x (${v.changes.d30.toFixed(1)}%). Confirmado em ${v.windows}/3 janelas.`,
         metricName: "roas",
         currentValue: currRoas,
-        previousValue: prevRoas,
-        changePercent: change,
+        previousValue: refVal,
+        changePercent: v.changes.d7,
+        windowsConfirmed: v.windows,
+        windowChanges: v.changes,
       });
     }
   }
 
-  const currCpa = parseFloat(String(current.cpa ?? 0));
-  const prevCpa = parseFloat(String(previous.cpa ?? 0));
-  if (prevCpa > 0 && currCpa > 0) {
-    const change = pctChange(currCpa, prevCpa);
-    if (change >= thresholds.cpaSpikePercent) {
-      const severity = change >= 80 ? "CRITICAL" : change >= 50 ? "HIGH" : "MEDIUM";
+  // ── CPA SPIKE (cost) ─────────────────────────────────────────────────────
+  const currCpa = Number(current.cpa ?? 0);
+  if (currCpa > 0) {
+    const t = MULTI_PERIOD_THRESHOLDS.cost;
+    const v = validateMultiPeriod(
+      currCpa,
+      Number(avg7.cpa ?? 0), Number(avg14.cpa ?? 0), Number(avg30.cpa ?? 0),
+      t.d7 * limitedMult, t.d14 * limitedMult, t.d30 * limitedMult,
+      true
+    );
+    if (v.confirmed) {
+      const worstChange = Math.max(v.changes.d7, v.changes.d14, v.changes.d30);
+      const severity = worstChange >= 200 ? "CRITICAL" : worstChange >= 120 ? "HIGH" : "MEDIUM";
+      const refVal = Number(avg7.cpa ?? 0);
       detected.push({
         type: "CPA_SPIKE",
         severity,
-        title: `Pico de CPA: R$${prevCpa.toFixed(2)} → R$${currCpa.toFixed(2)} (+${change.toFixed(1)}%)`,
-        description: `O custo por resultado aumentou ${change.toFixed(1)}% nos últimos 7 dias (R$${prevCpa.toFixed(2)} → R$${currCpa.toFixed(2)}). Revise a segmentação, criativos e lances.`,
+        title: `Pico de CPA confirmado em ${v.windows}/3 janelas`,
+        description: `CPA atual: R$${currCpa.toFixed(2)}. Média 7d: R$${refVal.toFixed(2)} (${v.changes.d7 > 0 ? "+" : ""}${v.changes.d7.toFixed(1)}%) | Média 14d: R$${Number(avg14.cpa ?? 0).toFixed(2)} (${v.changes.d14 > 0 ? "+" : ""}${v.changes.d14.toFixed(1)}%) | Média 30d: R$${Number(avg30.cpa ?? 0).toFixed(2)} (${v.changes.d30 > 0 ? "+" : ""}${v.changes.d30.toFixed(1)}%). Confirmado em ${v.windows}/3 janelas.`,
         metricName: "cpa",
         currentValue: currCpa,
-        previousValue: prevCpa,
-        changePercent: change,
+        previousValue: refVal,
+        changePercent: v.changes.d7,
+        windowsConfirmed: v.windows,
+        windowChanges: v.changes,
       });
     }
   }
 
-  const currCtr = parseFloat(String(current.ctr ?? 0));
-  const prevCtr = parseFloat(String(previous.ctr ?? 0));
-  if (prevCtr > 0) {
-    const change = pctChange(currCtr, prevCtr);
-    if (change <= -thresholds.ctrDropPercent) {
-      const severity = change <= -50 ? "HIGH" : "MEDIUM";
+  // ── CTR DROP (performance) ───────────────────────────────────────────────
+  const currCtr = Number(current.ctr ?? 0);
+  if (Number(avg7.ctr ?? 0) > 0) {
+    const t = MULTI_PERIOD_THRESHOLDS.performance;
+    const v = validateMultiPeriod(
+      currCtr,
+      Number(avg7.ctr ?? 0), Number(avg14.ctr ?? 0), Number(avg30.ctr ?? 0),
+      t.d7 * limitedMult, t.d14 * limitedMult, t.d30 * limitedMult,
+      false
+    );
+    if (v.confirmed) {
+      const severity = v.changes.d7 <= -70 ? "HIGH" : "MEDIUM";
+      const refVal = Number(avg7.ctr ?? 0);
       detected.push({
         type: "CTR_DROP",
         severity,
-        title: `Queda de CTR: ${prevCtr.toFixed(2)}% → ${currCtr.toFixed(2)}% (${Math.abs(change).toFixed(1)}%)`,
-        description: `O CTR caiu ${Math.abs(change).toFixed(1)}% nos últimos 7 dias (${prevCtr.toFixed(2)}% → ${currCtr.toFixed(2)}%). Pode indicar fadiga de criativos ou audiência saturada.`,
+        title: `Queda de CTR confirmada em ${v.windows}/3 janelas`,
+        description: `CTR atual: ${currCtr.toFixed(2)}%. Média 7d: ${refVal.toFixed(2)}% (${v.changes.d7.toFixed(1)}%) | Média 14d: ${Number(avg14.ctr ?? 0).toFixed(2)}% (${v.changes.d14.toFixed(1)}%) | Média 30d: ${Number(avg30.ctr ?? 0).toFixed(2)}% (${v.changes.d30.toFixed(1)}%). Confirmado em ${v.windows}/3 janelas.`,
         metricName: "ctr",
         currentValue: currCtr,
-        previousValue: prevCtr,
-        changePercent: change,
+        previousValue: refVal,
+        changePercent: v.changes.d7,
+        windowsConfirmed: v.windows,
+        windowChanges: v.changes,
       });
     }
   }
 
-  const currSpend = parseFloat(String(current.spend ?? 0));
-  const prevSpend = parseFloat(String(previous.spend ?? 0));
-  if (prevSpend > 0) {
-    const change = pctChange(currSpend, prevSpend);
-    if (change >= thresholds.spendSpikePercent) {
+  // ── IMPRESSIONS DROP (delivery) ──────────────────────────────────────────
+  const currImpressions = Number(current.impressions ?? 0);
+  if (Number(avg7.impressions ?? 0) > 0) {
+    const t = MULTI_PERIOD_THRESHOLDS.delivery;
+    const v = validateMultiPeriod(
+      currImpressions,
+      Number(avg7.impressions ?? 0), Number(avg14.impressions ?? 0), Number(avg30.impressions ?? 0),
+      t.d7 * limitedMult, t.d14 * limitedMult, t.d30 * limitedMult,
+      false
+    );
+    if (v.confirmed) {
+      const severity = v.changes.d7 <= -80 ? "CRITICAL" : "HIGH";
+      const refVal = Number(avg7.impressions ?? 0);
       detected.push({
-        type: "SPEND_SPIKE",
-        severity: change >= 100 ? "HIGH" : "MEDIUM",
-        title: "Pico de investimento detectado",
-        description: `O gasto aumentou de R$${prevSpend.toFixed(2)} para R$${currSpend.toFixed(2)} (+${change.toFixed(1)}%). Verifique se o orçamento está configurado corretamente.`,
-        metricName: "spend",
-        currentValue: currSpend,
-        previousValue: prevSpend,
-        changePercent: change,
+        type: "PERFORMANCE_DROP",
+        severity,
+        title: `Queda de entrega confirmada em ${v.windows}/3 janelas`,
+        description: `Impressões atuais: ${currImpressions.toLocaleString()}. Média 7d: ${refVal.toLocaleString()} (${v.changes.d7.toFixed(1)}%) | Média 14d: ${Number(avg14.impressions ?? 0).toLocaleString()} (${v.changes.d14.toFixed(1)}%) | Média 30d: ${Number(avg30.impressions ?? 0).toLocaleString()} (${v.changes.d30.toFixed(1)}%). Confirmado em ${v.windows}/3 janelas.`,
+        metricName: "impressions",
+        currentValue: currImpressions,
+        previousValue: refVal,
+        changePercent: v.changes.d7,
+        windowsConfirmed: v.windows,
+        windowChanges: v.changes,
       });
     }
   }
 
-  const currFreq = parseFloat(String(current.frequency ?? 0));
-  if (currFreq >= thresholds.frequencyHighValue) {
+  // ── RESULTS DROP ─────────────────────────────────────────────────────────
+  const currConversions = Number(current.conversions ?? 0);
+  if (Number(avg7.conversions ?? 0) > 0) {
+    const t = MULTI_PERIOD_THRESHOLDS.results;
+    const v = validateMultiPeriod(
+      currConversions,
+      Number(avg7.conversions ?? 0), Number(avg14.conversions ?? 0), Number(avg30.conversions ?? 0),
+      t.d7 * limitedMult, t.d14 * limitedMult, t.d30 * limitedMult,
+      false
+    );
+    if (v.confirmed) {
+      const severity = v.changes.d7 <= -60 ? "CRITICAL" : v.changes.d7 <= -40 ? "HIGH" : "MEDIUM";
+      const refVal = Number(avg7.conversions ?? 0);
+      detected.push({
+        type: "RESULTS_DROP",
+        severity,
+        title: `Queda de resultados confirmada em ${v.windows}/3 janelas`,
+        description: `Resultados atuais: ${currConversions.toFixed(0)}. Média 7d: ${refVal.toFixed(0)} (${v.changes.d7.toFixed(1)}%) | Média 14d: ${Number(avg14.conversions ?? 0).toFixed(0)} (${v.changes.d14.toFixed(1)}%) | Média 30d: ${Number(avg30.conversions ?? 0).toFixed(0)} (${v.changes.d30.toFixed(1)}%). Confirmado em ${v.windows}/3 janelas.`,
+        metricName: "conversions",
+        currentValue: currConversions,
+        previousValue: refVal,
+        changePercent: v.changes.d7,
+        windowsConfirmed: v.windows,
+        windowChanges: v.changes,
+      });
+    }
+  }
+
+  // ── FREQUENCY HIGH (valor absoluto — sem multi-período) ──────────────────
+  const currFreq = Number(current.frequency ?? 0);
+  if (currFreq >= FREQUENCY_MEDIUM) {
+    const isHigh = currFreq >= FREQUENCY_HIGH;
     detected.push({
       type: "FREQUENCY_HIGH",
-      severity: currFreq >= 6 ? "HIGH" : "MEDIUM",
-      title: "Frequência elevada — possível fadiga de anúncio",
-      description: `A frequência está em ${currFreq.toFixed(1)}x, acima do limite recomendado de ${thresholds.frequencyHighValue}x. Renove os criativos ou expanda o público.`,
+      severity: currFreq >= 6 ? "HIGH" : isHigh ? "MEDIUM" : "LOW",
+      title: isHigh ? `Frequência elevada: ${currFreq.toFixed(1)}x (acima de ${FREQUENCY_HIGH}x)` : `Frequência em atenção: ${currFreq.toFixed(1)}x (acima de ${FREQUENCY_MEDIUM}x)`,
+      description: isHigh
+        ? `Frequência em ${currFreq.toFixed(1)}x — acima do limite de ação (${FREQUENCY_HIGH}x). Renove os criativos ou expanda o público imediatamente.`
+        : `Frequência em ${currFreq.toFixed(1)}x — acima do limite de atenção (${FREQUENCY_MEDIUM}x). Monitore a fadiga de criativos.`,
       metricName: "frequency",
       currentValue: currFreq,
       previousValue: 0,
       changePercent: 0,
     });
-  }
-
-  // PERFORMANCE_DROP: queda geral de performance (CTR + impressions juntos)
-  const currImpressions = parseFloat(String(current.impressions ?? 0));
-  const prevImpressions = parseFloat(String(previous.impressions ?? 0));
-  if (prevImpressions > 0 && prevCtr > 0) {
-    const impressionChange = pctChange(currImpressions, prevImpressions);
-    const ctrChange = prevCtr > 0 ? pctChange(currCtr, prevCtr) : 0;
-    // Queda abrupta em ambas as métricas indica problema de entrega
-    if (impressionChange <= -40 && ctrChange <= -20) {
-      detected.push({
-        type: "PERFORMANCE_DROP",
-        severity: impressionChange <= -60 ? "CRITICAL" : "HIGH",
-        title: "Queda abrupta de performance detectada",
-        description: `Impressões caíram ${Math.abs(impressionChange).toFixed(1)}% e CTR caiu ${Math.abs(ctrChange).toFixed(1)}% em relação ao período anterior. Verifique a entrega das campanhas, orçamento e aprovação de criativos.`,
-        metricName: "impressions",
-        currentValue: currImpressions,
-        previousValue: prevImpressions,
-        changePercent: impressionChange,
-      });
-    }
-  }
-
-  // RESULTS_DROP: queda de resultados ≥ 20% após análise de 7 dias (threshold fixo)
-  const currConversions = parseFloat(String(current.conversions ?? 0));
-  const prevConversions = parseFloat(String(previous.conversions ?? 0));
-  if (prevConversions > 0) {
-    const change = pctChange(currConversions, prevConversions);
-    if (change <= -RESULTS_DROP_THRESHOLD) {
-      const severity = change <= -50 ? "CRITICAL" : change <= -35 ? "HIGH" : "MEDIUM";
-      detected.push({
-        type: "RESULTS_DROP",
-        severity,
-        title: `Queda de resultados: ${prevConversions.toFixed(0)} → ${currConversions.toFixed(0)} (${Math.abs(change).toFixed(1)}%)`,
-        description: `Os resultados caíram ${Math.abs(change).toFixed(1)}% nos últimos 7 dias (${prevConversions.toFixed(0)} → ${currConversions.toFixed(0)}). Revise criativos, segmentação e página de destino.`,
-        metricName: "conversions",
-        currentValue: currConversions,
-        previousValue: prevConversions,
-        changePercent: change,
-      });
-    }
   }
 
   return detected;

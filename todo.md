@@ -280,3 +280,21 @@
 - [ ] Backend: alerta de resolução quando anomalia for corrigida
 - [x] Frontend: badges de prioridade Crítica (vermelho), Alta (laranja), Média (amarelo)
 - [x] Frontend: estrutura completa do alerta (prioridade, conta, o que aconteceu, dados, ação sugerida, timestamp)
+
+## Aba Campanhas — 12 Métricas Fixas
+- [x] Backend: buscar profile_visits, follower_count, frequency nos campos da API Meta
+- [x] Backend: procedure campaigns.list retorna os 12 campos obrigatórios por campanha
+- [x] Frontend: tabela com 12 colunas fixas (Veiculação, Resultado, Custo/Resultado, Visitas Perfil, Alcance, Impressões, CPM, Cliques, CPC, CTR, Frequência, Seguidores)
+- [x] Frontend: scroll horizontal para acomodar todas as colunas
+- [x] Frontend: "—" para métricas não disponíveis (nunca ocultar coluna)
+- [x] Frontend: ordem de colunas fixa e inalterável
+- [x] Frontend: apenas campanhas ATIVAS + PAUSADAS nos últimos 7 dias
+
+## Detecção de Anomalias — Validação Multi-Período
+- [x] Backend: comparar métrica atual com médias de 7, 14 e 30 dias
+- [x] Backend: anomalia confirmada apenas se ≥2 de 3 janelas detectarem desvio
+- [x] Backend: thresholds diferenciados por categoria (custo, performance, entrega, frequência)
+- [x] Backend: campanhas em aprendizado (<7 dias ou <50 eventos) isentas de alertas de métrica
+- [x] Backend: campanhas com <7 dias de histórico usam threshold dobrado
+- [x] Backend: monitorar apenas campanhas ATIVAS
+- [x] Backend: estrutura do alerta inclui comparação das 3 janelas e X/3 confirmações
