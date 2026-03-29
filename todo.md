@@ -115,6 +115,17 @@
 - [x] Frontend: badge no header mostra a meta de desempenho real (ex: "Compras no site", "Mensagens")
 - [x] Frontend: KPI cards mostram métricas relevantes para a meta de desempenho configurada
 
+## Bug Dashboard Builder - Geração Lenta/Travada (Mar/29)
+- [x] Investigar causa raiz: detail: high causava timeout de 2-5 minutos
+- [x] Corrigir: mudar detail para auto nas imagens
+- [x] Corrigir: adicionar timeout de 180s no fetch do LLM
+- [x] Corrigir: melhorar mensagem de erro quando timeout ocorre
+
+## Períodos Rápidos na Aba de Campanhas (Mar/29)
+- [x] Adicionar seletor de períodos rápidos (Hoje, Ontem, Hoje e Ontem, 7d, 14d, 30d, Personalizado)
+- [x] Período padrão: Últimos 7 dias
+- [ ] Backend: campaigns.performance adicionar suporte a startDate/endDate opcionais (TODO)
+
 ## Correção de Discrepâncias - Conta C1 ELWING (Mar/26)
 - [x] Diagnosticar: badge mostrava "Engajamento" porque campanhas inativas com objective=OUTCOME_ENGAGEMENT tinham optimization_goal=POST_ENGAGEMENT no banco e influenciavam o detectDominantGoal
 - [x] Corrigir: Alcance mostrava 0 porque totals no backend não somava reach (só somava spend/impressions/clicks/conversions)

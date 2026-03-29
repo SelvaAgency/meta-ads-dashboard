@@ -2,12 +2,13 @@ import { MetaDashboardLayout, useSelectedAccount } from "@/components/MetaDashbo
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { BarChart3, Link2, Search, Zap, Circle } from "lucide-react";
+import { BarChart3, Link2, Search, Zap, Circle, Calendar } from "lucide-react";
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 const fmtCurrency = (v: number | null | undefined) => {
   if (v == null || v === 0) return "—";
@@ -48,14 +49,29 @@ const COLUMNS = [
 ] as const;
 
 export default function Campaigns() {
-  const [days, setDays] = useState("30");
+  const [days, setDays] = useState("7");
   const [search, setSearch] = useState("");
+  const [periodMode, setPeriodMode] = useState<"quick" | "custom">("quick");
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
 
+  const handleQuickPeriod = (mode: string) => {
+    setPeriodMode("quick");
+    if (mode === "today") setDays("1");
+    else if (mode === "yesterday") setDays("1");
+    else if (mode === "today-yesterday") setDays("2");
+    else setDays(mode.replace("d", ""));
+  };
+
   // Use performance query which aggregates from DB (has frequency, cpm, cpc, etc.)
+  // TODO: Backend needs to support startDate/endDate for custom periods
   const { data: campaigns, isLoading } = trpc.campaigns.performance.useQuery(
-    { accountId: selectedAccountId!, days: parseInt(days) },
+    { 
+      accountId: selectedAccountId!, 
+      days: parseInt(days) || 7,
+    },
     { enabled: !!selectedAccountId }
   );
 
@@ -104,24 +120,111 @@ export default function Campaigns() {
     <MetaDashboardLayout title="Campanhas">
       <div className="space-y-5">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-foreground">Campanhas</h1>
-            <p className="text-sm text-muted-foreground">
-              Exibindo campanhas ativas e pausadas nos últimos 7 dias
-            </p>
-          </div>
-          <Select value={days} onValueChange={setDays}>
-            <SelectTrigger className="w-36 h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="7">Últimos 7 dias</SelectItem>
-              <SelectItem value="14">Últimos 14 dias</SelectItem>
-              <SelectItem value="30">Últimos 30 dias</SelectItem>
-              <SelectItem value="60">Últimos 60 dias</SelectItem>
-            </SelectContent>
-          </Select>
+        <div>
+          <h1 className="text-xl font-bold text-foreground">Campanhas</h1>
+          <p className="text-sm text-muted-foreground">
+            Exibindo campanhas ativas e pausadas nos últimos 7 dias
+          </p>
+        </div>
+
+        {/* Period selector with quick buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant={periodMode === "quick" && days === "1" ? "default" : "outline"}
+            size="sm"
+            onClick={() => handleQuickPeriod("today")}
+            className="text-xs"
+          >
+            Hoje
+          </Button>
+          <Button
+            variant={periodMode === "quick" && days === "1" ? "default" : "outline"}
+            size="sm"
+            onClick={() => handleQuickPeriod("yesterday")}
+            className="text-xs"
+          >
+            Ontem
+          </Button>
+          <Button
+            variant={periodMode === "quick" && days === "2" ? "default" : "outline"}
+            size="sm"
+            onClick={() => handleQuickPeriod("today-yesterday")}
+            className="text-xs"
+          >
+            Hoje e Ontem
+          </Button>
+          <Button
+            variant={periodMode === "quick" && days === "7" ? "default" : "outline"}
+            size="sm"
+            onClick={() => handleQuickPeriod("7d")}
+            className="text-xs"
+          >
+            Últimos 7d
+          </Button>
+          <Button
+            variant={periodMode === "quick" && days === "14" ? "default" : "outline"}
+            size="sm"
+            onClick={() => handleQuickPeriod("14d")}
+            className="text-xs"
+          >
+            Últimos 14d
+          </Button>
+          <Button
+            variant={periodMode === "quick" && days === "30" ? "default" : "outline"}
+            size="sm"
+            onClick={() => handleQuickPeriod("30d")}
+            className="text-xs"
+          >
+            Últimos 30d
+          </Button>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button
+                variant={periodMode === "custom" ? "default" : "outline"}
+                size="sm"
+                className="text-xs gap-1.5"
+              >
+                <Calendar size={14} />
+                Personalizado
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Período Personalizado</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-sm">Data Início (aaaa-mm-dd)</Label>
+                  <Input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm">Data Fim (aaaa-mm-dd)</Label>
+                  <Input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <Button
+                  onClick={() => {
+                    if (customStartDate && customEndDate) {
+                      setPeriodMode("custom");
+                      setDays("0"); // Trigger refetch
+                    }
+                  }}
+                  className="w-full"
+                >
+                  Aplicar
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Search */}
@@ -198,100 +301,96 @@ export default function Campaigns() {
                       const resultLabel = (c as any).campaignResultLabel as string | undefined;
 
                       // Status badge
-                      const isActive = status === "ACTIVE";
-                      const statusLabel = isActive ? "Ativo" : status === "PAUSED" ? "Pausado" : status;
-                      const statusDot = isActive ? "text-emerald-400" : "text-yellow-400";
-                      const statusBadge = isActive
-                        ? "text-emerald-400 border-emerald-400/30 bg-emerald-400/5"
-                        : "text-yellow-400 border-yellow-400/30 bg-yellow-400/5";
-
-                      // Frequency color
-                      const freqColor =
-                        frequency >= 4 ? "text-red-400 font-bold" :
-                        frequency >= 2.5 ? "text-yellow-400 font-medium" :
-                        "text-foreground";
+                      const statusBg =
+                        status === "ACTIVE"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : status === "PAUSED"
+                          ? "bg-amber-50 text-amber-700 border-amber-200"
+                          : "bg-slate-50 text-slate-700 border-slate-200";
+                      const statusLabel =
+                        status === "ACTIVE"
+                          ? "Ativa"
+                          : status === "PAUSED"
+                          ? "Pausada"
+                          : "Inativa";
 
                       return (
-                        <tr
-                          key={c.campaignId}
-                          className="border-b border-border/50 hover:bg-accent/20 transition-colors"
-                        >
+                        <tr key={metaId} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                           {/* Campaign name — sticky left */}
                           <td
-                            className="px-4 py-3 sticky left-0 bg-card z-10 border-r border-border/50"
+                            className="px-4 py-3 sticky left-0 bg-card border-r border-border"
                             style={{ minWidth: "220px" }}
                           >
-                            <p className="font-medium text-foreground truncate max-w-[200px]" title={c.campaignName ?? ""}>
-                              {c.campaignName}
-                            </p>
-                            {resultLabel && (
-                              <p className="text-[10px] text-muted-foreground mt-0.5">{resultLabel}</p>
-                            )}
+                            <div className="space-y-1">
+                              <p className="font-medium text-foreground truncate">{c.campaignName ?? "—"}</p>
+                              <p className="text-xs text-muted-foreground">{c.campaignId ?? "—"}</p>
+                            </div>
                           </td>
 
-                          {/* 1. Veiculação */}
-                          <td className="px-3 py-3 text-right">
-                            <Badge variant="outline" className={`text-[10px] gap-1 ${statusBadge}`}>
-                              <Circle className={`w-1.5 h-1.5 fill-current ${statusDot}`} />
+                          {/* Status */}
+                          <td className={`px-3 py-3 text-right border-r border-border/50 ${statusBg} border rounded-sm`}>
+                            <span className="inline-flex items-center gap-1">
+                              <Circle size={6} className="fill-current" />
                               {statusLabel}
-                            </Badge>
-                          </td>
-
-                          {/* 2. Resultado */}
-                          <td className="px-3 py-3 text-right font-semibold text-foreground">
-                            {results > 0 ? fmtNum(results) : <span className="text-muted-foreground">—</span>}
-                          </td>
-
-                          {/* 3. Custo por Resultado */}
-                          <td className="px-3 py-3 text-right">
-                            <span className={costPerResult > 0 ? "text-foreground" : "text-muted-foreground"}>
-                              {fmtCurrency(costPerResult)}
                             </span>
                           </td>
 
-                          {/* 4. Visitas ao Perfil */}
-                          <td className="px-3 py-3 text-right text-muted-foreground">
-                            {fmtNum(profileVisits)}
+                          {/* Result */}
+                          <td className="px-3 py-3 text-right border-r border-border/50">
+                            <div>
+                              <p className="font-semibold text-foreground">{fmtNum(results)}</p>
+                              <p className="text-xs text-muted-foreground">{resultLabel ?? "Resultados"}</p>
+                            </div>
                           </td>
 
-                          {/* 5. Alcance */}
-                          <td className="px-3 py-3 text-right text-muted-foreground">
-                            {fmtNum(reach)}
+                          {/* Cost per Result */}
+                          <td className="px-3 py-3 text-right border-r border-border/50">
+                            <p className="font-semibold text-foreground">{fmtCurrency(costPerResult)}</p>
                           </td>
 
-                          {/* 6. Impressões */}
-                          <td className="px-3 py-3 text-right text-muted-foreground">
-                            {fmtNum(impressions)}
+                          {/* Profile Visits */}
+                          <td className="px-3 py-3 text-right border-r border-border/50">
+                            <p className="font-semibold text-foreground">{fmtNum(profileVisits)}</p>
                           </td>
 
-                          {/* 7. CPM */}
-                          <td className="px-3 py-3 text-right text-muted-foreground">
-                            {fmtCurrency(cpm)}
+                          {/* Reach */}
+                          <td className="px-3 py-3 text-right border-r border-border/50">
+                            <p className="font-semibold text-foreground">{fmtNum(reach)}</p>
                           </td>
 
-                          {/* 8. Cliques */}
-                          <td className="px-3 py-3 text-right text-muted-foreground">
-                            {fmtNum(clicks)}
+                          {/* Impressions */}
+                          <td className="px-3 py-3 text-right border-r border-border/50">
+                            <p className="font-semibold text-foreground">{fmtNum(impressions)}</p>
                           </td>
 
-                          {/* 9. CPC */}
-                          <td className="px-3 py-3 text-right text-muted-foreground">
-                            {fmtCurrency(cpc)}
+                          {/* CPM */}
+                          <td className="px-3 py-3 text-right border-r border-border/50">
+                            <p className="font-semibold text-foreground">{fmtCurrency(cpm)}</p>
                           </td>
 
-                          {/* 10. CTR */}
-                          <td className="px-3 py-3 text-right text-muted-foreground">
-                            {fmtPct(ctr)}
+                          {/* Clicks */}
+                          <td className="px-3 py-3 text-right border-r border-border/50">
+                            <p className="font-semibold text-foreground">{fmtNum(clicks)}</p>
                           </td>
 
-                          {/* 11. Frequência */}
-                          <td className={`px-3 py-3 text-right ${freqColor}`}>
-                            {fmtFreq(frequency)}
+                          {/* CPC */}
+                          <td className="px-3 py-3 text-right border-r border-border/50">
+                            <p className="font-semibold text-foreground">{fmtCurrency(cpc)}</p>
                           </td>
 
-                          {/* 12. Seguidores no Instagram */}
-                          <td className="px-3 py-3 text-right text-muted-foreground">
-                            {fmtNum(followers)}
+                          {/* CTR */}
+                          <td className="px-3 py-3 text-right border-r border-border/50">
+                            <p className="font-semibold text-foreground">{fmtPct(ctr)}</p>
+                          </td>
+
+                          {/* Frequency */}
+                          <td className="px-3 py-3 text-right border-r border-border/50">
+                            <p className="font-semibold text-foreground">{fmtFreq(frequency)}</p>
+                          </td>
+
+                          {/* Followers */}
+                          <td className="px-3 py-3 text-right">
+                            <p className="font-semibold text-foreground">{fmtNum(followers)}</p>
                           </td>
                         </tr>
                       );
@@ -302,14 +401,6 @@ export default function Campaigns() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Legend */}
-        {campaigns && campaigns.length > 0 && (
-          <div className="flex items-start gap-4 text-[10px] text-muted-foreground">
-            <p>* Colunas fixas conforme especificação. Scroll horizontal para ver todas as métricas.</p>
-            <p>* Frequência em amarelo ≥ 2.5 | vermelho ≥ 4.0</p>
-          </div>
-        )}
       </div>
     </MetaDashboardLayout>
   );
