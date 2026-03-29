@@ -253,3 +253,30 @@
 - [x] Prompt LLM: demais métricas disponíveis exibidas após as fixas
 - [x] Resultado: destacar visualmente a métrica principal de cada campanha
 - [x] Resultado: seção de métricas fixas separada das demais
+
+## Agendamento Individual por Conta
+- [x] Schema: adicionar accountId, scheduleDay (0-6), scheduleMinute (0-59) ao scheduled_reports
+- [x] Schema: migration aplicada via webdev_execute_sql
+- [x] Backend: cron dinâmico por conta (não global) — cada conta tem seu próprio job
+- [x] Backend: ao salvar/atualizar agendamento, recriar o cron job da conta
+- [x] Backend: geração automática do relatório no horário configurado por conta
+- [x] Backend: relatório gerado mesmo sem atividade (indica período sem gasto)
+- [x] Frontend: Reports.tsx lista TODAS as contas com configuração individual
+- [x] Frontend: toggle ativo/desativado por conta (independente)
+- [x] Frontend: seletor de frequência (diário/semanal) por conta
+- [x] Frontend: seletor de dia da semana (apenas no modo semanal) por conta
+- [x] Frontend: seletor de hora (00-23) por conta
+- [x] Frontend: seletor de minuto (00-59) por conta
+- [x] Frontend: indicador do próximo disparo agendado por conta
+
+## Alertas com Prioridade Crítica/Alta/Média
+- [x] Schema: adicionar campo priority (CRITICAL/HIGH/MEDIUM) e suggestedAction na tabela alerts
+- [x] Schema: migration aplicada
+- [ ] Backend: alertas CRÍTICOS — conta bloqueada, erro de pagamento, campanha parou, anúncio reprovado, gasto 2x orçamento, pixel zerou, queda 80% alcance
+- [ ] Backend: alertas ALTOS — CPC 3x, custo/resultado 2.5x, CTR -60%, frequência >4, aprendizado limitado, ROAS <1
+- [ ] Backend: alertas MÉDIOS — frequência >2.5, criativo sem resultado, orçamento consumido antes 18h, CTR caindo 3 dias
+- [ ] Backend: frequências diferenciadas — críticos imediatos, altos a cada 30min, médios consolidados a cada 2h
+- [ ] Backend: não repetir alerta da mesma anomalia se já foi alertado e não houve mudança
+- [ ] Backend: alerta de resolução quando anomalia for corrigida
+- [x] Frontend: badges de prioridade Crítica (vermelho), Alta (laranja), Média (amarelo)
+- [x] Frontend: estrutura completa do alerta (prioridade, conta, o que aconteceu, dados, ação sugerida, timestamp)

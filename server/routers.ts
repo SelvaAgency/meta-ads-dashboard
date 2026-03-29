@@ -1,5 +1,26 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+
+/** Calcula o próximo disparo de um agendamento de relatório.
+ * @param frequency DAILY ou WEEKLY
+ * @param h hora (0-23)
+ * @param m minuto (0-59)
+ * @param d dia da semana (0=dom, 1=seg, ..., 6=sáb) — usado apenas no modo WEEKLY
+ */
+function computeNextRun(frequency: "DAILY" | "WEEKLY", h: number, m: number, d: number): Date {
+  const now = new Date();
+  const next = new Date(now);
+  next.setSeconds(0, 0);
+  next.setHours(h, m, 0, 0);
+  if (frequency === "DAILY") {
+    if (next <= now) next.setDate(next.getDate() + 1);
+  } else {
+    // Avança até o próximo dia da semana desejado
+    const diff = (d - now.getDay() + 7) % 7;
+    next.setDate(now.getDate() + (diff === 0 && next <= now ? 7 : diff));
+  }
+  return next;
+}
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -620,6 +641,7 @@ export const appRouter = router({
           frequency: z.enum(["DAILY", "WEEKLY"]),
           scheduleHour: z.number().min(0).max(23).default(8),
           scheduleMinute: z.number().min(0).max(59).default(0),
+          scheduleDay: z.number().min(0).max(6).default(1), // 0=dom, 1=seg, ..., 6=sab
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -627,17 +649,8 @@ export const appRouter = router({
         if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
         const h = input.scheduleHour;
         const m = input.scheduleMinute;
-        const nextRun = new Date();
-        if (input.frequency === "DAILY") {
-          // Next occurrence of the chosen time (today if not yet passed, else tomorrow)
-          nextRun.setHours(h, m, 0, 0);
-          if (nextRun <= new Date()) nextRun.setDate(nextRun.getDate() + 1);
-        } else {
-          // Next Monday at the chosen time
-          const daysUntilMonday = (8 - nextRun.getDay()) % 7 || 7;
-          nextRun.setDate(nextRun.getDate() + daysUntilMonday);
-          nextRun.setHours(h, m, 0, 0);
-        }
+        const d = input.scheduleDay ?? 1;
+        const nextRun = computeNextRun(input.frequency, h, m, d);
         await createScheduledReport({
           userId: ctx.user.id,
           accountId: input.accountId,
@@ -645,6 +658,7 @@ export const appRouter = router({
           nextRunAt: nextRun,
           scheduleHour: h,
           scheduleMinute: m,
+          scheduleDay: d,
         });
         return { success: true };
       }),

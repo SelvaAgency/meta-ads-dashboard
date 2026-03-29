@@ -34,6 +34,9 @@ import {
   markAnomalyEmailSent,
   markAlertEmailSent,
   getMetaAdAccountsByUserId,
+  getMetaAdAccountById,
+  getDueScheduledReports,
+  updateScheduledReport,
   purgeOldReadAnomalies,
 } from "./db";
 import {
@@ -49,6 +52,8 @@ import {
   getResultLabel,
   checkRealTimeAlerts,
 } from "./metaAdsService";
+import { generateAgencyReport } from "./analysisService";
+import type { CampaignReportData } from "./analysisService";
 
 const SYNC_DAYS = 30; // Always sync 30 days to ensure complete data for all dashboard filters
 
@@ -401,9 +406,121 @@ async function runRealTimeAlerts(account: {
 }
 
 /**
+ * Gera o relatório de uma conta agendada e atualiza nextRunAt.
+ */
+async function runScheduledReport(report: {
+  id: number;
+  userId: number;
+  accountId: number;
+  frequency: "DAILY" | "WEEKLY";
+  scheduleHour: number;
+  scheduleMinute: number;
+  scheduleDay: number;
+}) {
+  try {
+    const account = await getMetaAdAccountById(report.accountId);
+    if (!account) return;
+
+    // Date range: DAILY = yesterday, WEEKLY = last 7 days ending yesterday
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const endDate = yesterday.toISOString().split("T")[0]!;
+    const startDateObj = new Date(yesterday);
+    if (report.frequency === "WEEKLY") startDateObj.setDate(startDateObj.getDate() - 6);
+    const startDate = startDateObj.toISOString().split("T")[0]!;
+    const fmt = (d: string) => { const [y, m, day] = d.split("-"); return `${day}/${m}/${y}`; };
+
+    const campaignData = await getCampaignPerformanceSummary(report.accountId, startDate, endDate);
+    const campaigns = campaignData.map((c) => ({
+      campaignId: c.campaignId,
+      campaignName: c.campaignName ?? "Campanha",
+      campaignObjective: c.campaignObjective ?? "OUTCOME_SALES",
+      campaignStatus: c.campaignStatus ?? "ACTIVE",
+      totalSpend: Number(c.totalSpend ?? 0),
+      totalImpressions: Number(c.totalImpressions ?? 0),
+      totalClicks: Number(c.totalClicks ?? 0),
+      totalConversions: Number(c.totalConversions ?? 0),
+      totalConversionValue: Number(c.totalConversionValue ?? 0),
+      totalReach: Number(c.totalReach ?? 0),
+      avgRoas: Number(c.avgRoas ?? 0),
+      avgCpa: Number(c.avgCpa ?? 0),
+      avgCtr: Number(c.avgCtr ?? 0),
+      avgCpc: Number(c.avgCpc ?? 0),
+      avgCpm: Number(c.avgCpm ?? 0),
+      avgFrequency: Number(c.avgFrequency ?? 0),
+    }));
+
+    const reportContent = await generateAgencyReport(
+      account.accountName ?? "Conta",
+      report.frequency,
+      campaigns,
+      fmt(startDate),
+      fmt(endDate)
+    );
+
+    // Compute next run
+    const nextRun = computeNextRunFromSchedule(report.frequency, report.scheduleHour, report.scheduleMinute, report.scheduleDay);
+    await updateScheduledReport(report.id, {
+      lastRunAt: new Date(),
+      nextRunAt: nextRun,
+      lastReportContent: reportContent,
+    });
+
+    await notifyOwner({
+      title: `📊 Relatório ${report.frequency === "DAILY" ? "Diário" : "Semanal"} — ${account.accountName}`,
+      content: reportContent.substring(0, 500) + (reportContent.length > 500 ? "..." : ""),
+    });
+    console.log(`[ScheduledReports] ✓ Relatório gerado para conta "${account.accountName ?? account.accountId}" (${report.frequency})`);
+  } catch (err) {
+    console.error(`[ScheduledReports] Erro ao gerar relatório para conta ${report.accountId}:`, err);
+  }
+}
+
+/** Calcula o próximo disparo a partir das configurações do agendamento */
+function computeNextRunFromSchedule(frequency: "DAILY" | "WEEKLY", h: number, m: number, d: number): Date {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(h, m, 0, 0);
+  if (frequency === "DAILY") {
+    if (next <= now) next.setDate(next.getDate() + 1);
+  } else {
+    const diff = (d - now.getDay() + 7) % 7;
+    next.setDate(now.getDate() + (diff === 0 ? 7 : diff));
+    next.setHours(h, m, 0, 0);
+  }
+  return next;
+}
+
+/**
+ * Verifica e executa todos os relatórios agendados que estão vencidos.
+ * Roda a cada minuto para garantir pontualidade.
+ */
+async function checkAndRunScheduledReports() {
+  try {
+    const due = await getDueScheduledReports();
+    if (due.length === 0) return;
+    console.log(`[ScheduledReports] ${due.length} relatório(s) agendado(s) para executar agora.`);
+    for (const r of due) {
+      await runScheduledReport({
+        id: r.id,
+        userId: r.userId,
+        accountId: r.accountId,
+        frequency: r.frequency as "DAILY" | "WEEKLY",
+        scheduleHour: r.scheduleHour,
+        scheduleMinute: r.scheduleMinute,
+        scheduleDay: r.scheduleDay,
+      });
+    }
+  } catch (err) {
+    console.error("[ScheduledReports] Erro ao verificar relatórios agendados:", err);
+  }
+}
+
+/**
  * Start the auto-sync cron job.
  * Runs every day at 06:00 Brasília time (UTC-3 = 09:00 UTC).
  * Anomaly detection runs every hour.
+ * Scheduled reports checker runs every minute.
  * Cron format: second minute hour day month weekday
  */
 export function startAutoSync() {
@@ -429,4 +546,10 @@ export function startAutoSync() {
     runAnomalyDetection().catch(console.error);
   }, { timezone: "UTC" });
   console.log("[AutoAnomalies] Hourly anomaly detection scheduled (every hour at :00)");
+
+  // Scheduled reports checker: runs every minute to ensure on-time delivery
+  cron.schedule("* * * * *", () => {
+    checkAndRunScheduledReports().catch(console.error);
+  }, { timezone: "UTC" });
+  console.log("[ScheduledReports] Per-account report scheduler started (checks every minute)");
 }

@@ -185,6 +185,8 @@ export const scheduledReports = mysqlTable("scheduled_reports", {
   // Horário personalizável (0-23 para hora, 0-59 para minuto)
   scheduleHour: int("scheduleHour").default(8).notNull(),
   scheduleMinute: int("scheduleMinute").default(0).notNull(),
+  // Dia da semana para agendamento semanal (0=domingo, 1=segunda, ..., 6=sábado)
+  scheduleDay: int("scheduleDay").default(1).notNull(),
   lastRunAt: timestamp("lastRunAt"),
   nextRunAt: timestamp("nextRunAt"),
   lastReportContent: text("lastReportContent"),
@@ -218,6 +220,13 @@ export const alerts = mysqlTable("alerts", {
     "ADSET_NO_DELIVERY",
   ]).notNull(),
   severity: mysqlEnum("severity", ["INFO", "WARNING", "CRITICAL"]).notNull(),
+  // Prioridade do alerta: CRITICAL=imediato, HIGH=até 30min, MEDIUM=consolidado a cada 2h
+  priority: mysqlEnum("priority", ["CRITICAL", "HIGH", "MEDIUM", "LOW"]).default("LOW").notNull(),
+  // Ação sugerida para resolver o alerta
+  suggestedAction: text("suggestedAction"),
+  // Métrica atual vs referência (para alertas de performance)
+  metricCurrent: varchar("metricCurrent", { length: 128 }),
+  metricReference: varchar("metricReference", { length: 128 }),
    isRead: boolean("isRead").default(false).notNull(),
   // Controle de envio de email: null = ainda não enviado, data = já enviado (enviar apenas uma vez)
   emailSentAt: timestamp("emailSentAt"),

@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
 import {
   Calendar,
   CalendarDays,
@@ -14,19 +13,319 @@ import {
   Clock,
   Copy,
   FileText,
+  Info,
   Link2,
   Loader2,
   Play,
-  Plus,
+  Settings2,
   Trash2,
   Zap,
-  ChevronDown,
-  ChevronUp,
-  Info,
 } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+
+const DAYS_OF_WEEK = [
+  { value: 0, label: "Domingo" },
+  { value: 1, label: "Segunda-feira" },
+  { value: 2, label: "Terça-feira" },
+  { value: 3, label: "Quarta-feira" },
+  { value: 4, label: "Quinta-feira" },
+  { value: 5, label: "Sexta-feira" },
+  { value: 6, label: "Sábado" },
+];
+
+function computeNextRun(
+  frequency: "DAILY" | "WEEKLY",
+  h: number,
+  m: number,
+  d: number
+): Date {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(h, m, 0, 0);
+  if (frequency === "DAILY") {
+    if (next <= now) next.setDate(next.getDate() + 1);
+  } else {
+    const diff = (d - now.getDay() + 7) % 7;
+    next.setDate(now.getDate() + (diff === 0 ? 7 : diff));
+    next.setHours(h, m, 0, 0);
+  }
+  return next;
+}
+
+interface AccountScheduleRowProps {
+  account: { id: number; accountName: string | null; accountId: string };
+  schedule: {
+    id: number;
+    frequency: string;
+    isActive: boolean | null;
+    scheduleHour: number;
+    scheduleMinute: number;
+    scheduleDay: number;
+    nextRunAt: Date | null;
+  } | null;
+  onSave: (params: {
+    accountId: number;
+    frequency: "DAILY" | "WEEKLY";
+    scheduleHour: number;
+    scheduleMinute: number;
+    scheduleDay: number;
+  }) => void;
+  onToggle: (reportId: number, isActive: boolean) => void;
+  onDelete: (reportId: number) => void;
+  isSaving: boolean;
+}
+
+function AccountScheduleRow({
+  account,
+  schedule,
+  onSave,
+  onToggle,
+  onDelete,
+  isSaving,
+}: AccountScheduleRowProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [frequency, setFrequency] = useState<"DAILY" | "WEEKLY">(
+    (schedule?.frequency as "DAILY" | "WEEKLY") ?? "DAILY"
+  );
+  const [hour, setHour] = useState(schedule?.scheduleHour ?? 8);
+  const [minute, setMinute] = useState(schedule?.scheduleMinute ?? 0);
+  const [day, setDay] = useState(schedule?.scheduleDay ?? 1);
+
+  const nextRun = schedule?.nextRunAt
+    ? new Date(schedule.nextRunAt).toLocaleString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : computeNextRun(frequency, hour, minute, day).toLocaleString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+  return (
+    <div className="border border-border/50 rounded-xl bg-card overflow-hidden">
+      {/* Header row */}
+      <div className="flex items-center gap-3 p-4">
+        <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+          <FileText className="w-4 h-4 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-foreground truncate">
+            {account.accountName ?? account.accountId}
+          </p>
+          {schedule ? (
+            <p className="text-xs text-muted-foreground">
+              {schedule.frequency === "DAILY" ? "Diário" : "Semanal"} —{" "}
+              {String(schedule.scheduleHour).padStart(2, "0")}:
+              {String(schedule.scheduleMinute).padStart(2, "0")}h
+              {schedule.frequency === "WEEKLY"
+                ? ` (${DAYS_OF_WEEK.find((d) => d.value === schedule.scheduleDay)?.label ?? "Segunda-feira"})`
+                : ""}
+              {" · "}Próximo: {nextRun}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">Sem agendamento configurado</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {schedule ? (
+            <>
+              <Badge
+                variant={schedule.isActive ? "default" : "secondary"}
+                className="text-xs hidden sm:inline-flex"
+              >
+                {schedule.isActive ? "Ativo" : "Pausado"}
+              </Badge>
+              <Switch
+                checked={schedule.isActive ?? false}
+                onCheckedChange={(checked) => onToggle(schedule.id, checked)}
+              />
+              <Button
+                size="icon"
+                variant="ghost"
+                className="w-8 h-8 text-muted-foreground hover:text-primary"
+                title="Editar agendamento"
+                onClick={() => setExpanded((v) => !v)}
+              >
+                <Settings2 className="w-4 h-4" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="w-8 h-8 text-muted-foreground hover:text-destructive"
+                title="Remover agendamento"
+                onClick={() => onDelete(schedule.id)}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              Agendar
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Expanded config panel */}
+      {expanded && (
+        <div className="border-t border-border/40 bg-muted/10 p-4 space-y-4">
+          <p className="text-xs font-semibold text-foreground">
+            {schedule ? "Editar agendamento" : "Configurar agendamento"}
+          </p>
+
+          {/* Frequency */}
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">Frequência</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setFrequency("DAILY")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg border text-xs font-medium transition-colors ${
+                  frequency === "DAILY"
+                    ? "bg-blue-500/10 border-blue-500/40 text-blue-400"
+                    : "border-border/50 text-muted-foreground hover:border-border"
+                }`}
+              >
+                <CalendarDays className="w-3.5 h-3.5" />
+                Diário
+              </button>
+              <button
+                onClick={() => setFrequency("WEEKLY")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg border text-xs font-medium transition-colors ${
+                  frequency === "WEEKLY"
+                    ? "bg-purple-500/10 border-purple-500/40 text-purple-400"
+                    : "border-border/50 text-muted-foreground hover:border-border"
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                Semanal
+              </button>
+            </div>
+          </div>
+
+          {/* Day of week (weekly only) */}
+          {frequency === "WEEKLY" && (
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">Dia da semana</label>
+              <select
+                value={day}
+                onChange={(e) => setDay(Number(e.target.value))}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                {DAYS_OF_WEEK.map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Hour and minute */}
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">Horário de envio (Brasília)</label>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 space-y-1">
+                <label className="text-xs text-muted-foreground">Hora</label>
+                <select
+                  value={hour}
+                  onChange={(e) => setHour(Number(e.target.value))}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  {Array.from({ length: 24 }, (_, i) => (
+                    <option key={i} value={i}>
+                      {String(i).padStart(2, "0")}h
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="text-xl font-bold text-muted-foreground mt-4">:</div>
+              <div className="flex-1 space-y-1">
+                <label className="text-xs text-muted-foreground">Minuto</label>
+                <select
+                  value={minute}
+                  onChange={(e) => setMinute(Number(e.target.value))}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  {Array.from({ length: 60 }, (_, i) => (
+                    <option key={i} value={i}>
+                      {String(i).padStart(2, "0")}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Preview */}
+          <div className="flex items-center gap-2 bg-primary/5 border border-primary/20 rounded-lg px-3 py-2">
+            <Info className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+            <p className="text-xs text-muted-foreground">
+              Próximo envio:{" "}
+              <span className="text-foreground font-medium">
+                {computeNextRun(frequency, hour, minute, day).toLocaleString("pt-BR", {
+                  weekday: "long",
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => setExpanded(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              className="flex-1"
+              disabled={isSaving}
+              onClick={() => {
+                onSave({
+                  accountId: account.id,
+                  frequency,
+                  scheduleHour: hour,
+                  scheduleMinute: minute,
+                  scheduleDay: day,
+                });
+                setExpanded(false);
+              }}
+            >
+              {isSaving ? (
+                <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Salvando...</>
+              ) : (
+                <><Check className="w-3.5 h-3.5 mr-1.5" /> Salvar Agendamento</>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Reports() {
   const [, navigate] = useLocation();
@@ -34,22 +333,15 @@ export default function Reports() {
   const [reportType, setReportType] = useState<"DAILY" | "WEEKLY" | null>(null);
   const [generatingFreq, setGeneratingFreq] = useState<"DAILY" | "WEEKLY" | null>(null);
   const [copied, setCopied] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [scheduleModal, setScheduleModal] = useState<{ open: boolean; frequency: "DAILY" | "WEEKLY" | null }>({
-    open: false,
-    frequency: null,
-  });
-  const [scheduleHour, setScheduleHour] = useState(8);
-  const [scheduleMinute, setScheduleMinute] = useState(0);
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
 
-  const { data: reports, isLoading } = trpc.reports.list.useQuery();
+  const { data: reports, isLoading: reportsLoading } = trpc.reports.list.useQuery();
 
   const createReport = trpc.reports.create.useMutation({
     onSuccess: () => {
       utils.reports.list.invalidate();
-      toast.success("Relatório agendado com sucesso!");
+      toast.success("Agendamento salvo com sucesso!");
     },
     onError: (err) => toast.error(err.message),
   });
@@ -61,7 +353,7 @@ export default function Reports() {
   const deleteReport = trpc.reports.delete.useMutation({
     onSuccess: () => {
       utils.reports.list.invalidate();
-      toast.success("Relatório removido.");
+      toast.success("Agendamento removido.");
     },
   });
 
@@ -93,10 +385,6 @@ export default function Reports() {
     setTimeout(() => setCopied(false), 2500);
   };
 
-  const accountSchedules = reports?.filter((r) => r.accountId === selectedAccountId) ?? [];
-  const hasDailySchedule = accountSchedules.some((r) => r.frequency === "DAILY");
-  const hasWeeklySchedule = accountSchedules.some((r) => r.frequency === "WEEKLY");
-
   if (!accounts || accounts.length === 0) {
     return (
       <MetaDashboardLayout title="Relatórios">
@@ -114,15 +402,25 @@ export default function Reports() {
     );
   }
 
+  const activeSchedules = reports?.filter((r) => r.isActive) ?? [];
+
   return (
     <MetaDashboardLayout title="Relatórios">
       <div className="space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-xl font-bold text-foreground">Relatórios de Performance</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Formato de agência — prontos para copiar e enviar ao cliente
-          </p>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-xl font-bold text-foreground">Relatórios de Performance</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Formato de agência — prontos para copiar e enviar ao cliente
+            </p>
+          </div>
+          {activeSchedules.length > 0 && (
+            <Badge variant="outline" className="text-xs gap-1.5 py-1 px-2.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              {activeSchedules.length} agendamento(s) ativo(s)
+            </Badge>
+          )}
         </div>
 
         {/* Generate Now Cards */}
@@ -138,11 +436,6 @@ export default function Reports() {
                   <CardTitle className="text-base">Relatório Diário</CardTitle>
                   <p className="text-xs text-muted-foreground">Dados de ontem</p>
                 </div>
-                {hasDailySchedule && (
-                  <Badge variant="outline" className="ml-auto text-xs text-blue-400 border-blue-400/30">
-                    Agendado
-                  </Badge>
-                )}
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -151,30 +444,17 @@ export default function Reports() {
                 <p>• Resumo estratégico consolidado</p>
                 <p>• Recomendações de curto prazo</p>
               </div>
-              <div className="flex gap-2">
-                <Button
-                  className="flex-1"
-                  onClick={() => handleGenerate("DAILY")}
-                  disabled={runNow.isPending}
-                >
-                  {generatingFreq === "DAILY" ? (
-                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Gerando...</>
-                  ) : (
-                    <><Play className="w-4 h-4 mr-2" /> Gerar Agora</>
-                  )}
-                </Button>
-                {!hasDailySchedule ? (
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    title="Agendar relatório diário"
-                    onClick={() => setScheduleModal({ open: true, frequency: "DAILY" })}
-                    disabled={createReport.isPending}
-                  >
-                    <Clock className="w-4 h-4" />
-                  </Button>
-                ) : null}
-              </div>
+              <Button
+                className="w-full"
+                onClick={() => handleGenerate("DAILY")}
+                disabled={runNow.isPending || !selectedAccountId}
+              >
+                {generatingFreq === "DAILY" ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Gerando...</>
+                ) : (
+                  <><Play className="w-4 h-4 mr-2" /> Gerar Agora</>
+                )}
+              </Button>
             </CardContent>
           </Card>
 
@@ -189,11 +469,6 @@ export default function Reports() {
                   <CardTitle className="text-base">Relatório Semanal</CardTitle>
                   <p className="text-xs text-muted-foreground">Últimos 7 dias</p>
                 </div>
-                {hasWeeklySchedule && (
-                  <Badge variant="outline" className="ml-auto text-xs text-purple-400 border-purple-400/30">
-                    Agendado
-                  </Badge>
-                )}
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -202,31 +477,18 @@ export default function Reports() {
                 <p>• Comparativo entre campanhas</p>
                 <p>• Insights estratégicos e próximos passos</p>
               </div>
-              <div className="flex gap-2">
-                <Button
-                  className="flex-1"
-                  variant="outline"
-                  onClick={() => handleGenerate("WEEKLY")}
-                  disabled={runNow.isPending}
-                >
-                  {generatingFreq === "WEEKLY" ? (
-                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Gerando...</>
-                  ) : (
-                    <><Play className="w-4 h-4 mr-2" /> Gerar Agora</>
-                  )}
-                </Button>
-                {!hasWeeklySchedule ? (
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    title="Agendar relatório semanal"
-                    onClick={() => setScheduleModal({ open: true, frequency: "WEEKLY" })}
-                    disabled={createReport.isPending}
-                  >
-                    <Clock className="w-4 h-4" />
-                  </Button>
-                ) : null}
-              </div>
+              <Button
+                className="w-full"
+                variant="outline"
+                onClick={() => handleGenerate("WEEKLY")}
+                disabled={runNow.isPending || !selectedAccountId}
+              >
+                {generatingFreq === "WEEKLY" ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Gerando...</>
+                ) : (
+                  <><Play className="w-4 h-4 mr-2" /> Gerar Agora</>
+                )}
+              </Button>
             </CardContent>
           </Card>
         </div>
@@ -241,19 +503,13 @@ export default function Reports() {
                   Relatório {reportType === "DAILY" ? "Diário" : "Semanal"} Gerado
                 </CardTitle>
                 {reportContent && (
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      onClick={handleCopy}
-                      className="gap-2 h-8"
-                    >
-                      {copied ? (
-                        <><Check className="w-3.5 h-3.5" /> Copiado!</>
-                      ) : (
-                        <><Copy className="w-3.5 h-3.5" /> Copiar Relatório</>
-                      )}
-                    </Button>
-                  </div>
+                  <Button size="sm" onClick={handleCopy} className="gap-2 h-8">
+                    {copied ? (
+                      <><Check className="w-3.5 h-3.5" /> Copiado!</>
+                    ) : (
+                      <><Copy className="w-3.5 h-3.5" /> Copiar Relatório</>
+                    )}
+                  </Button>
                 )}
               </div>
             </CardHeader>
@@ -261,8 +517,8 @@ export default function Reports() {
               {generatingFreq !== null ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-4 text-muted-foreground">
                   <div className="relative">
-                    <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                      <FileText className="w-7 h-7 text-primary" />
+                    <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+                      <FileText className="w-7 h-7 text-primary/60" />
                     </div>
                     <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
@@ -283,12 +539,7 @@ export default function Reports() {
                       <Info className="w-3.5 h-3.5" />
                       Clique no texto para selecionar tudo, ou use o botão Copiar
                     </p>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleCopy}
-                      className="gap-2 h-7 text-xs"
-                    >
+                    <Button size="sm" variant="outline" onClick={handleCopy} className="gap-2 h-7 text-xs">
                       {copied ? (
                         <><Check className="w-3 h-3 text-green-400" /> Copiado!</>
                       ) : (
@@ -302,106 +553,40 @@ export default function Reports() {
           </Card>
         )}
 
-        {/* Scheduled Reports */}
+        {/* Per-Account Scheduling */}
         <Card className="border border-border bg-card">
           <CardHeader className="pb-3">
-            <button
-              className="flex items-center justify-between w-full"
-              onClick={() => setShowHistory(!showHistory)}
-            >
-              <div className="flex items-center gap-2">
-                <Clock className="w-5 h-5 text-primary" />
-                <CardTitle className="text-base">Agendamentos Automáticos</CardTitle>
-                {accountSchedules.length > 0 && (
-                  <Badge variant="outline" className="text-xs">
-                    {accountSchedules.filter((r) => r.isActive).length} ativo(s)
-                  </Badge>
-                )}
-              </div>
-              {showHistory ? (
-                <ChevronUp className="w-4 h-4 text-muted-foreground" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-muted-foreground" />
-              )}
-            </button>
-            <p className="text-sm text-muted-foreground text-left">
-              Relatórios enviados por notificação automaticamente
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-primary" />
+              <CardTitle className="text-base">Agendamento por Conta</CardTitle>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Configure o agendamento de forma independente para cada conta conectada. Ativar ou desativar uma conta não afeta as demais.
             </p>
           </CardHeader>
-          {showHistory && (
-            <CardContent className="space-y-3">
-              {isLoading ? (
-                <div className="flex items-center gap-2 text-muted-foreground py-4">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">Carregando agendamentos...</span>
-                </div>
-              ) : accountSchedules.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
-                  <Clock className="w-8 h-8 opacity-30" />
-                  <p className="text-sm">Nenhum agendamento configurado</p>
-                  <p className="text-xs opacity-60">
-                    Clique no botão <strong>+</strong> nos cards acima para agendar
-                  </p>
-                </div>
-              ) : (
-                accountSchedules.map((schedule) => (
-                  <div
-                    key={schedule.id}
-                    className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/40"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-9 h-9 rounded-md flex items-center justify-center ${
-                          schedule.frequency === "DAILY" ? "bg-blue-500/10" : "bg-purple-500/10"
-                        }`}
-                      >
-                        {schedule.frequency === "DAILY" ? (
-                          <CalendarDays className="w-4 h-4 text-blue-400" />
-                        ) : (
-                          <Calendar className="w-4 h-4 text-purple-400" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">
-                          {schedule.frequency === "DAILY"
-                            ? `Diário — ${String(schedule.scheduleHour ?? 8).padStart(2, "0")}:${String(schedule.scheduleMinute ?? 0).padStart(2, "0")}h`
-                            : `Semanal — Segunda às ${String(schedule.scheduleHour ?? 8).padStart(2, "0")}:${String(schedule.scheduleMinute ?? 0).padStart(2, "0")}h`}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Próximo envio:{" "}
-                          {schedule.nextRunAt
-                            ? new Date(schedule.nextRunAt).toLocaleString("pt-BR")
-                            : "—"}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant={schedule.isActive ? "default" : "secondary"}
-                        className="text-xs"
-                      >
-                        {schedule.isActive ? "Ativo" : "Pausado"}
-                      </Badge>
-                      <Switch
-                        checked={schedule.isActive ?? false}
-                        onCheckedChange={(checked) =>
-                          toggleReport.mutate({ reportId: schedule.id, isActive: checked })
-                        }
-                      />
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="w-8 h-8 text-muted-foreground hover:text-destructive"
-                        onClick={() => deleteReport.mutate({ reportId: schedule.id })}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          )}
+          <CardContent className="space-y-3">
+            {reportsLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground py-4">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm">Carregando agendamentos...</span>
+              </div>
+            ) : (
+              accounts.map((account) => {
+                const schedule = reports?.find((r) => r.accountId === account.id) ?? null;
+                return (
+                  <AccountScheduleRow
+                    key={account.id}
+                    account={account}
+                    schedule={schedule}
+                    onSave={(params) => createReport.mutate(params)}
+                    onToggle={(reportId, isActive) => toggleReport.mutate({ reportId, isActive })}
+                    onDelete={(reportId) => deleteReport.mutate({ reportId })}
+                    isSaving={createReport.isPending}
+                  />
+                );
+              })
+            )}
+          </CardContent>
         </Card>
 
         {/* Format Reference */}
@@ -442,103 +627,6 @@ export default function Reports() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Schedule Time Picker Modal */}
-      {scheduleModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 space-y-5">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Clock className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-foreground">
-                  Agendar Relatório {scheduleModal.frequency === "DAILY" ? "Diário" : "Semanal"}
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  {scheduleModal.frequency === "DAILY"
-                    ? "Enviado todos os dias no horário escolhido"
-                    : "Enviado toda segunda-feira no horário escolhido"}
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <p className="text-sm font-medium text-foreground">Horário de envio (Brasília)</p>
-              <div className="flex items-center gap-3">
-                <div className="flex-1 space-y-1">
-                  <label className="text-xs text-muted-foreground">Hora</label>
-                  <select
-                    value={scheduleHour}
-                    onChange={(e) => setScheduleHour(Number(e.target.value))}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  >
-                    {Array.from({ length: 24 }, (_, i) => (
-                      <option key={i} value={i}>
-                        {String(i).padStart(2, "0")}h
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="text-xl font-bold text-muted-foreground mt-4">:</div>
-                <div className="flex-1 space-y-1">
-                  <label className="text-xs text-muted-foreground">Minuto</label>
-                  <select
-                    value={scheduleMinute}
-                    onChange={(e) => setScheduleMinute(Number(e.target.value))}
-                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  >
-                    {[0, 15, 30, 45].map((m) => (
-                      <option key={m} value={m}>
-                        {String(m).padStart(2, "0")}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 bg-primary/5 border border-primary/20 rounded-lg px-3 py-2">
-                <Info className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                <p className="text-xs text-muted-foreground">
-                  Agendado para{" "}
-                  <span className="text-foreground font-medium">
-                    {String(scheduleHour).padStart(2, "0")}:{String(scheduleMinute).padStart(2, "0")} (Brasília)
-                  </span>
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => setScheduleModal({ open: false, frequency: null })}
-              >
-                Cancelar
-              </Button>
-              <Button
-                className="flex-1"
-                disabled={createReport.isPending}
-                onClick={() => {
-                  if (!selectedAccountId || !scheduleModal.frequency) return;
-                  createReport.mutate({
-                    accountId: selectedAccountId,
-                    frequency: scheduleModal.frequency,
-                    scheduleHour,
-                    scheduleMinute,
-                  });
-                  setScheduleModal({ open: false, frequency: null });
-                }}
-              >
-                {createReport.isPending ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Agendando...</>
-                ) : (
-                  <><Check className="w-4 h-4 mr-2" /> Confirmar Agendamento</>
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </MetaDashboardLayout>
   );
 }
