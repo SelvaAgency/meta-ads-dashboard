@@ -324,3 +324,16 @@
 - [x] Período reseta ao trocar de conta
 - [x] Backend: suportar startDate/endDate absolutos além de days relativos
 - [x] Personalizado: dois campos de data (início e fim) com máscara aaaa-mm-dd
+
+## Bug Dashboard Builder - Geração Lenta/Travada (Mar/26)
+- [ ] Investigar causa raiz: timeout do LLM, tamanho das imagens, prompt muito longo
+- [ ] Corrigir timeout do tRPC/Express para suportar geração de até 3 minutos
+- [ ] Verificar se o job de processamento está sendo executado corretamente
+- [ ] Adicionar logs de progresso no backend para diagnóstico
+- [ ] Testar geração com prints reais e confirmar funcionamento
+
+## Períodos Rápidos na Aba de Campanhas
+- [ ] Adicionar seletor de períodos rápidos (Hoje, Ontem, Hoje e Ontem, 7d, 14d, 30d, Personalizado) na aba de Campanhas
+- [ ] Período padrão: Últimos 7 dias
+- [ ] Período reseta ao trocar de conta
+- [ ] Backend: campaigns.performance já aceita days, adicionar startDate/endDate opcionais

@@ -216,7 +216,9 @@ export async function analyzeCampaignData(
   const userContent: any[] = [];
   if (imageUrls.length > 0) {
     for (const url of imageUrls) {
-      userContent.push({ type: "image_url", image_url: { url, detail: "high" } });
+      // Use "auto" instead of "high" — high detail causes very long processing times
+      // and often doesn't improve accuracy for campaign screenshot analysis
+      userContent.push({ type: "image_url", image_url: { url, detail: "auto" } });
     }
     userContent.push({ type: "text", text: textInstruction });
   }
