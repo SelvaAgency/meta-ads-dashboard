@@ -346,7 +346,7 @@ export async function generateAiSuggestions(
     conversions: number;
     costPerResult: number;
   }>
-): Promise<{ generated: number; skippedReason?: string }> {
+): Promise<{ generated: number; skippedReason?: string; accountState?: string; healthSummary?: string; benchmarksUsed?: { ctrBenchmark: string; roasBenchmark: string; frequencyBenchmark: string } }> {
   // — Guard: need at least one campaign with real spend data
   const campaignsWithData = campaignData.filter((c) => c.totalSpend > 0 || c.totalImpressions > 0);
   if (campaignsWithData.length === 0) {
@@ -448,17 +448,58 @@ export async function generateAiSuggestions(
     adBlock = lines.join("\n");
   }
 
-  const prompt = `Você é um especialista sênior em Meta Ads com mais de 10 anos de experiência em otimização de campanhas de performance.
-Analise os dados REAIS de performance abaixo (3 níveis: campanha, conjunto, criativo) e gere sugestões ESPECÍFICAS e ACIONÁVEIS.
+  // ── Compute account-level averages for health diagnosis ──────────────────
+  const avgFrequency = adsetData && adsetData.length > 0
+    ? adsetData.reduce((s, a) => s + a.frequency, 0) / adsetData.length
+    : 0;
+  const avgCtr = campaignsWithData.reduce((s, c) => s + c.avgCtr, 0) / Math.max(1, campaignsWithData.length);
+  const avgRoas = campaignsWithData.reduce((s, c) => s + c.avgRoas, 0) / Math.max(1, campaignsWithData.length);
+  const avgCpa = campaignsWithData.reduce((s, c) => s + c.avgCpa, 0) / Math.max(1, campaignsWithData.filter(c => c.avgCpa > 0).length || 1);
+  const totalConversions = campaignsWithData.reduce((s, c) => s + c.totalConversions, 0);
+
+  const prompt = `Você é um estrategista sênior de Meta Ads com mais de 10 anos de experiência. Você é uma CONSELHEIRA, não uma máquina de sugestões automáticas.
+
+Gerar sugestões desnecessárias é TÃO PREJUDICIAL quanto não alertar sobre problemas reais. Sugestões sem fundamento levam o gestor a mexer em campanhas que estavam funcionando, quebrando performance por intervenção excessiva.
+
+## FLUXO OBRIGATÓRIO — SIGA EXATAMENTE ESTAS 3 ETAPAS:
+
+### ETAPA 1 — DIAGNÓSTICO GERAL DA CONTA
+Avalie TODOS estes pontos com base nos dados abaixo:
+- As campanhas estão entregando dentro do esperado?
+- Os custos por resultado estão dentro ou abaixo dos benchmarks do segmento?
+- O CTR está em níveis saudáveis?
+- A frequência está controlada (abaixo de 2.5)?
+- Há criativos com performance equilibrada nos conjuntos?
+- O orçamento está sendo consumido de forma proporcional ao retorno?
+- Há alguma tendência negativa?
+
+### ETAPA 2 — CLASSIFIQUE O ESTADO DA CONTA em um dos 3:
+- ESTADO_A (Conta Saudável): todas as campanhas performando dentro ou acima do esperado, sem tendências negativas, frequência controlada
+- ESTADO_B (Oportunidades Pontuais): performance geral positiva, mas com 1-2 pontos específicos que podem ser melhorados
+- ESTADO_C (Problemas Reais): uma ou mais campanhas com performance abaixo do aceitável, desperdício de orçamento, custos fora do benchmark
+
+### ETAPA 3 — RESPOSTA POR ESTADO:
+- ESTADO_A: NÃO gere sugestões. Retorne suggestions como array vazio []. Preencha healthSummary com os dados que sustentam a saúde da conta.
+- ESTADO_B: Gere sugestões APENAS para os pontos específicos identificados. Máximo 3 sugestões. Preencha healthSummary com o contexto.
+- ESTADO_C: Gere sugestões completas (4 a 7), priorizadas por impacto e urgência.
+
+## BENCHMARKS POR OBJETIVO (use para avaliar saúde):
+- Leads/Cadastros: CTR saudável >1.0%, frequência <2.5
+- Vendas/E-commerce: ROAS saudável >3.0, CTR >0.8%, frequência <2.5
+- Tráfego: CTR saudável >1.5%, frequência <3.0
+- Reconhecimento/Alcance: frequência <2.0
+- Objetivo atual inferido: ${dominantGoal}
 
 ## REGRAS ABSOLUTAS:
-1. TODA sugestão deve conter: ação específica + nomenclatura EXATA (nome da campanha/conjunto/criativo) + métrica que justifica + resultado esperado
-2. NUNCA gerar sugestões genéricas sem referenciar nomes e números específicos da conta
-3. NUNCA sugerir aumento do orçamento total — apenas redistribuição dentro do R$${totalSpend.toFixed(2)} já investido
-4. NUNCA dar briefing criativo (roteiro, copy, conceito) — apenas o FORMATO (Vídeo, Estático, Carrossel${hasEcommerce ? ", Catálogo" : ""})
-5. SEMPRE comparar métricas individuais com a média do nível acima (criativo vs conjunto, conjunto vs campanha)
-6. SEMPRE considerar fase de aprendizado (mínimo 50 conversões) antes de sugerir pausas
-7. Meta de desempenho principal: ${dominantGoal} (${resultLabel})
+1. NUNCA gerar sugestões só porque o usuário clicou no botão — a necessidade deve ser real e comprovada pelos dados
+2. NUNCA inventar problemas para justificar sugestões
+3. NUNCA sugerir mexer em campanha que está performando bem
+4. A quantidade de sugestões deve ser proporcional à quantidade de problemas reais
+5. TODA sugestão deve conter: ação específica + nomenclatura EXATA + métrica que justifica + resultado esperado
+6. NUNCA sugerir aumento do orçamento total — apenas redistribuição dentro do R$${totalSpend.toFixed(2)} já investido
+7. NUNCA dar briefing criativo (roteiro, copy, conceito) — apenas o FORMATO
+8. SEMPRE comparar métricas individuais com a média do nível acima
+9. SEMPRE considerar fase de aprendizado (mínimo 50 conversões) antes de sugerir pausas
 
 ## TIPOS DE SUGESTÃO PERMITIDOS (use apenas estes como category):
 - PAUSAR_CRIATIVO: criativo com CPC 2x acima da média do conjunto, CTR 50% abaixo, zero conversões com gasto >20% do orçamento, frequência >3.5, ou custo/resultado 2x acima da média
@@ -473,17 +514,18 @@ Analise os dados REAIS de performance abaixo (3 níveis: campanha, conjunto, cri
 - P2: realocar orçamento, pausar criativos/conjuntos abaixo da média, ajustes de segmentação com dados claros
 - P3: novos conjuntos, novos criativos, novos públicos para crescimento
 
-## NÍVEL 1 — CAMPANHAS (últimos 30 dias)
+## DADOS DA CONTA — NÍVEL 1 (Campanhas, últimos 30 dias)
+### Médias gerais da conta:
+- CTR médio: ${avgCtr.toFixed(2)}% | ROAS médio: ${avgRoas.toFixed(2)}x | CPA médio: R$${avgCpa.toFixed(2)} | Frequência média: ${avgFrequency.toFixed(2)} | Total ${resultLabel}: ${totalConversions} | Total investido: R$${totalSpend.toFixed(2)}
+
 ### Top performers (${resultLabel}):
 ${topPerformers.map((c) => `- [${c.campaignName}] ${resultLabel}: ${c.totalConversions} | Gasto: R$${c.totalSpend.toFixed(2)} | Custo/resultado: R$${c.avgCpa.toFixed(2)} | CTR: ${c.avgCtr.toFixed(2)}% | ROAS: ${c.avgRoas.toFixed(2)}x`).join("\n")}
 ### Underperformers:
 ${underPerformers.map((c) => `- [${c.campaignName}] ${resultLabel}: ${c.totalConversions} | Gasto: R$${c.totalSpend.toFixed(2)} | Custo/resultado: R$${c.avgCpa.toFixed(2)} | CTR: ${c.avgCtr.toFixed(2)}% | Impressões: ${c.totalImpressions}`).join("\n")}
-### Resumo:
-- Campanhas: ${campaignsWithData.length} | Total investido: R$${totalSpend.toFixed(2)} | Total ${resultLabel}: ${campaignsWithData.reduce((s, c) => s + c.totalConversions, 0)} | Custo médio/resultado: R$${(totalSpend / Math.max(1, campaignsWithData.reduce((s, c) => s + c.totalConversions, 0))).toFixed(2)}
 ${adsetBlock}
 ${adBlock}${feedbackBlock}
 
-Gere entre 4 e 7 sugestões em formato JSON. Se não houver dados suficientes para ser específico em algum tipo, omita esse tipo em vez de generalizar.`;
+Retorne o JSON com accountState, healthSummary, benchmarksUsed e suggestions (vazio se ESTADO_A, limitado se ESTADO_B, completo se ESTADO_C).`;
 
   try {
     const response = await invokeLLM({
@@ -499,6 +541,18 @@ Gere entre 4 e 7 sugestões em formato JSON. Se não houver dados suficientes pa
           schema: {
             type: "object",
             properties: {
+              accountState: { type: "string", description: "ESTADO_A, ESTADO_B ou ESTADO_C" },
+              healthSummary: { type: "string", description: "Diagnóstico geral da conta em 2-4 frases" },
+              benchmarksUsed: {
+                type: "object",
+                properties: {
+                  ctrBenchmark: { type: "string" },
+                  roasBenchmark: { type: "string" },
+                  frequencyBenchmark: { type: "string" },
+                },
+                required: ["ctrBenchmark", "roasBenchmark", "frequencyBenchmark"],
+                additionalProperties: false,
+              },
               suggestions: {
                 type: "array",
                 items: {
@@ -516,7 +570,7 @@ Gere entre 4 e 7 sugestões em formato JSON. Se não houver dados suficientes pa
                 },
               },
             },
-            required: ["suggestions"],
+            required: ["accountState", "healthSummary", "benchmarksUsed", "suggestions"],
             additionalProperties: false,
           },
         },
@@ -528,6 +582,9 @@ Gere entre 4 e 7 sugestões em formato JSON. Se não houver dados suficientes pa
     if (!content) return { generated: 0, skippedReason: "Erro ao processar resposta da IA." };
 
     const parsed = JSON.parse(content) as {
+      accountState: string;
+      healthSummary: string;
+      benchmarksUsed: { ctrBenchmark: string; roasBenchmark: string; frequencyBenchmark: string };
       suggestions: Array<{
         category: string;
         priority: string;
@@ -538,24 +595,47 @@ Gere entre 4 e 7 sugestões em formato JSON. Se não houver dados suficientes pa
       }>;
     };
 
+    // Map new category/priority names to DB-compatible values
+    const newCategoryMap: Record<string, string> = {
+      PAUSAR_CRIATIVO: "CREATIVE",
+      PAUSAR_CONJUNTO: "TARGETING",
+      NOVO_PUBLICO: "AUDIENCE",
+      REALOCAR_ORCAMENTO: "BUDGET",
+      NOVO_CRIATIVO: "CREATIVE",
+      NOVO_CONJUNTO: "TARGETING",
+    };
+    const newPriorityMap: Record<string, string> = {
+      P1: "HIGH",
+      P2: "MEDIUM",
+      P3: "LOW",
+    };
+
     let count = 0;
     for (const s of parsed.suggestions) {
+      const catUpper = s.category.toUpperCase();
+      const priUpper = s.priority.toUpperCase();
       const validCategories = ["BUDGET", "TARGETING", "CREATIVE", "BIDDING", "SCHEDULE", "AUDIENCE", "GENERAL"];
       const validPriorities = ["LOW", "MEDIUM", "HIGH"];
-      const category = validCategories.includes(s.category.toUpperCase()) ? s.category.toUpperCase() : "GENERAL";
-      const priority = validPriorities.includes(s.priority.toUpperCase()) ? s.priority.toUpperCase() : "MEDIUM";
+      const dbCategory = newCategoryMap[catUpper] ?? (validCategories.includes(catUpper) ? catUpper : "GENERAL");
+      const dbPriority = newPriorityMap[priUpper] ?? (validPriorities.includes(priUpper) ? priUpper : "MEDIUM");
       await createAiSuggestion({
         accountId,
-        category: category as any,
-        priority: priority as any,
+        category: dbCategory as any,
+        priority: dbPriority as any,
         title: s.title,
         description: s.description,
         expectedImpact: s.expectedImpact,
         actionItems: s.actionItems,
+        // Store original category/priority in description prefix for frontend display
       });
       count++;
     }
-    return { generated: count };
+    return {
+      generated: count,
+      accountState: parsed.accountState,
+      healthSummary: parsed.healthSummary,
+      benchmarksUsed: parsed.benchmarksUsed,
+    };
   } catch (err) {
     console.error("[AI Suggestions] Failed to generate:", err);
     return { generated: 0, skippedReason: "Erro interno ao gerar sugestões. Tente novamente." };

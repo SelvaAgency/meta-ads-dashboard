@@ -22,13 +22,17 @@ import {
   Eye,
   AlertCircle,
   RotateCcw,
+  ShieldCheck,
+  TrendingUp,
+  AlertTriangle,
+  Info,
+  BarChart2,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 const categoryConfig: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; color: string; description: string }> = {
-  // New 6 specific types
   PAUSAR_CRIATIVO: { label: "Pausar Criativo", icon: XCircle, color: "text-red-400", description: "Criativo com performance abaixo da média do conjunto" },
   PAUSAR_CONJUNTO: { label: "Pausar Conjunto", icon: XCircle, color: "text-orange-400", description: "Conjunto com custo/resultado acima da média da campanha" },
   NOVO_PUBLICO: { label: "Novo Público", icon: Users, color: "text-purple-400", description: "Oportunidade de segmentação identificada nos dados" },
@@ -46,15 +50,109 @@ const categoryConfig: Record<string, { label: string; icon: React.ComponentType<
 };
 
 const priorityConfig: Record<string, { label: string; badge: string; color: string; bgColor: string }> = {
-  // New P1/P2/P3 system
   P1: { label: "P1 — Urgente", badge: "P1", color: "text-red-400 border-red-400/30", bgColor: "bg-red-400/5 border-red-400/20" },
   P2: { label: "P2 — Alto Impacto", badge: "P2", color: "text-orange-400 border-orange-400/30", bgColor: "bg-orange-400/5 border-orange-400/20" },
   P3: { label: "P3 — Oportunidade", badge: "P3", color: "text-blue-400 border-blue-400/30", bgColor: "bg-blue-400/5 border-blue-400/20" },
-  // Legacy
-  HIGH: { label: "Alta", badge: "P1", color: "text-red-400 border-red-400/30", bgColor: "bg-red-400/5 border-red-400/20" },
-  MEDIUM: { label: "Média", badge: "P2", color: "text-yellow-400 border-yellow-400/30", bgColor: "bg-yellow-400/5 border-yellow-400/20" },
-  LOW: { label: "Baixa", badge: "P3", color: "text-blue-400 border-blue-400/30", bgColor: "bg-blue-400/5 border-blue-400/20" },
+  HIGH: { label: "P1 — Urgente", badge: "P1", color: "text-red-400 border-red-400/30", bgColor: "bg-red-400/5 border-red-400/20" },
+  MEDIUM: { label: "P2 — Alto Impacto", badge: "P2", color: "text-orange-400 border-orange-400/30", bgColor: "bg-orange-400/5 border-orange-400/20" },
+  LOW: { label: "P3 — Oportunidade", badge: "P3", color: "text-blue-400 border-blue-400/30", bgColor: "bg-blue-400/5 border-blue-400/20" },
 };
+
+// ─── Account State Banner ─────────────────────────────────────────────────────
+interface AccountStateResult {
+  accountState?: string;
+  healthSummary?: string;
+  benchmarksUsed?: { ctrBenchmark: string; roasBenchmark: string; frequencyBenchmark: string };
+  generated: number;
+  skippedReason?: string;
+}
+
+function AccountStateBanner({ result }: { result: AccountStateResult }) {
+  const [showBenchmarks, setShowBenchmarks] = useState(false);
+  const state = result.accountState;
+  if (!state) return null;
+
+  const stateConfig = {
+    ESTADO_A: {
+      icon: ShieldCheck,
+      color: "text-emerald-400",
+      bgColor: "bg-emerald-400/5 border-emerald-400/20",
+      badgeColor: "text-emerald-400 border-emerald-400/30 bg-emerald-400/10",
+      label: "Conta Saudável",
+      sublabel: "Nenhuma intervenção necessária no momento",
+    },
+    ESTADO_B: {
+      icon: TrendingUp,
+      color: "text-blue-400",
+      bgColor: "bg-blue-400/5 border-blue-400/20",
+      badgeColor: "text-blue-400 border-blue-400/30 bg-blue-400/10",
+      label: "Oportunidades Pontuais",
+      sublabel: "Performance geral positiva com pontos de melhoria identificados",
+    },
+    ESTADO_C: {
+      icon: AlertTriangle,
+      color: "text-orange-400",
+      bgColor: "bg-orange-400/5 border-orange-400/20",
+      badgeColor: "text-orange-400 border-orange-400/30 bg-orange-400/10",
+      label: "Problemas Identificados",
+      sublabel: "Ação recomendada para evitar desperdício de orçamento",
+    },
+  };
+
+  const cfg = stateConfig[state as keyof typeof stateConfig];
+  if (!cfg) return null;
+  const Icon = cfg.icon;
+
+  return (
+    <div className={`rounded-xl border p-4 ${cfg.bgColor}`}>
+      <div className="flex items-start gap-3">
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${cfg.bgColor}`}>
+          <Icon className={`w-5 h-5 ${cfg.color}`} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <Badge variant="outline" className={`text-xs font-bold ${cfg.badgeColor}`}>
+              {state.replace("_", " ")}
+            </Badge>
+            <span className={`text-sm font-semibold ${cfg.color}`}>{cfg.label}</span>
+          </div>
+          <p className="text-xs text-muted-foreground mb-1">{cfg.sublabel}</p>
+          {result.healthSummary && (
+            <p className="text-xs text-foreground/80 leading-relaxed mt-2 p-2 rounded-lg bg-background/50">
+              {result.healthSummary}
+            </p>
+          )}
+          {result.benchmarksUsed && (
+            <div className="mt-2">
+              <button
+                className={`text-xs flex items-center gap-1 ${cfg.color} hover:opacity-80 transition-opacity`}
+                onClick={() => setShowBenchmarks(!showBenchmarks)}
+              >
+                <BarChart2 className="w-3 h-3" />
+                {showBenchmarks ? "Ocultar benchmarks" : "Ver benchmarks utilizados"}
+                {showBenchmarks ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+              {showBenchmarks && (
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {[
+                    { label: "CTR", value: result.benchmarksUsed.ctrBenchmark },
+                    { label: "ROAS", value: result.benchmarksUsed.roasBenchmark },
+                    { label: "Frequência", value: result.benchmarksUsed.frequencyBenchmark },
+                  ].map((b) => (
+                    <div key={b.label} className="p-2 rounded-lg bg-background/50 text-center">
+                      <p className="text-xs text-muted-foreground">{b.label}</p>
+                      <p className={`text-xs font-semibold ${cfg.color}`}>{b.value}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function formatDate(d: Date | string | null | undefined) {
   if (!d) return "—";
@@ -353,6 +451,9 @@ export default function Suggestions() {
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
 
+  // Store the last analysis result (accountState, healthSummary, benchmarksUsed) in state
+  const [lastAnalysis, setLastAnalysis] = useState<AccountStateResult | null>(null);
+
   const { data: suggestions, isLoading } = trpc.suggestions.list.useQuery(
     { accountId: selectedAccountId! },
     { enabled: !!selectedAccountId }
@@ -367,12 +468,25 @@ export default function Suggestions() {
     onSuccess: (data) => {
       utils.suggestions.list.invalidate();
       utils.suggestions.history.invalidate();
+
+      // Store analysis result for UI display
+      setLastAnalysis(data as AccountStateResult);
+
       if (data.skippedReason) {
         toast.warning(data.skippedReason, { duration: 6000 });
-      } else if (data.generated === 0) {
-        toast.info("Nenhuma sugestão nova foi gerada. Os dados podem não ter variações significativas no momento.");
       } else {
-        toast.success(`${data.generated} sugestão(ões) gerada(s) com base nos dados reais das campanhas!`);
+        const state = (data as AccountStateResult).accountState;
+        if (state === "ESTADO_A") {
+          toast.success("Conta saudável! Nenhuma intervenção necessária no momento.", { duration: 5000 });
+        } else if (state === "ESTADO_B") {
+          toast.info(`${data.generated} oportunidade(s) pontual(is) identificada(s).`, { duration: 5000 });
+        } else if (state === "ESTADO_C") {
+          toast.warning(`${data.generated} problema(s) identificado(s) que requerem atenção.`, { duration: 5000 });
+        } else if (data.generated === 0) {
+          toast.info("Nenhuma sugestão nova foi gerada. Os dados podem não ter variações significativas no momento.");
+        } else {
+          toast.success(`${data.generated} sugestão(ões) gerada(s) com base nos dados reais das campanhas!`);
+        }
       }
     },
     onError: () => toast.error("Erro ao analisar campanhas. Verifique se há dados sincronizados."),
@@ -426,7 +540,7 @@ export default function Suggestions() {
           <div>
             <h1 className="text-xl font-bold text-foreground">Sugestões de Melhoria</h1>
             <p className="text-sm text-muted-foreground">
-              Análise real das campanhas — sugestões geradas apenas quando há dados suficientes
+              A IA diagnostica a conta antes de gerar sugestões — intervenções apenas quando necessário
             </p>
           </div>
           <Button
@@ -436,9 +550,25 @@ export default function Suggestions() {
             disabled={generate.isPending || !selectedAccountId}
           >
             <Brain className={`w-3.5 h-3.5 ${generate.isPending ? "animate-pulse" : ""}`} />
-            {generate.isPending ? "Analisando..." : "Analisar Conta"}
+            {generate.isPending ? "Diagnosticando..." : "Analisar Conta"}
           </Button>
         </div>
+
+        {/* Account State Banner — shown after analysis */}
+        {lastAnalysis && <AccountStateBanner result={lastAnalysis} />}
+
+        {/* Info box — shown before first analysis */}
+        {!lastAnalysis && pending.length === 0 && (
+          <div className="flex items-start gap-3 p-4 rounded-xl bg-muted/40 border border-border">
+            <Info className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-foreground mb-1">Como funciona o diagnóstico</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                A IA avalia o estado geral da conta antes de gerar qualquer sugestão. Se a conta estiver saudável (Estado A), nenhuma sugestão é criada — mexer em campanhas que estão funcionando pode prejudicar a performance. Sugestões são geradas apenas quando há problemas reais ou oportunidades claras identificadas nos dados.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-4 gap-3">
@@ -504,14 +634,18 @@ export default function Suggestions() {
                   <Brain className="w-12 h-12 text-primary/30 mx-auto mb-4" />
                   <p className="text-sm font-medium text-foreground mb-2">Nenhuma sugestão pendente</p>
                   <p className="text-xs text-muted-foreground mb-6 max-w-sm mx-auto">
-                    Clique em "Analisar Conta" para que a IA examine os dados reais das suas campanhas e gere recomendações baseadas em evidências.
+                    {lastAnalysis?.accountState === "ESTADO_A"
+                      ? "A conta está saudável. A IA não identificou problemas que justifiquem intervenção no momento."
+                      : "Clique em \"Analisar Conta\" para que a IA examine os dados reais das suas campanhas e gere recomendações baseadas em evidências."}
                   </p>
-                  <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50 text-left max-w-sm mx-auto mb-6">
-                    <AlertCircle className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-muted-foreground">
-                      A análise só gera sugestões quando há dados reais de performance. Se a conta não tiver gasto registrado, a IA avisará que não há dados suficientes.
-                    </p>
-                  </div>
+                  {!lastAnalysis && (
+                    <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50 text-left max-w-sm mx-auto mb-6">
+                      <AlertCircle className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-muted-foreground">
+                        A análise só gera sugestões quando há dados reais de performance. Se a conta não tiver gasto registrado, a IA avisará que não há dados suficientes.
+                      </p>
+                    </div>
+                  )}
                   <Button
                     size="sm"
                     onClick={() => selectedAccountId && generate.mutate({ accountId: selectedAccountId })}
@@ -519,7 +653,7 @@ export default function Suggestions() {
                     className="gap-2"
                   >
                     <Brain className="w-3.5 h-3.5" />
-                    {generate.isPending ? "Analisando..." : "Analisar Conta"}
+                    {generate.isPending ? "Diagnosticando..." : "Analisar Conta"}
                   </Button>
                 </CardContent>
               </Card>

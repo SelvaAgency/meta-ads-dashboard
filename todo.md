@@ -298,3 +298,15 @@
 - [x] Backend: campanhas com <7 dias de histórico usam threshold dobrado
 - [x] Backend: monitorar apenas campanhas ATIVAS
 - [x] Backend: estrutura do alerta inclui comparação das 3 janelas e X/3 confirmações
+
+## Sugestões IA — Validação de Necessidade (Estado A/B/C)
+- [ ] Backend: prompt LLM com 3 etapas obrigatórias (diagnóstico, classificação, resposta por estado)
+- [ ] Backend: Estado A — conta saudável → NÃO gerar sugestões, exibir resumo de saúde com benchmarks
+- [ ] Backend: Estado B — oportunidades pontuais → sugestões apenas para os pontos identificados
+- [ ] Backend: Estado C — problemas reais → sugestões completas priorizadas P1/P2/P3
+- [ ] Backend: benchmarks por objetivo (Leads: CTR>1%, freq<2.5; Vendas: ROAS>3, CTR>0.8%; Tráfego: CTR>1.5%; Reconhecimento: freq<2.0)
+- [ ] Backend: schema de resposta com accountState (A/B/C), healthSummary, benchmarksUsed, suggestions[]
+- [ ] Frontend: UI diferenciada por estado (verde para A, azul para B, laranja/vermelho para C)
+- [ ] Frontend: Estado A exibe card de saúde com métricas vs benchmarks (sem lista de sugestões)
+- [ ] Frontend: Estado B exibe prefácio + sugestões pontuais
+- [ ] Frontend: Estado C exibe sugestões completas com prioridade P1/P2/P3
