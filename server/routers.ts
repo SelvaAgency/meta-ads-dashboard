@@ -335,14 +335,22 @@ export const appRouter = router({
   // ─── Dashboard ─────────────────────────────────────────────────────────────
   dashboard: router({
     overview: protectedProcedure
-      .input(z.object({ accountId: z.number(), days: z.number().min(1).max(90).default(30) }))
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(90).default(7),
+        startDate: z.string().optional(), // ISO date string YYYY-MM-DD, overrides days when provided
+        endDate: z.string().optional(),   // ISO date string YYYY-MM-DD
+      }))
       .query(async ({ ctx, input }) => {
         const account = await getMetaAdAccountById(input.accountId);
         if (!account || account.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
 
-        const { startDate, endDate } = getDateRange(input.days);
+        // If explicit startDate/endDate provided, use them; otherwise fall back to days-based range
+        const { startDate, endDate } = (input.startDate && input.endDate)
+          ? { startDate: input.startDate, endDate: input.endDate }
+          : getDateRange(input.days);
         const [metrics, campaigns, unreadAlerts, unreadAnomalies] = await Promise.all([
           getAccountMetricsSummary(input.accountId, startDate, endDate),
           getCampaignPerformanceSummary(input.accountId, startDate, endDate),

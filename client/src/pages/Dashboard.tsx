@@ -35,8 +35,9 @@ import {
   Heart,
   ArrowDown,
 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
+import { Input } from "@/components/ui/input";
 
 // ─── Metric formatting helpers ───────────────────────────────────────────────
 
@@ -298,15 +299,119 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
+// ─── Period presets ──────────────────────────────────────────────────────────
+
+type PeriodPreset = "today" | "yesterday" | "today_yesterday" | "7d" | "14d" | "30d" | "custom";
+
+interface PeriodState {
+  preset: PeriodPreset;
+  customStart: string; // YYYY-MM-DD
+  customEnd: string;   // YYYY-MM-DD
+}
+
+const PERIOD_LABELS: Record<PeriodPreset, string> = {
+  today: "Hoje",
+  yesterday: "Ontem",
+  today_yesterday: "Hoje e Ontem",
+  "7d": "Últimos 7 dias",
+  "14d": "Últimos 14 dias",
+  "30d": "Últimos 30 dias",
+  custom: "Personalizado",
+};
+
+function toIso(d: Date) {
+  return d.toISOString().split("T")[0]!;
+}
+
+function getPresetRange(preset: PeriodPreset): { startDate: string; endDate: string } | { days: number } {
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  switch (preset) {
+    case "today":
+      return { startDate: toIso(today), endDate: toIso(today) };
+    case "yesterday":
+      return { startDate: toIso(yesterday), endDate: toIso(yesterday) };
+    case "today_yesterday":
+      return { startDate: toIso(yesterday), endDate: toIso(today) };
+    case "7d":
+      return { days: 7 };
+    case "14d":
+      return { days: 14 };
+    case "30d":
+      return { days: 30 };
+    default:
+      return { days: 7 };
+  }
+}
+
+function applyDateMaskDash(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+}
+
+function CustomDateInput({
+  label, value, onChange, disabled,
+}: { label: string; value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const [local, setLocal] = useState(value);
+  useEffect(() => { setLocal(value); }, [value]);
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <Input
+        value={local}
+        onChange={(e) => {
+          const v = applyDateMaskDash(e.target.value);
+          setLocal(v);
+          if (v.length === 10) onChange(v);
+        }}
+        onBlur={() => onChange(local)}
+        placeholder="aaaa-mm-dd"
+        disabled={disabled}
+        maxLength={10}
+        className="h-7 text-xs font-mono w-32"
+        autoComplete="off"
+      />
+    </div>
+  );
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [days, setDays] = useState("7");
+  const [period, setPeriod] = useState<PeriodState>({
+    preset: "7d",
+    customStart: "",
+    customEnd: "",
+  });
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
 
+  // Reset period to default when account changes
+  const prevAccountRef = useMemo(() => ({ current: selectedAccountId }), []);
+  useEffect(() => {
+    if (prevAccountRef.current !== selectedAccountId) {
+      prevAccountRef.current = selectedAccountId;
+      setPeriod({ preset: "7d", customStart: "", customEnd: "" });
+    }
+  }, [selectedAccountId]);
+
+  // Build query params from period state
+  const queryParams = useMemo(() => {
+    if (period.preset === "custom") {
+      if (period.customStart && period.customEnd) {
+        return { startDate: period.customStart, endDate: period.customEnd };
+      }
+      return { days: 7 };
+    }
+    return getPresetRange(period.preset);
+  }, [period]);
+
   const { data, isLoading } = trpc.dashboard.overview.useQuery(
-    { accountId: selectedAccountId!, days: parseInt(days) },
+    { accountId: selectedAccountId!, ...queryParams },
     { enabled: !!selectedAccountId, refetchInterval: 60000 }
   );
 
@@ -428,18 +533,39 @@ export default function Dashboard() {
             </div>
             <p className="text-sm text-muted-foreground">Performance das suas campanhas</p>
           </div>
-          <Select value={days} onValueChange={setDays}>
-            <SelectTrigger className="w-36 h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="7">Últimos 7 dias</SelectItem>
-              <SelectItem value="14">Últimos 14 dias</SelectItem>
-              <SelectItem value="30">Últimos 30 dias</SelectItem>
-              <SelectItem value="60">Últimos 60 dias</SelectItem>
-              <SelectItem value="90">Últimos 90 dias</SelectItem>
-            </SelectContent>
-          </Select>
+<div className="flex flex-col items-end gap-2">
+            {/* Quick period buttons */}
+            <div className="flex items-center gap-1 flex-wrap justify-end">
+              {(["today", "yesterday", "today_yesterday", "7d", "14d", "30d", "custom"] as PeriodPreset[]).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod((prev) => ({ ...prev, preset: p }))}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                    period.preset === p
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  {PERIOD_LABELS[p]}
+                </button>
+              ))}
+            </div>
+            {/* Custom date inputs */}
+            {period.preset === "custom" && (
+              <div className="flex items-end gap-2">
+                <CustomDateInput
+                  label="De"
+                  value={period.customStart}
+                  onChange={(v) => setPeriod((prev) => ({ ...prev, customStart: v }))}
+                />
+                <CustomDateInput
+                  label="Até"
+                  value={period.customEnd}
+                  onChange={(v) => setPeriod((prev) => ({ ...prev, customEnd: v }))}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Alerts banner */}

@@ -310,3 +310,17 @@
 - [ ] Frontend: Estado A exibe card de saúde com métricas vs benchmarks (sem lista de sugestões)
 - [ ] Frontend: Estado B exibe prefácio + sugestões pontuais
 - [ ] Frontend: Estado C exibe sugestões completas com prioridade P1/P2/P3
+
+## Correções e Melhorias Dashboard Builder (Mar/26)
+- [x] Bug: corrigir redirecionamento ao gerar dashboard (fluxo na mesma tela, sem navigate)
+- [x] Bug: corrigir perda de foco nos campos de data (remontagem a cada keystroke)
+- [x] Melhoria: campos de data aceitam intervalo (data início + data fim, formato dd/mm/aaaa a dd/mm/aaaa)
+- [x] Melhoria: remover seleção rápida de período (Hoje/Ontem/Hoje e Ontem) do Dashboard Builder
+- [x] Melhoria: campo de data livre com máscara fluida, validação no onBlur
+
+## Períodos Rápidos no Dashboard Principal
+- [x] Adicionar seletor de períodos rápidos: Hoje, Ontem, Hoje e Ontem, Últimos 7d, Últimos 14d, Últimos 30d, Personalizado
+- [x] Período padrão: Últimos 7 dias
+- [x] Período reseta ao trocar de conta
+- [x] Backend: suportar startDate/endDate absolutos além de days relativos
+- [x] Personalizado: dois campos de data (início e fim) com máscara aaaa-mm-dd
