@@ -55,8 +55,7 @@ function computeNextRun(
   return next;
 }
 
-interface AccountScheduleRowProps {
-  account: { id: number; accountName: string | null; accountId: string };
+interface ScheduleConfigProps {
   schedule: {
     id: number;
     frequency: string;
@@ -66,6 +65,7 @@ interface AccountScheduleRowProps {
     scheduleDay: number;
     nextRunAt: Date | null;
   } | null;
+  accountId: number;
   onSave: (params: {
     accountId: number;
     frequency: "DAILY" | "WEEKLY";
@@ -78,14 +78,14 @@ interface AccountScheduleRowProps {
   isSaving: boolean;
 }
 
-function AccountScheduleRow({
-  account,
+function ScheduleConfig({
   schedule,
+  accountId,
   onSave,
   onToggle,
   onDelete,
   isSaving,
-}: AccountScheduleRowProps) {
+}: ScheduleConfigProps) {
   const [expanded, setExpanded] = useState(false);
   const [frequency, setFrequency] = useState<"DAILY" | "WEEKLY">(
     (schedule?.frequency as "DAILY" | "WEEKLY") ?? "DAILY"
@@ -111,79 +111,80 @@ function AccountScheduleRow({
       });
 
   return (
-    <div className="border border-border/50 rounded-xl bg-card overflow-hidden">
-      {/* Header row */}
-      <div className="flex items-center gap-3 p-4">
-        <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-          <FileText className="w-4 h-4 text-primary" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-foreground truncate">
-            {account.accountName ?? account.accountId}
-          </p>
-          {schedule ? (
-            <p className="text-xs text-muted-foreground">
-              {schedule.frequency === "DAILY" ? "Diário" : "Semanal"} —{" "}
-              {String(schedule.scheduleHour).padStart(2, "0")}:
-              {String(schedule.scheduleMinute).padStart(2, "0")}h
-              {schedule.frequency === "WEEKLY"
-                ? ` (${DAYS_OF_WEEK.find((d) => d.value === schedule.scheduleDay)?.label ?? "Segunda-feira"})`
-                : ""}
-              {" · "}Próximo: {nextRun}
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">Sem agendamento configurado</p>
-          )}
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {schedule ? (
-            <>
-              <Badge
-                variant={schedule.isActive ? "default" : "secondary"}
-                className="text-xs hidden sm:inline-flex"
-              >
-                {schedule.isActive ? "Ativo" : "Pausado"}
-              </Badge>
-              <Switch
-                checked={schedule.isActive ?? false}
-                onCheckedChange={(checked) => onToggle(schedule.id, checked)}
-              />
+    <Card className="border border-border bg-card">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Clock className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-base">Agendamento de Relatório</CardTitle>
+              {schedule ? (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {schedule.frequency === "DAILY" ? "Diário" : "Semanal"} —{" "}
+                  {String(schedule.scheduleHour).padStart(2, "0")}:
+                  {String(schedule.scheduleMinute).padStart(2, "0")}h
+                  {schedule.frequency === "WEEKLY"
+                    ? ` (${DAYS_OF_WEEK.find((d) => d.value === schedule.scheduleDay)?.label ?? "Segunda-feira"})`
+                    : ""}
+                  {" · "}Próximo: {nextRun}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-0.5">Sem agendamento configurado para esta conta</p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {schedule ? (
+              <>
+                <Badge
+                  variant={schedule.isActive ? "default" : "secondary"}
+                  className="text-xs hidden sm:inline-flex"
+                >
+                  {schedule.isActive ? "Ativo" : "Pausado"}
+                </Badge>
+                <Switch
+                  checked={schedule.isActive ?? false}
+                  onCheckedChange={(checked) => onToggle(schedule.id, checked)}
+                />
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="w-8 h-8 text-muted-foreground hover:text-primary"
+                  title="Editar agendamento"
+                  onClick={() => setExpanded((v) => !v)}
+                >
+                  <Settings2 className="w-4 h-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="w-8 h-8 text-muted-foreground hover:text-destructive"
+                  title="Remover agendamento"
+                  onClick={() => onDelete(schedule.id)}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </>
+            ) : (
               <Button
-                size="icon"
-                variant="ghost"
-                className="w-8 h-8 text-muted-foreground hover:text-primary"
-                title="Editar agendamento"
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-xs"
                 onClick={() => setExpanded((v) => !v)}
               >
-                <Settings2 className="w-4 h-4" />
+                <Clock className="w-3.5 h-3.5" />
+                Agendar
               </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="w-8 h-8 text-muted-foreground hover:text-destructive"
-                title="Remover agendamento"
-                onClick={() => onDelete(schedule.id)}
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
-            </>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5 text-xs"
-              onClick={() => setExpanded((v) => !v)}
-            >
-              <Clock className="w-3.5 h-3.5" />
-              Agendar
-            </Button>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      </CardHeader>
 
-      {/* Expanded config panel */}
       {expanded && (
-        <div className="border-t border-border/40 bg-muted/10 p-4 space-y-4">
+        <CardContent className="border-t border-border/40 bg-muted/10 pt-4 space-y-4">
           <p className="text-xs font-semibold text-foreground">
             {schedule ? "Editar agendamento" : "Configurar agendamento"}
           </p>
@@ -305,7 +306,7 @@ function AccountScheduleRow({
               disabled={isSaving}
               onClick={() => {
                 onSave({
-                  accountId: account.id,
+                  accountId,
                   frequency,
                   scheduleHour: hour,
                   scheduleMinute: minute,
@@ -321,9 +322,9 @@ function AccountScheduleRow({
               )}
             </Button>
           </div>
-        </div>
+        </CardContent>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -336,6 +337,7 @@ export default function Reports() {
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
 
+  // Load only reports for the current user (filtered by account in UI)
   const { data: reports, isLoading: reportsLoading } = trpc.reports.list.useQuery();
 
   const createReport = trpc.reports.create.useMutation({
@@ -402,7 +404,11 @@ export default function Reports() {
     );
   }
 
-  const activeSchedules = reports?.filter((r) => r.isActive) ?? [];
+  // Find the active account object
+  const activeAccount = accounts.find((a) => a.id === selectedAccountId);
+
+  // Find the schedule for the currently active account only
+  const activeSchedule = reports?.find((r) => r.accountId === selectedAccountId) ?? null;
 
   return (
     <MetaDashboardLayout title="Relatórios">
@@ -412,13 +418,15 @@ export default function Reports() {
           <div>
             <h1 className="text-xl font-bold text-foreground">Relatórios de Performance</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Formato de agência — prontos para copiar e enviar ao cliente
+              {activeAccount
+                ? `Conta: ${activeAccount.accountName ?? activeAccount.accountId}`
+                : "Selecione uma conta na sidebar"}
             </p>
           </div>
-          {activeSchedules.length > 0 && (
+          {activeSchedule?.isActive && (
             <Badge variant="outline" className="text-xs gap-1.5 py-1 px-2.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-              {activeSchedules.length} agendamento(s) ativo(s)
+              Agendamento ativo
             </Badge>
           )}
         </div>
@@ -553,41 +561,23 @@ export default function Reports() {
           </Card>
         )}
 
-        {/* Per-Account Scheduling */}
-        <Card className="border border-border bg-card">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <Clock className="w-5 h-5 text-primary" />
-              <CardTitle className="text-base">Agendamento por Conta</CardTitle>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Configure o agendamento de forma independente para cada conta conectada. Ativar ou desativar uma conta não afeta as demais.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {reportsLoading ? (
-              <div className="flex items-center gap-2 text-muted-foreground py-4">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="text-sm">Carregando agendamentos...</span>
-              </div>
-            ) : (
-              accounts.map((account) => {
-                const schedule = reports?.find((r) => r.accountId === account.id) ?? null;
-                return (
-                  <AccountScheduleRow
-                    key={account.id}
-                    account={account}
-                    schedule={schedule}
-                    onSave={(params) => createReport.mutate(params)}
-                    onToggle={(reportId, isActive) => toggleReport.mutate({ reportId, isActive })}
-                    onDelete={(reportId) => deleteReport.mutate({ reportId })}
-                    isSaving={createReport.isPending}
-                  />
-                );
-              })
-            )}
-          </CardContent>
-        </Card>
+        {/* Schedule config — only for the active account */}
+        {reportsLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground py-4">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Carregando agendamento...</span>
+          </div>
+        ) : selectedAccountId ? (
+          <ScheduleConfig
+            key={selectedAccountId}
+            schedule={activeSchedule}
+            accountId={selectedAccountId}
+            onSave={(params) => createReport.mutate(params)}
+            onToggle={(reportId, isActive) => toggleReport.mutate({ reportId, isActive })}
+            onDelete={(reportId) => deleteReport.mutate({ reportId })}
+            isSaving={createReport.isPending}
+          />
+        ) : null}
 
         {/* Format Reference */}
         <Card className="border-border/40 bg-accent/10">

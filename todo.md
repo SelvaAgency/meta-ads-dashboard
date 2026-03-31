@@ -348,3 +348,21 @@
 - [ ] Período padrão: Últimos 7 dias
 - [ ] Período reseta ao trocar de conta
 - [ ] Backend: campaigns.performance já aceita days, adicionar startDate/endDate opcionais
+
+## Agendamento Vinculado à Conta Ativa (Mar/30)
+- [x] Remover painel centralizado de agendamento (lista de todas as contas)
+- [x] Mover configuração de agendamento para dentro da aba Relatórios, filtrada pela conta ativa
+- [x] Cada conta vê e edita apenas seu próprio agendamento
+- [x] Indicador visual (badge/ícone) na lista de contas quando agendamento está ativo
+- [x] Tooltip no indicador: "Relatório agendado: Semanal, Segunda, 09:00"
+- [x] Backend: filtrar scheduled_reports por accountId da conta ativa (via UI)
+
+## System Prompt Especializado - Sugestões IA (Mar/30)
+- [x] Integrar system prompt do Analista Sênior de Performance (pasted_content_11.txt) no analysisService.ts
+- [x] Estrutura IAbI (Insight, Action, Business Impact) em cada sugestão
+- [x] Diagnóstico causal obrigatório antes de sugerir ação
+- [x] Análise em 4 camadas: Conta/Campanha, Conjunto, Criativo, Tracking
+- [x] Regras de fase de aprendizado (não mexer durante aprendizado)
+- [x] Thresholds de frequência/fadiga (2.0/2.5/3.5)
+- [x] Critérios de pausar/escalar/não mexer
+- [x] Formato obrigatório: Prioridade, Nível, Tipo, O que fazer, Por que, Resultado esperado, Prazo

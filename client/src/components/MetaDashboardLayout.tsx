@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Building2,
   PieChart,
+  CalendarCheck,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
@@ -55,6 +56,26 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     enabled: isAuthenticated,
     refetchInterval: 30000,
   });
+
+  // Load all schedules to show indicator per account in the dropdown
+  const { data: allSchedules } = trpc.reports.list.useQuery(undefined, {
+    enabled: isAuthenticated,
+    refetchInterval: 60000,
+  });
+
+  // Build a map: accountId -> schedule summary string
+  const scheduleMap = new Map<number, string>();
+  if (allSchedules) {
+    for (const s of allSchedules) {
+      if (s.isActive && s.accountId) {
+        const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+        const freq = s.frequency === "DAILY" ? "Diário" : "Semanal";
+        const dayLabel = s.frequency === "WEEKLY" ? `, ${DAYS[s.scheduleDay ?? 1]}` : "";
+        const time = `${String(s.scheduleHour ?? 8).padStart(2, "0")}:${String(s.scheduleMinute ?? 0).padStart(2, "0")}`;
+        scheduleMap.set(s.accountId, `Relatório agendado: ${freq}${dayLabel}, ${time}h`);
+      }
+    }
+  }
 
   const navItems: NavItem[] = [
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -156,24 +177,38 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                     Trocar conta ({accounts.length} conectada{accounts.length !== 1 ? "s" : ""})
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {accounts.map((acc) => (
-                    <DropdownMenuItem
-                      key={acc.id}
-                      onClick={() => setActiveAccountId(acc.id)}
-                      className="flex items-center gap-2.5 cursor-pointer"
-                    >
-                      <div className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 ${acc.id === activeAccountId ? "bg-primary/20" : "bg-muted"}`}>
-                        <Building2 className={`w-3 h-3 ${acc.id === activeAccountId ? "text-primary" : "text-muted-foreground"}`} />
-                      </div>
-                      <div className="flex-1 overflow-hidden">
-                        <p className="text-xs font-medium truncate">{acc.accountName ?? acc.accountId}</p>
-                        <p className="text-xs text-muted-foreground truncate">{acc.currency} · {acc.accountId}</p>
-                      </div>
-                      {acc.id === activeAccountId && (
-                        <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
-                      )}
-                    </DropdownMenuItem>
-                  ))}
+                  {accounts.map((acc) => {
+                    const scheduleSummary = scheduleMap.get(acc.id);
+                    return (
+                      <DropdownMenuItem
+                        key={acc.id}
+                        onClick={() => setActiveAccountId(acc.id)}
+                        className="flex items-center gap-2.5 cursor-pointer"
+                      >
+                        <div className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 ${acc.id === activeAccountId ? "bg-primary/20" : "bg-muted"}`}>
+                          <Building2 className={`w-3 h-3 ${acc.id === activeAccountId ? "text-primary" : "text-muted-foreground"}`} />
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                          <p className="text-xs font-medium truncate">{acc.accountName ?? acc.accountId}</p>
+                          {scheduleSummary ? (
+                            <p className="text-xs text-emerald-400 truncate" title={scheduleSummary}>{scheduleSummary}</p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground truncate">{acc.currency} · {acc.accountId}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {scheduleSummary && (
+                            <span title={scheduleSummary}>
+                              <CalendarCheck className="w-3 h-3 text-emerald-400" />
+                            </span>
+                          )}
+                          {acc.id === activeAccountId && (
+                            <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                          )}
+                        </div>
+                      </DropdownMenuItem>
+                    );
+                  })}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
                     <Link href="/connect">
