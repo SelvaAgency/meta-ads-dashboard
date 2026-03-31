@@ -816,7 +816,11 @@ export const appRouter = router({
           imageUrls: JSON.stringify(input.imageUrls),
           status: "PROCESSING",
         });
-        const reportId = (insertResult as any).insertId as number;
+        // mysql2 + drizzle retorna [ResultSetHeader, FieldPacket[]] — insertId está no primeiro elemento
+        const reportId = ((insertResult as any)[0]?.insertId ?? (insertResult as any).insertId) as number;
+        if (!reportId) {
+          throw new Error("Falha ao criar registro no banco de dados");
+        }
 
         try {
           // Analisar via LLM
