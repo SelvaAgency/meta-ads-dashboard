@@ -467,3 +467,8 @@
 - [x] Não Aplicadas vão pro histórico após 1 dia automaticamente
 - [x] Na aba Aplicadas: botão "Aplicado" fixo/desabilitado, sem poder clicar
 - [x] Na aba Aplicadas: só permitir trocar para "Não Aplicar" com campo de motivo
+
+## Restaurar Botão "Abrir HTML" e Redesenhar
+- [x] Restaurar botão "Abrir HTML" no DashboardBuilder.tsx (usando Blob URL do S3)
+- [x] Redesenhar generateReportHtml com design premium, preenchendo folha, layout profissional
+- [x] Otimizar PDF para impressão com @media print

@@ -487,6 +487,7 @@ function InlineReportView({ dbReport, onNewDashboard }: {
         </div>
         <div className="flex items-center gap-2">
           {dbReport.reportJson && (
+            <>
             <Button
               size="sm"
               onClick={() => {
@@ -515,6 +516,25 @@ function InlineReportView({ dbReport, onNewDashboard }: {
               <Download size={14} className="mr-2" />
               Exportar PDF
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                try {
+                  const reportData = JSON.parse(dbReport.reportJson!) as DashboardReportData;
+                  const html = generateExportHtml(reportData);
+                  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+                  const blobUrl = URL.createObjectURL(blob);
+                  window.open(blobUrl, "_blank");
+                } catch (err) {
+                  toast.error("Erro ao abrir HTML");
+                }
+              }}
+            >
+              <FileText size={14} className="mr-2" />
+              Abrir HTML
+            </Button>
+            </>
           )}
           <Button variant="ghost" size="sm" onClick={onNewDashboard} className="gap-2">
             <ArrowLeft size={14} />
