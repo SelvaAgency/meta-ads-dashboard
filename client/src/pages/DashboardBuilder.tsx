@@ -34,7 +34,6 @@ import {
   CheckCircle2,
   AlertCircle,
   Download,
-  ExternalLink,
   ArrowLeft,
   TrendingUp,
   TrendingDown,
@@ -339,6 +338,112 @@ function VariationBadge({ metric }: { metric: CampaignMetric }) {
   );
 }
 
+function generateExportHtml(report: DashboardReportData): string {
+  const colorMap: Record<string, string> = { green: "#4ade80", red: "#f87171", gray: "#94a3b8" };
+  const arrowMap: Record<string, string> = { green: "↑", red: "↓", gray: "→" };
+
+  const formatChange = (m: CampaignMetric) => {
+    if (m.changePercent === undefined || m.changePercent === null) return "";
+    const sign = m.changePercent >= 0 ? "+" : "";
+    const color = colorMap[m.indicatorColor] ?? "#94a3b8";
+    const arrow = arrowMap[m.indicatorColor] ?? "→";
+    return `<span style="color:${color};font-weight:600;font-size:13px;">${arrow} ${sign}${m.changePercent.toFixed(1)}%</span>`;
+  };
+
+  const campaignsHtml = report.campaigns.map((camp) => `
+    <div style="margin-bottom:28px;padding:24px;background:#1e293b;border:1px solid #334155;border-radius:12px;page-break-inside:avoid;">
+      <div style="border-bottom:1px solid #334155;padding-bottom:12px;margin-bottom:16px;">
+        <h3 style="font-size:15px;font-weight:700;color:#f1f5f9;margin:0 0 4px 0;">${camp.name}</h3>
+        <span style="font-size:11px;color:#94a3b8;background:#0f172a;padding:3px 10px;border-radius:6px;">${camp.objective}</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:6px 10px;font-size:11px;color:#64748b;font-weight:600;border-bottom:1px solid #334155;">Métrica</th>
+            <th style="text-align:right;padding:6px 10px;font-size:11px;color:#64748b;font-weight:600;border-bottom:1px solid #334155;">${report.mode === "COMPARATIVE" ? "Atual" : "Valor"}</th>
+            ${report.mode === "COMPARATIVE" ? '<th style="text-align:right;padding:6px 10px;font-size:11px;color:#64748b;font-weight:600;border-bottom:1px solid #334155;">Anterior</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#64748b;font-weight:600;border-bottom:1px solid #334155;">Var.</th>' : ""}
+          </tr>
+        </thead>
+        <tbody>
+          ${camp.metrics.map((m: CampaignMetric, i: number) => `
+            <tr style="background:${i % 2 === 0 ? "transparent" : "rgba(15,23,42,0.5)"};">
+              <td style="padding:6px 10px;font-size:13px;color:#cbd5e1;border-bottom:1px solid #1e293b;">${m.name}</td>
+              <td style="padding:6px 10px;font-size:13px;font-weight:600;color:#f1f5f9;text-align:right;border-bottom:1px solid #1e293b;">${m.currentValue}</td>
+              ${report.mode === "COMPARATIVE" ? `<td style="padding:6px 10px;font-size:13px;color:#64748b;text-align:right;border-bottom:1px solid #1e293b;">${m.previousValue ?? "—"}</td><td style="padding:6px 10px;text-align:right;border-bottom:1px solid #1e293b;">${formatChange(m)}</td>` : ""}
+            </tr>`).join("")}
+        </tbody>
+      </table>
+      <div style="background:#0f172a;border-left:3px solid #3b82f6;padding:12px 14px;border-radius:0 8px 8px 0;">
+        <p style="font-size:11px;font-weight:700;color:#60a5fa;margin:0 0 4px 0;text-transform:uppercase;">Análise</p>
+        <p style="font-size:13px;color:#cbd5e1;line-height:1.6;margin:0;">${camp.analysis}</p>
+      </div>
+      ${(camp.highlights?.length ?? 0) > 0 || (camp.attentionPoints?.length ?? 0) > 0 ? `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+        ${(camp.highlights?.length ?? 0) > 0 ? `<div style="padding:10px 12px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:8px;"><p style="font-size:11px;font-weight:700;color:#4ade80;margin:0 0 6px 0;">✅ Destaques</p><ul style="margin:0;padding-left:16px;">${camp.highlights!.map((h: string) => `<li style="font-size:12px;color:#cbd5e1;margin-bottom:3px;">${h}</li>`).join("")}</ul></div>` : ""}
+        ${(camp.attentionPoints?.length ?? 0) > 0 ? `<div style="padding:10px 12px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);border-radius:8px;"><p style="font-size:11px;font-weight:700;color:#f87171;margin:0 0 6px 0;">⚠️ Atenção</p><ul style="margin:0;padding-left:16px;">${camp.attentionPoints!.map((a: string) => `<li style="font-size:12px;color:#cbd5e1;margin-bottom:3px;">${a}</li>`).join("")}</ul></div>` : ""}
+      </div>` : ""}
+    </div>`).join("");
+
+  const summaryFields = report.strategicSummary;
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — ${report.clientName}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 0; background: #0f172a; color: #e2e8f0; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style>
+</head>
+<body>
+  <div style="max-width:900px;margin:0 auto;padding:40px 32px;">
+    <div style="border-bottom:2px solid #334155;padding-bottom:24px;margin-bottom:32px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
+        <div>
+          <h1 style="font-size:24px;font-weight:800;color:#f1f5f9;margin:0 0 4px 0;">Dashboard de Performance</h1>
+          <p style="font-size:16px;color:#64748b;margin:0;">${report.clientName}</p>
+        </div>
+        <div style="text-align:right;">
+          <p style="font-size:13px;color:#64748b;margin:0 0 4px 0;">${report.platform}</p>
+          <p style="font-size:13px;font-weight:600;color:#f1f5f9;margin:0;">${report.period}</p>
+          <p style="font-size:12px;color:#475569;margin:4px 0 0 0;">${report.mode === "COMPARATIVE" ? "Comparativo" : "Período Único"}</p>
+        </div>
+      </div>
+    </div>
+    <div style="margin-bottom:32px;padding:24px;background:#1e293b;border-radius:12px;">
+      <h2 style="font-size:15px;font-weight:700;color:#f1f5f9;margin:0 0 20px 0;">Visão Geral</h2>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+        <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
+          <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;">Investimento</p>
+          <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${summaryFields.totalInvested}</p>
+        </div>
+        <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
+          <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;">Resultados</p>
+          <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${summaryFields.totalResults}</p>
+        </div>
+        <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
+          <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;">Custo/Resultado</p>
+          <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${(summaryFields as any).costPerResult ?? (summaryFields as any).avgCostPerResult ?? "—"}</p>
+        </div>
+      </div>
+    </div>
+    ${campaignsHtml}
+    ${report.recommendations.length > 0 ? `
+    <div style="padding:24px;background:#1e293b;border:1px solid #334155;border-radius:12px;margin-bottom:32px;">
+      <h2 style="font-size:15px;font-weight:700;color:#f1f5f9;margin:0 0 16px 0;">Recomendações</h2>
+      <ol style="margin:0;padding-left:20px;">${report.recommendations.map(r => `<li style="font-size:13px;color:#cbd5e1;margin-bottom:8px;line-height:1.6;">${r}</li>`).join("")}</ol>
+    </div>` : ""}
+    <div style="border-top:1px solid #334155;padding-top:16px;margin-top:32px;">
+      <p style="font-size:11px;color:#475569;margin:0;text-align:center;">Relatório gerado automaticamente · ${report.clientName} · ${report.period}</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 function InlineReportView({ dbReport, onNewDashboard }: {
   dbReport: { id: number; clientName: string; status: string; reportJson: string | null; pdfUrl: string | null; errorMessage: string | null; createdAt: Date };
   onNewDashboard: () => void;
@@ -381,22 +486,30 @@ function InlineReportView({ dbReport, onNewDashboard }: {
           <span className="text-sm font-semibold text-emerald-500">Dashboard gerado com sucesso</span>
         </div>
         <div className="flex items-center gap-2">
-          {dbReport.pdfUrl && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.open(dbReport.pdfUrl!, "_blank")}
-            >
-              <ExternalLink size={14} className="mr-2" />
-              Abrir HTML
-            </Button>
-          )}
-          {dbReport.pdfUrl && (
+          {dbReport.reportJson && (
             <Button
               size="sm"
               onClick={() => {
-                const w = window.open(dbReport.pdfUrl!, "_blank");
-                if (w) setTimeout(() => w.print(), 1200);
+                try {
+                  const reportData = JSON.parse(dbReport.reportJson!) as DashboardReportData;
+                  const html = generateExportHtml(reportData);
+                  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+                  const blobUrl = URL.createObjectURL(blob);
+                  const w = window.open(blobUrl, "_blank");
+                  if (w) {
+                    w.onafterprint = () => URL.revokeObjectURL(blobUrl);
+                    setTimeout(() => { try { w.print(); } catch {} }, 1500);
+                  } else {
+                    const a = document.createElement("a");
+                    a.href = blobUrl;
+                    a.download = `dashboard-${dbReport.clientName.replace(/\s+/g, "-")}.html`;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+                    toast.info("Arquivo baixado. Abra no navegador e use Ctrl+P para exportar como PDF.");
+                  }
+                } catch (err) {
+                  toast.error("Erro ao gerar exportação");
+                }
               }}
             >
               <Download size={14} className="mr-2" />

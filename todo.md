@@ -444,3 +444,8 @@
 ## Bug Badge de Status - Campaigns.tsx (Mar/31)
 - [x] Corrigir cores hardcoded do statusBg para usar opacidade (dark/light mode)
 - [x] Mover statusBg da td para o span interno (badge pill, não célula inteira)
+
+## Correção Exportação PDF Dashboard Builder
+- [x] Adicionar função generateExportHtml client-side no DashboardBuilder.tsx
+- [x] Substituir botões de export por Blob URL (sem depender do S3)
+- [x] Fallback: download HTML se popup bloqueado
