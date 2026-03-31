@@ -430,3 +430,13 @@
 - [x] llm.ts: tratar resposta HTML como erro descritivo (gateway/proxy)
 - [x] dashboardBuilderService.ts: converter imagens para base64 antes de enviar ao LLM
 - [x] dashboardBuilderService.ts: retry automático (2 tentativas) para erros de gateway/502/503
+
+## Correção Dashboard Builder - LLM JSON Inválido (Mar/31)
+- [x] llm.ts: adicionar thinking ao tipo InvokeParams (configurável, aceita false para desativar)
+- [x] llm.ts: payload dinâmico (thinking só adicionado se !== false)
+- [x] llm.ts: exportar helper extractTextContent (lida com content como string ou array)
+- [x] dashboardBuilderService.ts: importar extractTextContent
+- [x] dashboardBuilderService.ts: chamar invokeLLM com thinking:false e responseFormat:{type:"json_object"}
+- [x] dashboardBuilderService.ts: usar extractTextContent para extrair rawContent
+- [x] dashboardBuilderService.ts: parsing JSON resiliente com limpeza de markdown e fallback regex
+- [x] Validado: analysisService.ts não quebrado (3 chamadas sem thinking param = usa default 128)

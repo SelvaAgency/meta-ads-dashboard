@@ -68,6 +68,11 @@ export type InvokeParams = {
   response_format?: ResponseFormat;
   /** Override the default model (gemini-2.5-flash). Use sparingly — only for tasks that require higher precision. */
   model?: string;
+  /**
+   * Control thinking budget. Pass `false` to disable thinking entirely (required for json_object mode).
+   * Pass `{ budget_tokens: N }` to override the default (128). Omit to use the default.
+   */
+  thinking?: { budget_tokens: number } | false;
 };
 
 export type ToolCall = {
@@ -299,9 +304,10 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768
-  payload.thinking = {
-    "budget_tokens": 8192  // Increased from 128 — needed for tabular data extraction from images
+  payload.max_tokens = params.maxTokens ?? params.max_tokens ?? 32768;
+  // Only add thinking if not explicitly disabled
+  if (params.thinking !== false) {
+    payload.thinking = params.thinking ?? { budget_tokens: 128 };
   }
 
   const normalizedResponseFormat = normalizeResponseFormat({
@@ -370,4 +376,22 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   }
 
   return (await response.json()) as InvokeResult;
+}
+
+/**
+ * Extract the text content from an LLM response, handling both string and array content.
+ * When thinking is enabled, Gemini returns content as an array of {type:"thinking"} and {type:"text"} parts.
+ * This helper safely extracts only the text parts.
+ */
+export function extractTextContent(result: InvokeResult): string {
+  const content = result?.choices?.[0]?.message?.content;
+  if (!content) return "";
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((part): part is TextContent => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+  }
+  return String(content);
 }

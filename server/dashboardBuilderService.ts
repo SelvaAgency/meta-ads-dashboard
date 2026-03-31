@@ -2,7 +2,7 @@
  * dashboardBuilderService.ts — Lógica de análise LLM para o Dashboard Builder de Tráfego Pago.
  * Módulo independente — não interfere com nenhuma funcionalidade existente.
  */
-import { invokeLLM } from "./_core/llm";
+import { invokeLLM, extractTextContent } from "./_core/llm";
 import { storagePut } from "./storage";
 
 // ─── Tipos do relatório estruturado ───────────────────────────────────────────
@@ -244,6 +244,10 @@ export async function analyzeCampaignData(
       return await invokeLLM({
         // Use gemini-2.5-pro for Dashboard Builder — higher precision for tabular data extraction from images
         model: "gemini-2.5-pro",
+        // Disable thinking: json_object mode conflicts with thinking in Gemini
+        thinking: false,
+        // Force JSON output to avoid markdown-wrapped responses
+        responseFormat: { type: "json_object" },
         messages: [
           { role: "system", content: prompt },
           {
@@ -265,25 +269,37 @@ export async function analyzeCampaignData(
 
   const response = await invokeWithRetry();
 
-  const rawContent = String(response?.choices?.[0]?.message?.content ?? "");
+  // Use extractTextContent to safely handle both string and array content
+  // (Gemini with thinking enabled returns content as array of {type:"thinking"} + {type:"text"} parts)
+  const rawContent = extractTextContent(response);
 
   if (!rawContent) {
     throw new Error("LLM não retornou conteúdo. Tente novamente.");
   }
 
-  // Extract JSON from response (handle cases where LLM wraps in markdown)
-  const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    console.error("[DashboardBuilder] LLM raw response:", rawContent.slice(0, 500));
-    throw new Error("LLM não retornou JSON válido. Tente novamente com um print mais nítido.");
+  // Clean possible markdown wrappers (```json ... ``` or ``` ... ```)
+  let cleanContent = rawContent.trim();
+  if (cleanContent.startsWith("```")) {
+    cleanContent = cleanContent.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
   }
 
+  // Try direct parse first (most reliable with json_object mode)
   let parsed: DashboardReportData;
   try {
-    parsed = JSON.parse(jsonMatch[0]) as DashboardReportData;
-  } catch (e) {
-    console.error("[DashboardBuilder] JSON parse error:", e, "Raw:", jsonMatch[0].slice(0, 500));
-    throw new Error("Erro ao interpretar resposta da IA. Tente novamente.");
+    parsed = JSON.parse(cleanContent) as DashboardReportData;
+  } catch {
+    // Fallback: extract JSON via regex (handles extra text before/after JSON)
+    const jsonMatch = cleanContent.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error("[DashboardBuilder] LLM raw response:", rawContent.slice(0, 1000));
+      throw new Error("LLM não retornou JSON válido. Tente novamente com um print mais nítido.");
+    }
+    try {
+      parsed = JSON.parse(jsonMatch[0]) as DashboardReportData;
+    } catch (e) {
+      console.error("[DashboardBuilder] JSON parse error:", e, "Raw:", jsonMatch[0].slice(0, 500));
+      throw new Error("Erro ao interpretar resposta da IA. Tente novamente.");
+    }
   }
 
   // Garantir que deliveryStatus existe em todas as campanhas
