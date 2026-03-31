@@ -66,6 +66,8 @@ export type InvokeParams = {
   output_schema?: OutputSchema;
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
+  /** Override the default model (gemini-2.5-flash). Use sparingly — only for tasks that require higher precision. */
+  model?: string;
 };
 
 export type ToolCall = {
@@ -277,10 +279,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     output_schema,
     responseFormat,
     response_format,
+    model,
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: model ?? "gemini-2.5-flash",
     messages: messages.map(normalizeMessage),
   };
 
@@ -298,7 +301,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   payload.max_tokens = 32768
   payload.thinking = {
-    "budget_tokens": 128
+    "budget_tokens": 8192  // Increased from 128 — needed for tabular data extraction from images
   }
 
   const normalizedResponseFormat = normalizeResponseFormat({
@@ -312,9 +315,9 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  // 180s timeout — LLM with images can take up to 2 minutes
+  // 300s timeout — Dashboard Builder with high-res images + pro model can take up to 5 minutes
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 180_000);
+  const timeoutId = setTimeout(() => controller.abort(), 300_000);
 
   let response: Response;
   try {
@@ -330,7 +333,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } catch (err: any) {
     clearTimeout(timeoutId);
     if (err?.name === "AbortError") {
-      throw new Error("A análise demorou mais de 3 minutos. Tente novamente com uma imagem menor ou com menos campanhas visíveis.");
+      throw new Error("A análise demorou mais de 5 minutos. Tente novamente com uma imagem menor ou com menos campanhas visíveis.");
     }
     throw err;
   } finally {

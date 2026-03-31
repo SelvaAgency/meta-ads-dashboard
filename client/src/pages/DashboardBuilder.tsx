@@ -646,7 +646,7 @@ function GeneratingIndicator({ step }: { step: number }) {
           {LOADING_STEPS[Math.min(step, LOADING_STEPS.length - 1)]}
         </p>
         <p className="text-xs text-muted-foreground">
-          A análise pode levar entre 30 segundos e 3 minutos
+          A análise pode levar entre 1 e 5 minutos
         </p>
       </div>
       {/* Progress dots */}

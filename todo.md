@@ -384,3 +384,10 @@
 - [x] Nível de consciência do público (Eugene Schwartz)
 - [x] Análise de oferta (Alex Hormozi — equação de valor)
 - [x] Prompt 2 integrado como camada estratégica no mesmo system prompt (sem chamada LLM adicional)
+
+## Melhorias de Performance - Dashboard Builder (Mar/31)
+- [x] Aumentar thinking.budget_tokens de 128 para 8192 no llm.ts
+- [x] Mudar detail de "auto" para "high" nas imagens do dashboardBuilderService.ts
+- [x] Aumentar timeout de 180s para 300s no llm.ts
+- [x] Atualizar texto de loading: "1 e 5 minutos" no DashboardBuilder.tsx
+- [x] Usar modelo gemini-2.5-pro no Dashboard Builder (parâmetro model opcional no invokeLLM)

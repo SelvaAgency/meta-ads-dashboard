@@ -216,14 +216,15 @@ export async function analyzeCampaignData(
   const userContent: any[] = [];
   if (imageUrls.length > 0) {
     for (const url of imageUrls) {
-      // Use "auto" instead of "high" — high detail causes very long processing times
-      // and often doesn't improve accuracy for campaign screenshot analysis
-      userContent.push({ type: "image_url", image_url: { url, detail: "auto" } });
+      // Use "high" detail — campaign screenshots contain small tabular numbers that require high resolution
+      userContent.push({ type: "image_url", image_url: { url, detail: "high" } });
     }
     userContent.push({ type: "text", text: textInstruction });
   }
 
   const response = await invokeLLM({
+    // Use gemini-2.5-pro for Dashboard Builder — higher precision for tabular data extraction from images
+    model: "gemini-2.5-pro",
     messages: [
       { role: "system", content: prompt },
       {
