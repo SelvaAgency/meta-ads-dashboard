@@ -70,6 +70,11 @@ export default function Anomalies() {
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
+
+  const handleFilterClick = (filterKey: string) => {
+    setActiveFilter((prev) => (prev === filterKey ? null : filterKey));
+  };
 
   const { data: anomalies, isLoading } = trpc.anomalies.list.useQuery(
     { accountId: selectedAccountId! },
@@ -116,6 +121,19 @@ export default function Anomalies() {
   const unread = (anomalies ?? []).filter((a) => !a.isRead && !a.isResolved);
   const history = (anomalies ?? []).filter((a) => a.isRead);
 
+  const statsConfig = [
+    { key: "active",  label: "Anomalias Ativas", value: unread.length,   color: unread.length > 0   ? "text-yellow-400"       : "text-muted-foreground" },
+    { key: "history", label: "No Histórico",      value: history.length,  color: "text-muted-foreground" },
+  ];
+
+  // Lista filtrada (null = sem filtro ativo)
+  const filteredAnomalies = (() => {
+    if (!activeFilter) return null;
+    if (activeFilter === "active")  return unread;
+    if (activeFilter === "history") return history;
+    return null;
+  })();
+
   return (
     <MetaDashboardLayout title="Anomalias">
       <div className="space-y-5">
@@ -133,93 +151,139 @@ export default function Anomalies() {
           </div>
         </div>
 
-        {/* Stats simples */}
+        {/* Stats clicáveis como filtros */}
         <div className="grid grid-cols-2 gap-3">
-          <Card>
-            <CardContent className="p-4">
-              <p className={`text-2xl font-bold ${unread.length > 0 ? "text-yellow-400" : "text-muted-foreground"}`}>
-                {unread.length}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">Anomalias ativas</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-2xl font-bold text-muted-foreground">{history.length}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">No histórico</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Active anomalies */}
-        <div>
-          <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-yellow-400" />
-            Anomalias Ativas ({unread.length})
-          </h2>
-          {isLoading ? (
-            <div className="space-y-2">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-20 bg-muted rounded-xl animate-pulse" />
-              ))}
-            </div>
-          ) : unread.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-3" />
-                <p className="text-sm font-medium text-foreground">Nenhuma anomalia ativa</p>
-                <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
-                  Anomalias são detectadas automaticamente a cada hora, validadas em 3 janelas de tempo (7, 14 e 30 dias).
-                </p>
+          {statsConfig.map((stat) => (
+            <Card
+              key={stat.key}
+              className={`cursor-pointer transition-all duration-150 hover:border-primary/50 ${
+                activeFilter === stat.key
+                  ? "border-primary ring-1 ring-primary/30 bg-primary/5"
+                  : ""
+              }`}
+              onClick={() => handleFilterClick(stat.key)}
+            >
+              <CardContent className="p-4">
+                <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
               </CardContent>
             </Card>
-          ) : (
-            <div className="space-y-2">
-              {unread.map((anomaly) => (
-                <AnomalyCard key={anomaly.id} anomaly={anomaly} markRead={markRead} />
-              ))}
-            </div>
-          )}
+          ))}
         </div>
 
-        {/* ─── Histórico colapsável ─────────────────────────────────────────── */}
-        <div>
-          <button
-            onClick={() => setHistoryOpen((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-border/50 bg-muted/20 hover:bg-muted/40 transition-colors group"
-          >
-            <div className="flex items-center gap-2.5">
-              <FolderOpen className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-              <span className="text-sm font-medium text-foreground">Histórico</span>
-              <span className="text-xs text-muted-foreground">
-                ({history.length} {history.length === 1 ? "anomalia vista" : "anomalias vistas"} · ficam por 30 dias)
-              </span>
+        {/* Active anomalies + History */}
+        {filteredAnomalies !== null ? (
+          // Modo filtrado — lista plana
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                {activeFilter === "history" ? (
+                  <FolderOpen className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-yellow-400" />
+                )}
+                {statsConfig.find((s) => s.key === activeFilter)?.label} ({filteredAnomalies.length})
+              </h2>
+              <button
+                onClick={() => setActiveFilter(null)}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Limpar filtro
+              </button>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Clock className="w-3 h-3" />
-              {historyOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            </div>
-          </button>
-
-          {historyOpen && (
-            <div className="mt-2 space-y-2">
-              {history.length === 0 ? (
-                <Card className="border-border/30">
-                  <CardContent className="py-8 text-center">
-                    <FolderOpen className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
-                    <p className="text-xs text-muted-foreground">
-                      Anomalias marcadas como vistas aparecerão aqui por 30 dias.
+            {filteredAnomalies.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-foreground">Nenhuma anomalia nesta categoria</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-2">
+                {filteredAnomalies.map((anomaly) =>
+                  activeFilter === "history" ? (
+                    <HistoryCard key={anomaly.id} anomaly={anomaly} />
+                  ) : (
+                    <AnomalyCard key={anomaly.id} anomaly={anomaly} markRead={markRead} />
+                  )
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          // Modo normal (sem filtro) — seções separadas originais
+          <>
+            {/* Active anomalies */}
+            <div>
+              <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-yellow-400" />
+                Anomalias Ativas ({unread.length})
+              </h2>
+              {isLoading ? (
+                <div className="space-y-2">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="h-20 bg-muted rounded-xl animate-pulse" />
+                  ))}
+                </div>
+              ) : unread.length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-foreground">Nenhuma anomalia ativa</p>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
+                      Anomalias são detectadas automaticamente a cada hora, validadas em 3 janelas de tempo (7, 14 e 30 dias).
                     </p>
                   </CardContent>
                 </Card>
               ) : (
-                history.map((anomaly) => (
-                  <HistoryCard key={anomaly.id} anomaly={anomaly} />
-                ))
+                <div className="space-y-2">
+                  {unread.map((anomaly) => (
+                    <AnomalyCard key={anomaly.id} anomaly={anomaly} markRead={markRead} />
+                  ))}
+                </div>
               )}
             </div>
-          )}
-        </div>
+
+            {/* ─── Histórico colapsável ─────────────────────────────────────────── */}
+            <div>
+              <button
+                onClick={() => setHistoryOpen((v) => !v)}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-border/50 bg-muted/20 hover:bg-muted/40 transition-colors group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <FolderOpen className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                  <span className="text-sm font-medium text-foreground">Histórico</span>
+                  <span className="text-xs text-muted-foreground">
+                    ({history.length} {history.length === 1 ? "anomalia vista" : "anomalias vistas"} · ficam por 30 dias)
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Clock className="w-3 h-3" />
+                  {historyOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                </div>
+              </button>
+
+              {historyOpen && (
+                <div className="mt-2 space-y-2">
+                  {history.length === 0 ? (
+                    <Card className="border-border/30">
+                      <CardContent className="py-8 text-center">
+                        <FolderOpen className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                        <p className="text-xs text-muted-foreground">
+                          Anomalias marcadas como vistas aparecerão aqui por 30 dias.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    history.map((anomaly) => (
+                      <HistoryCard key={anomaly.id} anomaly={anomaly} />
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Info box */}
         <Card className="border-border/30 bg-muted/20">

@@ -18,6 +18,7 @@ import {
   Wallet,
   AlertTriangle,
 } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 // ─── Alertas técnicos operacionais ────────────────────────────────────────────
@@ -103,9 +104,18 @@ const TECHNICAL_ALERT_TYPES = new Set([
   "BUDGET_WARNING",
 ]);
 
+// Grupos de filtro por categoria
+const CRITICAL_TYPES = new Set(["CAMPAIGN_PAUSED", "PAYMENT_FAILED", "AD_REJECTED", "PAGE_UNLINKED", "INSTAGRAM_UNLINKED"]);
+const WARNING_TYPES  = new Set(["AD_ERROR", "BUDGET_WARNING"]);
+
 export default function AlertsPage() {
   const utils = trpc.useUtils();
   const { selectedAccountId } = useSelectedAccount();
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
+
+  const handleFilterClick = (filterKey: string) => {
+    setActiveFilter((prev) => (prev === filterKey ? null : filterKey));
+  };
 
   const queryKey = { accountId: selectedAccountId! };
 
@@ -116,6 +126,10 @@ export default function AlertsPage() {
 
   // Filtrar apenas alertas técnicos operacionais
   const alerts = (allAlerts ?? []).filter((a) => TECHNICAL_ALERT_TYPES.has(a.type));
+
+  // Subgrupos para os cards de filtro
+  const criticalAlerts = alerts.filter((a) => CRITICAL_TYPES.has(a.type));
+  const warningAlerts  = alerts.filter((a) => WARNING_TYPES.has(a.type));
 
   // Optimistic update: remove alert from list immediately on markRead
   const markRead = trpc.alerts.markRead.useMutation({
@@ -153,6 +167,29 @@ export default function AlertsPage() {
       toast.success("Todos os alertas removidos.");
     },
   });
+
+  const statsConfig = [
+    {
+      key: "critical",
+      label: "Críticos / Erros",
+      value: criticalAlerts.length,
+      color: criticalAlerts.length > 0 ? "text-red-400" : "text-muted-foreground",
+    },
+    {
+      key: "warning",
+      label: "Avisos",
+      value: warningAlerts.length,
+      color: warningAlerts.length > 0 ? "text-yellow-400" : "text-muted-foreground",
+    },
+  ];
+
+  // Lista filtrada (null = sem filtro ativo)
+  const filteredAlerts = (() => {
+    if (!activeFilter) return null;
+    if (activeFilter === "critical") return criticalAlerts;
+    if (activeFilter === "warning")  return warningAlerts;
+    return null;
+  })();
 
   const renderAlert = (alert: (typeof alerts)[number]) => {
     const tc = typeConfig[alert.type] ?? typeConfig.SYSTEM;
@@ -235,24 +272,24 @@ export default function AlertsPage() {
           )}
         </div>
 
-        {/* Contador simples */}
+        {/* Cards de filtro */}
         <div className="grid grid-cols-2 gap-3">
-          <Card>
-            <CardContent className="p-4">
-              <p className={`text-2xl font-bold ${alerts.length > 0 ? "text-yellow-400" : "text-muted-foreground"}`}>
-                {alerts.length}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">Alertas pendentes</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-2xl font-bold text-muted-foreground">
-                {(allAlerts ?? []).filter((a) => !TECHNICAL_ALERT_TYPES.has(a.type)).length}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">Outros (relatórios, sync)</p>
-            </CardContent>
-          </Card>
+          {statsConfig.map((stat) => (
+            <Card
+              key={stat.key}
+              className={`cursor-pointer transition-all duration-150 hover:border-primary/50 ${
+                activeFilter === stat.key
+                  ? "border-primary ring-1 ring-primary/30 bg-primary/5"
+                  : ""
+              }`}
+              onClick={() => handleFilterClick(stat.key)}
+            >
+              <CardContent className="p-4">
+                <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
+              </CardContent>
+            </Card>
+          ))}
         </div>
 
         {/* Alert list */}
@@ -262,7 +299,40 @@ export default function AlertsPage() {
               <div key={i} className="h-20 bg-muted rounded-xl animate-pulse" />
             ))}
           </div>
+        ) : filteredAlerts !== null ? (
+          // Modo filtrado — lista plana
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <span
+                  className={`w-2 h-2 rounded-full inline-block ${
+                    activeFilter === "critical" ? "bg-red-400" : "bg-yellow-400"
+                  }`}
+                />
+                {statsConfig.find((s) => s.key === activeFilter)?.label} ({filteredAlerts.length})
+              </h2>
+              <button
+                onClick={() => setActiveFilter(null)}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Limpar filtro
+              </button>
+            </div>
+            {filteredAlerts.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <BellOff className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-foreground">Nenhum alerta nesta categoria</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-2">
+                {filteredAlerts.map(renderAlert)}
+              </div>
+            )}
+          </div>
         ) : alerts.length === 0 ? (
+          // Estado vazio
           <Card>
             <CardContent className="py-16 text-center">
               <BellOff className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
@@ -273,6 +343,7 @@ export default function AlertsPage() {
             </CardContent>
           </Card>
         ) : (
+          // Modo normal sem filtro — lista completa
           <div className="space-y-2">
             {alerts.map(renderAlert)}
           </div>
