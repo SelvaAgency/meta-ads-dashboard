@@ -472,3 +472,8 @@
 - [x] Restaurar botão "Abrir HTML" no DashboardBuilder.tsx (usando Blob URL do S3)
 - [x] Redesenhar generateReportHtml com design premium, preenchendo folha, layout profissional
 - [x] Otimizar PDF para impressão com @media print
+
+## Ajustar Visão Geral do Dashboard Builder
+- [x] Remover card "Resultados" consolidado (com múltiplas métricas misturadas)
+- [x] Consolidar apenas Investimento Total + métricas somáveis (Alcance, Impressões, Cliques, Seguidores)
+- [x] Puxar métrica principal de cada campanha e consolidar
