@@ -410,7 +410,7 @@ export default function Dashboard() {
     return getPresetRange(period.preset);
   }, [period]);
 
-  const { data, isLoading } = trpc.dashboard.overview.useQuery(
+  const { data, isLoading, isError, error, refetch } = trpc.dashboard.overview.useQuery(
     { accountId: selectedAccountId!, ...queryParams },
     { enabled: !!selectedAccountId, refetchInterval: 60000 }
   );
@@ -570,6 +570,33 @@ export default function Dashboard() {
 
         {/* Balance Card — fixed at top */}
         {selectedAccountId && <BalanceCard accountId={selectedAccountId} />}
+
+        {/* Error state */}
+        {isError && (
+          <Card className="border-red-500/30 bg-red-500/10">
+            <CardContent className="p-6">
+              <div className="flex items-start gap-4">
+                <AlertTriangle className="w-6 h-6 text-red-400 mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-red-400 mb-1">Erro ao carregar dados</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    {error?.message ?? "Ocorreu um erro ao buscar os dados do dashboard."}
+                  </p>
+                  <div className="flex gap-3">
+                    <Button size="sm" variant="outline" onClick={() => refetch()} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+                      Tentar Novamente
+                    </Button>
+                    {error?.message?.toLowerCase().includes("token") && (
+                      <Button size="sm" variant="outline" onClick={() => navigate("/connect")} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+                        Reconectar Token
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Adaptive KPI Cards — 4 per row */}
         {isLoading ? (

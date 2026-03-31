@@ -15,7 +15,7 @@
  *    correctly label what "results" means per campaign (purchase, lead, message, etc.).
  */
 
-const META_API_BASE = "https://graph.facebook.com/v19.0";
+const META_API_BASE = "https://graph.facebook.com/v21.0";
 
 export interface MetaApiError {
   message: string;
@@ -96,13 +96,13 @@ export interface MetaCampaignInsights {
   action_values?: Array<{ action_type: string; value: string }>;
   // Conversion value (authoritative from Meta)
   conversion_values?: Array<{ action_type: string; value: string }>;
-  // Profile visits (from page_actions)
-  page_actions?: Array<{ action_type: string; value: string }>;
+  // Profile visits are now extracted from the 'actions' field (profile_visit, instagram_profile_visit)
+  // page_actions was removed in Meta Graph API v21.0
   // Outbound clicks (link clicks to external sites)
   outbound_clicks?: Array<{ action_type: string; value: string }>;
 }
 
-async function metaFetch<T>(path: string, params: Record<string, string>): Promise<T> {
+async function metaFetch<T>(path: string, params: Record<string, string>, retryCount = 0): Promise<T> {
   const url = new URL(`${META_API_BASE}/${path}`);
   for (const [key, val] of Object.entries(params)) {
     url.searchParams.set(key, val);
@@ -113,7 +113,34 @@ async function metaFetch<T>(path: string, params: Record<string, string>): Promi
 
   if (data.error) {
     const err = data.error as MetaApiError;
+
+    // Error 190: Token expired/invalid — propagate immediately, no retry
+    if (err.code === 190) {
+      throw new Error(`META_TOKEN_EXPIRED: Token expirado ou inválido. Reconecte sua conta em Gerenciar Contas. (${err.message})`);
+    }
+
+    // Error 4: Rate limit — wait 60s and retry once
+    if (err.code === 4 && retryCount < 1) {
+      console.warn(`[metaFetch] Rate limit (error 4) on ${path}, waiting 60s before retry...`);
+      await new Promise(r => setTimeout(r, 60000));
+      return metaFetch<T>(path, params, retryCount + 1);
+    }
+
+    // Error 500/503: Server error — retry up to 2 times with 2s delay
+    if ((response.status === 500 || response.status === 503 || err.code === 1 || err.code === 2) && retryCount < 2) {
+      console.warn(`[metaFetch] Server error (${err.code}) on ${path}, retrying in 2s (attempt ${retryCount + 1}/2)...`);
+      await new Promise(r => setTimeout(r, 2000));
+      return metaFetch<T>(path, params, retryCount + 1);
+    }
+
     throw new Error(`Meta API Error (${err.code}): ${err.message}`);
+  }
+
+  // HTTP-level server errors without JSON error body
+  if (!response.ok && retryCount < 2) {
+    console.warn(`[metaFetch] HTTP ${response.status} on ${path}, retrying in 2s (attempt ${retryCount + 1}/2)...`);
+    await new Promise(r => setTimeout(r, 2000));
+    return metaFetch<T>(path, params, retryCount + 1);
   }
 
   return data as T;
@@ -361,8 +388,7 @@ export async function getCampaignInsights(
       "action_values",
       // Conversion values
       "conversion_values",
-      // Profile visits and outbound clicks
-      "page_actions",
+      // Outbound clicks (profile visits extracted from actions)
       "outbound_clicks",
     ].join(","),
     time_range: JSON.stringify({ since: startDate, until: endDate }),
@@ -652,7 +678,7 @@ export async function checkRealTimeAlerts(
       access_token: accessToken,
       fields: "id,name,effective_status,issues_info",
       limit: "500",
-      effective_status: JSON.stringify(["WITH_ISSUES", "PAUSED_BY_SYSTEM"]),
+      effective_status: JSON.stringify(["WITH_ISSUES"]),
     });
 
     for (const adset of (data.data ?? [])) {

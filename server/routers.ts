@@ -237,6 +237,15 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "Conta não encontrada." });
         }
 
+        // Validate token before any API call
+        const tokenValid = await validateToken(account.accessToken);
+        if (!tokenValid) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Token expirado ou inválido. Reconecte sua conta em Gerenciar Contas.",
+          });
+        }
+
         const { startDate, endDate } = getDateRange(input.days);
 
         // Fetch campaigns and adsets together to get performance_goal

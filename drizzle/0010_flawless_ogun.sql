@@ -1,0 +1,1 @@
+ALTER TABLE `dashboard_reports` MODIFY COLUMN `imageUrls` text NOT NULL DEFAULT ('[]');

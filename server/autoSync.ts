@@ -48,6 +48,7 @@ import {
   calculateCpa,
   getResultLabel,
   checkRealTimeAlerts,
+  validateToken,
 } from "./metaAdsService";
 import { generateAgencyReport } from "./analysisService";
 import type { CampaignReportData } from "./analysisService";
@@ -82,12 +83,27 @@ const objectiveToGoalFallback: Record<string, string> = {
   OUTCOME_APP_PROMOTION: "APP_INSTALLS",
 };
 
-async function syncAccount(account: { id: number; accountId: string; accessToken: string; accountName: string | null }) {
+async function syncAccount(account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number }) {
   const { startDate, endDate } = getDateRange(SYNC_DAYS);
   const label = account.accountName ?? account.accountId;
   console.log(`[AutoSync] Syncing account "${label}" (${account.accountId}) — ${startDate} to ${endDate}`);
 
   try {
+    // Validate token before any API call
+    const tokenValid = await validateToken(account.accessToken);
+    if (!tokenValid) {
+      console.error(`[AutoSync] ✗ Token expirado para conta "${label}" (${account.accountId}). Criando alerta SYNC_ERROR.`);
+      await createAlert({
+        userId: account.userId,
+        accountId: account.id,
+        title: `Token expirado: ${label}`,
+        message: `O token de acesso da conta "${label}" expirou ou foi invalidado. Reconecte a conta em Gerenciar Contas para restaurar a sincronização automática.`,
+        type: "SYNC_ERROR" as any,
+        severity: "CRITICAL",
+      });
+      return;
+    }
+
     // 1. Fetch campaigns + adsets to get optimization_goal
     const [metaCampaigns, adsets] = await Promise.all([
       getCampaigns(account.accountId, account.accessToken),
@@ -159,8 +175,25 @@ async function syncAccount(account: { id: number; accountId: string; accessToken
 
     await updateMetaAdAccountSync(account.id);
     console.log(`[AutoSync] ✓ Account "${label}" synced — ${metaCampaigns.length} campaigns, ${insights.length} insight rows`);
-  } catch (err) {
-    console.error(`[AutoSync] ✗ Failed to sync account "${label}":`, err);
+  } catch (err: any) {
+    const errMsg = err?.message ?? String(err);
+    const metaCodeMatch = errMsg.match(/Meta API Error \((\d+)\)/);
+    const metaCode = metaCodeMatch ? metaCodeMatch[1] : null;
+    console.error(`[AutoSync] ✗ Failed to sync account "${label}" (Meta error code: ${metaCode ?? 'N/A'}):`, errMsg);
+
+    // If token expired, create SYNC_ERROR alert
+    if (errMsg.includes('META_TOKEN_EXPIRED') || metaCode === '190') {
+      try {
+        await createAlert({
+          userId: account.userId,
+          accountId: account.id,
+          title: `Sync falhou: ${label}`,
+          message: `Sincronização falhou por token expirado. Reconecte a conta em Gerenciar Contas.`,
+          type: "SYNC_ERROR" as any,
+          severity: "CRITICAL",
+        });
+      } catch (_) { /* ignore alert creation errors */ }
+    }
   }
 }
 

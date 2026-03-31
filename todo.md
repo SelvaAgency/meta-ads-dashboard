@@ -477,3 +477,11 @@
 - [x] Remover card "Resultados" consolidado (com múltiplas métricas misturadas)
 - [x] Consolidar apenas Investimento Total + métricas somáveis (Alcance, Impressões, Cliques, Seguidores)
 - [x] Puxar métrica principal de cada campanha e consolidar
+
+## Correções Integração Meta API (Mar/31)
+- [x] 1. CRÍTICO: Atualizar versão Meta Graph API de v19.0 para v21.0
+- [x] 2. CRÍTICO: Validação de token antes de cada sync (routers.ts e autoSync.ts)
+- [x] 3. CRÍTICO: Exibir erros de sync no Dashboard.tsx com botões Tentar Novamente e Reconectar
+- [x] 4. MÉDIO: Corrigir campo imageUrls no schema TiDB (TiDB não suporta DEFAULT em TEXT, mantido sem default)
+- [x] 5. MÉDIO: Retry com backoff no metaFetch (500/503 retry, 190 propagar, 4 rate limit)
+- [x] 6. BAIXO: Melhorar logging do autoSync com alerta SYNC_ERROR para token expirado + remover page_actions e PAUSED_BY_SYSTEM (deprecados v21.0)
