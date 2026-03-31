@@ -456,3 +456,8 @@
 - [x] Remover tab "Histórico 30 dias" — acessar via card de filtro no topo
 - [x] Botões "Aplicado (em observação)" e "Não Aplicar" por sugestão com troca livre
 - [x] Campo de motivo visível quando rejeitada
+
+## Card de Saldo no Dashboard + Alertas
+- [x] Exibir card de saldo fixo no topo do Dashboard com cores dinâmicas (verde >200, amarelo 100-200, vermelho <100)
+- [x] Mostrar forma de pagamento no card de saldo
+- [x] Integrar alerta automático de saldo baixo (<R$200) no sistema de alertas (já existia via autoSync)

@@ -568,7 +568,8 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Alerts banner removed — user accesses Alertas and Anomalias via sidebar navigation */}
+        {/* Balance Card — fixed at top */}
+        {selectedAccountId && <BalanceCard accountId={selectedAccountId} />}
 
         {/* Adaptive KPI Cards — 4 per row */}
         {isLoading ? (
@@ -613,9 +614,6 @@ export default function Dashboard() {
             </div>
           </>
         )}
-
-        {/* Billing / Balance Card */}
-        {selectedAccountId && <BillingCard accountId={selectedAccountId} />}
 
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -755,23 +753,23 @@ export default function Dashboard() {
   );
 }
 
-// ─── Billing / Balance Card ───────────────────────────────────────────────────
-function BillingCard({ accountId }: { accountId: number }) {
+// ─── Balance Card (top of dashboard) ─────────────────────────────────────────
+function BalanceCard({ accountId }: { accountId: number }) {
   const { data: billing, isLoading } = trpc.accounts.billing.useQuery({ accountId });
+
   if (isLoading) {
     return (
       <Card className="border-border">
-        <CardContent className="p-5 flex items-center gap-3">
+        <CardContent className="p-4 flex items-center gap-3">
           <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Carregando informações de pagamento...</span>
+          <span className="text-sm text-muted-foreground">Carregando saldo da conta...</span>
         </CardContent>
       </Card>
     );
   }
   if (!billing) return null;
+
   const remaining = billing.remainingBalance;
-  const isLow = remaining !== null && remaining < 200;
-  const isCritical = remaining !== null && remaining < 50;
   const fundingLabel = (() => {
     const map: Record<number, string> = {
       0: "Não configurado", 1: "Cartão de crédito", 2: "Saldo Meta (pré-pago)",
@@ -781,49 +779,76 @@ function BillingCard({ accountId }: { accountId: number }) {
     };
     return billing.fundingSourceDisplay ?? (billing.fundingSourceType !== null ? (map[billing.fundingSourceType] ?? `Tipo ${billing.fundingSourceType}`) : "Não configurado");
   })();
-  return (
-    <Card className={`border ${isCritical ? "border-red-500/40 bg-red-500/5" : isLow ? "border-yellow-500/40 bg-yellow-500/5" : "border-border"}`}>
-      <CardContent className="p-5">
-        <div className="flex flex-wrap items-center gap-6">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-purple-400/10 flex items-center justify-center flex-shrink-0">
-              {billing.isPrePaid ? <Wallet className="w-4 h-4 text-purple-400" /> : <CreditCard className="w-4 h-4 text-purple-400" />}
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Forma de pagamento</p>
-              <p className="text-sm font-semibold text-foreground">{fundingLabel}</p>
-            </div>
-          </div>
-          {billing.isPrePaid && remaining !== null && (
-            <div className="flex items-center gap-2.5">
-              <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${isCritical ? "bg-red-400/10" : isLow ? "bg-yellow-400/10" : "bg-emerald-400/10"}`}>
-                {isCritical || isLow ? <AlertTriangle className={`w-4 h-4 ${isCritical ? "text-red-400" : "text-yellow-400"}`} /> : <DollarSign className="w-4 h-4 text-emerald-400" />}
+
+  // Dynamic color based on balance thresholds
+  const getBalanceStyle = (balance: number | null) => {
+    if (balance === null) return { bg: "bg-card", text: "text-foreground", border: "border-border", label: "—", icon: "bg-purple-400/10", iconColor: "text-purple-400" };
+    if (balance > 200) return { bg: "bg-emerald-500/5", text: "text-emerald-400", border: "border-emerald-500/30", label: "Saudável", icon: "bg-emerald-400/10", iconColor: "text-emerald-400" };
+    if (balance >= 100) return { bg: "bg-amber-500/5", text: "text-amber-400", border: "border-amber-500/30", label: "Atenção", icon: "bg-amber-400/10", iconColor: "text-amber-400" };
+    return { bg: "bg-red-500/5", text: "text-red-400", border: "border-red-500/30", label: "Crítico", icon: "bg-red-400/10", iconColor: "text-red-400" };
+  };
+
+  const colors = getBalanceStyle(remaining);
+
+  // For post-paid accounts without remaining balance, show a simpler card
+  if (!billing.isPrePaid || remaining === null) {
+    return (
+      <Card className="border-border">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-purple-400/10 flex items-center justify-center flex-shrink-0">
+                <CreditCard className="w-4 h-4 text-purple-400" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Saldo remanescente</p>
-                <p className={`text-sm font-bold ${isCritical ? "text-red-400" : isLow ? "text-yellow-400" : "text-emerald-400"}`}>
-                  {billing.currency} {remaining.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                </p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Forma de Pagamento</p>
+                <p className="text-sm font-semibold text-foreground">{fundingLabel}</p>
               </div>
             </div>
-          )}
-          {!billing.isPrePaid && billing.spendCap && (
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-lg bg-blue-400/10 flex items-center justify-center flex-shrink-0">
-                <DollarSign className="w-4 h-4 text-blue-400" />
-              </div>
-              <div>
+            {billing.spendCap && (
+              <div className="text-right">
                 <p className="text-xs text-muted-foreground">Limite de gasto</p>
                 <p className="text-sm font-semibold text-foreground">
                   {billing.currency} {(parseFloat(billing.spendCap) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                 </p>
               </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Pre-paid account with balance
+  return (
+    <Card className={`${colors.border} border ${colors.bg}`}>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${colors.icon}`}>
+              <Wallet className={`w-5 h-5 ${colors.iconColor}`} />
             </div>
-          )}
-          {billing.isPrePaid && isLow && remaining !== null && (
-            <div className={`ml-auto flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${isCritical ? "bg-red-500/10 text-red-400 border border-red-500/20" : "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"}`}>
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wide">Saldo da Conta</p>
+              <p className={`text-2xl font-bold ${colors.text}`}>
+                {billing.currency} {remaining.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Badge variant="outline" className={`${colors.text} border-current/30`}>
+              {colors.label}
+            </Badge>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 mt-2 pt-2 border-t border-border/30">
+          <p className="text-xs text-muted-foreground">
+            Forma de pagamento: <span className="text-foreground font-medium">{fundingLabel}</span>
+          </p>
+          {remaining < 200 && (
+            <div className={`flex items-center gap-1.5 text-xs font-medium ${colors.text}`}>
               <AlertTriangle className="w-3.5 h-3.5" />
-              {isCritical ? "Saldo crítico! Recarregue imediatamente." : "Saldo abaixo de R$ 200 — Recarregue em breve."}
+              {remaining < 100 ? "Saldo crítico! Recarregue imediatamente." : "Saldo baixo — Recarregue em breve."}
             </div>
           )}
         </div>
