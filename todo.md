@@ -449,3 +449,10 @@
 - [x] Adicionar função generateExportHtml client-side no DashboardBuilder.tsx
 - [x] Substituir botões de export por Blob URL (sem depender do S3)
 - [x] Fallback: download HTML se popup bloqueado
+
+## Redesign Página Sugestões IA
+- [x] Cards de resumo por prioridade (Alta, Média, Baixa) + Aplicadas + Não Aplicadas + Histórico
+- [x] Cards clicáveis como filtro toggle (mesmo padrão Anomalias/Alertas)
+- [x] Remover tab "Histórico 30 dias" — acessar via card de filtro no topo
+- [x] Botões "Aplicado (em observação)" e "Não Aplicar" por sugestão com troca livre
+- [x] Campo de motivo visível quando rejeitada

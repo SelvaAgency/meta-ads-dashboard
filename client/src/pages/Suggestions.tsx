@@ -39,7 +39,6 @@ const categoryConfig: Record<string, { label: string; icon: React.ComponentType<
   REALOCAR_ORCAMENTO: { label: "Realocar Orçamento", icon: DollarSign, color: "text-blue-400", description: "Transferência de orçamento entre campanhas/conjuntos" },
   NOVO_CRIATIVO: { label: "Novo Criativo", icon: Lightbulb, color: "text-yellow-400", description: "Novo formato de criativo para conjunto específico" },
   NOVO_CONJUNTO: { label: "Novo Conjunto", icon: Target, color: "text-emerald-400", description: "Novo segmento de público dentro de campanha existente" },
-  // Legacy types (backward compatibility)
   BUDGET: { label: "Orçamento", icon: DollarSign, color: "text-blue-400", description: "Ajuste de orçamento" },
   TARGETING: { label: "Segmentação", icon: Target, color: "text-purple-400", description: "Ajuste de segmentação" },
   CREATIVE: { label: "Criativo", icon: Lightbulb, color: "text-yellow-400", description: "Ajuste de criativo" },
@@ -54,6 +53,7 @@ const priorityConfig: Record<string, { label: string; badge: string; color: stri
   P2: { label: "P2 — Alto Impacto", badge: "P2", color: "text-orange-400 border-orange-400/30", bgColor: "bg-orange-400/5 border-orange-400/20" },
   P3: { label: "P3 — Oportunidade", badge: "P3", color: "text-blue-400 border-blue-400/30", bgColor: "bg-blue-400/5 border-blue-400/20" },
   HIGH: { label: "P1 — Urgente", badge: "P1", color: "text-red-400 border-red-400/30", bgColor: "bg-red-400/5 border-red-400/20" },
+  CRITICAL: { label: "P1 — Urgente", badge: "P1", color: "text-red-400 border-red-400/30", bgColor: "bg-red-400/5 border-red-400/20" },
   MEDIUM: { label: "P2 — Alto Impacto", badge: "P2", color: "text-orange-400 border-orange-400/30", bgColor: "bg-orange-400/5 border-orange-400/20" },
   LOW: { label: "P3 — Oportunidade", badge: "P3", color: "text-blue-400 border-blue-400/30", bgColor: "bg-blue-400/5 border-blue-400/20" },
 };
@@ -204,10 +204,10 @@ function RejectionForm({
   );
 }
 
-// ─── Suggestion Card (Pending) ────────────────────────────────────────────────
-function PendingSuggestionCard({ s, onStatusChange }: {
+// ─── Unified Suggestion Card ─────────────────────────────────────────────────
+function SuggestionCard({ s, onStatusChange }: {
   s: any;
-  onStatusChange: (id: number, status: "applied" | "rejected", reason?: string) => void;
+  onStatusChange: (id: number, status: "applied" | "rejected" | "pending", reason?: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showRejectForm, setShowRejectForm] = useState(false);
@@ -217,23 +217,45 @@ function PendingSuggestionCard({ s, onStatusChange }: {
   const pri = priorityConfig[s.priority] ?? priorityConfig.P3;
   const CatIcon = cat.icon;
   const actionItems = Array.isArray(s.actionItems) ? s.actionItems as string[] : [];
+  const isApplied = s.status === "applied";
+  const isRejected = s.status === "rejected";
+  const isMonitoring = isApplied && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult;
 
   const handleApply = () => {
     setIsPending(true);
     onStatusChange(s.id, "applied");
+    setTimeout(() => setIsPending(false), 1000);
   };
 
   const handleReject = (reason: string) => {
     setIsPending(true);
+    setShowRejectForm(false);
     onStatusChange(s.id, "rejected", reason);
+    setTimeout(() => setIsPending(false), 1000);
+  };
+
+  const handleRevert = () => {
+    setIsPending(true);
+    onStatusChange(s.id, "pending");
+    setTimeout(() => setIsPending(false), 1000);
   };
 
   return (
-    <Card className={`border-border hover:border-primary/30 transition-all ${pri.bgColor}`}>
+    <Card className={`border-border hover:border-primary/30 transition-all ${
+      isApplied ? "border-emerald-400/20" : isRejected ? "border-red-400/20" : pri.bgColor
+    }`}>
       <CardContent className="p-4">
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-accent/80 flex items-center justify-center flex-shrink-0">
-            <CatIcon className={`w-4 h-4 ${cat.color}`} />
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+            isApplied ? "bg-emerald-400/10" : isRejected ? "bg-red-400/10" : "bg-accent/80"
+          }`}>
+            {isApplied ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            ) : isRejected ? (
+              <XCircle className="w-4 h-4 text-red-400" />
+            ) : (
+              <CatIcon className={`w-4 h-4 ${cat.color}`} />
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -244,8 +266,44 @@ function PendingSuggestionCard({ s, onStatusChange }: {
               <Badge variant="outline" className={`text-xs ${cat.color}`}>
                 {cat.label}
               </Badge>
+              {isApplied && (
+                <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-400/30">
+                  Aplicado
+                </Badge>
+              )}
+              {isRejected && (
+                <Badge variant="outline" className="text-xs text-red-400 border-red-400/30">
+                  Não Aplicado
+                </Badge>
+              )}
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
+
+            {/* Monitoring badge */}
+            {isMonitoring && (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-blue-400">
+                <Eye className="w-3 h-3" />
+                Monitorando por {daysLeft(s.monitorUntil)} dias ainda
+              </div>
+            )}
+
+            {/* Monitor result */}
+            {s.monitorResult && (
+              <div className="mt-2 p-2 rounded-lg bg-blue-400/5 border border-blue-400/20">
+                <p className="text-xs font-medium text-blue-400 mb-1">Resultado do Monitoramento (7 dias)</p>
+                <p className="text-xs text-muted-foreground">{s.monitorResult}</p>
+              </div>
+            )}
+
+            {/* Rejection reason */}
+            {isRejected && s.rejectionReason && (
+              <div className="mt-2 p-2 rounded-lg bg-muted/50">
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Motivo: </span>
+                  {s.rejectionReason}
+                </p>
+              </div>
+            )}
 
             {expanded && (
               <div className="mt-3 space-y-3">
@@ -274,27 +332,49 @@ function PendingSuggestionCard({ s, onStatusChange }: {
             )}
 
             {/* Action buttons */}
-            <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/30 flex-wrap">
               <Button
                 size="sm"
-                variant="outline"
-                className="h-7 gap-1.5 text-xs text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10 hover:border-emerald-400/60"
-                onClick={handleApply}
+                variant={isApplied ? "default" : "outline"}
+                className={`h-7 gap-1.5 text-xs ${
+                  isApplied
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                    : "text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10 hover:border-emerald-400/60"
+                }`}
+                onClick={isApplied ? handleRevert : handleApply}
                 disabled={isPending}
               >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Aplicado
+                {isApplied ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Aplicado (em observação)
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Marcar Aplicado
+                  </>
+                )}
               </Button>
               <Button
                 size="sm"
-                variant="outline"
-                className="h-7 gap-1.5 text-xs text-red-400 border-red-400/30 hover:bg-red-400/10 hover:border-red-400/60"
-                onClick={() => setShowRejectForm(!showRejectForm)}
+                variant={isRejected ? "destructive" : "outline"}
+                className={`h-7 gap-1.5 text-xs ${
+                  !isRejected ? "text-red-400 border-red-400/30 hover:bg-red-400/10 hover:border-red-400/60" : ""
+                }`}
+                onClick={() => {
+                  if (isRejected) {
+                    handleRevert();
+                  } else {
+                    setShowRejectForm(!showRejectForm);
+                  }
+                }}
                 disabled={isPending}
               >
                 <XCircle className="w-3.5 h-3.5" />
-                Não Aplicado
+                {isRejected ? "Não Aplicado" : "Não Aplicar"}
               </Button>
+
               <Button
                 variant="ghost"
                 size="sm"
@@ -304,6 +384,15 @@ function PendingSuggestionCard({ s, onStatusChange }: {
                 {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 {expanded ? "Menos" : "Ver ações"}
               </Button>
+            </div>
+
+            {/* Date info */}
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <span className="text-xs text-muted-foreground">
+                <Clock className="w-3 h-3 inline mr-1" />
+                {formatDate(s.generatedAt)}
+                {s.expiresAt && ` · expira ${formatDate(s.expiresAt)}`}
+              </span>
             </div>
 
             {showRejectForm && (
@@ -320,138 +409,13 @@ function PendingSuggestionCard({ s, onStatusChange }: {
   );
 }
 
-// ─── History Card ─────────────────────────────────────────────────────────────
-function HistoryCard({ s, onStatusChange }: {
-  s: any;
-  onStatusChange: (id: number, status: "applied" | "rejected" | "pending", reason?: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const isApplied = s.status === "applied";
-  const isMonitoring = isApplied && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult;
-  const cat = categoryConfig[s.category] ?? categoryConfig.GENERAL;
-  const CatIcon = cat.icon;
-  const actionItems = Array.isArray(s.actionItems) ? s.actionItems as string[] : [];
-
-  return (
-    <Card className={`border-border transition-all ${isApplied ? "border-emerald-400/20" : "border-red-400/20 opacity-80"}`}>
-      <CardContent className="p-4">
-        <div className="flex items-start gap-3">
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${isApplied ? "bg-emerald-400/10" : "bg-red-400/10"}`}>
-            {isApplied ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            ) : (
-              <XCircle className="w-4 h-4 text-red-400" />
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <p className="text-sm font-semibold text-foreground">{s.title}</p>
-              <Badge variant="outline" className={`text-xs ${isApplied ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
-                {isApplied ? "Aplicado" : "Não Aplicado"}
-              </Badge>
-              <Badge variant="outline" className={`text-xs ${cat.color}`}>
-                {cat.label}
-              </Badge>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{s.description}</p>
-
-            {/* Monitoring badge */}
-            {isMonitoring && (
-              <div className="mt-2 flex items-center gap-1.5 text-xs text-blue-400">
-                <Eye className="w-3 h-3" />
-                Monitorando por {daysLeft(s.monitorUntil)} dias ainda
-              </div>
-            )}
-
-            {/* Monitor result */}
-            {s.monitorResult && (
-              <div className="mt-2 p-2 rounded-lg bg-blue-400/5 border border-blue-400/20">
-                <p className="text-xs font-medium text-blue-400 mb-1">Resultado do Monitoramento (7 dias)</p>
-                <p className="text-xs text-muted-foreground">{s.monitorResult}</p>
-              </div>
-            )}
-
-            {/* Rejection reason */}
-            {!isApplied && s.rejectionReason && (
-              <div className="mt-2 p-2 rounded-lg bg-muted/50">
-                <p className="text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">Motivo: </span>
-                  {s.rejectionReason}
-                </p>
-              </div>
-            )}
-
-            {expanded && actionItems.length > 0 && (
-              <div className="mt-3">
-                <p className="text-xs font-medium text-foreground mb-2">Ações</p>
-                <ul className="space-y-1">
-                  {actionItems.map((action: string, i: number) => (
-                    <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
-                      <span className="text-primary mt-0.5">•</span>
-                      {action}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <div className="flex items-center gap-2 mt-3 flex-wrap">
-              <span className="text-xs text-muted-foreground">
-                <Clock className="w-3 h-3 inline mr-1" />
-                {formatDate(s.generatedAt)}
-                {s.expiresAt && ` · expira ${formatDate(s.expiresAt)}`}
-              </span>
-              {/* Allow switching status within 30 days */}
-              <div className="ml-auto flex gap-1.5">
-                {!isApplied && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 text-xs gap-1 text-emerald-400 hover:bg-emerald-400/10"
-                    onClick={() => onStatusChange(s.id, "applied")}
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    Marcar Aplicado
-                  </Button>
-                )}
-                {isApplied && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 text-xs gap-1 text-red-400 hover:bg-red-400/10"
-                    onClick={() => onStatusChange(s.id, "rejected")}
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    Marcar Não Aplicado
-                  </Button>
-                )}
-                {actionItems.length > 0 && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 text-xs text-muted-foreground"
-                    onClick={() => setExpanded(!expanded)}
-                  >
-                    {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Suggestions() {
   const [, navigate] = useLocation();
-  const [activeTab, setActiveTab] = useState<"pending" | "history">("pending");
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
 
-  // Store the last analysis result (accountState, healthSummary, benchmarksUsed) in state
   const [lastAnalysis, setLastAnalysis] = useState<AccountStateResult | null>(null);
 
   const { data: suggestions, isLoading } = trpc.suggestions.list.useQuery(
@@ -461,15 +425,13 @@ export default function Suggestions() {
 
   const { data: history, isLoading: isLoadingHistory } = trpc.suggestions.history.useQuery(
     { accountId: selectedAccountId! },
-    { enabled: !!selectedAccountId && activeTab === "history" }
+    { enabled: !!selectedAccountId }
   );
 
   const generate = trpc.suggestions.generate.useMutation({
     onSuccess: (data) => {
       utils.suggestions.list.invalidate();
       utils.suggestions.history.invalidate();
-
-      // Store analysis result for UI display
       setLastAnalysis(data as AccountStateResult);
 
       if (data.skippedReason) {
@@ -511,6 +473,8 @@ export default function Suggestions() {
     updateStatus.mutate({ suggestionId: id, status, rejectionReason: reason });
   };
 
+  const handleFilterClick = (key: string) => setActiveFilter((prev) => (prev === key ? null : key));
+
   if (!accounts || accounts.length === 0) {
     return (
       <MetaDashboardLayout title="Sugestões IA">
@@ -530,7 +494,40 @@ export default function Suggestions() {
 
   const pending = suggestions ?? [];
   const hist = history ?? [];
-  const monitoring = hist.filter((s) => s.status === "applied" && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult);
+  const allItems = [...pending, ...hist];
+
+  // Stats for filter cards
+  const statsConfig = [
+    { key: "high", label: "Alta Prioridade", value: allItems.filter((s) => s.priority === "HIGH").length, color: "text-red-400", borderActive: "border-red-400 ring-1 ring-red-400/30 bg-red-400/5" },
+    { key: "medium", label: "Média Prioridade", value: allItems.filter((s) => s.priority === "MEDIUM").length, color: "text-orange-400", borderActive: "border-orange-400 ring-1 ring-orange-400/30 bg-orange-400/5" },
+    { key: "low", label: "Baixa Prioridade", value: allItems.filter((s) => s.priority === "LOW").length, color: "text-blue-400", borderActive: "border-blue-400 ring-1 ring-blue-400/30 bg-blue-400/5" },
+    { key: "applied", label: "Aplicadas (Observação)", value: allItems.filter((s) => s.status === "applied").length, color: "text-emerald-400", borderActive: "border-emerald-400 ring-1 ring-emerald-400/30 bg-emerald-400/5" },
+    { key: "rejected", label: "Não Aplicadas", value: allItems.filter((s) => s.status === "rejected").length, color: "text-slate-400", borderActive: "border-slate-400 ring-1 ring-slate-400/30 bg-slate-400/5" },
+    { key: "history", label: "Histórico (30d)", value: hist.length, color: "text-muted-foreground", borderActive: "border-primary ring-1 ring-primary/30 bg-primary/5" },
+  ];
+
+  // Filter logic
+  const filteredItems = (() => {
+    if (!activeFilter) return pending;
+    switch (activeFilter) {
+      case "high":
+        return allItems.filter((s) => s.priority === "HIGH");
+      case "medium":
+        return allItems.filter((s) => s.priority === "MEDIUM");
+      case "low":
+        return allItems.filter((s) => s.priority === "LOW");
+      case "applied":
+        return allItems.filter((s) => s.status === "applied");
+      case "rejected":
+        return allItems.filter((s) => s.status === "rejected");
+      case "history":
+        return hist;
+      default:
+        return pending;
+    }
+  })();
+
+  const monitoring = allItems.filter((s) => s.status === "applied" && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult);
 
   return (
     <MetaDashboardLayout title="Sugestões IA">
@@ -554,10 +551,10 @@ export default function Suggestions() {
           </Button>
         </div>
 
-        {/* Account State Banner — shown after analysis */}
+        {/* Account State Banner */}
         {lastAnalysis && <AccountStateBanner result={lastAnalysis} />}
 
-        {/* Info box — shown before first analysis */}
+        {/* Info box */}
         {!lastAnalysis && pending.length === 0 && (
           <div className="flex items-start gap-3 p-4 rounded-xl bg-muted/40 border border-border">
             <Info className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
@@ -570,15 +567,16 @@ export default function Suggestions() {
           </div>
         )}
 
-        {/* Stats */}
-        <div className="grid grid-cols-4 gap-3">
-          {[
-            { label: "Pendentes", value: pending.length, color: "text-primary" },
-            { label: "Alta Prioridade", value: pending.filter((s) => s.priority === "HIGH").length, color: "text-red-400" },
-            { label: "Em Monitoramento", value: monitoring.length, color: "text-blue-400" },
-            { label: "Histórico (30d)", value: hist.length, color: "text-muted-foreground" },
-          ].map((stat) => (
-            <Card key={stat.label}>
+        {/* Stats Cards — Filter Toggle */}
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+          {statsConfig.map((stat) => (
+            <Card
+              key={stat.key}
+              className={`cursor-pointer transition-all hover:border-primary/30 ${
+                activeFilter === stat.key ? stat.borderActive : ""
+              }`}
+              onClick={() => handleFilterClick(stat.key)}
+            >
               <CardContent className="p-4">
                 <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
@@ -586,6 +584,23 @@ export default function Suggestions() {
             </Card>
           ))}
         </div>
+
+        {/* Active filter indicator */}
+        {activeFilter && (
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs gap-1">
+              Filtro: {statsConfig.find((s) => s.key === activeFilter)?.label}
+            </Badge>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs text-muted-foreground"
+              onClick={() => setActiveFilter(null)}
+            >
+              Limpar filtro
+            </Button>
+          </div>
+        )}
 
         {/* Monitoring alert */}
         {monitoring.length > 0 && (
@@ -602,98 +617,54 @@ export default function Suggestions() {
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
-          <button
-            className={`px-4 py-1.5 text-sm rounded-md transition-all font-medium ${activeTab === "pending" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-            onClick={() => setActiveTab("pending")}
-          >
-            Pendentes ({pending.length})
-          </button>
-          <button
-            className={`px-4 py-1.5 text-sm rounded-md transition-all font-medium flex items-center gap-1.5 ${activeTab === "history" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-            onClick={() => setActiveTab("history")}
-          >
-            <History className="w-3.5 h-3.5" />
-            Histórico 30 dias
-          </button>
-        </div>
-
-        {/* Pending Tab */}
-        {activeTab === "pending" && (
-          <>
-            {isLoading ? (
-              <div className="space-y-3">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="h-24 bg-muted rounded-xl animate-pulse" />
-                ))}
-              </div>
-            ) : pending.length === 0 ? (
-              <Card>
-                <CardContent className="py-16 text-center">
-                  <Brain className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-                  <p className="text-sm font-medium text-foreground mb-2">Nenhuma sugestão pendente</p>
-                  <p className="text-xs text-muted-foreground mb-6 max-w-sm mx-auto">
-                    {lastAnalysis?.accountState === "ESTADO_A"
-                      ? "A conta está saudável. A IA não identificou problemas que justifiquem intervenção no momento."
-                      : "Clique em \"Analisar Conta\" para que a IA examine os dados reais das suas campanhas e gere recomendações baseadas em evidências."}
+        {/* Suggestion List */}
+        {isLoading || isLoadingHistory ? (
+          <div className="space-y-3">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="h-24 bg-muted rounded-xl animate-pulse" />
+            ))}
+          </div>
+        ) : filteredItems.length === 0 ? (
+          <Card>
+            <CardContent className="py-16 text-center">
+              <Brain className="w-12 h-12 text-primary/30 mx-auto mb-4" />
+              <p className="text-sm font-medium text-foreground mb-2">
+                {activeFilter ? "Nenhuma sugestão neste filtro" : "Nenhuma sugestão pendente"}
+              </p>
+              <p className="text-xs text-muted-foreground mb-6 max-w-sm mx-auto">
+                {activeFilter
+                  ? "Tente outro filtro ou limpe o filtro atual para ver todas as sugestões."
+                  : lastAnalysis?.accountState === "ESTADO_A"
+                    ? "A conta está saudável. A IA não identificou problemas que justifiquem intervenção no momento."
+                    : "Clique em \"Analisar Conta\" para que a IA examine os dados reais das suas campanhas e gere recomendações baseadas em evidências."}
+              </p>
+              {!activeFilter && !lastAnalysis && (
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50 text-left max-w-sm mx-auto mb-6">
+                  <AlertCircle className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-muted-foreground">
+                    A análise só gera sugestões quando há dados reais de performance. Se a conta não tiver gasto registrado, a IA avisará que não há dados suficientes.
                   </p>
-                  {!lastAnalysis && (
-                    <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50 text-left max-w-sm mx-auto mb-6">
-                      <AlertCircle className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                      <p className="text-xs text-muted-foreground">
-                        A análise só gera sugestões quando há dados reais de performance. Se a conta não tiver gasto registrado, a IA avisará que não há dados suficientes.
-                      </p>
-                    </div>
-                  )}
-                  <Button
-                    size="sm"
-                    onClick={() => selectedAccountId && generate.mutate({ accountId: selectedAccountId })}
-                    disabled={generate.isPending}
-                    className="gap-2"
-                  >
-                    <Brain className="w-3.5 h-3.5" />
-                    {generate.isPending ? "Diagnosticando..." : "Analisar Conta"}
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-3">
-                {pending.map((s) => (
-                  <PendingSuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* History Tab */}
-        {activeTab === "history" && (
-          <>
-            {isLoadingHistory ? (
-              <div className="space-y-3">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="h-20 bg-muted rounded-xl animate-pulse" />
-                ))}
-              </div>
-            ) : hist.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <History className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
-                  <p className="text-sm font-medium text-foreground mb-1">Nenhum histórico ainda</p>
-                  <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                    Sugestões marcadas como Aplicado ou Não Aplicado aparecerão aqui por 30 dias.
-                  </p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-3">
-                {hist.map((s) => (
-                  <HistoryCard key={s.id} s={s} onStatusChange={handleStatusChange} />
-                ))}
-              </div>
-            )}
-          </>
+                </div>
+              )}
+              {!activeFilter && (
+                <Button
+                  size="sm"
+                  onClick={() => selectedAccountId && generate.mutate({ accountId: selectedAccountId })}
+                  disabled={generate.isPending}
+                  className="gap-2"
+                >
+                  <Brain className="w-3.5 h-3.5" />
+                  {generate.isPending ? "Diagnosticando..." : "Analisar Conta"}
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {filteredItems.map((s) => (
+              <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />
+            ))}
+          </div>
         )}
       </div>
     </MetaDashboardLayout>
