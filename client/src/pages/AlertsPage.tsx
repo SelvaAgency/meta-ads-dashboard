@@ -4,7 +4,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  AlertTriangle,
   Bell,
   BellOff,
   CheckCheck,
@@ -16,22 +15,14 @@ import {
   Link2Off,
   Pause,
   Wallet,
-  Zap,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 
 // ─── Alertas técnicos operacionais ────────────────────────────────────────────
-// Apenas erros que exigem ação imediata do gestor:
-// - Campanha parada por erro (P1 — Crítica)
-// - Saldo abaixo de R$200 (P1 — Crítica)
-// - Falha de pagamento (P1 — Crítica)
-// - Criativo rejeitado (P1 — Crítica)
-// - Erros em conjuntos ou anúncios (P2 — Alta)
-// - Página desvinculada da BM (P1 — Crítica)
-// - Instagram desvinculado da página (P2 — Alta)
-//
-// NÃO aparecem aqui: anomalias de métricas (ROAS, CPA, CTR, resultados).
-// Essas ficam na aba Anomalias.
+// Erros de infraestrutura que exigem atenção do gestor.
+// Apenas INFORMAM — sem hierarquia de prioridade.
+// Ações sugeridas e priorização ficam exclusivamente na aba Sugestões IA.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const typeConfig: Record<
@@ -100,34 +91,6 @@ const typeConfig: Record<
   },
 };
 
-// Prioridade P1 = Crítica (ação imediata), P2 = Alta (resolver em breve), P3 = Média (monitorar)
-const priorityConfig: Record<
-  string,
-  { label: string; badge: string; border: string; bg: string; dot: string }
-> = {
-  CRITICAL: {
-    label: "P1 — Crítica",
-    badge: "text-red-400 border-red-400/40 bg-red-400/10",
-    border: "border-red-400/30",
-    bg: "bg-red-400/5",
-    dot: "bg-red-400",
-  },
-  WARNING: {
-    label: "P2 — Alta",
-    badge: "text-orange-400 border-orange-400/40 bg-orange-400/10",
-    border: "border-orange-400/20",
-    bg: "bg-orange-400/5",
-    dot: "bg-orange-400",
-  },
-  INFO: {
-    label: "P3 — Média",
-    badge: "text-blue-400 border-blue-400/40 bg-blue-400/10",
-    border: "border-blue-400/20",
-    bg: "bg-blue-400/5",
-    dot: "bg-blue-400",
-  },
-};
-
 // Tipos que são alertas técnicos operacionais (exibidos nesta aba)
 const TECHNICAL_ALERT_TYPES = new Set([
   "CAMPAIGN_PAUSED",
@@ -184,51 +147,43 @@ export default function AlertsPage() {
     },
   });
 
-  const criticalAlerts = alerts.filter((a) => a.severity === "CRITICAL");
-  const warningAlerts = alerts.filter((a) => a.severity === "WARNING");
-  const infoAlerts = alerts.filter((a) => a.severity === "INFO");
-
   const renderAlert = (alert: (typeof alerts)[number]) => {
     const tc = typeConfig[alert.type] ?? typeConfig.SYSTEM;
-    const pc = priorityConfig[alert.severity] ?? priorityConfig.INFO;
     const AlertIcon = tc.icon;
-    // suggestedAction may exist on the alert object if the backend sends it
-    const suggestedAction = (alert as Record<string, unknown>).suggestedAction as string | undefined;
 
     return (
-      <Card
-        key={alert.id}
-        className={`border transition-colors ${pc.border} ${pc.bg}`}
-      >
+      <Card key={alert.id} className="border border-border/50">
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
-            {/* Priority dot */}
-            <div className="relative flex-shrink-0">
-              <div className={`w-9 h-9 rounded-lg ${tc.bg} flex items-center justify-center`}>
-                <AlertIcon className={`w-4 h-4 ${tc.color}`} />
-              </div>
-              <div className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ${pc.dot} ring-2 ring-background`} />
+            {/* Type icon */}
+            <div className={`w-9 h-9 rounded-lg ${tc.bg} flex items-center justify-center flex-shrink-0`}>
+              <AlertIcon className={`w-4 h-4 ${tc.color}`} />
             </div>
 
             <div className="flex-1 min-w-0">
+              {/* Conta afetada + tipo */}
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <p className="text-sm font-semibold text-foreground">{alert.title}</p>
-                <Badge variant="outline" className={`text-xs ${pc.badge}`}>
-                  {pc.label}
-                </Badge>
                 <Badge variant="outline" className="text-xs text-muted-foreground border-border/50">
                   {tc.label}
                 </Badge>
               </div>
+              {/* O que aconteceu */}
               <p className="text-xs text-muted-foreground leading-relaxed">{alert.message}</p>
-              {suggestedAction && (
-                <div className="mt-2 flex items-start gap-1.5">
-                  <Zap className="w-3 h-3 text-primary flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-primary/80 leading-relaxed">{suggestedAction}</p>
-                </div>
-              )}
+              {/* Dados: métrica atual vs referência (quando disponível) */}
+              {(() => {
+                const cur = (alert as Record<string, unknown>).metricCurrent as string | undefined;
+                const ref = (alert as Record<string, unknown>).metricReference as string | undefined;
+                if (!cur && !ref) return null;
+                return (
+                  <p className="text-xs text-muted-foreground/70 mt-1">
+                    {cur}{ref ? ` · Referência: ${ref}` : ""}
+                  </p>
+                );
+              })()}
+              {/* Timestamp */}
               <p className="text-xs text-muted-foreground/50 mt-1.5">
-                {new Date(alert.createdAt).toLocaleString("pt-BR")}
+                Detectado em {new Date(alert.createdAt).toLocaleString("pt-BR")}
               </p>
             </div>
 
@@ -256,7 +211,7 @@ export default function AlertsPage() {
           <div>
             <h1 className="text-xl font-bold text-foreground">Alertas Técnicos</h1>
             <p className="text-sm text-muted-foreground">
-              Erros operacionais que requerem ação — campanha parada, pagamento, criativos rejeitados, vínculos quebrados
+              Erros operacionais detectados automaticamente — campanha parada, pagamento, criativos rejeitados, vínculos quebrados
             </p>
           </div>
           {alerts.length > 0 && (
@@ -273,32 +228,24 @@ export default function AlertsPage() {
           )}
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            {
-              label: "P1 — Críticos",
-              value: criticalAlerts.length,
-              color: criticalAlerts.length > 0 ? "text-red-400" : "text-muted-foreground",
-            },
-            {
-              label: "P2 — Alta",
-              value: warningAlerts.length,
-              color: warningAlerts.length > 0 ? "text-orange-400" : "text-muted-foreground",
-            },
-            {
-              label: "P3 — Média",
-              value: infoAlerts.length,
-              color: infoAlerts.length > 0 ? "text-blue-400" : "text-muted-foreground",
-            },
-          ].map((stat) => (
-            <Card key={stat.label}>
-              <CardContent className="p-4">
-                <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
-              </CardContent>
-            </Card>
-          ))}
+        {/* Contador simples */}
+        <div className="grid grid-cols-2 gap-3">
+          <Card>
+            <CardContent className="p-4">
+              <p className={`text-2xl font-bold ${alerts.length > 0 ? "text-yellow-400" : "text-muted-foreground"}`}>
+                {alerts.length}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Alertas pendentes</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-2xl font-bold text-muted-foreground">
+                {(allAlerts ?? []).filter((a) => !TECHNICAL_ALERT_TYPES.has(a.type)).length}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Outros (relatórios, sync)</p>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Alert list */}
@@ -319,45 +266,8 @@ export default function AlertsPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-6">
-            {/* P1 — Críticos */}
-            {criticalAlerts.length > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-red-400 inline-block" />
-                  P1 — Críticos · Ação Imediata ({criticalAlerts.length})
-                </h2>
-                <div className="space-y-2">
-                  {criticalAlerts.map(renderAlert)}
-                </div>
-              </div>
-            )}
-
-            {/* P2 — Alta */}
-            {warningAlerts.length > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
-                  P2 — Alta · Resolver em Breve ({warningAlerts.length})
-                </h2>
-                <div className="space-y-2">
-                  {warningAlerts.map(renderAlert)}
-                </div>
-              </div>
-            )}
-
-            {/* P3 — Média */}
-            {infoAlerts.length > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />
-                  P3 — Média · Monitorar ({infoAlerts.length})
-                </h2>
-                <div className="space-y-2">
-                  {infoAlerts.map(renderAlert)}
-                </div>
-              </div>
-            )}
+          <div className="space-y-2">
+            {alerts.map(renderAlert)}
           </div>
         )}
 
@@ -367,14 +277,11 @@ export default function AlertsPage() {
             <div className="flex items-start gap-3">
               <Info className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
               <div>
-                <p className="text-xs font-medium text-foreground mb-1">O que é monitorado aqui</p>
+                <p className="text-xs font-medium text-foreground mb-1">Como funcionam os alertas</p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Campanha pausada por erro · Saldo abaixo de R$200 · Falha de pagamento · Criativo rejeitado · Erros em conjuntos ou anúncios · Página desvinculada da BM · Instagram desvinculado da página.
-                  <br />
-                  <span className="text-muted-foreground/70">
-                    Quedas de ROAS, CPA, CTR e resultados são monitoradas na aba{" "}
-                    <strong className="text-foreground">Anomalias</strong>.
-                  </span>
+                  Alertas técnicos informam sobre erros operacionais detectados automaticamente a cada hora.
+                  Eles apenas <strong className="text-foreground">informam</strong> — não sugerem ação.
+                  Para sugestões de otimização e priorização, acesse a aba <strong className="text-foreground">Sugestões IA</strong>.
                 </p>
               </div>
             </div>

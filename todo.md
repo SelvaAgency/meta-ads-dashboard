@@ -366,3 +366,21 @@
 - [x] Thresholds de frequência/fadiga (2.0/2.5/3.5)
 - [x] Critérios de pausar/escalar/não mexer
 - [x] Formato obrigatório: Prioridade, Nível, Tipo, O que fazer, Por que, Resultado esperado, Prazo
+
+## Simplificação de Alertas e Anomalias (Mar/30)
+- [x] Backend: todos os alertas com severity=WARNING fixo (sem hierarquia de prioridade)
+- [x] Backend: notificações para TODOS os alertas (sem filtro por prioridade)
+- [x] Backend: remover tempos diferenciados de disparo por prioridade
+- [x] UI Alertas: remover badges de prioridade (Crítica/Alta/Média), estrutura flat
+- [x] UI Anomalias: remover classificação de prioridade
+- [x] UI: exibir apenas os 4 campos: conta, descrição, dados, timestamp
+- [x] Alertas apenas INFORMAM (sem ação sugerida)
+- [x] Ações sugeridas e priorização ficam exclusivamente na aba Sugestões IA
+
+## Prompt 2 - Estrategista de Marketing (Mar/30)
+- [x] Integrar Prompt 2 (pasted_content_12.txt) no system prompt do analysisService.ts
+- [x] Diagnóstico: problema de tráfego vs problema de oferta/LP/funil
+- [x] Análise de funil completo (topo/meio/fundo) e gaps
+- [x] Nível de consciência do público (Eugene Schwartz)
+- [x] Análise de oferta (Alex Hormozi — equação de valor)
+- [x] Prompt 2 integrado como camada estratégica no mesmo system prompt (sem chamada LLM adicional)

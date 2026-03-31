@@ -280,14 +280,14 @@ async function runAnomalyDetection() {
           title: anomaly.title,
           message: anomaly.description,
           type: "ANOMALY",
-          severity: anomaly.severity === "CRITICAL" || anomaly.severity === "HIGH" ? "CRITICAL" : "WARNING",
+          severity: "WARNING", // Todos os alertas tratados igualmente — sem hierarquia de prioridade
         });
         const alertId = (alertResult as any).insertId as number | undefined;
 
-        // Send email notification only once per anomaly (HIGH or CRITICAL)
-        if ((anomaly.severity === "CRITICAL" || anomaly.severity === "HIGH") && insertId) {
+        // Notificar o dono da conta para toda anomalia detectada (sem filtro por prioridade)
+        if (insertId) {
           const sent = await notifyOwner({
-            title: `🚨 ${anomaly.severity === "CRITICAL" ? "Anomalia Crítica" : "Anomalia Alta"}: ${anomaly.title}`,
+            title: `⚠️ Anomalia detectada: ${anomaly.title}`,
             content: `Conta: ${account.accountName ?? account.accountId}\n\nPeríodo: ${currentStart} a ${currentEnd}\n\n${anomaly.description}`,
           });
           if (sent && insertId) await markAnomalyEmailSent(insertId);
@@ -324,16 +324,14 @@ async function runRealTimeAlerts(account: { id: number; accountId: string; acces
         title: alert.title,
         message: alert.message,
         type: alert.type as any,
-        severity: alert.severity,
-        priority: (alert as any).priority,
-        suggestedAction: (alert as any).suggestedAction,
+        severity: "WARNING", // Todos os alertas técnicos tratados igualmente — sem hierarquia de prioridade
       });
       const alertId = (result as any).insertId as number | undefined;
 
-      // Notify owner for critical alerts
-      if (alert.severity === "CRITICAL" && alertId) {
+      // Notificar o dono da conta para todo alerta técnico (sem filtro por prioridade)
+      if (alertId) {
         const sent = await notifyOwner({
-          title: `🚨 Alerta Crítico: ${alert.title}`,
+          title: `⚠️ Alerta técnico: ${alert.title}`,
           content: `Conta: ${account.accountName ?? account.accountId}\n\n${alert.message}`,
         });
         if (sent) await markAlertEmailSent(alertId);

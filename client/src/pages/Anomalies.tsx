@@ -1,4 +1,4 @@
-import { MetaDashboardLayout, useSelectedAccount } from "@/components/MetaDashboardLayout";
+import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,19 +20,14 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 
 // ─── Anomalias de métricas de campanha ────────────────────────────────────────
-// Detectadas automaticamente com base em janela deslizante de 7 dias.
-// Anomalias não lidas = ativas (aparecem na lista principal).
-// Anomalias lidas = histórico (seção colapsável, ficam por 30 dias).
+// Detectadas automaticamente com validação multi-período (7/14/30 dias).
+// Uma anomalia é confirmada apenas quando detectada em ≥ 2 das 3 janelas.
+// Anomalias não lidas = ativas. Anomalias lidas = histórico (30 dias).
+// Alertas apenas INFORMAM — ações sugeridas ficam na aba Sugestões IA.
 // ─────────────────────────────────────────────────────────────────────────────
-
-const severityConfig: Record<string, { label: string; color: string; bg: string }> = {
-  CRITICAL: { label: "Crítico", color: "text-red-400", bg: "bg-red-400/10 border-red-400/30" },
-  HIGH: { label: "Alto", color: "text-orange-400", bg: "bg-orange-400/10 border-orange-400/30" },
-  MEDIUM: { label: "Médio", color: "text-yellow-400", bg: "bg-yellow-400/10 border-yellow-400/30" },
-  LOW: { label: "Baixo", color: "text-blue-400", bg: "bg-blue-400/10 border-blue-400/30" },
-};
 
 const typeConfig: Record<
   string,
@@ -40,18 +35,19 @@ const typeConfig: Record<
     icon: React.ComponentType<{ className?: string }>;
     label: string;
     color: string;
+    bg: string;
   }
 > = {
-  ROAS_DROP: { icon: TrendingDown, label: "Queda de ROAS", color: "text-red-400" },
-  RESULTS_DROP: { icon: TrendingDown, label: "Queda de Resultados", color: "text-red-400" },
-  PERFORMANCE_DROP: { icon: TrendingDown, label: "Queda de Performance", color: "text-orange-400" },
-  CPA_SPIKE: { icon: TrendingUp, label: "Pico de CPA", color: "text-orange-400" },
-  CTR_DROP: { icon: TrendingDown, label: "Queda de CTR", color: "text-yellow-400" },
-  SPEND_SPIKE: { icon: TrendingUp, label: "Pico de Investimento", color: "text-yellow-400" },
-  FREQUENCY_HIGH: { icon: AlertTriangle, label: "Frequência Elevada", color: "text-yellow-400" },
-  CONVERSION_DROP: { icon: TrendingDown, label: "Queda de Conversões", color: "text-red-400" },
-  DELIVERY_CHANGE: { icon: AlertTriangle, label: "Mudança de Entrega", color: "text-orange-400" },
-  BUDGET_EXHAUSTED: { icon: AlertTriangle, label: "Orçamento Esgotado", color: "text-yellow-400" },
+  ROAS_DROP:        { icon: TrendingDown, label: "Queda de ROAS",         color: "text-red-400",    bg: "bg-red-400/10" },
+  RESULTS_DROP:     { icon: TrendingDown, label: "Queda de Resultados",   color: "text-red-400",    bg: "bg-red-400/10" },
+  PERFORMANCE_DROP: { icon: TrendingDown, label: "Queda de Performance",  color: "text-orange-400", bg: "bg-orange-400/10" },
+  CPA_SPIKE:        { icon: TrendingUp,   label: "Pico de CPA",           color: "text-orange-400", bg: "bg-orange-400/10" },
+  CTR_DROP:         { icon: TrendingDown, label: "Queda de CTR",          color: "text-yellow-400", bg: "bg-yellow-400/10" },
+  SPEND_SPIKE:      { icon: TrendingUp,   label: "Pico de Investimento",  color: "text-yellow-400", bg: "bg-yellow-400/10" },
+  FREQUENCY_HIGH:   { icon: AlertTriangle,label: "Frequência Elevada",    color: "text-yellow-400", bg: "bg-yellow-400/10" },
+  CONVERSION_DROP:  { icon: TrendingDown, label: "Queda de Conversões",   color: "text-red-400",    bg: "bg-red-400/10" },
+  DELIVERY_CHANGE:  { icon: AlertTriangle,label: "Mudança de Entrega",    color: "text-orange-400", bg: "bg-orange-400/10" },
+  BUDGET_EXHAUSTED: { icon: AlertTriangle,label: "Orçamento Esgotado",    color: "text-yellow-400", bg: "bg-yellow-400/10" },
 };
 
 type AnomalyItem = {
@@ -120,9 +116,6 @@ export default function Anomalies() {
   const unread = (anomalies ?? []).filter((a) => !a.isRead && !a.isResolved);
   const history = (anomalies ?? []).filter((a) => a.isRead);
 
-  const criticalOrHigh = unread.filter((a) => a.severity === "CRITICAL" || a.severity === "HIGH");
-  const medium = unread.filter((a) => a.severity === "MEDIUM" || a.severity === "LOW");
-
   return (
     <MetaDashboardLayout title="Anomalias">
       <div className="space-y-5">
@@ -131,7 +124,7 @@ export default function Anomalies() {
           <div>
             <h1 className="text-xl font-bold text-foreground">Anomalias de Métricas</h1>
             <p className="text-sm text-muted-foreground">
-              Desvios detectados com base em análise de 7 dias — ROAS, resultados, CPA, CTR e performance fora do padrão
+              Desvios detectados automaticamente com validação em 3 janelas (7/14/30 dias) — ROAS, resultados, CPA, CTR e frequência
             </p>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -140,26 +133,28 @@ export default function Anomalies() {
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: "Anomalias Ativas", value: unread.length, color: unread.length > 0 ? "text-red-400" : "text-muted-foreground" },
-            { label: "Alta / Crítica", value: criticalOrHigh.length, color: criticalOrHigh.length > 0 ? "text-red-400" : "text-muted-foreground" },
-            { label: "No Histórico", value: history.length, color: history.length > 0 ? "text-muted-foreground" : "text-muted-foreground" },
-          ].map((stat) => (
-            <Card key={stat.label}>
-              <CardContent className="p-4">
-                <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
-              </CardContent>
-            </Card>
-          ))}
+        {/* Stats simples */}
+        <div className="grid grid-cols-2 gap-3">
+          <Card>
+            <CardContent className="p-4">
+              <p className={`text-2xl font-bold ${unread.length > 0 ? "text-yellow-400" : "text-muted-foreground"}`}>
+                {unread.length}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Anomalias ativas</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-2xl font-bold text-muted-foreground">{history.length}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">No histórico</p>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Active anomalies */}
         <div>
           <h2 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-400" />
+            <AlertTriangle className="w-4 h-4 text-yellow-400" />
             Anomalias Ativas ({unread.length})
           </h2>
           {isLoading ? (
@@ -174,32 +169,15 @@ export default function Anomalies() {
                 <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-3" />
                 <p className="text-sm font-medium text-foreground">Nenhuma anomalia ativa</p>
                 <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
-                  Anomalias são detectadas automaticamente a cada hora comparando os últimos 7 dias com os 7 dias anteriores.
+                  Anomalias são detectadas automaticamente a cada hora, validadas em 3 janelas de tempo (7, 14 e 30 dias).
                 </p>
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-6">
-              {criticalOrHigh.length > 0 && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">Alta prioridade</p>
-                  <div className="space-y-2">
-                    {criticalOrHigh.map((anomaly) => (
-                      <AnomalyCard key={anomaly.id} anomaly={anomaly} markRead={markRead} />
-                    ))}
-                  </div>
-                </div>
-              )}
-              {medium.length > 0 && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">Média prioridade</p>
-                  <div className="space-y-2">
-                    {medium.map((anomaly) => (
-                      <AnomalyCard key={anomaly.id} anomaly={anomaly} markRead={markRead} />
-                    ))}
-                  </div>
-                </div>
-              )}
+            <div className="space-y-2">
+              {unread.map((anomaly) => (
+                <AnomalyCard key={anomaly.id} anomaly={anomaly} markRead={markRead} />
+              ))}
             </div>
           )}
         </div>
@@ -212,20 +190,14 @@ export default function Anomalies() {
           >
             <div className="flex items-center gap-2.5">
               <FolderOpen className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-              <span className="text-sm font-medium text-foreground">
-                Histórico
-              </span>
+              <span className="text-sm font-medium text-foreground">Histórico</span>
               <span className="text-xs text-muted-foreground">
                 ({history.length} {history.length === 1 ? "anomalia vista" : "anomalias vistas"} · ficam por 30 dias)
               </span>
             </div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Clock className="w-3 h-3" />
-              {historyOpen ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronRight className="w-4 h-4" />
-              )}
+              {historyOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </div>
           </button>
 
@@ -257,9 +229,9 @@ export default function Anomalies() {
               <div>
                 <p className="text-xs font-medium text-foreground mb-1">Como funciona a detecção</p>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  A cada hora, o sistema compara a média dos <strong className="text-foreground">últimos 7 dias</strong> com os <strong className="text-foreground">7 dias anteriores</strong> por campanha.
-                  Anomalias: ROAS cai ≥ 10% · Resultados caem ≥ 20% · CPA sobe ≥ 30% · CTR cai ≥ 25% · Gasto sobe ≥ 50% · Frequência ≥ 4x.
-                  Anomalias vistas ficam no histórico por 30 dias e são removidas automaticamente.
+                  A cada hora, o sistema compara métricas atuais com as médias de <strong className="text-foreground">7, 14 e 30 dias</strong> anteriores.
+                  Uma anomalia é confirmada apenas quando detectada em <strong className="text-foreground">pelo menos 2 das 3 janelas</strong>, evitando falsos positivos.
+                  Anomalias apenas <strong className="text-foreground">informam</strong> — para sugestões de otimização, acesse a aba <strong className="text-foreground">Sugestões IA</strong>.
                 </p>
               </div>
             </div>
@@ -278,31 +250,28 @@ function AnomalyCard({
   anomaly: AnomalyItem;
   markRead: { mutate: (args: { anomalyId: number }) => void; isPending?: boolean };
 }) {
-  const sev = severityConfig[anomaly.severity] ?? severityConfig.LOW;
   const tc = typeConfig[anomaly.type];
   const AnomalyIcon = tc?.icon ?? AlertTriangle;
 
   return (
-    <Card className="border border-primary/20 bg-primary/5">
+    <Card className="border border-border/50">
       <CardContent className="p-4">
         <div className="flex items-start gap-3">
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${sev.bg}`}>
-            <AnomalyIcon className={`w-4 h-4 ${tc?.color ?? sev.color}`} />
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${tc?.bg ?? "bg-muted/30"}`}>
+            <AnomalyIcon className={`w-4 h-4 ${tc?.color ?? "text-muted-foreground"}`} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <p className="text-sm font-semibold text-foreground">{anomaly.title}</p>
-              <Badge variant="outline" className={`text-xs ${sev.color} ${sev.bg}`}>
-                {sev.label}
-              </Badge>
               {tc && (
                 <Badge variant="outline" className="text-xs text-muted-foreground border-border/50">
                   {tc.label}
                 </Badge>
               )}
-              <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
             </div>
+            {/* O que aconteceu */}
             <p className="text-xs text-muted-foreground leading-relaxed">{anomaly.description}</p>
+            {/* Timestamp */}
             <p className="text-xs text-muted-foreground/60 mt-1.5">
               Detectada em {new Date(anomaly.detectedAt).toLocaleString("pt-BR")}
             </p>
@@ -326,7 +295,6 @@ function AnomalyCard({
 
 // ─── Card do histórico (compacto, sem ação) ───────────────────────────────────
 function HistoryCard({ anomaly }: { anomaly: AnomalyItem }) {
-  const sev = severityConfig[anomaly.severity] ?? severityConfig.LOW;
   const tc = typeConfig[anomaly.type];
 
   // Calculate days remaining before auto-deletion (30 days from detectedAt)
@@ -338,19 +306,21 @@ function HistoryCard({ anomaly }: { anomaly: AnomalyItem }) {
     <Card className="border-border/30 opacity-70 hover:opacity-100 transition-opacity">
       <CardContent className="p-3">
         <div className="flex items-center gap-3">
-          <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${sev.bg}`}>
+          <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${tc?.bg ?? "bg-muted/30"}`}>
             {tc ? (
               <tc.icon className={`w-3.5 h-3.5 ${tc.color}`} />
             ) : (
-              <AlertTriangle className={`w-3.5 h-3.5 ${sev.color}`} />
+              <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground" />
             )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <p className="text-xs font-medium text-foreground truncate">{anomaly.title}</p>
-              <Badge variant="outline" className={`text-xs ${sev.color} border-border/40 py-0`}>
-                {sev.label}
-              </Badge>
+              {tc && (
+                <Badge variant="outline" className="text-xs text-muted-foreground border-border/40 py-0">
+                  {tc.label}
+                </Badge>
+              )}
             </div>
             <p className="text-xs text-muted-foreground/70 mt-0.5">
               {new Date(anomaly.detectedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}
