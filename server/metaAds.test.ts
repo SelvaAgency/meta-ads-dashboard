@@ -38,14 +38,25 @@ describe("metaAdsService calculations", () => {
   });
 
   describe("extractConversions", () => {
-    it("extracts purchase conversions from actions array", () => {
+    it("extracts purchase conversions using first-found priority", () => {
       const actions = [
         { action_type: "purchase", value: "5" },
         { action_type: "link_click", value: "100" },
         { action_type: "omni_purchase", value: "3" },
       ];
       const result = extractConversions(actions);
-      expect(result).toBe(8); // 5 + 3
+      // First-found priority: "purchase" matches before "omni_purchase", returns 5 (not sum)
+      expect(result).toBe(5);
+    });
+
+    it("prefers offsite_conversion.fb_pixel_purchase over purchase", () => {
+      const actions = [
+        { action_type: "offsite_conversion.fb_pixel_purchase", value: "10" },
+        { action_type: "purchase", value: "15" },
+      ];
+      const result = extractConversions(actions);
+      // offsite_conversion.fb_pixel_purchase has higher priority
+      expect(result).toBe(10);
     });
 
     it("returns 0 for empty actions", () => {

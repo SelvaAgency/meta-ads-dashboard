@@ -57,8 +57,9 @@ const SYNC_DAYS = 30; // Always sync 30 days to ensure complete data for all das
 
 function getDateRange(days: number) {
   const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - days);
+  end.setDate(end.getDate() - 1); // ontem = último dia completo
+  const start = new Date(end);
+  start.setDate(start.getDate() - (days - 1)); // days dias contando ontem
   return {
     startDate: start.toISOString().split("T")[0],
     endDate: end.toISOString().split("T")[0],

@@ -311,46 +311,23 @@ export function getResultLabel(optimizationGoal: string): string {
  * These are the action_types we should sum from the `actions` array to get "Resultados".
  */
 export function getResultActionTypes(optimizationGoal: string): string[] {
+  // Action types in PRIORITY ORDER — first item is the primary metric
+  // that Meta Ads Manager shows as "Resultados"
   const mapping: Record<string, string[]> = {
-    OFFSITE_CONVERSIONS: [
-      "purchase",
-      "offsite_conversion.fb_pixel_purchase",
-      "onsite_web_purchase",
-    ],
-    ONSITE_CONVERSIONS: [
-      "onsite_web_purchase",
-      "purchase",
-    ],
-    LEAD_GENERATION: [
-      "lead",
-      "offsite_conversion.fb_pixel_lead",
-      "onsite_conversion.lead_grouped",
-    ],
-    QUALITY_LEAD: [
-      "lead",
-      "offsite_conversion.fb_pixel_lead",
-      "onsite_conversion.lead_grouped",
-    ],
-    REPLIES: [
-      "onsite_conversion.messaging_conversation_started_7d",
-      "onsite_conversion.messaging_first_reply",
-    ],
-    CONVERSATIONS: [
-      "onsite_conversion.messaging_conversation_started_7d",
-      "onsite_conversion.messaging_first_reply",
-    ],
+    OFFSITE_CONVERSIONS: ["offsite_conversion.fb_pixel_purchase", "purchase", "onsite_web_purchase"],
+    ONSITE_CONVERSIONS: ["onsite_web_purchase", "purchase"],
+    LEAD_GENERATION: ["onsite_conversion.lead_grouped", "lead", "offsite_conversion.fb_pixel_lead"],
+    QUALITY_LEAD: ["onsite_conversion.lead_grouped", "lead", "offsite_conversion.fb_pixel_lead"],
+    REPLIES: ["onsite_conversion.messaging_conversation_started_7d"],
+    CONVERSATIONS: ["onsite_conversion.messaging_conversation_started_7d"],
     LINK_CLICKS: ["link_click"],
     LANDING_PAGE_VIEWS: ["landing_page_view"],
-    POST_ENGAGEMENT: ["post_engagement", "page_engagement"],
+    POST_ENGAGEMENT: ["post_engagement"],
     PAGE_LIKES: ["like"],
     VIDEO_VIEWS: ["video_view"],
     THRUPLAY: ["video_thruplay_watched"],
     APP_INSTALLS: ["app_install", "mobile_app_install"],
-    VALUE: [
-      "purchase",
-      "offsite_conversion.fb_pixel_purchase",
-      "onsite_web_purchase",
-    ],
+    VALUE: ["offsite_conversion.fb_pixel_purchase", "purchase", "onsite_web_purchase"],
   };
   return mapping[optimizationGoal] ?? [];
 }
@@ -436,13 +413,16 @@ export function extractResultsByGoal(
   const targetTypes = getResultActionTypes(optimizationGoal);
   if (targetTypes.length === 0) return 0;
 
-  let total = 0;
-  for (const action of actions) {
-    if (targetTypes.some((t) => action.action_type === t || action.action_type.includes(t))) {
-      total += parseFloat(action.value) || 0;
+  // Use apenas o PRIMEIRO action_type encontrado (prioridade)
+  // Meta API retorna múltiplos action_types para o mesmo evento
+  // O primeiro encontrado é o mais específico e confiável
+  for (const targetType of targetTypes) {
+    const match = actions.find(a => a.action_type === targetType);
+    if (match) {
+      return parseFloat(match.value) || 0;
     }
   }
-  return total;
+  return 0;
 }
 
 /**
@@ -461,13 +441,14 @@ export function extractConversionValue(
     "onsite_web_purchase",
     "omni_purchase",
   ];
-  let total = 0;
-  for (const av of actionValues) {
-    if (purchaseTypes.some((t) => av.action_type === t || av.action_type.includes(t))) {
-      total += parseFloat(av.value) || 0;
+  // Use primeiro encontrado por prioridade (exact match apenas)
+  for (const targetType of purchaseTypes) {
+    const match = actionValues.find(av => av.action_type === targetType);
+    if (match) {
+      return parseFloat(match.value) || 0;
     }
   }
-  return total;
+  return 0;
 }
 
 /**
@@ -507,20 +488,19 @@ export function extractFollowers(actions?: Array<{ action_type: string; value: s
 
 export function extractConversions(actions?: Array<{ action_type: string; value: string }>): number {
   if (!actions) return 0;
-  const conversionTypes = [
+  // Priority order — use first found (exact match only)
+  const priorityTypes = [
+    "offsite_conversion.fb_pixel_purchase",
     "purchase",
+    "onsite_conversion.lead_grouped",
     "lead",
     "complete_registration",
-    "offsite_conversion.fb_pixel_purchase",
-    "offsite_conversion.fb_pixel_lead",
   ];
-  let total = 0;
-  for (const action of actions) {
-    if (conversionTypes.some((t) => action.action_type.includes(t))) {
-      total += parseFloat(action.value) || 0;
-    }
+  for (const targetType of priorityTypes) {
+    const match = actions.find(a => a.action_type === targetType);
+    if (match) return parseFloat(match.value) || 0;
   }
-  return total;
+  return 0;
 }
 
 /**

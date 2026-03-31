@@ -485,3 +485,11 @@
 - [x] 4. MÉDIO: Corrigir campo imageUrls no schema TiDB (TiDB não suporta DEFAULT em TEXT, mantido sem default)
 - [x] 5. MÉDIO: Retry com backoff no metaFetch (500/503 retry, 190 propagar, 4 rate limit)
 - [x] 6. BAIXO: Melhorar logging do autoSync com alerta SYNC_ERROR para token expirado + remover page_actions e PAUSED_BY_SYSTEM (deprecados v21.0)
+
+## Correção Discrepância de Dados Meta Ads (Mar/31)
+- [x] Bug 1 CRÍTICO: extractResultsByGoal usa apenas PRIMEIRO action_type encontrado (sem somar todos)
+- [x] Bug 1: getResultActionTypes com action_types em ordem de prioridade (primário primeiro)
+- [x] Bug 1: Remover messaging_first_reply de REPLIES/CONVERSATIONS
+- [x] Bug 2 MODERADO: Remover includes() do matching, usar apenas exact match (===)
+- [x] Bug 2: extractConversions com lógica de primeiro encontrado
+- [x] Bug 3 MODERADO: getDateRange endDate = ontem (não hoje) em routers.ts e autoSync.ts
