@@ -19,6 +19,8 @@ export interface CampaignAnalysis {
   deliveryStatus?: "active" | "inactive" | "unknown";
   metrics: CampaignMetric[];
   analysis: string;
+  highlights: string[];
+  attentionPoints: string[];
   hasDataQualityWarning: boolean;
 }
 
@@ -33,9 +35,7 @@ export interface DashboardReportData {
   strategicSummary: {
     totalInvested: string;
     totalResults: string;
-    avgCostPerResult: string;
-    highlights: string[];
-    attentionPoints: string[];
+    costPerResult: string;
     contextNotes: string;
   };
   recommendations: string[];

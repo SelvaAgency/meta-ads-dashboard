@@ -25,6 +25,8 @@ export interface CampaignAnalysis {
   deliveryStatus: "active" | "inactive" | "unknown";
   metrics: CampaignMetric[];
   analysis: string;
+  highlights: string[];
+  attentionPoints: string[];
   hasDataQualityWarning: boolean;
 }
 
@@ -39,9 +41,7 @@ export interface DashboardReportData {
   strategicSummary: {
     totalInvested: string;
     totalResults: string;
-    avgCostPerResult: string;
-    highlights: string[];
-    attentionPoints: string[];
+    costPerResult: string;
     contextNotes: string;
   };
   recommendations: string[];
@@ -144,7 +144,7 @@ Responda EXCLUSIVAMENTE com um JSON válido no seguinte formato (sem markdown, s
 {
   "platform": "Meta Ads",
   "clientName": "${clientName}",
-  "period": "período extraído do print, das datas informadas no contexto, ou 'Período analisado'",
+  "period": "período extraído do print ou do contexto",
   "mode": "${mode}",
   "objectives": ["Vendas", "Tráfego"],
   "campaigns": [
@@ -160,17 +160,11 @@ Responda EXCLUSIVAMENTE com um JSON válido no seguinte formato (sem markdown, s
           "changePercent": 20.3,
           "polarity": "positive",
           "indicatorColor": "green"
-        },
-        {
-          "name": "Investimento",
-          "currentValue": "R$ 1.250,00",
-          "previousValue": "R$ 980,00",
-          "changePercent": 27.6,
-          "polarity": "neutral",
-          "indicatorColor": "gray"
         }
       ],
-      "analysis": "Análise específica e acionável desta campanha, referenciando números. Considerar o contexto semanal quando relevante.",
+      "analysis": "Análise técnica desta campanha específica com números.",
+      "highlights": ["Destaque positivo específico DESTA campanha com número"],
+      "attentionPoints": ["Ponto de atenção específico DESTA campanha com número"],
       "hasDataQualityWarning": false
     }
   ],
@@ -178,10 +172,8 @@ Responda EXCLUSIVAMENTE com um JSON válido no seguinte formato (sem markdown, s
   "strategicSummary": {
     "totalInvested": "R$ 4.250,00",
     "totalResults": "312 leads",
-    "avgCostPerResult": "R$ 13,62",
-    "highlights": ["Destaque positivo específico com número"],
-    "attentionPoints": ["Ponto de atenção específico com número"],
-    "contextNotes": "Observações sobre o contexto semanal integradas à análise"
+    "costPerResult": "R$ 13,62",
+    "contextNotes": "Observações gerais sobre o contexto semanal"
   },
   "recommendations": [
     "Recomendação concreta e priorizada baseada nos dados"
@@ -189,10 +181,16 @@ Responda EXCLUSIVAMENTE com um JSON válido no seguinte formato (sem markdown, s
   "contextWarning": null
 }
 
-IMPORTANTE:
-- urgentAlerts só deve ter itens se o contexto semanal mencionar algo urgente (erro de pagamento, conta bloqueada, queda brusca, reprovação, etc.). Se não houver urgência, deixe como array vazio [].
-- O campo "period" deve usar as datas informadas no contexto (se houver) ou extrair do print.
-- Inclua TODAS as campanhas visíveis, mesmo as inativas — elas podem ter tido dados no período.`;
+REGRAS DE ESTRUTURA:
+- Cada campanha DEVE ter seus próprios "highlights" e "attentionPoints" — arrays com insights específicos daquela campanha
+- NÃO consolide highlights/attentionPoints num bloco geral — eles devem estar DENTRO de cada campanha
+- O "strategicSummary" deve conter APENAS totais gerais (investimento total, resultado total somado, custo por resultado geral) e o contextNotes
+- NÃO use média ponderada — some resultados e investimentos separadamente e divida para obter custo por resultado
+- A "analysis" de cada campanha é um parágrafo de análise técnica
+- Os "highlights" são os pontos positivos daquela campanha específica
+- Os "attentionPoints" são os pontos de atenção/negativos daquela campanha específica
+- urgentAlerts só deve ter itens se o contexto mencionar algo urgente. Se não, array vazio [].
+- Inclua TODAS as campanhas visíveis, mesmo inativas.`;
 }
 
 // ─── Função principal de análise ──────────────────────────────────────────────
@@ -316,15 +314,15 @@ export async function analyzeCampaignData(
 // ─── Geração de HTML para PDF ─────────────────────────────────────────────────
 
 export function generateReportHtml(report: DashboardReportData): string {
-  const colorMap = { green: "#16a34a", red: "#dc2626", gray: "#6b7280" };
+  const colorMap = { green: "#4ade80", red: "#f87171", gray: "#94a3b8" };
   const arrowMap = { green: "↑", red: "↓", gray: "→" };
 
   const deliveryBadge = (status: string) => {
     if (status === "active") {
-      return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:#dcfce7;color:#166534;">● Ativa no período</span>`;
+      return '<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;background:rgba(74,222,128,0.15);color:#4ade80;">● Ativa</span>';
     }
     if (status === "inactive") {
-      return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:#f1f5f9;color:#64748b;">○ Inativa no período</span>`;
+      return '<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;background:rgba(148,163,184,0.15);color:#94a3b8;">○ Inativa</span>';
     }
     return "";
   };
@@ -334,41 +332,43 @@ export function generateReportHtml(report: DashboardReportData): string {
     const sign = metric.changePercent >= 0 ? "+" : "";
     const color = colorMap[metric.indicatorColor];
     const arrow = arrowMap[metric.indicatorColor];
-    return `<span style="color:${color};font-weight:600;font-size:13px;margin-left:8px;">${arrow} ${sign}${metric.changePercent.toFixed(1)}%</span>`;
+    return `<span style="color:${color};font-weight:600;font-size:13px;">${arrow} ${sign}${metric.changePercent.toFixed(1)}%</span>`;
   };
 
   const campaignsHtml = report.campaigns
     .map(
       (camp) => `
-    <div style="margin-bottom:32px;padding:24px;border:1px solid #e5e7eb;border-radius:8px;page-break-inside:avoid;">
-      <div style="border-bottom:2px solid #1e293b;padding-bottom:12px;margin-bottom:20px;">
+    <div style="margin-bottom:32px;padding:24px;background:#1e293b;border:1px solid #334155;border-radius:12px;page-break-inside:avoid;">
+      <!-- Header da campanha -->
+      <div style="border-bottom:1px solid #334155;padding-bottom:12px;margin-bottom:20px;">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px;">
-          <h2 style="font-size:16px;font-weight:700;color:#1e293b;margin:0;">${camp.name}</h2>
+          <h2 style="font-size:16px;font-weight:700;color:#f1f5f9;margin:0;">${camp.name}</h2>
           ${deliveryBadge(camp.deliveryStatus ?? "unknown")}
         </div>
-        <span style="font-size:12px;color:#64748b;background:#f1f5f9;padding:2px 8px;border-radius:4px;">${camp.objective}</span>
-        ${camp.hasDataQualityWarning ? `<div style="margin-top:8px;padding:8px 12px;background:#fef9c3;border:1px solid #fde047;border-radius:4px;font-size:12px;color:#854d0e;">⚠️ Algumas métricas podem estar imprecisas devido à qualidade da imagem.</div>` : ""}
+        <span style="font-size:11px;color:#94a3b8;background:#0f172a;padding:3px 10px;border-radius:6px;">${camp.objective}</span>
+        ${camp.hasDataQualityWarning ? '<div style="margin-top:8px;padding:8px 12px;background:rgba(250,204,21,0.1);border:1px solid rgba(250,204,21,0.3);border-radius:6px;font-size:12px;color:#fbbf24;">⚠️ Algumas métricas podem estar imprecisas.</div>' : ""}
       </div>
 
+      <!-- Tabela de métricas -->
       <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
         <thead>
-          <tr style="background:#f8fafc;">
-            <th style="text-align:left;padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;border-bottom:1px solid #e2e8f0;">MÉTRICA</th>
-            <th style="text-align:right;padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;border-bottom:1px solid #e2e8f0;">${report.mode === "COMPARATIVE" ? "PERÍODO ATUAL" : "VALOR"}</th>
-            ${report.mode === "COMPARATIVE" ? `<th style="text-align:right;padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;border-bottom:1px solid #e2e8f0;">PERÍODO ANTERIOR</th><th style="text-align:right;padding:8px 12px;font-size:12px;color:#64748b;font-weight:600;border-bottom:1px solid #e2e8f0;">VARIAÇÃO</th>` : ""}
+          <tr>
+            <th style="text-align:left;padding:8px 12px;font-size:11px;color:#64748b;font-weight:600;border-bottom:1px solid #334155;text-transform:uppercase;letter-spacing:0.05em;">Métrica</th>
+            <th style="text-align:right;padding:8px 12px;font-size:11px;color:#64748b;font-weight:600;border-bottom:1px solid #334155;text-transform:uppercase;letter-spacing:0.05em;">${report.mode === "COMPARATIVE" ? "Atual" : "Valor"}</th>
+            ${report.mode === "COMPARATIVE" ? '<th style="text-align:right;padding:8px 12px;font-size:11px;color:#64748b;font-weight:600;border-bottom:1px solid #334155;text-transform:uppercase;letter-spacing:0.05em;">Anterior</th><th style="text-align:right;padding:8px 12px;font-size:11px;color:#64748b;font-weight:600;border-bottom:1px solid #334155;text-transform:uppercase;letter-spacing:0.05em;">Variação</th>' : ""}
           </tr>
         </thead>
         <tbody>
           ${camp.metrics
             .map(
-              (m, i) => `
-            <tr style="background:${i % 2 === 0 ? "#ffffff" : "#f8fafc"};">
-              <td style="padding:8px 12px;font-size:13px;color:#374151;border-bottom:1px solid #f1f5f9;">${m.name}</td>
-              <td style="padding:8px 12px;font-size:13px;font-weight:600;color:#1e293b;text-align:right;border-bottom:1px solid #f1f5f9;">${m.currentValue}</td>
+              (m: CampaignMetric, i: number) => `
+            <tr style="background:${i % 2 === 0 ? "transparent" : "rgba(15,23,42,0.5)"}">
+              <td style="padding:8px 12px;font-size:13px;color:#cbd5e1;border-bottom:1px solid #1e293b;">${m.name}</td>
+              <td style="padding:8px 12px;font-size:13px;font-weight:600;color:#f1f5f9;text-align:right;border-bottom:1px solid #1e293b;">${m.currentValue}</td>
               ${
                 report.mode === "COMPARATIVE"
-                  ? `<td style="padding:8px 12px;font-size:13px;color:#6b7280;text-align:right;border-bottom:1px solid #f1f5f9;">${m.previousValue ?? "—"}</td>
-                     <td style="padding:8px 12px;text-align:right;border-bottom:1px solid #f1f5f9;">${formatChangePercent(m)}</td>`
+                  ? `<td style="padding:8px 12px;font-size:13px;color:#64748b;text-align:right;border-bottom:1px solid #1e293b;">${m.previousValue ?? "—"}</td>
+                     <td style="padding:8px 12px;text-align:right;border-bottom:1px solid #1e293b;">${formatChangePercent(m)}</td>`
                   : ""
               }
             </tr>`
@@ -377,9 +377,28 @@ export function generateReportHtml(report: DashboardReportData): string {
         </tbody>
       </table>
 
-      <div style="background:#f8fafc;border-left:3px solid #3b82f6;padding:14px 16px;border-radius:0 6px 6px 0;">
-        <p style="font-size:12px;font-weight:700;color:#1e40af;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.05em;">Análise</p>
-        <p style="font-size:13px;color:#374151;line-height:1.6;margin:0;">${camp.analysis}</p>
+      <!-- Análise da campanha -->
+      <div style="background:#0f172a;border-left:3px solid #3b82f6;padding:14px 16px;border-radius:0 8px 8px 0;margin-bottom:16px;">
+        <p style="font-size:11px;font-weight:700;color:#60a5fa;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.05em;">Análise</p>
+        <p style="font-size:13px;color:#cbd5e1;line-height:1.6;margin:0;">${camp.analysis}</p>
+      </div>
+
+      <!-- Destaques e Atenção POR CAMPANHA -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        ${(camp.highlights && camp.highlights.length > 0) ? `
+        <div style="padding:12px 14px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:8px;">
+          <p style="font-size:11px;font-weight:700;color:#4ade80;margin:0 0 8px 0;text-transform:uppercase;letter-spacing:0.05em;">✅ Destaques</p>
+          <ul style="margin:0;padding-left:16px;">
+            ${camp.highlights.map((h: string) => `<li style="font-size:12px;color:#cbd5e1;margin-bottom:4px;line-height:1.5;">${h}</li>`).join("")}
+          </ul>
+        </div>` : ""}
+        ${(camp.attentionPoints && camp.attentionPoints.length > 0) ? `
+        <div style="padding:12px 14px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);border-radius:8px;">
+          <p style="font-size:11px;font-weight:700;color:#f87171;margin:0 0 8px 0;text-transform:uppercase;letter-spacing:0.05em;">⚠️ Atenção</p>
+          <ul style="margin:0;padding-left:16px;">
+            ${camp.attentionPoints.map((a: string) => `<li style="font-size:12px;color:#cbd5e1;margin-bottom:4px;line-height:1.5;">${a}</li>`).join("")}
+          </ul>
+        </div>` : ""}
       </div>
     </div>`
     )
@@ -387,44 +406,26 @@ export function generateReportHtml(report: DashboardReportData): string {
 
   const urgentAlertsHtml =
     report.urgentAlerts && report.urgentAlerts.length > 0
-      ? `<div style="margin-bottom:32px;padding:20px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;page-break-inside:avoid;">
-          <h2 style="font-size:15px;font-weight:700;color:#991b1b;margin:0 0 12px 0;">⚠️ Alertas e Ações Urgentes</h2>
+      ? `<div style="margin-bottom:32px;padding:20px;background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);border-radius:12px;page-break-inside:avoid;">
+          <h2 style="font-size:15px;font-weight:700;color:#fca5a5;margin:0 0 12px 0;">⚠️ Alertas e Ações Urgentes</h2>
           <ul style="margin:0;padding-left:20px;">
-            ${report.urgentAlerts.map((a) => `<li style="font-size:13px;color:#7f1d1d;margin-bottom:6px;line-height:1.5;">${a}</li>`).join("")}
+            ${report.urgentAlerts.map((a) => `<li style="font-size:13px;color:#fca5a5;margin-bottom:6px;line-height:1.5;">${a}</li>`).join("")}
           </ul>
         </div>`
       : "";
 
-  const highlightsHtml = report.strategicSummary.highlights.length > 0
-    ? `<div style="margin-bottom:16px;">
-        <p style="font-size:12px;font-weight:700;color:#166534;margin:0 0 8px 0;text-transform:uppercase;letter-spacing:0.05em;">✅ Destaques Positivos</p>
-        <ul style="margin:0;padding-left:20px;">
-          ${report.strategicSummary.highlights.map((h) => `<li style="font-size:13px;color:#374151;margin-bottom:4px;line-height:1.5;">${h}</li>`).join("")}
-        </ul>
-      </div>`
-    : "";
-
-  const attentionHtml = report.strategicSummary.attentionPoints.length > 0
-    ? `<div style="margin-bottom:16px;">
-        <p style="font-size:12px;font-weight:700;color:#92400e;margin:0 0 8px 0;text-transform:uppercase;letter-spacing:0.05em;">⚠️ Pontos de Atenção</p>
-        <ul style="margin:0;padding-left:20px;">
-          ${report.strategicSummary.attentionPoints.map((a) => `<li style="font-size:13px;color:#374151;margin-bottom:4px;line-height:1.5;">${a}</li>`).join("")}
-        </ul>
-      </div>`
-    : "";
-
   const recommendationsHtml = report.recommendations.length > 0
-    ? `<div style="margin-bottom:32px;padding:24px;border:1px solid #e5e7eb;border-radius:8px;page-break-inside:avoid;">
-        <h2 style="font-size:15px;font-weight:700;color:#1e293b;margin:0 0 16px 0;">Recomendações</h2>
+    ? `<div style="margin-bottom:32px;padding:24px;background:#1e293b;border:1px solid #334155;border-radius:12px;page-break-inside:avoid;">
+        <h2 style="font-size:15px;font-weight:700;color:#f1f5f9;margin:0 0 16px 0;">Recomendações e Próximos Passos</h2>
         <ol style="margin:0;padding-left:20px;">
-          ${report.recommendations.map((r, i) => `<li style="font-size:13px;color:#374151;margin-bottom:8px;line-height:1.6;">${r}</li>`).join("")}
+          ${report.recommendations.map((r) => `<li style="font-size:13px;color:#cbd5e1;margin-bottom:8px;line-height:1.6;">${r}</li>`).join("")}
         </ol>
       </div>`
     : "";
 
   const contextWarningHtml = report.contextWarning
-    ? `<div style="margin-bottom:24px;padding:12px 16px;background:#fef9c3;border:1px solid #fde047;border-radius:6px;">
-        <p style="font-size:12px;color:#854d0e;margin:0;">⚠️ ${report.contextWarning}</p>
+    ? `<div style="margin-bottom:24px;padding:12px 16px;background:rgba(250,204,21,0.1);border:1px solid rgba(250,204,21,0.3);border-radius:8px;">
+        <p style="font-size:12px;color:#fbbf24;margin:0;">⚠️ ${report.contextWarning}</p>
       </div>`
     : "";
 
@@ -436,7 +437,7 @@ export function generateReportHtml(report: DashboardReportData): string {
   <title>Dashboard — ${report.clientName}</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 0; background: #fff; color: #1e293b; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif; margin: 0; padding: 0; background: #0f172a; color: #e2e8f0; }
     @media print {
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .no-print { display: none !important; }
@@ -446,16 +447,16 @@ export function generateReportHtml(report: DashboardReportData): string {
 <body>
   <div style="max-width:900px;margin:0 auto;padding:40px 32px;">
     <!-- Cabeçalho -->
-    <div style="border-bottom:3px solid #1e293b;padding-bottom:24px;margin-bottom:32px;">
+    <div style="border-bottom:2px solid #334155;padding-bottom:24px;margin-bottom:32px;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
         <div>
-          <h1 style="font-size:24px;font-weight:800;color:#1e293b;margin:0 0 4px 0;">Dashboard de Performance</h1>
+          <h1 style="font-size:24px;font-weight:800;color:#f1f5f9;margin:0 0 4px 0;">Dashboard de Performance</h1>
           <p style="font-size:16px;color:#64748b;margin:0;">${report.clientName}</p>
         </div>
         <div style="text-align:right;">
           <p style="font-size:13px;color:#64748b;margin:0 0 4px 0;">${report.platform}</p>
-          <p style="font-size:13px;font-weight:600;color:#1e293b;margin:0;">${report.period}</p>
-          <p style="font-size:12px;color:#94a3b8;margin:4px 0 0 0;">${report.mode === "COMPARATIVE" ? "Modo Comparativo" : "Período Único"}</p>
+          <p style="font-size:13px;font-weight:600;color:#f1f5f9;margin:0;">${report.period}</p>
+          <p style="font-size:12px;color:#475569;margin:4px 0 0 0;">${report.mode === "COMPARATIVE" ? "Modo Comparativo" : "Período Único"}</p>
         </div>
       </div>
     </div>
@@ -463,39 +464,34 @@ export function generateReportHtml(report: DashboardReportData): string {
     ${contextWarningHtml}
     ${urgentAlertsHtml}
 
-    <!-- Resumo Estratégico -->
-    <div style="margin-bottom:32px;padding:24px;background:#f8fafc;border-radius:8px;page-break-inside:avoid;">
-      <h2 style="font-size:15px;font-weight:700;color:#1e293b;margin:0 0 20px 0;">Resumo Estratégico</h2>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px;">
-        <div style="text-align:center;padding:16px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+    <!-- Resumo Geral (apenas totais) -->
+    <div style="margin-bottom:32px;padding:24px;background:#1e293b;border-radius:12px;page-break-inside:avoid;">
+      <h2 style="font-size:15px;font-weight:700;color:#f1f5f9;margin:0 0 20px 0;">Visão Geral</h2>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:${report.strategicSummary.contextNotes ? "20px" : "0"};">
+        <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
           <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.05em;">Investimento Total</p>
-          <p style="font-size:20px;font-weight:700;color:#1e293b;margin:0;">${report.strategicSummary.totalInvested}</p>
+          <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${report.strategicSummary.totalInvested}</p>
         </div>
-        <div style="text-align:center;padding:16px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+        <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
           <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.05em;">Total de Resultados</p>
-          <p style="font-size:20px;font-weight:700;color:#1e293b;margin:0;">${report.strategicSummary.totalResults}</p>
+          <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${report.strategicSummary.totalResults}</p>
         </div>
-        <div style="text-align:center;padding:16px;background:#fff;border-radius:6px;border:1px solid #e2e8f0;">
+        <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
           <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.05em;">Custo por Resultado</p>
-          <p style="font-size:20px;font-weight:700;color:#1e293b;margin:0;">${report.strategicSummary.avgCostPerResult}</p>
+          <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${report.strategicSummary.costPerResult}</p>
         </div>
       </div>
-      ${highlightsHtml}
-      ${attentionHtml}
-      ${report.strategicSummary.contextNotes ? `<div style="padding:12px 16px;background:#eff6ff;border-left:3px solid #3b82f6;border-radius:0 6px 6px 0;"><p style="font-size:13px;color:#1e40af;margin:0;line-height:1.6;">${report.strategicSummary.contextNotes}</p></div>` : ""}
+      ${report.strategicSummary.contextNotes ? `<div style="padding:12px 16px;background:rgba(59,130,246,0.1);border-left:3px solid #3b82f6;border-radius:0 8px 8px 0;"><p style="font-size:13px;color:#93c5fd;margin:0;line-height:1.6;">${report.strategicSummary.contextNotes}</p></div>` : ""}
     </div>
 
-    <!-- Análise por Campanha -->
-    <div style="margin-bottom:32px;">
-      <h2 style="font-size:15px;font-weight:700;color:#1e293b;margin:0 0 20px 0;">Análise por Campanha</h2>
-      ${campaignsHtml}
-    </div>
+    <!-- Campanhas individuais -->
+    ${campaignsHtml}
 
     ${recommendationsHtml}
 
     <!-- Rodapé -->
-    <div style="border-top:1px solid #e2e8f0;padding-top:16px;margin-top:32px;">
-      <p style="font-size:11px;color:#94a3b8;margin:0;text-align:center;">
+    <div style="border-top:1px solid #334155;padding-top:16px;margin-top:32px;">
+      <p style="font-size:11px;color:#475569;margin:0;text-align:center;">
         Relatório gerado automaticamente · ${report.clientName} · ${report.period}
       </p>
     </div>

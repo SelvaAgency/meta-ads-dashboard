@@ -533,6 +533,36 @@ function InlineReportView({ dbReport, onNewDashboard }: {
                 <p className="text-xs font-bold text-primary uppercase tracking-wide mb-1.5">Análise</p>
                 <p className="text-sm text-foreground leading-relaxed">{camp.analysis}</p>
               </div>
+
+              {/* Destaques e Atenção por campanha */}
+              {((camp.highlights && camp.highlights.length > 0) || (camp.attentionPoints && camp.attentionPoints.length > 0)) && (
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  {camp.highlights && camp.highlights.length > 0 && (
+                    <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                      <p className="text-xs font-bold text-green-400 uppercase tracking-wide mb-1.5">✅ Destaques</p>
+                      <ul className="space-y-1">
+                        {camp.highlights.map((h: string, hi: number) => (
+                          <li key={hi} className="text-xs text-muted-foreground leading-relaxed flex items-start gap-1.5">
+                            <span className="text-green-400 mt-0.5 shrink-0">•</span>{h}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {camp.attentionPoints && camp.attentionPoints.length > 0 && (
+                    <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                      <p className="text-xs font-bold text-red-400 uppercase tracking-wide mb-1.5">⚠️ Atenção</p>
+                      <ul className="space-y-1">
+                        {camp.attentionPoints.map((a: string, ai: number) => (
+                          <li key={ai} className="text-xs text-muted-foreground leading-relaxed flex items-start gap-1.5">
+                            <span className="text-red-400 mt-0.5 shrink-0">•</span>{a}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -562,36 +592,13 @@ function InlineReportView({ dbReport, onNewDashboard }: {
             {[
               { label: "Total Investido", value: report.strategicSummary.totalInvested },
               { label: "Total de Resultados", value: report.strategicSummary.totalResults },
-              { label: "Custo Médio / Resultado", value: report.strategicSummary.avgCostPerResult },
+              { label: "Custo por Resultado", value: report.strategicSummary.costPerResult },
             ].map((item) => (
               <div key={item.label} className="text-center p-4 bg-muted/30 rounded-lg">
                 <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{item.label}</p>
                 <p className="text-xl font-bold text-foreground">{item.value}</p>
               </div>
             ))}
-          </div>
-
-          <div className="grid grid-cols-2 gap-6">
-            <div>
-              <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide mb-2">✓ Destaques Positivos</p>
-              <ul className="space-y-1.5">
-                {report.strategicSummary.highlights.map((h, i) => (
-                  <li key={i} className="text-sm text-foreground flex items-start gap-2">
-                    <span className="shrink-0 text-emerald-500 dark:text-emerald-400 mt-0.5">•</span>{h}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <p className="text-xs font-bold text-destructive uppercase tracking-wide mb-2">⚠ Pontos de Atenção</p>
-              <ul className="space-y-1.5">
-                {report.strategicSummary.attentionPoints.map((a, i) => (
-                  <li key={i} className="text-sm text-foreground flex items-start gap-2">
-                    <span className="shrink-0 text-destructive mt-0.5">•</span>{a}
-                  </li>
-                ))}
-              </ul>
-            </div>
           </div>
 
           {report.strategicSummary.contextNotes && (
