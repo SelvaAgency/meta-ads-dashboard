@@ -7,7 +7,6 @@ import {
   BarChart3,
   Bell,
   ChevronDown,
-  FileText,
   LayoutDashboard,
   Link2,
   LogOut,
@@ -81,9 +80,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
     { path: "/anomalies", label: "Anomalias", icon: AlertTriangle },
-    { path: "/suggestions", label: "Sugestões IA", icon: Lightbulb },
-    { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/alerts", label: "Alertas", icon: Bell, badge: unreadCount ?? 0 },
+    { path: "/suggestions", label: "Sugestões IA", icon: Lightbulb },
     { path: "/dashboard-builder", label: "Dashboard Builder", icon: PieChart },
   ];
 
@@ -290,20 +288,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             );
           })}
 
-          <div className="pt-2 border-t border-sidebar-border mt-2">
-            <Link href="/connect">
-              <div
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-150 ${
-                  location === "/connect"
-                    ? "bg-primary/15 text-primary"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent"
-                }`}
-              >
-                <Link2 className="w-4 h-4 flex-shrink-0" />
-                {sidebarOpen && <span className="text-sm font-medium">Gerenciar Contas</span>}
-              </div>
-            </Link>
-          </div>
+
         </nav>
 
         {/* User */}
