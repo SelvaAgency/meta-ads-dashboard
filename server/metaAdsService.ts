@@ -496,21 +496,8 @@ export interface RealTimeAlert {
     | "INSTAGRAM_UNLINKED"
     | "PIXEL_ERROR"
     | "ADSET_NO_DELIVERY";
-  severity: "WARNING" | "CRITICAL";
-  /** Prioridade: CRITICAL=imediato, HIGH=até 30min, MEDIUM=consolidado a cada 2h */
-  priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   title: string;
   message: string;
-  /** Ação sugerida para resolver o alerta */
-  suggestedAction?: string;
-  /** Métrica atual (para alertas de performance) */
-  metricCurrent?: string;
-  /** Métrica de referência (para alertas de performance) */
-  metricReference?: string;
-  campaignId?: string;
-  campaignName?: string;
-  adId?: string;
-  adName?: string;
 }
 
 /**
@@ -541,23 +528,15 @@ export async function checkRealTimeAlerts(
       if (billing.remainingBalance !== null && billing.remainingBalance < 200) {
         alerts.push({
           type: "BUDGET_WARNING",
-          severity: billing.remainingBalance < 50 ? "CRITICAL" : "WARNING",
-          priority: billing.remainingBalance < 50 ? "CRITICAL" : "HIGH",
           title: "Saldo baixo na conta",
-          message: `Saldo disponível: R$${billing.remainingBalance.toFixed(2)}. Recarregue em breve para evitar interrupção das campanhas.`,
-          suggestedAction: "Acesse o Gerenciador de Anúncios e adicione saldo ou atualize o método de pagamento.",
-          metricCurrent: `R$${billing.remainingBalance.toFixed(2)}`,
-          metricReference: "R$200,00 (mínimo recomendado)",
+          message: `Saldo disponível: R$${billing.remainingBalance.toFixed(2)}. Recarregue em breve para evitar interrupção das campanhas. Referência: R$200,00 (mínimo recomendado).`,
         });
       }
       if (billing.fundingSourceType === null && billing.fundingSourceDisplay === null) {
         alerts.push({
           type: "PAYMENT_FAILED",
-          severity: "CRITICAL",
-          priority: "CRITICAL",
           title: "Falha na forma de pagamento",
           message: "Nenhuma forma de pagamento válida encontrada. Verifique as configurações de pagamento no Business Manager.",
-          suggestedAction: "Acesse o Business Manager e adicione um método de pagamento válido para reativar a veiculção.",
         });
       }
     }
@@ -584,13 +563,8 @@ export async function checkRealTimeAlerts(
         const issueMsg = campaign.issues_info?.[0]?.error_summary ?? "Verifique os detalhes no Meta Ads Manager.";
         alerts.push({
           type: "CAMPAIGN_PAUSED",
-          severity: "CRITICAL",
-          priority: "CRITICAL",
           title: `Campanha com problema: ${campaign.name}`,
           message: `A campanha "${campaign.name}" está com problemas de entrega. ${issueMsg}`,
-          suggestedAction: "Acesse o Meta Ads Manager, verifique os detalhes do erro na campanha e corrija o problema indicado.",
-          campaignId: campaign.id,
-          campaignName: campaign.name,
         });
       }
   } catch (err) {
@@ -620,25 +594,15 @@ export async function checkRealTimeAlerts(
           : "Verifique o motivo no Meta Ads Manager.";
         alerts.push({
           type: "AD_REJECTED",
-          severity: "CRITICAL",
-          priority: "CRITICAL",
           title: `Criativo rejeitado: ${ad.name}`,
           message: `O anúncio "${ad.name}" foi reprovado pela Meta. Motivo: ${reason}`,
-          suggestedAction: "Edite o criativo para corrigir a política violada e reenvie para revisão.",
-          adId: ad.id,
-          adName: ad.name,
         });
       } else if (ad.effective_status === "WITH_ISSUES") {
         const issueMsg = ad.issues_info?.[0]?.error_summary ?? "Verifique os detalhes no Meta Ads Manager.";
         alerts.push({
           type: "AD_ERROR",
-          severity: "WARNING",
-          priority: "HIGH",
           title: `Erro no anúncio: ${ad.name}`,
           message: `O anúncio "${ad.name}" está com problemas. ${issueMsg}`,
-          suggestedAction: "Verifique os detalhes do erro no Meta Ads Manager e corrija o problema indicado.",
-          adId: ad.id,
-          adName: ad.name,
         });
       }
     }
@@ -665,20 +629,14 @@ export async function checkRealTimeAlerts(
         const issueMsg = adset.issues_info?.[0]?.error_summary ?? "Verifique os detalhes no Meta Ads Manager.";
         alerts.push({
           type: "AD_ERROR",
-          severity: "WARNING",
-          priority: "HIGH",
           title: `Erro no conjunto: ${adset.name}`,
           message: `O conjunto "${adset.name}" está com problemas. ${issueMsg}`,
-          suggestedAction: "Verifique os detalhes do erro no conjunto e corrija o problema indicado.",
         });
       } else if (adset.effective_status === "PAUSED_BY_SYSTEM") {
         alerts.push({
           type: "ADSET_NO_DELIVERY",
-          severity: "WARNING",
-          priority: "HIGH",
           title: `Conjunto pausado pelo sistema: ${adset.name}`,
           message: `O conjunto "${adset.name}" foi pausado automaticamente pelo Meta. Verifique orçamento, segmentação e criativos.`,
-          suggestedAction: "Revise o orçamento, segmentação e criativos do conjunto. Reative após corrigir o problema.",
         });
       }
     }
@@ -719,11 +677,8 @@ export async function checkRealTimeAlerts(
         if (!deliveringAdsets.has(adset.id)) {
           alerts.push({
             type: "ADSET_NO_DELIVERY",
-            severity: "WARNING",
-            priority: "MEDIUM",
             title: `Conjunto sem entrega: ${adset.name}`,
             message: `O conjunto "${adset.name}" está ativo mas não registrou impressões nas últimas 24h. Verifique segmentação, orçamento e criativos.`,
-            suggestedAction: "Revise a segmentação, orçamento e criativos do conjunto. Considere ampliar o público-alvo.",
           });
         }
       }
@@ -744,11 +699,8 @@ export async function checkRealTimeAlerts(
     if ((igData.data ?? []).length === 0) {
       alerts.push({
         type: "INSTAGRAM_UNLINKED",
-        severity: "WARNING",
-        priority: "MEDIUM",
         title: "Nenhuma conta do Instagram vinculada",
         message: "A conta de anúncios não possui contas do Instagram vinculadas. Isso pode limitar a entrega em posicionamentos do Instagram.",
-        suggestedAction: "Acesse o Business Manager e vincule uma conta do Instagram à conta de anúncios.",
       });
     }
   } catch (err) {
@@ -771,24 +723,16 @@ export async function checkRealTimeAlerts(
       if (pixel.is_unavailable) {
         alerts.push({
           type: "PIXEL_ERROR",
-          severity: "CRITICAL",
-          priority: "CRITICAL",
           title: `Pixel indisponível: ${pixel.name}`,
           message: `O pixel "${pixel.name}" está indisponível. Verifique a instalação no site e as permissões no Business Manager.`,
-          suggestedAction: "Verifique a instalação do pixel no site e as permissões no Business Manager. Teste com o Meta Pixel Helper.",
         });
       } else if (pixel.last_fired_time) {
         const hoursSince = (Date.now() - new Date(pixel.last_fired_time).getTime()) / 3600000;
         if (hoursSince > 48) {
           alerts.push({
             type: "PIXEL_ERROR",
-            severity: "WARNING",
-            priority: "HIGH",
             title: `Pixel inativo: ${pixel.name}`,
-            message: `O pixel "${pixel.name}" não disparou nos últimos ${Math.round(hoursSince)}h. Verifique se o código está instalado corretamente no site.`,
-            suggestedAction: "Instale o Meta Pixel Helper no Chrome e acesse o site para verificar se o pixel está disparando corretamente.",
-            metricCurrent: `${Math.round(hoursSince)}h sem disparar`,
-            metricReference: "Máximo recomendado: 48h",
+            message: `O pixel "${pixel.name}" não disparou nos últimos ${Math.round(hoursSince)}h (referência: máximo 48h). Verifique se o código está instalado corretamente no site.`,
           });
         }
       }

@@ -210,7 +210,7 @@ export const appRouter = router({
             userId: ctx.user.id,
             accountId: input.accountId,
             type: "BUDGET_WARNING",
-            severity: billing.remainingBalance < 50 ? "CRITICAL" : "WARNING",
+            severity: "WARNING",
             title: "Saldo baixo na conta de anúncios",
             message: `Saldo remanescente: ${billing.currency} ${billing.remainingBalance.toFixed(2)}. Recomendamos recarregar antes que as campanhas sejam pausadas automaticamente.`,
           });
@@ -524,15 +524,13 @@ export const appRouter = router({
             title: anomaly.title,
             message: anomaly.description,
             type: "ANOMALY",
-            severity: anomaly.severity === "CRITICAL" || anomaly.severity === "HIGH" ? "CRITICAL" : "WARNING",
+            severity: "WARNING", // Todos os alertas tratados igualmente — sem hierarquia de prioridade
           });
-
-          if (anomaly.severity === "CRITICAL") {
-            await notifyOwner({
-              title: `🚨 Anomalia Crítica: ${anomaly.title}`,
-              content: anomaly.description,
-            });
-          }
+          // Notificar o dono da conta para toda anomalia detectada (sem filtro por prioridade)
+          await notifyOwner({
+            title: `⚠️ Anomalia detectada: ${anomaly.title}`,
+            content: anomaly.description,
+          });
         }
 
         return { detected: detected.length };
