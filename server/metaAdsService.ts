@@ -448,6 +448,37 @@ export function extractConversionValue(
  * Extract conversion count from actions array (generic fallback).
  * Prefer extractResultsByGoal when optimization_goal is known.
  */
+/**
+ * Extract profile visits from Meta actions.
+ * action_type: "profile_visit" — Instagram profile visits driven by the ad.
+ */
+export function extractProfileVisits(actions?: Array<{ action_type: string; value: string }>): number {
+  if (!actions) return 0;
+  let total = 0;
+  for (const a of actions) {
+    if (a.action_type === "profile_visit" || a.action_type === "instagram_profile_visit") {
+      total += parseFloat(a.value) || 0;
+    }
+  }
+  return total;
+}
+
+/**
+ * Extract new followers/page likes from Meta actions.
+ * action_type: "page_fan" — new page likes/followers driven by the ad.
+ * Also checks "like" for legacy campaigns.
+ */
+export function extractFollowers(actions?: Array<{ action_type: string; value: string }>): number {
+  if (!actions) return 0;
+  let total = 0;
+  for (const a of actions) {
+    if (a.action_type === "page_fan" || a.action_type === "like" || a.action_type === "follow") {
+      total += parseFloat(a.value) || 0;
+    }
+  }
+  return total;
+}
+
 export function extractConversions(actions?: Array<{ action_type: string; value: string }>): number {
   if (!actions) return 0;
   const conversionTypes = [

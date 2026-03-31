@@ -43,6 +43,8 @@ import {
   extractConversions,
   extractConversionValue,
   extractPurchaseRoas,
+  extractProfileVisits,
+  extractFollowers,
   calculateCpa,
   getResultLabel,
   checkRealTimeAlerts,
@@ -131,6 +133,9 @@ async function syncAccount(account: { id: number; accountId: string; accessToken
       const roas = extractPurchaseRoas(insight.purchase_roas, spend, conversionValue);
       const cpa = calculateCpa(spend, conversions);
 
+      const profileVisits = extractProfileVisits(insight.actions);
+      const followers = extractFollowers(insight.actions);
+
       await upsertCampaignMetrics({
         campaignId: localId,
         accountId: account.id,
@@ -147,6 +152,8 @@ async function syncAccount(account: { id: number; accountId: string; accessToken
         cpm: insight.cpm ?? "0",
         cpa: String(cpa),
         roas: String(roas),
+        profileVisits,
+        followers,
       });
     }
 

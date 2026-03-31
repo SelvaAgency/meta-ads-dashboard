@@ -399,3 +399,9 @@
 ## Bug Rota /dashboard-builder/:id (Mar/31)
 - [x] Remover import DashboardBuilderResult do App.tsx
 - [x] Remover rota /dashboard-builder/:id do App.tsx
+
+## Bug Visitas ao Perfil e Seguidores (Mar/31)
+- [x] Migration: adicionar colunas profile_visits e followers na tabela campaign_metrics
+- [x] metaAdsService.ts: incluir action_types corretos para profile_visits (profile_visit, instagram_profile_visit) e followers (page_fan, like, follow) no sync
+- [x] drizzle/schema.ts: adicionar campos profileVisits e followers no schema
+- [x] routers.ts: incluir SUM de profile_visits e followers na agregação do campaigns.performance

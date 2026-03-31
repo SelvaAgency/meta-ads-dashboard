@@ -90,6 +90,8 @@ export const campaignMetrics = mysqlTable("campaign_metrics", {
   cpm: decimal("cpm", { precision: 10, scale: 4 }).default("0"),
   cpa: decimal("cpa", { precision: 12, scale: 4 }).default("0"),
    roas: decimal("roas", { precision: 10, scale: 4 }).default("0"),
+  profileVisits: bigint("profile_visits", { mode: "number" }).default(0),
+  followers: bigint("followers", { mode: "number" }).default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   uqCampaignDate: uniqueIndex("uq_campaign_date").on(table.campaignId, table.date),

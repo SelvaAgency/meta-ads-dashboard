@@ -266,6 +266,8 @@ export async function getCampaignPerformanceSummary(accountId: number, startDate
       avgCpc: sql<number>`CASE WHEN SUM(${campaignMetrics.clicks}) > 0 THEN SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.clicks}) ELSE 0 END`,
       avgCpm: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.impressions})) * 1000 ELSE 0 END`,
       avgFrequency: sql<number>`CASE WHEN SUM(${campaignMetrics.reach}) > 0 THEN SUM(${campaignMetrics.impressions}) / SUM(${campaignMetrics.reach}) ELSE 0 END`,
+      totalProfileVisits: sql<number>`SUM(${campaignMetrics.profileVisits})`,
+      totalFollowers: sql<number>`SUM(${campaignMetrics.followers})`,
     })
     .from(campaignMetrics)
     .innerJoin(campaigns, eq(campaignMetrics.campaignId, campaigns.id))
@@ -300,6 +302,8 @@ export async function upsertCampaignMetrics(data: InsertCampaignMetrics) {
         cpm: data.cpm,
         cpa: data.cpa,
         roas: data.roas,
+        profileVisits: data.profileVisits,
+        followers: data.followers,
       },
     });
 }

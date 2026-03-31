@@ -70,6 +70,8 @@ import {
   extractConversionValue,
   extractPurchaseRoas,
   extractResultsByGoal,
+  extractProfileVisits,
+  extractFollowers,
   getResultLabel,
   calculateRoas,
   calculateCpa,
@@ -308,6 +310,9 @@ export const appRouter = router({
           // CPA = spend / results (using the correct result type for the goal)
           const cpa = calculateCpa(spend, conversions);
 
+          const profileVisits = extractProfileVisits(insight.actions);
+          const followers = extractFollowers(insight.actions);
+
           await upsertCampaignMetrics({
             campaignId: localId,
             accountId: account.id,
@@ -324,6 +329,8 @@ export const appRouter = router({
             cpm: insight.cpm ?? "0",
             cpa: String(cpa),
             roas: String(roas),
+            profileVisits,
+            followers,
           });
         }
 
