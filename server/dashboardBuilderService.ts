@@ -435,46 +435,27 @@ export function generateReportHtml(report: DashboardReportData): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard — ${report.clientName}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; }
-    html, body { 
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
-      margin: 0; 
-      padding: 0; 
-      background: #0f172a; 
-      color: #e2e8f0;
-      line-height: 1.5;
-    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif; margin: 0; padding: 0; background: #0f172a; color: #e2e8f0; }
     @media print {
-      html, body { 
-        -webkit-print-color-adjust: exact; 
-        print-color-adjust: exact; 
-        background: #0f172a;
-      }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .no-print { display: none !important; }
-      .campaign-card { page-break-inside: avoid; }
-      .summary-card { page-break-inside: avoid; }
-      .recommendations-section { page-break-inside: avoid; }
-      table { page-break-inside: avoid; }
-      .kpi-card { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-      .badge { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-      .variation-badge { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     }
   </style>
 </head>
 <body>
   <div style="max-width:900px;margin:0 auto;padding:40px 32px;">
-    <!-- Cabeçalho Premium -->
+    <!-- Cabeçalho -->
     <div style="border-bottom:2px solid #334155;padding-bottom:24px;margin-bottom:32px;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
         <div>
-          <h1 style="font-size:28px;font-weight:800;color:#f1f5f9;margin:0 0 8px 0;letter-spacing:-0.02em;">Dashboard de Performance</h1>
-          <p style="font-size:16px;color:#64748b;margin:0;font-weight:500;">${report.clientName}</p>
+          <h1 style="font-size:24px;font-weight:800;color:#f1f5f9;margin:0 0 4px 0;">Dashboard de Performance</h1>
+          <p style="font-size:16px;color:#64748b;margin:0;">${report.clientName}</p>
         </div>
         <div style="text-align:right;">
           <p style="font-size:13px;color:#64748b;margin:0 0 4px 0;">${report.platform}</p>
-          <p style="font-size:14px;font-weight:700;color:#f1f5f9;margin:0;">${report.period}</p>
+          <p style="font-size:13px;font-weight:600;color:#f1f5f9;margin:0;">${report.period}</p>
           <p style="font-size:12px;color:#475569;margin:4px 0 0 0;">${report.mode === "COMPARATIVE" ? "Modo Comparativo" : "Período Único"}</p>
         </div>
       </div>
@@ -483,118 +464,30 @@ export function generateReportHtml(report: DashboardReportData): string {
     ${contextWarningHtml}
     ${urgentAlertsHtml}
 
-    <!-- Visão Geral com KPI Cards Coloridos -->
-    <div class="summary-card" style="margin-bottom:32px;">
-      <h2 style="font-size:16px;font-weight:700;color:#f1f5f9;margin:0 0 20px 0;letter-spacing:-0.01em;">Visão Geral</h2>
+    <!-- Resumo Geral (apenas totais) -->
+    <div style="margin-bottom:32px;padding:24px;background:#1e293b;border-radius:12px;page-break-inside:avoid;">
+      <h2 style="font-size:15px;font-weight:700;color:#f1f5f9;margin:0 0 20px 0;">Visão Geral</h2>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:${report.strategicSummary.contextNotes ? "20px" : "0"};">
-        <!-- Investimento (Roxo) -->
-        <div class="kpi-card" style="padding:20px;background:linear-gradient(135deg,rgba(139,92,246,0.1),rgba(109,40,217,0.05));border:1px solid rgba(139,92,246,0.3);border-radius:12px;">
-          <p style="font-size:11px;color:#c4b5fd;margin:0 0 8px 0;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">💰 Investimento Total</p>
-          <p style="font-size:24px;font-weight:800;color:#e9d5ff;margin:0;letter-spacing:-0.02em;">${report.strategicSummary.totalInvested}</p>
+        <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
+          <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.05em;">Investimento Total</p>
+          <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${report.strategicSummary.totalInvested}</p>
         </div>
-        <!-- Resultados (Verde) -->
-        <div class="kpi-card" style="padding:20px;background:linear-gradient(135deg,rgba(34,197,94,0.1),rgba(22,163,74,0.05));border:1px solid rgba(34,197,94,0.3);border-radius:12px;">
-          <p style="font-size:11px;color:#86efac;margin:0 0 8px 0;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">📊 Total de Resultados</p>
-          <p style="font-size:24px;font-weight:800;color:#dcfce7;margin:0;letter-spacing:-0.02em;">${report.strategicSummary.totalResults}</p>
+        <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
+          <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.05em;">Total de Resultados</p>
+          <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${report.strategicSummary.totalResults}</p>
         </div>
-        <!-- Custo (Âmbar) -->
-        <div class="kpi-card" style="padding:20px;background:linear-gradient(135deg,rgba(217,119,6,0.1),rgba(180,83,9,0.05));border:1px solid rgba(217,119,6,0.3);border-radius:12px;">
-          <p style="font-size:11px;color:#fcd34d;margin:0 0 8px 0;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;">💵 Custo por Resultado</p>
-          <p style="font-size:24px;font-weight:800;color:#fef3c7;margin:0;letter-spacing:-0.02em;">${report.strategicSummary.costPerResult}</p>
+        <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
+          <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.05em;">Custo por Resultado</p>
+          <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${report.strategicSummary.costPerResult}</p>
         </div>
       </div>
-      ${report.strategicSummary.contextNotes ? `<div style="padding:14px 16px;background:rgba(59,130,246,0.1);border-left:3px solid #3b82f6;border-radius:0 8px 8px 0;print-color-adjust:exact;-webkit-print-color-adjust:exact;"><p style="font-size:13px;color:#93c5fd;margin:0;line-height:1.6;">${report.strategicSummary.contextNotes}</p></div>` : ""}
+      ${report.strategicSummary.contextNotes ? `<div style="padding:12px 16px;background:rgba(59,130,246,0.1);border-left:3px solid #3b82f6;border-radius:0 8px 8px 0;"><p style="font-size:13px;color:#93c5fd;margin:0;line-height:1.6;">${report.strategicSummary.contextNotes}</p></div>` : ""}
     </div>
 
-    <!-- Campanhas com Numeração Visual -->
-    ${report.campaigns
-      .map(
-        (camp, idx) => `
-    <div class="campaign-card" style="margin-bottom:32px;padding:24px;background:#1e293b;border:1px solid #334155;border-radius:12px;">
-      <!-- Header com Numeração -->
-      <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #334155;">
-        <div class="kpi-card" style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#8b5cf6,#6d28d9);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-          <span style="font-size:18px;font-weight:800;color:#f1f5f9;">${idx + 1}</span>
-        </div>
-        <div style="flex:1;">
-          <h2 style="font-size:18px;font-weight:700;color:#f1f5f9;margin:0 0 6px 0;">${camp.name}</h2>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <span class="badge" style="display:inline-block;padding:4px 12px;border-radius:12px;font-size:11px;font-weight:600;background:${camp.deliveryStatus === "active" ? "rgba(74,222,128,0.15)" : "rgba(148,163,184,0.15)"};color:${camp.deliveryStatus === "active" ? "#4ade80" : "#94a3b8"};">${camp.deliveryStatus === "active" ? "● Ativa" : "○ Inativa"}</span>
-            <span style="font-size:11px;color:#94a3b8;background:#0f172a;padding:4px 10px;border-radius:6px;">${camp.objective}</span>
-          </div>
-          ${camp.hasDataQualityWarning ? '<div style="margin-top:8px;padding:8px 12px;background:rgba(250,204,21,0.1);border:1px solid rgba(250,204,21,0.3);border-radius:6px;font-size:12px;color:#fbbf24;print-color-adjust:exact;-webkit-print-color-adjust:exact;">⚠️ Algumas métricas podem estar imprecisas.</div>' : ""}
-        </div>
-      </div>
+    <!-- Campanhas individuais -->
+    ${campaignsHtml}
 
-      <!-- Tabela com Zebra Stripes -->
-      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;border-radius:8px;overflow:hidden;">
-        <thead>
-          <tr style="background:#0f172a;">
-            <th style="text-align:left;padding:12px 14px;font-size:11px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid #334155;">Métrica</th>
-            <th style="text-align:right;padding:12px 14px;font-size:11px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid #334155;">${report.mode === "COMPARATIVE" ? "Atual" : "Valor"}</th>
-            ${report.mode === "COMPARATIVE" ? '<th style="text-align:right;padding:12px 14px;font-size:11px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid #334155;">Anterior</th><th style="text-align:right;padding:12px 14px;font-size:11px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid #334155;">Variação</th>' : ""}
-          </tr>
-        </thead>
-        <tbody>
-          ${camp.metrics
-            .map(
-              (m: CampaignMetric, i: number) => {
-                const isEven = i % 2 === 0;
-                const changeColor = m.indicatorColor === "green" ? "#4ade80" : m.indicatorColor === "red" ? "#f87171" : "#94a3b8";
-                const changeBg = m.indicatorColor === "green" ? "rgba(74,222,128,0.1)" : m.indicatorColor === "red" ? "rgba(248,113,113,0.1)" : "rgba(148,163,184,0.1)";
-                const changeArrow = m.indicatorColor === "green" ? "↑" : m.indicatorColor === "red" ? "↓" : "→";
-                const changeSign = m.changePercent !== undefined && m.changePercent !== null && m.changePercent >= 0 ? "+" : "";
-                return `
-            <tr style="background:${isEven ? "#1e293b" : "rgba(15,23,42,0.5)"};print-color-adjust:exact;-webkit-print-color-adjust:exact;">
-              <td style="padding:12px 14px;font-size:13px;color:#cbd5e1;border-bottom:1px solid #334155;font-weight:500;">${m.name}</td>
-              <td style="padding:12px 14px;font-size:13px;font-weight:700;color:#f1f5f9;text-align:right;border-bottom:1px solid #334155;">${m.currentValue}</td>
-              ${report.mode === "COMPARATIVE" ? `
-              <td style="padding:12px 14px;font-size:13px;color:#64748b;text-align:right;border-bottom:1px solid #334155;">${m.previousValue ?? "—"}</td>
-              <td style="padding:12px 14px;text-align:right;border-bottom:1px solid #334155;">
-                ${m.changePercent !== undefined && m.changePercent !== null ? `<span class="variation-badge" style="display:inline-block;padding:4px 8px;border-radius:6px;background:${changeBg};color:${changeColor};font-weight:600;font-size:12px;border:1px solid ${changeColor}33;">${changeArrow} ${changeSign}${m.changePercent.toFixed(1)}%</span>` : "—"}
-              </td>` : ""}
-            </tr>`;
-              }
-            )
-            .join("")}
-        </tbody>
-      </table>
-
-      <!-- Análise -->
-      <div style="background:#0f172a;border-left:3px solid #3b82f6;padding:14px 16px;border-radius:0 8px 8px 0;margin-bottom:16px;">
-        <p style="font-size:11px;font-weight:700;color:#60a5fa;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.05em;">📋 Análise</p>
-        <p style="font-size:13px;color:#cbd5e1;line-height:1.6;margin:0;">${camp.analysis}</p>
-      </div>
-
-      <!-- Destaques e Atenção -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        ${camp.highlights && camp.highlights.length > 0 ? `
-        <div style="padding:14px 16px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.3);border-radius:8px;print-color-adjust:exact;-webkit-print-color-adjust:exact;">
-          <p style="font-size:11px;font-weight:700;color:#4ade80;margin:0 0 10px 0;text-transform:uppercase;letter-spacing:0.05em;">✅ Destaques</p>
-          <ul style="margin:0;padding-left:18px;">
-            ${camp.highlights.map((h: string) => `<li style="font-size:12px;color:#cbd5e1;margin-bottom:5px;line-height:1.5;">${h}</li>`).join("")}
-          </ul>
-        </div>` : ""}
-        ${camp.attentionPoints && camp.attentionPoints.length > 0 ? `
-        <div style="padding:14px 16px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.3);border-radius:8px;print-color-adjust:exact;-webkit-print-color-adjust:exact;">
-          <p style="font-size:11px;font-weight:700;color:#f87171;margin:0 0 10px 0;text-transform:uppercase;letter-spacing:0.05em;">⚠️ Atenção</p>
-          <ul style="margin:0;padding-left:18px;">
-            ${camp.attentionPoints.map((a: string) => `<li style="font-size:12px;color:#cbd5e1;margin-bottom:5px;line-height:1.5;">${a}</li>`).join("")}
-          </ul>
-        </div>` : ""}
-      </div>
-    </div>`
-      )
-      .join("")}
-
-    <!-- Recomendações em Fundo Dark -->
-    ${report.recommendations.length > 0 ? `
-    <div class="recommendations-section" style="margin-bottom:32px;padding:28px;background:#0f172a;border:1px solid #334155;border-radius:12px;">
-      <h2 style="font-size:16px;font-weight:700;color:#f1f5f9;margin:0 0 18px 0;letter-spacing:-0.01em;">💡 Recomendações e Próximos Passos</h2>
-      <ol style="margin:0;padding-left:24px;">
-        ${report.recommendations.map((r) => `<li style="font-size:13px;color:#cbd5e1;margin-bottom:10px;line-height:1.6;">${r}</li>`).join("")}
-      </ol>
-    </div>` : ""}
+    ${recommendationsHtml}
 
     <!-- Rodapé -->
     <div style="border-top:1px solid #334155;padding-top:16px;margin-top:32px;">
