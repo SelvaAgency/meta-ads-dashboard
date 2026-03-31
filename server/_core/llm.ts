@@ -342,8 +342,30 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   if (!response.ok) {
     const errorText = await response.text();
+    // Check if the error response is HTML (e.g., gateway error page) and give a descriptive message
+    const isHtml = errorText.trim().startsWith("<");
+    if (isHtml) {
+      throw new Error(
+        `LLM invoke failed: ${response.status} ${response.statusText} – O servidor retornou uma página de erro HTML (gateway/proxy). Tente novamente em alguns instantes.`
+      );
+    }
     throw new Error(
       `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
+    );
+  }
+
+  // Verify content-type before parsing JSON to avoid "Unexpected token <" errors
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    const rawText = await response.text();
+    const isHtml = rawText.trim().startsWith("<");
+    if (isHtml) {
+      throw new Error(
+        `LLM invoke retornou HTML em vez de JSON (status ${response.status}). O gateway pode estar sobrecarregado. Tente novamente.`
+      );
+    }
+    throw new Error(
+      `LLM invoke retornou content-type inesperado: ${contentType}. Resposta: ${rawText.slice(0, 200)}`
     );
   }
 

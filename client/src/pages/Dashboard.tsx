@@ -568,18 +568,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Alerts banner */}
-        {((data?.unreadAlerts ?? 0) > 0 || (data?.unreadAnomalies ?? 0) > 0) && (
-          <div className="flex items-center gap-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20">
-            <div className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
-            <p className="text-sm text-foreground">
-              {data?.unreadAnomalies ?? 0} anomalia(s) e {data?.unreadAlerts ?? 0} alerta(s) não lidos
-            </p>
-            <Button variant="outline" size="sm" className="ml-auto h-7 text-xs" onClick={() => navigate("/anomalies")}>
-              Ver anomalias
-            </Button>
-          </div>
-        )}
+        {/* Alerts banner removed — user accesses Alertas and Anomalias via sidebar navigation */}
 
         {/* Adaptive KPI Cards — 4 per row */}
         {isLoading ? (

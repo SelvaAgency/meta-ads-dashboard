@@ -212,27 +212,58 @@ export async function analyzeCampaignData(
 
   const textInstruction = `Analise os dados de campanhas ${imageUrls.length > 0 ? "nas imagens acima" : "fornecidos"} e gere o relatório JSON conforme as instruções do sistema. Lembre-se: extraia TODAS as métricas visíveis e identifique o status de veiculação de cada campanha.`;
 
-  // Build user content: images + text instruction
+  // Convert image URLs to base64 data URIs to avoid URL access issues in the LLM gateway
+  const toBase64DataUri = async (url: string): Promise<string> => {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const contentType = res.headers.get("content-type") ?? "image/jpeg";
+      const buffer = await res.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString("base64");
+      return `data:${contentType};base64,${base64}`;
+    } catch (err) {
+      console.warn(`[DashboardBuilder] Failed to fetch image as base64, using URL directly: ${url}`, err);
+      return url; // Fallback to URL if fetch fails
+    }
+  };
+
+  // Build user content: images (as base64) + text instruction
   const userContent: any[] = [];
   if (imageUrls.length > 0) {
-    for (const url of imageUrls) {
+    const base64Urls = await Promise.all(imageUrls.map(toBase64DataUri));
+    for (const dataUri of base64Urls) {
       // Use "high" detail — campaign screenshots contain small tabular numbers that require high resolution
-      userContent.push({ type: "image_url", image_url: { url, detail: "high" } });
+      userContent.push({ type: "image_url", image_url: { url: dataUri, detail: "high" } });
     }
     userContent.push({ type: "text", text: textInstruction });
   }
 
-  const response = await invokeLLM({
-    // Use gemini-2.5-pro for Dashboard Builder — higher precision for tabular data extraction from images
-    model: "gemini-2.5-pro",
-    messages: [
-      { role: "system", content: prompt },
-      {
-        role: "user",
-        content: imageUrls.length > 0 ? userContent : textInstruction,
-      },
-    ],
-  });
+  // Retry logic: up to 2 attempts with a 5s delay between them
+  const invokeWithRetry = async (attempt = 1): Promise<Awaited<ReturnType<typeof invokeLLM>>> => {
+    try {
+      return await invokeLLM({
+        // Use gemini-2.5-pro for Dashboard Builder — higher precision for tabular data extraction from images
+        model: "gemini-2.5-pro",
+        messages: [
+          { role: "system", content: prompt },
+          {
+            role: "user",
+            content: imageUrls.length > 0 ? userContent : textInstruction,
+          },
+        ],
+      });
+    } catch (err: any) {
+      const isRetryable = err?.message?.includes("gateway") || err?.message?.includes("HTML") || err?.message?.includes("502") || err?.message?.includes("503");
+      if (attempt < 2 && isRetryable) {
+        console.warn(`[DashboardBuilder] Attempt ${attempt} failed (${err.message}), retrying in 5s...`);
+        await new Promise(r => setTimeout(r, 5_000));
+        return invokeWithRetry(attempt + 1);
+      }
+      throw err;
+    }
+  };
+
+  const response = await invokeWithRetry();
 
   const rawContent = String(response?.choices?.[0]?.message?.content ?? "");
 

@@ -52,10 +52,10 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { activeAccount, activeAccountId, accounts, setActiveAccountId } = useActiveAccount();
 
-  const { data: unreadCount } = trpc.alerts.unreadCount.useQuery(undefined, {
-    enabled: isAuthenticated,
-    refetchInterval: 30000,
-  });
+  const { data: unreadCount } = trpc.alerts.unreadCount.useQuery(
+    { accountId: activeAccountId ?? undefined },
+    { enabled: isAuthenticated, refetchInterval: 30000 }
+  );
 
   // Load all schedules to show indicator per account in the dropdown
   const { data: allSchedules } = trpc.reports.list.useQuery(undefined, {

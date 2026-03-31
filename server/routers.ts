@@ -35,6 +35,9 @@ import {
   dismissSuggestion,
   getAccountMetricsSummary,
   getAlertsByUserId,
+  getAlertsByAccountId,
+  getUnreadAlertsCountByAccount,
+  markAllAlertsReadByAccount,
   getCampaignPerformanceSummary,
   getCampaignsByAccountId,
   getActiveCampaignsForDisplay,
@@ -629,15 +632,26 @@ export const appRouter = router({
       }),
   }),
 
-  // ─── Alerts ────────────────────────────────────────────────────────────────
+  // ─── Alerts ───────────────────────────────────────────────────────────────────────────
   alerts: router({
-    list: protectedProcedure.query(async ({ ctx }) => {
-      return getAlertsByUserId(ctx.user.id);
-    }),
+    // Filter by accountId so each account only sees its own alerts
+    list: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        return getAlertsByAccountId(ctx.user.id, input.accountId);
+      }),
 
-    unreadCount: protectedProcedure.query(async ({ ctx }) => {
-      return getUnreadAlertsCount(ctx.user.id);
-    }),
+    // unreadCount filtered by account for sidebar badge
+    unreadCount: protectedProcedure
+      .input(z.object({ accountId: z.number().optional() }))
+      .query(async ({ ctx, input }) => {
+        if (input.accountId) {
+          return getUnreadAlertsCountByAccount(ctx.user.id, input.accountId);
+        }
+        return getUnreadAlertsCount(ctx.user.id);
+      }),
 
     markRead: protectedProcedure
       .input(z.object({ alertId: z.number() }))
@@ -646,13 +660,18 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
-      await markAllAlertsRead(ctx.user.id);
-      return { success: true };
-    }),
-  }),
-
-  // ─── Scheduled Reports ─────────────────────────────────────────────────────
+    markAllRead: protectedProcedure
+      .input(z.object({ accountId: z.number().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (input.accountId) {
+          // Only delete alerts for this specific account
+          await markAllAlertsReadByAccount(ctx.user.id, input.accountId);
+        } else {
+          await markAllAlertsRead(ctx.user.id);
+        }
+        return { success: true };
+      }),
+  }),// ─── Scheduled Reports ─────────────────────────────────────────────────────
   reports: router({
     list: protectedProcedure.query(async ({ ctx }) => {
       return getScheduledReportsByUserId(ctx.user.id);

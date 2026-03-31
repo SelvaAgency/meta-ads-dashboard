@@ -545,6 +545,17 @@ export async function getAlertsByUserId(userId: number, limit = 50) {
     .limit(limit);
 }
 
+export async function getAlertsByAccountId(userId: number, accountId: number, limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(alerts)
+    .where(and(eq(alerts.userId, userId), eq(alerts.accountId, accountId), eq(alerts.isRead, false)))
+    .orderBy(desc(alerts.createdAt))
+    .limit(limit);
+}
+
 export async function getUnreadAlertsCount(userId: number) {
   const db = await getDb();
   if (!db) return 0;
@@ -552,6 +563,16 @@ export async function getUnreadAlertsCount(userId: number) {
     .select({ count: sql<number>`COUNT(*)` })
     .from(alerts)
     .where(and(eq(alerts.userId, userId), eq(alerts.isRead, false)));
+  return result[0]?.count ?? 0;
+}
+
+export async function getUnreadAlertsCountByAccount(userId: number, accountId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+  const result = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(alerts)
+    .where(and(eq(alerts.userId, userId), eq(alerts.accountId, accountId), eq(alerts.isRead, false)));
   return result[0]?.count ?? 0;
 }
 
@@ -588,4 +609,11 @@ export async function markAllAlertsRead(userId: number) {
   if (!db) return;
   // Delete all alerts when marking all as read
   await db.delete(alerts).where(eq(alerts.userId, userId));
+}
+
+export async function markAllAlertsReadByAccount(userId: number, accountId: number) {
+  const db = await getDb();
+  if (!db) return;
+  // Delete only alerts for a specific account
+  await db.delete(alerts).where(and(eq(alerts.userId, userId), eq(alerts.accountId, accountId)));
 }

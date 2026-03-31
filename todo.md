@@ -411,3 +411,22 @@
 - [x] Limpar import de DashboardLayout no DashboardLayoutSkeleton.tsx (sem import, não havia referência)
 - [x] Deletar DashboardBuilderResult.tsx (não mais referenciado no router)
 - [x] Corrigir cores hardcoded no DashboardBuilder.tsx para variáveis CSS do tema (dark mode)
+
+## Correção 1 — Remover Banner de Alertas/Anomalias (Mar/31)
+- [x] Remover banner vermelho "X anomalia(s) e Y alerta(s) não lidos" do Dashboard.tsx
+- [x] Verificar se o banner aparece em outras telas (não aparecia em nenhuma outra)
+
+## Correção 2 — Filtro por Conta Ativa (Mar/31)
+- [x] Backend: alerts.list filtrar por accountId (nova função getAlertsByAccountId)
+- [x] Backend: alerts.unreadCount filtrar por accountId
+- [x] Backend: alerts.markAllRead filtrar por accountId
+- [x] AlertsPage.tsx: passa accountId da conta ativa em todas as queries/mutations
+- [x] MetaDashboardLayout: badge de alertas filtrado por conta ativa
+- [x] Anomalies.tsx: já filtrava por accountId corretamente
+- [x] Suggestions.tsx: já filtrava por accountId corretamente
+
+## Correção 3 — Dashboard Builder HTML/JSON e Base64 (Mar/31)
+- [x] llm.ts: verificar content-type antes de parsear JSON
+- [x] llm.ts: tratar resposta HTML como erro descritivo (gateway/proxy)
+- [x] dashboardBuilderService.ts: converter imagens para base64 antes de enviar ao LLM
+- [x] dashboardBuilderService.ts: retry automático (2 tentativas) para erros de gateway/502/503

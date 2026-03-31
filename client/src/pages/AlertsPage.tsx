@@ -1,5 +1,6 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
+import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -104,8 +105,14 @@ const TECHNICAL_ALERT_TYPES = new Set([
 
 export default function AlertsPage() {
   const utils = trpc.useUtils();
+  const { selectedAccountId } = useSelectedAccount();
 
-  const { data: allAlerts, isLoading } = trpc.alerts.list.useQuery();
+  const queryKey = { accountId: selectedAccountId! };
+
+  const { data: allAlerts, isLoading } = trpc.alerts.list.useQuery(queryKey, {
+    enabled: !!selectedAccountId,
+    refetchInterval: 30_000,
+  });
 
   // Filtrar apenas alertas técnicos operacionais
   const alerts = (allAlerts ?? []).filter((a) => TECHNICAL_ALERT_TYPES.has(a.type));
@@ -113,18 +120,18 @@ export default function AlertsPage() {
   // Optimistic update: remove alert from list immediately on markRead
   const markRead = trpc.alerts.markRead.useMutation({
     onMutate: async ({ alertId }) => {
-      await utils.alerts.list.cancel();
-      const prev = utils.alerts.list.getData();
-      utils.alerts.list.setData(undefined, (old) =>
-        old ? old.filter((a) => a.id !== alertId) : []
+      await utils.alerts.list.cancel(queryKey);
+      const prev = utils.alerts.list.getData(queryKey);
+      utils.alerts.list.setData(queryKey, (old) =>
+        old ? old.filter((a: { id: number }) => a.id !== alertId) : []
       );
       return { prev };
     },
     onError: (_err, _vars, ctx) => {
-      if (ctx?.prev) utils.alerts.list.setData(undefined, ctx.prev);
+      if (ctx?.prev) utils.alerts.list.setData(queryKey, ctx.prev);
     },
     onSettled: () => {
-      utils.alerts.list.invalidate();
+      utils.alerts.list.invalidate(queryKey);
       utils.alerts.unreadCount.invalidate();
     },
   });
@@ -132,16 +139,16 @@ export default function AlertsPage() {
   // Optimistic update: remove all alerts immediately
   const markAllRead = trpc.alerts.markAllRead.useMutation({
     onMutate: async () => {
-      await utils.alerts.list.cancel();
-      const prev = utils.alerts.list.getData();
-      utils.alerts.list.setData(undefined, []);
+      await utils.alerts.list.cancel(queryKey);
+      const prev = utils.alerts.list.getData(queryKey);
+      utils.alerts.list.setData(queryKey, []);
       return { prev };
     },
     onError: (_err, _vars, ctx) => {
-      if (ctx?.prev) utils.alerts.list.setData(undefined, ctx.prev);
+      if (ctx?.prev) utils.alerts.list.setData(queryKey, ctx.prev);
     },
     onSettled: () => {
-      utils.alerts.list.invalidate();
+      utils.alerts.list.invalidate(queryKey);
       utils.alerts.unreadCount.invalidate();
       toast.success("Todos os alertas removidos.");
     },
@@ -219,7 +226,7 @@ export default function AlertsPage() {
               variant="outline"
               size="sm"
               className="gap-2"
-              onClick={() => markAllRead.mutate()}
+              onClick={() => markAllRead.mutate({ accountId: selectedAccountId ?? undefined })}
               disabled={markAllRead.isPending}
             >
               <CheckCheck className="w-3.5 h-3.5" />
