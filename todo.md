@@ -461,3 +461,9 @@
 - [x] Exibir card de saldo fixo no topo do Dashboard com cores dinâmicas (verde >200, amarelo 100-200, vermelho <100)
 - [x] Mostrar forma de pagamento no card de saldo
 - [x] Integrar alerta automático de saldo baixo (<R$200) no sistema de alertas (já existia via autoSync)
+
+## Ajustes Sugestões IA - Histórico e Botões
+- [x] Aplicadas vão pro histórico após 7 dias automaticamente
+- [x] Não Aplicadas vão pro histórico após 1 dia automaticamente
+- [x] Na aba Aplicadas: botão "Aplicado" fixo/desabilitado, sem poder clicar
+- [x] Na aba Aplicadas: só permitir trocar para "Não Aplicar" com campo de motivo

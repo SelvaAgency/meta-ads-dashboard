@@ -333,47 +333,43 @@ function SuggestionCard({ s, onStatusChange }: {
 
             {/* Action buttons */}
             <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/30 flex-wrap">
-              <Button
-                size="sm"
-                variant={isApplied ? "default" : "outline"}
-                className={`h-7 gap-1.5 text-xs ${
-                  isApplied
-                    ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                    : "text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10 hover:border-emerald-400/60"
-                }`}
-                onClick={isApplied ? handleRevert : handleApply}
-                disabled={isPending}
-              >
-                {isApplied ? (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Aplicado (em observação)
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Marcar Aplicado
-                  </>
-                )}
-              </Button>
-              <Button
-                size="sm"
-                variant={isRejected ? "destructive" : "outline"}
-                className={`h-7 gap-1.5 text-xs ${
-                  !isRejected ? "text-red-400 border-red-400/30 hover:bg-red-400/10 hover:border-red-400/60" : ""
-                }`}
-                onClick={() => {
-                  if (isRejected) {
-                    handleRevert();
-                  } else {
-                    setShowRejectForm(!showRejectForm);
-                  }
-                }}
-                disabled={isPending}
-              >
-                <XCircle className="w-3.5 h-3.5" />
-                {isRejected ? "Não Aplicado" : "Não Aplicar"}
-              </Button>
+              {/* Applied: show as fixed/selected, not clickable */}
+              {isApplied ? (
+                <div className="h-7 gap-1.5 text-xs inline-flex items-center px-3 rounded-md bg-emerald-600/20 text-emerald-400 border border-emerald-400/30 cursor-default select-none">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Aplicado (em observação)
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1.5 text-xs text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10 hover:border-emerald-400/60"
+                  onClick={handleApply}
+                  disabled={isPending}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Marcar Aplicado
+                </Button>
+              )}
+
+              {/* Rejected: show as fixed/selected, not clickable */}
+              {isRejected ? (
+                <div className="h-7 gap-1.5 text-xs inline-flex items-center px-3 rounded-md bg-red-600/20 text-red-400 border border-red-400/30 cursor-default select-none">
+                  <XCircle className="w-3.5 h-3.5" />
+                  Não Aplicado
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1.5 text-xs text-red-400 border-red-400/30 hover:bg-red-400/10 hover:border-red-400/60"
+                  onClick={() => setShowRejectForm(!showRejectForm)}
+                  disabled={isPending}
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  Não Aplicar
+                </Button>
+              )}
 
               <Button
                 variant="ghost"
@@ -496,14 +492,39 @@ export default function Suggestions() {
   const hist = history ?? [];
   const allItems = [...pending, ...hist];
 
+  // Helper: check if an item should be in "history" based on status + time elapsed
+  // Applied: goes to history after 7 days from appliedAt
+  // Rejected: goes to history after 1 day from appliedAt (when status was changed)
+  const now = Date.now();
+  const isInHistory = (s: any) => {
+    if (s.status === "applied" && s.appliedAt) {
+      const elapsed = now - new Date(s.appliedAt).getTime();
+      return elapsed > 7 * 24 * 60 * 60 * 1000; // >7 days
+    }
+    if (s.status === "rejected" && s.appliedAt) {
+      const elapsed = now - new Date(s.appliedAt).getTime();
+      return elapsed > 1 * 24 * 60 * 60 * 1000; // >1 day
+    }
+    return false;
+  };
+
+  // "Recent" applied/rejected = not yet moved to history
+  const recentApplied = allItems.filter((s) => s.status === "applied" && !isInHistory(s));
+  const recentRejected = allItems.filter((s) => s.status === "rejected" && !isInHistory(s));
+  const historyItems = allItems.filter((s) => isInHistory(s) || (s.status !== "pending" && s.status !== "applied" && s.status !== "rejected"));
+  // Also include items from the backend history that are old enough
+  const fullHistory = [...historyItems, ...hist.filter((h) => !allItems.some((a) => a.id === h.id) || isInHistory(h))];
+  // Deduplicate by id
+  const historyDeduped = Array.from(new Map(fullHistory.map((s) => [s.id, s])).values());
+
   // Stats for filter cards
   const statsConfig = [
-    { key: "high", label: "Alta Prioridade", value: allItems.filter((s) => s.priority === "HIGH").length, color: "text-red-400", borderActive: "border-red-400 ring-1 ring-red-400/30 bg-red-400/5" },
-    { key: "medium", label: "Média Prioridade", value: allItems.filter((s) => s.priority === "MEDIUM").length, color: "text-orange-400", borderActive: "border-orange-400 ring-1 ring-orange-400/30 bg-orange-400/5" },
-    { key: "low", label: "Baixa Prioridade", value: allItems.filter((s) => s.priority === "LOW").length, color: "text-blue-400", borderActive: "border-blue-400 ring-1 ring-blue-400/30 bg-blue-400/5" },
-    { key: "applied", label: "Aplicadas (Observação)", value: allItems.filter((s) => s.status === "applied").length, color: "text-emerald-400", borderActive: "border-emerald-400 ring-1 ring-emerald-400/30 bg-emerald-400/5" },
-    { key: "rejected", label: "Não Aplicadas", value: allItems.filter((s) => s.status === "rejected").length, color: "text-slate-400", borderActive: "border-slate-400 ring-1 ring-slate-400/30 bg-slate-400/5" },
-    { key: "history", label: "Histórico (30d)", value: hist.length, color: "text-muted-foreground", borderActive: "border-primary ring-1 ring-primary/30 bg-primary/5" },
+    { key: "high", label: "Alta Prioridade", value: allItems.filter((s) => s.priority === "HIGH" && !isInHistory(s)).length, color: "text-red-400", borderActive: "border-red-400 ring-1 ring-red-400/30 bg-red-400/5" },
+    { key: "medium", label: "Média Prioridade", value: allItems.filter((s) => s.priority === "MEDIUM" && !isInHistory(s)).length, color: "text-orange-400", borderActive: "border-orange-400 ring-1 ring-orange-400/30 bg-orange-400/5" },
+    { key: "low", label: "Baixa Prioridade", value: allItems.filter((s) => s.priority === "LOW" && !isInHistory(s)).length, color: "text-blue-400", borderActive: "border-blue-400 ring-1 ring-blue-400/30 bg-blue-400/5" },
+    { key: "applied", label: "Aplicadas (Observação)", value: recentApplied.length, color: "text-emerald-400", borderActive: "border-emerald-400 ring-1 ring-emerald-400/30 bg-emerald-400/5" },
+    { key: "rejected", label: "Não Aplicadas", value: recentRejected.length, color: "text-slate-400", borderActive: "border-slate-400 ring-1 ring-slate-400/30 bg-slate-400/5" },
+    { key: "history", label: "Histórico", value: historyDeduped.length, color: "text-muted-foreground", borderActive: "border-primary ring-1 ring-primary/30 bg-primary/5" },
   ];
 
   // Filter logic
@@ -511,17 +532,17 @@ export default function Suggestions() {
     if (!activeFilter) return pending;
     switch (activeFilter) {
       case "high":
-        return allItems.filter((s) => s.priority === "HIGH");
+        return allItems.filter((s) => s.priority === "HIGH" && !isInHistory(s));
       case "medium":
-        return allItems.filter((s) => s.priority === "MEDIUM");
+        return allItems.filter((s) => s.priority === "MEDIUM" && !isInHistory(s));
       case "low":
-        return allItems.filter((s) => s.priority === "LOW");
+        return allItems.filter((s) => s.priority === "LOW" && !isInHistory(s));
       case "applied":
-        return allItems.filter((s) => s.status === "applied");
+        return recentApplied;
       case "rejected":
-        return allItems.filter((s) => s.status === "rejected");
+        return recentRejected;
       case "history":
-        return hist;
+        return historyDeduped;
       default:
         return pending;
     }
