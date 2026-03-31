@@ -298,7 +298,7 @@ function ImageUploadSlot({
 function DeliveryStatusBadge({ status }: { status: CampaignAnalysis["deliveryStatus"] }) {
   if (status === "active") {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
         <Radio size={10} className="shrink-0" />
         Ativa no período
       </span>
@@ -306,7 +306,7 @@ function DeliveryStatusBadge({ status }: { status: CampaignAnalysis["deliverySta
   }
   if (status === "inactive") {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-muted text-muted-foreground border border-border">
         <PauseCircle size={10} className="shrink-0" />
         Inativa no período
       </span>
@@ -320,10 +320,10 @@ function VariationBadge({ metric }: { metric: CampaignMetric }) {
   const sign = metric.changePercent >= 0 ? "+" : "";
   const color =
     metric.indicatorColor === "green"
-      ? "text-green-600 bg-green-50 border-green-200"
+      ? "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
       : metric.indicatorColor === "red"
-      ? "text-red-600 bg-red-50 border-red-200"
-      : "text-gray-500 bg-gray-50 border-gray-200";
+      ? "text-destructive bg-destructive/10 border-destructive/20"
+      : "text-muted-foreground bg-muted border-border";
   const Icon =
     metric.indicatorColor === "green"
       ? TrendingUp
@@ -529,8 +529,8 @@ function InlineReportView({ dbReport, onNewDashboard }: {
                 </div>
               )}
 
-              <div className="mt-4 p-4 bg-blue-50/50 border-l-4 border-blue-400 rounded-r-lg">
-                <p className="text-xs font-bold text-blue-700 uppercase tracking-wide mb-1.5">Análise</p>
+              <div className="mt-4 p-4 bg-primary/5 border-l-4 border-primary/40 rounded-r-lg">
+                <p className="text-xs font-bold text-primary uppercase tracking-wide mb-1.5">Análise</p>
                 <p className="text-sm text-foreground leading-relaxed">{camp.analysis}</p>
               </div>
             </div>
@@ -540,11 +540,11 @@ function InlineReportView({ dbReport, onNewDashboard }: {
 
       {/* Alertas urgentes */}
       {report.urgentAlerts && report.urgentAlerts.length > 0 && (
-        <div className="p-5 bg-red-50 border border-red-200 rounded-xl">
-          <h2 className="text-base font-bold text-red-800 mb-3">⚠️ Alertas e Ações Urgentes</h2>
+        <div className="p-5 bg-destructive/10 border border-destructive/20 rounded-xl">
+          <h2 className="text-base font-bold text-destructive mb-3">⚠️ Alertas e Ações Urgentes</h2>
           <ul className="space-y-2">
             {report.urgentAlerts.map((a, i) => (
-              <li key={i} className="text-sm text-red-700 flex items-start gap-2">
+              <li key={i} className="text-sm text-destructive flex items-start gap-2">
                 <span className="shrink-0 mt-0.5">•</span>{a}
               </li>
             ))}
@@ -573,21 +573,21 @@ function InlineReportView({ dbReport, onNewDashboard }: {
 
           <div className="grid grid-cols-2 gap-6">
             <div>
-              <p className="text-xs font-bold text-green-600 uppercase tracking-wide mb-2">✓ Destaques Positivos</p>
+              <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide mb-2">✓ Destaques Positivos</p>
               <ul className="space-y-1.5">
                 {report.strategicSummary.highlights.map((h, i) => (
                   <li key={i} className="text-sm text-foreground flex items-start gap-2">
-                    <span className="shrink-0 text-green-500 mt-0.5">•</span>{h}
+                    <span className="shrink-0 text-emerald-500 dark:text-emerald-400 mt-0.5">•</span>{h}
                   </li>
                 ))}
               </ul>
             </div>
             <div>
-              <p className="text-xs font-bold text-red-600 uppercase tracking-wide mb-2">⚠ Pontos de Atenção</p>
+              <p className="text-xs font-bold text-destructive uppercase tracking-wide mb-2">⚠ Pontos de Atenção</p>
               <ul className="space-y-1.5">
                 {report.strategicSummary.attentionPoints.map((a, i) => (
                   <li key={i} className="text-sm text-foreground flex items-start gap-2">
-                    <span className="shrink-0 text-red-500 mt-0.5">•</span>{a}
+                    <span className="shrink-0 text-destructive mt-0.5">•</span>{a}
                   </li>
                 ))}
               </ul>
@@ -595,8 +595,8 @@ function InlineReportView({ dbReport, onNewDashboard }: {
           </div>
 
           {report.strategicSummary.contextNotes && (
-            <div className="p-4 bg-blue-50/50 border-l-4 border-blue-400 rounded-r-lg">
-              <p className="text-xs font-bold text-blue-700 uppercase tracking-wide mb-1">Contexto da Semana</p>
+            <div className="p-4 bg-primary/5 border-l-4 border-primary/40 rounded-r-lg">
+              <p className="text-xs font-bold text-primary uppercase tracking-wide mb-1">Contexto da Semana</p>
               <p className="text-sm text-foreground leading-relaxed">{report.strategicSummary.contextNotes}</p>
             </div>
           )}
@@ -604,12 +604,12 @@ function InlineReportView({ dbReport, onNewDashboard }: {
       </div>
 
       {/* Recomendações */}
-      <div className="bg-slate-900 text-slate-100 rounded-xl p-6">
-        <h2 className="text-base font-bold mb-4">Recomendações e Próximos Passos</h2>
+      <div className="bg-muted/60 border border-border rounded-xl p-6">
+        <h2 className="text-base font-bold mb-4 text-foreground">Recomendações e Próximos Passos</h2>
         <ol className="space-y-3">
           {report.recommendations.map((r, i) => (
-            <li key={i} className="flex items-start gap-3 text-sm text-slate-300 leading-relaxed">
-              <span className="shrink-0 font-bold text-blue-400">{i + 1}.</span>{r}
+            <li key={i} className="flex items-start gap-3 text-sm text-muted-foreground leading-relaxed">
+              <span className="shrink-0 font-bold text-primary">{i + 1}.</span>{r}
             </li>
           ))}
         </ol>

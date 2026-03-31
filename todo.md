@@ -405,3 +405,9 @@
 - [x] metaAdsService.ts: incluir action_types corretos para profile_visits (profile_visit, instagram_profile_visit) e followers (page_fan, like, follow) no sync
 - [x] drizzle/schema.ts: adicionar campos profileVisits e followers no schema
 - [x] routers.ts: incluir SUM de profile_visits e followers na agregação do campaigns.performance
+
+## Limpeza de Código (Mar/31)
+- [x] Remover DashboardLayout.tsx (não usado, tem placeholders)
+- [x] Limpar import de DashboardLayout no DashboardLayoutSkeleton.tsx (sem import, não havia referência)
+- [x] Deletar DashboardBuilderResult.tsx (não mais referenciado no router)
+- [x] Corrigir cores hardcoded no DashboardBuilder.tsx para variáveis CSS do tema (dark mode)
