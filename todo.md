@@ -467,3 +467,6 @@
 - [x] Não Aplicadas vão pro histórico após 1 dia automaticamente
 - [x] Na aba Aplicadas: botão "Aplicado" fixo/desabilitado, sem poder clicar
 - [x] Na aba Aplicadas: só permitir trocar para "Não Aplicar" com campo de motivo
+
+## Redesign HTML do Dashboard Builder
+- [x] Reescrever generateReportHtml com design premium para PDF
