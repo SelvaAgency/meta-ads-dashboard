@@ -444,9 +444,3 @@
 ## Bug Badge de Status - Campaigns.tsx (Mar/31)
 - [x] Corrigir cores hardcoded do statusBg para usar opacidade (dark/light mode)
 - [x] Mover statusBg da td para o span interno (badge pill, não célula inteira)
-
-## Reordenação Menu Lateral (Mar/31)
-- [ ] Remover "Relatórios" do navItems
-- [ ] Mover "Alertas" para antes de "Sugestões IA"
-- [ ] Remover bloco "Gerenciar Contas" hardcoded da sidebar
-- [ ] Remover import FileText se não usado
