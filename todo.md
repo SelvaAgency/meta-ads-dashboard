@@ -391,3 +391,7 @@
 - [x] Aumentar timeout de 180s para 300s no llm.ts
 - [x] Atualizar texto de loading: "1 e 5 minutos" no DashboardBuilder.tsx
 - [x] Usar modelo gemini-2.5-pro no Dashboard Builder (parâmetro model opcional no invokeLLM)
+
+## Bug Layout - Dashboard Builder sem Menu Lateral (Mar/31)
+- [x] Adicionar MetaDashboardLayout como wrapper no DashboardBuilder.tsx
+- [x] Remover padding/max-w redundantes do div externo

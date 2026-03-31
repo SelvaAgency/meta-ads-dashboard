@@ -9,6 +9,7 @@
  * - Validação de data no onBlur, não no onChange (evita perda de foco)
  */
 import { useState, useRef, useCallback, useEffect } from "react";
+import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -872,7 +873,8 @@ export default function DashboardBuilder() {
   const showGenerating = isGenerating || (generatedReportId && generatedReport && generatedReport.status === "PROCESSING");
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-8">
+    <MetaDashboardLayout title="Dashboard Builder">
+    <div className="space-y-8">
       {/* Header */}
       <div className="flex items-start gap-4">
         <div className="p-3 rounded-xl bg-primary/10">
@@ -1200,5 +1202,6 @@ export default function DashboardBuilder() {
       {/* Anchor for scroll-to-result */}
       <div id="result-area" />
     </div>
+    </MetaDashboardLayout>
   );
 }
