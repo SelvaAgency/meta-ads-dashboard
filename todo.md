@@ -440,3 +440,7 @@
 - [x] dashboardBuilderService.ts: usar extractTextContent para extrair rawContent
 - [x] dashboardBuilderService.ts: parsing JSON resiliente com limpeza de markdown e fallback regex
 - [x] Validado: analysisService.ts não quebrado (3 chamadas sem thinking param = usa default 128)
+
+## Bug Badge de Status - Campaigns.tsx (Mar/31)
+- [x] Corrigir cores hardcoded do statusBg para usar opacidade (dark/light mode)
+- [x] Mover statusBg da td para o span interno (badge pill, não célula inteira)

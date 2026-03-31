@@ -303,10 +303,10 @@ export default function Campaigns() {
                       // Status badge
                       const statusBg =
                         status === "ACTIVE"
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
                           : status === "PAUSED"
-                          ? "bg-amber-50 text-amber-700 border-amber-200"
-                          : "bg-slate-50 text-slate-700 border-slate-200";
+                          ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                          : "bg-slate-500/15 text-slate-400 border-slate-500/30";
                       const statusLabel =
                         status === "ACTIVE"
                           ? "Ativa"
@@ -328,8 +328,8 @@ export default function Campaigns() {
                           </td>
 
                           {/* Status */}
-                          <td className={`px-3 py-3 text-right border-r border-border/50 ${statusBg} border rounded-sm`}>
-                            <span className="inline-flex items-center gap-1">
+                          <td className="px-3 py-3 text-center border-r border-border/50">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${statusBg}`}>
                               <Circle size={6} className="fill-current" />
                               {statusLabel}
                             </span>
