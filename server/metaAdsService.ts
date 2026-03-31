@@ -535,6 +535,11 @@ export interface RealTimeAlert {
     | "ADSET_NO_DELIVERY";
   title: string;
   message: string;
+  severity?: string;
+  priority?: string;
+  suggestedAction?: string;
+  metricCurrent?: string;
+  metricReference?: string;
 }
 
 /**
@@ -558,24 +563,49 @@ export async function checkRealTimeAlerts(
 ): Promise<RealTimeAlert[]> {
   const alerts: RealTimeAlert[] = [];
 
-  // 1. Check account billing for low balance and payment failures
+  // 1. Check account billing for low balance — threshold-based alerts
   try {
     const billing = await getAccountBilling(accountId, accessToken);
-    if (billing) {
-      if (billing.remainingBalance !== null && billing.remainingBalance < 200) {
+    if (billing && billing.remainingBalance !== null) {
+      const balance = billing.remainingBalance;
+
+      // Thresholds: alertar apenas quando cruzar cada nível
+      // O título inclui o threshold para garantir dedup correto via createAlertIfNotExists
+      const thresholds = [
+        { limit: 200, severity: "WARNING" as const, priority: "MEDIUM" as const, label: "abaixo de R$200" },
+        { limit: 100, severity: "WARNING" as const, priority: "HIGH" as const, label: "abaixo de R$100" },
+        { limit: 50, severity: "CRITICAL" as const, priority: "CRITICAL" as const, label: "abaixo de R$50" },
+      ];
+
+      // Encontrar o threshold mais crítico atingido
+      const activeThreshold = thresholds
+        .filter(t => balance < t.limit)
+        .sort((a, b) => a.limit - b.limit)[0]; // menor threshold = mais crítico
+
+      if (activeThreshold) {
         alerts.push({
           type: "BUDGET_WARNING",
-          title: "Saldo baixo na conta",
-          message: `Saldo disponível: R$${billing.remainingBalance.toFixed(2)}. Recarregue em breve para evitar interrupção das campanhas. Referência: R$200,00 (mínimo recomendado).`,
+          severity: activeThreshold.severity,
+          priority: activeThreshold.priority,
+          title: `Saldo ${activeThreshold.label}`,
+          message: `Saldo disponível: R$${balance.toFixed(2)}. Recarregue para evitar interrupção das campanhas.`,
+          suggestedAction: "Acesse o Gerenciador de Anúncios e adicione saldo ou atualize o método de pagamento.",
+          metricCurrent: `R$${balance.toFixed(2)}`,
+          metricReference: `R$${activeThreshold.limit},00`,
         });
       }
-      if (billing.fundingSourceType === null && billing.fundingSourceDisplay === null) {
-        alerts.push({
-          type: "PAYMENT_FAILED",
-          title: "Falha na forma de pagamento",
-          message: "Nenhuma forma de pagamento válida encontrada. Verifique as configurações de pagamento no Business Manager.",
-        });
-      }
+    }
+
+    // Manter o check de forma de pagamento ausente (sem mudança)
+    if (billing && billing.fundingSourceType === null && billing.fundingSourceDisplay === null) {
+      alerts.push({
+        type: "PAYMENT_FAILED",
+        severity: "CRITICAL",
+        priority: "CRITICAL",
+        title: "Falha na forma de pagamento",
+        message: "Nenhuma forma de pagamento válida encontrada.",
+        suggestedAction: "Acesse o Business Manager e adicione um método de pagamento válido.",
+      });
     }
   } catch (err) {
     console.error("[RealTimeAlerts] Billing check failed:", err);

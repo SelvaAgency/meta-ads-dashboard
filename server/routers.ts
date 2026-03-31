@@ -28,6 +28,7 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   applySuggestion,
   createAlert,
+  createAlertIfNotExists,
   createMetaAdAccount,
   createScheduledReport,
   deleteMetaAdAccount,
@@ -212,7 +213,7 @@ export const appRouter = router({
         // Fire low-balance alert if pre-paid and remaining < R$200
         if (billing?.isPrePaid && billing.remainingBalance !== null && billing.remainingBalance < 200) {
           // Create an alert in the DB
-          await createAlert({
+          await createAlertIfNotExists({
             userId: ctx.user.id,
             accountId: input.accountId,
             type: "BUDGET_WARNING",
@@ -538,13 +539,13 @@ export const appRouter = router({
         );
 
         for (const anomaly of detected) {
-          await createAlert({
+          await createAlertIfNotExists({
             userId: ctx.user.id,
             accountId: input.accountId,
             title: anomaly.title,
             message: anomaly.description,
             type: "ANOMALY",
-            severity: "WARNING", // Todos os alertas tratados igualmente — sem hierarquia de prioridade
+            severity: "WARNING",
           });
           // Notificar o dono da conta para toda anomalia detectada (sem filtro por prioridade)
           await notifyOwner({

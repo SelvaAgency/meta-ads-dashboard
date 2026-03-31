@@ -26,6 +26,8 @@ import {
   getCampaignPerformanceSummary,
   createAnomaly,
   createAlert,
+  createAlertIfNotExists,
+  purgeDuplicateAlerts,
   markAnomalyEmailSent,
   markAlertEmailSent,
   getMetaAdAccountsByUserId,
@@ -94,7 +96,7 @@ async function syncAccount(account: { id: number; accountId: string; accessToken
     const tokenValid = await validateToken(account.accessToken);
     if (!tokenValid) {
       console.error(`[AutoSync] ✗ Token expirado para conta "${label}" (${account.accountId}). Criando alerta SYNC_ERROR.`);
-      await createAlert({
+      await createAlertIfNotExists({
         userId: account.userId,
         accountId: account.id,
         title: `Token expirado: ${label}`,
@@ -185,7 +187,7 @@ async function syncAccount(account: { id: number; accountId: string; accessToken
     // If token expired, create SYNC_ERROR alert
     if (errMsg.includes('META_TOKEN_EXPIRED') || metaCode === '190') {
       try {
-        await createAlert({
+        await createAlertIfNotExists({
           userId: account.userId,
           accountId: account.id,
           title: `Sync falhou: ${label}`,
@@ -315,13 +317,13 @@ async function runAnomalyDetection() {
         const insertId = (result as any).insertId as number | undefined;
 
         // Create alert for account owner — only once (emailSentAt guards against duplicates)
-        const alertResult = await createAlert({
+        const alertResult = await createAlertIfNotExists({
           userId: account.userId,
           accountId: account.id,
           title: anomaly.title,
           message: anomaly.description,
           type: "ANOMALY",
-          severity: "WARNING", // Todos os alertas tratados igualmente — sem hierarquia de prioridade
+          severity: "WARNING",
         });
         const alertId = (alertResult as any).insertId as number | undefined;
 
@@ -359,14 +361,15 @@ async function runRealTimeAlerts(account: { id: number; accountId: string; acces
   try {
     const alerts = await checkRealTimeAlerts(account.accountId, account.accessToken);
     for (const alert of alerts) {
-      const result = await createAlert({
+      const result = await createAlertIfNotExists({
         userId: account.userId,
         accountId: account.id,
         title: alert.title,
         message: alert.message,
         type: alert.type as any,
-        severity: "WARNING", // Todos os alertas técnicos tratados igualmente — sem hierarquia de prioridade
+        severity: (alert.severity as any) ?? "WARNING",
       });
+      if (!result) continue; // Alerta já existia, pular notificação
       const alertId = (result as any).insertId as number | undefined;
 
       // Notificar o dono da conta para todo alerta técnico (sem filtro por prioridade)
@@ -597,6 +600,16 @@ export async function startAutoSync() {
 
   // Run initial sync after a short delay to let the server warm up
   setTimeout(async () => {
+    // Purge duplicate alerts from backlog on startup
+    try {
+      const purged = await purgeDuplicateAlerts();
+      if (purged > 0) {
+        console.log(`[AutoSync] Purged ${purged} duplicate alerts on startup`);
+      }
+    } catch (err) {
+      console.error("[AutoSync] Error purging duplicate alerts:", err);
+    }
+
     await runAutoSync();
     await runAnomalyDetection();
     await rebuildScheduledReportJobs();

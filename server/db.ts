@@ -583,6 +583,61 @@ export async function createAlert(data: InsertAlert) {
   return result;
 }
 
+/**
+ * Cria alerta APENAS se não existir um alerta ativo (não lido) com o mesmo
+ * tipo + conta + título nas últimas 24h. Evita duplicação de alertas técnicos.
+ * Retorna o resultado do INSERT ou null se já existia.
+ */
+export async function createAlertIfNotExists(data: InsertAlert): Promise<any | null> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const existing = await db
+    .select({ id: alerts.id })
+    .from(alerts)
+    .where(
+      and(
+        eq(alerts.accountId, data.accountId),
+        eq(alerts.type, data.type),
+        eq(alerts.title, data.title),
+        eq(alerts.isRead, false),
+        gte(alerts.createdAt, twentyFourHoursAgo)
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    return null; // Alerta já existe, não duplicar
+  }
+
+  const result = await db.insert(alerts).values(data);
+  return result;
+}
+
+/**
+ * Remove alertas duplicados, mantendo apenas o mais recente de cada combinação
+ * tipo + conta + título. Usar uma vez para limpar o backlog.
+ */
+export async function purgeDuplicateAlerts(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const result = await db.execute(sql`
+    DELETE a1 FROM alerts a1
+    INNER JOIN alerts a2
+      ON a1.accountId = a2.accountId
+      AND a1.type = a2.type
+      AND a1.title = a2.title
+      AND a1.isRead = false
+      AND a2.isRead = false
+      AND a1.id < a2.id
+  `);
+
+  return (result as any)?.[0]?.affectedRows ?? (result as any)?.affectedRows ?? 0;
+}
+
 export async function markAlertEmailSent(id: number) {
   const db = await getDb();
   if (!db) return;

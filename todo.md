@@ -493,3 +493,12 @@
 - [x] Bug 2 MODERADO: Remover includes() do matching, usar apenas exact match (===)
 - [x] Bug 2: extractConversions com lógica de primeiro encontrado
 - [x] Bug 3 MODERADO: getDateRange endDate = ontem (não hoje) em routers.ts e autoSync.ts
+
+## Correção Alertas Duplicados (Mar/31)
+- [x] Correção 1: Criar createAlertIfNotExists no db.ts (dedup por tipo+conta+título em 24h)
+- [x] Correção 1: Criar purgeDuplicateAlerts no db.ts (limpeza de backlog)
+- [x] Correção 2: Thresholds discretos para BUDGET_WARNING no metaAdsService.ts
+- [x] Correção 3: Substituir createAlert por createAlertIfNotExists em autoSync.ts (runRealTimeAlerts)
+- [x] Correção 3: Substituir createAlert por createAlertIfNotExists em autoSync.ts (runAnomalyDetection)
+- [x] Correção 3: Substituir createAlert por createAlertIfNotExists na rota billing em routers.ts
+- [x] Correção 4: Chamar purgeDuplicateAlerts no startup do autoSync
