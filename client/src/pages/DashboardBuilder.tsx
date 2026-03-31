@@ -436,7 +436,7 @@ function generateExportHtml(report: DashboardReportData): string {
         <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
           <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;">👥 Alcance</p>
           <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${report.campaigns.reduce((sum, camp) => {
-            const metric = camp.metrics.find(m => m.name.toLowerCase().includes('alcance'));
+            const metric = camp.metrics.find(m => m.name.toLowerCase().replace(/[àáãâä]/g, 'a').replace(/[èéêë]/g, 'e').replace(/[ìíîï]/g, 'i').replace(/[òóôõö]/g, 'o').replace(/[ùúûü]/g, 'u').includes('alcance'));
             if (!metric) return sum;
             const val = metric.currentValue;
             const numVal = typeof val === 'string' ? parseInt(val.replace(/[^0-9]/g, '')) || 0 : 0;
@@ -447,7 +447,7 @@ function generateExportHtml(report: DashboardReportData): string {
         <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
           <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;">👁️ Impressões</p>
           <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${report.campaigns.reduce((sum, camp) => {
-            const metric = camp.metrics.find(m => m.name.toLowerCase().includes('impressão'));
+            const metric = camp.metrics.find(m => m.name.toLowerCase().replace(/[àáãâä]/g, 'a').replace(/[èéêë]/g, 'e').replace(/[ìíîï]/g, 'i').replace(/[òóôõö]/g, 'o').replace(/[ùúûü]/g, 'u').includes('impressao'));
             if (!metric) return sum;
             const val = metric.currentValue;
             const numVal = typeof val === 'string' ? parseInt(val.replace(/[^0-9]/g, '')) || 0 : 0;
@@ -458,7 +458,7 @@ function generateExportHtml(report: DashboardReportData): string {
         <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
           <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;">🖱️ Cliques</p>
           <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${report.campaigns.reduce((sum, camp) => {
-            const metric = camp.metrics.find(m => m.name.toLowerCase().includes('clique'));
+            const metric = camp.metrics.find(m => m.name.toLowerCase().replace(/[àáãâä]/g, 'a').replace(/[èéêë]/g, 'e').replace(/[ìíîï]/g, 'i').replace(/[òóôõö]/g, 'o').replace(/[ùúûü]/g, 'u').includes('clique'));
             if (!metric) return sum;
             const val = metric.currentValue;
             const numVal = typeof val === 'string' ? parseInt(val.replace(/[^0-9]/g, '')) || 0 : 0;
@@ -469,7 +469,7 @@ function generateExportHtml(report: DashboardReportData): string {
         <div style="text-align:center;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
           <p style="font-size:11px;color:#64748b;margin:0 0 6px 0;text-transform:uppercase;">⭐ Seguidores</p>
           <p style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0;">${report.campaigns.reduce((sum, camp) => {
-            const metric = camp.metrics.find(m => m.name.toLowerCase().includes('seguidor'));
+            const metric = camp.metrics.find(m => m.name.toLowerCase().replace(/[àáãâä]/g, 'a').replace(/[èéêë]/g, 'e').replace(/[ìíîï]/g, 'i').replace(/[òóôõö]/g, 'o').replace(/[ùúûü]/g, 'u').includes('seguidor'));
             if (!metric) return sum;
             const val = metric.currentValue;
             const numVal = typeof val === 'string' ? parseInt(val.replace(/[^0-9]/g, '')) || 0 : 0;
