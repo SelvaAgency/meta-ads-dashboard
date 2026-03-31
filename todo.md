@@ -395,3 +395,7 @@
 ## Bug Layout - Dashboard Builder sem Menu Lateral (Mar/31)
 - [x] Adicionar MetaDashboardLayout como wrapper no DashboardBuilder.tsx
 - [x] Remover padding/max-w redundantes do div externo
+
+## Bug Rota /dashboard-builder/:id (Mar/31)
+- [x] Remover import DashboardBuilderResult do App.tsx
+- [x] Remover rota /dashboard-builder/:id do App.tsx

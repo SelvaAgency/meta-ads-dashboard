@@ -14,7 +14,6 @@ import Reports from "./pages/Reports";
 import Connect from "./pages/Connect";
 import AlertsPage from "./pages/AlertsPage";
 import DashboardBuilder from "./pages/DashboardBuilder";
-import DashboardBuilderResult from "./pages/DashboardBuilderResult";
 
 function Router() {
   return (
@@ -28,7 +27,6 @@ function Router() {
       <Route path="/reports" component={Reports} />
       <Route path="/alerts" component={AlertsPage} />
       <Route path="/dashboard-builder" component={DashboardBuilder} />
-      <Route path="/dashboard-builder/:id" component={DashboardBuilderResult} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
