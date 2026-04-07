@@ -502,3 +502,12 @@
 - [x] Correção 3: Substituir createAlert por createAlertIfNotExists em autoSync.ts (runAnomalyDetection)
 - [x] Correção 3: Substituir createAlert por createAlertIfNotExists na rota billing em routers.ts
 - [x] Correção 4: Chamar purgeDuplicateAlerts no startup do autoSync
+
+
+## Implementação Identidade Visual SELVA
+- [x] Atualizar CSS global (index.css) com cores SELVA: #E85BA8 (pink), #F5B8D8 (pink light), #F5E6F0 (background), #000000 (black)
+- [ ] Aplicar identidade SELVA no DashboardLayout.tsx (sidebar, header, navegação)
+- [ ] Atualizar Dashboard.tsx e cards KPI com design SELVA (fundo black, texto pink)
+- [ ] Atualizar gráficos com paleta SELVA (barras, linhas, pizzas)
+- [ ] Atualizar tabelas, botões e elementos secundários com paleta SELVA
+- [ ] Validar pixel-perfect com report SELVA original
