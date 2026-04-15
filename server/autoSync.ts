@@ -118,6 +118,20 @@ async function syncAccount(account: { id: number; accountId: string; accessToken
     for (const mc of metaCampaigns) {
       const optimizationGoal = campaignGoalMap.get(mc.id) ?? objectiveToGoalFallback[mc.objective ?? ""];
       const resultLabel = optimizationGoal ? getResultLabel(optimizationGoal) : undefined;
+      
+      // Validate and convert timestamps safely
+      const startDate = mc.start_time ? new Date(mc.start_time) : undefined;
+      const stopDate = mc.stop_time ? new Date(mc.stop_time) : undefined;
+      
+      // Only use valid dates (not Invalid Date) and in reasonable range (1990-2100)
+      const isReasonableDate = (d: Date | undefined) => {
+        if (!d || isNaN(d.getTime())) return false;
+        const year = d.getFullYear();
+        return year >= 1990 && year <= 2100;
+      };
+      const validStartTime = isReasonableDate(startDate) ? startDate : undefined;
+      const validStopTime = isReasonableDate(stopDate) ? stopDate : undefined;
+      
       await upsertCampaign({
         accountId: account.id,
         metaCampaignId: mc.id,
@@ -128,13 +142,15 @@ async function syncAccount(account: { id: number; accountId: string; accessToken
         resultLabel,
         dailyBudget: mc.daily_budget ?? undefined,
         lifetimeBudget: mc.lifetime_budget ?? undefined,
-        startTime: mc.start_time ? new Date(mc.start_time) : undefined,
-        stopTime: mc.stop_time ? new Date(mc.stop_time) : undefined,
+        startTime: validStartTime,
+        stopTime: validStopTime,
       });
     }
 
     // 3. Fetch insights for the last 30 days
+    console.log(`[AutoSync] About to fetch insights for account ${account.accountId} (${startDate} to ${endDate})`);
     const insights = await getCampaignInsights(account.accountId, account.accessToken, startDate, endDate);
+    console.log(`[AutoSync] Received ${insights.length} insight rows for account ${account.accountId}`);
     const localCampaigns = await getCampaignsByAccountId(account.id);
     const campaignMap = new Map(localCampaigns.map((c) => [c.metaCampaignId, c.id]));
 

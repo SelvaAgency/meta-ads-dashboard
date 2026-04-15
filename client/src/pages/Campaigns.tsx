@@ -241,15 +241,15 @@ export default function Campaigns() {
         </div>
 
         {/* Table — 12 fixed columns with horizontal scroll */}
-        <Card>
+        <Card className="border-border/60 bg-gradient-to-br from-card to-card/95">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="text-xs border-collapse" style={{ minWidth: "1400px" }}>
                 <thead>
-                  <tr className="border-b border-border bg-muted/30">
+                  <tr className="border-b border-border/50 bg-gradient-to-r from-primary/10 to-secondary/10">
                     {/* Campaign name — sticky left */}
                     <th
-                      className="text-left px-4 py-3 text-muted-foreground font-medium sticky left-0 bg-card z-10 border-r border-border"
+                      className="text-left px-4 py-3 text-foreground font-bold sticky left-0 bg-gradient-to-r from-primary/10 to-secondary/10 z-10 border-r border-border/50"
                       style={{ minWidth: "220px" }}
                     >
                       Campanha
@@ -257,7 +257,7 @@ export default function Campaigns() {
                     {COLUMNS.map((col) => (
                       <th
                         key={col.key}
-                        className={`text-right px-3 py-3 text-muted-foreground font-medium whitespace-nowrap ${col.width}`}
+                        className={`text-right px-3 py-3 text-foreground font-bold whitespace-nowrap ${col.width}`}
                       >
                         {col.label}
                       </th>
@@ -267,9 +267,9 @@ export default function Campaigns() {
                 <tbody>
                   {isLoading ? (
                     [...Array(5)].map((_, i) => (
-                      <tr key={i} className="border-b border-border/50">
+                      <tr key={i} className="border-b border-border/50 bg-muted/20">
                         <td colSpan={13} className="px-4 py-3">
-                          <div className="h-4 bg-muted rounded animate-pulse" />
+                          <div className="h-4 bg-gradient-to-r from-muted to-muted/50 rounded animate-pulse" />
                         </td>
                       </tr>
                     ))
@@ -303,10 +303,10 @@ export default function Campaigns() {
                       // Status badge
                       const statusBg =
                         status === "ACTIVE"
-                          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                          ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 font-semibold"
                           : status === "PAUSED"
-                          ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
-                          : "bg-slate-500/15 text-slate-400 border-slate-500/30";
+                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40 font-semibold"
+                          : "bg-slate-500/20 text-slate-400 border-slate-500/40 font-semibold";
                       const statusLabel =
                         status === "ACTIVE"
                           ? "Ativa"
@@ -315,21 +315,21 @@ export default function Campaigns() {
                           : "Inativa";
 
                       return (
-                        <tr key={metaId} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                        <tr key={metaId} className="border-b border-border/50 hover:bg-secondary/10 transition-all">
                           {/* Campaign name — sticky left */}
                           <td
-                            className="px-4 py-3 sticky left-0 bg-card border-r border-border"
+                            className="px-4 py-3 sticky left-0 bg-gradient-to-r from-card to-card/95 border-r border-border/50"
                             style={{ minWidth: "220px" }}
                           >
                             <div className="space-y-1">
-                              <p className="font-medium text-foreground truncate">{c.campaignName ?? "—"}</p>
+                              <p className="font-semibold text-foreground truncate">{c.campaignName ?? "—"}</p>
                               <p className="text-xs text-muted-foreground">{c.campaignId ?? "—"}</p>
                             </div>
                           </td>
 
                           {/* Status */}
                           <td className="px-3 py-3 text-center border-r border-border/50">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${statusBg}`}>
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs ${statusBg}`}>
                               <Circle size={6} className="fill-current" />
                               {statusLabel}
                             </span>
@@ -338,59 +338,59 @@ export default function Campaigns() {
                           {/* Result */}
                           <td className="px-3 py-3 text-right border-r border-border/50">
                             <div>
-                              <p className="font-semibold text-foreground">{fmtNum(results)}</p>
+                              <p className="font-bold text-foreground">{fmtNum(results)}</p>
                               <p className="text-xs text-muted-foreground">{resultLabel ?? "Resultados"}</p>
                             </div>
                           </td>
 
                           {/* Cost per Result */}
                           <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-semibold text-foreground">{fmtCurrency(costPerResult)}</p>
+                            <p className="font-bold text-foreground">{fmtCurrency(costPerResult)}</p>
                           </td>
 
                           {/* Profile Visits */}
                           <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-semibold text-foreground">{fmtNum(profileVisits)}</p>
+                            <p className="font-bold text-foreground">{fmtNum(profileVisits)}</p>
                           </td>
 
                           {/* Reach */}
                           <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-semibold text-foreground">{fmtNum(reach)}</p>
+                            <p className="font-bold text-foreground">{fmtNum(reach)}</p>
                           </td>
 
                           {/* Impressions */}
                           <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-semibold text-foreground">{fmtNum(impressions)}</p>
+                            <p className="font-bold text-foreground">{fmtNum(impressions)}</p>
                           </td>
 
                           {/* CPM */}
                           <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-semibold text-foreground">{fmtCurrency(cpm)}</p>
+                            <p className="font-bold text-foreground">{fmtCurrency(cpm)}</p>
                           </td>
 
                           {/* Clicks */}
                           <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-semibold text-foreground">{fmtNum(clicks)}</p>
+                            <p className="font-bold text-foreground">{fmtNum(clicks)}</p>
                           </td>
 
                           {/* CPC */}
                           <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-semibold text-foreground">{fmtCurrency(cpc)}</p>
+                            <p className="font-bold text-foreground">{fmtCurrency(cpc)}</p>
                           </td>
 
                           {/* CTR */}
                           <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-semibold text-foreground">{fmtPct(ctr)}</p>
+                            <p className="font-bold text-foreground">{fmtPct(ctr)}</p>
                           </td>
 
                           {/* Frequency */}
                           <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-semibold text-foreground">{fmtFreq(frequency)}</p>
+                            <p className="font-bold text-foreground">{fmtFreq(frequency)}</p>
                           </td>
 
                           {/* Followers */}
                           <td className="px-3 py-3 text-right">
-                            <p className="font-semibold text-foreground">{fmtNum(followers)}</p>
+                            <p className="font-bold text-foreground">{fmtNum(followers)}</p>
                           </td>
                         </tr>
                       );

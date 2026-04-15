@@ -88,11 +88,28 @@ export async function getAllActiveMetaAdAccounts() {
 export async function getMetaAdAccountsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db
+  const accounts = await db
     .select()
     .from(metaAdAccounts)
     .where(and(eq(metaAdAccounts.userId, userId), eq(metaAdAccounts.isActive, true)))
     .orderBy(desc(metaAdAccounts.createdAt));
+  
+  // Deduplicate by accountId (keep most recent)
+  const seen = new Set<string>();
+  const deduped = accounts.filter((acc) => {
+    if (seen.has(acc.accountId)) {
+      console.log(`[DB] Duplicate account detected: ${acc.accountId} (id: ${acc.id}), filtering out`);
+      return false;
+    }
+    seen.add(acc.accountId);
+    return true;
+  });
+  
+  if (deduped.length < accounts.length) {
+    console.log(`[DB] Deduplication: ${accounts.length} accounts -> ${deduped.length} unique accounts`);
+  }
+  
+  return deduped;
 }
 
 export async function getMetaAdAccountById(id: number) {
@@ -105,6 +122,25 @@ export async function getMetaAdAccountById(id: number) {
 export async function createMetaAdAccount(data: InsertMetaAdAccount) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+  
+  // Check if account already exists for this user (deduplication)
+  const existing = await db
+    .select()
+    .from(metaAdAccounts)
+    .where(
+      and(
+        eq(metaAdAccounts.userId, data.userId),
+        eq(metaAdAccounts.accountId, data.accountId)
+      )
+    )
+    .limit(1);
+  
+  if (existing.length > 0) {
+    console.log(`[DB] Account ${data.accountId} already exists for user ${data.userId}, skipping insert`);
+    return existing[0];
+  }
+  
+  console.log(`[DB] Creating new account ${data.accountId} for user ${data.userId}`);
   const result = await db.insert(metaAdAccounts).values(data);
   return result;
 }
@@ -170,22 +206,30 @@ export async function getActiveCampaignsForDisplay(accountId: number) {
 export async function upsertCampaign(data: InsertCampaign) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  await db
-    .insert(campaigns)
-    .values(data)
-    .onDuplicateKeyUpdate({
-      set: {
-        name: data.name,
-        status: data.status,
-        objective: data.objective,
-        optimizationGoal: data.optimizationGoal,
-        resultLabel: data.resultLabel,
-        dailyBudget: data.dailyBudget,
-        lifetimeBudget: data.lifetimeBudget,
-        stopTime: data.stopTime,
-        updatedAt: new Date(),
-      },
-    });
+  
+  try {
+    console.log(`[upsertCampaign] Upserting campaign ${data.metaCampaignId} for account ${data.accountId}`);
+    await db
+      .insert(campaigns)
+      .values(data)
+      .onDuplicateKeyUpdate({
+        set: {
+          name: data.name,
+          status: data.status,
+          objective: data.objective,
+          optimizationGoal: data.optimizationGoal,
+          resultLabel: data.resultLabel,
+          dailyBudget: data.dailyBudget,
+          lifetimeBudget: data.lifetimeBudget,
+          stopTime: data.stopTime,
+          updatedAt: new Date(),
+        },
+      });
+    console.log(`[upsertCampaign] Success: ${data.metaCampaignId}`);
+  } catch (error) {
+    console.error(`[upsertCampaign] Error upserting campaign ${data.metaCampaignId} for account ${data.accountId}:`, error);
+    throw error;
+  }
 }
 
 // ─── Campaign Metrics ─────────────────────────────────────────────────────────
@@ -283,29 +327,41 @@ export async function getCampaignPerformanceSummary(accountId: number, startDate
 }
 
 export async function upsertCampaignMetrics(data: InsertCampaignMetrics) {
+  // Log metrics insertion for debugging
+  if (data.spend === "0" && data.impressions === 0) {
+    console.warn(`[upsertCampaignMetrics] WARNING: Zero metrics for campaign ${data.campaignId} on ${data.date}`);
+  }
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  await db
-    .insert(campaignMetrics)
-    .values(data)
-    .onDuplicateKeyUpdate({
-      set: {
-        impressions: data.impressions,
-        clicks: data.clicks,
-        spend: data.spend,
-        conversions: data.conversions,
-        conversionValue: data.conversionValue,
-        reach: data.reach,
-        frequency: data.frequency,
-        ctr: data.ctr,
-        cpc: data.cpc,
-        cpm: data.cpm,
-        cpa: data.cpa,
-        roas: data.roas,
-        profileVisits: data.profileVisits,
-        followers: data.followers,
-      },
-    });
+  
+  try {
+    console.log(`[upsertCampaignMetrics] Upserting metrics for campaign ${data.campaignId} on ${data.date} (spend: ${data.spend}, impressions: ${data.impressions})`);
+    await db
+      .insert(campaignMetrics)
+      .values(data)
+      .onDuplicateKeyUpdate({
+        set: {
+          impressions: data.impressions,
+          clicks: data.clicks,
+          spend: data.spend,
+          conversions: data.conversions,
+          conversionValue: data.conversionValue,
+          reach: data.reach,
+          frequency: data.frequency,
+          ctr: data.ctr,
+          cpc: data.cpc,
+          cpm: data.cpm,
+          cpa: data.cpa,
+          roas: data.roas,
+          profileVisits: data.profileVisits,
+          followers: data.followers,
+        },
+      });
+    console.log(`[upsertCampaignMetrics] Success: campaign ${data.campaignId} on ${data.date}`);
+  } catch (error) {
+    console.error(`[upsertCampaignMetrics] Error upserting metrics for campaign ${data.campaignId} on ${data.date}:`, error);
+    throw error;
+  }
 }
 
 // ─── Anomalies ────────────────────────────────────────────────────────────────

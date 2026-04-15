@@ -103,10 +103,10 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-6 max-w-md px-4">
           <div className="flex items-center justify-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-primary" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+              <span className="text-white font-bold text-lg">S</span>
             </div>
-            <span className="text-xl font-semibold text-foreground">Meta Ads Intelligence</span>
+            <span className="text-xl font-semibold text-foreground">Selva Agency</span>
           </div>
           <h1 className="text-3xl font-bold text-foreground">Acesse sua plataforma</h1>
           <p className="text-muted-foreground">
@@ -128,28 +128,28 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     <div className="min-h-screen bg-background flex">
       {/* Sidebar */}
       <aside
-        className={`${sidebarOpen ? "w-64" : "w-16"} flex-shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-200`}
+        className={`${sidebarOpen ? "w-64" : "w-16"} flex-shrink-0 bg-gradient-to-b from-sidebar to-sidebar/95 border-r border-sidebar-border flex flex-col transition-all duration-200 shadow-sm`}
       >
         {/* Logo */}
-        <div className="h-16 flex items-center px-4 border-b border-sidebar-border gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
-            <Zap className="w-4 h-4 text-primary" />
+        <div className="h-16 flex items-center px-4 border-b border-sidebar-border/50 gap-3 bg-gradient-to-r from-primary/10 to-secondary/10">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center flex-shrink-0 shadow-sm">
+            <span className="text-white font-bold text-xs">S</span>
           </div>
           {sidebarOpen && (
             <div className="overflow-hidden">
-              <p className="text-sm font-semibold text-sidebar-foreground truncate">Meta Ads AI</p>
-              <p className="text-xs text-muted-foreground truncate">Intelligence Platform</p>
+              <p className="text-sm font-bold text-sidebar-foreground truncate bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Selva Agency</p>
+              <p className="text-xs text-muted-foreground truncate">Meta Ads Dashboard</p>
             </div>
           )}
         </div>
 
         {/* Account Selector — fixed, always visible */}
         {sidebarOpen && (
-          <div className="px-3 py-3 border-b border-sidebar-border">
-            <p className="text-xs text-muted-foreground mb-1.5 px-1 uppercase tracking-wide">Conta Ativa</p>
+          <div className="px-3 py-3 border-b border-sidebar-border/50 bg-secondary/5">
+            <p className="text-xs text-muted-foreground mb-1.5 px-1 uppercase tracking-widest font-semibold">Conta Ativa</p>
             {accounts.length === 0 ? (
               <Link href="/connect">
-                <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-sidebar-border text-muted-foreground hover:border-primary/50 hover:text-primary transition-all text-xs">
+                <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-primary/30 text-muted-foreground hover:border-primary hover:bg-primary/5 hover:text-primary transition-all text-xs font-medium">
                   <Link2 className="w-3.5 h-3.5" />
                   Conectar conta
                 </button>
@@ -157,12 +157,12 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 hover:bg-primary/15 transition-all group">
-                    <div className="w-6 h-6 rounded-md bg-primary/20 flex items-center justify-center flex-shrink-0">
+                  <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-gradient-to-r from-primary/15 to-secondary/15 border border-primary/30 hover:from-primary/20 hover:to-secondary/20 transition-all group shadow-sm">
+                    <div className="w-6 h-6 rounded-md bg-gradient-to-br from-primary/30 to-secondary/30 flex items-center justify-center flex-shrink-0">
                       <Building2 className="w-3 h-3 text-primary" />
                     </div>
                     <div className="flex-1 text-left overflow-hidden">
-                      <p className="text-xs font-semibold text-sidebar-foreground truncate">
+                      <p className="text-xs font-bold text-sidebar-foreground truncate">
                         {activeAccount?.accountName ?? activeAccount?.accountId ?? "Selecionar"}
                       </p>
                       <p className="text-xs text-muted-foreground truncate">
@@ -258,7 +258,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
         )}
 
         {/* Navigation */}
-        <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+        <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = location === item.path;
             const Icon = item.icon;
@@ -267,18 +267,18 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 <div
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-150 group ${
                     isActive
-                      ? "bg-primary/15 text-primary"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      ? "bg-gradient-to-r from-primary/20 to-secondary/10 text-primary font-semibold shadow-sm border-l-2 border-primary"
+                      : "text-sidebar-foreground hover:bg-secondary/10 hover:text-primary"
                   }`}
                 >
-                  <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-primary" : ""}`} />
+                  <Icon className={`w-4 h-4 flex-shrink-0 transition-colors ${isActive ? "text-primary" : "group-hover:text-primary"}`} />
                   {sidebarOpen && (
                     <>
                       <span className="text-sm font-medium flex-1 truncate">{item.label}</span>
                       {item.badge != null && item.badge > 0 && (
                         <Badge
                           variant="destructive"
-                          className="h-5 min-w-5 px-1 text-xs flex items-center justify-center"
+                          className="h-5 min-w-5 px-1.5 text-xs flex items-center justify-center font-bold shadow-sm"
                         >
                           {item.badge > 99 ? "99+" : item.badge}
                         </Badge>
@@ -294,24 +294,24 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
         </nav>
 
         {/* User */}
-        <div className="p-3 border-t border-sidebar-border">
+        <div className="p-3 border-t border-sidebar-border/50 bg-gradient-to-t from-secondary/5 to-transparent">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent transition-colors">
-                <Avatar className="w-7 h-7 flex-shrink-0">
-                  <AvatarFallback className="bg-primary/20 text-primary text-xs">
+              <button className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-secondary/10 transition-all hover:shadow-sm">
+                <Avatar className="w-7 h-7 flex-shrink-0 ring-2 ring-primary/30">
+                  <AvatarFallback className="bg-gradient-to-br from-primary to-secondary text-white text-xs font-bold">
                     {user?.name?.[0]?.toUpperCase() ?? "U"}
                   </AvatarFallback>
                 </Avatar>
                 {sidebarOpen && (
                   <>
                     <div className="flex-1 text-left overflow-hidden">
-                      <p className="text-xs font-medium text-sidebar-foreground truncate">
+                      <p className="text-xs font-semibold text-sidebar-foreground truncate">
                         {user?.name ?? "Usuário"}
                       </p>
                       <p className="text-xs text-muted-foreground truncate">{user?.email ?? ""}</p>
                     </div>
-                    <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                    <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0 group-hover:text-primary transition-colors" />
                   </>
                 )}
               </button>
@@ -330,25 +330,25 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <header className="h-16 border-b border-border flex items-center justify-between px-6 bg-background/80 backdrop-blur-sm sticky top-0 z-10">
+        <header className="h-16 border-b border-border/50 flex items-center justify-between px-6 bg-gradient-to-r from-background via-secondary/5 to-background backdrop-blur-md sticky top-0 z-10 shadow-sm">
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all hover:shadow-sm"
             >
               <LayoutDashboard className="w-4 h-4" />
             </button>
-            {title && <h1 className="text-sm font-semibold text-foreground">{title}</h1>}
+            {title && <h1 className="text-sm font-bold text-foreground bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">{title}</h1>}
             {/* Active account breadcrumb */}
             {activeAccount && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <ChevronRight className="w-3 h-3" />
-                <span className="font-medium text-foreground/70">{activeAccount.accountName ?? activeAccount.accountId}</span>
+                <ChevronRight className="w-3 h-3 text-primary/50" />
+                <span className="font-semibold text-foreground/80 px-2 py-1 rounded-md bg-secondary/10">{activeAccount.accountName ?? activeAccount.accountId}</span>
               </div>
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {/* Quick sync button */}
             {activeAccountId && (
               <SyncButton accountId={activeAccountId} />
@@ -356,10 +356,10 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
             {/* Alerts bell */}
             <Link href="/alerts">
-              <button className="relative p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground">
+              <button className="relative p-2 rounded-lg hover:bg-primary/10 transition-all text-muted-foreground hover:text-primary hover:shadow-sm">
                 <Bell className="w-4 h-4" />
                 {unreadCount != null && unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-destructive rounded-full" />
+                  <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse shadow-lg shadow-primary/50" />
                 )}
               </button>
             </Link>
@@ -386,9 +386,8 @@ function SyncButton({ accountId }: { accountId: number }) {
 
   return (
     <Button
-      variant="outline"
       size="sm"
-      className="h-8 gap-1.5 text-xs"
+      className="h-8 gap-1.5 text-xs bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-white font-semibold shadow-md hover:shadow-lg transition-all"
       onClick={() => sync.mutate({ accountId, days: 30 })}
       disabled={sync.isPending}
     >

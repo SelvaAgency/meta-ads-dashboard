@@ -104,45 +104,51 @@ export interface MetaCampaignInsights {
 
 async function metaFetch<T>(path: string, params: Record<string, string>, retryCount = 0): Promise<T> {
   const url = new URL(`${META_API_BASE}/${path}`);
+  const accountId = path.startsWith("act_") ? path.split("/")[0] : "unknown";
+  
   for (const [key, val] of Object.entries(params)) {
     url.searchParams.set(key, val);
   }
 
+  console.log(`[metaFetch] Request to ${path} (account: ${accountId}, attempt: ${retryCount + 1})`);
   const response = await fetch(url.toString());
   const data = await response.json() as any;
 
   if (data.error) {
     const err = data.error as MetaApiError;
+    console.error(`[metaFetch] Error ${err.code} on ${path} (${accountId}): ${err.message}`);
 
     // Error 190: Token expired/invalid — propagate immediately, no retry
     if (err.code === 190) {
+      console.error(`[metaFetch] Token expired for account ${accountId}`);
       throw new Error(`META_TOKEN_EXPIRED: Token expirado ou inválido. Reconecte sua conta em Gerenciar Contas. (${err.message})`);
     }
 
     // Error 4: Rate limit — wait 60s and retry once
     if (err.code === 4 && retryCount < 1) {
-      console.warn(`[metaFetch] Rate limit (error 4) on ${path}, waiting 60s before retry...`);
+      console.warn(`[metaFetch] Rate limit (error 4) on ${path} (${accountId}), waiting 60s before retry...`);
       await new Promise(r => setTimeout(r, 60000));
       return metaFetch<T>(path, params, retryCount + 1);
     }
 
     // Error 500/503: Server error — retry up to 2 times with 2s delay
     if ((response.status === 500 || response.status === 503 || err.code === 1 || err.code === 2) && retryCount < 2) {
-      console.warn(`[metaFetch] Server error (${err.code}) on ${path}, retrying in 2s (attempt ${retryCount + 1}/2)...`);
+      console.warn(`[metaFetch] Server error (${err.code}) on ${path} (${accountId}), retrying in 2s (attempt ${retryCount + 1}/2)...`);
       await new Promise(r => setTimeout(r, 2000));
       return metaFetch<T>(path, params, retryCount + 1);
     }
 
-    throw new Error(`Meta API Error (${err.code}): ${err.message}`);
+    throw new Error(`Meta API Error (${err.code}) on ${accountId}: ${err.message}`);
   }
 
   // HTTP-level server errors without JSON error body
   if (!response.ok && retryCount < 2) {
-    console.warn(`[metaFetch] HTTP ${response.status} on ${path}, retrying in 2s (attempt ${retryCount + 1}/2)...`);
+    console.warn(`[metaFetch] HTTP ${response.status} on ${path} (${accountId}), retrying in 2s (attempt ${retryCount + 1}/2)...`);
     await new Promise(r => setTimeout(r, 2000));
     return metaFetch<T>(path, params, retryCount + 1);
   }
 
+  console.log(`[metaFetch] Success on ${path} (${accountId})`);
   return data as T;
 }
 
@@ -344,6 +350,7 @@ export async function getCampaignInsights(
   startDate: string,
   endDate: string
 ): Promise<MetaCampaignInsights[]> {
+  console.log(`[getCampaignInsights] Fetching insights for account ${accountId} (${startDate} to ${endDate})`);
   const data = await metaFetch<{ data: MetaCampaignInsights[] }>(`act_${accountId}/insights`, {
     access_token: accessToken,
     level: "campaign",
@@ -372,7 +379,24 @@ export async function getCampaignInsights(
     time_increment: "1",
     limit: "500",
   });
-  return data.data ?? [];
+  
+  const insights = data.data ?? [];
+  console.log(`[getCampaignInsights] Received ${insights.length} campaigns for account ${accountId}`);
+  
+  // Log if data is empty or all zeros
+  if (insights.length === 0) {
+    console.warn(`[getCampaignInsights] WARNING: No campaigns returned for account ${accountId}`);
+  } else {
+    const totalSpend = insights.reduce((sum, c) => sum + (parseFloat(c.spend) || 0), 0);
+    const totalImpressions = insights.reduce((sum, c) => sum + (parseFloat(c.impressions) || 0), 0);
+    console.log(`[getCampaignInsights] Account ${accountId} totals: spend=${totalSpend}, impressions=${totalImpressions}`);
+    
+    if (totalSpend === 0 && totalImpressions === 0) {
+      console.warn(`[getCampaignInsights] WARNING: All data is zero for account ${accountId}. Check token permissions.`);
+    }
+  }
+  
+  return insights;
 }
 
 /**

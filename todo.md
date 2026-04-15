@@ -33,6 +33,14 @@
 - [x] DashboardLayout com sidebar navegação (MetaDashboardLayout)
 - [x] Tipografia e tokens de design
 
+## Identidade Visual SELVA (Fases 3-6)
+- [x] Fase 1: Design System documentado (paleta #E85BA8, #F5B8D8, #F5E6F0)
+- [x] Fase 2: CSS global com paleta SELVA aplicada
+- [x] Fase 3: MetaDashboardLayout com styling SELVA (sidebar gradientes, nav items, header backdrop)
+- [x] Fase 4: Dashboard.tsx com cards KPI SELVA (gradientes, shadows, animações)
+- [x] Fase 5: Campaigns.tsx tabela com styling SELVA (headers gradientes, rows hover effects)
+- [x] Fase 6: Button.tsx e Badge.tsx com gradientes SELVA e shadows
+
 ## Frontend - Páginas
 - [x] Página de conexão de conta Meta Ads (onboarding + validação de token)
 - [x] Dashboard principal com KPIs e gráficos de tendências (ROAS, gasto, conversões)
@@ -125,6 +133,14 @@
 - [x] Adicionar seletor de períodos rápidos (Hoje, Ontem, Hoje e Ontem, 7d, 14d, 30d, Personalizado)
 - [x] Período padrão: Últimos 7 dias
 - [ ] Backend: campaigns.performance adicionar suporte a startDate/endDate opcionais (TODO)
+
+## Publicação e Validação SELVA
+- [x] Implementação completa das Fases 3-6 da identidade visual SELVA
+- [x] TypeScript 0 erros, compilação bem-sucedida
+- [x] Dev server rodando sem erros
+- [x] Validar visualmente no navegador (cores, gradientes, shadows, animações)
+- [x] Testar responsividade em mobile/tablet
+- [x] Validar acessibilidade (contraste de cores, keyboard navigation)
 
 ## Correção de Discrepâncias - Conta C1 ELWING (Mar/26)
 - [x] Diagnosticar: badge mostrava "Engajamento" porque campanhas inativas com objective=OUTCOME_ENGAGEMENT tinham optimization_goal=POST_ENGAGEMENT no banco e influenciavam o detectDominantGoal
@@ -511,3 +527,24 @@
 - [ ] Atualizar gráficos com paleta SELVA (barras, linhas, pizzas)
 - [ ] Atualizar tabelas, botões e elementos secundários com paleta SELVA
 - [ ] Validar pixel-perfect com report SELVA original
+
+
+## Bugs Críticos (Abril 2026)
+- [x] BUG 1: Contas duplicadas na sidebar - deduplicação implementada em createMetaAdAccount e getMetaAdAccountsByUserId
+- [x] BUG 2: Conta PHBR Medical (ID 746370099294331) com dados zerados - logs de debug adicionados em metaFetch, getCampaignInsights, upsertCampaign, upsertCampaignMetrics
+
+## Validação Final - PHBR Medical (Abril 2026)
+- [ ] Executar sincronização manual da conta PHBR Medical
+- [ ] Verificar se dados aparecem no dashboard (Investimento, Impressões, Cliques, etc.)
+- [ ] Confirmar que não há mais dados zerados
+- [ ] Validar que as métricas estão sendo inseridas corretamente no banco
+
+
+## Bug Crítico - Timestamp 1969-12-31 (Abril 2026) - RESOLVIDO
+- [x] CRÍTICO: Validação de timestamps não estava sendo aplicada - servidor usando código cacheado
+- [x] Investigar por que validação em autoSync.ts não estava funcionando
+- [x] Forçar restart do servidor
+- [x] Testar sincronização novamente após fix
+- [x] Implementar validação de intervalo de datas (1990-2100)
+- [x] Corrigir em autoSync.ts e routers.ts
+- [x] Confirmar que dados aparecem corretamente no dashboard
