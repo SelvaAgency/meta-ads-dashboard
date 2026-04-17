@@ -242,15 +242,15 @@ export default function Campaigns() {
         </div>
 
         {/* Table — 12 fixed columns with horizontal scroll */}
-        <Card className="border-border/60 bg-gradient-to-br from-card to-card/95">
+        <Card className="border-border bg-card">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="text-xs border-collapse" style={{ minWidth: "1520px" }}>
                 <thead>
-                  <tr className="border-b border-border/50 bg-gradient-to-r from-primary/10 to-secondary/10">
+                  <tr className="border-b border-border/50 bg-foreground/5">
                     {/* Campaign name — sticky left */}
                     <th
-                      className="text-left px-4 py-3 text-foreground font-bold sticky left-0 bg-gradient-to-r from-primary/10 to-secondary/10 z-10 border-r border-border/50"
+                      className="text-left px-4 py-3 text-foreground font-bold sticky left-0 bg-foreground/5 z-10 border-r border-border/50"
                       style={{ minWidth: "220px" }}
                     >
                       Campanha
@@ -270,7 +270,7 @@ export default function Campaigns() {
                     [...Array(5)].map((_, i) => (
                       <tr key={i} className="border-b border-border/50 bg-muted/20">
                         <td colSpan={14} className="px-4 py-3">
-                          <div className="h-4 bg-gradient-to-r from-muted to-muted/50 rounded animate-pulse" />
+                          <div className="h-4 bg-muted rounded animate-pulse" />
                         </td>
                       </tr>
                     ))
@@ -320,7 +320,7 @@ export default function Campaigns() {
                         <tr key={metaId} className="border-b border-border/50 hover:bg-secondary/10 transition-all">
                           {/* Campaign name — sticky left */}
                           <td
-                            className="px-4 py-3 sticky left-0 bg-gradient-to-r from-card to-card/95 border-r border-border/50"
+                            className="px-4 py-3 sticky left-0 bg-card border-r border-border/50"
                             style={{ minWidth: "220px" }}
                           >
                             <div className="space-y-1">

@@ -262,7 +262,7 @@ function MetricCard({
     orange: "text-orange-400 bg-gradient-to-br from-orange-400/20 to-orange-400/10",
   };
   return (
-    <Card className="border-border/60 bg-gradient-to-br from-card to-card/95 hover:border-primary/50 hover:shadow-lg transition-all duration-200">
+    <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200">
       <CardContent className="p-5">
         <div className="flex items-start justify-between mb-3">
           <div className={`w-9 h-9 rounded-lg flex items-center justify-center shadow-sm ${colorMap[color]}`}>
@@ -602,11 +602,11 @@ export default function Dashboard() {
         {isLoading ? (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[...Array(8)].map((_, i) => (
-              <Card key={i} className="border-border/60 bg-gradient-to-br from-card to-card/95">
+              <Card key={i} className="border-border bg-card">
                 <CardContent className="p-5">
-                  <div className="h-4 bg-gradient-to-r from-muted to-muted/50 rounded animate-pulse mb-3 w-8" />
-                  <div className="h-7 bg-gradient-to-r from-muted to-muted/50 rounded animate-pulse mb-1 w-24" />
-                  <div className="h-3 bg-gradient-to-r from-muted to-muted/50 rounded animate-pulse w-20" />
+                  <div className="h-4 bg-muted rounded animate-pulse mb-3 w-8" />
+                  <div className="h-7 bg-muted rounded animate-pulse mb-1 w-24" />
+                  <div className="h-3 bg-muted rounded animate-pulse w-20" />
                 </CardContent>
               </Card>
             ))}
@@ -646,7 +646,7 @@ export default function Dashboard() {
 
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card className="border-border/60 bg-gradient-to-br from-card to-card/95">
+          <Card className="border-border bg-card">
             <CardHeader className="pb-2 border-b border-border/30">
               <CardTitle className="text-sm font-bold text-foreground">Investimento Diário (R$)</CardTitle>
             </CardHeader>
@@ -669,7 +669,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          <Card className="border-border/60 bg-gradient-to-br from-card to-card/95">
+          <Card className="border-border bg-card">
             <CardHeader className="pb-2 border-b border-border/30">
               <CardTitle className="text-sm font-bold text-foreground">
                 {chartMetricKey === "ROAS"
