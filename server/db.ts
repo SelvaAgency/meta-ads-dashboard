@@ -464,31 +464,6 @@ export async function purgeOldReadAnomalies() {
   return (result as any).affectedRows ?? 0;
 }
 
-/**
- * Remove anomalias duplicadas, mantendo apenas a mais recente de cada combinação
- * campaignId + anomalyType + metric. Usar uma vez para limpar o backlog.
- */
-export async function purgeDuplicateAnomalies(): Promise<number> {
-  const db = await getDb();
-  if (!db) return 0;
-
-  const result = await db.execute(sql`
-    DELETE a1 FROM anomalies a1
-    INNER JOIN anomalies a2
-      ON a1.accountId = a2.accountId
-      AND a1.campaignId = a2.campaignId
-      AND a1.anomalyType = a2.anomalyType
-      AND a1.metric = a2.metric
-      AND a1.isResolved = false
-      AND a2.isResolved = false
-      AND a1.id < a2.id
-  `);
-
-  return (result as any)?.[0]?.affectedRows ?? (result as any)?.affectedRows ?? 0;
-}
-
-
-
 // ─── AI Suggestions ───────────────────────────────────────────────────────────
 
 // Get pending suggestions (status = pending, not expired)
@@ -788,5 +763,24 @@ export async function markAllAlertsReadByAccount(userId: number, accountId: numb
   await db.delete(alerts).where(and(eq(alerts.userId, userId), eq(alerts.accountId, accountId)));
 }
 
+/**
+ * Remove anomalias duplicadas não resolvidas, mantendo apenas a mais recente
+ * de cada combinação accountId + type + metricName.
+ */
+export async function purgeDuplicateAnomalies(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
 
+  const result = await db.execute(sql`
+    DELETE a1 FROM anomalies a1
+    INNER JOIN anomalies a2
+      ON a1.accountId = a2.accountId
+      AND a1.type = a2.type
+      AND COALESCE(a1.metricName, '') = COALESCE(a2.metricName, '')
+      AND a1.isResolved = false
+      AND a2.isResolved = false
+      AND a1.id < a2.id
+  `);
+  return (result as any)[0]?.affectedRows ?? 0;
+}
 
