@@ -35,6 +35,7 @@ const fmtFreq = (v: number | null | undefined) => {
 // Fixed 12-column definition (order is mandatory per spec)
 const COLUMNS = [
   { key: "status",       label: "Veiculação",         width: "w-[120px]" },
+  { key: "spend",        label: "Investimento",        width: "w-[120px]" },
   { key: "result",       label: "Resultado",           width: "w-[110px]" },
   { key: "costPerResult",label: "Custo/Resultado",     width: "w-[130px]" },
   { key: "profileVisits",label: "Visitas ao Perfil",   width: "w-[120px]" },
@@ -244,7 +245,7 @@ export default function Campaigns() {
         <Card className="border-border/60 bg-gradient-to-br from-card to-card/95">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <table className="text-xs border-collapse" style={{ minWidth: "1400px" }}>
+              <table className="text-xs border-collapse" style={{ minWidth: "1520px" }}>
                 <thead>
                   <tr className="border-b border-border/50 bg-gradient-to-r from-primary/10 to-secondary/10">
                     {/* Campaign name — sticky left */}
@@ -268,14 +269,14 @@ export default function Campaigns() {
                   {isLoading ? (
                     [...Array(5)].map((_, i) => (
                       <tr key={i} className="border-b border-border/50 bg-muted/20">
-                        <td colSpan={13} className="px-4 py-3">
+                        <td colSpan={14} className="px-4 py-3">
                           <div className="h-4 bg-gradient-to-r from-muted to-muted/50 rounded animate-pulse" />
                         </td>
                       </tr>
                     ))
                   ) : filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="text-center py-12 text-muted-foreground">
+                      <td colSpan={14} className="text-center py-12 text-muted-foreground">
                         <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-30" />
                         <p>Nenhuma campanha encontrada. Sincronize sua conta.</p>
                       </td>
@@ -286,6 +287,7 @@ export default function Campaigns() {
                       const status = statusMap.get(metaId) ?? c.campaignStatus ?? "ACTIVE";
 
                       // Extract 12 metrics
+                      const spend = Number(c.totalSpend ?? 0);
                       const results = Math.round(Number(c.totalConversions ?? 0));
                       const costPerResult = Number(c.avgCpa ?? 0);
                       const profileVisits = Number((c as any).totalProfileVisits ?? 0);
@@ -333,6 +335,11 @@ export default function Campaigns() {
                               <Circle size={6} className="fill-current" />
                               {statusLabel}
                             </span>
+                          </td>
+
+                          {/* Investimento */}
+                          <td className="px-3 py-3 text-right border-r border-border/50">
+                            <p className="font-bold text-foreground">{fmtCurrency(spend)}</p>
                           </td>
 
                           {/* Result */}
