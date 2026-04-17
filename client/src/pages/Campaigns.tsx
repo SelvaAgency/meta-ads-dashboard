@@ -3,8 +3,8 @@ import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { BarChart3, Link2, Search, Zap, Circle, Calendar } from "lucide-react";
-import { useState, useMemo } from "react";
+import { BarChart3, Link2, Search, Zap, Circle, Calendar, ChevronDown, ChevronRight, Film, Image, LayoutGrid, ShoppingBag, Loader2 } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -49,9 +49,282 @@ const COLUMNS = [
   { key: "followers",    label: "Seguidores",          width: "w-[100px]" },
 ] as const;
 
+
+// ─── Creative type icon helper ────────────────────────────────────────────────
+function CreativeIcon({ type }: { type: string }) {
+  switch (type) {
+    case "VIDEO": return <Film size={13} className="text-purple-400" />;
+    case "CAROUSEL": return <LayoutGrid size={13} className="text-blue-400" />;
+    case "CATALOG": return <ShoppingBag size={13} className="text-amber-400" />;
+    default: return <Image size={13} className="text-emerald-400" />;
+  }
+}
+
+// ─── Expandable campaign row with lazy-loaded ads ────────────────────────────
+function CampaignRowWithAds({
+  campaign: c,
+  metaId,
+  status,
+  statusBg,
+  statusLabel,
+  resultLabel,
+  spend,
+  results,
+  costPerResult,
+  profileVisits,
+  reach,
+  impressions,
+  cpm,
+  clicks,
+  cpc,
+  ctr,
+  frequency,
+  followers,
+  isExpanded,
+  onToggle,
+  selectedAccountId,
+  dateParams,
+}: {
+  campaign: any;
+  metaId: string;
+  status: string;
+  statusBg: string;
+  statusLabel: string;
+  resultLabel: string | undefined;
+  spend: number;
+  results: number;
+  costPerResult: number;
+  profileVisits: number;
+  reach: number;
+  impressions: number;
+  cpm: number;
+  clicks: number;
+  cpc: number;
+  ctr: number;
+  frequency: number;
+  followers: number;
+  isExpanded: boolean;
+  onToggle: () => void;
+  selectedAccountId: number;
+  dateParams: { days: number; startDate?: string; endDate?: string; includeToday?: boolean };
+}) {
+  // Only fetch ads when expanded
+  const { data: ads, isLoading: adsLoading } = trpc.campaigns.ads.useQuery(
+    {
+      accountId: selectedAccountId,
+      metaCampaignId: metaId,
+      days: dateParams.days || 7,
+      ...(dateParams.startDate ? { startDate: dateParams.startDate } : {}),
+      ...(dateParams.endDate ? { endDate: dateParams.endDate } : {}),
+      includeToday: dateParams.includeToday,
+    },
+    { enabled: isExpanded }
+  );
+
+  return (
+    <>
+      {/* Campaign row */}
+      <tr className="border-b border-border/50 hover:bg-secondary/10 transition-all cursor-pointer" onClick={onToggle}>
+        {/* Campaign name — sticky left */}
+        <td className="px-4 py-3 sticky left-0 bg-card border-r border-border/50" style={{ minWidth: "220px" }}>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground flex-shrink-0">
+              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            </span>
+            <div className="space-y-1 min-w-0">
+              <p className="font-semibold text-foreground truncate">{c.campaignName ?? "—"}</p>
+              <p className="text-xs text-muted-foreground">{c.campaignId ?? "—"}</p>
+            </div>
+          </div>
+        </td>
+
+        {/* Status */}
+        <td className="px-3 py-3 text-center border-r border-border/50">
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs ${statusBg}`}>
+            <Circle size={6} className="fill-current" />
+            {statusLabel}
+          </span>
+        </td>
+
+        {/* Investimento */}
+        <td className="px-3 py-3 text-right border-r border-border/50">
+          <p className="font-bold text-foreground">{fmtCurrency(spend)}</p>
+        </td>
+
+        {/* Result */}
+        <td className="px-3 py-3 text-right border-r border-border/50">
+          <div>
+            <p className="font-bold text-foreground">{fmtNum(results)}</p>
+            <p className="text-xs text-muted-foreground">{resultLabel ?? "Resultados"}</p>
+          </div>
+        </td>
+
+        {/* Cost per Result */}
+        <td className="px-3 py-3 text-right border-r border-border/50">
+          <p className="font-bold text-foreground">{fmtCurrency(costPerResult)}</p>
+        </td>
+
+        {/* Profile Visits */}
+        <td className="px-3 py-3 text-right border-r border-border/50">
+          <p className="font-bold text-foreground">{fmtNum(profileVisits)}</p>
+        </td>
+
+        {/* Reach */}
+        <td className="px-3 py-3 text-right border-r border-border/50">
+          <p className="font-bold text-foreground">{fmtNum(reach)}</p>
+        </td>
+
+        {/* Impressions */}
+        <td className="px-3 py-3 text-right border-r border-border/50">
+          <p className="font-bold text-foreground">{fmtNum(impressions)}</p>
+        </td>
+
+        {/* CPM */}
+        <td className="px-3 py-3 text-right border-r border-border/50">
+          <p className="font-bold text-foreground">{fmtCurrency(cpm)}</p>
+        </td>
+
+        {/* Clicks */}
+        <td className="px-3 py-3 text-right border-r border-border/50">
+          <p className="font-bold text-foreground">{fmtNum(clicks)}</p>
+        </td>
+
+        {/* CPC */}
+        <td className="px-3 py-3 text-right border-r border-border/50">
+          <p className="font-bold text-foreground">{fmtCurrency(cpc)}</p>
+        </td>
+
+        {/* CTR */}
+        <td className="px-3 py-3 text-right border-r border-border/50">
+          <p className="font-bold text-foreground">{fmtPct(ctr)}</p>
+        </td>
+
+        {/* Frequency */}
+        <td className="px-3 py-3 text-right border-r border-border/50">
+          <p className="font-bold text-foreground">{fmtFreq(frequency)}</p>
+        </td>
+
+        {/* Followers */}
+        <td className="px-3 py-3 text-right">
+          <p className="font-bold text-foreground">{fmtNum(followers)}</p>
+        </td>
+      </tr>
+
+      {/* Expanded ads/creatives sub-rows */}
+      {isExpanded && (
+        adsLoading ? (
+          <tr className="bg-foreground/[0.02]">
+            <td colSpan={14} className="px-8 py-4">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs">
+                <Loader2 size={14} className="animate-spin" />
+                Carregando criativos...
+              </div>
+            </td>
+          </tr>
+        ) : !ads || ads.length === 0 ? (
+          <tr className="bg-foreground/[0.02]">
+            <td colSpan={14} className="px-8 py-4">
+              <p className="text-xs text-muted-foreground">Nenhum criativo ativo encontrado para esta campanha.</p>
+            </td>
+          </tr>
+        ) : (
+          ads.map((ad) => (
+            <tr key={ad.id} className="bg-foreground/[0.02] border-b border-border/30 hover:bg-foreground/[0.04] transition-all">
+              {/* Ad name — sticky left, indented */}
+              <td className="px-4 py-2.5 sticky left-0 bg-card border-r border-border/30" style={{ minWidth: "220px" }}>
+                <div className="flex items-center gap-2 pl-6">
+                  <CreativeIcon type={ad.creative_type} />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-foreground/80 truncate">{ad.name}</p>
+                    <p className="text-[10px] text-muted-foreground">{ad.creative_type} · {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}</p>
+                  </div>
+                </div>
+              </td>
+
+              {/* Status */}
+              <td className="px-3 py-2.5 text-center border-r border-border/30">
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${
+                  ad.effective_status === "ACTIVE"
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                    : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                }`}>
+                  <Circle size={5} className="fill-current" />
+                  {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}
+                </span>
+              </td>
+
+              {/* Investimento */}
+              <td className="px-3 py-2.5 text-right border-r border-border/30">
+                <p className="text-xs text-foreground/70">{fmtCurrency(ad.spend)}</p>
+              </td>
+
+              {/* Result */}
+              <td className="px-3 py-2.5 text-right border-r border-border/30">
+                <p className="text-xs text-foreground/70">{fmtNum(ad.conversions)}</p>
+              </td>
+
+              {/* Cost per Result */}
+              <td className="px-3 py-2.5 text-right border-r border-border/30">
+                <p className="text-xs text-foreground/70">{fmtCurrency(ad.costPerResult)}</p>
+              </td>
+
+              {/* Profile Visits — N/A at ad level */}
+              <td className="px-3 py-2.5 text-right border-r border-border/30">
+                <p className="text-xs text-foreground/30">—</p>
+              </td>
+
+              {/* Reach — N/A at ad level aggregated */}
+              <td className="px-3 py-2.5 text-right border-r border-border/30">
+                <p className="text-xs text-foreground/30">—</p>
+              </td>
+
+              {/* Impressions */}
+              <td className="px-3 py-2.5 text-right border-r border-border/30">
+                <p className="text-xs text-foreground/70">{fmtNum(ad.impressions)}</p>
+              </td>
+
+              {/* CPM */}
+              <td className="px-3 py-2.5 text-right border-r border-border/30">
+                <p className="text-xs text-foreground/70">{fmtCurrency(ad.cpm)}</p>
+              </td>
+
+              {/* Clicks */}
+              <td className="px-3 py-2.5 text-right border-r border-border/30">
+                <p className="text-xs text-foreground/70">{fmtNum(ad.clicks)}</p>
+              </td>
+
+              {/* CPC */}
+              <td className="px-3 py-2.5 text-right border-r border-border/30">
+                <p className="text-xs text-foreground/70">{fmtCurrency(ad.cpc)}</p>
+              </td>
+
+              {/* CTR */}
+              <td className="px-3 py-2.5 text-right border-r border-border/30">
+                <p className="text-xs text-foreground/70">{fmtPct(ad.ctr)}</p>
+              </td>
+
+              {/* Frequency */}
+              <td className="px-3 py-2.5 text-right border-r border-border/30">
+                <p className="text-xs text-foreground/70">{fmtFreq(ad.frequency)}</p>
+              </td>
+
+              {/* Followers — N/A */}
+              <td className="px-3 py-2.5 text-right">
+                <p className="text-xs text-foreground/30">—</p>
+              </td>
+            </tr>
+          ))
+        )
+      )}
+    </>
+  );
+}
+
+
 export default function Campaigns() {
   const [activePeriod, setActivePeriod] = useState("7d");
   const [search, setSearch] = useState("");
+  const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
   const [periodMode, setPeriodMode] = useState<"quick" | "custom">("quick");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
@@ -105,6 +378,15 @@ export default function Campaigns() {
     setPeriodMode("quick");
     setActivePeriod(mode);
   };
+
+  const toggleCampaign = useCallback((metaId: string) => {
+    setExpandedCampaigns((prev) => {
+      const next = new Set(prev);
+      if (next.has(metaId)) next.delete(metaId);
+      else next.add(metaId);
+      return next;
+    });
+  }, []);
 
   // Use performance query which aggregates from DB (has frequency, cpm, cpc, etc.)
   const { data: campaigns, isLoading } = trpc.campaigns.performance.useQuery(
@@ -228,7 +510,7 @@ export default function Campaigns() {
                   onClick={() => {
                     if (customStartDate && customEndDate) {
                       setPeriodMode("custom");
-                      setDays("0"); // Trigger refetch
+                      // Period mode already set above
                     }
                   }}
                   className="w-full"
@@ -328,90 +610,34 @@ export default function Campaigns() {
                           ? "Pausada"
                           : "Inativa";
 
+                      const isExpanded = expandedCampaigns.has(metaId);
+
                       return (
-                        <tr key={metaId} className="border-b border-border/50 hover:bg-secondary/10 transition-all">
-                          {/* Campaign name — sticky left */}
-                          <td
-                            className="px-4 py-3 sticky left-0 bg-card border-r border-border/50"
-                            style={{ minWidth: "220px" }}
-                          >
-                            <div className="space-y-1">
-                              <p className="font-semibold text-foreground truncate">{c.campaignName ?? "—"}</p>
-                              <p className="text-xs text-muted-foreground">{c.campaignId ?? "—"}</p>
-                            </div>
-                          </td>
-
-                          {/* Status */}
-                          <td className="px-3 py-3 text-center border-r border-border/50">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs ${statusBg}`}>
-                              <Circle size={6} className="fill-current" />
-                              {statusLabel}
-                            </span>
-                          </td>
-
-                          {/* Investimento */}
-                          <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-bold text-foreground">{fmtCurrency(spend)}</p>
-                          </td>
-
-                          {/* Result */}
-                          <td className="px-3 py-3 text-right border-r border-border/50">
-                            <div>
-                              <p className="font-bold text-foreground">{fmtNum(results)}</p>
-                              <p className="text-xs text-muted-foreground">{resultLabel ?? "Resultados"}</p>
-                            </div>
-                          </td>
-
-                          {/* Cost per Result */}
-                          <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-bold text-foreground">{fmtCurrency(costPerResult)}</p>
-                          </td>
-
-                          {/* Profile Visits */}
-                          <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-bold text-foreground">{fmtNum(profileVisits)}</p>
-                          </td>
-
-                          {/* Reach */}
-                          <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-bold text-foreground">{fmtNum(reach)}</p>
-                          </td>
-
-                          {/* Impressions */}
-                          <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-bold text-foreground">{fmtNum(impressions)}</p>
-                          </td>
-
-                          {/* CPM */}
-                          <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-bold text-foreground">{fmtCurrency(cpm)}</p>
-                          </td>
-
-                          {/* Clicks */}
-                          <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-bold text-foreground">{fmtNum(clicks)}</p>
-                          </td>
-
-                          {/* CPC */}
-                          <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-bold text-foreground">{fmtCurrency(cpc)}</p>
-                          </td>
-
-                          {/* CTR */}
-                          <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-bold text-foreground">{fmtPct(ctr)}</p>
-                          </td>
-
-                          {/* Frequency */}
-                          <td className="px-3 py-3 text-right border-r border-border/50">
-                            <p className="font-bold text-foreground">{fmtFreq(frequency)}</p>
-                          </td>
-
-                          {/* Followers */}
-                          <td className="px-3 py-3 text-right">
-                            <p className="font-bold text-foreground">{fmtNum(followers)}</p>
-                          </td>
-                        </tr>
+                        <CampaignRowWithAds
+                          key={metaId}
+                          campaign={c}
+                          metaId={metaId}
+                          status={status}
+                          statusBg={statusBg}
+                          statusLabel={statusLabel}
+                          resultLabel={resultLabel}
+                          spend={spend}
+                          results={results}
+                          costPerResult={costPerResult}
+                          profileVisits={profileVisits}
+                          reach={reach}
+                          impressions={impressions}
+                          cpm={cpm}
+                          clicks={clicks}
+                          cpc={cpc}
+                          ctr={ctr}
+                          frequency={frequency}
+                          followers={followers}
+                          isExpanded={isExpanded}
+                          onToggle={() => toggleCampaign(metaId)}
+                          selectedAccountId={selectedAccountId!}
+                          dateParams={dateParams}
+                        />
                       );
                     })
                   )}
