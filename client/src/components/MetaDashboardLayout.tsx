@@ -103,8 +103,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-6 max-w-md px-4">
           <div className="flex items-center justify-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-              <span className="text-white font-bold text-lg">S</span>
+            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
+              <span className="text-primary-foreground font-black text-lg" style={{fontFamily: "Montserrat, sans-serif"}}>S</span>
             </div>
             <span className="text-xl font-semibold text-foreground">Selva Agency</span>
           </div>
@@ -128,16 +128,16 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     <div className="min-h-screen bg-background flex">
       {/* Sidebar */}
       <aside
-        className={`${sidebarOpen ? "w-64" : "w-16"} flex-shrink-0 bg-gradient-to-b from-sidebar to-sidebar/95 border-r border-sidebar-border flex flex-col transition-all duration-200 shadow-sm`}
+        className={`${sidebarOpen ? "w-64" : "w-16"} flex-shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-200 shadow-lg`}
       >
         {/* Logo */}
-        <div className="h-16 flex items-center px-4 border-b border-sidebar-border/50 gap-3 bg-gradient-to-r from-primary/10 to-secondary/10">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center flex-shrink-0 shadow-sm">
-            <span className="text-white font-bold text-xs">S</span>
+        <div className="h-16 flex items-center px-4 border-b border-sidebar-border gap-3">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
+            <span className="text-sidebar font-black text-xs" style={{fontFamily: "Montserrat, sans-serif"}}>S</span>
           </div>
           {sidebarOpen && (
             <div className="overflow-hidden">
-              <p className="text-sm font-bold text-sidebar-foreground truncate bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Selva Agency</p>
+              <p className="text-sm font-bold text-sidebar-primary truncate" style={{fontFamily: "'Montserrat', sans-serif", letterSpacing: '1px', textTransform: 'uppercase' as const}}>Selva Agency</p>
               <p className="text-xs text-muted-foreground truncate">Meta Ads Dashboard</p>
             </div>
           )}
@@ -145,7 +145,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
         {/* Account Selector — fixed, always visible */}
         {sidebarOpen && (
-          <div className="px-3 py-3 border-b border-sidebar-border/50 bg-secondary/5">
+          <div className="px-3 py-3 border-b border-sidebar-border">
             <p className="text-xs text-muted-foreground mb-1.5 px-1 uppercase tracking-widest font-semibold">Conta Ativa</p>
             {accounts.length === 0 ? (
               <Link href="/connect">
@@ -157,8 +157,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-gradient-to-r from-primary/15 to-secondary/15 border border-primary/30 hover:from-primary/20 hover:to-secondary/20 transition-all group shadow-sm">
-                    <div className="w-6 h-6 rounded-md bg-gradient-to-br from-primary/30 to-secondary/30 flex items-center justify-center flex-shrink-0">
+                  <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-sidebar-primary/10 border border-sidebar-border hover:bg-sidebar-primary/20 transition-all group">
+                    <div className="w-6 h-6 rounded-md bg-sidebar-primary/20 flex items-center justify-center flex-shrink-0">
                       <Building2 className="w-3 h-3 text-primary" />
                     </div>
                     <div className="flex-1 text-left overflow-hidden">
@@ -267,8 +267,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 <div
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-150 group ${
                     isActive
-                      ? "bg-gradient-to-r from-primary/20 to-secondary/10 text-primary font-semibold shadow-sm border-l-2 border-primary"
-                      : "text-sidebar-foreground hover:bg-secondary/10 hover:text-primary"
+                      ? "bg-sidebar-primary/15 text-sidebar-primary font-semibold border-l-2 border-sidebar-primary"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-primary/10 hover:text-sidebar-primary"
                   }`}
                 >
                   <Icon className={`w-4 h-4 flex-shrink-0 transition-colors ${isActive ? "text-primary" : "group-hover:text-primary"}`} />
@@ -294,12 +294,12 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
         </nav>
 
         {/* User */}
-        <div className="p-3 border-t border-sidebar-border/50 bg-gradient-to-t from-secondary/5 to-transparent">
+        <div className="p-3 border-t border-sidebar-border">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-secondary/10 transition-all hover:shadow-sm">
-                <Avatar className="w-7 h-7 flex-shrink-0 ring-2 ring-primary/30">
-                  <AvatarFallback className="bg-gradient-to-br from-primary to-secondary text-white text-xs font-bold">
+              <button className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-primary/10 transition-all">
+                <Avatar className="w-7 h-7 flex-shrink-0 ring-2 ring-sidebar-primary/30">
+                  <AvatarFallback className="bg-sidebar-primary text-sidebar font-bold text-xs">
                     {user?.name?.[0]?.toUpperCase() ?? "U"}
                   </AvatarFallback>
                 </Avatar>
@@ -330,7 +330,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <header className="h-16 border-b border-border/50 flex items-center justify-between px-6 bg-gradient-to-r from-background via-secondary/5 to-background backdrop-blur-md sticky top-0 z-10 shadow-sm">
+        <header className="h-16 border-b border-border flex items-center justify-between px-6 bg-background sticky top-0 z-10">
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -338,7 +338,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             >
               <LayoutDashboard className="w-4 h-4" />
             </button>
-            {title && <h1 className="text-sm font-bold text-foreground bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">{title}</h1>}
+            {title && <h1 className="text-sm font-bold text-foreground" style={{fontFamily: "Montserrat, sans-serif", textTransform: "uppercase" as const, letterSpacing: "1px"}}>{title}</h1>}
             {/* Active account breadcrumb */}
             {activeAccount && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -387,7 +387,7 @@ function SyncButton({ accountId }: { accountId: number }) {
   return (
     <Button
       size="sm"
-      className="h-8 gap-1.5 text-xs bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-white font-semibold shadow-md hover:shadow-lg transition-all"
+      className="h-8 gap-1.5 text-xs bg-primary hover:bg-accent text-primary-foreground font-semibold transition-all"
       onClick={() => sync.mutate({ accountId, days: 30 })}
       disabled={sync.isPending}
     >

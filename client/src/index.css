@@ -1,87 +1,105 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  /* SELVA Design System Colors */
-  --color-background: #f5e6f0;
-  --color-foreground: #000000;
-  --color-card: #ffffff;
-  --color-card-foreground: #000000;
-  --color-popover: #ffffff;
-  --color-popover-foreground: #000000;
-  --color-primary: #e85ba8;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #f5b8d8;
-  --color-secondary-foreground: #000000;
-  --color-muted: #e8d5e0;
-  --color-muted-foreground: #666666;
-  --color-accent: #e85ba8;
-  --color-accent-foreground: #ffffff;
-  --color-destructive: #dc2626;
-  --color-destructive-foreground: #ffffff;
-  --color-border: #e8d5e0;
-  --color-input: #ffffff;
-  --color-ring: #e85ba8;
-  --color-chart-1: #e85ba8;
-  --color-chart-2: #f5b8d8;
-  --color-chart-3: #e8d5e0;
-  --color-chart-4: #000000;
-  --color-chart-5: #666666;
-  --color-sidebar: #ffffff;
-  --color-sidebar-foreground: #000000;
-  --color-sidebar-primary: #e85ba8;
-  --color-sidebar-primary-foreground: #ffffff;
-  --color-sidebar-accent: #f5b8d8;
-  --color-sidebar-accent-foreground: #000000;
-  --color-sidebar-border: #e8d5e0;
-  --color-sidebar-ring: #e85ba8;
+  /* ══════════════════════════════════════════════
+     SELVA Agency — Design System
+     Paleta extraída dos reports oficiais SELVA
+     Cream · Pink · Black · Premium Agency Look
+     ══════════════════════════════════════════════ */
+
+  /* Core palette */
+  --color-cream: #F6F6E2;
+  --color-cream-alt: #F0F0D6;
+  --color-selva-pink: #F5ADCC;
+  --color-selva-pink-deep: #E87AB0;
+  --color-selva-black: #0A0A0A;
+
+  /* Semantic tokens mapped to SELVA palette */
+  --color-background: #F6F6E2;
+  --color-foreground: #0A0A0A;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #0A0A0A;
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #0A0A0A;
+  --color-primary: #F5ADCC;
+  --color-primary-foreground: #0A0A0A;
+  --color-secondary: #F0F0D6;
+  --color-secondary-foreground: #0A0A0A;
+  --color-muted: #F0F0D6;
+  --color-muted-foreground: #555555;
+  --color-accent: #E87AB0;
+  --color-accent-foreground: #FFFFFF;
+  --color-destructive: #EF4444;
+  --color-destructive-foreground: #FFFFFF;
+  --color-border: rgba(10,10,10,0.12);
+  --color-input: #FFFFFF;
+  --color-ring: #F5ADCC;
+
+  /* Charts — SELVA brand progression */
+  --color-chart-1: #F5ADCC;
+  --color-chart-2: #E87AB0;
+  --color-chart-3: #0A0A0A;
+  --color-chart-4: #555555;
+  --color-chart-5: #F0F0D6;
+
+  /* Sidebar */
+  --color-sidebar: #0A0A0A;
+  --color-sidebar-foreground: #F6F6E2;
+  --color-sidebar-primary: #F5ADCC;
+  --color-sidebar-primary-foreground: #0A0A0A;
+  --color-sidebar-accent: #E87AB0;
+  --color-sidebar-accent-foreground: #FFFFFF;
+  --color-sidebar-border: rgba(245,173,204,0.15);
+  --color-sidebar-ring: #F5ADCC;
+
+  /* Radius */
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
-  --radius-lg: 0.625rem;
-  --radius-xl: 0.75rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 0.75rem;
 
-  /* SELVA Design System — Pink/Black/Bege Premium */
-  --background: #F5E6F0;
-  --foreground: #000000;
+  /* ── SELVA Design System — Cream/Pink/Black Premium ── */
+  --background: #F6F6E2;
+  --foreground: #0A0A0A;
   --card: #FFFFFF;
-  --card-foreground: #000000;
+  --card-foreground: #0A0A0A;
   --popover: #FFFFFF;
-  --popover-foreground: #000000;
-  --primary: #E85BA8;
-  --primary-foreground: #FFFFFF;
-  --secondary: #F5B8D8;
-  --secondary-foreground: #000000;
-  --muted: #E8D5E0;
-  --muted-foreground: #666666;
-  --accent: #E85BA8;
+  --popover-foreground: #0A0A0A;
+  --primary: #F5ADCC;
+  --primary-foreground: #0A0A0A;
+  --secondary: #F0F0D6;
+  --secondary-foreground: #0A0A0A;
+  --muted: #F0F0D6;
+  --muted-foreground: #555555;
+  --accent: #E87AB0;
   --accent-foreground: #FFFFFF;
-  --destructive: #DC2626;
+  --destructive: #EF4444;
   --destructive-foreground: #FFFFFF;
-  --border: #E8D5E0;
+  --border: rgba(10,10,10,0.12);
   --input: #FFFFFF;
-  --ring: #E85BA8;
-  --chart-1: #E85BA8;
-  --chart-2: #F5B8D8;
-  --chart-3: #E8D5E0;
-  --chart-4: #000000;
-  --chart-5: #666666;
-  --sidebar: oklch(93% 0.025 335);
-  --sidebar-foreground: oklch(20% 0.01 260);
-  --sidebar-primary: oklch(58% 0.22 340);
-  --sidebar-primary-foreground: oklch(100% 0 0);
-  --sidebar-accent: #F5B8D8;
-  --sidebar-accent-foreground: #000000;
-  --sidebar-border: #E8D5E0;
-  --sidebar-ring: #E85BA8;
+  --ring: #F5ADCC;
+  --chart-1: #F5ADCC;
+  --chart-2: #E87AB0;
+  --chart-3: #0A0A0A;
+  --chart-4: #555555;
+  --chart-5: #F0F0D6;
+  --sidebar: #0A0A0A;
+  --sidebar-foreground: #F6F6E2;
+  --sidebar-primary: #F5ADCC;
+  --sidebar-primary-foreground: #0A0A0A;
+  --sidebar-accent: #E87AB0;
+  --sidebar-accent-foreground: #FFFFFF;
+  --sidebar-border: rgba(245,173,204,0.15);
+  --sidebar-ring: #F5ADCC;
 }
-
-/* Single dark theme — no .dark class needed */
 
 @layer base {
   * {
@@ -89,6 +107,10 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: 'DM Sans', 'Helvetica Neue', Arial, sans-serif;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Montserrat', 'Helvetica Neue', Arial, sans-serif;
   }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
@@ -104,24 +126,11 @@
 }
 
 @layer components {
-  /**
-   * Custom container utility that centers content and adds responsive padding.
-   *
-   * This overrides Tailwind's default container behavior to:
-   * - Auto-center content (mx-auto)
-   * - Add responsive horizontal padding
-   * - Set max-width for large screens
-   *
-   * Usage: <div className="container">...</div>
-   *
-   * For custom widths, use max-w-* utilities directly:
-   * <div className="max-w-6xl mx-auto px-4">...</div>
-   */
   .container {
     width: 100%;
     margin-left: auto;
     margin-right: auto;
-    padding-left: 1rem; /* 16px - mobile padding */
+    padding-left: 1rem;
     padding-right: 1rem;
   }
 
@@ -132,32 +141,90 @@
 
   @media (min-width: 640px) {
     .container {
-      padding-left: 1.5rem; /* 24px - tablet padding */
+      padding-left: 1.5rem;
       padding-right: 1.5rem;
     }
   }
 
   @media (min-width: 1024px) {
     .container {
-      padding-left: 2rem; /* 32px - desktop padding */
+      padding-left: 2rem;
       padding-right: 2rem;
-      max-width: 1280px; /* Standard content width */
+      max-width: 1280px;
     }
   }
-}
-@layer base {
-  :root {
-    --background: oklch(97% 0.012 335);
-    --foreground: oklch(20% 0.01 260);
-    --sidebar: oklch(93% 0.025 335);
-    --sidebar-foreground: oklch(20% 0.01 260);
-    --sidebar-primary: oklch(58% 0.22 340);
-    --sidebar-primary-foreground: oklch(100% 0 0);
-    --sidebar-accent: oklch(88% 0.04 335);
-    --sidebar-accent-foreground: oklch(20% 0.01 260);
-    --sidebar-border: oklch(85% 0.04 335);
-    --sidebar-ring: oklch(58% 0.22 340);
-    --primary: oklch(58% 0.22 340);
-    --primary-foreground: oklch(100% 0 0);
+
+  /* ── SELVA KPI Card style (matches report .kpi-card) ── */
+  .selva-kpi-card {
+    background: #0A0A0A;
+    border-radius: 12px;
+    padding: 28px 24px 24px;
+    color: #F5ADCC;
+  }
+  .selva-kpi-value {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 40px;
+    font-weight: 800;
+    color: #F5ADCC;
+    line-height: 1;
+  }
+  .selva-kpi-label {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(245,173,204,0.45);
+  }
+
+  /* ── SELVA Pill badge ── */
+  .selva-pill {
+    display: inline-block;
+    background: #F5ADCC;
+    border-radius: 20px;
+    padding: 4px 14px;
+    font-family: 'Montserrat', sans-serif;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #0A0A0A;
+  }
+
+  /* ── SELVA Insight box ── */
+  .selva-insight {
+    background: #0A0A0A;
+    border-radius: 12px;
+    padding: 24px 28px;
+    font-size: 15px;
+    line-height: 1.7;
+    color: rgba(245,173,204,0.75);
+  }
+  .selva-insight-label {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #F5ADCC;
+    margin-bottom: 8px;
+  }
+
+  /* ── SELVA Section header ── */
+  .selva-section-header {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 900;
+    text-transform: uppercase;
+    color: #F5ADCC;
+    letter-spacing: -0.5px;
+    line-height: 1;
+  }
+  .selva-eyebrow {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: #555555;
   }
 }
