@@ -232,6 +232,53 @@ export async function upsertCampaign(data: InsertCampaign) {
   }
 }
 
+// Mark campaigns not returned by Meta API as ARCHIVED (they were deleted/removed in Meta)
+export async function markStaleCampaignsArchived(accountId: number, activeMetaCampaignIds: string[]) {
+  const db = await getDb();
+  if (!db) return;
+
+  if (activeMetaCampaignIds.length === 0) {
+    console.warn("[markStaleCampaignsArchived] No active campaigns from Meta — skipping to avoid mass archive");
+    return;
+  }
+
+  try {
+    // Get all campaigns for this account that are ACTIVE or PAUSED in our DB
+    const localCampaigns = await db
+      .select({ id: campaigns.id, metaCampaignId: campaigns.metaCampaignId, status: campaigns.status })
+      .from(campaigns)
+      .where(
+        and(
+          eq(campaigns.accountId, accountId),
+          or(
+            eq(campaigns.status, "ACTIVE"),
+            eq(campaigns.status, "PAUSED")
+          )
+        )
+      );
+
+    const metaIdSet = new Set(activeMetaCampaignIds);
+    let archivedCount = 0;
+
+    for (const lc of localCampaigns) {
+      if (!metaIdSet.has(lc.metaCampaignId)) {
+        await db
+          .update(campaigns)
+          .set({ status: "ARCHIVED", updatedAt: new Date() })
+          .where(eq(campaigns.id, lc.id));
+        archivedCount++;
+        console.log(`[markStaleCampaignsArchived] Archived stale campaign ${lc.metaCampaignId} (local id ${lc.id})`);
+      }
+    }
+
+    if (archivedCount > 0) {
+      console.log(`[markStaleCampaignsArchived] Archived ${archivedCount} stale campaigns for account ${accountId}`);
+    }
+  } catch (error) {
+    console.error("[markStaleCampaignsArchived] Error:", error);
+  }
+}
+
 // ─── Campaign Metrics ─────────────────────────────────────────────────────────
 
 export async function getCampaignMetrics(campaignId: number, startDate: string, endDate: string) {

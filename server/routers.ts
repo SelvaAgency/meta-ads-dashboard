@@ -61,6 +61,7 @@ import {
   upsertCampaign,
   upsertCampaignMetrics,
   updateMetaAdAccountSync,
+  markStaleCampaignsArchived,
 } from "./db";
 import {
   validateToken,
@@ -322,6 +323,10 @@ export const appRouter = router({
           });
         }
 
+        // Mark campaigns that no longer exist in Meta API as ARCHIVED
+        const activeMetaIds = metaCampaigns.map((mc) => mc.id);
+        await markStaleCampaignsArchived(account.id, activeMetaIds);
+
         // Fetch insights with purchase_roas and all action fields
         const insights = await getCampaignInsights(account.accountId, account.accessToken, startDate, endDate);
 
@@ -476,6 +481,47 @@ export const appRouter = router({
           ? { startDate: input.startDate, endDate: input.endDate }
           : getDateRange(input.days, input.includeToday ?? false);
         return getCampaignPerformanceSummary(input.accountId, startDate, endDate);
+      }),
+    // Fetch active ads/creatives for a specific campaign (expandable row)
+    ads: protectedProcedure
+      .input(
+        z.object({
+          accountId: z.number(),
+          metaCampaignId: z.string(),
+          days: z.number().min(1).max(90).default(7),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          includeToday: z.boolean().optional(),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+
+        const { startDate, endDate } = (input.startDate && input.endDate)
+          ? { startDate: input.startDate, endDate: input.endDate }
+          : getDateRange(input.days, input.includeToday ?? false);
+
+        // Get adsets for goal mapping
+        const adsets = await getAdSets(account.accountId, account.accessToken);
+        const adsetGoalMap = new Map<string, string>();
+        for (const as of adsets) {
+          if (as.optimization_goal) {
+            adsetGoalMap.set(as.id, as.optimization_goal);
+          }
+        }
+
+        // Get all ads with insights
+        const allAds = await getAdsWithInsights(
+          account.accountId,
+          account.accessToken,
+          startDate,
+          endDate,
+          adsetGoalMap
+        );
+
+        // Filter to only ads belonging to this campaign
+        return allAds.filter((ad) => ad.campaign_id === input.metaCampaignId);
       }),
   }),
 
