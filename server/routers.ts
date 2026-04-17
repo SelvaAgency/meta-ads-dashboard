@@ -530,6 +530,21 @@ export const appRouter = router({
         console.log(`[campaigns.ads] Filtered ads for campaign ${input.metaCampaignId}: ${filtered.length}`);
         return filtered;
       }),
+    // Diagnostic: return raw ads data for debugging
+    adsDebug: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const allAds = await getAdsWithInsights(account.accountId, account.accessToken, "2025-04-10", "2026-04-17", new Map());
+        const campaignIds = [...new Set(allAds.map(a => a.campaign_id))];
+        return {
+          totalAds: allAds.length,
+          uniqueCampaignIds: campaignIds,
+          sampleAds: allAds.slice(0, 3).map(a => ({ id: a.id, name: a.name, campaign_id: a.campaign_id, status: a.status })),
+          metaAccountId: account.accountId,
+        };
+      }),
   }),
 
   // ─── Anomalies ─────────────────────────────────────────────────────────────
