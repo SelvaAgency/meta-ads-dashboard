@@ -61,6 +61,9 @@ import {
   upsertCampaign,
   upsertCampaignMetrics,
   updateMetaAdAccountSync,
+  purgeDuplicateAnomalies,
+  purgeDuplicateAlerts,
+  createAnomalyIfNotExists,
 } from "./db";
 import {
   validateToken,
@@ -86,6 +89,11 @@ import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjecti
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
+import {
+  invalidateAccountCache,
+  getCacheAccountMetrics,
+  setCacheAccountMetrics,
+} from "./dataStore";
 import { startAutoSync } from "./autoSync";
 import {
   createDashboardReport,

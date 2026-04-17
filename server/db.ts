@@ -430,6 +430,64 @@ export async function purgeOldReadAnomalies() {
   return (result as any).affectedRows ?? 0;
 }
 
+/**
+ * Remove anomalias duplicadas, mantendo apenas a mais recente de cada combinação
+ * campaignId + anomalyType + metric. Usar uma vez para limpar o backlog.
+ */
+export async function purgeDuplicateAnomalies(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const result = await db.execute(sql`
+    DELETE a1 FROM anomalies a1
+    INNER JOIN anomalies a2
+      ON a1.accountId = a2.accountId
+      AND a1.campaignId = a2.campaignId
+      AND a1.anomalyType = a2.anomalyType
+      AND a1.metric = a2.metric
+      AND a1.isResolved = false
+      AND a2.isResolved = false
+      AND a1.id < a2.id
+  `);
+
+  return (result as any)?.[0]?.affectedRows ?? (result as any)?.affectedRows ?? 0;
+}
+
+/**
+ * Cria anomalia APENAS se não existir uma anomalia ativa (não resolvida) com a mesma
+ * chave composta (campaignId + anomalyType + metric). Evita duplicação.
+ */
+export async function createAnomalyIfNotExists(data: InsertAnomaly): Promise<any | null> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  const existing = await db
+    .select({ id: anomalies.id })
+    .from(anomalies)
+    .where(
+      and(
+        eq(anomalies.accountId, data.accountId),
+        eq(anomalies.campaignId, data.campaignId ?? null),
+        eq(anomalies.anomalyType, data.anomalyType),
+        eq(anomalies.metric, data.metric),
+        eq(anomalies.isResolved, false)
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    // Atualizar timestamp da anomalia existente
+    await db
+      .update(anomalies)
+      .set({ detectedAt: new Date() })
+      .where(eq(anomalies.id, existing[0].id));
+    return null; // Anomalia já existe, não duplicar
+  }
+
+  const result = await db.insert(anomalies).values(data);
+  return result;
+}
+
 // ─── AI Suggestions ───────────────────────────────────────────────────────────
 
 // Get pending suggestions (status = pending, not expired)
