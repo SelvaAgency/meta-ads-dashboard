@@ -377,23 +377,48 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
 function SyncButton({ accountId }: { accountId: number }) {
   const utils = trpc.useUtils();
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  
   const sync = trpc.accounts.sync.useMutation({
     onSuccess: () => {
+      // Invalidar TODAS as queries para forçar refetch completo
       utils.dashboard.overview.invalidate();
       utils.campaigns.performance.invalidate();
+      utils.campaigns.list.invalidate();
+      utils.anomalies.list.invalidate();
+      utils.alerts.list.invalidate();
+      utils.suggestions.list.invalidate();
+      utils.reports.list.invalidate();
+      
+      // Atualizar timestamp da última sincronização
+      setLastSync(new Date());
     },
   });
 
+  const formatLastSync = (date: Date | null) => {
+    if (!date) return null;
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${hours}:${minutes}`;
+  };
+
   return (
-    <Button
-      size="sm"
-      className="h-8 gap-1.5 text-xs bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-white font-semibold shadow-md hover:shadow-lg transition-all"
-      onClick={() => sync.mutate({ accountId, days: 30 })}
-      disabled={sync.isPending}
-    >
-      <RefreshCw className={`w-3 h-3 ${sync.isPending ? "animate-spin" : ""}`} />
-      {sync.isPending ? "Sincronizando..." : "Sincronizar"}
-    </Button>
+    <div className="flex items-center gap-2">
+      {lastSync && (
+        <span className="text-xs text-muted-foreground px-2 py-1 rounded-md bg-secondary/10">
+          Última sincronização: {formatLastSync(lastSync)}
+        </span>
+      )}
+      <Button
+        size="sm"
+        className="h-8 gap-1.5 text-xs bg-gradient-to-r from-primary to-secondary hover:from-primary/90 hover:to-secondary/90 text-white font-semibold shadow-md hover:shadow-lg transition-all"
+        onClick={() => sync.mutate({ accountId, days: 30 })}
+        disabled={sync.isPending}
+      >
+        <RefreshCw className={`w-3 h-3 ${sync.isPending ? "animate-spin" : ""}`} />
+        {sync.isPending ? "Sincronizando..." : "Sincronizar"}
+      </Button>
+    </div>
   );
 }
 
