@@ -394,6 +394,40 @@ export async function createAnomaly(data: InsertAnomaly) {
   return result;
 }
 
+
+/**
+ * Creates an anomaly ONLY if no unresolved anomaly with the same
+ * accountId + type + metricName exists within the last 24 hours.
+ * This prevents the hourly autoSync from creating duplicate entries.
+ */
+export async function createAnomalyIfNotExists(data: InsertAnomaly): Promise<any | null> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const existing = await db
+    .select({ id: anomalies.id })
+    .from(anomalies)
+    .where(
+      and(
+        eq(anomalies.accountId, data.accountId),
+        eq(anomalies.type, data.type),
+        eq(anomalies.metricName, data.metricName ?? ""),
+        eq(anomalies.isResolved, false),
+        gte(anomalies.detectedAt, twentyFourHoursAgo)
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    return null; // Anomalia idêntica já existe, não duplicar
+  }
+
+  const result = await db.insert(anomalies).values(data);
+  return result;
+}
+
 export async function markAnomalyRead(id: number) {
   const db = await getDb();
   if (!db) return;
@@ -453,40 +487,7 @@ export async function purgeDuplicateAnomalies(): Promise<number> {
   return (result as any)?.[0]?.affectedRows ?? (result as any)?.affectedRows ?? 0;
 }
 
-/**
- * Cria anomalia APENAS se não existir uma anomalia ativa (não resolvida) com a mesma
- * chave composta (campaignId + anomalyType + metric). Evita duplicação.
- */
-export async function createAnomalyIfNotExists(data: InsertAnomaly): Promise<any | null> {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
 
-  const existing = await db
-    .select({ id: anomalies.id })
-    .from(anomalies)
-    .where(
-      and(
-        eq(anomalies.accountId, data.accountId),
-        eq(anomalies.campaignId, data.campaignId ?? null),
-        eq(anomalies.anomalyType, data.anomalyType),
-        eq(anomalies.metric, data.metric),
-        eq(anomalies.isResolved, false)
-      )
-    )
-    .limit(1);
-
-  if (existing.length > 0) {
-    // Atualizar timestamp da anomalia existente
-    await db
-      .update(anomalies)
-      .set({ detectedAt: new Date() })
-      .where(eq(anomalies.id, existing[0].id));
-    return null; // Anomalia já existe, não duplicar
-  }
-
-  const result = await db.insert(anomalies).values(data);
-  return result;
-}
 
 // ─── AI Suggestions ───────────────────────────────────────────────────────────
 
@@ -786,3 +787,6 @@ export async function markAllAlertsReadByAccount(userId: number, accountId: numb
   // Delete only alerts for a specific account
   await db.delete(alerts).where(and(eq(alerts.userId, userId), eq(alerts.accountId, accountId)));
 }
+
+
+
