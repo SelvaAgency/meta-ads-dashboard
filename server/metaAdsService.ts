@@ -923,7 +923,7 @@ export async function getAdSetsWithInsights(
     }>(`act_${accountId}/adsets`, {
       access_token: accessToken,
       fields: "id,name,campaign_id,status,effective_status,optimization_goal,daily_budget,lifetime_budget,targeting",
-      filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED"] }]),
+      // Removed ACTIVE/PAUSED filter — show ALL ads/creatives for the campaign
       limit: "200",
     });
 
@@ -1012,7 +1012,7 @@ export async function getAdsWithInsights(
     }>(`act_${accountId}/ads`, {
       access_token: accessToken,
       fields: "id,name,adset_id,campaign_id,status,effective_status,creative{object_type}",
-      filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED"] }]),
+      // Removed ACTIVE/PAUSED filter — show ALL ads/creatives for the campaign
       limit: "500",
     });
 

@@ -341,6 +341,7 @@ export async function getCampaignPerformanceSummary(accountId: number, startDate
   return db
     .select({
       campaignId: campaigns.id,
+      metaCampaignId: campaigns.metaCampaignId,
       campaignName: campaigns.name,
       campaignStatus: campaigns.status,
       campaignObjective: campaigns.objective,
@@ -366,10 +367,10 @@ export async function getCampaignPerformanceSummary(accountId: number, startDate
     .where(
       and(
         eq(campaigns.accountId, accountId),
-        eq(campaigns.status, "ACTIVE")
+        or(eq(campaigns.status, "ACTIVE"), eq(campaigns.status, "PAUSED"))
       )
     )
-    .groupBy(campaigns.id, campaigns.name, campaigns.status, campaigns.objective, campaigns.optimizationGoal, campaigns.resultLabel)
+    .groupBy(campaigns.id, campaigns.metaCampaignId, campaigns.name, campaigns.status, campaigns.objective, campaigns.optimizationGoal, campaigns.resultLabel)
     .orderBy(desc(sql`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.spend} ELSE 0 END), 0)`));
 }
 

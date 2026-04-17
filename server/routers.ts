@@ -520,8 +520,15 @@ export const appRouter = router({
           adsetGoalMap
         );
 
+        console.log(`[campaigns.ads] Total ads fetched: ${allAds.length}, filtering for metaCampaignId: ${input.metaCampaignId}`);
+        if (allAds.length > 0) {
+          console.log(`[campaigns.ads] Sample campaign_ids from ads: ${[...new Set(allAds.slice(0, 5).map(a => a.campaign_id))].join(", ")}`);
+        }
+
         // Filter to only ads belonging to this campaign
-        return allAds.filter((ad) => ad.campaign_id === input.metaCampaignId);
+        const filtered = allAds.filter((ad) => ad.campaign_id === input.metaCampaignId);
+        console.log(`[campaigns.ads] Filtered ads for campaign ${input.metaCampaignId}: ${filtered.length}`);
+        return filtered;
       }),
   }),
 
