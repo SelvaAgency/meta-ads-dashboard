@@ -136,8 +136,18 @@ export async function createMetaAdAccount(data: InsertMetaAdAccount) {
     .limit(1);
   
   if (existing.length > 0) {
-    console.log(`[DB] Account ${data.accountId} already exists for user ${data.userId}, skipping insert`);
-    return existing[0];
+    // Update accessToken and other fields if account already exists
+    console.log(`[DB] Account ${data.accountId} already exists for user ${data.userId}, updating accessToken`);
+    await db
+      .update(metaAdAccounts)
+      .set({
+        accessToken: data.accessToken,
+        accountName: data.accountName ?? existing[0].accountName,
+        currency: data.currency ?? existing[0].currency,
+        timezone: data.timezone ?? existing[0].timezone,
+      })
+      .where(eq(metaAdAccounts.id, existing[0].id));
+    return { ...existing[0], accessToken: data.accessToken };
   }
   
   console.log(`[DB] Creating new account ${data.accountId} for user ${data.userId}`);
