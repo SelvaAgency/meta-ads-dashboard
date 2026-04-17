@@ -289,41 +289,41 @@ export async function getAccountMetricsSummary(accountId: number, startDate: str
 export async function getCampaignPerformanceSummary(accountId: number, startDate: string, endDate: string) {
   const db = await getDb();
   if (!db) return [];
+
+  // Use LEFT JOIN so active campaigns always appear even with no metrics in the date range
   return db
     .select({
-      campaignId: campaignMetrics.campaignId,
+      campaignId: campaigns.id,
       campaignName: campaigns.name,
       campaignStatus: campaigns.status,
       campaignObjective: campaigns.objective,
       campaignOptimizationGoal: campaigns.optimizationGoal,
       campaignResultLabel: campaigns.resultLabel,
-      totalSpend: sql<number>`SUM(${campaignMetrics.spend})`,
-      totalImpressions: sql<number>`SUM(${campaignMetrics.impressions})`,
-      totalClicks: sql<number>`SUM(${campaignMetrics.clicks})`,
-      totalConversions: sql<number>`SUM(${campaignMetrics.conversions})`,
-      totalConversionValue: sql<number>`SUM(${campaignMetrics.conversionValue})`,
-      totalReach: sql<number>`SUM(${campaignMetrics.reach})`,
-      // Weighted metrics (more accurate than simple AVG of daily ratios)
-      avgRoas: sql<number>`CASE WHEN SUM(${campaignMetrics.spend}) > 0 THEN SUM(${campaignMetrics.conversionValue}) / SUM(${campaignMetrics.spend}) ELSE 0 END`,
-      avgCpa: sql<number>`CASE WHEN SUM(${campaignMetrics.conversions}) > 0 THEN SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.conversions}) ELSE 0 END`,
-      avgCtr: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.clicks}) / SUM(${campaignMetrics.impressions})) * 100 ELSE 0 END`,
-      avgCpc: sql<number>`CASE WHEN SUM(${campaignMetrics.clicks}) > 0 THEN SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.clicks}) ELSE 0 END`,
-      avgCpm: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.impressions})) * 1000 ELSE 0 END`,
-      avgFrequency: sql<number>`CASE WHEN SUM(${campaignMetrics.reach}) > 0 THEN SUM(${campaignMetrics.impressions}) / SUM(${campaignMetrics.reach}) ELSE 0 END`,
-      totalProfileVisits: sql<number>`SUM(${campaignMetrics.profileVisits})`,
-      totalFollowers: sql<number>`SUM(${campaignMetrics.followers})`,
+      totalSpend: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.spend} ELSE 0 END), 0)`,
+      totalImpressions: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.impressions} ELSE 0 END), 0)`,
+      totalClicks: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.clicks} ELSE 0 END), 0)`,
+      totalConversions: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.conversions} ELSE 0 END), 0)`,
+      totalConversionValue: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.conversionValue} ELSE 0 END), 0)`,
+      totalReach: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.reach} ELSE 0 END), 0)`,
+      avgRoas: sql<number>`CASE WHEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.spend} ELSE 0 END) > 0 THEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.conversionValue} ELSE 0 END) / SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.spend} ELSE 0 END) ELSE 0 END`,
+      avgCpa: sql<number>`CASE WHEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.conversions} ELSE 0 END) > 0 THEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.spend} ELSE 0 END) / SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.conversions} ELSE 0 END) ELSE 0 END`,
+      avgCtr: sql<number>`CASE WHEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.impressions} ELSE 0 END) > 0 THEN (SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.clicks} ELSE 0 END) / SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.impressions} ELSE 0 END)) * 100 ELSE 0 END`,
+      avgCpc: sql<number>`CASE WHEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.clicks} ELSE 0 END) > 0 THEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.spend} ELSE 0 END) / SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.clicks} ELSE 0 END) ELSE 0 END`,
+      avgCpm: sql<number>`CASE WHEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.impressions} ELSE 0 END) > 0 THEN (SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.spend} ELSE 0 END) / SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.impressions} ELSE 0 END)) * 1000 ELSE 0 END`,
+      avgFrequency: sql<number>`CASE WHEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.reach} ELSE 0 END) > 0 THEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.impressions} ELSE 0 END) / SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.reach} ELSE 0 END) ELSE 0 END`,
+      totalProfileVisits: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.profileVisits} ELSE 0 END), 0)`,
+      totalFollowers: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.followers} ELSE 0 END), 0)`,
     })
-    .from(campaignMetrics)
-    .innerJoin(campaigns, eq(campaignMetrics.campaignId, campaigns.id))
+    .from(campaigns)
+    .leftJoin(campaignMetrics, eq(campaignMetrics.campaignId, campaigns.id))
     .where(
       and(
-        eq(campaignMetrics.accountId, accountId),
-        gte(campaignMetrics.date, startDate),
-        lte(campaignMetrics.date, endDate)
+        eq(campaigns.accountId, accountId),
+        eq(campaigns.status, "ACTIVE")
       )
     )
-    .groupBy(campaignMetrics.campaignId, campaigns.name, campaigns.status, campaigns.objective, campaigns.optimizationGoal, campaigns.resultLabel)
-    .orderBy(desc(sql`SUM(${campaignMetrics.spend})`));
+    .groupBy(campaigns.id, campaigns.name, campaigns.status, campaigns.objective, campaigns.optimizationGoal, campaigns.resultLabel)
+    .orderBy(desc(sql`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.spend} ELSE 0 END), 0)`));
 }
 
 export async function upsertCampaignMetrics(data: InsertCampaignMetrics) {

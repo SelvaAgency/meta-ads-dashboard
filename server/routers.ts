@@ -101,14 +101,27 @@ import {
 } from "./dashboardBuilderService";
 // ─── Helper: date range ────────────────────────────────────────────────────────
 
-function getDateRange(days: number) {
-  const end = new Date();
-  end.setDate(end.getDate() - 1); // ontem = último dia completo
+function getDateRange(days: number, includeToday = false) {
+  const today = new Date();
+  const todayStr = today.toISOString().split("T")[0];
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split("T")[0];
+
+  // includeToday: range extends to today instead of stopping at yesterday
+  const end = includeToday ? today : yesterday;
+  const endStr = includeToday ? todayStr : yesterdayStr;
+
+  if (days <= 0) {
+    // days=0 means "today only"
+    return { startDate: todayStr, endDate: todayStr };
+  }
+
   const start = new Date(end);
-  start.setDate(start.getDate() - (days - 1)); // days dias contando ontem
+  start.setDate(start.getDate() - (days - 1));
   return {
     startDate: start.toISOString().split("T")[0],
-    endDate: end.toISOString().split("T")[0],
+    endDate: endStr,
   };
 }
 
@@ -248,7 +261,8 @@ export const appRouter = router({
           });
         }
 
-        const { startDate, endDate } = getDateRange(input.days);
+        // Include today in sync so "Hoje" filter works with fresh data
+        const { startDate, endDate } = getDateRange(input.days, true);
 
         // Fetch campaigns and adsets together to get performance_goal
         const metaCampaigns = await getCampaigns(account.accountId, account.accessToken);
@@ -449,13 +463,18 @@ export const appRouter = router({
       .input(
         z.object({
           accountId: z.number(),
-          days: z.number().min(1).max(90).default(30),
+          days: z.number().min(0).max(90).default(30),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          includeToday: z.boolean().optional(),
         })
       )
       .query(async ({ ctx, input }) => {
         const account = await getMetaAdAccountById(input.accountId);
         if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-        const { startDate, endDate } = getDateRange(input.days);
+        const { startDate, endDate } = (input.startDate && input.endDate)
+          ? { startDate: input.startDate, endDate: input.endDate }
+          : getDateRange(input.days, input.includeToday ?? false);
         return getCampaignPerformanceSummary(input.accountId, startDate, endDate);
       }),
   }),

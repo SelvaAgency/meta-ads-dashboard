@@ -50,7 +50,7 @@ const COLUMNS = [
 ] as const;
 
 export default function Campaigns() {
-  const [days, setDays] = useState("7");
+  const [activePeriod, setActivePeriod] = useState("7d");
   const [search, setSearch] = useState("");
   const [periodMode, setPeriodMode] = useState<"quick" | "custom">("quick");
   const [customStartDate, setCustomStartDate] = useState("");
@@ -58,20 +58,62 @@ export default function Campaigns() {
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
 
+  // Compute date range based on selected period
+  const dateParams = useMemo(() => {
+    const today = new Date();
+    const todayStr = today.toISOString().split("T")[0];
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split("T")[0];
+
+    if (periodMode === "custom" && customStartDate && customEndDate) {
+      return { days: 0, startDate: customStartDate, endDate: customEndDate, includeToday: true };
+    }
+
+    switch (activePeriod) {
+      case "today":
+        return { days: 1, startDate: todayStr, endDate: todayStr, includeToday: true };
+      case "yesterday":
+        return { days: 1, startDate: yesterdayStr, endDate: yesterdayStr, includeToday: false };
+      case "today-yesterday":
+        return { days: 2, startDate: yesterdayStr, endDate: todayStr, includeToday: true };
+      case "7d":
+        return { days: 7, includeToday: true };
+      case "14d":
+        return { days: 14, includeToday: true };
+      case "30d":
+        return { days: 30, includeToday: true };
+      default:
+        return { days: 7, includeToday: true };
+    }
+  }, [activePeriod, periodMode, customStartDate, customEndDate]);
+
+  const periodLabel = useMemo(() => {
+    if (periodMode === "custom") return `${customStartDate} a ${customEndDate}`;
+    switch (activePeriod) {
+      case "today": return "hoje";
+      case "yesterday": return "ontem";
+      case "today-yesterday": return "hoje e ontem";
+      case "7d": return "nos últimos 7 dias";
+      case "14d": return "nos últimos 14 dias";
+      case "30d": return "nos últimos 30 dias";
+      default: return "nos últimos 7 dias";
+    }
+  }, [activePeriod, periodMode, customStartDate, customEndDate]);
+
   const handleQuickPeriod = (mode: string) => {
     setPeriodMode("quick");
-    if (mode === "today") setDays("1");
-    else if (mode === "yesterday") setDays("1");
-    else if (mode === "today-yesterday") setDays("2");
-    else setDays(mode.replace("d", ""));
+    setActivePeriod(mode);
   };
 
   // Use performance query which aggregates from DB (has frequency, cpm, cpc, etc.)
-  // TODO: Backend needs to support startDate/endDate for custom periods
   const { data: campaigns, isLoading } = trpc.campaigns.performance.useQuery(
     { 
       accountId: selectedAccountId!, 
-      days: parseInt(days) || 7,
+      days: dateParams.days,
+      ...(dateParams.startDate ? { startDate: dateParams.startDate } : {}),
+      ...(dateParams.endDate ? { endDate: dateParams.endDate } : {}),
+      includeToday: dateParams.includeToday,
     },
     { enabled: !!selectedAccountId }
   );
@@ -124,60 +166,30 @@ export default function Campaigns() {
         <div>
           <h1 className="text-xl font-bold text-foreground">Campanhas</h1>
           <p className="text-sm text-muted-foreground">
-            Exibindo campanhas ativas e pausadas nos últimos 7 dias
+            Exibindo campanhas ativas e pausadas {periodLabel}
           </p>
         </div>
 
         {/* Period selector with quick buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant={periodMode === "quick" && days === "1" ? "default" : "outline"}
-            size="sm"
-            onClick={() => handleQuickPeriod("today")}
-            className="text-xs"
-          >
-            Hoje
-          </Button>
-          <Button
-            variant={periodMode === "quick" && days === "1" ? "default" : "outline"}
-            size="sm"
-            onClick={() => handleQuickPeriod("yesterday")}
-            className="text-xs"
-          >
-            Ontem
-          </Button>
-          <Button
-            variant={periodMode === "quick" && days === "2" ? "default" : "outline"}
-            size="sm"
-            onClick={() => handleQuickPeriod("today-yesterday")}
-            className="text-xs"
-          >
-            Hoje e Ontem
-          </Button>
-          <Button
-            variant={periodMode === "quick" && days === "7" ? "default" : "outline"}
-            size="sm"
-            onClick={() => handleQuickPeriod("7d")}
-            className="text-xs"
-          >
-            Últimos 7d
-          </Button>
-          <Button
-            variant={periodMode === "quick" && days === "14" ? "default" : "outline"}
-            size="sm"
-            onClick={() => handleQuickPeriod("14d")}
-            className="text-xs"
-          >
-            Últimos 14d
-          </Button>
-          <Button
-            variant={periodMode === "quick" && days === "30" ? "default" : "outline"}
-            size="sm"
-            onClick={() => handleQuickPeriod("30d")}
-            className="text-xs"
-          >
-            Últimos 30d
-          </Button>
+          {[
+            { key: "today", label: "Hoje" },
+            { key: "yesterday", label: "Ontem" },
+            { key: "today-yesterday", label: "Hoje e Ontem" },
+            { key: "7d", label: "Últimos 7d" },
+            { key: "14d", label: "Últimos 14d" },
+            { key: "30d", label: "Últimos 30d" },
+          ].map((btn) => (
+            <Button
+              key={btn.key}
+              variant={periodMode === "quick" && activePeriod === btn.key ? "default" : "outline"}
+              size="sm"
+              onClick={() => handleQuickPeriod(btn.key)}
+              className="text-xs"
+            >
+              {btn.label}
+            </Button>
+          ))}
           <Dialog>
             <DialogTrigger asChild>
               <Button
