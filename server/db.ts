@@ -394,6 +394,40 @@ export async function createAnomaly(data: InsertAnomaly) {
   return result;
 }
 
+
+/**
+ * Creates an anomaly ONLY if no unresolved anomaly with the same
+ * accountId + type + metricName exists within the last 24 hours.
+ * This prevents the hourly autoSync from creating duplicate entries.
+ */
+export async function createAnomalyIfNotExists(data: InsertAnomaly): Promise<any | null> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const existing = await db
+    .select({ id: anomalies.id })
+    .from(anomalies)
+    .where(
+      and(
+        eq(anomalies.accountId, data.accountId),
+        eq(anomalies.type, data.type),
+        eq(anomalies.metricName, data.metricName ?? ""),
+        eq(anomalies.isResolved, false),
+        gte(anomalies.detectedAt, twentyFourHoursAgo)
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    return null; // Anomalia idêntica já existe, não duplicar
+  }
+
+  const result = await db.insert(anomalies).values(data);
+  return result;
+}
+
 export async function markAnomalyRead(id: number) {
   const db = await getDb();
   if (!db) return;
@@ -728,3 +762,25 @@ export async function markAllAlertsReadByAccount(userId: number, accountId: numb
   // Delete only alerts for a specific account
   await db.delete(alerts).where(and(eq(alerts.userId, userId), eq(alerts.accountId, accountId)));
 }
+
+/**
+ * Remove anomalias duplicadas não resolvidas, mantendo apenas a mais recente
+ * de cada combinação accountId + type + metricName.
+ */
+export async function purgeDuplicateAnomalies(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const result = await db.execute(sql`
+    DELETE a1 FROM anomalies a1
+    INNER JOIN anomalies a2
+      ON a1.accountId = a2.accountId
+      AND a1.type = a2.type
+      AND COALESCE(a1.metricName, '') = COALESCE(a2.metricName, '')
+      AND a1.isResolved = false
+      AND a2.isResolved = false
+      AND a1.id < a2.id
+  `);
+  return (result as any)[0]?.affectedRows ?? 0;
+}
+

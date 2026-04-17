@@ -24,10 +24,11 @@ import {
   upsertCampaignMetrics,
   getAccountMetricsSummary,
   getCampaignPerformanceSummary,
-  createAnomaly,
+  createAnomalyIfNotExists,
   createAlert,
   createAlertIfNotExists,
   purgeDuplicateAlerts,
+  purgeDuplicateAnomalies,
   markAnomalyEmailSent,
   markAlertEmailSent,
   getMetaAdAccountsByUserId,
@@ -317,7 +318,7 @@ async function runAnomalyDetection() {
 
       for (const anomaly of detected) {
         // Save anomaly to DB
-        const result = await createAnomaly({
+        const result = await createAnomalyIfNotExists({
           accountId: account.id,
           type: anomaly.type as any,
           severity: anomaly.severity,
@@ -624,6 +625,16 @@ export async function startAutoSync() {
       }
     } catch (err) {
       console.error("[AutoSync] Error purging duplicate alerts:", err);
+    }
+
+    // Purge duplicate anomalies from backlog on startup
+    try {
+      const purgedAnomalies = await purgeDuplicateAnomalies();
+      if (purgedAnomalies > 0) {
+        console.log(`[AutoSync] Purged ${purgedAnomalies} duplicate anomalies on startup`);
+      }
+    } catch (err) {
+      console.error("[AutoSync] Error purging duplicate anomalies:", err);
     }
 
     await runAutoSync();
