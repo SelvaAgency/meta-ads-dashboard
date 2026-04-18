@@ -417,6 +417,19 @@ export default function Campaigns() {
     return map;
   }, [activeCampaigns]);
 
+  // Build a DB id -> Meta campaign ID map for resolving ad fetches
+  const metaIdMap = useMemo(() => {
+    const map = new Map<number, string>();
+    if (activeCampaigns) {
+      for (const c of activeCampaigns) {
+        if (c.id && c.metaCampaignId) {
+          map.set(c.id, c.metaCampaignId);
+        }
+      }
+    }
+    return map;
+  }, [activeCampaigns]);
+
   const filtered = useMemo(() => {
     if (!campaigns) return [];
     return campaigns.filter((c) =>
@@ -577,7 +590,7 @@ export default function Campaigns() {
                     </tr>
                   ) : (
                     filtered.map((c) => {
-                      const metaId = String((c as any).metaCampaignId ?? c.campaignId ?? "");
+                      const metaId = String((c as any).metaCampaignId ?? metaIdMap.get(c.campaignId) ?? c.campaignId ?? "");
                       const status = statusMap.get(metaId) ?? c.campaignStatus ?? "ACTIVE";
 
                       // Extract 12 metrics
