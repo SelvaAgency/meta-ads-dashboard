@@ -511,27 +511,26 @@ export const appRouter = router({
           : getDateRange(input.days, input.includeToday ?? false);
 
         // === STEP 1: Resolve the real Meta campaign ID ===
+        // Use getCampaignsByAccountId as the PRIMARY resolver — proven reliable
         let realMetaCampaignId = input.metaCampaignId;
         
-        // Try direct DB lookup by campaign id first (most reliable)
-        const numId = parseInt(input.metaCampaignId, 10);
-        if (!isNaN(numId)) {
-          const directCampaign = await getCampaignById(numId);
-          if (directCampaign && directCampaign.metaCampaignId) {
-            realMetaCampaignId = directCampaign.metaCampaignId;
-            console.log(`[campaigns.ads] Direct DB lookup: id ${numId} -> metaCampaignId ${realMetaCampaignId}`);
-          } else {
-            console.warn(`[campaigns.ads] Direct DB lookup failed for id ${numId}`);
-          }
-        }
-        
-        // If still looks like a DB id (all digits, < 20 chars), try account campaigns list
-        if (realMetaCampaignId === input.metaCampaignId && /^\d+$/.test(input.metaCampaignId) && input.metaCampaignId.length < 12) {
-          const localCampaigns = await getCampaignsByAccountId(input.accountId);
-          const byDbId = localCampaigns.find(c => String(c.id) === input.metaCampaignId);
-          if (byDbId && byDbId.metaCampaignId) {
-            realMetaCampaignId = byDbId.metaCampaignId;
-            console.log(`[campaigns.ads] Account campaigns lookup: id ${input.metaCampaignId} -> metaCampaignId ${realMetaCampaignId}`);
+        // If the input looks like a short DB id (not a long Meta campaign id), resolve it
+        if (/^\d+$/.test(input.metaCampaignId) && input.metaCampaignId.length < 16) {
+          try {
+            const localCampaigns = await getCampaignsByAccountId(input.accountId);
+            // Try matching as DB id first
+            const byDbId = localCampaigns.find(c => String(c.id) === input.metaCampaignId);
+            if (byDbId && byDbId.metaCampaignId) {
+              realMetaCampaignId = byDbId.metaCampaignId;
+            } else {
+              // Maybe it's already a Meta campaign ID — check if any campaign has this metaCampaignId
+              const byMetaId = localCampaigns.find(c => c.metaCampaignId === input.metaCampaignId);
+              if (byMetaId) {
+                realMetaCampaignId = input.metaCampaignId; // Already a valid Meta ID
+              }
+            }
+          } catch (err) {
+            console.error(`[campaigns.ads] Resolution error:`, err);
           }
         }
         
