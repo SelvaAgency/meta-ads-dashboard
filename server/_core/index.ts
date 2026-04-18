@@ -39,6 +39,39 @@ async function startServer() {
   registerOAuthRoutes(app);
   // Dashboard Builder — upload de imagens
   registerDashboardBuilderRoutes(app);
+  // Debug endpoint - raw Meta API diagnostic
+  app.get('/api/debug-ads/:id', async (req, res) => {
+    try {
+      const { getMetaAdAccountById } = await import('../db');
+      const id = parseInt(req.params.id);
+      const account = await getMetaAdAccountById(id);
+      if (!account) return res.json({ error: 'Account not found', id });
+      
+      const metaId = account.accountId;
+      const token = account.accessToken;
+      
+      // Raw call to Meta API for ads
+      const adsUrl = `https://graph.facebook.com/v21.0/act_${metaId}/ads?access_token=${token}&fields=id,name,campaign_id,status,effective_status&limit=5`;
+      const adsResp = await fetch(adsUrl);
+      const adsData = await adsResp.json();
+      
+      // Raw call for campaigns
+      const campUrl = `https://graph.facebook.com/v21.0/act_${metaId}/campaigns?access_token=${token}&fields=id,name,status&limit=5`;
+      const campResp = await fetch(campUrl);
+      const campData = await campResp.json();
+      
+      res.json({
+        internalId: id,
+        metaAccountId: metaId,
+        tokenPrefix: token?.substring(0, 20) + '...',
+        adsApiResponse: adsData,
+        campaignsApiResponse: campData,
+      });
+    } catch (e: any) {
+      res.json({ error: e.message });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

@@ -520,8 +520,82 @@ export const appRouter = router({
           adsetGoalMap
         );
 
+        console.log(`[campaigns.ads] Total ads fetched: ${allAds.length}, filtering for metaCampaignId: ${input.metaCampaignId}`);
+        if (allAds.length > 0) {
+          console.log(`[campaigns.ads] Sample campaign_ids from ads: ${[...new Set(allAds.slice(0, 5).map(a => a.campaign_id))].join(", ")}`);
+        }
+
         // Filter to only ads belonging to this campaign
-        return allAds.filter((ad) => ad.campaign_id === input.metaCampaignId);
+        const filtered = allAds.filter((ad) => ad.campaign_id === input.metaCampaignId);
+        console.log(`[campaigns.ads] Filtered ads for campaign ${input.metaCampaignId}: ${filtered.length}`);
+        
+        // If no ads found, try a raw Meta API call to diagnose
+        if (allAds.length === 0) {
+          try {
+            const rawUrl = `https://graph.facebook.com/v21.0/act_${account.accountId}/ads?access_token=${account.accessToken}&fields=id,name,campaign_id,status&limit=3`;
+            const rawResp = await fetch(rawUrl);
+            const rawData = await rawResp.json() as any;
+            console.log(`[campaigns.ads] RAW META RESPONSE: ${JSON.stringify(rawData).substring(0, 500)}`);
+            // If Meta returned ads but getAdsWithInsights returned 0, there is a parsing issue
+            if (rawData.data && rawData.data.length > 0) {
+              // Return the raw ads with minimal data so they at least show up
+              return rawData.data.map((ad: any) => ({
+                id: ad.id,
+                name: ad.name,
+                adset_id: "",
+                campaign_id: ad.campaign_id,
+                status: ad.status,
+                effective_status: ad.status,
+                creative_type: "IMAGE",
+                spend: 0, impressions: 0, clicks: 0, frequency: 0,
+                ctr: 0, cpc: 0, cpm: 0, conversions: 0, costPerResult: 0, roas: 0,
+              }));
+            }
+            // If Meta returned an error, include it as a special "ad" for debugging
+            if (rawData.error) {
+              return [{
+                id: "debug",
+                name: `Meta API Error: ${rawData.error.message || 'unknown'}`,
+                adset_id: "",
+                campaign_id: input.metaCampaignId,
+                status: "ERROR",
+                effective_status: `code_${rawData.error.code || 'unknown'}`,
+                creative_type: "IMAGE",
+                spend: 0, impressions: 0, clicks: 0, frequency: 0,
+                ctr: 0, cpc: 0, cpm: 0, conversions: 0, costPerResult: 0, roas: 0,
+              }];
+            }
+          } catch (diagErr) {
+            console.error('[campaigns.ads] Diagnostic raw call failed:', diagErr);
+          }
+        }
+        
+        return filtered;
+      }),
+    // Diagnostic: raw Meta API call without error swallowing
+    adsDebug: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        
+        // Raw fetch to Meta API - no try/catch so we see actual errors
+        const metaAccountId = account.accountId;
+        const url = `https://graph.facebook.com/v21.0/act_${metaAccountId}/ads?access_token=${account.accessToken}&fields=id,name,campaign_id,status,effective_status&limit=10`;
+        const response = await fetch(url);
+        const rawData = await response.json();
+        
+        // Also test campaigns endpoint
+        const campUrl = `https://graph.facebook.com/v21.0/act_${metaAccountId}/campaigns?access_token=${account.accessToken}&fields=id,name,status&limit=5`;
+        const campResponse = await fetch(campUrl);
+        const campData = await campResponse.json();
+        
+        return {
+          metaAccountId,
+          adsResponse: rawData,
+          campaignsResponse: campData,
+          tokenPrefix: account.accessToken?.substring(0, 20) + "...",
+        };
       }),
   }),
 
