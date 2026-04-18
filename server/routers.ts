@@ -481,7 +481,14 @@ export const appRouter = router({
         const { startDate, endDate } = (input.startDate && input.endDate)
           ? { startDate: input.startDate, endDate: input.endDate }
           : getDateRange(input.days, input.includeToday ?? false);
-        return getCampaignPerformanceSummary(input.accountId, startDate, endDate);
+        const perfRows = await getCampaignPerformanceSummary(input.accountId, startDate, endDate);
+        // Drizzle aggregate query drops metaCampaignId — merge it from a simple select
+        const allCampaigns = await getCampaignsByAccountId(input.accountId);
+        const metaIdMap = new Map(allCampaigns.map(c => [c.id, c.metaCampaignId]));
+        return perfRows.map(r => ({
+          ...r,
+          metaCampaignId: metaIdMap.get(r.campaignId) ?? null,
+        }));
       }),
     // Fetch active ads/creatives for a specific campaign (expandable row)
     ads: protectedProcedure
