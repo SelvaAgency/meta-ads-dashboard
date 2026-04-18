@@ -503,6 +503,34 @@ export const appRouter = router({
           ? { startDate: input.startDate, endDate: input.endDate }
           : getDateRange(input.days, input.includeToday ?? false);
 
+        // === STEP 1: Resolve the real Meta campaign ID ===
+        let realMetaCampaignId = input.metaCampaignId;
+        
+        // Try direct DB lookup by campaign id first (most reliable)
+        const numId = parseInt(input.metaCampaignId, 10);
+        if (!isNaN(numId)) {
+          const directCampaign = await getCampaignById(numId);
+          if (directCampaign && directCampaign.metaCampaignId) {
+            realMetaCampaignId = directCampaign.metaCampaignId;
+            console.log(`[campaigns.ads] Direct DB lookup: id ${numId} -> metaCampaignId ${realMetaCampaignId}`);
+          } else {
+            console.warn(`[campaigns.ads] Direct DB lookup failed for id ${numId}`);
+          }
+        }
+        
+        // If still looks like a DB id (all digits, < 20 chars), try account campaigns list
+        if (realMetaCampaignId === input.metaCampaignId && /^\d+$/.test(input.metaCampaignId) && input.metaCampaignId.length < 12) {
+          const localCampaigns = await getCampaignsByAccountId(input.accountId);
+          const byDbId = localCampaigns.find(c => String(c.id) === input.metaCampaignId);
+          if (byDbId && byDbId.metaCampaignId) {
+            realMetaCampaignId = byDbId.metaCampaignId;
+            console.log(`[campaigns.ads] Account campaigns lookup: id ${input.metaCampaignId} -> metaCampaignId ${realMetaCampaignId}`);
+          }
+        }
+        
+        console.log(`[campaigns.ads] Resolution: input="${input.metaCampaignId}" -> real="${realMetaCampaignId}" accountId=${input.accountId}`);
+
+        // === STEP 2: Get ads with insights ===
         // Get adsets for goal mapping
         const adsets = await getAdSets(account.accountId, account.accessToken);
         const adsetGoalMap = new Map<string, string>();
@@ -512,7 +540,6 @@ export const appRouter = router({
           }
         }
 
-        // Get all ads with insights
         let allAds: Awaited<ReturnType<typeof getAdsWithInsights>> = [];
         let fetchError: string | null = null;
         try {
@@ -526,44 +553,6 @@ export const appRouter = router({
         } catch (err: any) {
           fetchError = err?.message || String(err);
           console.error(`[campaigns.ads] getAdsWithInsights threw: ${fetchError}`);
-        }
-
-        // Resolve the real Meta campaign ID: input may contain internal DB id or real metaCampaignId
-        let realMetaCampaignId = input.metaCampaignId;
-        console.log(`[campaigns.ads] Resolving metaCampaignId input="${input.metaCampaignId}" accountId=${input.accountId}`);
-        
-        // Strategy 1: Look up by account campaigns list
-        const localCampaigns = await getCampaignsByAccountId(input.accountId);
-        console.log(`[campaigns.ads] getCampaignsByAccountId(${input.accountId}) returned ${localCampaigns.length} campaigns`);
-        const byDbId = localCampaigns.find(c => String(c.id) === input.metaCampaignId);
-        if (byDbId && byDbId.metaCampaignId) {
-          realMetaCampaignId = byDbId.metaCampaignId;
-          console.log(`[campaigns.ads] Strategy1: Resolved DB id ${input.metaCampaignId} -> metaCampaignId ${realMetaCampaignId}`);
-        } else {
-          // Check if it's already a valid metaCampaignId
-          const byMetaId = localCampaigns.find(c => c.metaCampaignId === input.metaCampaignId);
-          if (byMetaId) {
-            console.log(`[campaigns.ads] Input is already a valid metaCampaignId: ${input.metaCampaignId}`);
-          } else {
-            // Strategy 2: Direct DB lookup by campaign id (fallback if accountId mismatch)
-            console.warn(`[campaigns.ads] Strategy1 failed. Trying direct getCampaignById(${input.metaCampaignId})...`);
-            const numId = parseInt(input.metaCampaignId, 10);
-            if (!isNaN(numId)) {
-              const directCampaign = await getCampaignById(numId);
-              if (directCampaign && directCampaign.metaCampaignId) {
-                realMetaCampaignId = directCampaign.metaCampaignId;
-                console.log(`[campaigns.ads] Strategy2: Direct DB lookup resolved id ${numId} -> metaCampaignId ${realMetaCampaignId}`);
-              } else {
-                console.warn(`[campaigns.ads] Strategy2 failed: getCampaignById(${numId}) returned ${JSON.stringify(directCampaign)}`);
-              }
-            }
-          }
-        }
-
-        console.log(`[campaigns.ads] Final resolution: input="${input.metaCampaignId}" -> realMetaCampaignId="${realMetaCampaignId}"`);
-        if (allAds.length > 0) {
-          const uniqueCids = Array.from(new Set(allAds.map(a => a.campaign_id)));
-          console.log(`[campaigns.ads] Total ads fetched: ${allAds.length}, unique campaign_ids: ${uniqueCids.slice(0, 10).join(", ")}`);
         }
 
         // Filter to only ads belonging to this campaign
