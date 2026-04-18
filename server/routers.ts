@@ -520,14 +520,32 @@ export const appRouter = router({
           adsetGoalMap
         );
 
-        console.log(`[campaigns.ads] Total ads fetched: ${allAds.length}, filtering for metaCampaignId: ${input.metaCampaignId}`);
+        // Resolve the real Meta campaign ID: input may contain internal DB id or real metaCampaignId
+        let realMetaCampaignId = input.metaCampaignId;
+        const localCampaigns = await getCampaignsByAccountId(input.accountId);
+        // Try to find by internal DB id first
+        const byDbId = localCampaigns.find(c => String(c.id) === input.metaCampaignId);
+        if (byDbId) {
+          realMetaCampaignId = byDbId.metaCampaignId;
+          console.log(`[campaigns.ads] Resolved DB id ${input.metaCampaignId} -> metaCampaignId ${realMetaCampaignId}`);
+        } else {
+          // Check if it's already a valid metaCampaignId
+          const byMetaId = localCampaigns.find(c => c.metaCampaignId === input.metaCampaignId);
+          if (byMetaId) {
+            console.log(`[campaigns.ads] Input is already a valid metaCampaignId: ${input.metaCampaignId}`);
+          } else {
+            console.warn(`[campaigns.ads] Could not resolve campaign id: ${input.metaCampaignId}`);
+          }
+        }
+
+        console.log(`[campaigns.ads] Total ads fetched: ${allAds.length}, filtering for metaCampaignId: ${realMetaCampaignId}`);
         if (allAds.length > 0) {
           console.log(`[campaigns.ads] Sample campaign_ids from ads: ${[...new Set(allAds.slice(0, 5).map(a => a.campaign_id))].join(", ")}`);
         }
 
         // Filter to only ads belonging to this campaign
-        const filtered = allAds.filter((ad) => ad.campaign_id === input.metaCampaignId);
-        console.log(`[campaigns.ads] Filtered ads for campaign ${input.metaCampaignId}: ${filtered.length}`);
+        const filtered = allAds.filter((ad) => ad.campaign_id === realMetaCampaignId);
+        console.log(`[campaigns.ads] Filtered ads for campaign ${realMetaCampaignId}: ${filtered.length}`);
         
         // If no ads found, try a raw Meta API call to diagnose
         if (allAds.length === 0) {
@@ -557,7 +575,7 @@ export const appRouter = router({
                 id: "debug",
                 name: `Meta API Error: ${rawData.error.message || 'unknown'}`,
                 adset_id: "",
-                campaign_id: input.metaCampaignId,
+                campaign_id: realMetaCampaignId,
                 status: "ERROR",
                 effective_status: `code_${rawData.error.code || 'unknown'}`,
                 creative_type: "IMAGE",
