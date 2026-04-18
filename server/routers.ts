@@ -41,6 +41,7 @@ import {
   markAllAlertsReadByAccount,
   getCampaignPerformanceSummary,
   getCampaignsByAccountId,
+  getCampaignById,
   getActiveCampaignsForDisplay,
   getMetaAdAccountById,
   getMetaAdAccountsByUserId,
@@ -529,42 +530,99 @@ export const appRouter = router({
 
         // Resolve the real Meta campaign ID: input may contain internal DB id or real metaCampaignId
         let realMetaCampaignId = input.metaCampaignId;
+        console.log(`[campaigns.ads] Resolving metaCampaignId input="${input.metaCampaignId}" accountId=${input.accountId}`);
+        
+        // Strategy 1: Look up by account campaigns list
         const localCampaigns = await getCampaignsByAccountId(input.accountId);
-        // Try to find by internal DB id first
+        console.log(`[campaigns.ads] getCampaignsByAccountId(${input.accountId}) returned ${localCampaigns.length} campaigns`);
         const byDbId = localCampaigns.find(c => String(c.id) === input.metaCampaignId);
-        if (byDbId) {
+        if (byDbId && byDbId.metaCampaignId) {
           realMetaCampaignId = byDbId.metaCampaignId;
-          console.log(`[campaigns.ads] Resolved DB id ${input.metaCampaignId} -> metaCampaignId ${realMetaCampaignId}`);
+          console.log(`[campaigns.ads] Strategy1: Resolved DB id ${input.metaCampaignId} -> metaCampaignId ${realMetaCampaignId}`);
         } else {
           // Check if it's already a valid metaCampaignId
           const byMetaId = localCampaigns.find(c => c.metaCampaignId === input.metaCampaignId);
           if (byMetaId) {
             console.log(`[campaigns.ads] Input is already a valid metaCampaignId: ${input.metaCampaignId}`);
           } else {
-            console.warn(`[campaigns.ads] Could not resolve campaign id: ${input.metaCampaignId}`);
+            // Strategy 2: Direct DB lookup by campaign id (fallback if accountId mismatch)
+            console.warn(`[campaigns.ads] Strategy1 failed. Trying direct getCampaignById(${input.metaCampaignId})...`);
+            const numId = parseInt(input.metaCampaignId, 10);
+            if (!isNaN(numId)) {
+              const directCampaign = await getCampaignById(numId);
+              if (directCampaign && directCampaign.metaCampaignId) {
+                realMetaCampaignId = directCampaign.metaCampaignId;
+                console.log(`[campaigns.ads] Strategy2: Direct DB lookup resolved id ${numId} -> metaCampaignId ${realMetaCampaignId}`);
+              } else {
+                console.warn(`[campaigns.ads] Strategy2 failed: getCampaignById(${numId}) returned ${JSON.stringify(directCampaign)}`);
+              }
+            }
           }
         }
 
-        console.log(`[campaigns.ads] Total ads fetched: ${allAds.length}, filtering for metaCampaignId: ${realMetaCampaignId}`);
+        console.log(`[campaigns.ads] Final resolution: input="${input.metaCampaignId}" -> realMetaCampaignId="${realMetaCampaignId}"`);
         if (allAds.length > 0) {
-          console.log(`[campaigns.ads] Sample campaign_ids from ads: ${[...new Set(allAds.slice(0, 5).map(a => a.campaign_id))].join(", ")}`);
+          const uniqueCids = Array.from(new Set(allAds.map(a => a.campaign_id)));
+          console.log(`[campaigns.ads] Total ads fetched: ${allAds.length}, unique campaign_ids: ${uniqueCids.slice(0, 10).join(", ")}`);
         }
 
         // Filter to only ads belonging to this campaign
         const filtered = allAds.filter((ad) => ad.campaign_id === realMetaCampaignId);
         console.log(`[campaigns.ads] Filtered ads for campaign ${realMetaCampaignId}: ${filtered.length}`);
         
-        // If no ads found or fetch failed, try a raw Meta API call to diagnose
-        if (allAds.length === 0 || fetchError) {
-          console.log(`[campaigns.ads] Diagnosing: allAds=${allAds.length}, fetchError=${fetchError}`);
+        // If no ads found, fetch failed, OR filter matched nothing despite having ads — diagnose & fallback
+        if (allAds.length === 0 || fetchError || (filtered.length === 0 && allAds.length > 0)) {
+          console.log(`[campaigns.ads] Fallback: allAds=${allAds.length}, filtered=${filtered.length}, fetchError=${fetchError}`);
+          
+          // If we have ads but filter matched nothing, the resolution likely failed.
+          // Try matching by campaign_id directly from the allAds array as last resort.
+          if (filtered.length === 0 && allAds.length > 0) {
+            // Log all unique campaign IDs for debugging
+            const uniqueCids = Array.from(new Set(allAds.map(a => a.campaign_id)));
+            console.log(`[campaigns.ads] All unique campaign_ids in allAds: ${uniqueCids.join(", ")}`);
+            
+            // If there's only one campaign in the account, just return all ads for it
+            if (uniqueCids.length === 1) {
+              console.log(`[campaigns.ads] Single campaign in account, returning all ${allAds.length} ads`);
+              return allAds;
+            }
+            
+            // Try fetching ads specifically for this campaign from Meta API
+            try {
+              const campaignAdsUrl = `https://graph.facebook.com/v21.0/${realMetaCampaignId}/ads?access_token=${account.accessToken}&fields=id,name,campaign_id,status,creative{id,name,thumbnail_url,effective_object_story_id,object_type}&limit=50`;
+              console.log(`[campaigns.ads] Fetching campaign-specific ads from: ${realMetaCampaignId}/ads`);
+              const campResp = await fetch(campaignAdsUrl);
+              const campData = await campResp.json() as any;
+              if (campData.data && campData.data.length > 0) {
+                console.log(`[campaigns.ads] Campaign-specific fetch returned ${campData.data.length} ads`);
+                return campData.data.map((ad: any) => ({
+                  id: ad.id,
+                  name: ad.name,
+                  adset_id: "",
+                  campaign_id: ad.campaign_id || realMetaCampaignId,
+                  status: ad.status,
+                  effective_status: ad.status,
+                  creative_type: ad.creative?.object_type || "IMAGE",
+                  thumbnail_url: ad.creative?.thumbnail_url || "",
+                  spend: 0, impressions: 0, clicks: 0, frequency: 0,
+                  ctr: 0, cpc: 0, cpm: 0, conversions: 0, costPerResult: 0, roas: 0,
+                }));
+              }
+              if (campData.error) {
+                console.error(`[campaigns.ads] Campaign-specific fetch error: ${campData.error.message}`);
+              }
+            } catch (campErr) {
+              console.error(`[campaigns.ads] Campaign-specific fetch threw:`, campErr);
+            }
+          }
+          
+          // Original diagnostic: fetch raw ads from account
           try {
             const rawUrl = `https://graph.facebook.com/v21.0/act_${account.accountId}/ads?access_token=${account.accessToken}&fields=id,name,campaign_id,status&limit=3`;
             const rawResp = await fetch(rawUrl);
             const rawData = await rawResp.json() as any;
             console.log(`[campaigns.ads] RAW META RESPONSE: ${JSON.stringify(rawData).substring(0, 500)}`);
-            // If Meta returned ads but getAdsWithInsights returned 0, there is a parsing issue
             if (rawData.data && rawData.data.length > 0) {
-              // Return the raw ads with minimal data so they at least show up
               return rawData.data.map((ad: any) => ({
                 id: ad.id,
                 name: ad.name,
