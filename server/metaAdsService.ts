@@ -1086,6 +1086,7 @@ export async function getAdsWithInsights(
     });
   } catch (err) {
     console.error("[getAdsWithInsights] Failed:", err);
-    return [];
+    // Re-throw so the caller can handle/surface the error
+    throw err;
   }
 }

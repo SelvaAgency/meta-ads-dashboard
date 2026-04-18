@@ -512,13 +512,20 @@ export const appRouter = router({
         }
 
         // Get all ads with insights
-        const allAds = await getAdsWithInsights(
-          account.accountId,
-          account.accessToken,
-          startDate,
-          endDate,
-          adsetGoalMap
-        );
+        let allAds: Awaited<ReturnType<typeof getAdsWithInsights>> = [];
+        let fetchError: string | null = null;
+        try {
+          allAds = await getAdsWithInsights(
+            account.accountId,
+            account.accessToken,
+            startDate,
+            endDate,
+            adsetGoalMap
+          );
+        } catch (err: any) {
+          fetchError = err?.message || String(err);
+          console.error(`[campaigns.ads] getAdsWithInsights threw: ${fetchError}`);
+        }
 
         // Resolve the real Meta campaign ID: input may contain internal DB id or real metaCampaignId
         let realMetaCampaignId = input.metaCampaignId;
@@ -547,8 +554,9 @@ export const appRouter = router({
         const filtered = allAds.filter((ad) => ad.campaign_id === realMetaCampaignId);
         console.log(`[campaigns.ads] Filtered ads for campaign ${realMetaCampaignId}: ${filtered.length}`);
         
-        // If no ads found, try a raw Meta API call to diagnose
-        if (allAds.length === 0) {
+        // If no ads found or fetch failed, try a raw Meta API call to diagnose
+        if (allAds.length === 0 || fetchError) {
+          console.log(`[campaigns.ads] Diagnosing: allAds=${allAds.length}, fetchError=${fetchError}`);
           try {
             const rawUrl = `https://graph.facebook.com/v21.0/act_${account.accountId}/ads?access_token=${account.accessToken}&fields=id,name,campaign_id,status&limit=3`;
             const rawResp = await fetch(rawUrl);
