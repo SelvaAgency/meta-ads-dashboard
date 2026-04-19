@@ -522,7 +522,7 @@ export const appRouter = router({
           })
           .sort((a: any, b: any) => Number(b.totalSpend ?? 0) - Number(a.totalSpend ?? 0));
 
-        console.log(\`[campaigns.performance] Returning \${result.length} campaigns (\${perfRows.length} with metrics, \${result.length - perfRows.length} zero-metric) for account \${input.accountId}\`);
+        console.log("[campaigns.performance] Returning " + result.length + " campaigns (" + perfRows.length + " with metrics, " + (result.length - perfRows.length) + " zero-metric) for account " + input.accountId);
         return result;
       }),
     // Fetch active ads/creatives for a specific campaign (expandable row)
