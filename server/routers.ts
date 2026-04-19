@@ -492,13 +492,38 @@ export const appRouter = router({
           }
         }
         console.log(`[campaigns.performance] Built metaIdLookup with ${Object.keys(metaIdLookup).length} entries for account ${input.accountId}`);
-        return perfRows.map(r => {
+        // Build map of campaigns that have performance data
+        const perfMap = new Map<number, any>();
+        for (const r of perfRows) {
           const metaCampaignId = (r as any).metaCampaignId || metaIdLookup[r.campaignId] || null;
-          return {
-            ...r,
-            metaCampaignId,
-          };
-        });
+          perfMap.set(r.campaignId, { ...r, metaCampaignId });
+        }
+
+        // Merge ALL active/paused campaigns — include zero-metric entries for those without data
+        // This fixes the LEFT JOIN issue where Drizzle ORM only returns campaigns with metrics
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const result = allCampaigns
+          .filter((c: any) => c.status === "ACTIVE" || (c.status === "PAUSED" && c.updatedAt && new Date(c.updatedAt) >= sevenDaysAgo))
+          .map((c: any) => {
+            if (perfMap.has(c.id)) return perfMap.get(c.id);
+            return {
+              campaignId: c.id,
+              metaCampaignId: c.metaCampaignId || null,
+              campaignName: c.name,
+              campaignStatus: c.status,
+              campaignObjective: c.objective,
+              campaignOptimizationGoal: c.optimizationGoal,
+              campaignResultLabel: c.resultLabel,
+              totalSpend: 0, totalImpressions: 0, totalClicks: 0, totalConversions: 0,
+              totalConversionValue: 0, totalReach: 0, avgRoas: 0, avgCpa: 0,
+              avgCtr: 0, avgCpc: 0, avgCpm: 0, avgFrequency: 0,
+              totalProfileVisits: 0, totalFollowers: 0,
+            };
+          })
+          .sort((a: any, b: any) => Number(b.totalSpend ?? 0) - Number(a.totalSpend ?? 0));
+
+        console.log(\`[campaigns.performance] Returning \${result.length} campaigns (\${perfRows.length} with metrics, \${result.length - perfRows.length} zero-metric) for account \${input.accountId}\`);
+        return result;
       }),
     // Fetch active ads/creatives for a specific campaign (expandable row)
     ads: protectedProcedure
