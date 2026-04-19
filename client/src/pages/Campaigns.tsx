@@ -430,12 +430,44 @@ export default function Campaigns() {
     return map;
   }, [activeCampaigns]);
 
+  // Merge campaigns.list (all campaigns) with campaigns.performance (metrics)
+  const mergedCampaigns = useMemo(() => {
+    if (!activeCampaigns || activeCampaigns.length === 0) return campaigns ?? [];
+
+    const perfMap = new Map<number, any>();
+    if (campaigns) {
+      for (const c of campaigns) {
+        perfMap.set(c.campaignId, c);
+      }
+    }
+
+    const merged = activeCampaigns.map((ac: any) => {
+      const perf = perfMap.get(ac.id);
+      if (perf) return perf;
+      return {
+        campaignId: ac.id,
+        metaCampaignId: ac.metaCampaignId,
+        campaignName: ac.name,
+        campaignStatus: ac.status,
+        campaignObjective: ac.objective,
+        campaignOptimizationGoal: ac.optimizationGoal,
+        campaignResultLabel: ac.resultLabel,
+        totalSpend: 0, totalImpressions: 0, totalClicks: 0, totalConversions: 0,
+        totalConversionValue: 0, totalReach: 0, avgRoas: 0, avgCpa: 0,
+        avgCtr: 0, avgCpc: 0, avgCpm: 0, avgFrequency: 0,
+        totalProfileVisits: 0, totalFollowers: 0,
+      };
+    });
+
+    return merged.sort((a: any, b: any) => Number(b.totalSpend ?? 0) - Number(a.totalSpend ?? 0));
+  }, [activeCampaigns, campaigns]);
+
   const filtered = useMemo(() => {
-    if (!campaigns) return [];
-    return campaigns.filter((c) =>
+    if (!mergedCampaigns) return [];
+    return mergedCampaigns.filter((c: any) =>
       (c.campaignName ?? "").toLowerCase().includes(search.toLowerCase())
     );
-  }, [campaigns, search]);
+  }, [mergedCampaigns, search]);
 
   if (!accounts || accounts.length === 0) {
     return (
