@@ -482,13 +482,23 @@ export const appRouter = router({
           ? { startDate: input.startDate, endDate: input.endDate }
           : getDateRange(input.days, input.includeToday ?? false);
         const perfRows = await getCampaignPerformanceSummary(input.accountId, startDate, endDate);
-        // Drizzle aggregate query drops metaCampaignId — merge it from a simple select
+        // Merge metaCampaignId from campaigns table — perfRows may not include it
+        // depending on how Drizzle handles the GROUP BY aggregate query
         const allCampaigns = await getCampaignsByAccountId(input.accountId);
-        const metaIdMap = new Map(allCampaigns.map(c => [c.id, c.metaCampaignId]));
-        return perfRows.map(r => ({
-          ...r,
-          metaCampaignId: metaIdMap.get(r.campaignId) ?? null,
-        }));
+        const metaIdLookup: Record<number, string> = {};
+        for (const c of allCampaigns) {
+          if (c.id && c.metaCampaignId) {
+            metaIdLookup[c.id] = c.metaCampaignId;
+          }
+        }
+        console.log(`[campaigns.performance] Built metaIdLookup with ${Object.keys(metaIdLookup).length} entries for account ${input.accountId}`);
+        return perfRows.map(r => {
+          const metaCampaignId = (r as any).metaCampaignId || metaIdLookup[r.campaignId] || null;
+          return {
+            ...r,
+            metaCampaignId,
+          };
+        });
       }),
     // Fetch active ads/creatives for a specific campaign (expandable row)
     ads: protectedProcedure
@@ -511,31 +521,48 @@ export const appRouter = router({
           : getDateRange(input.days, input.includeToday ?? false);
 
         // === STEP 1: Resolve the real Meta campaign ID ===
+        // The frontend may send either a DB id (short number like "210692") or
+        // a real Meta campaign id (long number like "120241389466950456").
+        // We ALWAYS resolve via the account's campaign list for maximum reliability.
         let realMetaCampaignId = input.metaCampaignId;
         
-        // Try direct DB lookup by campaign id first (most reliable)
-        const numId = parseInt(input.metaCampaignId, 10);
-        if (!isNaN(numId)) {
-          const directCampaign = await getCampaignById(numId);
-          if (directCampaign && directCampaign.metaCampaignId) {
-            realMetaCampaignId = directCampaign.metaCampaignId;
-            console.log(`[campaigns.ads] Direct DB lookup: id ${numId} -> metaCampaignId ${realMetaCampaignId}`);
-          } else {
-            console.warn(`[campaigns.ads] Direct DB lookup failed for id ${numId}`);
-          }
-        }
-        
-        // If still looks like a DB id (all digits, < 20 chars), try account campaigns list
-        if (realMetaCampaignId === input.metaCampaignId && /^\d+$/.test(input.metaCampaignId) && input.metaCampaignId.length < 12) {
+        try {
           const localCampaigns = await getCampaignsByAccountId(input.accountId);
-          const byDbId = localCampaigns.find(c => String(c.id) === input.metaCampaignId);
-          if (byDbId && byDbId.metaCampaignId) {
-            realMetaCampaignId = byDbId.metaCampaignId;
-            console.log(`[campaigns.ads] Account campaigns lookup: id ${input.metaCampaignId} -> metaCampaignId ${realMetaCampaignId}`);
+          console.log(`[campaigns.ads] Loaded ${localCampaigns.length} campaigns for account ${input.accountId}`);
+          
+          // Strategy 1: Direct match by DB id
+          const inputAsNum = parseInt(input.metaCampaignId, 10);
+          if (!isNaN(inputAsNum)) {
+            const byDbId = localCampaigns.find(c => c.id === inputAsNum);
+            if (byDbId && byDbId.metaCampaignId) {
+              realMetaCampaignId = byDbId.metaCampaignId;
+              console.log(`[campaigns.ads] Resolved by DB id: ${input.metaCampaignId} -> ${realMetaCampaignId}`);
+            }
           }
+          
+          // Strategy 2: If still unresolved and looks like a short DB id, try string match
+          if (realMetaCampaignId === input.metaCampaignId && input.metaCampaignId.length < 12) {
+            const byStrId = localCampaigns.find(c => String(c.id) === input.metaCampaignId);
+            if (byStrId && byStrId.metaCampaignId) {
+              realMetaCampaignId = byStrId.metaCampaignId;
+              console.log(`[campaigns.ads] Resolved by string DB id: ${input.metaCampaignId} -> ${realMetaCampaignId}`);
+            }
+          }
+          
+          // Strategy 3: Check if input IS already a valid Meta campaign id
+          if (realMetaCampaignId === input.metaCampaignId && input.metaCampaignId.length >= 12) {
+            const byMetaId = localCampaigns.find(c => c.metaCampaignId === input.metaCampaignId);
+            if (byMetaId) {
+              console.log(`[campaigns.ads] Input is already a valid Meta campaign ID: ${input.metaCampaignId}`);
+            } else {
+              console.warn(`[campaigns.ads] Input looks like Meta ID but not found in DB: ${input.metaCampaignId}`);
+            }
+          }
+        } catch (resolveErr) {
+          console.error(`[campaigns.ads] Resolution error:`, resolveErr);
         }
         
-        console.log(`[campaigns.ads] Resolution: input="${input.metaCampaignId}" -> real="${realMetaCampaignId}" accountId=${input.accountId}`);
+        console.log(`[campaigns.ads] Final resolution: input="${input.metaCampaignId}" -> real="${realMetaCampaignId}" accountId=${input.accountId}`);
 
         // === STEP 2: Get ads with insights ===
         // Get adsets for goal mapping

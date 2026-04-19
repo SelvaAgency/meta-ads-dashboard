@@ -153,6 +153,55 @@ async function metaFetch<T>(path: string, params: Record<string, string>, retryC
 }
 
 /**
+ * Paginated Meta API fetch — follows paging.next to get ALL results.
+ * Use this for endpoints that return lists (campaigns, adsets, insights, ads).
+ * Caps at maxPages to prevent runaway pagination.
+ */
+async function metaFetchAll<T>(path: string, params: Record<string, string>, maxPages = 50): Promise<T[]> {
+  const firstPage = await metaFetch<{ data: T[]; paging?: { next?: string; cursors?: { after?: string } } }>(path, params);
+  const allData: T[] = firstPage.data ?? [];
+  
+  let nextUrl = firstPage.paging?.next;
+  let pageCount = 1;
+  const accountId = path.startsWith("act_") ? path.split("/")[0] : "unknown";
+  
+  while (nextUrl && pageCount < maxPages) {
+    pageCount++;
+    console.log(`[metaFetchAll] Page ${pageCount} for ${path} (${accountId}), accumulated ${allData.length} items`);
+    
+    try {
+      const response = await fetch(nextUrl);
+      const data = await response.json() as any;
+      
+      if (data.error) {
+        console.warn(`[metaFetchAll] Error on page ${pageCount} for ${path}: ${data.error.message}`);
+        break; // Return what we have so far
+      }
+      
+      if (data.data && data.data.length > 0) {
+        allData.push(...data.data);
+      } else {
+        break; // No more data
+      }
+      
+      nextUrl = data.paging?.next;
+    } catch (err) {
+      console.warn(`[metaFetchAll] Page ${pageCount} fetch failed for ${path}:`, err);
+      break; // Return what we have so far
+    }
+  }
+  
+  if (pageCount >= maxPages) {
+    console.warn(`[metaFetchAll] Hit maxPages (${maxPages}) for ${path} (${accountId}). Total: ${allData.length} items`);
+  } else {
+    console.log(`[metaFetchAll] Completed ${pageCount} pages for ${path} (${accountId}). Total: ${allData.length} items`);
+  }
+  
+  return allData;
+}
+
+
+/**
  * Validate an access token and get basic user info
  */
 export async function validateToken(accessToken: string): Promise<{ id: string; name: string } | null> {
@@ -232,12 +281,14 @@ export async function getAccountBilling(
  * Get all campaigns for an ad account
  */
 export async function getCampaigns(accountId: string, accessToken: string): Promise<MetaCampaign[]> {
-  const data = await metaFetch<{ data: MetaCampaign[] }>(`act_${accountId}/campaigns`, {
+  console.log(`[getCampaigns] Fetching ALL campaigns for account ${accountId} (paginated)`);
+  const allCampaigns = await metaFetchAll<MetaCampaign>(`act_${accountId}/campaigns`, {
     access_token: accessToken,
     fields: "id,name,status,objective,daily_budget,lifetime_budget,start_time,stop_time",
-    limit: "200",
+    limit: "500",
   });
-  return data.data ?? [];
+  console.log(`[getCampaigns] Total campaigns for ${accountId}: ${allCampaigns.length}`);
+  return allCampaigns;
 }
 
 /**
@@ -246,12 +297,14 @@ export async function getCampaigns(accountId: string, accessToken: string): Prom
  */
 export async function getAdSets(accountId: string, accessToken: string): Promise<MetaAdSet[]> {
   try {
-    const data = await metaFetch<{ data: MetaAdSet[] }>(`act_${accountId}/adsets`, {
+    console.log(`[getAdSets] Fetching ALL adsets for account ${accountId} (paginated)`);
+    const allAdSets = await metaFetchAll<MetaAdSet>(`act_${accountId}/adsets`, {
       access_token: accessToken,
       fields: "id,campaign_id,optimization_goal",
       limit: "500",
     });
-    return data.data ?? [];
+    console.log(`[getAdSets] Total adsets for ${accountId}: ${allAdSets.length}`);
+    return allAdSets;
   } catch {
     return [];
   }
@@ -351,7 +404,7 @@ export async function getCampaignInsights(
   endDate: string
 ): Promise<MetaCampaignInsights[]> {
   console.log(`[getCampaignInsights] Fetching insights for account ${accountId} (${startDate} to ${endDate})`);
-  const data = await metaFetch<{ data: MetaCampaignInsights[] }>(`act_${accountId}/insights`, {
+  const insights = await metaFetchAll<MetaCampaignInsights>(`act_${accountId}/insights`, {
     access_token: accessToken,
     level: "campaign",
     fields: [
@@ -379,8 +432,6 @@ export async function getCampaignInsights(
     time_increment: "1",
     limit: "500",
   });
-  
-  const insights = data.data ?? [];
   console.log(`[getCampaignInsights] Received ${insights.length} campaigns for account ${accountId}`);
   
   // Log if data is empty or all zeros
@@ -998,56 +1049,50 @@ export async function getAdsWithInsights(
   adsetGoalMap?: Map<string, string>
 ): Promise<AdWithInsights[]> {
   try {
-    // Step 1: Get ads with creative type
-    const adData = await metaFetch<{
-      data: Array<{
-        id: string;
-        name: string;
-        adset_id: string;
-        campaign_id: string;
-        status: string;
-        effective_status: string;
-        creative?: { object_type?: string };
-      }>;
+    // Step 1: Get ads with creative type (paginated)
+    const ads = await metaFetchAll<{
+      id: string;
+      name: string;
+      adset_id: string;
+      campaign_id: string;
+      status: string;
+      effective_status: string;
+      creative?: { object_type?: string };
     }>(`act_${accountId}/ads`, {
       access_token: accessToken,
       fields: "id,name,adset_id,campaign_id,status,effective_status,creative{object_type}",
-      // Removed ACTIVE/PAUSED filter — show ALL ads/creatives for the campaign
       limit: "500",
-    });
-
-    const ads = adData.data ?? [];
+    }, 10); // Cap at 10 pages for ads
     if (ads.length === 0) return [];
 
-    // Step 2: Get insights for all ads
-    const insightData = await metaFetch<{
-      data: Array<{
-        ad_id: string;
-        ad_name: string;
-        adset_id: string;
-        adset_name: string;
-        campaign_id: string;
-        campaign_name: string;
-        spend: string;
-        impressions: string;
-        clicks: string;
-        frequency: string;
-        ctr: string;
-        cpc: string;
-        cpm: string;
-        actions?: Array<{ action_type: string; value: string }>;
-        purchase_roas?: Array<{ action_type: string; value: string }>;
-      }>;
-    }>(`act_${accountId}/insights`, {
+    // Step 2: Get insights for all ads (paginated)
+    type AdInsightRow = {
+      ad_id: string;
+      ad_name: string;
+      adset_id: string;
+      adset_name: string;
+      campaign_id: string;
+      campaign_name: string;
+      spend: string;
+      impressions: string;
+      clicks: string;
+      frequency: string;
+      ctr: string;
+      cpc: string;
+      cpm: string;
+      actions?: Array<{ action_type: string; value: string }>;
+      purchase_roas?: Array<{ action_type: string; value: string }>;
+    };
+    const adInsights = await metaFetchAll<AdInsightRow>(`act_${accountId}/insights`, {
       access_token: accessToken,
       level: "ad",
       fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,impressions,clicks,frequency,ctr,cpc,cpm,actions,purchase_roas",
       time_range: JSON.stringify({ since: startDate, until: endDate }),
-      limit: "1000",
-    });
+      limit: "500",
+    }, 20); // Cap at 20 pages for ad-level insights
 
-    const insightMap = new Map<string, (typeof insightData.data)[0]>();
-    for (const ins of insightData.data ?? []) {
+    const insightMap = new Map<string, AdInsightRow>();
+    for (const ins of adInsights) {
       insightMap.set(ins.ad_id, ins);
     }
 
