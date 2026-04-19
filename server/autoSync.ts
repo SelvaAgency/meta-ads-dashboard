@@ -87,7 +87,7 @@ const objectiveToGoalFallback: Record<string, string> = {
   OUTCOME_APP_PROMOTION: "APP_INSTALLS",
 };
 
-async function syncAccount(account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number }) {
+export async function syncAccount(account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number }) {
   const { startDate, endDate } = getDateRange(SYNC_DAYS);
   const label = account.accountName ?? account.accountId;
   console.log(`[AutoSync] Syncing account "${label}" (${account.accountId}) — ${startDate} to ${endDate}`);
@@ -201,16 +201,38 @@ async function syncAccount(account: { id: number; accountId: string; accessToken
     const metaCode = metaCodeMatch ? metaCodeMatch[1] : null;
     console.error(`[AutoSync] ✗ Failed to sync account "${label}" (Meta error code: ${metaCode ?? 'N/A'}):`, errMsg);
 
-    // If token expired, create SYNC_ERROR alert
+    // If token expired or permission denied, create SYNC_ERROR alert
     if (errMsg.includes('META_TOKEN_EXPIRED') || metaCode === '190') {
       try {
         await createAlertIfNotExists({
           userId: account.userId,
           accountId: account.id,
-          title: `Sync falhou: ${label}`,
+          title: `Token expirado: ${label}`,
           message: `Sincronização falhou por token expirado. Reconecte a conta em Gerenciar Contas.`,
           type: "SYNC_ERROR" as any,
           severity: "CRITICAL",
+        });
+      } catch (_) { /* ignore alert creation errors */ }
+    } else if (metaCode === '200' || errMsg.includes('ads_management') || errMsg.includes('ads_read')) {
+      try {
+        await createAlertIfNotExists({
+          userId: account.userId,
+          accountId: account.id,
+          title: `Permissão negada: ${label}`,
+          message: `A conta "${label}" não concedeu permissão ads_management/ads_read. O dono da conta precisa autorizar o acesso via Facebook Business.`,
+          type: "SYNC_ERROR" as any,
+          severity: "CRITICAL",
+        });
+      } catch (_) { /* ignore alert creation errors */ }
+    } else {
+      try {
+        await createAlertIfNotExists({
+          userId: account.userId,
+          accountId: account.id,
+          title: `Sync falhou: ${label}`,
+          message: `Erro ao sincronizar: ${errMsg.substring(0, 200)}`,
+          type: "SYNC_ERROR" as any,
+          severity: "HIGH",
         });
       } catch (_) { /* ignore alert creation errors */ }
     }

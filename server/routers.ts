@@ -88,7 +88,7 @@ import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjecti
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
-import { startAutoSync } from "./autoSync";
+import { startAutoSync, syncAccount } from "./autoSync";
 import {
   createDashboardReport,
   getDashboardReportsByUserId,
@@ -1132,6 +1132,73 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         await deleteDashboardReport(input.id, ctx.user.id);
         return { success: true };
+      }),
+  }),
+
+  // ─── Sync Management ─────────────────────────────────────────────────────
+  sync: router({
+    // Manual sync for a single account
+    triggerSync: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .mutation(async ({ input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account) throw new Error("Account not found");
+        console.log(`[ManualSync] Triggered for account ${account.accountName} (${account.accountId})`);
+        try {
+          await syncAccount({
+            id: account.id,
+            accountId: account.accountId,
+            accessToken: account.accessToken,
+            accountName: account.accountName,
+            userId: account.userId,
+          });
+          return { success: true, message: `Sync completed for ${account.accountName}` };
+        } catch (err: any) {
+          return { success: false, message: err?.message ?? String(err) };
+        }
+      }),
+
+    // Diagnostic: check Meta API health for all accounts
+    diagnose: protectedProcedure
+      .query(async () => {
+        const { getAllActiveMetaAdAccounts } = await import("./db");
+        const accounts = await getAllActiveMetaAdAccounts();
+        const results = [];
+        for (const acct of accounts) {
+          try {
+            const res = await fetch(
+              `https://graph.facebook.com/v21.0/act_${acct.accountId}?fields=name,account_status&access_token=${acct.accessToken}`
+            );
+            const data = await res.json() as any;
+            if (data.error) {
+              results.push({
+                id: acct.id,
+                name: acct.accountName,
+                accountId: acct.accountId,
+                status: "ERROR",
+                error: data.error.message,
+                errorCode: data.error.code,
+              });
+            } else {
+              results.push({
+                id: acct.id,
+                name: acct.accountName ?? data.name,
+                accountId: acct.accountId,
+                status: "OK",
+                accountStatus: data.account_status,
+              });
+            }
+          } catch (err: any) {
+            results.push({
+              id: acct.id,
+              name: acct.accountName,
+              accountId: acct.accountId,
+              status: "FETCH_ERROR",
+              error: err?.message ?? String(err),
+            });
+          }
+        }
+        return results;
       }),
   }),
 });
