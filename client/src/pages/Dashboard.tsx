@@ -475,24 +475,31 @@ export default function Dashboard() {
   }, [data]);
 
   const topCampaigns = useMemo(() => {
-    const sorted = [...activeCampaignsWithData].sort(
+    // Filter only campaigns with actual spend > 0
+    const withSpend = activeCampaignsWithData.filter(
+      (c) => Number(c.totalSpend ?? 0) > 0
+    );
+    const sorted = [...withSpend].sort(
       (a, b) => Number(b.totalConversions ?? 0) - Number(a.totalConversions ?? 0)
     );
-    // If ≤2 active campaigns, show all in top performers
-    if (sorted.length <= 2) return sorted;
-    // Otherwise show all except the worst one
-    return sorted.slice(0, sorted.length - 1);
+    // Limit to top 5
+    return sorted.slice(0, 5);
   }, [activeCampaignsWithData]);
 
   const underCampaigns = useMemo(() => {
-    const sorted = [...activeCampaignsWithData].sort(
+    // Filter campaigns with spend > 0 that are NOT in topCampaigns
+    const topIds = new Set(topCampaigns.map((c) => c.campaignId));
+    const withSpend = activeCampaignsWithData.filter(
+      (c) => Number(c.totalSpend ?? 0) > 0 && !topIds.has(c.campaignId)
+    );
+    if (withSpend.length === 0) return [];
+    // Sort ascending by conversions (worst first)
+    const sorted = [...withSpend].sort(
       (a, b) => Number(a.totalConversions ?? 0) - Number(b.totalConversions ?? 0)
     );
-    // Only show underperformers if there are more than 2 active campaigns
-    if (sorted.length <= 2) return [];
-    // Show the worst performer
-    return sorted.slice(0, 1);
-  }, [activeCampaignsWithData]);
+    // Show bottom 3 underperformers
+    return sorted.slice(0, 3);
+  }, [activeCampaignsWithData, topCampaigns]);
 
   // Label for the result metric in Top/Under performers
   const resultLabel = data?.goalProfile?.resultLabel ?? "Resultados";
@@ -674,7 +681,7 @@ export default function Dashboard() {
               <CardTitle className="text-sm font-bold text-foreground">
                 {chartMetricKey === "ROAS"
                   ? "ROAS Diário"
-                  : `${objInfo.emoji} ${chartMetricLabel} Diários`}
+                  : `${chartMetricLabel} Diários`}
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-4">

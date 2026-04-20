@@ -60,6 +60,48 @@ function CreativeIcon({ type }: { type: string }) {
   }
 }
 
+
+// ─── Clean up raw result labels from Meta API ───────────────────────────────
+function cleanResultLabel(label: string | undefined | null): string {
+  if (!label) return "Resultados";
+  // Map raw Meta API values to human-readable Portuguese labels
+  const labelMap: Record<string, string> = {
+    "AUTOMATIC_OBJECTIVE": "Resultados",
+    "OFFSITE_CONVERSIONS": "Conversões",
+    "ONSITE_CONVERSIONS": "Conversões",
+    "VALUE": "Valor de conversão",
+    "LEAD_GENERATION": "Leads",
+    "QUALITY_LEAD": "Leads qualificados",
+    "REPLIES": "Mensagens",
+    "CONVERSATIONS": "Conversas",
+    "LINK_CLICKS": "Cliques no link",
+    "LANDING_PAGE_VIEWS": "Visualizações",
+    "REACH": "Alcance",
+    "IMPRESSIONS": "Impressões",
+    "POST_ENGAGEMENT": "Engajamentos",
+    "PAGE_LIKES": "Curtidas",
+    "VIDEO_VIEWS": "Visualizações",
+    "THRUPLAY": "ThruPlay",
+    "APP_INSTALLS": "Instalações",
+    "VISIT_INSTAGRAM_PROFILE": "Visitas ao perfil",
+    "INSTAGRAM_PROFILE_REACH": "Alcance",
+    "OUTCOME_SALES": "Compras",
+    "OUTCOME_LEADS": "Leads",
+    "OUTCOME_ENGAGEMENT": "Engajamentos",
+    "OUTCOME_AWARENESS": "Alcance",
+    "OUTCOME_TRAFFIC": "Cliques",
+    "OUTCOME_APP_PROMOTION": "Instalações",
+    "MESSAGES": "Mensagens",
+  };
+  // Check exact match first
+  const upper = label.toUpperCase().trim();
+  if (labelMap[upper]) return labelMap[upper];
+  // If it looks like a code (ALL_CAPS with underscores), return generic label
+  if (/^[A-Z_]+$/.test(label.trim())) return "Resultados";
+  // Otherwise return as-is (it's already a readable label like "Conversas")
+  return label;
+}
+
 // ─── Expandable campaign row with lazy-loaded ads ────────────────────────────
 function CampaignRowWithAds({
   campaign: c,
@@ -155,7 +197,7 @@ function CampaignRowWithAds({
         <td className="px-3 py-3 text-right border-r border-border/50">
           <div>
             <p className="font-bold text-foreground">{fmtNum(results)}</p>
-            <p className="text-xs text-muted-foreground">{resultLabel ?? "Resultados"}</p>
+            <p className="text-xs text-muted-foreground">{cleanResultLabel(resultLabel)}</p>
           </div>
         </td>
 
