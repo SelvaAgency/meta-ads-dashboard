@@ -1,5 +1,6 @@
 #!/bin/bash
 # deploy.sh - Full build and patch deploy for SELVA Dashboard
+# Cache bust: force fresh deploy 2026-04-20
 # Usage: bash deploy.sh
 set -e
 
