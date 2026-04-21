@@ -298,8 +298,11 @@ async function runAnomalyDetection() {
     try {
       // ── Três janelas de referência para validação multi-período ──────────────
       // Anomalia SÓ confirmada se detectada em pelo menos 2/3 janelas.
-      const daysAgo = (n: number) =>
-        new Date(Date.now() - n * 86400000).toISOString().split("T")[0]!;
+      const daysAgo = (n: number) => {
+        const d = new Date();
+        d.setDate(d.getDate() - n);
+        return toLocalIso(d);
+      };
 
       const w7Start  = daysAgo(7);  const w7End  = daysAgo(1);
       const w14Start = daysAgo(14); const w14End = daysAgo(8);

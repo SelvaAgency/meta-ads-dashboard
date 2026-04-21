@@ -532,6 +532,102 @@ export const appRouter = router({
         console.log("[campaigns.performance] Returning " + result.length + " campaigns (" + perfRows.length + " with metrics, " + (result.length - perfRows.length) + " zero-metric) for account " + input.accountId);
         return result;
       }),
+    // Fetch active adsets for a specific campaign (expandable row - intermediate level)
+    adsets: protectedProcedure
+      .input(
+        z.object({
+          accountId: z.number(),
+          metaCampaignId: z.string(),
+          days: z.number().min(1).max(90).default(7),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          includeToday: z.boolean().optional(),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+
+        const { startDate, endDate } = (input.startDate && input.endDate)
+          ? { startDate: input.startDate, endDate: input.endDate }
+          : getDateRange(input.days, input.includeToday ?? false);
+
+        // Resolve Meta campaign ID (same logic as ads endpoint)
+        let realMetaCampaignId = input.metaCampaignId;
+        try {
+          const localCampaigns = await getCampaignsByAccountId(input.accountId);
+          const inputAsNum = parseInt(input.metaCampaignId, 10);
+          if (!isNaN(inputAsNum)) {
+            const byDbId = localCampaigns.find(c => c.id === inputAsNum);
+            if (byDbId && byDbId.metaCampaignId) realMetaCampaignId = byDbId.metaCampaignId;
+          }
+          if (realMetaCampaignId === input.metaCampaignId && input.metaCampaignId.length < 12) {
+            const byStrId = localCampaigns.find(c => String(c.id) === input.metaCampaignId);
+            if (byStrId && byStrId.metaCampaignId) realMetaCampaignId = byStrId.metaCampaignId;
+          }
+        } catch (_) {}
+
+        // Fetch all adsets with insights
+        const allAdSets = await getAdSetsWithInsights(
+          account.accountId,
+          account.accessToken,
+          startDate,
+          endDate
+        );
+
+        // Filter to only adsets belonging to this campaign + active/active-like
+        const activeStatuses = new Set(["ACTIVE", "CAMPAIGN_PAUSED", "ADSET_PAUSED"]);
+        const filtered = allAdSets.filter((as) =>
+          as.campaign_id === realMetaCampaignId &&
+          (activeStatuses.has(as.effective_status) || as.spend > 0)
+        );
+
+        return filtered.sort((a, b) => b.spend - a.spend);
+      }),
+    // Fetch active ads for a specific adset (third level of hierarchy)
+    adsByAdset: protectedProcedure
+      .input(
+        z.object({
+          accountId: z.number(),
+          adsetId: z.string(),
+          days: z.number().min(1).max(90).default(7),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          includeToday: z.boolean().optional(),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+
+        const { startDate, endDate } = (input.startDate && input.endDate)
+          ? { startDate: input.startDate, endDate: input.endDate }
+          : getDateRange(input.days, input.includeToday ?? false);
+
+        // Get adsets for goal mapping
+        const adsets = await getAdSets(account.accountId, account.accessToken);
+        const adsetGoalMap = new Map<string, string>();
+        for (const as of adsets) {
+          if (as.optimization_goal) adsetGoalMap.set(as.id, as.optimization_goal);
+        }
+
+        // Fetch all ads with insights
+        const allAds = await getAdsWithInsights(
+          account.accountId,
+          account.accessToken,
+          startDate,
+          endDate,
+          adsetGoalMap
+        );
+
+        // Filter to only ads belonging to this adset + active
+        const filtered = allAds.filter((ad) =>
+          ad.adset_id === input.adsetId &&
+          (ad.effective_status === "ACTIVE" || ad.spend > 0)
+        );
+
+        return filtered.sort((a, b) => b.spend - a.spend);
+      }),
     // Fetch active ads/creatives for a specific campaign (expandable row)
     ads: protectedProcedure
       .input(
