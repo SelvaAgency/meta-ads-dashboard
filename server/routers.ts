@@ -103,12 +103,19 @@ import {
 } from "./dashboardBuilderService";
 // ─── Helper: date range ────────────────────────────────────────────────────────
 
+function toLocalIso(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function getDateRange(days: number, includeToday = false) {
   const today = new Date();
-  const todayStr = today.toISOString().split("T")[0];
+  const todayStr = toLocalIso(today);
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split("T")[0];
+  const yesterdayStr = toLocalIso(yesterday);
 
   // includeToday: range extends to today instead of stopping at yesterday
   const end = includeToday ? today : yesterday;
@@ -122,7 +129,7 @@ function getDateRange(days: number, includeToday = false) {
   const start = new Date(end);
   start.setDate(start.getDate() - (days - 1));
   return {
-    startDate: start.toISOString().split("T")[0],
+    startDate: toLocalIso(start),
     endDate: endStr,
   };
 }
@@ -404,7 +411,7 @@ export const appRouter = router({
         // If explicit startDate/endDate provided, use them; otherwise fall back to days-based range
         const { startDate, endDate } = (input.startDate && input.endDate)
           ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days);
+          : getDateRange(input.days, true); // Include today so all presets have fresh data
         const [metrics, campaigns, unreadAlerts, unreadAnomalies] = await Promise.all([
           getAccountMetricsSummary(input.accountId, startDate, endDate),
           getCampaignPerformanceSummary(input.accountId, startDate, endDate),

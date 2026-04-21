@@ -376,10 +376,16 @@ export default function Campaigns() {
   // Compute date range based on selected period
   const dateParams = useMemo(() => {
     const today = new Date();
-    const todayStr = today.toISOString().split("T")[0];
+    const toLocalIso = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return \`\${y}-\${m}-\${day}\`;
+    };
+    const todayStr = toLocalIso(today);
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split("T")[0];
+    const yesterdayStr = toLocalIso(yesterday);
 
     if (periodMode === "custom" && customStartDate && customEndDate) {
       return { days: 0, startDate: customStartDate, endDate: customEndDate, includeToday: true };
