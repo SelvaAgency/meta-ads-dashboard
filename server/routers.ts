@@ -603,10 +603,15 @@ export const appRouter = router({
           ? { startDate: input.startDate, endDate: input.endDate }
           : getDateRange(input.days, input.includeToday ?? false);
 
-        // Get optimization goal for this specific adset
-        const adsets = await getAdSets(account.accountId, account.accessToken);
-        const thisAdset = adsets.find((as) => as.id === input.adsetId);
-        const goal = thisAdset?.optimization_goal ?? "OFFSITE_CONVERSIONS";
+        // Get optimization goal for this specific adset (single API call, not all adsets)
+        let goal = "OFFSITE_CONVERSIONS";
+        try {
+          const adsetResp = await fetch(`https://graph.facebook.com/v21.0/${input.adsetId}?fields=optimization_goal&access_token=${account.accessToken}`);
+          const adsetData = await adsetResp.json() as any;
+          if (adsetData.optimization_goal) goal = adsetData.optimization_goal;
+        } catch (e) {
+          console.warn("[adsByAdset] Failed to fetch optimization_goal, using default:", e);
+        }
 
         // Fetch ads ONLY for this adset (fast targeted query)
         return getAdsByAdsetWithInsights(
