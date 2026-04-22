@@ -8,11 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  Cell,
 } from "recharts";
 import {
   AlertTriangle,
@@ -34,6 +37,7 @@ import {
   Play,
   Heart,
   ArrowDown,
+  Filter,
 } from "lucide-react";
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -712,6 +716,107 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+
+        {/* Conversion Funnel */}
+        {!isLoading && totals && (totals.impressions > 0) && (
+          <Card className="border-border bg-card">
+            <CardHeader className="pb-2 border-b border-border/30">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-bold text-foreground flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-primary" />
+                  Funil de Conversão
+                </CardTitle>
+                <Badge variant="outline" className="text-xs border-primary/30 text-primary">
+                  {objInfo.emoji} {objInfo.label}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4">
+              {(() => {
+                const funnelStages = [
+                  { name: "Impressões", value: totals.impressions, color: "#E85BA8", icon: "👁" },
+                  { name: "Cliques", value: totals.clicks, color: "#F5B8D8", icon: "👆" },
+                  { name: resultLabel, value: totals.conversions, color: "#D4A5C9", icon: "🎯" },
+                ];
+                // Add revenue stage only for SALES/VALUE goals
+                if (["SALES", "VALUE"].includes(goalType) && totals.conversionValue > 0) {
+                  funnelStages.push({ name: "Receita", value: totals.conversionValue, color: "#B8E0D2", icon: "💰" });
+                }
+                const maxVal = Math.max(...funnelStages.map(s => s.value));
+                return (
+                  <div className="space-y-3">
+                    {funnelStages.map((stage, idx) => {
+                      const pct = maxVal > 0 ? (stage.value / maxVal) * 100 : 0;
+                      const convRate = idx > 0 && funnelStages[idx - 1].value > 0
+                        ? ((stage.value / funnelStages[idx - 1].value) * 100).toFixed(2)
+                        : null;
+                      return (
+                        <div key={stage.name} className="relative">
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm">{stage.icon}</span>
+                              <span className="text-xs font-semibold text-foreground">{stage.name}</span>
+                              {convRate && (
+                                <span className="text-xs text-muted-foreground ml-1">
+                                  ({convRate}% do anterior)
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-xs font-bold text-foreground">
+                              {stage.name === "Receita" ? fmtCurrency(stage.value) : fmtNumber(stage.value)}
+                            </span>
+                          </div>
+                          <div className="h-8 bg-muted/30 rounded-lg overflow-hidden relative">
+                            <div
+                              className="h-full rounded-lg transition-all duration-700 ease-out flex items-center justify-end pr-2"
+                              style={{
+                                width: `${Math.max(pct, 3)}%`,
+                                backgroundColor: stage.color,
+                                opacity: 0.8,
+                              }}
+                            >
+                              {pct > 15 && (
+                                <span className="text-xs font-bold text-white drop-shadow-sm">
+                                  {pct.toFixed(0)}%
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {/* Summary metrics */}
+                    <div className="flex items-center justify-between pt-2 border-t border-border/30 mt-3">
+                      <div className="flex gap-4">
+                        <div className="text-center">
+                          <p className="text-xs text-muted-foreground">CTR</p>
+                          <p className="text-sm font-bold text-foreground">{fmtPercent(totals.ctr)}</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-xs text-muted-foreground">Conv. Rate</p>
+                          <p className="text-sm font-bold text-foreground">
+                            {totals.clicks > 0 ? ((totals.conversions / totals.clicks) * 100).toFixed(2) : "0.00"}%
+                          </p>
+                        </div>
+                        {["SALES", "VALUE"].includes(goalType) && (
+                          <div className="text-center">
+                            <p className="text-xs text-muted-foreground">ROAS</p>
+                            <p className="text-sm font-bold text-emerald-400">{fmtMultiplier(totals.roas)}</p>
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-muted-foreground">Custo por Resultado</p>
+                        <p className="text-sm font-bold text-foreground">{fmtCurrency(totals.cpa)}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Campaign Comparison — only ACTIVE campaigns, sorted by results */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
