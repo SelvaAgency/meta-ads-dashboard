@@ -83,6 +83,7 @@ import {
   calculateCpa,
   getAdSetsWithInsights,
   getAdsWithInsights,
+  getAdsByAdsetWithInsights,
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
@@ -602,29 +603,20 @@ export const appRouter = router({
           ? { startDate: input.startDate, endDate: input.endDate }
           : getDateRange(input.days, input.includeToday ?? false);
 
-        // Get adsets for goal mapping
+        // Get optimization goal for this specific adset
         const adsets = await getAdSets(account.accountId, account.accessToken);
-        const adsetGoalMap = new Map<string, string>();
-        for (const as of adsets) {
-          if (as.optimization_goal) adsetGoalMap.set(as.id, as.optimization_goal);
-        }
+        const thisAdset = adsets.find((as) => as.id === input.adsetId);
+        const goal = thisAdset?.optimization_goal ?? "OFFSITE_CONVERSIONS";
 
-        // Fetch all ads with insights
-        const allAds = await getAdsWithInsights(
+        // Fetch ads ONLY for this adset (fast targeted query)
+        return getAdsByAdsetWithInsights(
           account.accountId,
           account.accessToken,
+          input.adsetId,
           startDate,
           endDate,
-          adsetGoalMap
+          goal
         );
-
-        // Filter to only ACTIVE ads belonging to this adset
-        const filtered = allAds.filter((ad) =>
-          ad.adset_id === input.adsetId &&
-          ad.effective_status === "ACTIVE"
-        );
-
-        return filtered.sort((a, b) => b.spend - a.spend);
       }),
     // Fetch active ads/creatives for a specific campaign (expandable row)
     ads: protectedProcedure
