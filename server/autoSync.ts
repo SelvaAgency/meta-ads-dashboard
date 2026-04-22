@@ -58,14 +58,20 @@ import type { CampaignReportData } from "./analysisService";
 
 const SYNC_DAYS = 30; // Always sync 30 days to ensure complete data for all dashboard filters
 
+function toLocalIso(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function getDateRange(days: number) {
-  const end = new Date();
-  end.setDate(end.getDate() - 1); // ontem = último dia completo
+  const end = new Date(); // today (includes today so "Hoje" has fresh data)
   const start = new Date(end);
-  start.setDate(start.getDate() - (days - 1)); // days dias contando ontem
+  start.setDate(start.getDate() - (days - 1));
   return {
-    startDate: start.toISOString().split("T")[0],
-    endDate: end.toISOString().split("T")[0],
+    startDate: toLocalIso(start),
+    endDate: toLocalIso(end),
   };
 }
 
@@ -87,7 +93,7 @@ const objectiveToGoalFallback: Record<string, string> = {
   OUTCOME_APP_PROMOTION: "APP_INSTALLS",
 };
 
-async function syncAccount(account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number }) {
+export async function syncAccount(account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number }) {
   const { startDate, endDate } = getDateRange(SYNC_DAYS);
   const label = account.accountName ?? account.accountId;
   console.log(`[AutoSync] Syncing account "${label}" (${account.accountId}) — ${startDate} to ${endDate}`);
@@ -201,16 +207,38 @@ async function syncAccount(account: { id: number; accountId: string; accessToken
     const metaCode = metaCodeMatch ? metaCodeMatch[1] : null;
     console.error(`[AutoSync] ✗ Failed to sync account "${label}" (Meta error code: ${metaCode ?? 'N/A'}):`, errMsg);
 
-    // If token expired, create SYNC_ERROR alert
+    // If token expired or permission denied, create SYNC_ERROR alert
     if (errMsg.includes('META_TOKEN_EXPIRED') || metaCode === '190') {
       try {
         await createAlertIfNotExists({
           userId: account.userId,
           accountId: account.id,
-          title: `Sync falhou: ${label}`,
+          title: `Token expirado: ${label}`,
           message: `Sincronização falhou por token expirado. Reconecte a conta em Gerenciar Contas.`,
           type: "SYNC_ERROR" as any,
           severity: "CRITICAL",
+        });
+      } catch (_) { /* ignore alert creation errors */ }
+    } else if (metaCode === '200' || errMsg.includes('ads_management') || errMsg.includes('ads_read')) {
+      try {
+        await createAlertIfNotExists({
+          userId: account.userId,
+          accountId: account.id,
+          title: `Permissão negada: ${label}`,
+          message: `A conta "${label}" não concedeu permissão ads_management/ads_read. O dono da conta precisa autorizar o acesso via Facebook Business.`,
+          type: "SYNC_ERROR" as any,
+          severity: "CRITICAL",
+        });
+      } catch (_) { /* ignore alert creation errors */ }
+    } else {
+      try {
+        await createAlertIfNotExists({
+          userId: account.userId,
+          accountId: account.id,
+          title: `Sync falhou: ${label}`,
+          message: `Erro ao sincronizar: ${errMsg.substring(0, 200)}`,
+          type: "SYNC_ERROR" as any,
+          severity: "HIGH",
         });
       } catch (_) { /* ignore alert creation errors */ }
     }
@@ -270,8 +298,11 @@ async function runAnomalyDetection() {
     try {
       // ── Três janelas de referência para validação multi-período ──────────────
       // Anomalia SÓ confirmada se detectada em pelo menos 2/3 janelas.
-      const daysAgo = (n: number) =>
-        new Date(Date.now() - n * 86400000).toISOString().split("T")[0]!;
+      const daysAgo = (n: number) => {
+        const d = new Date();
+        d.setDate(d.getDate() - n);
+        return toLocalIso(d);
+      };
 
       const w7Start  = daysAgo(7);  const w7End  = daysAgo(1);
       const w14Start = daysAgo(14); const w14End = daysAgo(8);
@@ -594,8 +625,14 @@ async function runScheduledReports() {
 export async function startAutoSync() {
   console.log("[AutoSync] Initializing auto-sync service...");
 
-  // Daily sync at 09:00 UTC (06:00 Brasília)
+  // Daily full sync at 09:00 UTC (06:00 Brasília)
   cron.schedule("0 0 9 * * *", runAutoSync);
+
+  // Intraday light sync every 3 hours to keep "Hoje" data fresh
+  cron.schedule("0 0 */3 * * *", async () => {
+    console.log("[AutoSync] Running intraday sync for fresh 'Hoje' data...");
+    await runAutoSync();
+  });
 
   // Hourly anomaly detection + real-time alerts
   cron.schedule("0 0 * * * *", runAnomalyDetection);

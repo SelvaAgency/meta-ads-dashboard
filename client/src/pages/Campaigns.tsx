@@ -60,7 +60,172 @@ function CreativeIcon({ type }: { type: string }) {
   }
 }
 
-// ─── Expandable campaign row with lazy-loaded ads ────────────────────────────
+
+// ─── Clean up raw result labels from Meta API ───────────────────────────────
+function cleanResultLabel(label: string | undefined | null): string {
+  if (!label) return "Resultados";
+  // Map raw Meta API values to human-readable Portuguese labels
+  const labelMap: Record<string, string> = {
+    "AUTOMATIC_OBJECTIVE": "Resultados",
+    "OFFSITE_CONVERSIONS": "Conversões",
+    "ONSITE_CONVERSIONS": "Conversões",
+    "VALUE": "Valor de conversão",
+    "LEAD_GENERATION": "Leads",
+    "QUALITY_LEAD": "Leads qualificados",
+    "REPLIES": "Mensagens",
+    "CONVERSATIONS": "Conversas",
+    "LINK_CLICKS": "Cliques no link",
+    "LANDING_PAGE_VIEWS": "Visualizações",
+    "REACH": "Alcance",
+    "IMPRESSIONS": "Impressões",
+    "POST_ENGAGEMENT": "Engajamentos",
+    "PAGE_LIKES": "Curtidas",
+    "VIDEO_VIEWS": "Visualizações",
+    "THRUPLAY": "ThruPlay",
+    "APP_INSTALLS": "Instalações",
+    "VISIT_INSTAGRAM_PROFILE": "Visitas ao perfil",
+    "INSTAGRAM_PROFILE_REACH": "Alcance",
+    "OUTCOME_SALES": "Compras",
+    "OUTCOME_LEADS": "Leads",
+    "OUTCOME_ENGAGEMENT": "Engajamentos",
+    "OUTCOME_AWARENESS": "Alcance",
+    "OUTCOME_TRAFFIC": "Cliques",
+    "OUTCOME_APP_PROMOTION": "Instalações",
+    "MESSAGES": "Mensagens",
+  };
+  // Check exact match first
+  const upper = label.toUpperCase().trim();
+  if (labelMap[upper]) return labelMap[upper];
+  // If it looks like a code (ALL_CAPS with underscores), return generic label
+  if (/^[A-Z_]+$/.test(label.trim())) return "Resultados";
+  // Otherwise return as-is (it's already a readable label like "Conversas")
+  return label;
+}
+
+// ─── AdSet row with expandable ads ───────────────────────────────────────────
+function AdSetRow({
+  adset,
+  selectedAccountId,
+  dateParams,
+}: {
+  adset: any;
+  selectedAccountId: number;
+  dateParams: { days: number; startDate?: string; endDate?: string; includeToday?: boolean };
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const { data: ads, isLoading: adsLoading } = trpc.campaigns.adsByAdset.useQuery(
+    {
+      accountId: selectedAccountId,
+      adsetId: adset.id,
+      days: dateParams.days || 7,
+      ...(dateParams.startDate ? { startDate: dateParams.startDate } : {}),
+      ...(dateParams.endDate ? { endDate: dateParams.endDate } : {}),
+      includeToday: dateParams.includeToday,
+    },
+    { enabled: expanded }
+  );
+
+  const statusBg = adset.effective_status === "ACTIVE"
+    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+    : "bg-amber-500/15 text-amber-400 border-amber-500/30";
+  const statusLabel = adset.effective_status === "ACTIVE" ? "Ativo" : "Pausado";
+
+  return (
+    <>
+      {/* Ad Set row */}
+      <tr className="bg-foreground/[0.02] border-b border-border/30 hover:bg-foreground/[0.04] transition-all cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <td className="px-4 py-2.5 sticky left-0 bg-card border-r border-border/30" style={{ minWidth: "220px" }}>
+          <div className="flex items-center gap-2 pl-4">
+            <span className="text-muted-foreground flex-shrink-0">
+              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground/80 truncate">{adset.name}</p>
+              <p className="text-[10px] text-muted-foreground">Conjunto de Anúncios</p>
+            </div>
+          </div>
+        </td>
+        <td className="px-3 py-2.5 text-center border-r border-border/30">
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${statusBg}`}>
+            <Circle size={5} className="fill-current" />
+            {statusLabel}
+          </span>
+        </td>
+        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtCurrency(adset.spend)}</p></td>
+        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtNum(adset.conversions)}</p></td>
+        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtCurrency(adset.costPerResult)}</p></td>
+        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs text-foreground/30">—</p></td>
+        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtNum(adset.reach)}</p></td>
+        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtNum(adset.impressions)}</p></td>
+        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtCurrency(adset.cpm)}</p></td>
+        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtNum(adset.clicks)}</p></td>
+        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtCurrency(adset.cpc)}</p></td>
+        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtPct(adset.ctr)}</p></td>
+        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtFreq(adset.frequency)}</p></td>
+        <td className="px-3 py-2.5 text-right"><p className="text-xs text-foreground/30">—</p></td>
+      </tr>
+
+      {/* Expanded ads inside this adset */}
+      {expanded && (
+        adsLoading ? (
+          <tr className="bg-foreground/[0.04]">
+            <td colSpan={14} className="px-8 py-3">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs pl-8">
+                <Loader2 size={12} className="animate-spin" />
+                Carregando anúncios...
+              </div>
+            </td>
+          </tr>
+        ) : !ads || ads.length === 0 ? (
+          <tr className="bg-foreground/[0.04]">
+            <td colSpan={14} className="px-8 py-3">
+              <p className="text-[10px] text-muted-foreground pl-8">Nenhum anúncio ativo neste conjunto.</p>
+            </td>
+          </tr>
+        ) : (
+          ads.map((ad: any) => (
+            <tr key={ad.id} className="bg-foreground/[0.04] border-b border-border/20 hover:bg-foreground/[0.06] transition-all">
+              <td className="px-4 py-2 sticky left-0 bg-card border-r border-border/20" style={{ minWidth: "220px" }}>
+                <div className="flex items-center gap-2 pl-10">
+                  <CreativeIcon type={ad.creative_type} />
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium text-foreground/70 truncate">{ad.name}</p>
+                    <p className="text-[9px] text-muted-foreground">{ad.creative_type} · {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}</p>
+                  </div>
+                </div>
+              </td>
+              <td className="px-3 py-2 text-center border-r border-border/20">
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[9px] ${
+                  ad.effective_status === "ACTIVE"
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                    : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                }`}>
+                  <Circle size={4} className="fill-current" />
+                  {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}
+                </span>
+              </td>
+              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtCurrency(ad.spend)}</p></td>
+              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtNum(ad.conversions)}</p></td>
+              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtCurrency(ad.costPerResult)}</p></td>
+              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/30">—</p></td>
+              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/30">—</p></td>
+              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtNum(ad.impressions)}</p></td>
+              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtCurrency(ad.cpm)}</p></td>
+              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtNum(ad.clicks)}</p></td>
+              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtCurrency(ad.cpc)}</p></td>
+              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtPct(ad.ctr)}</p></td>
+              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtFreq(ad.frequency)}</p></td>
+              <td className="px-3 py-2 text-right"><p className="text-[11px] text-foreground/30">—</p></td>
+            </tr>
+          ))
+        )
+      )}
+    </>
+  );
+}
+
+// ─── Expandable campaign row with lazy-loaded adsets ─────────────────────────
 function CampaignRowWithAds({
   campaign: c,
   metaId,
@@ -108,8 +273,8 @@ function CampaignRowWithAds({
   selectedAccountId: number;
   dateParams: { days: number; startDate?: string; endDate?: string; includeToday?: boolean };
 }) {
-  // Only fetch ads when expanded
-  const { data: ads, isLoading: adsLoading } = trpc.campaigns.ads.useQuery(
+  // Fetch adsets when campaign is expanded
+  const { data: adsets, isLoading: adsetsLoading } = trpc.campaigns.adsets.useQuery(
     {
       accountId: selectedAccountId,
       metaCampaignId: metaId,
@@ -155,7 +320,7 @@ function CampaignRowWithAds({
         <td className="px-3 py-3 text-right border-r border-border/50">
           <div>
             <p className="font-bold text-foreground">{fmtNum(results)}</p>
-            <p className="text-xs text-muted-foreground">{resultLabel ?? "Resultados"}</p>
+            <p className="text-xs text-muted-foreground">{cleanResultLabel(resultLabel)}</p>
           </div>
         </td>
 
@@ -210,116 +375,37 @@ function CampaignRowWithAds({
         </td>
       </tr>
 
-      {/* Expanded ads/creatives sub-rows */}
+      {/* Expanded adsets (intermediate level) */}
       {isExpanded && (
-        adsLoading ? (
+        adsetsLoading ? (
           <tr className="bg-foreground/[0.02]">
             <td colSpan={14} className="px-8 py-4">
               <div className="flex items-center gap-2 text-muted-foreground text-xs">
                 <Loader2 size={14} className="animate-spin" />
-                Carregando criativos...
+                Carregando conjuntos de anúncios...
               </div>
             </td>
           </tr>
-        ) : !ads || ads.length === 0 ? (
+        ) : !adsets || adsets.length === 0 ? (
           <tr className="bg-foreground/[0.02]">
             <td colSpan={14} className="px-8 py-4">
-              <p className="text-xs text-muted-foreground">Nenhum criativo ativo encontrado para esta campanha.</p>
+              <p className="text-xs text-muted-foreground">Nenhum conjunto de anúncios ativo encontrado para esta campanha.</p>
             </td>
           </tr>
         ) : (
-          ads.map((ad) => (
-            <tr key={ad.id} className="bg-foreground/[0.02] border-b border-border/30 hover:bg-foreground/[0.04] transition-all">
-              {/* Ad name — sticky left, indented */}
-              <td className="px-4 py-2.5 sticky left-0 bg-card border-r border-border/30" style={{ minWidth: "220px" }}>
-                <div className="flex items-center gap-2 pl-6">
-                  <CreativeIcon type={ad.creative_type} />
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-foreground/80 truncate">{ad.name}</p>
-                    <p className="text-[10px] text-muted-foreground">{ad.creative_type} · {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}</p>
-                  </div>
-                </div>
-              </td>
-
-              {/* Status */}
-              <td className="px-3 py-2.5 text-center border-r border-border/30">
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${
-                  ad.effective_status === "ACTIVE"
-                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                    : "bg-amber-500/15 text-amber-400 border-amber-500/30"
-                }`}>
-                  <Circle size={5} className="fill-current" />
-                  {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}
-                </span>
-              </td>
-
-              {/* Investimento */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtCurrency(ad.spend)}</p>
-              </td>
-
-              {/* Result */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtNum(ad.conversions)}</p>
-              </td>
-
-              {/* Cost per Result */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtCurrency(ad.costPerResult)}</p>
-              </td>
-
-              {/* Profile Visits — N/A at ad level */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/30">—</p>
-              </td>
-
-              {/* Reach — N/A at ad level aggregated */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/30">—</p>
-              </td>
-
-              {/* Impressions */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtNum(ad.impressions)}</p>
-              </td>
-
-              {/* CPM */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtCurrency(ad.cpm)}</p>
-              </td>
-
-              {/* Clicks */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtNum(ad.clicks)}</p>
-              </td>
-
-              {/* CPC */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtCurrency(ad.cpc)}</p>
-              </td>
-
-              {/* CTR */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtPct(ad.ctr)}</p>
-              </td>
-
-              {/* Frequency */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtFreq(ad.frequency)}</p>
-              </td>
-
-              {/* Followers — N/A */}
-              <td className="px-3 py-2.5 text-right">
-                <p className="text-xs text-foreground/30">—</p>
-              </td>
-            </tr>
+          adsets.map((adset: any) => (
+            <AdSetRow
+              key={adset.id}
+              adset={adset}
+              selectedAccountId={selectedAccountId}
+              dateParams={dateParams}
+            />
           ))
         )
       )}
     </>
   );
 }
-
 
 export default function Campaigns() {
   const [activePeriod, setActivePeriod] = useState("7d");
@@ -334,10 +420,16 @@ export default function Campaigns() {
   // Compute date range based on selected period
   const dateParams = useMemo(() => {
     const today = new Date();
-    const todayStr = today.toISOString().split("T")[0];
+    const toLocalIso = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+    const todayStr = toLocalIso(today);
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split("T")[0];
+    const yesterdayStr = toLocalIso(yesterday);
 
     if (periodMode === "custom" && customStartDate && customEndDate) {
       return { days: 0, startDate: customStartDate, endDate: customEndDate, includeToday: true };
@@ -417,12 +509,57 @@ export default function Campaigns() {
     return map;
   }, [activeCampaigns]);
 
+  // Build a DB id -> Meta campaign ID map for resolving ad fetches
+  const metaIdMap = useMemo(() => {
+    const map = new Map<number, string>();
+    if (activeCampaigns) {
+      for (const c of activeCampaigns) {
+        if (c.id && c.metaCampaignId) {
+          map.set(c.id, c.metaCampaignId);
+        }
+      }
+    }
+    return map;
+  }, [activeCampaigns]);
+
+  // Merge campaigns.list (all campaigns) with campaigns.performance (metrics)
+  const mergedCampaigns = useMemo(() => {
+    if (!activeCampaigns || activeCampaigns.length === 0) return campaigns ?? [];
+
+    const perfMap = new Map<number, any>();
+    if (campaigns) {
+      for (const c of campaigns) {
+        perfMap.set(c.campaignId, c);
+      }
+    }
+
+    const merged = activeCampaigns.map((ac: any) => {
+      const perf = perfMap.get(ac.id);
+      if (perf) return perf;
+      return {
+        campaignId: ac.id,
+        metaCampaignId: ac.metaCampaignId,
+        campaignName: ac.name,
+        campaignStatus: ac.status,
+        campaignObjective: ac.objective,
+        campaignOptimizationGoal: ac.optimizationGoal,
+        campaignResultLabel: ac.resultLabel,
+        totalSpend: 0, totalImpressions: 0, totalClicks: 0, totalConversions: 0,
+        totalConversionValue: 0, totalReach: 0, avgRoas: 0, avgCpa: 0,
+        avgCtr: 0, avgCpc: 0, avgCpm: 0, avgFrequency: 0,
+        totalProfileVisits: 0, totalFollowers: 0,
+      };
+    });
+
+    return merged.sort((a: any, b: any) => Number(b.totalSpend ?? 0) - Number(a.totalSpend ?? 0));
+  }, [activeCampaigns, campaigns]);
+
   const filtered = useMemo(() => {
-    if (!campaigns) return [];
-    return campaigns.filter((c) =>
+    if (!mergedCampaigns) return [];
+    return mergedCampaigns.filter((c: any) =>
       (c.campaignName ?? "").toLowerCase().includes(search.toLowerCase())
     );
-  }, [campaigns, search]);
+  }, [mergedCampaigns, search]);
 
   if (!accounts || accounts.length === 0) {
     return (
@@ -577,7 +714,7 @@ export default function Campaigns() {
                     </tr>
                   ) : (
                     filtered.map((c) => {
-                      const metaId = String((c as any).metaCampaignId ?? c.campaignId ?? "");
+                      const metaId = String((c as any).metaCampaignId ?? metaIdMap.get(c.campaignId) ?? c.campaignId ?? "");
                       const status = statusMap.get(metaId) ?? c.campaignStatus ?? "ACTIVE";
 
                       // Extract 12 metrics

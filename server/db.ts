@@ -186,6 +186,17 @@ export async function getCampaignsByAccountId(accountId: number) {
     .orderBy(desc(campaigns.updatedAt));
 }
 
+export async function getCampaignById(campaignId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(campaigns)
+    .where(eq(campaigns.id, campaignId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 /**
  * Get campaigns for the Campaigns page:
  * - All ACTIVE campaigns
