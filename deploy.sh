@@ -24,7 +24,7 @@ echo "=== Step 5: Restart server ==="
 pkill -f "node dist/index.js" 2>/dev/null || true
 sleep 1
 cd /home/ubuntu/meta-ads-dashboard
-nohup NODE_ENV=production node dist/index.js > /tmp/server.log 2>&1 &
+nohup env NODE_ENV=production node dist/index.js > /tmp/server.log 2>&1 &
 sleep 2
 
 echo "=== Step 6: Verify ==="
