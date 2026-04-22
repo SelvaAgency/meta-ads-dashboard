@@ -508,9 +508,8 @@ export const appRouter = router({
 
         // Merge ALL active/paused campaigns — include zero-metric entries for those without data
         // This fixes the LEFT JOIN issue where Drizzle ORM only returns campaigns with metrics
-        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
         const result = allCampaigns
-          .filter((c: any) => c.status === "ACTIVE" || (c.status === "PAUSED" && c.updatedAt && new Date(c.updatedAt) >= sevenDaysAgo))
+          .filter((c: any) => c.status === "ACTIVE")
           .map((c: any) => {
             if (perfMap.has(c.id)) return perfMap.get(c.id);
             return {
@@ -575,11 +574,10 @@ export const appRouter = router({
           endDate
         );
 
-        // Filter to only adsets belonging to this campaign + active/active-like
-        const activeStatuses = new Set(["ACTIVE", "CAMPAIGN_PAUSED", "ADSET_PAUSED"]);
+        // Filter to only ACTIVE adsets belonging to this campaign
         const filtered = allAdSets.filter((as) =>
           as.campaign_id === realMetaCampaignId &&
-          (activeStatuses.has(as.effective_status) || as.spend > 0)
+          as.effective_status === "ACTIVE"
         );
 
         return filtered.sort((a, b) => b.spend - a.spend);
@@ -620,10 +618,10 @@ export const appRouter = router({
           adsetGoalMap
         );
 
-        // Filter to only ads belonging to this adset + active
+        // Filter to only ACTIVE ads belonging to this adset
         const filtered = allAds.filter((ad) =>
           ad.adset_id === input.adsetId &&
-          (ad.effective_status === "ACTIVE" || ad.spend > 0)
+          ad.effective_status === "ACTIVE"
         );
 
         return filtered.sort((a, b) => b.spend - a.spend);

@@ -188,7 +188,16 @@ function AdSetRow({
             <tr key={ad.id} className="bg-foreground/[0.04] border-b border-border/20 hover:bg-foreground/[0.06] transition-all">
               <td className="px-4 py-2 sticky left-0 bg-card border-r border-border/20" style={{ minWidth: "220px" }}>
                 <div className="flex items-center gap-2 pl-10">
-                  <CreativeIcon type={ad.creative_type} />
+                  {ad.thumbnail_url ? (
+                    <img
+                      src={ad.thumbnail_url}
+                      alt={ad.name}
+                      className="w-10 h-10 rounded object-cover border border-border/30 flex-shrink-0"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  ) : (
+                    <CreativeIcon type={ad.creative_type} />
+                  )}
                   <div className="min-w-0">
                     <p className="text-[11px] font-medium text-foreground/70 truncate">{ad.name}</p>
                     <p className="text-[9px] text-muted-foreground">{ad.creative_type} · {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}</p>

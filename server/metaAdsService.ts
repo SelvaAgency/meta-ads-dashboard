@@ -934,6 +934,8 @@ export interface AdWithInsights {
   status: string;
   effective_status: string;
   creative_type: string; // VIDEO, IMAGE, CAROUSEL, CATALOG
+  thumbnail_url?: string;
+  image_url?: string;
   // Insights (period)
   spend: number;
   impressions: number;
@@ -1057,10 +1059,10 @@ export async function getAdsWithInsights(
       campaign_id: string;
       status: string;
       effective_status: string;
-      creative?: { object_type?: string };
+      creative?: { object_type?: string; thumbnail_url?: string; image_url?: string };
     }>(`act_${accountId}/ads`, {
       access_token: accessToken,
-      fields: "id,name,adset_id,campaign_id,status,effective_status,creative{object_type}",
+      fields: "id,name,adset_id,campaign_id,status,effective_status,creative{object_type,thumbnail_url,image_url}",
       limit: "500",
     }, 10); // Cap at 10 pages for ads
     if (ads.length === 0) return [];
@@ -1125,6 +1127,8 @@ export async function getAdsWithInsights(
         status: ad.status,
         effective_status: ad.effective_status,
         creative_type,
+        thumbnail_url: ad.creative?.thumbnail_url || undefined,
+        image_url: ad.creative?.image_url || undefined,
         spend, impressions, clicks, frequency, ctr, cpc, cpm,
         conversions, costPerResult, roas,
       };
