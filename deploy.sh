@@ -10,12 +10,12 @@ echo "=== Step 1: Git pull latest ==="
 git pull origin main --rebase || git pull origin main
 
 echo "=== Step 2: Install dependencies ==="
-pnpm install --no-frozen-lockfile
+npm install
 
 echo "=== Step 3: Build ==="
 # Clear any vite cache
 rm -rf node_modules/.vite dist
-pnpm build
+npm run build
 
 echo "=== Step 4: Apply HTML patch ==="
 node patch-html.js
@@ -24,7 +24,7 @@ echo "=== Step 5: Restart server ==="
 pkill -f "node dist/index.js" 2>/dev/null || true
 sleep 1
 cd /home/ubuntu/meta-ads-dashboard
-nohup env NODE_ENV=production node dist/index.js > /tmp/server.log 2>&1 &
+nohup node dist/index.js > /tmp/server.log 2>&1 &
 sleep 2
 
 echo "=== Step 6: Verify ==="

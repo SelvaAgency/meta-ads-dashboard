@@ -1,11 +1,7 @@
 // patch-html.js — Injects a fetch-interceptor into index.html
 // so that campaigns.ads calls resolve DB ids to real Meta campaign IDs
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const fs = require('fs');
+const path = require('path');
 
 // Auto-detect the correct path
 const possiblePaths = [

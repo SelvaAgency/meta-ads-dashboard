@@ -594,7 +594,7 @@ export default function Campaigns() {
         <div>
           <h1 className="text-xl font-bold text-foreground">Campanhas</h1>
           <p className="text-sm text-muted-foreground">
-            Exibindo campanhas ativas e pausadas {periodLabel}
+            Exibindo apenas campanhas ativas {periodLabel}
           </p>
         </div>
 
