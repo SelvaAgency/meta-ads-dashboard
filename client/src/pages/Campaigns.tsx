@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { BarChart3, Link2, Search, Zap, Circle, Calendar, ChevronDown, ChevronRight, Film, Image, LayoutGrid, ShoppingBag, Loader2 } from "lucide-react";
-import { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -58,6 +58,36 @@ function CreativeIcon({ type }: { type: string }) {
     case "CATALOG": return <ShoppingBag size={13} className="text-amber-400" />;
     default: return <Image size={13} className="text-emerald-400" />;
   }
+}
+
+// ─── Thumbnail preview with graceful error fallback ─────────────────────────
+function CreativeThumb({ url, type }: { url?: string; type: string }) {
+  const [imgFailed, setImgFailed] = React.useState(false);
+
+  if (url && !imgFailed) {
+    return (
+      <div className="w-10 h-10 rounded border border-border/30 overflow-hidden flex-shrink-0 bg-black/20 relative">
+        <img
+          src={url}
+          alt=""
+          className="w-full h-full object-cover"
+          loading="lazy"
+          onError={() => setImgFailed(true)}
+          referrerPolicy="no-referrer"
+        />
+        {type === "VIDEO" && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Film size={12} className="text-white drop-shadow" />
+          </div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="w-10 h-10 rounded border border-border/30 flex items-center justify-center flex-shrink-0 bg-foreground/5">
+      <CreativeIcon type={type} />
+    </div>
+  );
 }
 
 
@@ -188,16 +218,7 @@ function AdSetRow({
             <tr key={ad.id} className="bg-foreground/[0.04] border-b border-border/20 hover:bg-foreground/[0.06] transition-all">
               <td className="px-4 py-2 sticky left-0 bg-card border-r border-border/20" style={{ minWidth: "220px" }}>
                 <div className="flex items-center gap-2 pl-10">
-                  {ad.thumbnail_url ? (
-                    <img
-                      src={ad.thumbnail_url}
-                      alt={ad.name}
-                      className="w-10 h-10 rounded object-cover border border-border/30 flex-shrink-0"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-                  ) : (
-                    <CreativeIcon type={ad.creative_type} />
-                  )}
+                  <CreativeThumb url={ad.image_url || ad.thumbnail_url} type={ad.creative_type} />
                   <div className="min-w-0">
                     <p className="text-[11px] font-medium text-foreground/70 truncate">{ad.name}</p>
                     <p className="text-[9px] text-muted-foreground">{ad.creative_type} · {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}</p>
