@@ -102,6 +102,8 @@ import {
   generateReportHtml,
   generateAndUploadPdf,
 } from "./dashboardBuilderService";
+import { runDailyReport } from "./dailyReport";
+
 // ─── Helper: date range ────────────────────────────────────────────────────────
 
 function toLocalIso(d: Date): string {
@@ -1066,6 +1068,12 @@ export const appRouter = router({
       }),
   }),// ─── Scheduled Reports ─────────────────────────────────────────────────────
   reports: router({
+    triggerDailyReport: protectedProcedure
+      .mutation(async () => {
+        await runDailyReport();
+        return { success: true, message: "Report diário disparado com sucesso" };
+      }),
+
     list: protectedProcedure.query(async ({ ctx }) => {
       return getScheduledReportsByUserId(ctx.user.id);
     }),
