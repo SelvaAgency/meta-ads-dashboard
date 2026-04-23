@@ -387,6 +387,80 @@ async function sendReportEmail(html: string, plainText: string, dateStr: string)
 
 // ── Main runner ─────────────────────────────────────────────────────────────
 
+
+/**
+ * Generates the daily report payload (HTML + plain text) without sending email.
+ * Used by external callers (e.g., API endpoint) to get the report content.
+ */
+export async function generateReportPayload(): Promise<{
+  html: string;
+  plainText: string;
+  subject: string;
+  date: string;
+  accountCount: number;
+  totalSpend: number;
+} | null> {
+  try {
+    const accounts = await getAllActiveMetaAdAccounts();
+    if (!accounts || accounts.length === 0) {
+      console.log("[DailyReport] No active accounts found.");
+      return null;
+    }
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dateStr = yesterday.toISOString().split("T")[0];
+    const dayNames = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
+    const dayName = dayNames[yesterday.getDay()];
+    const formattedDate = `${yesterday.getDate().toString().padStart(2, "0")}/${(yesterday.getMonth() + 1).toString().padStart(2, "0")}/${yesterday.getFullYear()}`;
+
+    const startDate = dateStr;
+    const endDate = dateStr;
+
+    const accountMetrics: AccountDayMetrics[] = [];
+
+    for (const account of accounts) {
+      const metrics = await fetchAccountMetrics(account, startDate, endDate);
+      if (metrics) accountMetrics.push(metrics);
+    }
+
+    if (accountMetrics.length === 0) {
+      console.log("[DailyReport] No accounts had data for " + dateStr);
+      return null;
+    }
+
+    accountMetrics.sort((a, b) => b.spend - a.spend);
+
+    const totalSpend = accountMetrics.reduce((s, m) => s + m.spend, 0);
+    const totalImpressions = accountMetrics.reduce((s, m) => s + m.impressions, 0);
+    const totalClicks = accountMetrics.reduce((s, m) => s + m.clicks, 0);
+    const totalConversions = accountMetrics.reduce((s, m) => s + m.conversions, 0);
+    const totalConversionValue = accountMetrics.reduce((s, m) => s + m.conversionValue, 0);
+    const overallCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+    const overallRoas = totalSpend > 0 ? totalConversionValue / totalSpend : 0;
+    const overallCpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
+
+    const html = buildEmailHTML(
+      accountMetrics, dayName, formattedDate,
+      totalSpend, totalImpressions, totalClicks, totalConversions,
+      totalConversionValue, overallCtr, overallRoas, overallCpa
+    );
+    const plain = buildPlainText(
+      accountMetrics, dayName, formattedDate,
+      totalSpend, totalImpressions, totalClicks, totalConversions,
+      totalConversionValue, overallCtr, overallRoas, overallCpa
+    );
+
+    const subject = `📊 Report Diário Meta Ads — ${formattedDate}`;
+
+    return { html, plainText: plain, subject, date: dateStr, accountCount: accountMetrics.length, totalSpend };
+  } catch (err) {
+    console.error("[DailyReport] Error generating report payload:", err);
+    return null;
+  }
+}
+
+
 export async function runDailyReport(): Promise<void> {
   console.log("[DailyReport] Gerando report diário...");
 

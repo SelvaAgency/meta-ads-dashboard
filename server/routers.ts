@@ -102,7 +102,7 @@ import {
   generateReportHtml,
   generateAndUploadPdf,
 } from "./dashboardBuilderService";
-import { runDailyReport } from "./dailyReport";
+import { runDailyReport, generateReportPayload } from "./dailyReport";
 
 // ─── Helper: date range ────────────────────────────────────────────────────────
 
@@ -1330,6 +1330,21 @@ export const appRouter = router({
           }
         }
         return results;
+      }),
+  }),
+
+  // ─── Daily Report (public - no auth needed for automation) ──────────────
+  report: router({
+    generateDaily: publicProcedure
+      .query(async () => {
+        const payload = await generateReportPayload();
+        if (!payload) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "No data available for daily report",
+          });
+        }
+        return payload;
       }),
   }),
 });

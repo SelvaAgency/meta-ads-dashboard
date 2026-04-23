@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startAutoSync } from "../autoSync";
+import { generateReportPayload } from "../dailyReport";
 import { registerDashboardBuilderRoutes } from "../dashboardBuilderRoutes";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -39,6 +40,35 @@ async function startServer() {
   registerOAuthRoutes(app);
   // Dashboard Builder — upload de imagens
   registerDashboardBuilderRoutes(app);
+
+  // Daily Report API — returns generated report HTML/text for external email sending
+  app.get('/api/daily-report', async (_req, res) => {
+    try {
+      const payload = await generateReportPayload();
+      if (!payload) {
+        return res.status(404).json({ error: 'No data available for report' });
+      }
+      res.json(payload);
+    } catch (err) {
+      console.error('[API] Error generating daily report:', err);
+      res.status(500).json({ error: 'Failed to generate report' });
+    }
+  });
+
+  // Daily Report HTML preview — renders the report directly in browser
+  app.get('/api/daily-report/preview', async (_req, res) => {
+    try {
+      const payload = await generateReportPayload();
+      if (!payload) {
+        return res.status(404).send('<h1>No data available</h1>');
+      }
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(payload.html);
+    } catch (err) {
+      console.error('[API] Error generating report preview:', err);
+      res.status(500).send('<h1>Error generating report</h1>');
+    }
+  });
   // Debug endpoint - raw Meta API diagnostic
   app.get('/api/debug-ads/:id', async (req, res) => {
     try {
