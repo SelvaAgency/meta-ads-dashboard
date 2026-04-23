@@ -9,7 +9,6 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startAutoSync } from "../autoSync";
 import { registerDashboardBuilderRoutes } from "../dashboardBuilderRoutes";
-import { initializeDailyReportSchedule } from "../dailyReport";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -99,17 +98,7 @@ async function startServer() {
     console.log(`Server running on http://localhost:${port}/`);
     // Start daily auto-sync cron job (06:00 Brasília time = 09:00 UTC)
     startAutoSync();
-    // Start daily report schedule (9:00 BRT = 12:00 UTC)
-    initializeDailyReportSchedule();
   });
 }
 
 startServer().catch(console.error);
-
-// Expose test function for manual testing
-if (process.env.NODE_ENV === "development") {
-  (global as any).__sendTestReport = async () => {
-    const { sendTestReport } = await import("../dailyReport");
-    await sendTestReport();
-  };
-}

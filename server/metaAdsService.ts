@@ -1139,3 +1139,104 @@ export async function getAdsWithInsights(
     throw err;
   }
 }
+
+/**
+ * Fetch ads for a SINGLE adset with insights — much faster than getAdsWithInsights() 
+ * which fetches ALL ads for the entire account.
+ */
+export async function getAdsByAdsetWithInsights(
+  accountId: string,
+  accessToken: string,
+  adsetId: string,
+  startDate: string,
+  endDate: string,
+  optimizationGoal?: string
+): Promise<AdWithInsights[]> {
+  try {
+    // Step 1: Fetch ads ONLY for this specific adset (not the whole account)
+    const adsUrl = `https://graph.facebook.com/v21.0/${adsetId}/ads`;
+    const adsParams = new URLSearchParams({
+      access_token: accessToken,
+      fields: "id,name,adset_id,campaign_id,status,effective_status,creative{object_type,thumbnail_url,image_url}",
+      limit: "100",
+      filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
+    });
+    
+    const adsResponse = await fetch(`${adsUrl}?${adsParams}`);
+    const adsData = await adsResponse.json() as any;
+    
+    if (adsData.error) {
+      console.error(`[getAdsByAdsetWithInsights] Ads fetch error for adset ${adsetId}:`, adsData.error.message);
+      return [];
+    }
+    
+    const ads: Array<{
+      id: string; name: string; adset_id: string; campaign_id: string;
+      status: string; effective_status: string;
+      creative?: { object_type?: string; thumbnail_url?: string; image_url?: string };
+    }> = adsData.data ?? [];
+    
+    if (ads.length === 0) return [];
+
+    // Step 2: Fetch insights ONLY for this adset's ads
+    const insightsUrl = `https://graph.facebook.com/v21.0/${adsetId}/insights`;
+    const insightsParams = new URLSearchParams({
+      access_token: accessToken,
+      level: "ad",
+      fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,impressions,clicks,frequency,ctr,cpc,cpm,actions,purchase_roas",
+      time_range: JSON.stringify({ since: startDate, until: endDate }),
+      limit: "100",
+    });
+    
+    const insightsResponse = await fetch(`${insightsUrl}?${insightsParams}`);
+    const insightsData = await insightsResponse.json() as any;
+    
+    const insightMap = new Map<string, any>();
+    if (insightsData.data) {
+      for (const ins of insightsData.data) {
+        insightMap.set(ins.ad_id, ins);
+      }
+    }
+
+    const goal = optimizationGoal ?? "OFFSITE_CONVERSIONS";
+
+    return ads.map((ad) => {
+      const ins = insightMap.get(ad.id);
+      const spend = parseFloat(ins?.spend ?? "0") || 0;
+      const impressions = parseInt(ins?.impressions ?? "0") || 0;
+      const clicks = parseInt(ins?.clicks ?? "0") || 0;
+      const frequency = parseFloat(ins?.frequency ?? "0") || 0;
+      const ctr = parseFloat(ins?.ctr ?? "0") || 0;
+      const cpc = parseFloat(ins?.cpc ?? "0") || 0;
+      const cpm = parseFloat(ins?.cpm ?? "0") || 0;
+      const conversions = extractResultsByGoal(ins?.actions, goal);
+      const costPerResult = spend > 0 && conversions > 0 ? spend / conversions : 0;
+      const roas = extractPurchaseRoas(ins?.purchase_roas, spend, 0);
+      
+      const objType = (ad.creative?.object_type ?? "").toUpperCase();
+      let creative_type = "IMAGE";
+      if (objType.includes("VIDEO")) creative_type = "VIDEO";
+      else if (objType.includes("CAROUSEL") || objType.includes("MULTI")) creative_type = "CAROUSEL";
+      else if (objType.includes("COLLECTION") || objType.includes("CATALOG")) creative_type = "CATALOG";
+      
+      return {
+        id: ad.id,
+        name: ad.name,
+        adset_id: ad.adset_id,
+        adset_name: ins?.adset_name,
+        campaign_id: ad.campaign_id,
+        campaign_name: ins?.campaign_name,
+        status: ad.status,
+        effective_status: ad.effective_status,
+        creative_type,
+        thumbnail_url: ad.creative?.thumbnail_url || undefined,
+        image_url: ad.creative?.image_url || undefined,
+        spend, impressions, clicks, frequency, ctr, cpc, cpm,
+        conversions, costPerResult, roas,
+      };
+    }).sort((a, b) => b.spend - a.spend);
+  } catch (err) {
+    console.error(`[getAdsByAdsetWithInsights] Failed for adset ${adsetId}:`, err);
+    return [];
+  }
+}

@@ -83,6 +83,7 @@ import {
   calculateCpa,
   getAdSetsWithInsights,
   getAdsWithInsights,
+  getAdsByAdsetWithInsights,
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
@@ -101,6 +102,8 @@ import {
   generateReportHtml,
   generateAndUploadPdf,
 } from "./dashboardBuilderService";
+import { runDailyReport } from "./dailyReport";
+
 // ─── Helper: date range ────────────────────────────────────────────────────────
 
 function toLocalIso(d: Date): string {
@@ -602,29 +605,25 @@ export const appRouter = router({
           ? { startDate: input.startDate, endDate: input.endDate }
           : getDateRange(input.days, input.includeToday ?? false);
 
-        // Get adsets for goal mapping
-        const adsets = await getAdSets(account.accountId, account.accessToken);
-        const adsetGoalMap = new Map<string, string>();
-        for (const as of adsets) {
-          if (as.optimization_goal) adsetGoalMap.set(as.id, as.optimization_goal);
+        // Get optimization goal for this specific adset (single API call, not all adsets)
+        let goal = "OFFSITE_CONVERSIONS";
+        try {
+          const adsetResp = await fetch(`https://graph.facebook.com/v21.0/${input.adsetId}?fields=optimization_goal&access_token=${account.accessToken}`);
+          const adsetData = await adsetResp.json() as any;
+          if (adsetData.optimization_goal) goal = adsetData.optimization_goal;
+        } catch (e) {
+          console.warn("[adsByAdset] Failed to fetch optimization_goal, using default:", e);
         }
 
-        // Fetch all ads with insights
-        const allAds = await getAdsWithInsights(
+        // Fetch ads ONLY for this adset (fast targeted query)
+        return getAdsByAdsetWithInsights(
           account.accountId,
           account.accessToken,
+          input.adsetId,
           startDate,
           endDate,
-          adsetGoalMap
+          goal
         );
-
-        // Filter to only ACTIVE ads belonging to this adset
-        const filtered = allAds.filter((ad) =>
-          ad.adset_id === input.adsetId &&
-          ad.effective_status === "ACTIVE"
-        );
-
-        return filtered.sort((a, b) => b.spend - a.spend);
       }),
     // Fetch active ads/creatives for a specific campaign (expandable row)
     ads: protectedProcedure
@@ -1069,6 +1068,12 @@ export const appRouter = router({
       }),
   }),// ─── Scheduled Reports ─────────────────────────────────────────────────────
   reports: router({
+    triggerDailyReport: protectedProcedure
+      .mutation(async () => {
+        await runDailyReport();
+        return { success: true, message: "Report diário disparado com sucesso" };
+      }),
+
     list: protectedProcedure.query(async ({ ctx }) => {
       return getScheduledReportsByUserId(ctx.user.id);
     }),
