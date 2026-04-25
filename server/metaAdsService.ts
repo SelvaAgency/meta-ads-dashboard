@@ -934,6 +934,7 @@ export interface AdWithInsights {
   status: string;
   effective_status: string;
   creative_type: string; // VIDEO, IMAGE, CAROUSEL, CATALOG
+  creative_id: string; // Meta creative ID for proxy fallback
   thumbnail_url?: string;
   image_url?: string;
   // Insights (period)
@@ -1062,7 +1063,7 @@ export async function getAdsWithInsights(
       creative?: { object_type?: string; thumbnail_url?: string; image_url?: string };
     }>(`act_${accountId}/ads`, {
       access_token: accessToken,
-      fields: "id,name,adset_id,campaign_id,status,effective_status,creative{object_type,thumbnail_url,image_url}",
+      fields: "id,name,adset_id,campaign_id,status,effective_status,creative{id,object_type,thumbnail_url,image_url}",
       limit: "500",
     }, 10); // Cap at 10 pages for ads
     if (ads.length === 0) return [];
@@ -1127,6 +1128,7 @@ export async function getAdsWithInsights(
         status: ad.status,
         effective_status: ad.effective_status,
         creative_type,
+        creative_id: ad.creative?.id ?? "",
         thumbnail_url: ad.creative?.thumbnail_url || undefined,
         image_url: ad.creative?.image_url || undefined,
         spend, impressions, clicks, frequency, ctr, cpc, cpm,
@@ -1157,7 +1159,7 @@ export async function getAdsByAdsetWithInsights(
     const adsUrl = `https://graph.facebook.com/v21.0/${adsetId}/ads`;
     const adsParams = new URLSearchParams({
       access_token: accessToken,
-      fields: "id,name,adset_id,campaign_id,status,effective_status,creative{object_type,thumbnail_url,image_url}",
+      fields: "id,name,adset_id,campaign_id,status,effective_status,creative{id,object_type,thumbnail_url,image_url}",
       limit: "100",
       filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
     });
@@ -1229,6 +1231,7 @@ export async function getAdsByAdsetWithInsights(
         status: ad.status,
         effective_status: ad.effective_status,
         creative_type,
+        creative_id: ad.creative?.id ?? "",
         thumbnail_url: ad.creative?.thumbnail_url || undefined,
         image_url: ad.creative?.image_url || undefined,
         spend, impressions, clicks, frequency, ctr, cpc, cpm,

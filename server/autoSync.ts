@@ -55,7 +55,7 @@ import {
 } from "./metaAdsService";
 import { generateAgencyReport } from "./analysisService";
 import type { CampaignReportData } from "./analysisService";
-import { scheduleDailyReport } from "./dailyReport";
+import { initializeDailyReportSchedule } from "./dailyReport";
 
 
 const SYNC_DAYS = 30; // Always sync 30 days to ensure complete data for all dashboard filters
@@ -681,8 +681,8 @@ export async function startAutoSync() {
     await rebuildScheduledReportJobs();
   }, 15000);
 
-  // Daily email report at 6h BRT
-  scheduleDailyReport();
+  // Daily email report at 8h BRT
+  initializeDailyReportSchedule();
 
   console.log("[AutoSync] Auto-sync service initialized.");
 }
