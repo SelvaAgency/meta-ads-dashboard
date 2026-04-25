@@ -34,7 +34,7 @@ export async function getDb() {
   return _db;
 }
 
-// ─── Users ────────────────────────────────────────────────────────────────────
+// âââ Users ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
@@ -78,12 +78,17 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// ─── Meta Ad Accounts ─────────────────────────────────────────────────────────
+// âââ Meta Ad Accounts âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 export async function getAllActiveMetaAdAccounts() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(metaAdAccounts);
+  const accounts = await db.select().from(metaAdAccounts);
+  // Inject fallback token from ENV when per-account token is missing/empty
+  return accounts.map(a => ({
+    ...a,
+    accessToken: a.accessToken || ENV.metaAccessToken,
+  }));
 }
 export async function getMetaAdAccountsByUserId(userId: number) {
   const db = await getDb();
@@ -109,14 +114,23 @@ export async function getMetaAdAccountsByUserId(userId: number) {
     console.log(`[DB] Deduplication: ${accounts.length} accounts -> ${deduped.length} unique accounts`);
   }
   
-  return deduped;
+  // Inject fallback token from ENV when per-account token is missing/empty
+  return deduped.map(a => ({
+    ...a,
+    accessToken: a.accessToken || ENV.metaAccessToken,
+  }));
 }
 
 export async function getMetaAdAccountById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(metaAdAccounts).where(eq(metaAdAccounts.id, id)).limit(1);
-  return result[0];
+  const account = result[0];
+  if (account) {
+    // Inject fallback token from ENV when per-account token is missing/empty
+    account.accessToken = account.accessToken || ENV.metaAccessToken;
+  }
+  return account;
 }
 
 export async function createMetaAdAccount(data: InsertMetaAdAccount) {
@@ -174,7 +188,7 @@ export async function deleteMetaAdAccount(id: number, userId: number) {
     .where(and(eq(metaAdAccounts.id, id), eq(metaAdAccounts.userId, userId)));
 }
 
-// ─── Campaigns ────────────────────────────────────────────────────────────────
+// âââ Campaigns ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 export async function getCampaignsByAccountId(accountId: number) {
   const db = await getDb();
@@ -252,7 +266,7 @@ export async function markStaleCampaignsArchived(accountId: number, activeMetaCa
   if (!db) return;
 
   if (activeMetaCampaignIds.length === 0) {
-    console.warn("[markStaleCampaignsArchived] No active campaigns from Meta — skipping to avoid mass archive");
+    console.warn("[markStaleCampaignsArchived] No active campaigns from Meta â skipping to avoid mass archive");
     return;
   }
 
@@ -293,7 +307,7 @@ export async function markStaleCampaignsArchived(accountId: number, activeMetaCa
   }
 }
 
-// ─── Campaign Metrics ─────────────────────────────────────────────────────────
+// âââ Campaign Metrics âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 export async function getCampaignMetrics(campaignId: number, startDate: string, endDate: string) {
   const db = await getDb();
@@ -426,7 +440,7 @@ export async function upsertCampaignMetrics(data: InsertCampaignMetrics) {
   }
 }
 
-// ─── Anomalies ────────────────────────────────────────────────────────────────
+// âââ Anomalies ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 export async function getAnomaliesByAccountId(accountId: number, limit = 50) {
   const db = await getDb();
@@ -483,7 +497,7 @@ export async function createAnomalyIfNotExists(data: InsertAnomaly): Promise<any
     .limit(1);
 
   if (existing.length > 0) {
-    return null; // Anomalia idêntica já existe, não duplicar
+    return null; // Anomalia idÃªntica jÃ¡ existe, nÃ£o duplicar
   }
 
   const result = await db.insert(anomalies).values(data);
@@ -507,8 +521,8 @@ export async function markAnomalyResolved(id: number) {
 
 /**
  * Deleta anomalias que foram marcadas como lidas (isRead = true)
- * e foram detectadas há mais de 30 dias.
- * Chamada diária pelo cron job de limpeza.
+ * e foram detectadas hÃ¡ mais de 30 dias.
+ * Chamada diÃ¡ria pelo cron job de limpeza.
  */
 export async function purgeOldReadAnomalies() {
   const db = await getDb();
@@ -526,7 +540,7 @@ export async function purgeOldReadAnomalies() {
   return (result as any).affectedRows ?? 0;
 }
 
-// ─── AI Suggestions ───────────────────────────────────────────────────────────
+// âââ AI Suggestions âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 // Get pending suggestions (status = pending, not expired)
 export async function getSuggestionsByAccountId(accountId: number, limit = 50) {
@@ -638,7 +652,7 @@ export async function saveSuggestionMonitorResult(id: number, result: string) {
   await db.update(aiSuggestions).set({ monitorResult: result }).where(eq(aiSuggestions.id, id));
 }
 
-// ─── Scheduled Reports ────────────────────────────────────────────────────────
+// âââ Scheduled Reports ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 export async function getScheduledReportsByUserId(userId: number) {
   const db = await getDb();
@@ -683,12 +697,12 @@ export async function getDueScheduledReports() {
     .where(and(eq(scheduledReports.isActive, true), lte(scheduledReports.nextRunAt, now)));
 }
 
-// ─── Alerts ───────────────────────────────────────────────────────────────────
+// âââ Alerts âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 export async function getAlertsByUserId(userId: number, limit = 50) {
   const db = await getDb();
   if (!db) return [];
-  // Only return unread alerts — read alerts are deleted on markRead
+  // Only return unread alerts â read alerts are deleted on markRead
   return db
     .select()
     .from(alerts)
@@ -736,9 +750,9 @@ export async function createAlert(data: InsertAlert) {
 }
 
 /**
- * Cria alerta APENAS se não existir um alerta ativo (não lido) com o mesmo
- * tipo + conta + título nas últimas 24h. Evita duplicação de alertas técnicos.
- * Retorna o resultado do INSERT ou null se já existia.
+ * Cria alerta APENAS se nÃ£o existir um alerta ativo (nÃ£o lido) com o mesmo
+ * tipo + conta + tÃ­tulo nas Ãºltimas 24h. Evita duplicaÃ§Ã£o de alertas tÃ©cnicos.
+ * Retorna o resultado do INSERT ou null se jÃ¡ existia.
  */
 export async function createAlertIfNotExists(data: InsertAlert): Promise<any | null> {
   const db = await getDb();
@@ -761,7 +775,7 @@ export async function createAlertIfNotExists(data: InsertAlert): Promise<any | n
     .limit(1);
 
   if (existing.length > 0) {
-    return null; // Alerta já existe, não duplicar
+    return null; // Alerta jÃ¡ existe, nÃ£o duplicar
   }
 
   const result = await db.insert(alerts).values(data);
@@ -769,8 +783,8 @@ export async function createAlertIfNotExists(data: InsertAlert): Promise<any | n
 }
 
 /**
- * Remove alertas duplicados, mantendo apenas o mais recente de cada combinação
- * tipo + conta + título. Usar uma vez para limpar o backlog.
+ * Remove alertas duplicados, mantendo apenas o mais recente de cada combinaÃ§Ã£o
+ * tipo + conta + tÃ­tulo. Usar uma vez para limpar o backlog.
  */
 export async function purgeDuplicateAlerts(): Promise<number> {
   const db = await getDb();
@@ -805,7 +819,7 @@ export async function markAnomalyEmailSent(id: number) {
 export async function markAlertRead(id: number, userId: number) {
   const db = await getDb();
   if (!db) return;
-  // Delete the alert when marked as read — it disappears from the list
+  // Delete the alert when marked as read â it disappears from the list
   await db
     .delete(alerts)
     .where(and(eq(alerts.id, id), eq(alerts.userId, userId)));
@@ -826,8 +840,8 @@ export async function markAllAlertsReadByAccount(userId: number, accountId: numb
 }
 
 /**
- * Remove anomalias duplicadas não resolvidas, mantendo apenas a mais recente
- * de cada combinação accountId + type + metricName.
+ * Remove anomalias duplicadas nÃ£o resolvidas, mantendo apenas a mais recente
+ * de cada combinaÃ§Ã£o accountId + type + metricName.
  */
 export async function purgeDuplicateAnomalies(): Promise<number> {
   const db = await getDb();
