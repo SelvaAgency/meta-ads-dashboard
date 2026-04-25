@@ -1,15 +1,10 @@
 /**
  * dailyReport.ts — Report diário automático de performance Meta Ads.
- *
- * Envia email às 8h BRT (11:00 UTC) com métricas do dia anterior
- * para victor@selva.agency via Resend API.
- * Fallback: notificação Manus se Resend falhar.
+ * Usa APENAS notifyOwner() do Manus para enviar relatórios.
  */
 
 import cron from "node-cron";
-import { Resend } from "resend";
 import { notifyOwner } from "./_core/notification";
-import { ENV } from "./_core/env";
 import {
   getAllActiveMetaAdAccounts,
   getCampaignsByAccountId,
@@ -22,14 +17,6 @@ import {
   getResultLabel,
   validateToken,
 } from "./metaAdsService";
-
-// ── Config ──────────────────────────────────────────────────────────────────
-
-const RECIPIENTS = ["victor@selva.agency"];
-const FROM_EMAIL = "dashboard@selva.agency";
-const FROM_NAME = "SELVA Agency Reports";
-
-let resend: Resend | null = null;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -46,33 +33,15 @@ interface AccountDayMetrics {
   conversionValue: number;
   roas: number;
   cpa: number;
-  reach: number;
   activeCampaigns: number;
-  objectiveLabel: string;
 }
 
 interface ReportPayload {
   subject: string;
-  html: string;
-  plainText: string;
+  content: string;
   date: string;
   accountCount: number;
   totalSpend: number;
-}
-
-// ── Initialize Resend ───────────────────────────────────────────────────────
-
-function initializeResend(): Resend | null {
-  if (resend) return resend;
-
-  if (!ENV.resendApiKey) {
-    console.warn("[DailyReport] ⚠️ RESEND_API_KEY não configurada");
-    return null;
-  }
-
-  resend = new Resend(ENV.resendApiKey);
-  console.log("[DailyReport] ✓ Resend inicializado");
-  return resend;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -160,9 +129,6 @@ async function fetchAccountMetrics(
     const roas = totalSpend > 0 ? totalConversionValue / totalSpend : 0;
     const cpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
 
-    const goalMap = buildCampaignGoalMap(campaigns);
-    const objectiveLabel = getResultLabel(Object.values(goalMap)[0] || "LINK_CLICKS");
-
     return {
       accountName: account.accountName || account.accountId,
       accountId: account.accountId,
@@ -176,9 +142,7 @@ async function fetchAccountMetrics(
       conversionValue: totalConversionValue,
       roas,
       cpa,
-      reach: 0,
       activeCampaigns: campaigns.length,
-      objectiveLabel,
     };
   } catch (error) {
     console.error(`[DailyReport] Erro ao buscar métricas para ${account.accountId}:`, error);
@@ -186,7 +150,7 @@ async function fetchAccountMetrics(
   }
 }
 
-// ── Generate HTML ───────────────────────────────────────────────────────────
+// ── Generate Report Content ──────────────────────────────────────────────────
 
 function generatePerformanceAnalysis(metrics: AccountDayMetrics): string {
   const roasStatus = metrics.roas >= 3 ? "excelente" : metrics.roas >= 2 ? "boa" : "abaixo do esperado";
@@ -198,151 +162,75 @@ function generatePerformanceAnalysis(metrics: AccountDayMetrics): string {
         ? "Considere otimizar criativos e públicos."
         : "Análise urgente necessária - revisar segmentação e criativos.";
 
-  return `A conta ${metrics.accountName} teve ROAS de ${metrics.roas.toFixed(2)}x ontem com ${fmtCurrency(metrics.spend)} investidos, gerando ${fmtCurrency(metrics.conversionValue)} em receita. Performance ${roasStatus} com taxa de cliques ${ctrStatus} (${fmtPct(metrics.ctr)}). ${recommendation}`;
+  return `${metrics.accountName}: ROAS ${metrics.roas.toFixed(2)}x | Invest. ${fmtCurrency(metrics.spend)} | Receita ${fmtCurrency(metrics.conversionValue)} | CTR ${fmtPct(metrics.ctr)} (${ctrStatus}) | ${recommendation}`;
 }
 
-function generateHTMLReport(accounts: AccountDayMetrics[], date: string): string {
+function generateReportContent(accounts: AccountDayMetrics[], date: string): string {
   const totalSpend = accounts.reduce((s, a) => s + a.spend, 0);
   const totalConversions = accounts.reduce((s, a) => s + a.conversions, 0);
   const totalConversionValue = accounts.reduce((s, a) => s + a.conversionValue, 0);
   const avgRoas = totalSpend > 0 ? totalConversionValue / totalSpend : 0;
 
-  const accountRows = accounts
-    .map(
-      (a) => `
-    <tr style="border-bottom: 1px solid #eeeeee;">
-      <td style="padding: 12px; color: #1a1a2e; font-weight: 500;">${a.accountName}</td>
-      <td style="padding: 12px; color: #1a1a2e; text-align: right;">${fmtCurrency(a.spend)}</td>
-      <td style="padding: 12px; color: #1a1a2e; text-align: right;">${fmtInt(a.conversions)}</td>
-      <td style="padding: 12px; color: #1a1a2e; text-align: right;">${fmtCurrency(a.conversionValue)}</td>
-      <td style="padding: 12px; color: #1a1a2e; text-align: right;">${a.roas.toFixed(2)}x</td>
-      <td style="padding: 12px; color: #1a1a2e; text-align: right;">${fmtPct(a.ctr)}</td>
-      <td style="padding: 12px; color: #1a1a2e; text-align: right;">${fmtInt(a.impressions)}</td>
-    </tr>
-  `
-    )
-    .join("");
+  let content = `
+╔════════════════════════════════════════════════════════════════╗
+║           SELVA AGENCY - REPORT DIÁRIO META ADS                ║
+║                                                                ║
+║                        ${date}                         ║
+╚════════════════════════════════════════════════════════════════╝
 
-  const analysisRows = accounts
-    .map(
-      (a) => `
-    <div style="margin-bottom: 16px; padding: 12px; background: #ffffff; border-left: 4px solid #c9a96e; border-radius: 4px;">
-      <p style="margin: 0; color: #1a1a2e; font-size: 14px; line-height: 1.6;">
-        ${generatePerformanceAnalysis(a)}
-      </p>
-    </div>
-  `
-    )
-    .join("");
+📊 RESUMO EXECUTIVO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Report Diário Meta Ads</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f0e8;">
-  <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
-    <div style="background-color: #1a1a2e; padding: 24px; text-align: center; border-bottom: 4px solid #c9a96e;">
-      <h1 style="margin: 0; color: #e8d5b7; font-size: 24px; font-weight: 700;">SELVA AGENCY</h1>
-      <p style="margin: 8px 0 0 0; color: #c9a96e; font-size: 14px; font-weight: 500;">📊 Report Diário Meta Ads</p>
-      <p style="margin: 4px 0 0 0; color: #888888; font-size: 12px;">${date}</p>
-    </div>
+💰 Investimento Total:     ${fmtCurrency(totalSpend)}
+📈 ROAS Médio:             ${avgRoas.toFixed(2)}x
+✅ Conversões:             ${fmtInt(totalConversions)}
+💵 Receita Gerada:         ${fmtCurrency(totalConversionValue)}
+📊 Contas Ativas:          ${accounts.length}
 
-    <div style="padding: 24px; background-color: #fdf0f0;">
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
-        <div style="background: #ffffff; padding: 12px; border-radius: 4px; border-left: 4px solid #c9a96e;">
-          <p style="margin: 0; color: #888888; font-size: 12px; font-weight: 500; text-transform: uppercase;">Investimento Total</p>
-          <p style="margin: 4px 0 0 0; color: #1a1a2e; font-size: 18px; font-weight: 700;">${fmtCurrency(totalSpend)}</p>
-        </div>
-        <div style="background: #ffffff; padding: 12px; border-radius: 4px; border-left: 4px solid #c9a96e;">
-          <p style="margin: 0; color: #888888; font-size: 12px; font-weight: 500; text-transform: uppercase;">ROAS Médio</p>
-          <p style="margin: 4px 0 0 0; color: #1a1a2e; font-size: 18px; font-weight: 700;">${avgRoas.toFixed(2)}x</p>
-        </div>
-      </div>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-        <div style="background: #ffffff; padding: 12px; border-radius: 4px; border-left: 4px solid #c9a96e;">
-          <p style="margin: 0; color: #888888; font-size: 12px; font-weight: 500; text-transform: uppercase;">Conversões</p>
-          <p style="margin: 4px 0 0 0; color: #1a1a2e; font-size: 18px; font-weight: 700;">${fmtInt(totalConversions)}</p>
-        </div>
-        <div style="background: #ffffff; padding: 12px; border-radius: 4px; border-left: 4px solid #c9a96e;">
-          <p style="margin: 0; color: #888888; font-size: 12px; font-weight: 500; text-transform: uppercase;">Receita</p>
-          <p style="margin: 4px 0 0 0; color: #1a1a2e; font-size: 18px; font-weight: 700;">${fmtCurrency(totalConversionValue)}</p>
-        </div>
-      </div>
-    </div>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📌 PERFORMANCE POR CONTA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    <div style="padding: 24px;">
-      <h2 style="margin: 0 0 16px 0; color: #1a1a2e; font-size: 16px; font-weight: 700;">Performance por Conta</h2>
-      <table style="width: 100%; border-collapse: collapse; background: #ffffff; border: 1px solid #eeeeee; border-radius: 4px; overflow: hidden;">
-        <thead>
-          <tr style="background-color: #f5f0e8; border-bottom: 2px solid #c9a96e;">
-            <th style="padding: 12px; text-align: left; color: #1a1a2e; font-weight: 600; font-size: 12px; text-transform: uppercase;">Conta</th>
-            <th style="padding: 12px; text-align: right; color: #1a1a2e; font-weight: 600; font-size: 12px; text-transform: uppercase;">Invest.</th>
-            <th style="padding: 12px; text-align: right; color: #1a1a2e; font-weight: 600; font-size: 12px; text-transform: uppercase;">Conversões</th>
-            <th style="padding: 12px; text-align: right; color: #1a1a2e; font-weight: 600; font-size: 12px; text-transform: uppercase;">Receita</th>
-            <th style="padding: 12px; text-align: right; color: #1a1a2e; font-weight: 600; font-size: 12px; text-transform: uppercase;">ROAS</th>
-            <th style="padding: 12px; text-align: right; color: #1a1a2e; font-weight: 600; font-size: 12px; text-transform: uppercase;">CTR</th>
-            <th style="padding: 12px; text-align: right; color: #1a1a2e; font-weight: 600; font-size: 12px; text-transform: uppercase;">Impr.</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${accountRows}
-        </tbody>
-      </table>
-    </div>
+`;
 
-    <div style="padding: 24px;">
-      <h2 style="margin: 0 0 16px 0; color: #1a1a2e; font-size: 16px; font-weight: 700;">Análise de Performance</h2>
-      ${analysisRows}
-    </div>
-
-    <div style="background-color: #f5f0e8; padding: 24px; text-align: center; border-top: 1px solid #eeeeee;">
-      <p style="margin: 0; color: #888888; font-size: 12px;">
-        Report gerado automaticamente às 8h BRT • SELVA Agency
-      </p>
-      <p style="margin: 8px 0 0 0; color: #888888; font-size: 11px;">
-        Dados referentes ao dia anterior (ontem)
-      </p>
-    </div>
-  </div>
-</body>
-</html>
-  `;
-}
-
-function generatePlainTextReport(accounts: AccountDayMetrics[], date: string): string {
-  const totalSpend = accounts.reduce((s, a) => s + a.spend, 0);
-  const totalConversions = accounts.reduce((s, a) => s + a.conversions, 0);
-  const totalConversionValue = accounts.reduce((s, a) => s + a.conversionValue, 0);
-  const avgRoas = totalSpend > 0 ? totalConversionValue / totalSpend : 0;
-
-  let text = `SELVA AGENCY - Report Diário Meta Ads\n${date}\n\n`;
-  text += `=== RESUMO ===\n`;
-  text += `Investimento Total: ${fmtCurrency(totalSpend)}\n`;
-  text += `ROAS Médio: ${avgRoas.toFixed(2)}x\n`;
-  text += `Conversões: ${fmtInt(totalConversions)}\n`;
-  text += `Receita: ${fmtCurrency(totalConversionValue)}\n\n`;
-
-  text += `=== PERFORMANCE POR CONTA ===\n`;
   for (const a of accounts) {
-    text += `\n${a.accountName}\n`;
-    text += `  Investimento: ${fmtCurrency(a.spend)}\n`;
-    text += `  Conversões: ${fmtInt(a.conversions)}\n`;
-    text += `  Receita: ${fmtCurrency(a.conversionValue)}\n`;
-    text += `  ROAS: ${a.roas.toFixed(2)}x\n`;
-    text += `  CTR: ${fmtPct(a.ctr)}\n`;
-    text += `  Impressões: ${fmtInt(a.impressions)}\n`;
+    content += `
+${a.accountName}
+├─ Investimento:    ${fmtCurrency(a.spend)}
+├─ Conversões:      ${fmtInt(a.conversions)}
+├─ Receita:         ${fmtCurrency(a.conversionValue)}
+├─ ROAS:            ${a.roas.toFixed(2)}x
+├─ CTR:             ${fmtPct(a.ctr)}
+├─ CPC:             ${fmtCurrency(a.cpc)}
+├─ CPM:             ${fmtCurrency(a.cpm)}
+├─ Impressões:      ${fmtInt(a.impressions)}
+└─ Cliques:         ${fmtInt(a.clicks)}
+
+`;
   }
 
-  text += `\n=== ANÁLISE ===\n`;
+  content += `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 ANÁLISE DE PERFORMANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+`;
+
   for (const a of accounts) {
-    text += `\n${generatePerformanceAnalysis(a)}\n`;
+    content += `\n${generatePerformanceAnalysis(a)}\n`;
   }
 
-  return text;
+  content += `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Report gerado automaticamente às 8h BRT (11:00 UTC)
+SELVA Agency - Dashboard Meta Ads
+Dados referentes ao dia anterior (ontem)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+
+  return content;
 }
 
 // ── Main functions ──────────────────────────────────────────────────────────
@@ -380,8 +268,7 @@ export async function generateReportPayload(): Promise<ReportPayload | null> {
 
     return {
       subject: `[SELVA] Report Diário Meta Ads — ${dateStr}`,
-      html: generateHTMLReport(metrics, label),
-      plainText: generatePlainTextReport(metrics, label),
+      content: generateReportContent(metrics, label),
       date: start,
       accountCount: metrics.length,
       totalSpend,
@@ -400,48 +287,20 @@ export async function runDailyReport(): Promise<boolean> {
       return false;
     }
 
-    console.log(`[DailyReport] Enviando report para ${RECIPIENTS.length} destinatário(s)...`);
+    console.log(`[DailyReport] Enviando notificação para owner...`);
 
-    // Tentar enviar via Resend
-    const resendClient = initializeResend();
-    if (resendClient) {
-      try {
-        for (const recipient of RECIPIENTS) {
-          const response = await resendClient.emails.send({
-            from: `${FROM_NAME} <${FROM_EMAIL}>`,
-            to: recipient,
-            subject: payload.subject,
-            html: payload.html,
-            text: payload.plainText,
-          });
-
-          if (response.error) {
-            console.error(`[DailyReport] ✗ Erro ao enviar via Resend para ${recipient}:`, response.error);
-            throw response.error;
-          }
-
-          console.log(`[DailyReport] ✓ Email enviado para ${recipient} (ID: ${response.data?.id})`);
-        }
-        return true;
-      } catch (error) {
-        console.error(`[DailyReport] ✗ Erro ao enviar via Resend:`, error);
-        console.log("[DailyReport] Tentando fallback: notifyOwner...");
-      }
-    }
-
-    // Fallback: notifyOwner (Manus Notification API)
-    const notifySuccess = await notifyOwner({
+    const success = await notifyOwner({
       title: payload.subject,
-      content: `${payload.plainText}\n\n---\nFallback: Notificação enviada via Manus (Resend indisponível)`,
+      content: payload.content,
     });
 
-    if (notifySuccess) {
-      console.log(`[DailyReport] ✓ Notificação enviada via Manus (fallback)`);
+    if (success) {
+      console.log(`[DailyReport] ✓ Notificação enviada com sucesso`);
     } else {
-      console.error(`[DailyReport] ✗ Falha em ambos os métodos (Resend e Manus)`);
+      console.warn(`[DailyReport] ⚠️ Falha ao enviar notificação (serviço indisponível)`);
     }
 
-    return notifySuccess;
+    return success;
   } catch (error) {
     console.error("[DailyReport] Erro ao executar report:", error);
     return false;
