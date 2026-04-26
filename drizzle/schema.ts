@@ -262,3 +262,20 @@ export const dashboardReports = mysqlTable("dashboard_reports", {
 });
 export type DashboardReport = typeof dashboardReports.$inferSelect;
 export type InsertDashboardReport = typeof dashboardReports.$inferInsert;
+
+// ─── Google Ads Accounts ──────────────────────────────────────────────────────
+export const googleAdAccounts = mysqlTable("google_ad_accounts", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  customerId: varchar("customerId", { length: 20 }).notNull(), // e.g. "123-456-7890" or "1234567890"
+  accountName: varchar("accountName", { length: 255 }),
+  refreshToken: text("refreshToken").notNull(),
+  currency: varchar("currency", { length: 8 }).default("BRL"),
+  timezone: varchar("timezone", { length: 64 }).default("America/Sao_Paulo"),
+  isActive: boolean("isActive").default(true).notNull(),
+  lastSyncAt: timestamp("lastSyncAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type GoogleAdAccount = typeof googleAdAccounts.$inferSelect;
+export type InsertGoogleAdAccount = typeof googleAdAccounts.$inferInsert;

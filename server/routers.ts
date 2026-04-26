@@ -86,6 +86,22 @@ import {
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
+import {
+  getGoogleAdsConfig,
+  isGoogleAdsConfigured,
+  getGoogleAdsCampaigns,
+  getGoogleAdsAdGroups,
+  getGoogleAdsAds,
+  getGoogleAdsAccountSummary,
+} from "./googleAdsService";
+import {
+  getGoogleAdAccountsByUserId,
+  getAllActiveGoogleAdAccounts,
+  getGoogleAdAccountById,
+  createGoogleAdAccount,
+  deleteGoogleAdAccount,
+  updateGoogleAdAccountSync,
+} from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount } from "./autoSync";
@@ -1213,6 +1229,152 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         await deleteDashboardReport(input.id, ctx.user.id);
         return { success: true };
+      }),
+  }),
+
+  // ─── Google Ads ──────────────────────────────────────────────────────────
+  googleAds: router({
+    // Check if Google Ads is configured
+    isConfigured: publicProcedure.query(() => {
+      return { configured: isGoogleAdsConfigured() };
+    }),
+
+    // List Google Ads accounts for current user
+    accounts: protectedProcedure.query(async ({ ctx }) => {
+      return getGoogleAdAccountsByUserId(ctx.user.id);
+    }),
+
+    // Connect a new Google Ads account
+    connectAccount: protectedProcedure
+      .input(z.object({
+        customerId: z.string().min(3),
+        accountName: z.string().optional(),
+        refreshToken: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const config = getGoogleAdsConfig();
+        if (!config) throw new Error("Google Ads API not configured. Set environment variables.");
+        // Use per-account refreshToken if provided, otherwise fall back to global
+        const token = input.refreshToken || config.refreshToken;
+        if (!token) throw new Error("No refresh token available");
+
+        const id = await createGoogleAdAccount({
+          userId: ctx.user.id,
+          customerId: input.customerId.replace(/-/g, ""),
+          accountName: input.accountName ?? `Google Ads ${input.customerId}`,
+          refreshToken: token,
+        });
+        return { success: true, id };
+      }),
+
+    // Disconnect (soft-delete) a Google Ads account
+    disconnectAccount: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteGoogleAdAccount(input.id);
+        return { success: true };
+      }),
+
+    // Account-level summary
+    summary: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(90).default(7),
+      }))
+      .query(async ({ input }) => {
+        const account = await getGoogleAdAccountById(input.accountId);
+        if (!account) throw new Error("Google Ads account not found");
+        const config = getGoogleAdsConfig();
+        if (!config) throw new Error("Google Ads API not configured");
+        // Override with per-account token
+        const accountConfig = { ...config, refreshToken: account.refreshToken };
+        const { startDate, endDate } = getDateRange(input.days);
+        return getGoogleAdsAccountSummary(accountConfig, account.customerId, startDate, endDate);
+      }),
+
+    // Campaigns with metrics
+    campaigns: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(90).default(7),
+        activeOnly: z.boolean().default(true),
+      }))
+      .query(async ({ input }) => {
+        const account = await getGoogleAdAccountById(input.accountId);
+        if (!account) throw new Error("Google Ads account not found");
+        const config = getGoogleAdsConfig();
+        if (!config) throw new Error("Google Ads API not configured");
+        const accountConfig = { ...config, refreshToken: account.refreshToken };
+        const { startDate, endDate } = getDateRange(input.days);
+        return getGoogleAdsCampaigns(accountConfig, account.customerId, startDate, endDate, input.activeOnly);
+      }),
+
+    // Ad Groups for a campaign
+    adGroups: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        campaignId: z.string(),
+        days: z.number().min(1).max(90).default(7),
+      }))
+      .query(async ({ input }) => {
+        const account = await getGoogleAdAccountById(input.accountId);
+        if (!account) throw new Error("Google Ads account not found");
+        const config = getGoogleAdsConfig();
+        if (!config) throw new Error("Google Ads API not configured");
+        const accountConfig = { ...config, refreshToken: account.refreshToken };
+        const { startDate, endDate } = getDateRange(input.days);
+        return getGoogleAdsAdGroups(accountConfig, account.customerId, input.campaignId, startDate, endDate);
+      }),
+
+    // Ads for a campaign
+    ads: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        campaignId: z.string(),
+        days: z.number().min(1).max(90).default(7),
+      }))
+      .query(async ({ input }) => {
+        const account = await getGoogleAdAccountById(input.accountId);
+        if (!account) throw new Error("Google Ads account not found");
+        const config = getGoogleAdsConfig();
+        if (!config) throw new Error("Google Ads API not configured");
+        const accountConfig = { ...config, refreshToken: account.refreshToken };
+        const { startDate, endDate } = getDateRange(input.days);
+        return getGoogleAdsAds(accountConfig, account.customerId, input.campaignId, startDate, endDate);
+      }),
+
+    // Diagnostic: check Google Ads API connectivity
+    diagnose: protectedProcedure
+      .query(async () => {
+        const config = getGoogleAdsConfig();
+        if (!config) return { status: "NOT_CONFIGURED", message: "Google Ads API env vars missing" };
+        const accounts = await getAllActiveGoogleAdAccounts();
+        if (accounts.length === 0) return { status: "NO_ACCOUNTS", message: "No Google Ads accounts connected" };
+        const results = [];
+        for (const acct of accounts) {
+          try {
+            const accountConfig = { ...config, refreshToken: acct.refreshToken };
+            const { startDate, endDate } = getDateRange(1);
+            const summary = await getGoogleAdsAccountSummary(accountConfig, acct.customerId, startDate, endDate);
+            results.push({
+              id: acct.id,
+              customerId: acct.customerId,
+              name: acct.accountName,
+              status: "OK",
+              activeCampaigns: summary.activeCampaigns,
+              spend: summary.spend,
+            });
+          } catch (err: any) {
+            results.push({
+              id: acct.id,
+              customerId: acct.customerId,
+              name: acct.accountName,
+              status: "ERROR",
+              error: err?.message ?? String(err),
+            });
+          }
+        }
+        return { status: "OK", accounts: results };
       }),
   }),
 

@@ -7,10 +7,10 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
-  smtpHost: process.env.SMTP_HOST ?? "smtp.gmail.com",
-  smtpPort: parseInt(process.env.SMTP_PORT ?? "587"),
-  smtpUser: process.env.SMTP_USER ?? "",
-  smtpPass: process.env.SMTP_PASS ?? "",
-  smtpFrom: process.env.SMTP_FROM ?? "dashboard@selva.agency",
-  metaAccessToken: process.env.META_ACCESS_TOKEN || "EAAZA04WMTN9cBRRoeGVpq3ixLv4cyKWkjqTZCnJ5Ts0ZAsX0pt65Rp4mv5LSgZC3zoaxZCHKsrQ98YJTPBcfZCGkhL44Az3EKJwb3Dzd28ZA6J0kJdqISSIXWwVnpZCF7XAaaGrYXaIYsTZBEH7Ns9yWU78uLkuV0HWHPUkriqCWHXqGlpI8S31cU7M5lOzTQ",
+  // Google Ads API credentials
+  googleAdsDeveloperToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
+  googleAdsClientId: process.env.GOOGLE_ADS_CLIENT_ID ?? "",
+  googleAdsClientSecret: process.env.GOOGLE_ADS_CLIENT_SECRET ?? "",
+  googleAdsRefreshToken: process.env.GOOGLE_ADS_REFRESH_TOKEN ?? "",
+  googleAdsLoginCustomerId: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ?? "",
 };
