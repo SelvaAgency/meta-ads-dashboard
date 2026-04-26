@@ -60,36 +60,6 @@ function CreativeIcon({ type }: { type: string }) {
   }
 }
 
-// ─── Thumbnail preview with graceful error fallback ─────────────────────────
-function CreativeThumb({ url, type }: { url?: string; type: string }) {
-  const [imgFailed, setImgFailed] = React.useState(false);
-
-  if (url && !imgFailed) {
-    return (
-      <div className="w-10 h-10 rounded border border-border/30 overflow-hidden flex-shrink-0 bg-black/20 relative">
-        <img
-          src={url}
-          alt=""
-          className="w-full h-full object-cover"
-          loading="lazy"
-          onError={() => setImgFailed(true)}
-          referrerPolicy="no-referrer"
-        />
-        {type === "VIDEO" && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <Film size={12} className="text-white drop-shadow" />
-          </div>
-        )}
-      </div>
-    );
-  }
-  return (
-    <div className="w-10 h-10 rounded border border-border/30 flex items-center justify-center flex-shrink-0 bg-foreground/5">
-      <CreativeIcon type={type} />
-    </div>
-  );
-}
-
 
 // ─── Clean up raw result labels from Meta API ───────────────────────────────
 function cleanResultLabel(label: string | undefined | null): string {
@@ -132,130 +102,69 @@ function cleanResultLabel(label: string | undefined | null): string {
   return label;
 }
 
-// ─── AdSet row with expandable ads ───────────────────────────────────────────
-function AdSetRow({
-  adset,
-  selectedAccountId,
-  dateParams,
-}: {
-  adset: any;
-  selectedAccountId: number;
-  dateParams: { days: number; startDate?: string; endDate?: string; includeToday?: boolean };
-}) {
-  const [expanded, setExpanded] = useState(false);
-
-  const { data: ads, isLoading: adsLoading } = trpc.campaigns.adsByAdset.useQuery(
-    {
-      accountId: selectedAccountId,
-      adsetId: adset.id,
-      days: dateParams.days || 7,
-      ...(dateParams.startDate ? { startDate: dateParams.startDate } : {}),
-      ...(dateParams.endDate ? { endDate: dateParams.endDate } : {}),
-      includeToday: dateParams.includeToday,
-    },
-    { enabled: expanded }
-  );
-
-  const statusBg = adset.effective_status === "ACTIVE"
-    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-    : "bg-amber-500/15 text-amber-400 border-amber-500/30";
-  const statusLabel = adset.effective_status === "ACTIVE" ? "Ativo" : "Pausado";
-
+// ─── Metric cells helper (reused at all 3 levels) ──────────────────────────
+function MetricCells({ d, size = "sm", borderClass = "border-border/30" }: { d: any; size?: "sm" | "base"; borderClass?: string }) {
+  const cls = size === "base" ? "font-bold text-foreground" : "text-xs text-foreground/70";
   return (
     <>
-      {/* Ad Set row */}
-      <tr className="bg-foreground/[0.02] border-b border-border/30 hover:bg-foreground/[0.04] transition-all cursor-pointer" onClick={() => setExpanded(!expanded)}>
-        <td className="px-4 py-2.5 sticky left-0 bg-card border-r border-border/30" style={{ minWidth: "220px" }}>
-          <div className="flex items-center gap-2 pl-4">
-            <span className="text-muted-foreground flex-shrink-0">
-              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            </span>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-foreground/80 truncate">{adset.name}</p>
-              <p className="text-[10px] text-muted-foreground">Conjunto de Anúncios</p>
-            </div>
-          </div>
-        </td>
-        <td className="px-3 py-2.5 text-center border-r border-border/30">
-          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${statusBg}`}>
-            <Circle size={5} className="fill-current" />
-            {statusLabel}
-          </span>
-        </td>
-        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtCurrency(adset.spend)}</p></td>
-        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtNum(adset.conversions)}</p></td>
-        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtCurrency(adset.costPerResult)}</p></td>
-        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs text-foreground/30">—</p></td>
-        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtNum(adset.reach)}</p></td>
-        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtNum(adset.impressions)}</p></td>
-        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtCurrency(adset.cpm)}</p></td>
-        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtNum(adset.clicks)}</p></td>
-        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtCurrency(adset.cpc)}</p></td>
-        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtPct(adset.ctr)}</p></td>
-        <td className="px-3 py-2.5 text-right border-r border-border/30"><p className="text-xs font-medium text-foreground/80">{fmtFreq(adset.frequency)}</p></td>
-        <td className="px-3 py-2.5 text-right"><p className="text-xs text-foreground/30">—</p></td>
-      </tr>
-
-      {/* Expanded ads inside this adset */}
-      {expanded && (
-        adsLoading ? (
-          <tr className="bg-foreground/[0.04]">
-            <td colSpan={14} className="px-8 py-3">
-              <div className="flex items-center gap-2 text-muted-foreground text-xs pl-8">
-                <Loader2 size={12} className="animate-spin" />
-                Carregando anúncios...
-              </div>
-            </td>
-          </tr>
-        ) : !ads || ads.length === 0 ? (
-          <tr className="bg-foreground/[0.04]">
-            <td colSpan={14} className="px-8 py-3">
-              <p className="text-[10px] text-muted-foreground pl-8">Nenhum anúncio ativo neste conjunto.</p>
-            </td>
-          </tr>
-        ) : (
-          ads.map((ad: any) => (
-            <tr key={ad.id} className="bg-foreground/[0.04] border-b border-border/20 hover:bg-foreground/[0.06] transition-all">
-              <td className="px-4 py-2 sticky left-0 bg-card border-r border-border/20" style={{ minWidth: "220px" }}>
-                <div className="flex items-center gap-2 pl-10">
-                  <CreativeThumb url={ad.image_url || ad.thumbnail_url} type={ad.creative_type} />
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-medium text-foreground/70 truncate">{ad.name}</p>
-                    <p className="text-[9px] text-muted-foreground">{ad.creative_type} · {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}</p>
-                  </div>
-                </div>
-              </td>
-              <td className="px-3 py-2 text-center border-r border-border/20">
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[9px] ${
-                  ad.effective_status === "ACTIVE"
-                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                    : "bg-amber-500/15 text-amber-400 border-amber-500/30"
-                }`}>
-                  <Circle size={4} className="fill-current" />
-                  {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}
-                </span>
-              </td>
-              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtCurrency(ad.spend)}</p></td>
-              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtNum(ad.conversions)}</p></td>
-              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtCurrency(ad.costPerResult)}</p></td>
-              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/30">—</p></td>
-              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/30">—</p></td>
-              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtNum(ad.impressions)}</p></td>
-              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtCurrency(ad.cpm)}</p></td>
-              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtNum(ad.clicks)}</p></td>
-              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtCurrency(ad.cpc)}</p></td>
-              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtPct(ad.ctr)}</p></td>
-              <td className="px-3 py-2 text-right border-r border-border/20"><p className="text-[11px] text-foreground/60">{fmtFreq(ad.frequency)}</p></td>
-              <td className="px-3 py-2 text-right"><p className="text-[11px] text-foreground/30">—</p></td>
-            </tr>
-          ))
-        )
-      )}
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtCurrency(d.spend)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtNum(d.conversions)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtCurrency(d.costPerResult)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtNum(d.profileVisits ?? 0)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtNum(d.reach ?? 0)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtNum(d.impressions)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtCurrency(d.cpm)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtNum(d.clicks)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtCurrency(d.cpc)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtPct(d.ctr)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtFreq(d.frequency)}</p></td>
+      <td className={`px-3 py-2.5 text-right`}><p className={cls}>{fmtNum(d.followers ?? 0)}</p></td>
     </>
   );
 }
 
-// ─── Expandable campaign row with lazy-loaded adsets ─────────────────────────
+// ─── Thumbnail preview ───────────────────────────────────────────────────────
+function CreativeThumb({ url, type, creativeId, accountId }: { url?: string; type: string; creativeId?: string; accountId?: number }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const [proxyFailed, setProxyFailed] = useState(false);
+
+  // If direct URL failed but we have a creativeId, try the proxy
+  const proxyUrl = imgFailed && !proxyFailed && creativeId && accountId
+    ? `/api/thumb/${creativeId}?accountId=${accountId}`
+    : null;
+
+  const imgSrc = proxyUrl || url;
+
+  if (imgSrc && !(imgFailed && proxyFailed)) {
+    return (
+      <div className="w-9 h-9 rounded border border-border/40 overflow-hidden flex-shrink-0 bg-black/20 relative">
+        <img
+          src={imgSrc}
+          alt=""
+          className="w-full h-full object-cover"
+          loading="lazy"
+          onError={() => {
+            if (proxyUrl) setProxyFailed(true);
+            else setImgFailed(true);
+          }}
+          referrerPolicy="no-referrer"
+        />
+        {type === "VIDEO" && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Film size={12} className="text-white drop-shadow" />
+          </div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="w-9 h-9 rounded border border-border/40 flex items-center justify-center flex-shrink-0 bg-foreground/5">
+      <CreativeIcon type={type} />
+    </div>
+  );
+}
+
+// ─── Expandable campaign row with 3-level hierarchy ─────────────────────────
 function CampaignRowWithAds({
   campaign: c,
   metaId,
@@ -303,6 +212,8 @@ function CampaignRowWithAds({
   selectedAccountId: number;
   dateParams: { days: number; startDate?: string; endDate?: string; includeToday?: boolean };
 }) {
+  const [expandedAdsets, setExpandedAdsets] = useState<Set<string>>(new Set());
+
   // Fetch adsets when campaign is expanded
   const { data: adsets, isLoading: adsetsLoading } = trpc.campaigns.adsets.useQuery(
     {
@@ -316,16 +227,59 @@ function CampaignRowWithAds({
     { enabled: isExpanded }
   );
 
+  // Fetch ads when campaign is expanded (we group them by adset_id)
+  const { data: ads, isLoading: adsLoading } = trpc.campaigns.ads.useQuery(
+    {
+      accountId: selectedAccountId,
+      metaCampaignId: metaId,
+      days: dateParams.days || 7,
+      ...(dateParams.startDate ? { startDate: dateParams.startDate } : {}),
+      ...(dateParams.endDate ? { endDate: dateParams.endDate } : {}),
+      includeToday: dateParams.includeToday,
+    },
+    { enabled: isExpanded }
+  );
+
+  // Group ads by adset_id
+  const adsByAdset = useMemo(() => {
+    const map = new Map<string, typeof ads>();
+    if (!ads) return map;
+    for (const ad of ads) {
+      const key = ad.adset_id || "unknown";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(ad);
+    }
+    return map;
+  }, [ads]);
+
+  const toggleAdset = useCallback((id: string) => {
+    setExpandedAdsets((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const loading = adsetsLoading || adsLoading;
+
   return (
     <>
-      {/* Campaign row */}
+      {/* ── Campaign row ──────────────────────────────────────────────── */}
       <tr className="border-b border-border/50 hover:bg-secondary/10 transition-all cursor-pointer" onClick={onToggle}>
-        {/* Campaign name — sticky left */}
         <td className="px-4 py-3 sticky left-0 bg-card border-r border-border/50" style={{ minWidth: "220px" }}>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground flex-shrink-0">
               {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             </span>
+            {/* Creative preview stack for campaign (show when ads loaded) */}
+            {ads && ads.length > 0 && (
+              <div className="flex -space-x-1 flex-shrink-0">
+                {ads.slice(0, 2).map((ad) => (
+                  <CreativeThumb key={ad.id} url={(ad as any).thumbnail_url} type={ad.creative_type} creativeId={(ad as any).creative_id} accountId={selectedAccountId} />
+                ))}
+              </div>
+            )}
             <div className="space-y-1 min-w-0">
               <p className="font-semibold text-foreground truncate">{c.campaignName ?? "—"}</p>
               <p className="text-xs text-muted-foreground">{c.campaignId ?? "—"}</p>
@@ -405,37 +359,135 @@ function CampaignRowWithAds({
         </td>
       </tr>
 
-      {/* Expanded adsets (intermediate level) */}
+      {/* ── Expanded: Ad Sets → Ads (3-level) ─────────────────────────── */}
       {isExpanded && (
-        adsetsLoading ? (
+        loading ? (
           <tr className="bg-foreground/[0.02]">
             <td colSpan={14} className="px-8 py-4">
               <div className="flex items-center gap-2 text-muted-foreground text-xs">
                 <Loader2 size={14} className="animate-spin" />
-                Carregando conjuntos de anúncios...
+                Carregando conjuntos e anúncios...
               </div>
             </td>
           </tr>
         ) : !adsets || adsets.length === 0 ? (
-          <tr className="bg-foreground/[0.02]">
-            <td colSpan={14} className="px-8 py-4">
-              <p className="text-xs text-muted-foreground">Nenhum conjunto de anúncios ativo encontrado para esta campanha.</p>
-            </td>
-          </tr>
+          // Fallback: show ads flat if no adsets found
+          !ads || ads.length === 0 ? (
+            <tr className="bg-foreground/[0.02]">
+              <td colSpan={14} className="px-8 py-4">
+                <p className="text-xs text-muted-foreground">Nenhum conjunto ou anúncio encontrado para esta campanha.</p>
+              </td>
+            </tr>
+          ) : (
+            ads.map((ad) => (
+              <tr key={ad.id} className="bg-foreground/[0.02] border-b border-border/30 hover:bg-foreground/[0.04] transition-all">
+                <td className="px-4 py-2.5 sticky left-0 bg-card border-r border-border/30" style={{ minWidth: "220px" }}>
+                  <div className="flex items-center gap-2 pl-6">
+                    <CreativeThumb url={(ad as any).thumbnail_url} type={ad.creative_type} creativeId={(ad as any).creative_id} accountId={selectedAccountId} />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-foreground/80 truncate">{ad.name}</p>
+                      <p className="text-[10px] text-muted-foreground">{ad.creative_type} · {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-3 py-2.5 text-center border-r border-border/30">
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${
+                    ad.effective_status === "ACTIVE"
+                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                      : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                  }`}>
+                    <Circle size={5} className="fill-current" />
+                    {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}
+                  </span>
+                </td>
+                <MetricCells d={ad} />
+              </tr>
+            ))
+          )
         ) : (
-          adsets.map((adset: any) => (
-            <AdSetRow
-              key={adset.id}
-              adset={adset}
-              selectedAccountId={selectedAccountId}
-              dateParams={dateParams}
-            />
-          ))
+          // Normal: iterate adsets, each expandable to show ads
+          adsets.map((adset) => {
+            const adsetAds = adsByAdset.get(adset.id) ?? [];
+            const isAdsetOpen = expandedAdsets.has(adset.id);
+            const adsetStatus = (adset as any).effective_status ?? (adset as any).status ?? "ACTIVE";
+            return (
+              <React.Fragment key={adset.id}>
+                {/* ── Ad Set row (level 2) ─────────────────────────── */}
+                <tr
+                  className="bg-foreground/[0.02] border-b border-border/30 hover:bg-foreground/[0.04] transition-all cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); toggleAdset(adset.id); }}
+                >
+                  <td className="px-4 py-2.5 sticky left-0 bg-card border-r border-border/30" style={{ minWidth: "220px" }}>
+                    <div className="flex items-center gap-2 pl-4">
+                      <span className="text-muted-foreground flex-shrink-0">
+                        {isAdsetOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      </span>
+                      {/* Mini creative preview stack from first ads in this adset */}
+                      {adsetAds.length > 0 && (
+                        <div className="flex -space-x-1.5 flex-shrink-0">
+                          {adsetAds.slice(0, 3).map((ad, i) => (
+                            <CreativeThumb key={ad.id} url={(ad as any).thumbnail_url} type={ad.creative_type} creativeId={(ad as any).creative_id} accountId={selectedAccountId} />
+                          ))}
+                          {adsetAds.length > 3 && (
+                            <div className="w-9 h-9 rounded border border-border/40 flex items-center justify-center flex-shrink-0 bg-foreground/10 text-[10px] text-muted-foreground font-medium">
+                              +{adsetAds.length - 3}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-foreground/90 truncate">{(adset as any).name ?? "Conjunto"}</p>
+                        <p className="text-[10px] text-muted-foreground">{adsetAds.length} anúncio{adsetAds.length !== 1 ? "s" : ""}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-center border-r border-border/30">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${
+                      adsetStatus === "ACTIVE"
+                        ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                        : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                    }`}>
+                      <Circle size={5} className="fill-current" />
+                      {adsetStatus === "ACTIVE" ? "Ativo" : "Pausado"}
+                    </span>
+                  </td>
+                  <MetricCells d={adset} />
+                </tr>
+
+                {/* ── Ads inside this adset (level 3) ──────────────── */}
+                {isAdsetOpen && adsetAds.map((ad) => (
+                  <tr key={ad.id} className="bg-foreground/[0.04] border-b border-border/20 hover:bg-foreground/[0.06] transition-all">
+                    <td className="px-4 py-2 sticky left-0 bg-card border-r border-border/20" style={{ minWidth: "220px" }}>
+                      <div className="flex items-center gap-2 pl-10">
+                        <CreativeThumb url={(ad as any).thumbnail_url} type={ad.creative_type} creativeId={(ad as any).creative_id} accountId={selectedAccountId} />
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-medium text-foreground/80 truncate">{ad.name}</p>
+                          <p className="text-[10px] text-muted-foreground">{ad.creative_type} · {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center border-r border-border/20">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${
+                        ad.effective_status === "ACTIVE"
+                          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                          : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                      }`}>
+                        <Circle size={5} className="fill-current" />
+                        {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}
+                      </span>
+                    </td>
+                    <MetricCells d={ad} borderClass="border-border/20" />
+                  </tr>
+                ))}
+              </React.Fragment>
+            );
+          })
         )
       )}
     </>
   );
 }
+
 
 export default function Campaigns() {
   const [activePeriod, setActivePeriod] = useState("7d");
@@ -450,16 +502,10 @@ export default function Campaigns() {
   // Compute date range based on selected period
   const dateParams = useMemo(() => {
     const today = new Date();
-    const toLocalIso = (d: Date) => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}`;
-    };
-    const todayStr = toLocalIso(today);
+    const todayStr = today.toISOString().split("T")[0];
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = toLocalIso(yesterday);
+    const yesterdayStr = yesterday.toISOString().split("T")[0];
 
     if (periodMode === "custom" && customStartDate && customEndDate) {
       return { days: 0, startDate: customStartDate, endDate: customEndDate, includeToday: true };
@@ -615,7 +661,7 @@ export default function Campaigns() {
         <div>
           <h1 className="text-xl font-bold text-foreground">Campanhas</h1>
           <p className="text-sm text-muted-foreground">
-            Exibindo apenas campanhas ativas {periodLabel}
+            Exibindo campanhas ativas e pausadas {periodLabel}
           </p>
         </div>
 

@@ -83,7 +83,6 @@ import {
   calculateCpa,
   getAdSetsWithInsights,
   getAdsWithInsights,
-  getAdsByAdsetWithInsights,
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
@@ -102,23 +101,14 @@ import {
   generateReportHtml,
   generateAndUploadPdf,
 } from "./dashboardBuilderService";
-import { runDailyReport, generateReportPayload } from "./dailyReport";
-
 // ─── Helper: date range ────────────────────────────────────────────────────────
-
-function toLocalIso(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 
 function getDateRange(days: number, includeToday = false) {
   const today = new Date();
-  const todayStr = toLocalIso(today);
+  const todayStr = today.toISOString().split("T")[0];
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = toLocalIso(yesterday);
+  const yesterdayStr = yesterday.toISOString().split("T")[0];
 
   // includeToday: range extends to today instead of stopping at yesterday
   const end = includeToday ? today : yesterday;
@@ -132,7 +122,7 @@ function getDateRange(days: number, includeToday = false) {
   const start = new Date(end);
   start.setDate(start.getDate() - (days - 1));
   return {
-    startDate: toLocalIso(start),
+    startDate: start.toISOString().split("T")[0],
     endDate: endStr,
   };
 }
@@ -414,7 +404,7 @@ export const appRouter = router({
         // If explicit startDate/endDate provided, use them; otherwise fall back to days-based range
         const { startDate, endDate } = (input.startDate && input.endDate)
           ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days, true); // Include today so all presets have fresh data
+          : getDateRange(input.days);
         const [metrics, campaigns, unreadAlerts, unreadAnomalies] = await Promise.all([
           getAccountMetricsSummary(input.accountId, startDate, endDate),
           getCampaignPerformanceSummary(input.accountId, startDate, endDate),
@@ -511,8 +501,9 @@ export const appRouter = router({
 
         // Merge ALL active/paused campaigns — include zero-metric entries for those without data
         // This fixes the LEFT JOIN issue where Drizzle ORM only returns campaigns with metrics
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
         const result = allCampaigns
-          .filter((c: any) => c.status === "ACTIVE")
+          .filter((c: any) => c.status === "ACTIVE" || (c.status === "PAUSED" && c.updatedAt && new Date(c.updatedAt) >= sevenDaysAgo))
           .map((c: any) => {
             if (perfMap.has(c.id)) return perfMap.get(c.id);
             return {
@@ -533,97 +524,6 @@ export const appRouter = router({
 
         console.log("[campaigns.performance] Returning " + result.length + " campaigns (" + perfRows.length + " with metrics, " + (result.length - perfRows.length) + " zero-metric) for account " + input.accountId);
         return result;
-      }),
-    // Fetch active adsets for a specific campaign (expandable row - intermediate level)
-    adsets: protectedProcedure
-      .input(
-        z.object({
-          accountId: z.number(),
-          metaCampaignId: z.string(),
-          days: z.number().min(1).max(90).default(7),
-          startDate: z.string().optional(),
-          endDate: z.string().optional(),
-          includeToday: z.boolean().optional(),
-        })
-      )
-      .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days, input.includeToday ?? false);
-
-        // Resolve Meta campaign ID (same logic as ads endpoint)
-        let realMetaCampaignId = input.metaCampaignId;
-        try {
-          const localCampaigns = await getCampaignsByAccountId(input.accountId);
-          const inputAsNum = parseInt(input.metaCampaignId, 10);
-          if (!isNaN(inputAsNum)) {
-            const byDbId = localCampaigns.find(c => c.id === inputAsNum);
-            if (byDbId && byDbId.metaCampaignId) realMetaCampaignId = byDbId.metaCampaignId;
-          }
-          if (realMetaCampaignId === input.metaCampaignId && input.metaCampaignId.length < 12) {
-            const byStrId = localCampaigns.find(c => String(c.id) === input.metaCampaignId);
-            if (byStrId && byStrId.metaCampaignId) realMetaCampaignId = byStrId.metaCampaignId;
-          }
-        } catch (_) {}
-
-        // Fetch all adsets with insights
-        const allAdSets = await getAdSetsWithInsights(
-          account.accountId,
-          account.accessToken,
-          startDate,
-          endDate
-        );
-
-        // Filter to only ACTIVE adsets belonging to this campaign
-        const filtered = allAdSets.filter((as) =>
-          as.campaign_id === realMetaCampaignId &&
-          as.effective_status === "ACTIVE"
-        );
-
-        return filtered.sort((a, b) => b.spend - a.spend);
-      }),
-    // Fetch active ads for a specific adset (third level of hierarchy)
-    adsByAdset: protectedProcedure
-      .input(
-        z.object({
-          accountId: z.number(),
-          adsetId: z.string(),
-          days: z.number().min(1).max(90).default(7),
-          startDate: z.string().optional(),
-          endDate: z.string().optional(),
-          includeToday: z.boolean().optional(),
-        })
-      )
-      .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days, input.includeToday ?? false);
-
-        // Get optimization goal for this specific adset (single API call, not all adsets)
-        let goal = "OFFSITE_CONVERSIONS";
-        try {
-          const adsetResp = await fetch(`https://graph.facebook.com/v21.0/${input.adsetId}?fields=optimization_goal&access_token=${account.accessToken}`);
-          const adsetData = await adsetResp.json() as any;
-          if (adsetData.optimization_goal) goal = adsetData.optimization_goal;
-        } catch (e) {
-          console.warn("[adsByAdset] Failed to fetch optimization_goal, using default:", e);
-        }
-
-        // Fetch ads ONLY for this adset (fast targeted query)
-        return getAdsByAdsetWithInsights(
-          account.accountId,
-          account.accessToken,
-          input.adsetId,
-          startDate,
-          endDate,
-          goal
-        );
       }),
     // Fetch active ads/creatives for a specific campaign (expandable row)
     ads: protectedProcedure
@@ -737,7 +637,7 @@ export const appRouter = router({
             
             // Try fetching ads specifically for this campaign from Meta API
             try {
-              const campaignAdsUrl = `https://graph.facebook.com/v21.0/${realMetaCampaignId}/ads?access_token=${account.accessToken}&fields=id,name,campaign_id,status,creative{id,name,thumbnail_url,effective_object_story_id,object_type}&limit=50`;
+              const campaignAdsUrl = `https://graph.facebook.com/v21.0/${realMetaCampaignId}/ads?access_token=${account.accessToken}&fields=id,name,campaign_id,status,effective_status,creative{id,name,thumbnail_url,image_url,effective_object_story_id,object_type}&filtering=${encodeURIComponent(JSON.stringify([{field:"effective_status",operator:"IN",value:["ACTIVE"]}]))}&limit=50`;
               console.log(`[campaigns.ads] Fetching campaign-specific ads from: ${realMetaCampaignId}/ads`);
               const campResp = await fetch(campaignAdsUrl);
               const campData = await campResp.json() as any;
@@ -746,12 +646,15 @@ export const appRouter = router({
                 return campData.data.map((ad: any) => ({
                   id: ad.id,
                   name: ad.name,
-                  adset_id: "",
+                  adset_id: ad.adset_id || "",
+                  adset_name: "",
                   campaign_id: ad.campaign_id || realMetaCampaignId,
+                  campaign_name: "",
                   status: ad.status,
-                  effective_status: ad.status,
+                  effective_status: ad.effective_status || ad.status,
                   creative_type: ad.creative?.object_type || "IMAGE",
-                  thumbnail_url: ad.creative?.thumbnail_url || "",
+                  creative_id: ad.creative?.id || "",
+                  thumbnail_url: ad.creative?.image_url || ad.creative?.thumbnail_url || "",
                   spend: 0, impressions: 0, clicks: 0, frequency: 0,
                   ctr: 0, cpc: 0, cpm: 0, conversions: 0, costPerResult: 0, roas: 0,
                 }));
@@ -766,7 +669,7 @@ export const appRouter = router({
           
           // Original diagnostic: fetch raw ads from account
           try {
-            const rawUrl = `https://graph.facebook.com/v21.0/act_${account.accountId}/ads?access_token=${account.accessToken}&fields=id,name,campaign_id,status&limit=3`;
+            const rawUrl = `https://graph.facebook.com/v21.0/act_${account.accountId}/ads?access_token=${account.accessToken}&fields=id,name,campaign_id,status,effective_status&filtering=${encodeURIComponent(JSON.stringify([{field:"effective_status",operator:"IN",value:["ACTIVE"]}]))}&limit=3`;
             const rawResp = await fetch(rawUrl);
             const rawData = await rawResp.json() as any;
             console.log(`[campaigns.ads] RAW META RESPONSE: ${JSON.stringify(rawData).substring(0, 500)}`);
@@ -774,11 +677,15 @@ export const appRouter = router({
               return rawData.data.map((ad: any) => ({
                 id: ad.id,
                 name: ad.name,
-                adset_id: "",
+                adset_id: ad.adset_id || "",
+                adset_name: "",
                 campaign_id: ad.campaign_id,
+                campaign_name: "",
                 status: ad.status,
                 effective_status: ad.status,
                 creative_type: "IMAGE",
+                creative_id: "",
+                thumbnail_url: "",
                 spend: 0, impressions: 0, clicks: 0, frequency: 0,
                 ctr: 0, cpc: 0, cpm: 0, conversions: 0, costPerResult: 0, roas: 0,
               }));
@@ -789,10 +696,14 @@ export const appRouter = router({
                 id: "debug",
                 name: `Meta API Error: ${rawData.error.message || 'unknown'}`,
                 adset_id: "",
+                adset_name: "",
                 campaign_id: realMetaCampaignId,
+                campaign_name: "",
                 status: "ERROR",
                 effective_status: `code_${rawData.error.code || 'unknown'}`,
                 creative_type: "IMAGE",
+                creative_id: "",
+                thumbnail_url: "",
                 spend: 0, impressions: 0, clicks: 0, frequency: 0,
                 ctr: 0, cpc: 0, cpm: 0, conversions: 0, costPerResult: 0, roas: 0,
               }];
@@ -804,6 +715,51 @@ export const appRouter = router({
         
         return filtered;
       }),
+
+    // ── Ad Sets for a campaign (3-level hierarchy) ───────────────────────
+    adsets: protectedProcedure
+      .input(
+        z.object({
+          accountId: z.number(),
+          metaCampaignId: z.string(),
+          days: z.number().min(1).max(90).default(7),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          includeToday: z.boolean().optional(),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+
+        const { startDate, endDate } = (input.startDate && input.endDate)
+          ? { startDate: input.startDate, endDate: input.endDate }
+          : getDateRange(input.days, input.includeToday ?? false);
+
+        // Resolve Meta campaign ID (same logic as campaigns.ads)
+        let realMetaCampaignId = input.metaCampaignId;
+        try {
+          const localCampaigns = await getCampaignsByAccountId(input.accountId);
+          const inputAsNum = parseInt(input.metaCampaignId, 10);
+          if (!isNaN(inputAsNum)) {
+            const byDbId = localCampaigns.find(c => c.id === inputAsNum);
+            if (byDbId && byDbId.metaCampaignId) realMetaCampaignId = byDbId.metaCampaignId;
+          }
+          if (realMetaCampaignId === input.metaCampaignId && input.metaCampaignId.length < 12) {
+            const byStrId = localCampaigns.find(c => String(c.id) === input.metaCampaignId);
+            if (byStrId && byStrId.metaCampaignId) realMetaCampaignId = byStrId.metaCampaignId;
+          }
+        } catch (e) { /* keep original */ }
+
+        // Fetch all adsets with insights for this account
+        const allAdsets = await getAdSetsWithInsights(
+          account.accountId, account.accessToken, startDate, endDate
+        );
+
+        // Filter to only adsets belonging to this campaign
+        return allAdsets.filter(as => as.campaign_id === realMetaCampaignId);
+      }),
+
     // Diagnostic: raw Meta API call without error swallowing
     adsDebug: protectedProcedure
       .input(z.object({ accountId: z.number() }))
@@ -1068,12 +1024,6 @@ export const appRouter = router({
       }),
   }),// ─── Scheduled Reports ─────────────────────────────────────────────────────
   reports: router({
-    triggerDailyReport: protectedProcedure
-      .mutation(async () => {
-        await runDailyReport();
-        return { success: true, message: "Report diário disparado com sucesso" };
-      }),
-
     list: protectedProcedure.query(async ({ ctx }) => {
       return getScheduledReportsByUserId(ctx.user.id);
     }),
@@ -1330,21 +1280,6 @@ export const appRouter = router({
           }
         }
         return results;
-      }),
-  }),
-
-  // ─── Daily Report (public - no auth needed for automation) ──────────────
-  report: router({
-    generateDaily: publicProcedure
-      .query(async () => {
-        const payload = await generateReportPayload();
-        if (!payload) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "No data available for daily report",
-          });
-        }
-        return payload;
       }),
   }),
 });
