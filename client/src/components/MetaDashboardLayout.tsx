@@ -85,6 +85,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/suggestions", label: "Sugestões IA", icon: Lightbulb },
     { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/dashboard-builder", label: "Dashboard Builder", icon: PieChart },
+    { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
   ];
 
   if (loading) {
