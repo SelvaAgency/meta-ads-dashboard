@@ -12,6 +12,5 @@ export const ENV = {
   smtpUser: process.env.SMTP_USER ?? "",
   smtpPass: process.env.SMTP_PASS ?? "",
   smtpFrom: process.env.SMTP_FROM ?? "dashboard@selva.agency",
-  metaAccessToken: process.env.META_ACCESS_TOKEN ?? "",
-  resendApiKey: process.env.RESEND_API_KEY ?? "",
+  metaAccessToken: process.env.META_ACCESS_TOKEN || "EAAZA04WMTN9cBRRoeGVpq3ixLv4cyKWkjqTZCnJ5Ts0ZAsX0pt65Rp4mv5LSgZC3zoaxZCHKsrQ98YJTPBcfZCGkhL44Az3EKJwb3Dzd28ZA6J0kJdqISSIXWwVnpZCF7XAaaGrYXaIYsTZBEH7Ns9yWU78uLkuV0HWHPUkriqCWHXqGlpI8S31cU7M5lOzTQ",
 };
