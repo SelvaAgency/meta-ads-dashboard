@@ -1255,6 +1255,148 @@ export const appRouter = router({
 
         return { success: true, report };
       }),
+
+    // ─── Public endpoint for scheduled daily report ─────────────────────────
+    generateDaily: publicProcedure.query(async () => {
+      const accounts = await getMetaAdAccountsByUserId(1);
+      const activeAccounts = accounts.filter((a: any) => a.isActive);
+
+      if (activeAccounts.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No active accounts found" });
+      }
+
+      const now = new Date();
+      const spNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      const yesterday = new Date(spNow);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const dateStr = yesterday.toISOString().split("T")[0];
+      const fmtDate = dateStr.split("-").reverse().join("/");
+
+      const accountResults: any[] = [];
+      let totalSpend = 0, totalConversions = 0, totalConversionValue = 0;
+      let totalImpressions = 0, totalClicks = 0, totalReach = 0;
+
+      for (const acct of activeAccounts) {
+        try {
+          const metrics = await getAccountMetricsSummary(acct.id, dateStr, dateStr);
+          const dayMetrics = metrics[0] || null;
+          const spend = Number(dayMetrics?.totalSpend ?? 0);
+          const conversions = Number(dayMetrics?.totalConversions ?? 0);
+          const conversionValue = Number(dayMetrics?.totalConversionValue ?? 0);
+          const impressions = Number(dayMetrics?.totalImpressions ?? 0);
+          const clicks = Number(dayMetrics?.totalClicks ?? 0);
+          const reach = Number(dayMetrics?.totalReach ?? 0);
+          const roas = spend > 0 ? conversionValue / spend : 0;
+          const cpa = conversions > 0 ? spend / conversions : 0;
+          const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+          const cpc = clicks > 0 ? spend / clicks : 0;
+
+          totalSpend += spend;
+          totalConversions += conversions;
+          totalConversionValue += conversionValue;
+          totalImpressions += impressions;
+          totalClicks += clicks;
+          totalReach += reach;
+
+          accountResults.push({
+            name: acct.accountName ?? acct.accountId,
+            spend, conversions, conversionValue, impressions, clicks, reach,
+            roas, cpa, ctr, cpc, hasData: spend > 0,
+          });
+        } catch {
+          accountResults.push({
+            name: acct.accountName ?? acct.accountId,
+            spend: 0, conversions: 0, conversionValue: 0, impressions: 0,
+            clicks: 0, reach: 0, roas: 0, cpa: 0, ctr: 0, cpc: 0,
+            hasData: false, error: true,
+          });
+        }
+      }
+
+      const accountsWithData = accountResults.filter((a: any) => a.hasData);
+      if (accountsWithData.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No data available for yesterday" });
+      }
+
+      const totalRoas = totalSpend > 0 ? totalConversionValue / totalSpend : 0;
+      const totalCpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
+      const totalCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+      const totalCpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+
+      const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const fmtInt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+
+      const subject = `[SELVA] Report Diário Meta Ads — ${fmtDate}`;
+
+      const accountRows = accountsWithData.map((a: any) =>
+        `<tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:500;">${a.name}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">R$ ${fmt(a.spend)}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${fmtInt(a.conversions)}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">R$ ${fmt(a.conversionValue)}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${a.roas.toFixed(2)}x</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">R$ ${fmt(a.cpa)}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${a.ctr.toFixed(2)}%</td>
+        </tr>`
+      ).join("");
+
+      const html = `<div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;background:#fff;">
+        <div style="background:#1a1a1a;padding:20px 30px;text-align:center;">
+          <h1 style="color:#f5c6d0;margin:0;font-size:24px;">SELVA AGENCY</h1>
+          <p style="color:#888;margin:5px 0 0;font-size:14px;">Report Diário Meta Ads — ${fmtDate}</p>
+        </div>
+        <div style="padding:30px;">
+          <h2 style="color:#333;margin-top:0;">KPIs Consolidados</h2>
+          <table style="width:100%;border-collapse:collapse;margin:15px 0;">
+            <tr>
+              <td style="padding:15px;background:#f8f8f8;text-align:center;border-radius:8px;">
+                <div style="font-size:24px;font-weight:bold;color:#333;">R$ ${fmt(totalSpend)}</div>
+                <div style="font-size:12px;color:#888;margin-top:4px;">Investimento</div>
+              </td>
+              <td style="padding:15px;background:#f8f8f8;text-align:center;border-radius:8px;">
+                <div style="font-size:24px;font-weight:bold;color:#333;">${fmtInt(totalConversions)}</div>
+                <div style="font-size:12px;color:#888;margin-top:4px;">Conversões</div>
+              </td>
+              <td style="padding:15px;background:#f8f8f8;text-align:center;border-radius:8px;">
+                <div style="font-size:24px;font-weight:bold;color:#333;">R$ ${fmt(totalConversionValue)}</div>
+                <div style="font-size:12px;color:#888;margin-top:4px;">Receita</div>
+              </td>
+              <td style="padding:15px;background:#f8f8f8;text-align:center;border-radius:8px;">
+                <div style="font-size:24px;font-weight:bold;color:${totalRoas >= 1 ? '#22c55e' : '#ef4444'};">${totalRoas.toFixed(2)}x</div>
+                <div style="font-size:12px;color:#888;margin-top:4px;">ROAS</div>
+              </td>
+            </tr>
+          </table>
+          <h2 style="color:#333;">Performance por Conta</h2>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead><tr style="background:#f5c6d0;">
+              <th style="padding:10px 12px;text-align:left;">Conta</th>
+              <th style="padding:10px 12px;text-align:right;">Investimento</th>
+              <th style="padding:10px 12px;text-align:right;">Conversões</th>
+              <th style="padding:10px 12px;text-align:right;">Receita</th>
+              <th style="padding:10px 12px;text-align:right;">ROAS</th>
+              <th style="padding:10px 12px;text-align:right;">CPA</th>
+              <th style="padding:10px 12px;text-align:right;">CTR</th>
+            </tr></thead>
+            <tbody>${accountRows}</tbody>
+          </table>
+          <p style="color:#999;font-size:11px;margin-top:30px;border-top:1px solid #eee;padding-top:15px;">
+            Report automático — SELVA Agency Dashboard<br>
+            <a href="https://dashboardselva.manus.space" style="color:#f5c6d0;">Acessar Dashboard</a> |
+            ${accountsWithData.length} de ${activeAccounts.length} contas com dados
+          </p>
+        </div>
+      </div>`;
+
+      const plainText = "SELVA AGENCY - Report Diário Meta Ads - " + fmtDate + "\n\n" +
+        "Investimento: R$ " + fmt(totalSpend) + " | Conversões: " + fmtInt(totalConversions) +
+        " | Receita: R$ " + fmt(totalConversionValue) + " | ROAS: " + totalRoas.toFixed(2) + "x\n\n" +
+        "Por Conta:\n" + accountsWithData.map((a: any) =>
+          a.name + ": R$ " + fmt(a.spend) + " invest | " + fmtInt(a.conversions) + " conv | ROAS " + a.roas.toFixed(2) + "x"
+        ).join("\n");
+
+      return { subject, html, plainText, date: dateStr, accountCount: activeAccounts.length, accountsWithData: accountsWithData.length };
+    }),
   }),
   dashboardBuilder: router({
     // Listar relatórios do usuário
@@ -1553,96 +1695,6 @@ export const appRouter = router({
       }),
   }),
 
-  // ─── Public Report Generation for Scheduled Tasks ─────────────────────────
-  report: router({
-    generateDaily: publicProcedure.query(async () => {
-      const accounts = await getMetaAdAccountsByUserId(1);
-      const activeAccounts = accounts.filter((a: any) => a.isActive);
-      
-      if (activeAccounts.length === 0) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "No active accounts found" });
-      }
-
-      // Yesterday's date in São Paulo timezone
-      const now = new Date();
-      const spNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-      const yesterday = new Date(spNow);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const dateStr = yesterday.toISOString().split("T")[0];
-      const fmtDate = dateStr.split("-").reverse().join("/");
-
-      // Fetch metrics for each account
-      const accountResults: any[] = [];
-      let totalSpend = 0, totalConversions = 0, totalConversionValue = 0;
-      let totalImpressions = 0, totalClicks = 0, totalReach = 0;
-
-      for (const acct of activeAccounts) {
-        try {
-          const metrics = await getAccountMetricsSummary(acct.id, dateStr, dateStr);
-          const dayMetrics = metrics[0] || null;
-          
-          const spend = Number(dayMetrics?.totalSpend ?? 0);
-          const conversions = Number(dayMetrics?.totalConversions ?? 0);
-          const conversionValue = Number(dayMetrics?.totalConversionValue ?? 0);
-          const impressions = Number(dayMetrics?.totalImpressions ?? 0);
-          const clicks = Number(dayMetrics?.totalClicks ?? 0);
-          const reach = Number(dayMetrics?.totalReach ?? 0);
-          const roas = spend > 0 ? conversionValue / spend : 0;
-          const cpa = conversions > 0 ? spend / conversions : 0;
-          const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
-          const cpc = clicks > 0 ? spend / clicks : 0;
-
-          totalSpend += spend;
-          totalConversions += conversions;
-          totalConversionValue += conversionValue;
-          totalImpressions += impressions;
-          totalClicks += clicks;
-          totalReach += reach;
-
-          accountResults.push({
-            name: acct.accountName ?? acct.accountId,
-            spend, conversions, conversionValue, impressions, clicks, reach,
-            roas, cpa, ctr, cpc,
-            hasData: spend > 0,
-          });
-        } catch {
-          accountResults.push({
-            name: acct.accountName ?? acct.accountId,
-            spend: 0, conversions: 0, conversionValue: 0, impressions: 0,
-            clicks: 0, reach: 0, roas: 0, cpa: 0, ctr: 0, cpc: 0,
-            hasData: false, error: true,
-          });
-        }
-      }
-
-      const accountsWithData = accountResults.filter((a: any) => a.hasData);
-      if (accountsWithData.length === 0) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "No data available for yesterday" });
-      }
-
-      const globalRoas = totalSpend > 0 ? totalConversionValue / totalSpend : 0;
-      const globalCpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
-      const globalCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
-
-      const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      const fmtInt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
-
-      const subject = "[SELVA] Report Di\u00e1rio Meta Ads \u2014 " + fmtDate;
-
-      const accountRows = accountResults
-        .sort((a: any, b: any) => b.spend - a.spend)
-        .map((a: any) => "<tr style=\"border-bottom:1px solid #eee;\"><td style=\"padding:10px 8px;font-weight:600;color:#1a1a1a;\">" + a.name + "</td><td style=\"padding:10px 8px;text-align:right;\">R$ " + fmt(a.spend) + "</td><td style=\"padding:10px 8px;text-align:right;\">" + fmtInt(a.impressions) + "</td><td style=\"padding:10px 8px;text-align:right;\">" + fmtInt(a.clicks) + "</td><td style=\"padding:10px 8px;text-align:right;\">" + a.ctr.toFixed(2) + "%</td><td style=\"padding:10px 8px;text-align:right;\">" + fmtInt(a.conversions) + "</td><td style=\"padding:10px 8px;text-align:right;\">R$ " + fmt(a.conversionValue) + "</td><td style=\"padding:10px 8px;text-align:right;font-weight:600;color:" + (a.roas >= 3 ? "#16a34a" : a.roas >= 1 ? "#d97706" : "#dc2626") + ";\">" + a.roas.toFixed(2) + "x</td><td style=\"padding:10px 8px;text-align:right;\">R$ " + fmt(a.cpa) + "</td></tr>").join("");
-
-      const html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body style=\"margin:0;padding:0;background:#f5f0e8;font-family:Arial,Helvetica,sans-serif;\"><div style=\"max-width:800px;margin:0 auto;padding:20px;\"><div style=\"background:#1a1a1a;border-radius:12px 12px 0 0;padding:24px 32px;text-align:center;\"><h1 style=\"color:#f5c6d0;margin:0;font-size:24px;\">SELVA AGENCY</h1><p style=\"color:#ccc;margin:4px 0 0;font-size:14px;\">Report Di\u00e1rio Meta Ads \u2014 " + fmtDate + "</p></div><div style=\"background:#fff;padding:24px 32px;border-bottom:1px solid #eee;\"><h2 style=\"color:#1a1a1a;margin:0 0 16px;font-size:18px;\">Consolidado Geral</h2><table style=\"width:100%;border-collapse:collapse;\"><tr><td style=\"padding:12px;background:#f8f4ee;border-radius:8px;text-align:center;width:25%;\"><div style=\"font-size:24px;font-weight:700;color:#1a1a1a;\">R$ " + fmt(totalSpend) + "</div><div style=\"font-size:12px;color:#666;margin-top:4px;\">Investimento</div></td><td style=\"width:8px;\"></td><td style=\"padding:12px;background:#f8f4ee;border-radius:8px;text-align:center;width:25%;\"><div style=\"font-size:24px;font-weight:700;color:" + (globalRoas >= 3 ? "#16a34a" : globalRoas >= 1 ? "#d97706" : "#dc2626") + ";\">" + globalRoas.toFixed(2) + "x</div><div style=\"font-size:12px;color:#666;margin-top:4px;\">ROAS</div></td><td style=\"width:8px;\"></td><td style=\"padding:12px;background:#f8f4ee;border-radius:8px;text-align:center;width:25%;\"><div style=\"font-size:24px;font-weight:700;color:#1a1a1a;\">" + fmtInt(totalConversions) + "</div><div style=\"font-size:12px;color:#666;margin-top:4px;\">Convers\u00f5es</div></td><td style=\"width:8px;\"></td><td style=\"padding:12px;background:#f8f4ee;border-radius:8px;text-align:center;width:25%;\"><div style=\"font-size:24px;font-weight:700;color:#1a1a1a;\">R$ " + fmt(totalConversionValue) + "</div><div style=\"font-size:12px;color:#666;margin-top:4px;\">Receita</div></td></tr></table></div><div style=\"background:#fff;padding:24px 32px;\"><h2 style=\"color:#1a1a1a;margin:0 0 16px;font-size:18px;\">Performance por Conta</h2><table style=\"width:100%;border-collapse:collapse;font-size:13px;\"><thead><tr style=\"background:#f8f4ee;\"><th style=\"padding:10px 8px;text-align:left;font-weight:600;\">Conta</th><th style=\"padding:10px 8px;text-align:right;font-weight:600;\">Invest.</th><th style=\"padding:10px 8px;text-align:right;font-weight:600;\">Impr.</th><th style=\"padding:10px 8px;text-align:right;font-weight:600;\">Cliques</th><th style=\"padding:10px 8px;text-align:right;font-weight:600;\">CTR</th><th style=\"padding:10px 8px;text-align:right;font-weight:600;\">Conv.</th><th style=\"padding:10px 8px;text-align:right;font-weight:600;\">Receita</th><th style=\"padding:10px 8px;text-align:right;font-weight:600;\">ROAS</th><th style=\"padding:10px 8px;text-align:right;font-weight:600;\">CPA</th></tr></thead><tbody>" + accountRows + "<tr style=\"background:#f8f4ee;font-weight:700;\"><td style=\"padding:10px 8px;\">TOTAL</td><td style=\"padding:10px 8px;text-align:right;\">R$ " + fmt(totalSpend) + "</td><td style=\"padding:10px 8px;text-align:right;\">" + fmtInt(totalImpressions) + "</td><td style=\"padding:10px 8px;text-align:right;\">" + fmtInt(totalClicks) + "</td><td style=\"padding:10px 8px;text-align:right;\">" + globalCtr.toFixed(2) + "%</td><td style=\"padding:10px 8px;text-align:right;\">" + fmtInt(totalConversions) + "</td><td style=\"padding:10px 8px;text-align:right;\">R$ " + fmt(totalConversionValue) + "</td><td style=\"padding:10px 8px;text-align:right;color:" + (globalRoas >= 3 ? "#16a34a" : globalRoas >= 1 ? "#d97706" : "#dc2626") + ";\">" + globalRoas.toFixed(2) + "x</td><td style=\"padding:10px 8px;text-align:right;\">R$ " + fmt(globalCpa) + "</td></tr></tbody></table></div><div style=\"background:#1a1a1a;border-radius:0 0 12px 12px;padding:16px 32px;text-align:center;\"><p style=\"color:#999;margin:0;font-size:12px;\">Gerado automaticamente pelo SELVA Dashboard \u2022 " + fmtDate + "</p><p style=\"color:#666;margin:4px 0 0;font-size:11px;\">dashboardselva.manus.space</p></div></div></body></html>";
-
-      const plainText = "[SELVA] Report Di\u00e1rio Meta Ads \u2014 " + fmtDate + "\n\nConsolidado: Investimento R$ " + fmt(totalSpend) + " | ROAS " + globalRoas.toFixed(2) + "x | " + fmtInt(totalConversions) + " convers\u00f5es | Receita R$ " + fmt(totalConversionValue) + "\n\n" +
-        accountResults.sort((a: any, b: any) => b.spend - a.spend).map((a: any) => 
-          a.name + ": R$ " + fmt(a.spend) + " invest | " + fmtInt(a.conversions) + " conv | ROAS " + a.roas.toFixed(2) + "x"
-        ).join("\n");
-
-      return { subject, html, plainText, date: dateStr, accountCount: activeAccounts.length, accountsWithData: accountsWithData.length };
-    }),
-  }),
 });
-export type AppRouter = typeof appRouter;;
+export type AppRouter = typeof appRouter;
 
