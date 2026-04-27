@@ -626,9 +626,10 @@ async function runDailyReport() {
   try {
     const res = await fetch("http://localhost:3000/api/trpc/reports.generateDaily");
     const json = await res.json();
-    const data = json?.result?.data;
+    // tRPC superjson wraps response in result.data.json
+    const data = json?.result?.data?.json ?? json?.result?.data;
     if (!data?.html || !data?.subject) {
-      console.error("[DailyReport] No report data returned:", JSON.stringify(json).slice(0, 200));
+      console.error("[DailyReport] No report data returned:", JSON.stringify(json).slice(0, 500));
       return;
     }
     const sent = await sendEmail({

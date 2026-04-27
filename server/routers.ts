@@ -1449,9 +1449,10 @@ export const appRouter = router({
         // Fetch report data from the internal endpoint
         const res = await fetch("http://localhost:3000/api/trpc/reports.generateDaily");
         const json = await res.json();
-        const data = json?.result?.data;
+        // tRPC superjson wraps response in result.data.json
+        const data = json?.result?.data?.json ?? json?.result?.data;
         if (!data?.html || !data?.subject) {
-          return { success: false, error: "Failed to generate report data" };
+          return { success: false, error: "Failed to generate report data", debug: JSON.stringify(json).slice(0, 500) };
         }
         const sent = await sendEmail({
           to: DAILY_REPORT_RECIPIENTS,
