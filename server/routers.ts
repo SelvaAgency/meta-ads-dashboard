@@ -109,18 +109,6 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount } from "./autoSync";
-import {
-  createDashboardReport,
-  getDashboardReportsByUserId,
-  getDashboardReportById,
-  updateDashboardReport,
-  deleteDashboardReport,
-} from "./dashboardBuilderDb";
-import {
-  analyzeCampaignData,
-  generateReportHtml,
-  generateAndUploadPdf,
-} from "./dashboardBuilderService";
 // ─── Helper: date range ────────────────────────────────────────────────────────
 
 function getDateRange(days: number, includeToday = false) {
@@ -1602,90 +1590,6 @@ export const appRouter = router({
       }
     }),
   }),
-  dashboardBuilder: router({
-    // Listar relatórios do usuário
-    list: protectedProcedure.query(async ({ ctx }) => {
-      return getDashboardReportsByUserId(ctx.user.id);
-    }),
-
-    // Buscar relatório por ID
-    getById: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .query(async ({ ctx, input }) => {
-        const report = await getDashboardReportById(input.id, ctx.user.id);
-        if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Relatório não encontrado" });
-        return report;
-      }),
-
-    // Gerar novo relatório (recebe URLs de imagens já enviadas ao S3)
-    generate: protectedProcedure
-      .input(
-        z.object({
-          clientName: z.string().min(1).max(255),
-          weeklyContext: z.string().min(1),
-          mode: z.enum(["SINGLE", "COMPARATIVE"]),
-          imageUrls: z.array(z.string().url()).min(0).max(2),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        // Criar registro inicial
-        const insertResult = await createDashboardReport({
-          userId: ctx.user.id,
-          clientName: input.clientName,
-          weeklyContext: input.weeklyContext,
-          mode: input.mode,
-          imageUrls: JSON.stringify(input.imageUrls),
-          status: "PROCESSING",
-        });
-        // mysql2 + drizzle retorna [ResultSetHeader, FieldPacket[]] — insertId está no primeiro elemento
-        const reportId = ((insertResult as any)[0]?.insertId ?? (insertResult as any).insertId) as number;
-        if (!reportId) {
-          throw new Error("Falha ao criar registro no banco de dados");
-        }
-
-        try {
-          // Analisar via LLM
-          const reportData = await analyzeCampaignData(
-            input.clientName,
-            input.weeklyContext,
-            input.mode,
-            input.imageUrls
-          );
-
-          // Gerar HTML e fazer upload
-          const html = generateReportHtml(reportData);
-          const pdfUrl = await generateAndUploadPdf(reportId, String(ctx.user.id), html);
-
-          // Salvar resultado
-          await updateDashboardReport(reportId, {
-            platform: reportData.platform,
-            reportJson: JSON.stringify(reportData),
-            pdfUrl,
-            status: "DONE",
-          });
-
-          return { id: reportId, status: "DONE", pdfUrl, reportData };
-        } catch (err: any) {
-          await updateDashboardReport(reportId, {
-            status: "ERROR",
-            errorMessage: err?.message ?? "Erro desconhecido",
-          });
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: err?.message ?? "Erro ao gerar relatório",
-          });
-        }
-      }),
-
-    // Deletar relatório
-    delete: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .mutation(async ({ ctx, input }) => {
-        await deleteDashboardReport(input.id, ctx.user.id);
-        return { success: true };
-      }),
-  }),
-
   // ─── Google Ads ──────────────────────────────────────────────────────────
   googleAds: router({
     // Check if Google Ads is configured
