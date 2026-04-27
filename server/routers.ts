@@ -83,6 +83,8 @@ import {
   calculateCpa,
   getAdSetsWithInsights,
   getAdsWithInsights,
+  getDemographicsInsights,
+  getDailyAccountInsights,
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
@@ -469,6 +471,109 @@ export const appRouter = router({
           },
         };
       }),
+
+    // ─── Demographics (age/gender) ──────────────────────────────────────────
+    demographics: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(90).default(30),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const { startDate, endDate } = (input.startDate && input.endDate)
+          ? { startDate: input.startDate, endDate: input.endDate }
+          : getDateRange(input.days);
+        const rows = await getDemographicsInsights(account.accountId, account.accessToken, startDate, endDate);
+        // Aggregate by age
+        const byAge: Record<string, { spend: number; impressions: number; clicks: number; conversions: number; reach: number }> = {};
+        for (const r of rows) {
+          if (!byAge[r.age]) byAge[r.age] = { spend: 0, impressions: 0, clicks: 0, conversions: 0, reach: 0 };
+          byAge[r.age].spend += r.spend;
+          byAge[r.age].impressions += r.impressions;
+          byAge[r.age].clicks += r.clicks;
+          byAge[r.age].conversions += r.conversions;
+          byAge[r.age].reach += r.reach;
+        }
+        // Aggregate by gender
+        const byGender: Record<string, { spend: number; impressions: number; clicks: number; conversions: number; reach: number }> = {};
+        for (const r of rows) {
+          const g = r.gender === "male" ? "Masculino" : r.gender === "female" ? "Feminino" : "Desconhecido";
+          if (!byGender[g]) byGender[g] = { spend: 0, impressions: 0, clicks: 0, conversions: 0, reach: 0 };
+          byGender[g].spend += r.spend;
+          byGender[g].impressions += r.impressions;
+          byGender[g].clicks += r.clicks;
+          byGender[g].conversions += r.conversions;
+          byGender[g].reach += r.reach;
+        }
+        // Age order
+        const ageOrder = ["13-17", "18-24", "25-34", "35-44", "45-54", "55-64", "65+"];
+        const ageData = ageOrder
+          .filter((a) => byAge[a])
+          .map((a) => ({ age: a, ...byAge[a] }));
+        const genderData = Object.entries(byGender).map(([gender, data]) => ({ gender, ...data }));
+        return { ageData, genderData, raw: rows };
+      }),
+
+    // ─── Daily insights (conversions per day) ───────────────────────────────
+    dailyInsights: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(90).default(30),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const { startDate, endDate } = (input.startDate && input.endDate)
+          ? { startDate: input.startDate, endDate: input.endDate }
+          : getDateRange(input.days);
+        const rows = await getDailyAccountInsights(account.accountId, account.accessToken, startDate, endDate);
+        // Also compute weekend vs weekday aggregates
+        let weekdayTotals = { days: 0, spend: 0, conversions: 0, conversionValue: 0, impressions: 0, clicks: 0, reach: 0 };
+        let weekendTotals = { days: 0, spend: 0, conversions: 0, conversionValue: 0, impressions: 0, clicks: 0, reach: 0 };
+        for (const r of rows) {
+          const dayOfWeek = new Date(r.date).getDay();
+          const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+          const target = isWeekend ? weekendTotals : weekdayTotals;
+          target.days++;
+          target.spend += r.spend;
+          target.conversions += r.conversions;
+          target.conversionValue += r.conversionValue;
+          target.impressions += r.impressions;
+          target.clicks += r.clicks;
+          target.reach += r.reach;
+        }
+        // Compute averages
+        const weekdayAvg = weekdayTotals.days > 0 ? {
+          spend: weekdayTotals.spend / weekdayTotals.days,
+          conversions: weekdayTotals.conversions / weekdayTotals.days,
+          conversionValue: weekdayTotals.conversionValue / weekdayTotals.days,
+          impressions: weekdayTotals.impressions / weekdayTotals.days,
+          clicks: weekdayTotals.clicks / weekdayTotals.days,
+          ctr: weekdayTotals.impressions > 0 ? (weekdayTotals.clicks / weekdayTotals.impressions) * 100 : 0,
+          cpa: weekdayTotals.conversions > 0 ? weekdayTotals.spend / weekdayTotals.conversions : 0,
+        } : null;
+        const weekendAvg = weekendTotals.days > 0 ? {
+          spend: weekendTotals.spend / weekendTotals.days,
+          conversions: weekendTotals.conversions / weekendTotals.days,
+          conversionValue: weekendTotals.conversionValue / weekendTotals.days,
+          impressions: weekendTotals.impressions / weekendTotals.days,
+          clicks: weekendTotals.clicks / weekendTotals.days,
+          ctr: weekendTotals.impressions > 0 ? (weekendTotals.clicks / weekendTotals.impressions) * 100 : 0,
+          cpa: weekendTotals.conversions > 0 ? weekendTotals.spend / weekendTotals.conversions : 0,
+        } : null;
+        return {
+          daily: rows,
+          weekdayTotals,
+          weekendTotals,
+          weekdayAvg,
+          weekendAvg,
+        };
+      }),
   }),
 
   // ─── Campaigns ─────────────────────────────────────────────────────────────
@@ -510,7 +615,9 @@ export const appRouter = router({
           });
         } catch (metaErr) {
           console.error("[campaigns.list] Meta API failed, falling back to DB:", metaErr);
-          return getActiveCampaignsForDisplay(input.accountId);
+          const dbFallback = await getActiveCampaignsForDisplay(input.accountId);
+          // CRITICAL: Filter ACTIVE only even in DB fallback
+          return dbFallback.filter((c: any) => (c.status ?? "").toUpperCase() === "ACTIVE");
         }
       }),
 

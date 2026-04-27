@@ -1141,3 +1141,95 @@ export async function getAdsWithInsights(
     throw err;
   }
 }
+
+// ─── Demographics (age/gender) breakdown ────────────────────────────────────
+
+export interface DemographicRow {
+  age: string;
+  gender: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  reach: number;
+}
+
+/**
+ * Fetch age+gender demographic breakdown from Meta Ads API.
+ * Uses breakdowns=age,gender at the account level.
+ */
+export async function getDemographicsInsights(
+  accountId: string,
+  accessToken: string,
+  startDate: string,
+  endDate: string
+): Promise<DemographicRow[]> {
+  console.log(`[getDemographicsInsights] Fetching for account ${accountId} (${startDate}–${endDate})`);
+  const raw = await metaFetchAll<any>(`act_${accountId}/insights`, {
+    access_token: accessToken,
+    fields: "spend,impressions,clicks,reach,actions",
+    breakdowns: "age,gender",
+    time_range: JSON.stringify({ since: startDate, until: endDate }),
+    limit: "500",
+    filtering: JSON.stringify([{ field: "campaign.delivery_info", operator: "IN", value: ["active", "completed", "inactive"] }]),
+  });
+
+  return raw.map((r: any) => {
+    const conversions = extractConversions(r.actions);
+    return {
+      age: r.age ?? "unknown",
+      gender: r.gender ?? "unknown",
+      spend: parseFloat(r.spend ?? "0"),
+      impressions: parseInt(r.impressions ?? "0", 10),
+      clicks: parseInt(r.clicks ?? "0", 10),
+      conversions,
+      reach: parseInt(r.reach ?? "0", 10),
+    };
+  });
+}
+
+// ─── Daily insights (for purchases/conversions per day) ─────────────────────
+
+export interface DailyInsightRow {
+  date: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  conversionValue: number;
+  reach: number;
+}
+
+/**
+ * Fetch daily account-level insights with time_increment=1.
+ * Returns one row per day with aggregated metrics across all campaigns.
+ */
+export async function getDailyAccountInsights(
+  accountId: string,
+  accessToken: string,
+  startDate: string,
+  endDate: string
+): Promise<DailyInsightRow[]> {
+  console.log(`[getDailyAccountInsights] Fetching for account ${accountId} (${startDate}–${endDate})`);
+  const raw = await metaFetchAll<any>(`act_${accountId}/insights`, {
+    access_token: accessToken,
+    fields: "spend,impressions,clicks,reach,actions,action_values",
+    time_range: JSON.stringify({ since: startDate, until: endDate }),
+    time_increment: "1",
+    limit: "500",
+  });
+
+  return raw.map((r: any) => {
+    const conversions = extractConversions(r.actions);
+    const conversionValue = extractConversionValue(r.action_values);
+    return {
+      date: r.date_start ?? "",
+      spend: parseFloat(r.spend ?? "0"),
+      impressions: parseInt(r.impressions ?? "0", 10),
+      clicks: parseInt(r.clicks ?? "0", 10),
+      conversions,
+      conversionValue,
+      reach: parseInt(r.reach ?? "0", 10),
+    };
+  });
+}

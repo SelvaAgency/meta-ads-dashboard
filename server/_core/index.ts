@@ -8,7 +8,6 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startAutoSync } from "../autoSync";
-import { generateReportPayload } from "../dailyReport";
 import { registerDashboardBuilderRoutes } from "../dashboardBuilderRoutes";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -40,35 +39,6 @@ async function startServer() {
   registerOAuthRoutes(app);
   // Dashboard Builder — upload de imagens
   registerDashboardBuilderRoutes(app);
-
-  // Daily Report API — returns generated report HTML/text for external email sending
-  app.get('/api/daily-report', async (_req, res) => {
-    try {
-      const payload = await generateReportPayload();
-      if (!payload) {
-        return res.status(404).json({ error: 'No data available for report' });
-      }
-      res.json(payload);
-    } catch (err) {
-      console.error('[API] Error generating daily report:', err);
-      res.status(500).json({ error: 'Failed to generate report' });
-    }
-  });
-
-  // Daily Report HTML preview — renders the report directly in browser
-  app.get('/api/daily-report/preview', async (_req, res) => {
-    try {
-      const payload = await generateReportPayload();
-      if (!payload) {
-        return res.status(404).send('<h1>No data available</h1>');
-      }
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.send(payload.html);
-    } catch (err) {
-      console.error('[API] Error generating report preview:', err);
-      res.status(500).send('<h1>Error generating report</h1>');
-    }
-  });
   // Debug endpoint - raw Meta API diagnostic
   app.get('/api/debug-ads/:id', async (req, res) => {
     try {
@@ -102,7 +72,7 @@ async function startServer() {
     }
   });
 
-  // Thumbnail proxy — serves Meta creative images through our server to avoid CORS/expiry
+  // Thumbnail proxy — avoids CORS issues and expired Meta CDN URLs
   app.get('/api/thumb/:creativeId', async (req, res) => {
     try {
       const { getMetaAdAccountById } = await import('../db');
@@ -111,20 +81,22 @@ async function startServer() {
       const account = await getMetaAdAccountById(accountId);
       if (!account) return res.status(404).json({ error: 'Account not found' });
 
+      // Fetch fresh thumbnail_url from Meta for this creative
       const creativeId = req.params.creativeId;
       const metaUrl = `https://graph.facebook.com/v21.0/${creativeId}?fields=thumbnail_url,image_url&access_token=${account.accessToken}`;
       const metaResp = await fetch(metaUrl);
       const metaData = await metaResp.json() as any;
 
-      const imageUrl = metaData.image_url || metaData.thumbnail_url;
+      const imageUrl = metaData.thumbnail_url || metaData.image_url;
       if (!imageUrl) return res.status(404).json({ error: 'No thumbnail available' });
 
+      // Proxy the actual image bytes
       const imgResp = await fetch(imageUrl);
       if (!imgResp.ok) return res.status(502).json({ error: 'Failed to fetch image' });
 
       const contentType = imgResp.headers.get('content-type') || 'image/jpeg';
       res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache 1h
       const buffer = Buffer.from(await imgResp.arrayBuffer());
       res.send(buffer);
     } catch (e: any) {

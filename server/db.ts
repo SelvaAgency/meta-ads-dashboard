@@ -201,30 +201,21 @@ export async function getCampaignById(campaignId: number) {
 
 /**
  * Get campaigns for the Campaigns page:
- * - All ACTIVE campaigns
- * - PAUSED campaigns updated in the last 7 days (recently paused)
- * Excludes DELETED and ARCHIVED campaigns, and old PAUSED ones.
+ * - ONLY ACTIVE campaigns (no paused, deleted, or archived)
  */
 export async function getActiveCampaignsForDisplay(accountId: number) {
   const db = await getDb();
   if (!db) return [];
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   return db
     .select()
     .from(campaigns)
     .where(
       and(
         eq(campaigns.accountId, accountId),
-        or(
-          eq(campaigns.status, "ACTIVE"),
-          and(
-            eq(campaigns.status, "PAUSED"),
-            gte(campaigns.updatedAt, sevenDaysAgo)
-          )
-        )
+        eq(campaigns.status, "ACTIVE")
       )
     )
-    .orderBy(desc(campaigns.status), desc(campaigns.updatedAt));
+    .orderBy(desc(campaigns.updatedAt));
 }
 
 export async function upsertCampaign(data: InsertCampaign) {
@@ -391,7 +382,7 @@ export async function getCampaignPerformanceSummary(accountId: number, startDate
     .where(
       and(
         eq(campaigns.accountId, accountId),
-        or(eq(campaigns.status, "ACTIVE"), eq(campaigns.status, "PAUSED"))
+        eq(campaigns.status, "ACTIVE")
       )
     )
     .groupBy(campaigns.id, campaigns.metaCampaignId, campaigns.name, campaigns.status, campaigns.objective, campaigns.optimizationGoal, campaigns.resultLabel)

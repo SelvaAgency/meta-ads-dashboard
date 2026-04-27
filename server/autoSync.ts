@@ -55,25 +55,17 @@ import {
 } from "./metaAdsService";
 import { generateAgencyReport } from "./analysisService";
 import type { CampaignReportData } from "./analysisService";
-import { scheduleDailyReport } from "./dailyReport";
-
 
 const SYNC_DAYS = 30; // Always sync 30 days to ensure complete data for all dashboard filters
 
-function toLocalIso(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 function getDateRange(days: number) {
-  const end = new Date(); // today (includes today so "Hoje" has fresh data)
+  const end = new Date();
+  end.setDate(end.getDate() - 1); // ontem = último dia completo
   const start = new Date(end);
-  start.setDate(start.getDate() - (days - 1));
+  start.setDate(start.getDate() - (days - 1)); // days dias contando ontem
   return {
-    startDate: toLocalIso(start),
-    endDate: toLocalIso(end),
+    startDate: start.toISOString().split("T")[0],
+    endDate: end.toISOString().split("T")[0],
   };
 }
 
@@ -300,11 +292,8 @@ async function runAnomalyDetection() {
     try {
       // ── Três janelas de referência para validação multi-período ──────────────
       // Anomalia SÓ confirmada se detectada em pelo menos 2/3 janelas.
-      const daysAgo = (n: number) => {
-        const d = new Date();
-        d.setDate(d.getDate() - n);
-        return toLocalIso(d);
-      };
+      const daysAgo = (n: number) =>
+        new Date(Date.now() - n * 86400000).toISOString().split("T")[0]!;
 
       const w7Start  = daysAgo(7);  const w7End  = daysAgo(1);
       const w14Start = daysAgo(14); const w14End = daysAgo(8);
@@ -627,14 +616,8 @@ async function runScheduledReports() {
 export async function startAutoSync() {
   console.log("[AutoSync] Initializing auto-sync service...");
 
-  // Daily full sync at 09:00 UTC (06:00 Brasília)
+  // Daily sync at 09:00 UTC (06:00 Brasília)
   cron.schedule("0 0 9 * * *", runAutoSync);
-
-  // Intraday light sync every 3 hours to keep "Hoje" data fresh
-  cron.schedule("0 0 */3 * * *", async () => {
-    console.log("[AutoSync] Running intraday sync for fresh 'Hoje' data...");
-    await runAutoSync();
-  });
 
   // Hourly anomaly detection + real-time alerts
   cron.schedule("0 0 * * * *", runAnomalyDetection);
@@ -680,9 +663,6 @@ export async function startAutoSync() {
     await runAnomalyDetection();
     await rebuildScheduledReportJobs();
   }, 15000);
-
-  // Daily email report at 6h BRT
-  scheduleDailyReport();
 
   console.log("[AutoSync] Auto-sync service initialized.");
 }

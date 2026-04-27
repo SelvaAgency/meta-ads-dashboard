@@ -8,9 +8,6 @@ import App from "./App";
 import { getLoginUrl } from "./const";
 import "./index.css";
 
-// Install client-side patch for adsByAdset (bypasses broken server endpoint)
-import { installAdsByAdsetInterceptor } from "./patches/adsByAdsetInterceptor";
-
 const queryClient = new QueryClient();
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
@@ -54,9 +51,6 @@ const trpcClient = trpc.createClient({
     }),
   ],
 });
-
-// Activate fetch interceptor for creative thumbnails
-installAdsByAdsetInterceptor();
 
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
