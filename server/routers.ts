@@ -1258,8 +1258,9 @@ export const appRouter = router({
       }),
 
     generateDaily: publicProcedure.query(async () => {
+      const EXCLUDED_ACCOUNTS = ["Victor Pereira", "CA - PE2 - BAESH"];
       const accounts = await getMetaAdAccountsByUserId(1);
-      const activeAccounts = accounts.filter((a: any) => a.isActive);
+      const activeAccounts = accounts.filter((a: any) => a.isActive && !EXCLUDED_ACCOUNTS.includes(a.accountName));
 
       if (activeAccounts.length === 0) {
         throw new TRPCError({ code: "NOT_FOUND", message: "No active accounts found" });
@@ -1350,52 +1351,75 @@ export const appRouter = router({
 
       const subject = `[SELVA] Report Diário Meta Ads — ${fmtDate}`;
 
-      // ── HTML — Individual account cards ──────────────────────────────
-      const accountCards = accountResults.map((a: any) => {
-        const borderColor = !a.hasData ? "#ddd" : a.roas >= 1.5 ? "#22c55e" : a.roas >= 1 ? "#f59e0b" : "#ef4444";
+      // ── HTML — Individual account sections ──────────────────────────
+      const accountSections = accountResults.map((a: any) => {
+        const statusColor = !a.hasData ? "#999" : a.roas >= 1.5 ? "#22c55e" : a.roas >= 1 ? "#f59e0b" : "#ef4444";
         const roasClr = a.roas >= 1 ? "#22c55e" : a.roas > 0 ? "#ef4444" : "#999";
-        const opacity = a.hasData ? "1" : "0.6";
-        return `<div style="border:1px solid #eee;border-left:4px solid ${borderColor};border-radius:6px;padding:14px 16px;margin-bottom:12px;opacity:${opacity}">
-  <div style="font-size:14px;font-weight:700;color:#1a1a1a;margin-bottom:8px">${a.name}</div>
-  <table style="width:100%;border-collapse:collapse;font-size:12px;color:#555">
-    <tr>
-      <td style="padding:3px 8px 3px 0"><span style="color:#888">Investimento:</span> <strong>R$ ${fmt(a.spend)}</strong></td>
-      <td style="padding:3px 8px 3px 0"><span style="color:#888">Conversões:</span> <strong>${fmtInt(a.conversions)}</strong></td>
-      <td style="padding:3px 8px 3px 0"><span style="color:#888">Receita:</span> <strong>R$ ${fmt(a.conversionValue)}</strong></td>
-    </tr>
-    <tr>
-      <td style="padding:3px 8px 3px 0"><span style="color:#888">ROAS:</span> <strong style="color:${roasClr}">${a.roas.toFixed(2)}x</strong></td>
-      <td style="padding:3px 8px 3px 0"><span style="color:#888">CPA:</span> <strong>${a.hasData && a.conversions > 0 ? "R$ " + fmt(a.cpa) : "—"}</strong></td>
-      <td style="padding:3px 8px 3px 0"><span style="color:#888">CTR:</span> <strong>${a.hasData ? a.ctr.toFixed(2) + "%" : "—"}</strong></td>
-    </tr>
-  </table>
-  <div style="margin-top:8px;padding:8px 10px;background:#f8f7f9;border-radius:4px;font-size:12px;color:#555;line-height:1.5">
-    <strong style="color:#1a1a1a">Análise:</strong> ${a.analysis}
+        const statusDot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:8px"></span>`;
+
+        // Metrics row — only show if account has data
+        const metricsHtml = a.hasData ? `
+    <table style="width:100%;border-collapse:collapse;margin:10px 0 0">
+      <tr>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">R$ ${fmt(a.spend)}</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">Investimento</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">${fmtInt(a.conversions)}</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">Conversões</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">R$ ${fmt(a.conversionValue)}</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">Receita</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:${roasClr}">${a.roas.toFixed(2)}x</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">ROAS</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">${a.conversions > 0 ? "R$ " + fmt(a.cpa) : "—"}</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">CPA</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">${a.ctr.toFixed(2)}%</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">CTR</div>
+        </td>
+      </tr>
+    </table>` : `<div style="padding:8px 0;color:#aaa;font-size:12px;font-style:italic">Sem investimento no período</div>`;
+
+        return `<div style="margin-bottom:20px;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden">
+  <div style="background:#1a1a1a;padding:10px 16px;display:flex;align-items:center">
+    ${statusDot}<span style="font-size:14px;font-weight:700;color:#f5c6d0">${a.name}</span>
+  </div>
+  <div style="padding:12px 16px;background:#fff">
+    ${metricsHtml}
+    <div style="margin-top:12px;padding:10px 14px;background:#faf9fb;border-radius:6px;font-size:12px;color:#444;line-height:1.6">
+      ${a.analysis}
+    </div>
   </div>
 </div>`;
       }).join("");
 
-      const html = `<div style="font-family:Arial,sans-serif;max-width:780px;margin:0 auto;background:#fff">
-  <div style="background:#1a1a1a;padding:16px 24px;text-align:center">
-    <h1 style="color:#f5c6d0;margin:0;font-size:20px;letter-spacing:2px">SELVA AGENCY</h1>
-    <p style="color:#777;margin:4px 0 0;font-size:12px">Report Diário Meta Ads — ${fmtDate}</p>
+      const html = `<div style="font-family:Arial,sans-serif;max-width:780px;margin:0 auto;background:#f5f5f5">
+  <div style="background:#1a1a1a;padding:20px 24px;text-align:center">
+    <h1 style="color:#f5c6d0;margin:0;font-size:22px;letter-spacing:2px">SELVA AGENCY</h1>
+    <p style="color:#777;margin:6px 0 0;font-size:13px">Report Diário Meta Ads — ${fmtDate}</p>
   </div>
   <div style="padding:20px 24px">
-    <div style="margin-bottom:16px;padding:10px 14px;background:#f8f8f8;border-radius:6px;font-size:12px;color:#666;text-align:center">
-      ${accountsWithData.length}/${activeAccounts.length} contas ativas com investimento · Investimento total: <strong style="color:#1a1a1a">R$ ${fmt(totalSpend)}</strong> · ROAS geral: <strong style="color:${totalRoas >= 1 ? '#22c55e' : '#ef4444'}">${totalRoas.toFixed(2)}x</strong>
-    </div>
-    ${accountCards}
-    <p style="color:#aaa;font-size:10px;margin-top:16px;border-top:1px solid #eee;padding-top:10px;text-align:center">
+    ${accountSections}
+    <p style="color:#aaa;font-size:10px;margin-top:8px;text-align:center">
+      ${accountsWithData.length}/${activeAccounts.length} contas com investimento ·
       <a href="https://dashboardselva.manus.space" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency
     </p>
   </div>
 </div>`;
 
-      const plainText = `SELVA AGENCY - Report Meta Ads - ${fmtDate}\n` +
-        `${accountsWithData.length}/${activeAccounts.length} contas ativas | Invest total: R$ ${fmt(totalSpend)} | ROAS geral: ${totalRoas.toFixed(2)}x\n\n` +
+      const plainText = `SELVA AGENCY — Report Meta Ads — ${fmtDate}\n\n` +
         accountResults.map((a: any) =>
-          `━━ ${a.name} ━━\nInvest: R$ ${fmt(a.spend)} | Conv: ${fmtInt(a.conversions)} | Receita: R$ ${fmt(a.conversionValue)} | ROAS: ${a.roas.toFixed(2)}x | CPA: ${a.hasData && a.conversions > 0 ? "R$ " + fmt(a.cpa) : "—"} | CTR: ${a.hasData ? a.ctr.toFixed(2) + "%" : "—"}\nAnálise: ${a.analysis}\n`
-        ).join("\n");
+          `▸ ${a.name}\n  Invest: R$ ${fmt(a.spend)} | Conv: ${fmtInt(a.conversions)} | Receita: R$ ${fmt(a.conversionValue)} | ROAS: ${a.roas.toFixed(2)}x | CPA: ${a.hasData && a.conversions > 0 ? "R$ " + fmt(a.cpa) : "—"} | CTR: ${a.hasData ? a.ctr.toFixed(2) + "%" : "—"}\n  ${a.analysis}\n`
+        ).join("\n") +
+        `\n${accountsWithData.length}/${activeAccounts.length} contas com investimento`;
 
       return { subject, html, plainText, date: dateStr, accountCount: activeAccounts.length, accountsWithData: accountsWithData.length };
     }),
