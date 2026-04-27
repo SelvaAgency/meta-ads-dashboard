@@ -599,24 +599,38 @@ export default function Campaigns() {
   }, [activeCampaigns]);
 
   // Merge campaigns.list (all campaigns) with campaigns.performance (metrics)
+  // Filter to ACTIVE only at every level for reliability
   const mergedCampaigns = useMemo(() => {
-    if (!activeCampaigns || activeCampaigns.length === 0) return campaigns ?? [];
+    // Filter activeCampaigns to ACTIVE only (defensive — backend may return paused)
+    const activeOnly = (activeCampaigns ?? []).filter((ac: any) => ac.status === "ACTIVE");
+
+    if (activeOnly.length === 0) {
+      // Fallback to performance data, but still filter ACTIVE only
+      const perfActive = (campaigns ?? []).filter((c: any) =>
+        (c.campaignStatus ?? "").toUpperCase() === "ACTIVE"
+      );
+      return perfActive;
+    }
 
     const perfMap = new Map<number, any>();
+    // Also build a map by metaCampaignId for robust matching
+    const perfByMetaId = new Map<string, any>();
     if (campaigns) {
       for (const c of campaigns) {
         perfMap.set(c.campaignId, c);
+        if (c.metaCampaignId) perfByMetaId.set(String(c.metaCampaignId), c);
       }
     }
 
-    const merged = activeCampaigns.map((ac: any) => {
-      const perf = perfMap.get(ac.id);
-      if (perf) return perf;
+    const merged = activeOnly.map((ac: any) => {
+      // Try matching by DB id first, then by metaCampaignId
+      const perf = perfMap.get(ac.id) || (ac.metaCampaignId ? perfByMetaId.get(String(ac.metaCampaignId)) : null);
+      if (perf) return { ...perf, campaignStatus: "ACTIVE" };
       return {
         campaignId: ac.id,
         metaCampaignId: ac.metaCampaignId,
         campaignName: ac.name,
-        campaignStatus: ac.status,
+        campaignStatus: "ACTIVE",
         campaignObjective: ac.objective,
         campaignOptimizationGoal: ac.optimizationGoal,
         campaignResultLabel: ac.resultLabel,
