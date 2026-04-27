@@ -10,6 +10,7 @@ import {
   metaAdAccounts,
   scheduledReports,
   users,
+  googleAdAccounts,
   type InsertAiSuggestion,
   type InsertAlert,
   type InsertAnomaly,
@@ -17,6 +18,7 @@ import {
   type InsertCampaignMetrics,
   type InsertMetaAdAccount,
   type InsertScheduledReport,
+  type InsertGoogleAdAccount,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -199,30 +201,21 @@ export async function getCampaignById(campaignId: number) {
 
 /**
  * Get campaigns for the Campaigns page:
- * - All ACTIVE campaigns
- * - PAUSED campaigns updated in the last 7 days (recently paused)
- * Excludes DELETED and ARCHIVED campaigns, and old PAUSED ones.
+ * - ONLY ACTIVE campaigns (no paused, deleted, or archived)
  */
 export async function getActiveCampaignsForDisplay(accountId: number) {
   const db = await getDb();
   if (!db) return [];
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   return db
     .select()
     .from(campaigns)
     .where(
       and(
         eq(campaigns.accountId, accountId),
-        or(
-          eq(campaigns.status, "ACTIVE"),
-          and(
-            eq(campaigns.status, "PAUSED"),
-            gte(campaigns.updatedAt, sevenDaysAgo)
-          )
-        )
+        eq(campaigns.status, "ACTIVE")
       )
     )
-    .orderBy(desc(campaigns.status), desc(campaigns.updatedAt));
+    .orderBy(desc(campaigns.updatedAt));
 }
 
 export async function upsertCampaign(data: InsertCampaign) {
@@ -389,7 +382,7 @@ export async function getCampaignPerformanceSummary(accountId: number, startDate
     .where(
       and(
         eq(campaigns.accountId, accountId),
-        or(eq(campaigns.status, "ACTIVE"), eq(campaigns.status, "PAUSED"))
+        eq(campaigns.status, "ACTIVE")
       )
     )
     .groupBy(campaigns.id, campaigns.metaCampaignId, campaigns.name, campaigns.status, campaigns.objective, campaigns.optimizationGoal, campaigns.resultLabel)
@@ -852,5 +845,62 @@ export async function purgeDuplicateAnomalies(): Promise<number> {
       AND a1.id < a2.id
   `);
   return (result as any)[0]?.affectedRows ?? 0;
+}
+
+// ─── Google Ad Accounts ─────────────────────────────────────────────────────
+
+export async function getGoogleAdAccountsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(googleAdAccounts)
+    .where(and(eq(googleAdAccounts.userId, userId), eq(googleAdAccounts.isActive, true)))
+    .orderBy(desc(googleAdAccounts.createdAt));
+}
+
+export async function getAllActiveGoogleAdAccounts() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(googleAdAccounts)
+    .where(eq(googleAdAccounts.isActive, true));
+}
+
+export async function getGoogleAdAccountById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(googleAdAccounts)
+    .where(eq(googleAdAccounts.id, id))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createGoogleAdAccount(data: InsertGoogleAdAccount) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(googleAdAccounts).values(data);
+  return (result as any)[0]?.insertId;
+}
+
+export async function updateGoogleAdAccountSync(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(googleAdAccounts)
+    .set({ lastSyncAt: new Date() })
+    .where(eq(googleAdAccounts.id, id));
+}
+
+export async function deleteGoogleAdAccount(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(googleAdAccounts)
+    .set({ isActive: false })
+    .where(eq(googleAdAccounts.id, id));
 }
 

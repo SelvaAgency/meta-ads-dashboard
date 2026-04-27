@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { BarChart3, Link2, Search, Zap, Circle, Calendar, ChevronDown, ChevronRight, Film, Image, LayoutGrid, ShoppingBag, Loader2 } from "lucide-react";
-import { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -102,7 +102,69 @@ function cleanResultLabel(label: string | undefined | null): string {
   return label;
 }
 
-// ─── Expandable campaign row with lazy-loaded ads ────────────────────────────
+// ─── Metric cells helper (reused at all 3 levels) ──────────────────────────
+function MetricCells({ d, size = "sm", borderClass = "border-border/30" }: { d: any; size?: "sm" | "base"; borderClass?: string }) {
+  const cls = size === "base" ? "font-bold text-foreground" : "text-xs text-foreground/70";
+  return (
+    <>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtCurrency(d.spend)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtNum(d.conversions)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtCurrency(d.costPerResult)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtNum(d.profileVisits ?? 0)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtNum(d.reach ?? 0)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtNum(d.impressions)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtCurrency(d.cpm)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtNum(d.clicks)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtCurrency(d.cpc)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtPct(d.ctr)}</p></td>
+      <td className={`px-3 py-2.5 text-right border-r ${borderClass}`}><p className={cls}>{fmtFreq(d.frequency)}</p></td>
+      <td className={`px-3 py-2.5 text-right`}><p className={cls}>{fmtNum(d.followers ?? 0)}</p></td>
+    </>
+  );
+}
+
+// ─── Thumbnail preview ───────────────────────────────────────────────────────
+function CreativeThumb({ url, type, creativeId, accountId }: { url?: string; type: string; creativeId?: string; accountId?: number }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const [proxyFailed, setProxyFailed] = useState(false);
+
+  // If direct URL failed but we have a creativeId, try the proxy
+  const proxyUrl = imgFailed && !proxyFailed && creativeId && accountId
+    ? `/api/thumb/${creativeId}?accountId=${accountId}`
+    : null;
+
+  const imgSrc = proxyUrl || url;
+
+  if (imgSrc && !(imgFailed && proxyFailed)) {
+    return (
+      <div className="w-9 h-9 rounded border border-border/40 overflow-hidden flex-shrink-0 bg-black/20 relative">
+        <img
+          src={imgSrc}
+          alt=""
+          className="w-full h-full object-cover"
+          loading="lazy"
+          onError={() => {
+            if (proxyUrl) setProxyFailed(true);
+            else setImgFailed(true);
+          }}
+          referrerPolicy="no-referrer"
+        />
+        {type === "VIDEO" && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Film size={12} className="text-white drop-shadow" />
+          </div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="w-9 h-9 rounded border border-border/40 flex items-center justify-center flex-shrink-0 bg-foreground/5">
+      <CreativeIcon type={type} />
+    </div>
+  );
+}
+
+// ─── Expandable campaign row with 3-level hierarchy ─────────────────────────
 function CampaignRowWithAds({
   campaign: c,
   metaId,
@@ -150,7 +212,22 @@ function CampaignRowWithAds({
   selectedAccountId: number;
   dateParams: { days: number; startDate?: string; endDate?: string; includeToday?: boolean };
 }) {
-  // Only fetch ads when expanded
+  const [expandedAdsets, setExpandedAdsets] = useState<Set<string>>(new Set());
+
+  // Fetch adsets when campaign is expanded
+  const { data: adsets, isLoading: adsetsLoading } = trpc.campaigns.adsets.useQuery(
+    {
+      accountId: selectedAccountId,
+      metaCampaignId: metaId,
+      days: dateParams.days || 7,
+      ...(dateParams.startDate ? { startDate: dateParams.startDate } : {}),
+      ...(dateParams.endDate ? { endDate: dateParams.endDate } : {}),
+      includeToday: dateParams.includeToday,
+    },
+    { enabled: isExpanded }
+  );
+
+  // Fetch ads when campaign is expanded (we group them by adset_id)
   const { data: ads, isLoading: adsLoading } = trpc.campaigns.ads.useQuery(
     {
       accountId: selectedAccountId,
@@ -163,16 +240,46 @@ function CampaignRowWithAds({
     { enabled: isExpanded }
   );
 
+  // Group ads by adset_id
+  const adsByAdset = useMemo(() => {
+    const map = new Map<string, typeof ads>();
+    if (!ads) return map;
+    for (const ad of ads) {
+      const key = ad.adset_id || "unknown";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(ad);
+    }
+    return map;
+  }, [ads]);
+
+  const toggleAdset = useCallback((id: string) => {
+    setExpandedAdsets((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const loading = adsetsLoading || adsLoading;
+
   return (
     <>
-      {/* Campaign row */}
+      {/* ── Campaign row ──────────────────────────────────────────────── */}
       <tr className="border-b border-border/50 hover:bg-secondary/10 transition-all cursor-pointer" onClick={onToggle}>
-        {/* Campaign name — sticky left */}
         <td className="px-4 py-3 sticky left-0 bg-card border-r border-border/50" style={{ minWidth: "220px" }}>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground flex-shrink-0">
               {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             </span>
+            {/* Creative preview stack for campaign (show when ads loaded) */}
+            {ads && ads.length > 0 && (
+              <div className="flex -space-x-1 flex-shrink-0">
+                {ads.slice(0, 2).map((ad) => (
+                  <CreativeThumb key={ad.id} url={(ad as any).thumbnail_url} type={ad.creative_type} creativeId={(ad as any).creative_id} accountId={selectedAccountId} />
+                ))}
+              </div>
+            )}
             <div className="space-y-1 min-w-0">
               <p className="font-semibold text-foreground truncate">{c.campaignName ?? "—"}</p>
               <p className="text-xs text-muted-foreground">{c.campaignId ?? "—"}</p>
@@ -252,110 +359,129 @@ function CampaignRowWithAds({
         </td>
       </tr>
 
-      {/* Expanded ads/creatives sub-rows */}
+      {/* ── Expanded: Ad Sets → Ads (3-level) ─────────────────────────── */}
       {isExpanded && (
-        adsLoading ? (
+        loading ? (
           <tr className="bg-foreground/[0.02]">
             <td colSpan={14} className="px-8 py-4">
               <div className="flex items-center gap-2 text-muted-foreground text-xs">
                 <Loader2 size={14} className="animate-spin" />
-                Carregando criativos...
+                Carregando conjuntos e anúncios...
               </div>
             </td>
           </tr>
-        ) : !ads || ads.length === 0 ? (
-          <tr className="bg-foreground/[0.02]">
-            <td colSpan={14} className="px-8 py-4">
-              <p className="text-xs text-muted-foreground">Nenhum criativo ativo encontrado para esta campanha.</p>
-            </td>
-          </tr>
-        ) : (
-          ads.map((ad) => (
-            <tr key={ad.id} className="bg-foreground/[0.02] border-b border-border/30 hover:bg-foreground/[0.04] transition-all">
-              {/* Ad name — sticky left, indented */}
-              <td className="px-4 py-2.5 sticky left-0 bg-card border-r border-border/30" style={{ minWidth: "220px" }}>
-                <div className="flex items-center gap-2 pl-6">
-                  <CreativeIcon type={ad.creative_type} />
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-foreground/80 truncate">{ad.name}</p>
-                    <p className="text-[10px] text-muted-foreground">{ad.creative_type} · {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}</p>
-                  </div>
-                </div>
-              </td>
-
-              {/* Status */}
-              <td className="px-3 py-2.5 text-center border-r border-border/30">
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${
-                  ad.effective_status === "ACTIVE"
-                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                    : "bg-amber-500/15 text-amber-400 border-amber-500/30"
-                }`}>
-                  <Circle size={5} className="fill-current" />
-                  {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}
-                </span>
-              </td>
-
-              {/* Investimento */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtCurrency(ad.spend)}</p>
-              </td>
-
-              {/* Result */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtNum(ad.conversions)}</p>
-              </td>
-
-              {/* Cost per Result */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtCurrency(ad.costPerResult)}</p>
-              </td>
-
-              {/* Profile Visits — N/A at ad level */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/30">—</p>
-              </td>
-
-              {/* Reach — N/A at ad level aggregated */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/30">—</p>
-              </td>
-
-              {/* Impressions */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtNum(ad.impressions)}</p>
-              </td>
-
-              {/* CPM */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtCurrency(ad.cpm)}</p>
-              </td>
-
-              {/* Clicks */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtNum(ad.clicks)}</p>
-              </td>
-
-              {/* CPC */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtCurrency(ad.cpc)}</p>
-              </td>
-
-              {/* CTR */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtPct(ad.ctr)}</p>
-              </td>
-
-              {/* Frequency */}
-              <td className="px-3 py-2.5 text-right border-r border-border/30">
-                <p className="text-xs text-foreground/70">{fmtFreq(ad.frequency)}</p>
-              </td>
-
-              {/* Followers — N/A */}
-              <td className="px-3 py-2.5 text-right">
-                <p className="text-xs text-foreground/30">—</p>
+        ) : !adsets || adsets.length === 0 ? (
+          // Fallback: show ads flat if no adsets found
+          !ads || ads.length === 0 ? (
+            <tr className="bg-foreground/[0.02]">
+              <td colSpan={14} className="px-8 py-4">
+                <p className="text-xs text-muted-foreground">Nenhum conjunto ou anúncio encontrado para esta campanha.</p>
               </td>
             </tr>
-          ))
+          ) : (
+            ads.map((ad) => (
+              <tr key={ad.id} className="bg-foreground/[0.02] border-b border-border/30 hover:bg-foreground/[0.04] transition-all">
+                <td className="px-4 py-2.5 sticky left-0 bg-card border-r border-border/30" style={{ minWidth: "220px" }}>
+                  <div className="flex items-center gap-2 pl-6">
+                    <CreativeThumb url={(ad as any).thumbnail_url} type={ad.creative_type} creativeId={(ad as any).creative_id} accountId={selectedAccountId} />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-foreground/80 truncate">{ad.name}</p>
+                      <p className="text-[10px] text-muted-foreground">{ad.creative_type} · {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-3 py-2.5 text-center border-r border-border/30">
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${
+                    ad.effective_status === "ACTIVE"
+                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                      : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                  }`}>
+                    <Circle size={5} className="fill-current" />
+                    {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}
+                  </span>
+                </td>
+                <MetricCells d={ad} />
+              </tr>
+            ))
+          )
+        ) : (
+          // Normal: iterate adsets, each expandable to show ads
+          adsets.map((adset) => {
+            const adsetAds = adsByAdset.get(adset.id) ?? [];
+            const isAdsetOpen = expandedAdsets.has(adset.id);
+            const adsetStatus = (adset as any).effective_status ?? (adset as any).status ?? "ACTIVE";
+            return (
+              <React.Fragment key={adset.id}>
+                {/* ── Ad Set row (level 2) ─────────────────────────── */}
+                <tr
+                  className="bg-foreground/[0.02] border-b border-border/30 hover:bg-foreground/[0.04] transition-all cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); toggleAdset(adset.id); }}
+                >
+                  <td className="px-4 py-2.5 sticky left-0 bg-card border-r border-border/30" style={{ minWidth: "220px" }}>
+                    <div className="flex items-center gap-2 pl-4">
+                      <span className="text-muted-foreground flex-shrink-0">
+                        {isAdsetOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      </span>
+                      {/* Mini creative preview stack from first ads in this adset */}
+                      {adsetAds.length > 0 && (
+                        <div className="flex -space-x-1.5 flex-shrink-0">
+                          {adsetAds.slice(0, 3).map((ad, i) => (
+                            <CreativeThumb key={ad.id} url={(ad as any).thumbnail_url} type={ad.creative_type} creativeId={(ad as any).creative_id} accountId={selectedAccountId} />
+                          ))}
+                          {adsetAds.length > 3 && (
+                            <div className="w-9 h-9 rounded border border-border/40 flex items-center justify-center flex-shrink-0 bg-foreground/10 text-[10px] text-muted-foreground font-medium">
+                              +{adsetAds.length - 3}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-foreground/90 truncate">{(adset as any).name ?? "Conjunto"}</p>
+                        <p className="text-[10px] text-muted-foreground">{adsetAds.length} anúncio{adsetAds.length !== 1 ? "s" : ""}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-center border-r border-border/30">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${
+                      adsetStatus === "ACTIVE"
+                        ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                        : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                    }`}>
+                      <Circle size={5} className="fill-current" />
+                      {adsetStatus === "ACTIVE" ? "Ativo" : "Pausado"}
+                    </span>
+                  </td>
+                  <MetricCells d={adset} />
+                </tr>
+
+                {/* ── Ads inside this adset (level 3) ──────────────── */}
+                {isAdsetOpen && adsetAds.map((ad) => (
+                  <tr key={ad.id} className="bg-foreground/[0.04] border-b border-border/20 hover:bg-foreground/[0.06] transition-all">
+                    <td className="px-4 py-2 sticky left-0 bg-card border-r border-border/20" style={{ minWidth: "220px" }}>
+                      <div className="flex items-center gap-2 pl-10">
+                        <CreativeThumb url={(ad as any).thumbnail_url} type={ad.creative_type} creativeId={(ad as any).creative_id} accountId={selectedAccountId} />
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-medium text-foreground/80 truncate">{ad.name}</p>
+                          <p className="text-[10px] text-muted-foreground">{ad.creative_type} · {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-center border-r border-border/20">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${
+                        ad.effective_status === "ACTIVE"
+                          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                          : "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                      }`}>
+                        <Circle size={5} className="fill-current" />
+                        {ad.effective_status === "ACTIVE" ? "Ativo" : "Pausado"}
+                      </span>
+                    </td>
+                    <MetricCells d={ad} borderClass="border-border/20" />
+                  </tr>
+                ))}
+              </React.Fragment>
+            );
+          })
         )
       )}
     </>
@@ -473,24 +599,38 @@ export default function Campaigns() {
   }, [activeCampaigns]);
 
   // Merge campaigns.list (all campaigns) with campaigns.performance (metrics)
+  // Filter to ACTIVE only at every level for reliability
   const mergedCampaigns = useMemo(() => {
-    if (!activeCampaigns || activeCampaigns.length === 0) return campaigns ?? [];
+    // Filter activeCampaigns to ACTIVE only (defensive — backend may return paused)
+    const activeOnly = (activeCampaigns ?? []).filter((ac: any) => ac.status === "ACTIVE");
+
+    if (activeOnly.length === 0) {
+      // Fallback to performance data, but still filter ACTIVE only
+      const perfActive = (campaigns ?? []).filter((c: any) =>
+        (c.campaignStatus ?? "").toUpperCase() === "ACTIVE"
+      );
+      return perfActive;
+    }
 
     const perfMap = new Map<number, any>();
+    // Also build a map by metaCampaignId for robust matching
+    const perfByMetaId = new Map<string, any>();
     if (campaigns) {
       for (const c of campaigns) {
         perfMap.set(c.campaignId, c);
+        if (c.metaCampaignId) perfByMetaId.set(String(c.metaCampaignId), c);
       }
     }
 
-    const merged = activeCampaigns.map((ac: any) => {
-      const perf = perfMap.get(ac.id);
-      if (perf) return perf;
+    const merged = activeOnly.map((ac: any) => {
+      // Try matching by DB id first, then by metaCampaignId
+      const perf = perfMap.get(ac.id) || (ac.metaCampaignId ? perfByMetaId.get(String(ac.metaCampaignId)) : null);
+      if (perf) return { ...perf, campaignStatus: "ACTIVE" };
       return {
         campaignId: ac.id,
         metaCampaignId: ac.metaCampaignId,
         campaignName: ac.name,
-        campaignStatus: ac.status,
+        campaignStatus: "ACTIVE",
         campaignObjective: ac.objective,
         campaignOptimizationGoal: ac.optimizationGoal,
         campaignResultLabel: ac.resultLabel,

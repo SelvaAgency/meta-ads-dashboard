@@ -934,6 +934,8 @@ export interface AdWithInsights {
   status: string;
   effective_status: string;
   creative_type: string; // VIDEO, IMAGE, CAROUSEL, CATALOG
+  creative_id: string; // Meta creative ID for proxy fallback
+  thumbnail_url: string; // Creative preview image URL from Meta
   // Insights (period)
   spend: number;
   impressions: number;
@@ -974,7 +976,7 @@ export async function getAdSetsWithInsights(
     }>(`act_${accountId}/adsets`, {
       access_token: accessToken,
       fields: "id,name,campaign_id,status,effective_status,optimization_goal,daily_budget,lifetime_budget,targeting",
-      // Removed ACTIVE/PAUSED filter — show ALL ads/creatives for the campaign
+      filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
       limit: "200",
     });
 
@@ -1057,10 +1059,11 @@ export async function getAdsWithInsights(
       campaign_id: string;
       status: string;
       effective_status: string;
-      creative?: { object_type?: string };
+      creative?: { id?: string; object_type?: string; thumbnail_url?: string; image_url?: string };
     }>(`act_${accountId}/ads`, {
       access_token: accessToken,
-      fields: "id,name,adset_id,campaign_id,status,effective_status,creative{object_type}",
+      fields: "id,name,adset_id,campaign_id,status,effective_status,creative{id,object_type,thumbnail_url,image_url}",
+      filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
       limit: "500",
     }, 10); // Cap at 10 pages for ads
     if (ads.length === 0) return [];
@@ -1125,6 +1128,9 @@ export async function getAdsWithInsights(
         status: ad.status,
         effective_status: ad.effective_status,
         creative_type,
+        creative_id: ad.creative?.id ?? "",
+        // Prefer image_url (permanent CDN) > thumbnail_url (may expire)
+        thumbnail_url: ad.creative?.image_url || ad.creative?.thumbnail_url || "",
         spend, impressions, clicks, frequency, ctr, cpc, cpm,
         conversions, costPerResult, roas,
       };
@@ -1134,4 +1140,96 @@ export async function getAdsWithInsights(
     // Re-throw so the caller can handle/surface the error
     throw err;
   }
+}
+
+// ─── Demographics (age/gender) breakdown ────────────────────────────────────
+
+export interface DemographicRow {
+  age: string;
+  gender: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  reach: number;
+}
+
+/**
+ * Fetch age+gender demographic breakdown from Meta Ads API.
+ * Uses breakdowns=age,gender at the account level.
+ */
+export async function getDemographicsInsights(
+  accountId: string,
+  accessToken: string,
+  startDate: string,
+  endDate: string
+): Promise<DemographicRow[]> {
+  console.log(`[getDemographicsInsights] Fetching for account ${accountId} (${startDate}–${endDate})`);
+  const raw = await metaFetchAll<any>(`act_${accountId}/insights`, {
+    access_token: accessToken,
+    fields: "spend,impressions,clicks,reach,actions",
+    breakdowns: "age,gender",
+    time_range: JSON.stringify({ since: startDate, until: endDate }),
+    limit: "500",
+    filtering: JSON.stringify([{ field: "campaign.delivery_info", operator: "IN", value: ["active", "completed", "inactive"] }]),
+  });
+
+  return raw.map((r: any) => {
+    const conversions = extractConversions(r.actions);
+    return {
+      age: r.age ?? "unknown",
+      gender: r.gender ?? "unknown",
+      spend: parseFloat(r.spend ?? "0"),
+      impressions: parseInt(r.impressions ?? "0", 10),
+      clicks: parseInt(r.clicks ?? "0", 10),
+      conversions,
+      reach: parseInt(r.reach ?? "0", 10),
+    };
+  });
+}
+
+// ─── Daily insights (for purchases/conversions per day) ─────────────────────
+
+export interface DailyInsightRow {
+  date: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  conversionValue: number;
+  reach: number;
+}
+
+/**
+ * Fetch daily account-level insights with time_increment=1.
+ * Returns one row per day with aggregated metrics across all campaigns.
+ */
+export async function getDailyAccountInsights(
+  accountId: string,
+  accessToken: string,
+  startDate: string,
+  endDate: string
+): Promise<DailyInsightRow[]> {
+  console.log(`[getDailyAccountInsights] Fetching for account ${accountId} (${startDate}–${endDate})`);
+  const raw = await metaFetchAll<any>(`act_${accountId}/insights`, {
+    access_token: accessToken,
+    fields: "spend,impressions,clicks,reach,actions,action_values",
+    time_range: JSON.stringify({ since: startDate, until: endDate }),
+    time_increment: "1",
+    limit: "500",
+  });
+
+  return raw.map((r: any) => {
+    const conversions = extractConversions(r.actions);
+    const conversionValue = extractConversionValue(r.action_values);
+    return {
+      date: r.date_start ?? "",
+      spend: parseFloat(r.spend ?? "0"),
+      impressions: parseInt(r.impressions ?? "0", 10),
+      clicks: parseInt(r.clicks ?? "0", 10),
+      conversions,
+      conversionValue,
+      reach: parseInt(r.reach ?? "0", 10),
+    };
+  });
 }

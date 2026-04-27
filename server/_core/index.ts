@@ -72,6 +72,38 @@ async function startServer() {
     }
   });
 
+  // Thumbnail proxy — avoids CORS issues and expired Meta CDN URLs
+  app.get('/api/thumb/:creativeId', async (req, res) => {
+    try {
+      const { getMetaAdAccountById } = await import('../db');
+      const accountId = parseInt(req.query.accountId as string);
+      if (!accountId) return res.status(400).json({ error: 'accountId required' });
+      const account = await getMetaAdAccountById(accountId);
+      if (!account) return res.status(404).json({ error: 'Account not found' });
+
+      // Fetch fresh thumbnail_url from Meta for this creative
+      const creativeId = req.params.creativeId;
+      const metaUrl = `https://graph.facebook.com/v21.0/${creativeId}?fields=thumbnail_url,image_url&access_token=${account.accessToken}`;
+      const metaResp = await fetch(metaUrl);
+      const metaData = await metaResp.json() as any;
+
+      const imageUrl = metaData.thumbnail_url || metaData.image_url;
+      if (!imageUrl) return res.status(404).json({ error: 'No thumbnail available' });
+
+      // Proxy the actual image bytes
+      const imgResp = await fetch(imageUrl);
+      if (!imgResp.ok) return res.status(502).json({ error: 'Failed to fetch image' });
+
+      const contentType = imgResp.headers.get('content-type') || 'image/jpeg';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache 1h
+      const buffer = Buffer.from(await imgResp.arrayBuffer());
+      res.send(buffer);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

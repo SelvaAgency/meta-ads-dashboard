@@ -8,6 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   AreaChart,
   Area,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -34,6 +42,9 @@ import {
   Play,
   Heart,
   ArrowDown,
+  Calendar,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -415,6 +426,18 @@ export default function Dashboard() {
     { enabled: !!selectedAccountId, refetchInterval: 60000 }
   );
 
+  // Demographics query (age/gender breakdowns)
+  const { data: demoData, isLoading: demoLoading } = trpc.dashboard.demographics.useQuery(
+    { accountId: selectedAccountId!, ...queryParams },
+    { enabled: !!selectedAccountId, refetchInterval: 120000 }
+  );
+
+  // Daily insights + weekend analysis
+  const { data: dailyData, isLoading: dailyLoading } = trpc.dashboard.dailyInsights.useQuery(
+    { accountId: selectedAccountId!, ...queryParams },
+    { enabled: !!selectedAccountId, refetchInterval: 120000 }
+  );
+
   // Use goalProfile from backend (based on optimization_goal, NOT campaign.objective)
   // This ensures KPI cards reflect the actual performance target of the adsets
   const goalType = useMemo<GoalType>(() => {
@@ -783,6 +806,272 @@ export default function Dashboard() {
               )}
             </CardContent>
           </Card>
+        </div>
+
+        {/* ─── SECTION: Demografia Geral ────────────────────────────────────── */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-bold text-foreground">Demografia Geral</h2>
+            <Badge variant="outline" className="text-xs border-primary/30 text-primary">Idade & Gênero</Badge>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Age Distribution Bar Chart */}
+            <Card className="border-border bg-card">
+              <CardHeader className="pb-2 border-b border-border/30">
+                <CardTitle className="text-sm font-bold text-foreground">Distribuição por Faixa Etária</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-4">
+                {demoLoading ? (
+                  <div className="h-[220px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+                ) : !demoData?.ageData?.length ? (
+                  <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground">Sem dados demográficos disponíveis</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={demoData.ageData} barSize={28}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E8D5E0" opacity={0.5} />
+                      <XAxis dataKey="age" tick={{ fontSize: 10, fill: "#666666" }} />
+                      <YAxis tick={{ fontSize: 10, fill: "#666666" }} />
+                      <Tooltip content={({ active, payload, label }: any) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0]?.payload;
+                        return (
+                          <div className="bg-popover border border-border rounded-lg p-3 shadow-xl text-xs">
+                            <p className="text-muted-foreground mb-1 font-semibold">{label}</p>
+                            <p className="text-primary">Gasto: {fmtCurrency(d?.spend)}</p>
+                            <p className="text-emerald-400">Conversões: {fmtNumber(d?.conversions)}</p>
+                            <p className="text-purple-400">Cliques: {fmtNumber(d?.clicks)}</p>
+                            <p className="text-blue-400">Alcance: {fmtNumber(d?.reach)}</p>
+                          </div>
+                        );
+                      }} />
+                      <Bar dataKey="spend" fill="#E85BA8" radius={[4, 4, 0, 0]} name="Gasto (R$)" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Gender Distribution Pie Chart */}
+            <Card className="border-border bg-card">
+              <CardHeader className="pb-2 border-b border-border/30">
+                <CardTitle className="text-sm font-bold text-foreground">Distribuição por Gênero</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-4">
+                {demoLoading ? (
+                  <div className="h-[220px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+                ) : !demoData?.genderData?.length ? (
+                  <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground">Sem dados disponíveis</div>
+                ) : (() => {
+                  const GENDER_COLORS: Record<string, string> = { Masculino: "#4F8EF7", Feminino: "#E85BA8", Desconhecido: "#888888" };
+                  const totalSpend = demoData.genderData.reduce((s, g) => s + g.spend, 0);
+                  const pieData = demoData.genderData.map((g) => ({
+                    ...g,
+                    pct: totalSpend > 0 ? ((g.spend / totalSpend) * 100).toFixed(1) : "0",
+                  }));
+                  return (
+                    <div className="flex items-center gap-4">
+                      <ResponsiveContainer width="55%" height={220}>
+                        <PieChart>
+                          <Pie data={pieData} dataKey="spend" nameKey="gender" cx="50%" cy="50%" innerRadius={45} outerRadius={80} paddingAngle={3} strokeWidth={0}>
+                            {pieData.map((entry) => (
+                              <Cell key={entry.gender} fill={GENDER_COLORS[entry.gender] ?? "#888"} />
+                            ))}
+                          </Pie>
+                          <Tooltip content={({ active, payload }: any) => {
+                            if (!active || !payload?.length) return null;
+                            const d = payload[0]?.payload;
+                            return (
+                              <div className="bg-popover border border-border rounded-lg p-3 shadow-xl text-xs">
+                                <p className="font-semibold mb-1">{d?.gender}</p>
+                                <p>Gasto: {fmtCurrency(d?.spend)}</p>
+                                <p>Conversões: {fmtNumber(d?.conversions)}</p>
+                                <p>Alcance: {fmtNumber(d?.reach)}</p>
+                              </div>
+                            );
+                          }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="flex-1 space-y-2">
+                        {pieData.map((g) => (
+                          <div key={g.gender} className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: GENDER_COLORS[g.gender] ?? "#888" }} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-foreground">{g.gender}</p>
+                              <p className="text-xs text-muted-foreground">{g.pct}% — {fmtCurrency(g.spend)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* ─── SECTION: Compras x Dia ──────────────────────────────────────── */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-bold text-foreground">Conversões por Dia</h2>
+            <Badge variant="outline" className="text-xs border-primary/30 text-primary">Resultados diários</Badge>
+          </div>
+          <Card className="border-border bg-card">
+            <CardContent className="pt-4">
+              {dailyLoading ? (
+                <div className="h-[240px] flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+              ) : !dailyData?.daily?.length ? (
+                <div className="h-[240px] flex items-center justify-center text-sm text-muted-foreground">Sem dados diários disponíveis</div>
+              ) : (() => {
+                const chartRows = dailyData.daily.map((d) => {
+                  const dayOfWeek = new Date(d.date).getDay();
+                  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                  return {
+                    date: new Date(d.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+                    Conversões: d.conversions,
+                    Gasto: d.spend,
+                    isWeekend,
+                  };
+                });
+                return (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={chartRows} barSize={16}>
+                      <defs>
+                        <linearGradient id="convBarGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#E85BA8" stopOpacity={0.9} />
+                          <stop offset="100%" stopColor="#E85BA8" stopOpacity={0.5} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E8D5E0" opacity={0.5} />
+                      <XAxis dataKey="date" tick={{ fontSize: 9, fill: "#666666" }} interval={Math.max(0, Math.floor(chartRows.length / 12))} />
+                      <YAxis tick={{ fontSize: 10, fill: "#666666" }} />
+                      <Tooltip content={({ active, payload, label }: any) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0]?.payload;
+                        return (
+                          <div className="bg-popover border border-border rounded-lg p-3 shadow-xl text-xs">
+                            <p className="text-muted-foreground mb-1 font-semibold">{label} {d?.isWeekend ? "(FDS)" : "(Semana)"}</p>
+                            <p className="text-primary">Conversões: {fmtNumber(d?.Conversões)}</p>
+                            <p className="text-purple-400">Gasto: {fmtCurrency(d?.Gasto)}</p>
+                          </div>
+                        );
+                      }} />
+                      <Bar dataKey="Conversões" fill="url(#convBarGrad)" radius={[3, 3, 0, 0]}>
+                        {chartRows.map((entry, idx) => (
+                          <Cell key={idx} fill={entry.isWeekend ? "#F5B8D8" : "#E85BA8"} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                );
+              })()}
+            </CardContent>
+            {dailyData?.daily && dailyData.daily.length > 0 && (
+              <div className="px-6 pb-4 flex items-center gap-4 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ backgroundColor: "#E85BA8" }} />Dias de semana</div>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ backgroundColor: "#F5B8D8" }} />Finais de semana</div>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* ─── SECTION: Performance Finais de Semana ──────────────────────── */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Sun className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-bold text-foreground">Performance: Semana vs Final de Semana</h2>
+            <Badge variant="outline" className="text-xs border-primary/30 text-primary">Comparativo</Badge>
+          </div>
+          {dailyLoading ? (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              {[...Array(6)].map((_, i) => (
+                <Card key={i} className="border-border bg-card"><CardContent className="p-5"><div className="h-16 bg-muted rounded animate-pulse" /></CardContent></Card>
+              ))}
+            </div>
+          ) : !dailyData?.weekdayAvg || !dailyData?.weekendAvg ? (
+            <Card className="border-border bg-card"><CardContent className="p-6 text-center text-sm text-muted-foreground">Sem dados suficientes para comparação</CardContent></Card>
+          ) : (() => {
+            const wd = dailyData.weekdayAvg;
+            const we = dailyData.weekendAvg;
+            const wdDays = dailyData.weekdayTotals.days;
+            const weDays = dailyData.weekendTotals.days;
+
+            const metrics = [
+              { label: "Gasto Médio/dia", weekday: fmtCurrency(wd.spend), weekend: fmtCurrency(we.spend), diff: wd.spend > 0 ? ((we.spend - wd.spend) / wd.spend * 100) : 0 },
+              { label: "Conversões Médias/dia", weekday: fmtNumber(wd.conversions), weekend: fmtNumber(we.conversions), diff: wd.conversions > 0 ? ((we.conversions - wd.conversions) / wd.conversions * 100) : 0 },
+              { label: "CTR Médio", weekday: fmtPercent(wd.ctr), weekend: fmtPercent(we.ctr), diff: wd.ctr > 0 ? ((we.ctr - wd.ctr) / wd.ctr * 100) : 0 },
+              { label: "CPA Médio", weekday: fmtCurrency(wd.cpa), weekend: fmtCurrency(we.cpa), diff: wd.cpa > 0 ? ((we.cpa - wd.cpa) / wd.cpa * 100) : 0, invertColor: true },
+              { label: "Cliques Médios/dia", weekday: fmtNumber(wd.clicks), weekend: fmtNumber(we.clicks), diff: wd.clicks > 0 ? ((we.clicks - wd.clicks) / wd.clicks * 100) : 0 },
+              { label: "Impressões Médias/dia", weekday: fmtNumber(wd.impressions), weekend: fmtNumber(we.impressions), diff: wd.impressions > 0 ? ((we.impressions - wd.impressions) / wd.impressions * 100) : 0 },
+            ];
+
+            return (
+              <div className="space-y-4">
+                {/* Summary cards */}
+                <div className="grid grid-cols-2 gap-4">
+                  <Card className="border-border bg-card">
+                    <CardContent className="p-4 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-blue-400/10 flex items-center justify-center flex-shrink-0">
+                        <Moon className="w-4 h-4 text-blue-400" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Dias de Semana</p>
+                        <p className="text-lg font-bold text-foreground">{wdDays} dias</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-border bg-card">
+                    <CardContent className="p-4 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-orange-400/10 flex items-center justify-center flex-shrink-0">
+                        <Sun className="w-4 h-4 text-orange-400" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Finais de Semana</p>
+                        <p className="text-lg font-bold text-foreground">{weDays} dias</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Comparison table */}
+                <Card className="border-border bg-card overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border/50 bg-muted/30">
+                          <th className="text-left py-2.5 px-4 font-semibold text-muted-foreground">Métrica</th>
+                          <th className="text-center py-2.5 px-4 font-semibold text-blue-400">Semana</th>
+                          <th className="text-center py-2.5 px-4 font-semibold text-orange-400">FDS</th>
+                          <th className="text-center py-2.5 px-4 font-semibold text-muted-foreground">Variação</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {metrics.map((m, idx) => {
+                          const isPositive = m.invertColor ? m.diff < 0 : m.diff > 0;
+                          return (
+                            <tr key={idx} className="border-b border-border/20 hover:bg-muted/20 transition-colors">
+                              <td className="py-2.5 px-4 font-medium text-foreground">{m.label}</td>
+                              <td className="py-2.5 px-4 text-center text-foreground">{m.weekday}</td>
+                              <td className="py-2.5 px-4 text-center text-foreground">{m.weekend}</td>
+                              <td className="py-2.5 px-4 text-center">
+                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-bold ${
+                                  isPositive ? "text-emerald-400 bg-emerald-400/10" : "text-red-400 bg-red-400/10"
+                                }`}>
+                                  {m.diff > 0 ? "+" : ""}{m.diff.toFixed(1)}%
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </MetaDashboardLayout>
