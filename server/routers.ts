@@ -63,6 +63,7 @@ import {
   upsertCampaignMetrics,
   updateMetaAdAccountSync,
   markStaleCampaignsArchived,
+  forceUpdateAllTokens,
 } from "./db";
 import {
   validateToken,
@@ -224,6 +225,18 @@ export const appRouter = router({
           connected++;
         }
         return { connected, total: adAccounts.length };
+      }),
+
+    // Force-renew token for ALL active accounts (bypasses userId matching)
+    forceRenewToken: protectedProcedure
+      .input(z.object({ accessToken: z.string().min(10) }))
+      .mutation(async ({ input }) => {
+        // First validate the token is real
+        const user = await validateToken(input.accessToken);
+        if (!user) throw new TRPCError({ code: "BAD_REQUEST", message: "Token inválido." });
+        // Force-update all active accounts
+        await forceUpdateAllTokens(input.accessToken);
+        return { success: true, message: "Token atualizado para todas as contas ativas." };
       }),
 
     disconnect: protectedProcedure

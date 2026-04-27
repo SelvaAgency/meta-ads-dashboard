@@ -899,3 +899,15 @@ export async function deleteGoogleAdAccount(id: number) {
     .where(eq(googleAdAccounts.id, id));
 }
 
+
+// Force-update accessToken for ALL active accounts (admin use)
+export async function forceUpdateAllTokens(newToken: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db
+    .update(metaAdAccounts)
+    .set({ accessToken: newToken })
+    .where(eq(metaAdAccounts.isActive, true));
+  console.log(`[DB] Force-updated accessToken for all active accounts`);
+  return result;
+}
