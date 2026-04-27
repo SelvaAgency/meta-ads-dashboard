@@ -594,15 +594,7 @@ export const appRouter = router({
           }
         }
 
-        // Second pass: DB campaigns with perf data that weren't in Meta API active list
-        // (e.g., recently paused campaigns that still have metrics in the date range)
-        for (const [dbId, perf] of perfMap) {
-          const metaId = perf.metaCampaignId;
-          if (metaId && !seenMetaIds.has(metaId)) {
-            seenMetaIds.add(metaId);
-            result.push(perf);
-          }
-        }
+        // Only show ACTIVE campaigns from Meta API — no paused/archived from DB
 
         result.sort((a: any, b: any) => Number(b.totalSpend ?? 0) - Number(a.totalSpend ?? 0));
         console.log(`[campaigns.performance] Returning ${result.length} campaigns (${metaActiveCampaigns.length} from Meta API, ${perfRows.length} with metrics)`);
