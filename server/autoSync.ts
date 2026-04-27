@@ -648,14 +648,49 @@ async function runDailyReport() {
   }
 }
 
+// ─── Daily Progress Report (20h BRT = 23h UTC) ────────────────────────────
+
+async function runDailyProgress() {
+  console.log("[DailyProgress] Starting daily progress report generation...");
+  if (!isEmailConfigured()) {
+    console.warn("[DailyProgress] SMTP not configured — skipping.");
+    return;
+  }
+  try {
+    const res = await fetch("http://localhost:3000/api/trpc/reports.generateDailyProgress");
+    const json = await res.json();
+    const data = json?.result?.data?.json ?? json?.result?.data;
+    if (!data?.html || !data?.subject) {
+      console.error("[DailyProgress] No report data returned:", JSON.stringify(json).slice(0, 500));
+      return;
+    }
+    const sent = await sendEmail({
+      to: DAILY_REPORT_RECIPIENTS,
+      subject: data.subject,
+      html: data.html,
+      text: data.plainText,
+    });
+    if (sent) {
+      console.log(`[DailyProgress] ✓ Progress report sent: ${data.subject} → ${DAILY_REPORT_RECIPIENTS.length} recipients`);
+    } else {
+      console.error("[DailyProgress] ✗ Failed to send progress report email");
+    }
+  } catch (err) {
+    console.error("[DailyProgress] Error:", err);
+  }
+}
+
 export async function startAutoSync() {
   console.log("[AutoSync] Initializing auto-sync service...");
 
   // Daily sync at 09:00 UTC (06:00 Brasília)
   cron.schedule("0 0 9 * * *", runAutoSync);
 
-  // Daily Meta Ads report email at 09:05 UTC (06:05 Brasília) — 5min after sync
-  cron.schedule("0 10 9 * * *", runDailyReport);
+  // Daily Meta Ads report email at 04:00 UTC (01:00 BRT)
+  cron.schedule("0 0 4 * * *", runDailyReport);
+
+  // Daily development progress report at 23:00 UTC (20:00 BRT)
+  cron.schedule("0 0 23 * * *", runDailyProgress);
 
   // Hourly anomaly detection + real-time alerts
   cron.schedule("0 0 * * * *", runAnomalyDetection);

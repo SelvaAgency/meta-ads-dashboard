@@ -1449,6 +1449,158 @@ export const appRouter = router({
         return { success: false, error: err.message ?? String(err) };
       }
     }),
+
+    // ─── Daily Development Progress Report ────────────────────────────────────
+    generateDailyProgress: publicProcedure.query(async () => {
+      const { execSync } = require("child_process");
+      const now = new Date();
+      const spNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      const todayStr = spNow.toISOString().split("T")[0];
+      const fmtDate = todayStr.split("-").reverse().join("/");
+
+      // Get today's git commits
+      let commits: { hash: string; time: string; msg: string }[] = [];
+      try {
+        const gitLog = execSync(
+          `cd /root/meta-ads-dashboard && git log --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
+          { encoding: "utf-8", timeout: 10000 }
+        ).trim();
+        if (gitLog) {
+          commits = gitLog.split("\n").filter(Boolean).map((line: string) => {
+            const [hash, time, ...msgParts] = line.split("|");
+            return { hash: hash || "", time: time || "", msg: msgParts.join("|") || "" };
+          });
+        }
+      } catch { /* git not available or no commits */ }
+
+      // Also try alternative paths
+      if (commits.length === 0) {
+        try {
+          const gitLog = execSync(
+            `cd ~/meta-ads-dashboard && git log --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
+            { encoding: "utf-8", timeout: 10000 }
+          ).trim();
+          if (gitLog) {
+            commits = gitLog.split("\n").filter(Boolean).map((line: string) => {
+              const [hash, time, ...msgParts] = line.split("|");
+              return { hash: hash || "", time: time || "", msg: msgParts.join("|") || "" };
+            });
+          }
+        } catch { /* fallback failed */ }
+      }
+
+      // Categorize commits into friendly categories
+      function categorizeCommit(msg: string): { icon: string; category: string } {
+        const m = msg.toLowerCase();
+        if (m.includes("fix") || m.includes("corrig") || m.includes("bug")) return { icon: "🔧", category: "Correção" };
+        if (m.includes("feat") || m.includes("add") || m.includes("implement") || m.includes("criar") || m.includes("adicionar")) return { icon: "✨", category: "Nova Feature" };
+        if (m.includes("refactor") || m.includes("refatora") || m.includes("reestrutur")) return { icon: "♻️", category: "Refatoração" };
+        if (m.includes("style") || m.includes("visual") || m.includes("css") || m.includes("theme") || m.includes("layout")) return { icon: "🎨", category: "Visual" };
+        if (m.includes("deploy") || m.includes("build") || m.includes("config")) return { icon: "🚀", category: "Deploy/Config" };
+        if (m.includes("report") || m.includes("email") || m.includes("notification")) return { icon: "📧", category: "Relatórios" };
+        if (m.includes("sync") || m.includes("api") || m.includes("meta") || m.includes("google")) return { icon: "🔄", category: "Integração" };
+        if (m.includes("test") || m.includes("audit")) return { icon: "🧪", category: "Teste/Auditoria" };
+        return { icon: "📝", category: "Atualização" };
+      }
+
+      // Friendly commit message cleanup
+      function friendlyMsg(msg: string): string {
+        return msg
+          .replace(/^(feat|fix|refactor|chore|style|docs|test|ci|perf|build)(\(.+?\))?:\s*/i, "")
+          .replace(/^(add|implement|create|update|remove|delete|fix|correct)\s+/i, (m) => m)
+          .trim();
+      }
+
+      const subject = `[SELVA] Progresso do Dashboard — ${fmtDate}`;
+
+      // Build commit items HTML
+      const commitItems = commits.map((c) => {
+        const { icon, category } = categorizeCommit(c.msg);
+        const friendlyText = friendlyMsg(c.msg);
+        const time = c.time ? new Date(c.time).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }) : "";
+        return `<tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;width:40px;text-align:center;font-size:18px">${icon}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0">
+            <div style="font-size:13px;color:#1a1a1a;font-weight:500">${friendlyText}</div>
+            <div style="font-size:10px;color:#999;margin-top:2px">${category} · ${time} · <code style="background:#f5f5f5;padding:1px 4px;border-radius:3px;font-size:10px">${c.hash}</code></div>
+          </td>
+        </tr>`;
+      }).join("");
+
+      const noCommitsMsg = `<div style="padding:24px;text-align:center;color:#999;font-size:13px;font-style:italic">
+        Nenhuma alteração registrada no código hoje. O time pode estar planejando, revisando ou trabalhando em tarefas fora do repositório.
+      </div>`;
+
+      // Summary stats
+      const categories = commits.reduce((acc: Record<string, number>, c) => {
+        const { category } = categorizeCommit(c.msg);
+        acc[category] = (acc[category] || 0) + 1;
+        return acc;
+      }, {});
+      const categoryBadges = Object.entries(categories).map(([cat, count]) =>
+        `<span style="display:inline-block;background:#f5f5f5;border-radius:12px;padding:3px 10px;margin:2px 4px;font-size:11px;color:#555">${cat}: ${count}</span>`
+      ).join("");
+
+      const html = `<div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;background:#f9f9f9">
+  <div style="background:#1a1a1a;padding:20px 24px;text-align:center">
+    <h1 style="color:#f5c6d0;margin:0;font-size:20px;letter-spacing:2px">SELVA AGENCY</h1>
+    <p style="color:#777;margin:6px 0 0;font-size:12px">Progresso do Dashboard — ${fmtDate}</p>
+  </div>
+  <div style="padding:20px 24px">
+    <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden;margin-bottom:16px">
+      <div style="background:#f5c6d0;padding:12px 16px">
+        <h2 style="margin:0;font-size:15px;color:#1a1a1a;font-weight:700">Resumo do dia</h2>
+      </div>
+      <div style="padding:14px 16px">
+        <div style="font-size:28px;font-weight:800;color:#1a1a1a;margin-bottom:4px">${commits.length}</div>
+        <div style="font-size:12px;color:#777;margin-bottom:10px">${commits.length === 1 ? "alteração realizada" : "alterações realizadas"} hoje no dashboard</div>
+        ${categoryBadges ? `<div style="margin-top:8px">${categoryBadges}</div>` : ""}
+      </div>
+    </div>
+    <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden">
+      <div style="background:#1a1a1a;padding:10px 16px">
+        <h3 style="margin:0;font-size:13px;color:#f5c6d0;font-weight:600">O que foi feito hoje</h3>
+      </div>
+      ${commits.length > 0 ? `<table style="width:100%;border-collapse:collapse">${commitItems}</table>` : noCommitsMsg}
+    </div>
+    <p style="color:#aaa;font-size:10px;margin-top:12px;text-align:center">
+      <a href="https://dashboardselva.manus.space" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency · Relatório automático de progresso
+    </p>
+  </div>
+</div>`;
+
+      const plainText = `SELVA AGENCY — Progresso do Dashboard — ${fmtDate}\n\n` +
+        (commits.length > 0
+          ? commits.map((c) => `• ${friendlyMsg(c.msg)} (${c.hash})`).join("\n")
+          : "Nenhuma alteração registrada hoje.") +
+        `\n\nTotal: ${commits.length} alteração(ões)`;
+
+      return { subject, html, plainText, date: todayStr, commitCount: commits.length };
+    }),
+
+    // ─── Public endpoint to trigger progress report email ───
+    sendDailyProgress: publicProcedure.query(async () => {
+      if (!isEmailConfigured()) {
+        return { success: false, error: "SMTP not configured." };
+      }
+      try {
+        const res = await fetch("http://localhost:3000/api/trpc/reports.generateDailyProgress");
+        const json = await res.json();
+        const data = json?.result?.data?.json ?? json?.result?.data;
+        if (!data?.html || !data?.subject) {
+          return { success: false, error: "Failed to generate progress report", debug: JSON.stringify(json).slice(0, 500) };
+        }
+        const sent = await sendEmail({
+          to: DAILY_REPORT_RECIPIENTS,
+          subject: data.subject,
+          html: data.html,
+          text: data.plainText,
+        });
+        return { success: sent, subject: data.subject, recipients: DAILY_REPORT_RECIPIENTS, commitCount: data.commitCount };
+      } catch (err: any) {
+        return { success: false, error: err.message ?? String(err) };
+      }
+    }),
   }),
   dashboardBuilder: router({
     // Listar relatórios do usuário
