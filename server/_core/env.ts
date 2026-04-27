@@ -13,4 +13,10 @@ export const ENV = {
   googleAdsClientSecret: process.env.GOOGLE_ADS_CLIENT_SECRET ?? "",
   googleAdsRefreshToken: process.env.GOOGLE_ADS_REFRESH_TOKEN ?? "",
   googleAdsLoginCustomerId: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ?? "",
+  // SMTP for daily report emails
+  smtpUser: process.env.SMTP_USER ?? "",
+  smtpPass: process.env.SMTP_PASS ?? "",
+  smtpHost: process.env.SMTP_HOST ?? "smtp.gmail.com",
+  smtpPort: process.env.SMTP_PORT ?? "587",
+  smtpFrom: process.env.SMTP_FROM ?? process.env.SMTP_USER ?? "",
 };
