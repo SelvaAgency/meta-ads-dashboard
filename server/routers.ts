@@ -1315,70 +1315,64 @@ export const appRouter = router({
       const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const fmtInt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 
-      // ── AI Analysis ──────────────────────────────────────────────────
-      const insights: string[] = [];
-      if (accountsWithData.length === 0) {
-        insights.push("Nenhuma conta registrou investimento ontem. Verificar se as campanhas estão ativas e com orçamento.");
-      } else {
-        // ROAS geral
-        if (totalRoas >= 3) insights.push(`ROAS consolidado de ${totalRoas.toFixed(2)}x — excelente retorno.`);
-        else if (totalRoas >= 1.5) insights.push(`ROAS consolidado de ${totalRoas.toFixed(2)}x — retorno positivo, mas há espaço para otimização.`);
-        else if (totalRoas >= 1) insights.push(`ROAS consolidado de ${totalRoas.toFixed(2)}x — operação no break-even. Revisar criativos e públicos para melhorar eficiência.`);
-        else if (totalSpend > 0) insights.push(`ROAS consolidado de ${totalRoas.toFixed(2)}x — abaixo do break-even. Ação urgente: pausar campanhas ineficientes e realocar budget.`);
-
-        // Top performer
-        const sorted = [...accountsWithData].sort((a, b) => b.roas - a.roas);
-        if (sorted.length > 0 && sorted[0].roas > 0) {
-          insights.push(`Destaque: ${sorted[0].name} com ROAS ${sorted[0].roas.toFixed(2)}x (R$ ${fmt(sorted[0].spend)} invest → R$ ${fmt(sorted[0].conversionValue)} receita).`);
+      // ── Individual AI Analysis per account ─────────────────────────
+      function analyzeAccount(a: any): string {
+        if (!a.hasData) return "Sem investimento no período. Verificar se campanhas estão ativas e com orçamento disponível.";
+        const parts: string[] = [];
+        // ROAS assessment
+        if (a.roas >= 3) parts.push(`Excelente performance com ROAS de ${a.roas.toFixed(2)}x — escalar investimento pode ser viável.`);
+        else if (a.roas >= 1.5) parts.push(`ROAS de ${a.roas.toFixed(2)}x indica retorno positivo. Há margem para otimização de criativos e públicos.`);
+        else if (a.roas >= 1) parts.push(`ROAS de ${a.roas.toFixed(2)}x — operando próximo ao break-even. Revisar segmentação e criativos para melhorar eficiência.`);
+        else if (a.conversionValue > 0) parts.push(`ROAS de ${a.roas.toFixed(2)}x — abaixo do break-even. Considerar pausar campanhas com pior desempenho e realocar budget.`);
+        else parts.push(`Sem receita rastreada apesar de R$ ${fmt(a.spend)} investidos.`);
+        // Conversions
+        if (a.conversions > 0 && a.cpa > 0) {
+          if (a.cpa < 15) parts.push(`CPA de R$ ${fmt(a.cpa)} é competitivo.`);
+          else if (a.cpa < 50) parts.push(`CPA de R$ ${fmt(a.cpa)} dentro do aceitável.`);
+          else parts.push(`CPA de R$ ${fmt(a.cpa)} está elevado — revisar funil de conversão.`);
+        } else if (a.conversions === 0 && a.spend > 20) {
+          parts.push(`Nenhuma conversão registrada com R$ ${fmt(a.spend)} de investimento — verificar pixel e configuração de eventos.`);
         }
-
-        // Worst performer
-        const withSpend = sorted.filter(a => a.spend > 10);
-        if (withSpend.length > 1) {
-          const worst = withSpend[withSpend.length - 1];
-          if (worst.roas < 1) {
-            insights.push(`Atenção: ${worst.name} com ROAS ${worst.roas.toFixed(2)}x — considerar pausar ou otimizar.`);
-          }
-        }
-
-        // Contas sem dados
-        const noData = accountResults.filter(a => !a.hasData);
-        if (noData.length > 0) {
-          insights.push(`${noData.length} conta(s) sem investimento: ${noData.map(a => a.name).join(", ")}.`);
-        }
-
         // CTR
-        if (totalCtr < 0.8 && totalImpressions > 1000) {
-          insights.push(`CTR geral de ${totalCtr.toFixed(2)}% está abaixo do ideal. Testar novos criativos e copies.`);
-        }
-
-        // Concentração de budget
-        if (accountsWithData.length > 1) {
-          const topSpender = [...accountsWithData].sort((a, b) => b.spend - a.spend)[0];
-          const pct = totalSpend > 0 ? (topSpender.spend / totalSpend) * 100 : 0;
-          if (pct > 60) {
-            insights.push(`${topSpender.name} concentra ${pct.toFixed(0)}% do investimento total.`);
-          }
-        }
+        if (a.ctr >= 3) parts.push(`CTR de ${a.ctr.toFixed(2)}% — engajamento alto.`);
+        else if (a.ctr >= 1) parts.push(`CTR de ${a.ctr.toFixed(2)}% dentro da média.`);
+        else if (a.ctr > 0 && a.ctr < 0.8) parts.push(`CTR de ${a.ctr.toFixed(2)}% abaixo do ideal — testar novos criativos e copies.`);
+        return parts.join(" ");
       }
-      const aiAnalysis = insights.join(" ");
+
+      // Attach analysis to each account
+      for (const a of accountResults) {
+        a.analysis = analyzeAccount(a);
+      }
+
+      const accountsWithData = accountResults.filter((a: any) => a.hasData);
+      const totalRoas = totalSpend > 0 ? totalConversionValue / totalSpend : 0;
 
       const subject = `[SELVA] Report Diário Meta Ads — ${fmtDate}`;
 
-      // ── HTML (lean) ──────────────────────────────────────────────────
-      const accountRows = accountResults.map((a: any) => {
-        const bg = a.hasData ? "#fff" : "#f9f9f9";
-        const clr = a.hasData ? "#333" : "#aaa";
-        const roasClr = a.roas >= 1 ? "#22c55e" : a.roas > 0 ? "#ef4444" : "#ccc";
-        return `<tr style="background:${bg};color:${clr}">
-          <td style="padding:6px 10px;border-bottom:1px solid #eee">${a.name}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">R$ ${fmt(a.spend)}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">${fmtInt(a.conversions)}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">R$ ${fmt(a.conversionValue)}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;color:${roasClr};font-weight:600">${a.roas.toFixed(2)}x</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">${a.hasData ? "R$ " + fmt(a.cpa) : "—"}</td>
-          <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">${a.hasData ? a.ctr.toFixed(2) + "%" : "—"}</td>
-        </tr>`;
+      // ── HTML — Individual account cards ──────────────────────────────
+      const accountCards = accountResults.map((a: any) => {
+        const borderColor = !a.hasData ? "#ddd" : a.roas >= 1.5 ? "#22c55e" : a.roas >= 1 ? "#f59e0b" : "#ef4444";
+        const roasClr = a.roas >= 1 ? "#22c55e" : a.roas > 0 ? "#ef4444" : "#999";
+        const opacity = a.hasData ? "1" : "0.6";
+        return `<div style="border:1px solid #eee;border-left:4px solid ${borderColor};border-radius:6px;padding:14px 16px;margin-bottom:12px;opacity:${opacity}">
+  <div style="font-size:14px;font-weight:700;color:#1a1a1a;margin-bottom:8px">${a.name}</div>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;color:#555">
+    <tr>
+      <td style="padding:3px 8px 3px 0"><span style="color:#888">Investimento:</span> <strong>R$ ${fmt(a.spend)}</strong></td>
+      <td style="padding:3px 8px 3px 0"><span style="color:#888">Conversões:</span> <strong>${fmtInt(a.conversions)}</strong></td>
+      <td style="padding:3px 8px 3px 0"><span style="color:#888">Receita:</span> <strong>R$ ${fmt(a.conversionValue)}</strong></td>
+    </tr>
+    <tr>
+      <td style="padding:3px 8px 3px 0"><span style="color:#888">ROAS:</span> <strong style="color:${roasClr}">${a.roas.toFixed(2)}x</strong></td>
+      <td style="padding:3px 8px 3px 0"><span style="color:#888">CPA:</span> <strong>${a.hasData && a.conversions > 0 ? "R$ " + fmt(a.cpa) : "—"}</strong></td>
+      <td style="padding:3px 8px 3px 0"><span style="color:#888">CTR:</span> <strong>${a.hasData ? a.ctr.toFixed(2) + "%" : "—"}</strong></td>
+    </tr>
+  </table>
+  <div style="margin-top:8px;padding:8px 10px;background:#f8f7f9;border-radius:4px;font-size:12px;color:#555;line-height:1.5">
+    <strong style="color:#1a1a1a">Análise:</strong> ${a.analysis}
+  </div>
+</div>`;
       }).join("");
 
       const html = `<div style="font-family:Arial,sans-serif;max-width:780px;margin:0 auto;background:#fff">
@@ -1387,57 +1381,23 @@ export const appRouter = router({
     <p style="color:#777;margin:4px 0 0;font-size:12px">Report Diário Meta Ads — ${fmtDate}</p>
   </div>
   <div style="padding:20px 24px">
-    <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
-      <tr>
-        <td style="padding:12px;background:#f8f8f8;text-align:center;width:25%">
-          <div style="font-size:20px;font-weight:700">R$ ${fmt(totalSpend)}</div>
-          <div style="font-size:11px;color:#888;margin-top:2px">Investimento</div>
-        </td>
-        <td style="padding:12px;background:#f8f8f8;text-align:center;width:25%">
-          <div style="font-size:20px;font-weight:700">${fmtInt(totalConversions)}</div>
-          <div style="font-size:11px;color:#888;margin-top:2px">Conversões</div>
-        </td>
-        <td style="padding:12px;background:#f8f8f8;text-align:center;width:25%">
-          <div style="font-size:20px;font-weight:700">R$ ${fmt(totalConversionValue)}</div>
-          <div style="font-size:11px;color:#888;margin-top:2px">Receita</div>
-        </td>
-        <td style="padding:12px;background:#f8f8f8;text-align:center;width:25%">
-          <div style="font-size:20px;font-weight:700;color:${totalRoas >= 1 ? '#22c55e' : '#ef4444'}">${totalRoas.toFixed(2)}x</div>
-          <div style="font-size:11px;color:#888;margin-top:2px">ROAS</div>
-        </td>
-      </tr>
-    </table>
-    <div style="background:#fdf6f8;border-left:3px solid #f5c6d0;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#444;line-height:1.5">
-      <strong style="color:#1a1a1a">🧠 Análise:</strong> ${aiAnalysis}
+    <div style="margin-bottom:16px;padding:10px 14px;background:#f8f8f8;border-radius:6px;font-size:12px;color:#666;text-align:center">
+      ${accountsWithData.length}/${activeAccounts.length} contas ativas com investimento · Investimento total: <strong style="color:#1a1a1a">R$ ${fmt(totalSpend)}</strong> · ROAS geral: <strong style="color:${totalRoas >= 1 ? '#22c55e' : '#ef4444'}">${totalRoas.toFixed(2)}x</strong>
     </div>
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="background:#1a1a1a;color:#f5c6d0">
-        <th style="padding:8px 10px;text-align:left">Conta</th>
-        <th style="padding:8px 10px;text-align:right">Invest.</th>
-        <th style="padding:8px 10px;text-align:right">Conv.</th>
-        <th style="padding:8px 10px;text-align:right">Receita</th>
-        <th style="padding:8px 10px;text-align:right">ROAS</th>
-        <th style="padding:8px 10px;text-align:right">CPA</th>
-        <th style="padding:8px 10px;text-align:right">CTR</th>
-      </tr></thead>
-      <tbody>${accountRows}</tbody>
-    </table>
-    <p style="color:#aaa;font-size:10px;margin-top:20px;border-top:1px solid #eee;padding-top:10px">
-      ${accountsWithData.length}/${activeAccounts.length} contas com investimento •
-      <a href="https://dashboardselva.manus.space" style="color:#f5c6d0">Dashboard</a> •
-      SELVA Agency
+    ${accountCards}
+    <p style="color:#aaa;font-size:10px;margin-top:16px;border-top:1px solid #eee;padding-top:10px;text-align:center">
+      <a href="https://dashboardselva.manus.space" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency
     </p>
   </div>
 </div>`;
 
       const plainText = `SELVA AGENCY - Report Meta Ads - ${fmtDate}\n` +
-        `Invest: R$ ${fmt(totalSpend)} | Conv: ${fmtInt(totalConversions)} | Receita: R$ ${fmt(totalConversionValue)} | ROAS: ${totalRoas.toFixed(2)}x\n\n` +
-        `Analise: ${aiAnalysis}\n\n` +
+        `${accountsWithData.length}/${activeAccounts.length} contas ativas | Invest total: R$ ${fmt(totalSpend)} | ROAS geral: ${totalRoas.toFixed(2)}x\n\n` +
         accountResults.map((a: any) =>
-          `${a.name}: R$ ${fmt(a.spend)} | ${fmtInt(a.conversions)} conv | ROAS ${a.roas.toFixed(2)}x${a.hasData ? "" : " (sem dados)"}`
+          `━━ ${a.name} ━━\nInvest: R$ ${fmt(a.spend)} | Conv: ${fmtInt(a.conversions)} | Receita: R$ ${fmt(a.conversionValue)} | ROAS: ${a.roas.toFixed(2)}x | CPA: ${a.hasData && a.conversions > 0 ? "R$ " + fmt(a.cpa) : "—"} | CTR: ${a.hasData ? a.ctr.toFixed(2) + "%" : "—"}\nAnálise: ${a.analysis}\n`
         ).join("\n");
 
-      return { subject, html, plainText, date: dateStr, accountCount: activeAccounts.length, accountsWithData: accountsWithData.length, aiAnalysis };
+      return { subject, html, plainText, date: dateStr, accountCount: activeAccounts.length, accountsWithData: accountsWithData.length };
     }),
 
     // ─── Public endpoint to trigger daily report email (for testing & cron) ───
