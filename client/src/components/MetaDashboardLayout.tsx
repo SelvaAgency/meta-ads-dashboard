@@ -399,12 +399,3 @@ function SyncButton({ accountId }: { accountId: number }) {
   );
 }
 
-// Legacy hook kept for backward compatibility with pages that still use it
-export function useSelectedAccount() {
-  const { activeAccountId, accounts, setActiveAccountId } = useActiveAccount();
-  return {
-    selectedAccountId: activeAccountId,
-    setSelectedAccountId: setActiveAccountId,
-    accounts,
-  };
-}

@@ -233,7 +233,7 @@ export async function syncAccount(account: { id: number; accountId: string; acce
           title: `Sync falhou: ${label}`,
           message: `Erro ao sincronizar: ${errMsg.substring(0, 200)}`,
           type: "SYNC_ERROR" as any,
-          severity: "HIGH",
+          severity: "CRITICAL",
         });
       } catch (_) { /* ignore alert creation errors */ }
     }

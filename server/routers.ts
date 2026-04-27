@@ -1,28 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
-
-/** Calcula o próximo disparo de um agendamento de relatório.
- * @param frequency DAILY ou WEEKLY
- * @param h hora (0-23)
- * @param m minuto (0-59)
- * @param d dia da semana (0=dom, 1=seg, ..., 6=sáb) — usado apenas no modo WEEKLY
- */
-function computeNextRun(frequency: "DAILY" | "WEEKLY", h: number, m: number, d: number): Date {
-  const now = new Date();
-  const next = new Date(now);
-  next.setSeconds(0, 0);
-  next.setHours(h, m, 0, 0);
-  if (frequency === "DAILY") {
-    if (next <= now) next.setDate(next.getDate() + 1);
-  } else {
-    // Avança até o próximo dia da semana desejado
-    const diff = (d - now.getDay() + 7) % 7;
-    next.setDate(now.getDate() + (diff === 0 && next <= now ? 7 : diff));
-  }
-  return next;
-}
 import { COOKIE_NAME } from "@shared/const";
+import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -109,31 +88,81 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount } from "./autoSync";
-// ─── Helper: date range ────────────────────────────────────────────────────────
+
+// ─── Helper: computeNextRun ─────────────────────────────────────────────────
+/** Calcula o próximo disparo de um agendamento de relatório. */
+function computeNextRun(frequency: "DAILY" | "WEEKLY", h: number, m: number, d: number): Date {
+  const now = new Date();
+  const next = new Date(now);
+  next.setSeconds(0, 0);
+  next.setHours(h, m, 0, 0);
+  if (frequency === "DAILY") {
+    if (next <= now) next.setDate(next.getDate() + 1);
+  } else {
+    const diff = (d - now.getDay() + 7) % 7;
+    next.setDate(now.getDate() + (diff === 0 && next <= now ? 7 : diff));
+  }
+  return next;
+}
+
+// ─── Helper: date range ─────────────────────────────────────────────────────
+function toISODate(date: Date): string {
+  return date.toISOString().split("T")[0];
+}
 
 function getDateRange(days: number, includeToday = false) {
   const today = new Date();
-  const todayStr = today.toISOString().split("T")[0];
+  const todayStr = toISODate(today);
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split("T")[0];
+  const yesterdayStr = toISODate(yesterday);
 
-  // includeToday: range extends to today instead of stopping at yesterday
   const end = includeToday ? today : yesterday;
   const endStr = includeToday ? todayStr : yesterdayStr;
 
   if (days <= 0) {
-    // days=0 means "today only"
     return { startDate: todayStr, endDate: todayStr };
   }
 
   const start = new Date(end);
   start.setDate(start.getDate() - (days - 1));
-  return {
-    startDate: start.toISOString().split("T")[0],
-    endDate: endStr,
-  };
+  return { startDate: toISODate(start), endDate: endStr };
 }
+
+/** Resolve date range from input: explicit dates take precedence over days-based. */
+function resolveDateRange(input: { startDate?: string; endDate?: string; days: number; includeToday?: boolean }) {
+  return (input.startDate && input.endDate)
+    ? { startDate: input.startDate, endDate: input.endDate }
+    : getDateRange(input.days, input.includeToday ?? false);
+}
+
+/** Fetch and verify account ownership — throws FORBIDDEN if invalid. */
+async function getVerifiedAccount(accountId: number, userId: number) {
+  const account = await getMetaAdAccountById(accountId);
+  if (!account || account.userId !== userId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Conta não encontrada." });
+  }
+  return account;
+}
+
+/** Resolve a possibly-internal campaign ID to a real Meta campaign ID. */
+async function resolveMetaCampaignId(accountId: number, inputId: string): Promise<string> {
+  let metaCampaignId = inputId;
+  if (inputId.length < 12) {
+    const localCampaigns = await getCampaignsByAccountId(accountId);
+    const inputAsNum = parseInt(inputId, 10);
+    if (!isNaN(inputAsNum)) {
+      const byDbId = localCampaigns.find(c => c.id === inputAsNum);
+      if (byDbId?.metaCampaignId) {
+        metaCampaignId = byDbId.metaCampaignId;
+      }
+    }
+  }
+  return metaCampaignId;
+}
+
+// ─── Meta campaign status type ──────────────────────────────────────────────
+type MetaCampaignStatus = "ACTIVE" | "PAUSED" | "ARCHIVED" | "DELETED";
 
 // ─── Routers ──────────────────────────────────────────────────────────────────
 
@@ -239,10 +268,7 @@ export const appRouter = router({
     billing: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Conta não encontrada." });
-        }
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         const billing = await getAccountBilling(account.accountId, account.accessToken);
 
         // Fire low-balance alert if pre-paid and remaining < R$200
@@ -269,10 +295,7 @@ export const appRouter = router({
     sync: protectedProcedure
       .input(z.object({ accountId: z.number(), days: z.number().min(1).max(90).default(30) }))
       .mutation(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Conta não encontrada." });
-        }
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
         // Validate token before any API call
         const tokenValid = await validateToken(account.accessToken);
@@ -333,7 +356,7 @@ export const appRouter = router({
             accountId: account.id,
             metaCampaignId: mc.id,
             name: mc.name,
-            status: mc.status as any,
+            status: mc.status as MetaCampaignStatus,
             objective: mc.objective,
             optimizationGoal: optimizationGoal,
             resultLabel: resultLabel,
@@ -416,15 +439,10 @@ export const appRouter = router({
         endDate: z.string().optional(),   // ISO date string YYYY-MM-DD
       }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
         // If explicit startDate/endDate provided, use them; otherwise fall back to days-based range
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days);
+        const { startDate, endDate } = resolveDateRange(input);
         const [metrics, campaigns, unreadAlerts, unreadAnomalies] = await Promise.all([
           getAccountMetricsSummary(input.accountId, startDate, endDate),
           getCampaignPerformanceSummary(input.accountId, startDate, endDate),
@@ -483,11 +501,8 @@ export const appRouter = router({
         endDate: z.string().optional(),
       }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days);
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const { startDate, endDate } = resolveDateRange(input);
         const rows = await getDemographicsInsights(account.accountId, account.accessToken, startDate, endDate);
         // Aggregate by age
         const byAge: Record<string, { spend: number; impressions: number; clicks: number; conversions: number; reach: number }> = {};
@@ -528,11 +543,8 @@ export const appRouter = router({
         endDate: z.string().optional(),
       }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days);
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const { startDate, endDate } = resolveDateRange(input);
         const rows = await getDailyAccountInsights(account.accountId, account.accessToken, startDate, endDate);
         // Also compute weekend vs weekday aggregates
         let weekdayTotals = { days: 0, spend: 0, conversions: 0, conversionValue: 0, impressions: 0, clicks: 0, reach: 0 };
@@ -583,14 +595,12 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
         // Fetch ACTIVE campaigns directly from Meta API (source of truth)
         try {
           const metaCampaigns = await getCampaigns(account.accountId, account.accessToken);
           const activeMeta = metaCampaigns.filter((c: any) => c.status === "ACTIVE");
-          console.log(`[campaigns.list] Meta API returned ${activeMeta.length} ACTIVE campaigns (of ${metaCampaigns.length} total)`);
 
           // Also get DB campaigns for enrichment (optimizationGoal, resultLabel)
           const dbCampaigns = await getActiveCampaignsForDisplay(input.accountId);
@@ -634,11 +644,8 @@ export const appRouter = router({
         })
       )
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days, input.includeToday ?? false);
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const { startDate, endDate } = resolveDateRange(input);
         const perfRows = await getCampaignPerformanceSummary(input.accountId, startDate, endDate);
 
         // Get DB campaigns for metaId lookup and enrichment
@@ -667,7 +674,6 @@ export const appRouter = router({
         try {
           const allMeta = await getCampaigns(account.accountId, account.accessToken);
           metaActiveCampaigns = allMeta.filter((c: any) => c.status === "ACTIVE");
-          console.log(`[campaigns.performance] Meta API: ${metaActiveCampaigns.length} ACTIVE campaigns`);
         } catch (metaErr) {
           console.warn("[campaigns.performance] Meta API fetch failed, using DB only:", metaErr);
         }
@@ -706,7 +712,6 @@ export const appRouter = router({
         // Only show ACTIVE campaigns from Meta API — no paused/archived from DB
 
         result.sort((a: any, b: any) => Number(b.totalSpend ?? 0) - Number(a.totalSpend ?? 0));
-        console.log(`[campaigns.performance] Returning ${result.length} campaigns (${metaActiveCampaigns.length} from Meta API, ${perfRows.length} with metrics)`);
         return result;
       }),
     // Fetch active ads/creatives for a specific campaign (expandable row)
@@ -722,35 +727,12 @@ export const appRouter = router({
         })
       )
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days, input.includeToday ?? false);
+        const { startDate, endDate } = resolveDateRange(input);
 
-        // === STEP 1: Resolve the real Meta campaign ID ===
-        // Frontend now sends real Meta campaign IDs from the API-based list.
-        // Fallback: resolve DB id → Meta id if a short id is received.
-        let realMetaCampaignId = input.metaCampaignId;
-
-        if (input.metaCampaignId.length < 12) {
-          // Looks like a DB id — resolve to Meta campaign id
-          try {
-            const localCampaigns = await getCampaignsByAccountId(input.accountId);
-            const inputAsNum = parseInt(input.metaCampaignId, 10);
-            if (!isNaN(inputAsNum)) {
-              const byDbId = localCampaigns.find(c => c.id === inputAsNum);
-              if (byDbId?.metaCampaignId) {
-                realMetaCampaignId = byDbId.metaCampaignId;
-                console.log(`[campaigns.ads] Resolved DB id ${input.metaCampaignId} -> ${realMetaCampaignId}`);
-              }
-            }
-          } catch (resolveErr) {
-            console.error(`[campaigns.ads] Resolution error:`, resolveErr);
-          }
-        }
-        console.log(`[campaigns.ads] Using metaCampaignId: ${realMetaCampaignId}`);
+        // Resolve the real Meta campaign ID (frontend may send DB id or Meta id)
+        const realMetaCampaignId = await resolveMetaCampaignId(input.accountId, input.metaCampaignId);
 
         // === STEP 2: Get ads with insights ===
         // Get adsets for goal mapping
@@ -779,7 +761,6 @@ export const appRouter = router({
 
         // Filter to only ads belonging to this campaign
         const filtered = allAds.filter((ad) => ad.campaign_id === realMetaCampaignId);
-        console.log(`[campaigns.ads] Filtered ${filtered.length} ads for campaign ${realMetaCampaignId} (total active: ${allAds.length})`);
 
         // If no ads found via account-wide fetch, try campaign-specific endpoint as fallback
         if (filtered.length === 0 && !fetchError) {
@@ -788,7 +769,6 @@ export const appRouter = router({
             const campResp = await fetch(campAdsUrl);
             const campData = await campResp.json() as any;
             if (campData.data?.length > 0) {
-              console.log(`[campaigns.ads] Campaign-specific fallback: ${campData.data.length} ads`);
               return campData.data.map((ad: any) => ({
                 id: ad.id, name: ad.name,
                 adset_id: ad.adset_id || "", adset_name: "",
@@ -822,25 +802,10 @@ export const appRouter = router({
         })
       )
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days, input.includeToday ?? false);
-
-        // Resolve Meta campaign ID (same logic as campaigns.ads)
-        let realMetaCampaignId = input.metaCampaignId;
-        if (input.metaCampaignId.length < 12) {
-          try {
-            const localCampaigns = await getCampaignsByAccountId(input.accountId);
-            const inputAsNum = parseInt(input.metaCampaignId, 10);
-            if (!isNaN(inputAsNum)) {
-              const byDbId = localCampaigns.find(c => c.id === inputAsNum);
-              if (byDbId?.metaCampaignId) realMetaCampaignId = byDbId.metaCampaignId;
-            }
-          } catch (e) { /* keep original */ }
-        }
+        const { startDate, endDate } = resolveDateRange(input);
+        const realMetaCampaignId = await resolveMetaCampaignId(input.accountId, input.metaCampaignId);
 
         // Fetch all adsets with insights for this account
         const allAdsets = await getAdSetsWithInsights(
@@ -849,7 +814,6 @@ export const appRouter = router({
 
         // Filter to only adsets belonging to this campaign
         const filtered = allAdsets.filter(as => as.campaign_id === realMetaCampaignId);
-        console.log(`[campaigns.adsets] Filtered ${filtered.length} adsets for campaign ${realMetaCampaignId} (total active: ${allAdsets.length})`);
 
         // Fallback: fetch campaign-specific adsets if account-wide returned nothing for this campaign
         if (filtered.length === 0 && allAdsets.length > 0) {
@@ -858,7 +822,6 @@ export const appRouter = router({
             const resp = await fetch(campAdsetsUrl);
             const data = await resp.json() as any;
             if (data.data?.length > 0) {
-              console.log(`[campaigns.adsets] Campaign-specific fallback: ${data.data.length} adsets`);
               return data.data.map((as: any) => ({
                 ...as, campaign_name: "", spend: 0, impressions: 0, clicks: 0,
                 reach: 0, frequency: 0, ctr: 0, cpc: 0, cpm: 0,
@@ -877,8 +840,7 @@ export const appRouter = router({
     adsDebug: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         
         // Raw fetch to Meta API - no try/catch so we see actual errors
         const metaAccountId = account.accountId;
@@ -905,8 +867,7 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         return getAnomaliesByAccountId(input.accountId);
       }),
 
@@ -927,8 +888,7 @@ export const appRouter = router({
     runDetection: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
         const today = new Date().toISOString().split("T")[0];
         const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
@@ -1016,22 +976,19 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         return getSuggestionsByAccountId(input.accountId);
       }),
     history: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         return getSuggestionsHistory(input.accountId);
       }),
     generate: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         const { startDate, endDate } = getDateRange(30);
         const campaignData = await getCampaignPerformanceSummary(input.accountId, startDate, endDate);
         const historyRaw = await getSuggestionsHistory(input.accountId);
@@ -1102,8 +1059,7 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         return getAlertsByAccountId(ctx.user.id, input.accountId);
       }),
 
@@ -1152,8 +1108,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         const h = input.scheduleHour;
         const m = input.scheduleMinute;
         const d = input.scheduleDay ?? 1;
@@ -1187,8 +1142,7 @@ export const appRouter = router({
     runNow: protectedProcedure
       .input(z.object({ accountId: z.number(), frequency: z.enum(["DAILY", "WEEKLY"]) }))
       .mutation(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
         // Date range: DAILY = yesterday, WEEKLY = last 7 days ending yesterday
         const yesterday = new Date();
@@ -1333,9 +1287,6 @@ export const appRouter = router({
       for (const a of accountResults) {
         a.analysis = analyzeAccount(a);
       }
-
-      const accountsWithData = accountResults.filter((a: any) => a.hasData);
-      const totalRoas = totalSpend > 0 ? totalConversionValue / totalSpend : 0;
 
       const subject = `[SELVA] Report Diário Meta Ads — ${fmtDate}`;
 
@@ -1744,7 +1695,6 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const account = await getMetaAdAccountById(input.accountId);
         if (!account) throw new Error("Account not found");
-        console.log(`[ManualSync] Triggered for account ${account.accountName} (${account.accountId})`);
         try {
           await syncAccount({
             id: account.id,
