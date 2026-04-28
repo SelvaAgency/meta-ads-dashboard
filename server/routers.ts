@@ -1,27 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-
-/** Calcula o próximo disparo de um agendamento de relatório.
- * @param frequency DAILY ou WEEKLY
- * @param h hora (0-23)
- * @param m minuto (0-59)
- * @param d dia da semana (0=dom, 1=seg, ..., 6=sáb) — usado apenas no modo WEEKLY
- */
-function computeNextRun(frequency: "DAILY" | "WEEKLY", h: number, m: number, d: number): Date {
-  const now = new Date();
-  const next = new Date(now);
-  next.setSeconds(0, 0);
-  next.setHours(h, m, 0, 0);
-  if (frequency === "DAILY") {
-    if (next <= now) next.setDate(next.getDate() + 1);
-  } else {
-    // Avança até o próximo dia da semana desejado
-    const diff = (d - now.getDay() + 7) % 7;
-    next.setDate(now.getDate() + (diff === 0 && next <= now ? 7 : diff));
-  }
-  return next;
-}
 import { COOKIE_NAME } from "@shared/const";
+import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -63,6 +43,7 @@ import {
   upsertCampaignMetrics,
   updateMetaAdAccountSync,
   markStaleCampaignsArchived,
+  forceUpdateAllTokens,
 } from "./db";
 import {
   validateToken,
@@ -107,43 +88,81 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount } from "./autoSync";
-import {
-  createDashboardReport,
-  getDashboardReportsByUserId,
-  getDashboardReportById,
-  updateDashboardReport,
-  deleteDashboardReport,
-} from "./dashboardBuilderDb";
-import {
-  analyzeCampaignData,
-  generateReportHtml,
-  generateAndUploadPdf,
-} from "./dashboardBuilderService";
-// ─── Helper: date range ────────────────────────────────────────────────────────
+
+// ─── Helper: computeNextRun ─────────────────────────────────────────────────
+/** Calcula o próximo disparo de um agendamento de relatório. */
+function computeNextRun(frequency: "DAILY" | "WEEKLY", h: number, m: number, d: number): Date {
+  const now = new Date();
+  const next = new Date(now);
+  next.setSeconds(0, 0);
+  next.setHours(h, m, 0, 0);
+  if (frequency === "DAILY") {
+    if (next <= now) next.setDate(next.getDate() + 1);
+  } else {
+    const diff = (d - now.getDay() + 7) % 7;
+    next.setDate(now.getDate() + (diff === 0 && next <= now ? 7 : diff));
+  }
+  return next;
+}
+
+// ─── Helper: date range ─────────────────────────────────────────────────────
+function toISODate(date: Date): string {
+  return date.toISOString().split("T")[0];
+}
 
 function getDateRange(days: number, includeToday = false) {
   const today = new Date();
-  const todayStr = today.toISOString().split("T")[0];
+  const todayStr = toISODate(today);
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split("T")[0];
+  const yesterdayStr = toISODate(yesterday);
 
-  // includeToday: range extends to today instead of stopping at yesterday
   const end = includeToday ? today : yesterday;
   const endStr = includeToday ? todayStr : yesterdayStr;
 
   if (days <= 0) {
-    // days=0 means "today only"
     return { startDate: todayStr, endDate: todayStr };
   }
 
   const start = new Date(end);
   start.setDate(start.getDate() - (days - 1));
-  return {
-    startDate: start.toISOString().split("T")[0],
-    endDate: endStr,
-  };
+  return { startDate: toISODate(start), endDate: endStr };
 }
+
+/** Resolve date range from input: explicit dates take precedence over days-based. */
+function resolveDateRange(input: { startDate?: string; endDate?: string; days: number; includeToday?: boolean }) {
+  return (input.startDate && input.endDate)
+    ? { startDate: input.startDate, endDate: input.endDate }
+    : getDateRange(input.days, input.includeToday ?? false);
+}
+
+/** Fetch and verify account ownership — throws FORBIDDEN if invalid. */
+async function getVerifiedAccount(accountId: number, userId: number) {
+  const account = await getMetaAdAccountById(accountId);
+  if (!account || account.userId !== userId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Conta não encontrada." });
+  }
+  return account;
+}
+
+/** Resolve a possibly-internal campaign ID to a real Meta campaign ID. */
+async function resolveMetaCampaignId(accountId: number, inputId: string): Promise<string> {
+  let metaCampaignId = inputId;
+  if (inputId.length < 12) {
+    const localCampaigns = await getCampaignsByAccountId(accountId);
+    const inputAsNum = parseInt(inputId, 10);
+    if (!isNaN(inputAsNum)) {
+      const byDbId = localCampaigns.find(c => c.id === inputAsNum);
+      if (byDbId?.metaCampaignId) {
+        metaCampaignId = byDbId.metaCampaignId;
+      }
+    }
+  }
+  return metaCampaignId;
+}
+
+// ─── Meta campaign status type ──────────────────────────────────────────────
+type MetaCampaignStatus = "ACTIVE" | "PAUSED" | "ARCHIVED" | "DELETED";
 
 // ─── Routers ──────────────────────────────────────────────────────────────────
 
@@ -226,6 +245,18 @@ export const appRouter = router({
         return { connected, total: adAccounts.length };
       }),
 
+    // Force-renew token for ALL active accounts (bypasses userId matching)
+    forceRenewToken: protectedProcedure
+      .input(z.object({ accessToken: z.string().min(10) }))
+      .mutation(async ({ input }) => {
+        // First validate the token is real
+        const user = await validateToken(input.accessToken);
+        if (!user) throw new TRPCError({ code: "BAD_REQUEST", message: "Token inválido." });
+        // Force-update all active accounts
+        await forceUpdateAllTokens(input.accessToken);
+        return { success: true, message: "Token atualizado para todas as contas ativas." };
+      }),
+
     disconnect: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -237,10 +268,7 @@ export const appRouter = router({
     billing: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Conta não encontrada." });
-        }
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         const billing = await getAccountBilling(account.accountId, account.accessToken);
 
         // Fire low-balance alert if pre-paid and remaining < R$200
@@ -267,10 +295,7 @@ export const appRouter = router({
     sync: protectedProcedure
       .input(z.object({ accountId: z.number(), days: z.number().min(1).max(90).default(30) }))
       .mutation(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Conta não encontrada." });
-        }
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
         // Validate token before any API call
         const tokenValid = await validateToken(account.accessToken);
@@ -331,7 +356,7 @@ export const appRouter = router({
             accountId: account.id,
             metaCampaignId: mc.id,
             name: mc.name,
-            status: mc.status as any,
+            status: mc.status as MetaCampaignStatus,
             objective: mc.objective,
             optimizationGoal: optimizationGoal,
             resultLabel: resultLabel,
@@ -414,15 +439,10 @@ export const appRouter = router({
         endDate: z.string().optional(),   // ISO date string YYYY-MM-DD
       }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
         // If explicit startDate/endDate provided, use them; otherwise fall back to days-based range
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days);
+        const { startDate, endDate } = resolveDateRange(input);
         const [metrics, campaigns, unreadAlerts, unreadAnomalies] = await Promise.all([
           getAccountMetricsSummary(input.accountId, startDate, endDate),
           getCampaignPerformanceSummary(input.accountId, startDate, endDate),
@@ -481,11 +501,8 @@ export const appRouter = router({
         endDate: z.string().optional(),
       }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days);
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const { startDate, endDate } = resolveDateRange(input);
         const rows = await getDemographicsInsights(account.accountId, account.accessToken, startDate, endDate);
         // Aggregate by age
         const byAge: Record<string, { spend: number; impressions: number; clicks: number; conversions: number; reach: number }> = {};
@@ -526,11 +543,8 @@ export const appRouter = router({
         endDate: z.string().optional(),
       }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days);
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const { startDate, endDate } = resolveDateRange(input);
         const rows = await getDailyAccountInsights(account.accountId, account.accessToken, startDate, endDate);
         // Also compute weekend vs weekday aggregates
         let weekdayTotals = { days: 0, spend: 0, conversions: 0, conversionValue: 0, impressions: 0, clicks: 0, reach: 0 };
@@ -581,14 +595,12 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
         // Fetch ACTIVE campaigns directly from Meta API (source of truth)
         try {
           const metaCampaigns = await getCampaigns(account.accountId, account.accessToken);
           const activeMeta = metaCampaigns.filter((c: any) => c.status === "ACTIVE");
-          console.log(`[campaigns.list] Meta API returned ${activeMeta.length} ACTIVE campaigns (of ${metaCampaigns.length} total)`);
 
           // Also get DB campaigns for enrichment (optimizationGoal, resultLabel)
           const dbCampaigns = await getActiveCampaignsForDisplay(input.accountId);
@@ -632,11 +644,8 @@ export const appRouter = router({
         })
       )
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days, input.includeToday ?? false);
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const { startDate, endDate } = resolveDateRange(input);
         const perfRows = await getCampaignPerformanceSummary(input.accountId, startDate, endDate);
 
         // Get DB campaigns for metaId lookup and enrichment
@@ -665,7 +674,6 @@ export const appRouter = router({
         try {
           const allMeta = await getCampaigns(account.accountId, account.accessToken);
           metaActiveCampaigns = allMeta.filter((c: any) => c.status === "ACTIVE");
-          console.log(`[campaigns.performance] Meta API: ${metaActiveCampaigns.length} ACTIVE campaigns`);
         } catch (metaErr) {
           console.warn("[campaigns.performance] Meta API fetch failed, using DB only:", metaErr);
         }
@@ -704,7 +712,6 @@ export const appRouter = router({
         // Only show ACTIVE campaigns from Meta API — no paused/archived from DB
 
         result.sort((a: any, b: any) => Number(b.totalSpend ?? 0) - Number(a.totalSpend ?? 0));
-        console.log(`[campaigns.performance] Returning ${result.length} campaigns (${metaActiveCampaigns.length} from Meta API, ${perfRows.length} with metrics)`);
         return result;
       }),
     // Fetch active ads/creatives for a specific campaign (expandable row)
@@ -720,35 +727,12 @@ export const appRouter = router({
         })
       )
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days, input.includeToday ?? false);
+        const { startDate, endDate } = resolveDateRange(input);
 
-        // === STEP 1: Resolve the real Meta campaign ID ===
-        // Frontend now sends real Meta campaign IDs from the API-based list.
-        // Fallback: resolve DB id → Meta id if a short id is received.
-        let realMetaCampaignId = input.metaCampaignId;
-
-        if (input.metaCampaignId.length < 12) {
-          // Looks like a DB id — resolve to Meta campaign id
-          try {
-            const localCampaigns = await getCampaignsByAccountId(input.accountId);
-            const inputAsNum = parseInt(input.metaCampaignId, 10);
-            if (!isNaN(inputAsNum)) {
-              const byDbId = localCampaigns.find(c => c.id === inputAsNum);
-              if (byDbId?.metaCampaignId) {
-                realMetaCampaignId = byDbId.metaCampaignId;
-                console.log(`[campaigns.ads] Resolved DB id ${input.metaCampaignId} -> ${realMetaCampaignId}`);
-              }
-            }
-          } catch (resolveErr) {
-            console.error(`[campaigns.ads] Resolution error:`, resolveErr);
-          }
-        }
-        console.log(`[campaigns.ads] Using metaCampaignId: ${realMetaCampaignId}`);
+        // Resolve the real Meta campaign ID (frontend may send DB id or Meta id)
+        const realMetaCampaignId = await resolveMetaCampaignId(input.accountId, input.metaCampaignId);
 
         // === STEP 2: Get ads with insights ===
         // Get adsets for goal mapping
@@ -777,7 +761,6 @@ export const appRouter = router({
 
         // Filter to only ads belonging to this campaign
         const filtered = allAds.filter((ad) => ad.campaign_id === realMetaCampaignId);
-        console.log(`[campaigns.ads] Filtered ${filtered.length} ads for campaign ${realMetaCampaignId} (total active: ${allAds.length})`);
 
         // If no ads found via account-wide fetch, try campaign-specific endpoint as fallback
         if (filtered.length === 0 && !fetchError) {
@@ -786,7 +769,6 @@ export const appRouter = router({
             const campResp = await fetch(campAdsUrl);
             const campData = await campResp.json() as any;
             if (campData.data?.length > 0) {
-              console.log(`[campaigns.ads] Campaign-specific fallback: ${campData.data.length} ads`);
               return campData.data.map((ad: any) => ({
                 id: ad.id, name: ad.name,
                 adset_id: ad.adset_id || "", adset_name: "",
@@ -820,25 +802,10 @@ export const appRouter = router({
         })
       )
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
-        const { startDate, endDate } = (input.startDate && input.endDate)
-          ? { startDate: input.startDate, endDate: input.endDate }
-          : getDateRange(input.days, input.includeToday ?? false);
-
-        // Resolve Meta campaign ID (same logic as campaigns.ads)
-        let realMetaCampaignId = input.metaCampaignId;
-        if (input.metaCampaignId.length < 12) {
-          try {
-            const localCampaigns = await getCampaignsByAccountId(input.accountId);
-            const inputAsNum = parseInt(input.metaCampaignId, 10);
-            if (!isNaN(inputAsNum)) {
-              const byDbId = localCampaigns.find(c => c.id === inputAsNum);
-              if (byDbId?.metaCampaignId) realMetaCampaignId = byDbId.metaCampaignId;
-            }
-          } catch (e) { /* keep original */ }
-        }
+        const { startDate, endDate } = resolveDateRange(input);
+        const realMetaCampaignId = await resolveMetaCampaignId(input.accountId, input.metaCampaignId);
 
         // Fetch all adsets with insights for this account
         const allAdsets = await getAdSetsWithInsights(
@@ -847,7 +814,6 @@ export const appRouter = router({
 
         // Filter to only adsets belonging to this campaign
         const filtered = allAdsets.filter(as => as.campaign_id === realMetaCampaignId);
-        console.log(`[campaigns.adsets] Filtered ${filtered.length} adsets for campaign ${realMetaCampaignId} (total active: ${allAdsets.length})`);
 
         // Fallback: fetch campaign-specific adsets if account-wide returned nothing for this campaign
         if (filtered.length === 0 && allAdsets.length > 0) {
@@ -856,7 +822,6 @@ export const appRouter = router({
             const resp = await fetch(campAdsetsUrl);
             const data = await resp.json() as any;
             if (data.data?.length > 0) {
-              console.log(`[campaigns.adsets] Campaign-specific fallback: ${data.data.length} adsets`);
               return data.data.map((as: any) => ({
                 ...as, campaign_name: "", spend: 0, impressions: 0, clicks: 0,
                 reach: 0, frequency: 0, ctr: 0, cpc: 0, cpm: 0,
@@ -875,8 +840,7 @@ export const appRouter = router({
     adsDebug: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         
         // Raw fetch to Meta API - no try/catch so we see actual errors
         const metaAccountId = account.accountId;
@@ -903,8 +867,7 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         return getAnomaliesByAccountId(input.accountId);
       }),
 
@@ -925,8 +888,7 @@ export const appRouter = router({
     runDetection: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
         const today = new Date().toISOString().split("T")[0];
         const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
@@ -1014,22 +976,19 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         return getSuggestionsByAccountId(input.accountId);
       }),
     history: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         return getSuggestionsHistory(input.accountId);
       }),
     generate: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         const { startDate, endDate } = getDateRange(30);
         const campaignData = await getCampaignPerformanceSummary(input.accountId, startDate, endDate);
         const historyRaw = await getSuggestionsHistory(input.accountId);
@@ -1100,8 +1059,7 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         return getAlertsByAccountId(ctx.user.id, input.accountId);
       }),
 
@@ -1150,8 +1108,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         const h = input.scheduleHour;
         const m = input.scheduleMinute;
         const d = input.scheduleDay ?? 1;
@@ -1185,8 +1142,7 @@ export const appRouter = router({
     runNow: protectedProcedure
       .input(z.object({ accountId: z.number(), frequency: z.enum(["DAILY", "WEEKLY"]) }))
       .mutation(async ({ ctx, input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account || account.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
         // Date range: DAILY = yesterday, WEEKLY = last 7 days ending yesterday
         const yesterday = new Date();
@@ -1242,91 +1198,349 @@ export const appRouter = router({
 
         return { success: true, report };
       }),
-  }),
-  dashboardBuilder: router({
-    // Listar relatórios do usuário
-    list: protectedProcedure.query(async ({ ctx }) => {
-      return getDashboardReportsByUserId(ctx.user.id);
+
+    generateDaily: publicProcedure.query(async () => {
+      const EXCLUDED_ACCOUNTS = ["Victor Pereira", "CA - PE2 - BAESH"];
+      const accounts = await getMetaAdAccountsByUserId(1);
+      const activeAccounts = accounts.filter((a: any) => a.isActive && !EXCLUDED_ACCOUNTS.includes(a.accountName));
+
+      if (activeAccounts.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No active accounts found" });
+      }
+
+      const now = new Date();
+      const spNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      const yesterday = new Date(spNow);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const dateStr = yesterday.toISOString().split("T")[0];
+      const fmtDate = dateStr.split("-").reverse().join("/");
+
+      const accountResults: any[] = [];
+      let totalSpend = 0, totalConversions = 0, totalConversionValue = 0;
+      let totalImpressions = 0, totalClicks = 0;
+
+      for (const acct of activeAccounts) {
+        try {
+          const metrics = await getAccountMetricsSummary(acct.id, dateStr, dateStr);
+          const d = metrics[0] || null;
+          const spend = Number(d?.totalSpend ?? 0);
+          const conversions = Number(d?.totalConversions ?? 0);
+          const conversionValue = Number(d?.totalConversionValue ?? 0);
+          const impressions = Number(d?.totalImpressions ?? 0);
+          const clicks = Number(d?.totalClicks ?? 0);
+          const roas = spend > 0 ? conversionValue / spend : 0;
+          const cpa = conversions > 0 ? spend / conversions : 0;
+          const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+
+          totalSpend += spend;
+          totalConversions += conversions;
+          totalConversionValue += conversionValue;
+          totalImpressions += impressions;
+          totalClicks += clicks;
+
+          accountResults.push({
+            name: acct.accountName ?? acct.accountId,
+            spend, conversions, conversionValue, roas, cpa, ctr, hasData: spend > 0,
+          });
+        } catch {
+          accountResults.push({
+            name: acct.accountName ?? acct.accountId,
+            spend: 0, conversions: 0, conversionValue: 0, roas: 0, cpa: 0, ctr: 0,
+            hasData: false, error: true,
+          });
+        }
+      }
+
+      const accountsWithData = accountResults.filter((a: any) => a.hasData);
+      const totalRoas = totalSpend > 0 ? totalConversionValue / totalSpend : 0;
+      const totalCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+
+      const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const fmtInt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+
+      // ── Individual AI Analysis per account ─────────────────────────
+      function analyzeAccount(a: any): string {
+        if (!a.hasData) return "Sem investimento no período. Verificar se campanhas estão ativas e com orçamento disponível.";
+        const parts: string[] = [];
+        // ROAS assessment
+        if (a.roas >= 3) parts.push(`Excelente performance com ROAS de ${a.roas.toFixed(2)}x — escalar investimento pode ser viável.`);
+        else if (a.roas >= 1.5) parts.push(`ROAS de ${a.roas.toFixed(2)}x indica retorno positivo. Há margem para otimização de criativos e públicos.`);
+        else if (a.roas >= 1) parts.push(`ROAS de ${a.roas.toFixed(2)}x — operando próximo ao break-even. Revisar segmentação e criativos para melhorar eficiência.`);
+        else if (a.conversionValue > 0) parts.push(`ROAS de ${a.roas.toFixed(2)}x — abaixo do break-even. Considerar pausar campanhas com pior desempenho e realocar budget.`);
+        else parts.push(`Sem receita rastreada apesar de R$ ${fmt(a.spend)} investidos.`);
+        // Conversions
+        if (a.conversions > 0 && a.cpa > 0) {
+          if (a.cpa < 15) parts.push(`CPA de R$ ${fmt(a.cpa)} é competitivo.`);
+          else if (a.cpa < 50) parts.push(`CPA de R$ ${fmt(a.cpa)} dentro do aceitável.`);
+          else parts.push(`CPA de R$ ${fmt(a.cpa)} está elevado — revisar funil de conversão.`);
+        } else if (a.conversions === 0 && a.spend > 20) {
+          parts.push(`Nenhuma conversão registrada com R$ ${fmt(a.spend)} de investimento — verificar pixel e configuração de eventos.`);
+        }
+        // CTR
+        if (a.ctr >= 3) parts.push(`CTR de ${a.ctr.toFixed(2)}% — engajamento alto.`);
+        else if (a.ctr >= 1) parts.push(`CTR de ${a.ctr.toFixed(2)}% dentro da média.`);
+        else if (a.ctr > 0 && a.ctr < 0.8) parts.push(`CTR de ${a.ctr.toFixed(2)}% abaixo do ideal — testar novos criativos e copies.`);
+        return parts.join(" ");
+      }
+
+      // Attach analysis to each account
+      for (const a of accountResults) {
+        a.analysis = analyzeAccount(a);
+      }
+
+      const subject = `[SELVA] Report Diário Meta Ads — ${fmtDate}`;
+
+      // ── HTML — Individual account sections ──────────────────────────
+      const accountSections = accountResults.map((a: any) => {
+        const statusColor = !a.hasData ? "#999" : a.roas >= 1.5 ? "#22c55e" : a.roas >= 1 ? "#f59e0b" : "#ef4444";
+        const roasClr = a.roas >= 1 ? "#22c55e" : a.roas > 0 ? "#ef4444" : "#999";
+        const statusDot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:8px"></span>`;
+
+        // Metrics row — only show if account has data
+        const metricsHtml = a.hasData ? `
+    <table style="width:100%;border-collapse:collapse;margin:10px 0 0">
+      <tr>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">R$ ${fmt(a.spend)}</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">Investimento</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">${fmtInt(a.conversions)}</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">Conversões</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">R$ ${fmt(a.conversionValue)}</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">Receita</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:${roasClr}">${a.roas.toFixed(2)}x</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">ROAS</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">${a.conversions > 0 ? "R$ " + fmt(a.cpa) : "—"}</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">CPA</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">${a.ctr.toFixed(2)}%</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">CTR</div>
+        </td>
+      </tr>
+    </table>` : `<div style="padding:8px 0;color:#aaa;font-size:12px;font-style:italic">Sem investimento no período</div>`;
+
+        return `<div style="margin-bottom:20px;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden">
+  <div style="background:#1a1a1a;padding:10px 16px;display:flex;align-items:center">
+    ${statusDot}<span style="font-size:14px;font-weight:700;color:#f5c6d0">${a.name}</span>
+  </div>
+  <div style="padding:12px 16px;background:#fff">
+    ${metricsHtml}
+    <div style="margin-top:12px;padding:10px 14px;background:#faf9fb;border-radius:6px;font-size:12px;color:#444;line-height:1.6">
+      ${a.analysis}
+    </div>
+  </div>
+</div>`;
+      }).join("");
+
+      const html = `<div style="font-family:Arial,sans-serif;max-width:780px;margin:0 auto;background:#f5f5f5">
+  <div style="background:#1a1a1a;padding:20px 24px;text-align:center">
+    <h1 style="color:#f5c6d0;margin:0;font-size:22px;letter-spacing:2px">SELVA AGENCY</h1>
+    <p style="color:#777;margin:6px 0 0;font-size:13px">Report Diário Meta Ads — ${fmtDate}</p>
+  </div>
+  <div style="padding:20px 24px">
+    ${accountSections}
+    <p style="color:#aaa;font-size:10px;margin-top:8px;text-align:center">
+      ${accountsWithData.length}/${activeAccounts.length} contas com investimento ·
+      <a href="https://dashboardselva.manus.space" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency
+    </p>
+  </div>
+</div>`;
+
+      const plainText = `SELVA AGENCY — Report Meta Ads — ${fmtDate}\n\n` +
+        accountResults.map((a: any) =>
+          `▸ ${a.name}\n  Invest: R$ ${fmt(a.spend)} | Conv: ${fmtInt(a.conversions)} | Receita: R$ ${fmt(a.conversionValue)} | ROAS: ${a.roas.toFixed(2)}x | CPA: ${a.hasData && a.conversions > 0 ? "R$ " + fmt(a.cpa) : "—"} | CTR: ${a.hasData ? a.ctr.toFixed(2) + "%" : "—"}\n  ${a.analysis}\n`
+        ).join("\n") +
+        `\n${accountsWithData.length}/${activeAccounts.length} contas com investimento`;
+
+      return { subject, html, plainText, date: dateStr, accountCount: activeAccounts.length, accountsWithData: accountsWithData.length };
     }),
 
-    // Buscar relatório por ID
-    getById: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .query(async ({ ctx, input }) => {
-        const report = await getDashboardReportById(input.id, ctx.user.id);
-        if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "Relatório não encontrado" });
-        return report;
-      }),
-
-    // Gerar novo relatório (recebe URLs de imagens já enviadas ao S3)
-    generate: protectedProcedure
-      .input(
-        z.object({
-          clientName: z.string().min(1).max(255),
-          weeklyContext: z.string().min(1),
-          mode: z.enum(["SINGLE", "COMPARATIVE"]),
-          imageUrls: z.array(z.string().url()).min(0).max(2),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        // Criar registro inicial
-        const insertResult = await createDashboardReport({
-          userId: ctx.user.id,
-          clientName: input.clientName,
-          weeklyContext: input.weeklyContext,
-          mode: input.mode,
-          imageUrls: JSON.stringify(input.imageUrls),
-          status: "PROCESSING",
+    // ─── Public endpoint to trigger daily report email (for testing & cron) ───
+    sendDailyReport: publicProcedure.query(async () => {
+      if (!isEmailConfigured()) {
+        return { success: false, error: "SMTP not configured. Set SMTP_USER and SMTP_PASS env vars." };
+      }
+      try {
+        // Fetch report data from the internal endpoint
+        const res = await fetch("http://localhost:3000/api/trpc/reports.generateDaily");
+        const json = await res.json();
+        // tRPC superjson wraps response in result.data.json
+        const data = json?.result?.data?.json ?? json?.result?.data;
+        if (!data?.html || !data?.subject) {
+          return { success: false, error: "Failed to generate report data", debug: JSON.stringify(json).slice(0, 500) };
+        }
+        const sent = await sendEmail({
+          to: DAILY_REPORT_RECIPIENTS,
+          subject: data.subject,
+          html: data.html,
+          text: data.plainText,
         });
-        // mysql2 + drizzle retorna [ResultSetHeader, FieldPacket[]] — insertId está no primeiro elemento
-        const reportId = ((insertResult as any)[0]?.insertId ?? (insertResult as any).insertId) as number;
-        if (!reportId) {
-          throw new Error("Falha ao criar registro no banco de dados");
-        }
+        return { success: sent, subject: data.subject, recipients: DAILY_REPORT_RECIPIENTS, accountCount: data.accountCount, accountsWithData: data.accountsWithData };
+      } catch (err: any) {
+        return { success: false, error: err.message ?? String(err) };
+      }
+    }),
 
+    // ─── Daily Development Progress Report ────────────────────────────────────
+    generateDailyProgress: publicProcedure.query(async () => {
+      const { execSync } = require("child_process");
+      const now = new Date();
+      const spNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      const todayStr = spNow.toISOString().split("T")[0];
+      const fmtDate = todayStr.split("-").reverse().join("/");
+
+      // Get today's git commits
+      let commits: { hash: string; time: string; msg: string }[] = [];
+      try {
+        const gitLog = execSync(
+          `cd /root/meta-ads-dashboard && git log --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
+          { encoding: "utf-8", timeout: 10000 }
+        ).trim();
+        if (gitLog) {
+          commits = gitLog.split("\n").filter(Boolean).map((line: string) => {
+            const [hash, time, ...msgParts] = line.split("|");
+            return { hash: hash || "", time: time || "", msg: msgParts.join("|") || "" };
+          });
+        }
+      } catch { /* git not available or no commits */ }
+
+      // Also try alternative paths
+      if (commits.length === 0) {
         try {
-          // Analisar via LLM
-          const reportData = await analyzeCampaignData(
-            input.clientName,
-            input.weeklyContext,
-            input.mode,
-            input.imageUrls
-          );
+          const gitLog = execSync(
+            `cd ~/meta-ads-dashboard && git log --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
+            { encoding: "utf-8", timeout: 10000 }
+          ).trim();
+          if (gitLog) {
+            commits = gitLog.split("\n").filter(Boolean).map((line: string) => {
+              const [hash, time, ...msgParts] = line.split("|");
+              return { hash: hash || "", time: time || "", msg: msgParts.join("|") || "" };
+            });
+          }
+        } catch { /* fallback failed */ }
+      }
 
-          // Gerar HTML e fazer upload
-          const html = generateReportHtml(reportData);
-          const pdfUrl = await generateAndUploadPdf(reportId, String(ctx.user.id), html);
+      // Categorize commits into friendly categories
+      function categorizeCommit(msg: string): { icon: string; category: string } {
+        const m = msg.toLowerCase();
+        if (m.includes("fix") || m.includes("corrig") || m.includes("bug")) return { icon: "🔧", category: "Correção" };
+        if (m.includes("feat") || m.includes("add") || m.includes("implement") || m.includes("criar") || m.includes("adicionar")) return { icon: "✨", category: "Nova Feature" };
+        if (m.includes("refactor") || m.includes("refatora") || m.includes("reestrutur")) return { icon: "♻️", category: "Refatoração" };
+        if (m.includes("style") || m.includes("visual") || m.includes("css") || m.includes("theme") || m.includes("layout")) return { icon: "🎨", category: "Visual" };
+        if (m.includes("deploy") || m.includes("build") || m.includes("config")) return { icon: "🚀", category: "Deploy/Config" };
+        if (m.includes("report") || m.includes("email") || m.includes("notification")) return { icon: "📧", category: "Relatórios" };
+        if (m.includes("sync") || m.includes("api") || m.includes("meta") || m.includes("google")) return { icon: "🔄", category: "Integração" };
+        if (m.includes("test") || m.includes("audit")) return { icon: "🧪", category: "Teste/Auditoria" };
+        return { icon: "📝", category: "Atualização" };
+      }
 
-          // Salvar resultado
-          await updateDashboardReport(reportId, {
-            platform: reportData.platform,
-            reportJson: JSON.stringify(reportData),
-            pdfUrl,
-            status: "DONE",
-          });
+      // Friendly commit message cleanup
+      function friendlyMsg(msg: string): string {
+        return msg
+          .replace(/^(feat|fix|refactor|chore|style|docs|test|ci|perf|build)(\(.+?\))?:\s*/i, "")
+          .replace(/^(add|implement|create|update|remove|delete|fix|correct)\s+/i, (m) => m)
+          .trim();
+      }
 
-          return { id: reportId, status: "DONE", pdfUrl, reportData };
-        } catch (err: any) {
-          await updateDashboardReport(reportId, {
-            status: "ERROR",
-            errorMessage: err?.message ?? "Erro desconhecido",
-          });
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: err?.message ?? "Erro ao gerar relatório",
-          });
+      const subject = `[SELVA] Progresso do Dashboard — ${fmtDate}`;
+
+      // Build commit items HTML
+      const commitItems = commits.map((c) => {
+        const { icon, category } = categorizeCommit(c.msg);
+        const friendlyText = friendlyMsg(c.msg);
+        const time = c.time ? new Date(c.time).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }) : "";
+        return `<tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;width:40px;text-align:center;font-size:18px">${icon}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0">
+            <div style="font-size:13px;color:#1a1a1a;font-weight:500">${friendlyText}</div>
+            <div style="font-size:10px;color:#999;margin-top:2px">${category} · ${time} · <code style="background:#f5f5f5;padding:1px 4px;border-radius:3px;font-size:10px">${c.hash}</code></div>
+          </td>
+        </tr>`;
+      }).join("");
+
+      const noCommitsMsg = `<div style="padding:24px;text-align:center;color:#999;font-size:13px;font-style:italic">
+        Nenhuma alteração registrada no código hoje. O time pode estar planejando, revisando ou trabalhando em tarefas fora do repositório.
+      </div>`;
+
+      // Summary stats
+      const categories = commits.reduce((acc: Record<string, number>, c) => {
+        const { category } = categorizeCommit(c.msg);
+        acc[category] = (acc[category] || 0) + 1;
+        return acc;
+      }, {});
+      const categoryBadges = Object.entries(categories).map(([cat, count]) =>
+        `<span style="display:inline-block;background:#f5f5f5;border-radius:12px;padding:3px 10px;margin:2px 4px;font-size:11px;color:#555">${cat}: ${count}</span>`
+      ).join("");
+
+      const html = `<div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;background:#f9f9f9">
+  <div style="background:#1a1a1a;padding:20px 24px;text-align:center">
+    <h1 style="color:#f5c6d0;margin:0;font-size:20px;letter-spacing:2px">SELVA AGENCY</h1>
+    <p style="color:#777;margin:6px 0 0;font-size:12px">Progresso do Dashboard — ${fmtDate}</p>
+  </div>
+  <div style="padding:20px 24px">
+    <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden;margin-bottom:16px">
+      <div style="background:#f5c6d0;padding:12px 16px">
+        <h2 style="margin:0;font-size:15px;color:#1a1a1a;font-weight:700">Resumo do dia</h2>
+      </div>
+      <div style="padding:14px 16px">
+        <div style="font-size:28px;font-weight:800;color:#1a1a1a;margin-bottom:4px">${commits.length}</div>
+        <div style="font-size:12px;color:#777;margin-bottom:10px">${commits.length === 1 ? "alteração realizada" : "alterações realizadas"} hoje no dashboard</div>
+        ${categoryBadges ? `<div style="margin-top:8px">${categoryBadges}</div>` : ""}
+      </div>
+    </div>
+    <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden">
+      <div style="background:#1a1a1a;padding:10px 16px">
+        <h3 style="margin:0;font-size:13px;color:#f5c6d0;font-weight:600">O que foi feito hoje</h3>
+      </div>
+      ${commits.length > 0 ? `<table style="width:100%;border-collapse:collapse">${commitItems}</table>` : noCommitsMsg}
+    </div>
+    <p style="color:#aaa;font-size:10px;margin-top:12px;text-align:center">
+      <a href="https://dashboardselva.manus.space" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency · Relatório automático de progresso
+    </p>
+  </div>
+</div>`;
+
+      const plainText = `SELVA AGENCY — Progresso do Dashboard — ${fmtDate}\n\n` +
+        (commits.length > 0
+          ? commits.map((c) => `• ${friendlyMsg(c.msg)} (${c.hash})`).join("\n")
+          : "Nenhuma alteração registrada hoje.") +
+        `\n\nTotal: ${commits.length} alteração(ões)`;
+
+      return { subject, html, plainText, date: todayStr, commitCount: commits.length };
+    }),
+
+    // ─── Public endpoint to trigger progress report email ───
+    sendDailyProgress: publicProcedure.query(async () => {
+      if (!isEmailConfigured()) {
+        return { success: false, error: "SMTP not configured." };
+      }
+      try {
+        const res = await fetch("http://localhost:3000/api/trpc/reports.generateDailyProgress");
+        const json = await res.json();
+        const data = json?.result?.data?.json ?? json?.result?.data;
+        if (!data?.html || !data?.subject) {
+          return { success: false, error: "Failed to generate progress report", debug: JSON.stringify(json).slice(0, 500) };
         }
-      }),
-
-    // Deletar relatório
-    delete: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .mutation(async ({ ctx, input }) => {
-        await deleteDashboardReport(input.id, ctx.user.id);
-        return { success: true };
-      }),
+        const sent = await sendEmail({
+          to: DAILY_REPORT_RECIPIENTS,
+          subject: data.subject,
+          html: data.html,
+          text: data.plainText,
+        });
+        return { success: sent, subject: data.subject, recipients: DAILY_REPORT_RECIPIENTS, commitCount: data.commitCount };
+      } catch (err: any) {
+        return { success: false, error: err.message ?? String(err) };
+      }
+    }),
   }),
-
   // ─── Google Ads ──────────────────────────────────────────────────────────
   googleAds: router({
     // Check if Google Ads is configured
@@ -1481,7 +1695,6 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const account = await getMetaAdAccountById(input.accountId);
         if (!account) throw new Error("Account not found");
-        console.log(`[ManualSync] Triggered for account ${account.accountName} (${account.accountId})`);
         try {
           await syncAccount({
             id: account.id,
@@ -1539,6 +1752,7 @@ export const appRouter = router({
         return results;
       }),
   }),
+
 });
-export type AppRouter = typeof appRouter;;
+export type AppRouter = typeof appRouter;
 

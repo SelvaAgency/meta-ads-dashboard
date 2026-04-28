@@ -8,7 +8,6 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { startAutoSync } from "../autoSync";
-import { registerDashboardBuilderRoutes } from "../dashboardBuilderRoutes";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -37,8 +36,6 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
-  // Dashboard Builder — upload de imagens
-  registerDashboardBuilderRoutes(app);
   // Debug endpoint - raw Meta API diagnostic
   app.get('/api/debug-ads/:id', async (req, res) => {
     try {

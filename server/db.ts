@@ -125,21 +125,16 @@ export async function createMetaAdAccount(data: InsertMetaAdAccount) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   
-  // Check if account already exists for this user (deduplication)
+  // Check if account already exists by accountId (match ANY user to avoid duplicates)
   const existing = await db
     .select()
     .from(metaAdAccounts)
-    .where(
-      and(
-        eq(metaAdAccounts.userId, data.userId),
-        eq(metaAdAccounts.accountId, data.accountId)
-      )
-    )
+    .where(eq(metaAdAccounts.accountId, data.accountId))
     .limit(1);
   
   if (existing.length > 0) {
     // Update accessToken, reactivate, and update other fields if account already exists
-    console.log(`[DB] Account ${data.accountId} already exists for user ${data.userId}, updating accessToken and reactivating`);
+    console.log(`[DB] Account ${data.accountId} already exists (id=${existing[0].id}), updating accessToken and reactivating`);
     await db
       .update(metaAdAccounts)
       .set({
@@ -904,3 +899,15 @@ export async function deleteGoogleAdAccount(id: number) {
     .where(eq(googleAdAccounts.id, id));
 }
 
+
+// Force-update accessToken for ALL active accounts (admin use)
+export async function forceUpdateAllTokens(newToken: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db
+    .update(metaAdAccounts)
+    .set({ accessToken: newToken })
+    .where(eq(metaAdAccounts.isActive, true));
+  console.log(`[DB] Force-updated accessToken for all active accounts`);
+  return result;
+}

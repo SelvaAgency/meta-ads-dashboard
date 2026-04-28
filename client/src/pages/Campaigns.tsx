@@ -1,4 +1,5 @@
-import { MetaDashboardLayout, useSelectedAccount } from "@/components/MetaDashboardLayout";
+import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";

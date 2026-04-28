@@ -5,9 +5,9 @@ const path = require('path');
 
 // Auto-detect the correct path
 const possiblePaths = [
-  path.join(__dirname, 'dist/public/index.html'),
-  '/home/ubuntu/meta-ads-dashboard/dist/public/index.html',
-  path.resolve(__dirname, 'dist/public/index.html'),
+  path.join(__dirname, 'dist/client/index.html'),
+  '/home/ubuntu/meta-ads-dashboard/dist/client/index.html',
+  path.resolve(__dirname, 'dist/client/index.html'),
 ];
 
 let htmlPath = null;
