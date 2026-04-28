@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { execSync } from "node:child_process";
 import { COOKIE_NAME } from "@shared/const";
 import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -1392,7 +1393,6 @@ export const appRouter = router({
 
     // ─── Daily Development Progress Report ────────────────────────────────────
     generateDailyProgress: publicProcedure.query(async () => {
-      const { execSync } = require("child_process");
       const now = new Date();
       const spNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
       const todayStr = spNow.toISOString().split("T")[0];
