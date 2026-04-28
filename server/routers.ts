@@ -66,6 +66,7 @@ import {
   getAdsWithInsights,
   getDemographicsInsights,
   getDailyAccountInsights,
+  getPortfolioPages,
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
@@ -1684,6 +1685,40 @@ export const appRouter = router({
           }
         }
         return { status: "OK", accounts: results };
+      }),
+  }),
+
+  // ─── Social Networks (Pages + Instagram from SELVA Portfolio) ────────────
+  socialNetworks: router({
+    list: protectedProcedure.query(async () => {
+      // Get token from any active account
+      const accounts = await getMetaAdAccountsByUserId(1);
+      if (!accounts.length) return { pages: [] };
+      const token = accounts[0].accessToken;
+      try {
+        const pages = await getPortfolioPages(token);
+        return { pages };
+      } catch (e: any) {
+        console.error("[socialNetworks.list] Error:", e.message);
+        return { pages: [], error: e.message };
+      }
+    }),
+
+    pageInsights: protectedProcedure
+      .input(z.object({ pageId: z.string(), period: z.string().optional() }))
+      .query(async ({ input }) => {
+        const accounts = await getMetaAdAccountsByUserId(1);
+        if (!accounts.length) return null;
+        const token = accounts[0].accessToken;
+        try {
+          const url = `https://graph.facebook.com/v21.0/${input.pageId}?fields=id,name,fan_count,followers_count,new_like_count,talking_about_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&access_token=${token}`;
+          const res = await fetch(url);
+          const data = await res.json();
+          return data;
+        } catch (e: any) {
+          console.error("[socialNetworks.pageInsights] Error:", e.message);
+          return null;
+        }
       }),
   }),
 
