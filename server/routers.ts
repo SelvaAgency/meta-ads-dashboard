@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { execSync } from "node:child_process";
 import { COOKIE_NAME } from "@shared/const";
 import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -1392,7 +1393,6 @@ export const appRouter = router({
 
     // ─── Daily Development Progress Report ────────────────────────────────────
     generateDailyProgress: publicProcedure.query(async () => {
-      const { execSync } = require("child_process");
       const now = new Date();
       const spNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
       const todayStr = spNow.toISOString().split("T")[0];
@@ -1402,7 +1402,7 @@ export const appRouter = router({
       let commits: { hash: string; time: string; msg: string }[] = [];
       try {
         const gitLog = execSync(
-          `cd /root/meta-ads-dashboard && git log --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
+          `cd /home/ubuntu/meta-ads-dashboard && git log --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
           { encoding: "utf-8", timeout: 10000 }
         ).trim();
         if (gitLog) {

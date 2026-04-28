@@ -686,8 +686,8 @@ export async function startAutoSync() {
   // Daily sync at 09:00 UTC (06:00 Brasília)
   cron.schedule("0 0 9 * * *", runAutoSync);
 
-  // Daily Meta Ads report email at 04:00 UTC (01:00 BRT)
-  cron.schedule("0 0 4 * * *", runDailyReport);
+  // Daily Meta Ads report email at 09:00 UTC (06:00 BRT)
+  cron.schedule("0 0 9 * * *", runDailyReport);
 
   // Daily development progress report at 23:00 UTC (20:00 BRT)
   cron.schedule("0 0 23 * * *", runDailyProgress);
