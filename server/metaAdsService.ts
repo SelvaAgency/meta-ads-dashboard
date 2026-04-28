@@ -217,15 +217,67 @@ export async function validateToken(accessToken: string): Promise<{ id: string; 
 }
 
 /**
- * Get all ad accounts accessible by the token
+ * REGRA IMUTÁVEL: Todas as contas DEVEM vir EXCLUSIVAMENTE do Portfólio Empresarial
+ * SELVA Agency (ID: 803399908519541). NUNCA usar "me/adaccounts".
+ */
+const SELVA_BUSINESS_PORTFOLIO_ID = "803399908519541";
+
+/**
+ * Get all ad accounts from the SELVA Agency Business Portfolio ONLY.
+ * Fetches both owned and client ad accounts from portfolio 803399908519541.
  */
 export async function getAdAccounts(accessToken: string): Promise<MetaAdAccountInfo[]> {
-  const data = await metaFetch<{ data: MetaAdAccountInfo[] }>("me/adaccounts", {
-    access_token: accessToken,
-    fields: "id,name,currency,timezone_name,account_status",
-    limit: "50",
+  const fields = "id,name,currency,timezone_name,account_status";
+
+  // Fetch owned ad accounts from the business portfolio
+  const owned = await metaFetch<{ data: MetaAdAccountInfo[] }>(
+    `${SELVA_BUSINESS_PORTFOLIO_ID}/owned_ad_accounts`,
+    { access_token: accessToken, fields, limit: "100" }
+  ).catch(() => ({ data: [] as MetaAdAccountInfo[] }));
+
+  // Fetch client ad accounts from the business portfolio
+  const client = await metaFetch<{ data: MetaAdAccountInfo[] }>(
+    `${SELVA_BUSINESS_PORTFOLIO_ID}/client_ad_accounts`,
+    { access_token: accessToken, fields, limit: "100" }
+  ).catch(() => ({ data: [] as MetaAdAccountInfo[] }));
+
+  // Merge and deduplicate by account id
+  const all = [...(owned.data ?? []), ...(client.data ?? [])];
+  const seen = new Set<string>();
+  return all.filter(acc => {
+    if (seen.has(acc.id)) return false;
+    seen.add(acc.id);
+    return true;
   });
-  return data.data ?? [];
+}
+
+/**
+ * Get all Facebook Pages from the SELVA Agency Business Portfolio.
+ * Includes Instagram business accounts linked to each page.
+ */
+export async function getPortfolioPages(accessToken: string): Promise<any[]> {
+  const fields = "id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url,biography}";
+
+  // Fetch client pages (most pages are client-type in agency portfolios)
+  const clientPages = await metaFetch<{ data: any[] }>(
+    `${SELVA_BUSINESS_PORTFOLIO_ID}/client_pages`,
+    { access_token: accessToken, fields, limit: "100" }
+  ).catch(() => ({ data: [] as any[] }));
+
+  // Fetch owned pages
+  const ownedPages = await metaFetch<{ data: any[] }>(
+    `${SELVA_BUSINESS_PORTFOLIO_ID}/owned_pages`,
+    { access_token: accessToken, fields, limit: "100" }
+  ).catch(() => ({ data: [] as any[] }));
+
+  // Merge and deduplicate
+  const all = [...(clientPages.data ?? []), ...(ownedPages.data ?? [])];
+  const seen = new Set<string>();
+  return all.filter(p => {
+    if (seen.has(p.id)) return false;
+    seen.add(p.id);
+    return true;
+  });
 }
 
 /**
