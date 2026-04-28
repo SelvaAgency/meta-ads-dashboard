@@ -1402,7 +1402,7 @@ export const appRouter = router({
       let commits: { hash: string; time: string; msg: string }[] = [];
       try {
         const gitLog = execSync(
-          `cd /root/meta-ads-dashboard && git log --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
+          `cd /home/ubuntu/meta-ads-dashboard && git log --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
           { encoding: "utf-8", timeout: 10000 }
         ).trim();
         if (gitLog) {
