@@ -330,6 +330,8 @@ export async function getAccountMetricsSummary(accountId: number, startDate: str
       // Weighted CPM: total spend / total impressions * 1000
       avgCpm: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.impressions})) * 1000 ELSE 0 END`,
       avgFrequency: sql<number>`AVG(${campaignMetrics.frequency})`,
+      totalProfileVisits: sql<number>`SUM(${campaignMetrics.profileVisits})`,
+      totalFollowers: sql<number>`SUM(${campaignMetrics.followers})`,
     })
     .from(campaignMetrics)
     .where(
