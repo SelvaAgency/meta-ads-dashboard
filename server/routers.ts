@@ -1558,19 +1558,27 @@ export const appRouter = router({
       .input(z.object({ clientId: z.string() }))
       .mutation(async ({ input }) => {
         try {
-          const { getAllClientConfigs } = await import("./clientReportConfig");
-          const { generateAndSendClientReport } = await import("./clientReportService");
-          const { sendEmail } = await import("./emailService");
-
-          const configs = getAllClientConfigs();
-          const config = configs.find(c => c.clientId === input.clientId);
+          const { CLIENT_REPORT_CONFIGS } = await import("./clientReportConfig");
+          const config = CLIENT_REPORT_CONFIGS[input.clientId];
 
           if (!config) {
             return { success: false, error: `Client ${input.clientId} not found` };
           }
 
-          const success = await generateAndSendClientReport(config, sendEmail);
-          return { success, clientName: config.clientName };
+          const { generateClientReport, formatClientReportHTML } = await import("./clientReportService");
+          const report = await generateClientReport(config);
+          const html = formatClientReportHTML(report, config);
+          const subject = `[TESTE] [SELVA] Relatório Diário ${config.clientName} — ${new Date().toISOString().split("T")[0]}`;
+
+          const success = await sendEmail({
+            to: config.recipients,
+            subject,
+            html,
+            text: `Relatório diário para ${config.clientName}`
+          });
+
+          console.log(`[sendClientReport] Report sent for ${config.clientName}: ${success}`);
+          return { success, clientName: config.clientName, subject };
         } catch (err: any) {
           console.error("[sendClientReport] Error:", err);
           return { success: false, error: err.message ?? String(err) };
