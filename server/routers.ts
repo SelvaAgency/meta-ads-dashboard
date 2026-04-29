@@ -1553,6 +1553,29 @@ export const appRouter = router({
         return { success: false, error: err.message ?? String(err) };
       }
     }),
+
+    sendClientReport: publicProcedure
+      .input(z.object({ clientId: z.string() }))
+      .mutation(async ({ input }) => {
+        try {
+          const { getAllClientConfigs } = await import("./clientReportConfig");
+          const { generateAndSendClientReport } = await import("./clientReportService");
+          const { sendEmail } = await import("./emailService");
+
+          const configs = getAllClientConfigs();
+          const config = configs.find(c => c.clientId === input.clientId);
+
+          if (!config) {
+            return { success: false, error: `Client ${input.clientId} not found` };
+          }
+
+          const success = await generateAndSendClientReport(config, sendEmail);
+          return { success, clientName: config.clientName };
+        } catch (err: any) {
+          console.error("[sendClientReport] Error:", err);
+          return { success: false, error: err.message ?? String(err) };
+        }
+      }),
   }),
   // ─── Google Ads ──────────────────────────────────────────────────────────
   googleAds: router({
