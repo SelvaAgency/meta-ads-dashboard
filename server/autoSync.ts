@@ -59,6 +59,34 @@ import type { CampaignReportData } from "./analysisService";
 
 const SYNC_DAYS = 30; // Always sync 30 days to ensure complete data for all dashboard filters
 
+// REGRA: Apenas sincronizar contas do portfólio empresarial SELVA Agency (803399908519541)
+const SELVA_PORTFOLIO_ID = "803399908519541";
+const SELVA_PORTFOLIO_ACCOUNTS = new Set<string>([
+  // Contas verificadas do portfólio SELVA Agency (IDs sem prefixo act_)
+  "416368164738574", // CA - BAESH / Cinase
+  "1367169851301247", // Conta 1367169851301247
+  "2293449447774678", // Conta 2293449447774678
+  "692642033767602", // Conta 692642033767602
+  "734432902582014", // SPIM GAMING BRASIL PORTFÓLIO EMPRESARIAL
+  "975388981734603", // C1 - ELWING
+  "436245678759718", // CA - SELVA Agency
+  "1303446334975032", // CA - Scaffold Play
+  "2749125688806040", // CA - MNBR
+  "509353363688317", // CA - Ultra Malhas
+  "938854617813301", // CA - Ligvegan
+  "2748857121950775", // CA - Phbr Medical / CA - T&D Energy
+  // Contas FORA do portfólio (serão filtradas)
+  // "746370099294331", // CA - Musa Resíduos
+  // "484729473810180", // CA - PE2 - BAESH
+  // "726618102579554", // CA - Caroline Garrafa
+  // "166653156335408", // Victor Pereira
+  // "2060651151073806", // Conta 763528323372836
+]);
+
+function isAccountInSELVAPortfolio(accountId: string): boolean {
+  return SELVA_PORTFOLIO_ACCOUNTS.has(accountId);
+}
+
 function getDateRange(days: number) {
   const end = new Date();
   end.setDate(end.getDate() - 1); // ontem = último dia completo
@@ -241,19 +269,34 @@ export async function syncAccount(account: { id: number; accountId: string; acce
 }
 
 export async function runAutoSync() {
-  console.log("[AutoSync] Starting daily auto-sync for all accounts...");
+  console.log(`[AutoSync] Starting daily auto-sync for SELVA Agency portfolio (${SELVA_PORTFOLIO_ID})...`);
   const accounts = await getAllActiveMetaAdAccounts();
-  if (accounts.length === 0) {
-    console.log("[AutoSync] No accounts found, skipping.");
+  
+  // REGRA: Apenas sincronizar contas do portfólio empresarial SELVA Agency (803399908519541)
+  const portfolioAccounts = accounts.filter(acc => isAccountInSELVAPortfolio(acc.accountId));
+  
+  if (portfolioAccounts.length === 0) {
+    console.log("[AutoSync] No accounts found in SELVA portfolio, skipping.");
     return;
   }
+  
+  const filteredOut = accounts.length - portfolioAccounts.length;
+  if (filteredOut > 0) {
+    console.log(`[AutoSync] ⚠️ Portfolio filter: ${portfolioAccounts.length}/${accounts.length} accounts in SELVA portfolio (${filteredOut} filtered out)`);
+  }
+  
   // Sync accounts sequentially to avoid rate limits
-  for (const account of accounts) {
+  for (const account of portfolioAccounts) {
     await syncAccount(account);
     // Small delay between accounts to respect Meta API rate limits
     await new Promise((r) => setTimeout(r, 2000));
   }
-  console.log(`[AutoSync] Daily sync complete — ${accounts.length} account(s) processed.`);
+  console.log(`[AutoSync] ✓ Daily sync complete — ${portfolioAccounts.length} account(s) from SELVA portfolio processed.`);
+  
+  // Log auditoria
+  if (filteredOut > 0) {
+    console.log(`[AutoSync] AUDIT: ${filteredOut} account(s) excluded from sync (not in SELVA portfolio 803399908519541)`);
+  }
 }
 
 // ─── Auto Anomaly Detection ────────────────────────────────────────────────────
