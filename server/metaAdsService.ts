@@ -613,6 +613,62 @@ export function extractFollowers(actions?: Array<{ action_type: string; value: s
   return total;
 }
 
+/**
+ * Extract messaging conversations started (Mensagens Iniciadas).
+ * action_type: "onsite_conversion.messaging_conversation_started_7d" or "messaging_first_reply"
+ */
+export function extractMessages(actions?: Array<{ action_type: string; value: string }>): number {
+  if (!actions) return 0;
+  const messageTypes = [
+    "onsite_conversion.messaging_conversation_started_7d",
+    "onsite_conversion.messaging_first_reply",
+    "messaging_first_reply",
+  ];
+  for (const t of messageTypes) {
+    const match = actions.find(a => a.action_type === t);
+    if (match) return parseFloat(match.value) || 0;
+  }
+  return 0;
+}
+
+/**
+ * Extract link clicks from Meta actions.
+ * action_type: "link_click" — clicks to external destination URLs.
+ */
+export function extractLinkClicks(actions?: Array<{ action_type: string; value: string }>): number {
+  if (!actions) return 0;
+  const match = actions.find(a => a.action_type === "link_click");
+  return match ? (parseFloat(match.value) || 0) : 0;
+}
+
+/**
+ * Extract add-to-cart events from Meta actions.
+ * action_type: "offsite_conversion.fb_pixel_add_to_cart"
+ */
+export function extractAddToCart(actions?: Array<{ action_type: string; value: string }>): number {
+  if (!actions) return 0;
+  const cartTypes = [
+    "offsite_conversion.fb_pixel_add_to_cart",
+    "add_to_cart",
+    "onsite_web_add_to_cart",
+  ];
+  for (const t of cartTypes) {
+    const match = actions.find(a => a.action_type === t);
+    if (match) return parseFloat(match.value) || 0;
+  }
+  return 0;
+}
+
+/**
+ * Extract landing page views from Meta actions.
+ * action_type: "landing_page_view"
+ */
+export function extractLandingPageViews(actions?: Array<{ action_type: string; value: string }>): number {
+  if (!actions) return 0;
+  const match = actions.find(a => a.action_type === "landing_page_view");
+  return match ? (parseFloat(match.value) || 0) : 0;
+}
+
 export function extractConversions(actions?: Array<{ action_type: string; value: string }>): number {
   if (!actions) return 0;
   // Priority order — use first found (exact match only)
