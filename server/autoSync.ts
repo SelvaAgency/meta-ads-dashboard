@@ -56,6 +56,8 @@ import {
 } from "./metaAdsService";
 import { generateAgencyReport } from "./analysisService";
 import type { CampaignReportData } from "./analysisService";
+import { getAllClientConfigs, getClientConfig } from "./clientReportConfig";
+import { generateAndSendClientReport } from "./clientReportService";
 
 const SYNC_DAYS = 30; // Always sync 30 days to ensure complete data for all dashboard filters
 
@@ -296,6 +298,44 @@ export async function runAutoSync() {
   // Log auditoria
   if (filteredOut > 0) {
     console.log(`[AutoSync] AUDIT: ${filteredOut} account(s) excluded from sync (not in SELVA portfolio 803399908519541)`);
+  }
+  
+  // Disparar reports para todos os clientes
+  console.log("[ClientReports] Starting client reports generation...");
+  await runClientReports();
+}
+
+/**
+ * Dispara relatórios para todos os clientes configurados
+ */
+async function runClientReports(): Promise<void> {
+  try {
+    const clientConfigs = getAllClientConfigs();
+    console.log(`[ClientReports] Found ${clientConfigs.length} client(s) to send reports`);
+
+    for (const config of clientConfigs) {
+      try {
+        const success = await generateAndSendClientReport(
+          config,
+          sendEmail
+        );
+
+        if (success) {
+          console.log(`[ClientReports] ✓ Report sent for ${config.clientName}`);
+        } else {
+          console.log(`[ClientReports] ✗ Failed to send report for ${config.clientName}`);
+        }
+      } catch (error) {
+        console.error(`[ClientReports] Error sending report for ${config.clientName}:`, error);
+      }
+
+      // Pequeno delay entre envios
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
+    console.log("[ClientReports] ✓ All client reports processed");
+  } catch (error) {
+    console.error("[ClientReports] Error in runClientReports:", error);
   }
 }
 
