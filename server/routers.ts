@@ -89,7 +89,7 @@ import {
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
-import { startAutoSync, syncAccount } from "./autoSync";
+import { startAutoSync, syncAccount, runAutoSync, runAnomalyDetection } from "./autoSync";
 
 // ─── Helper: computeNextRun ─────────────────────────────────────────────────
 /** Calcula o próximo disparo de um agendamento de relatório. */
@@ -293,6 +293,18 @@ export const appRouter = router({
 
         return billing;
       }),
+
+    forceSync: publicProcedure.mutation(async () => {
+      console.log("[ForceSync] Disparando sincronização forçada de todas as contas...");
+      try {
+        await runAutoSync();
+        console.log("[ForceSync] ✓ Sincronização concluída");
+        return { success: true, message: "Sincronização de todas as contas concluída" };
+      } catch (err: any) {
+        console.error("[ForceSync] Erro:", err.message);
+        return { success: false, error: err.message ?? String(err) };
+      }
+    }),
 
     sync: protectedProcedure
       .input(z.object({ accountId: z.number(), days: z.number().min(1).max(90).default(30) }))

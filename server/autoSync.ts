@@ -240,7 +240,7 @@ export async function syncAccount(account: { id: number; accountId: string; acce
   }
 }
 
-async function runAutoSync() {
+export async function runAutoSync() {
   console.log("[AutoSync] Starting daily auto-sync for all accounts...");
   const accounts = await getAllActiveMetaAdAccounts();
   if (accounts.length === 0) {
@@ -284,7 +284,7 @@ function aggregateCampaignRows(rows: Awaited<ReturnType<typeof getCampaignPerfor
   };
 }
 
-async function runAnomalyDetection() {
+export async function runAnomalyDetection() {
   console.log("[AutoAnomalies] Running hourly anomaly detection...");
   const accounts = await getAllActiveMetaAdAccounts();
   if (accounts.length === 0) return;
