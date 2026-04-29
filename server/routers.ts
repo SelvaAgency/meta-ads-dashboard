@@ -93,7 +93,7 @@ import {
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
-import { startAutoSync, syncAccount, runAutoSync, runAnomalyDetection } from "./autoSync";
+import { startAutoSync, syncAccount } from "./autoSync";
 
 // ─── Helper: computeNextRun ─────────────────────────────────────────────────
 /** Calcula o próximo disparo de um agendamento de relatório. */
@@ -297,18 +297,6 @@ export const appRouter = router({
 
         return billing;
       }),
-
-    forceSync: publicProcedure.mutation(async () => {
-      console.log("[ForceSync] Disparando sincronização forçada de todas as contas...");
-      try {
-        await runAutoSync();
-        console.log("[ForceSync] ✓ Sincronização concluída");
-        return { success: true, message: "Sincronização de todas as contas concluída" };
-      } catch (err: any) {
-        console.error("[ForceSync] Erro:", err.message);
-        return { success: false, error: err.message ?? String(err) };
-      }
-    }),
 
     sync: protectedProcedure
       .input(z.object({ accountId: z.number(), days: z.number().min(1).max(90).default(30) }))
@@ -1251,7 +1239,7 @@ export const appRouter = router({
       }
 
       const CLIENT_CONFIG: Record<string, ClientConfig> = {
-        "SELVA Agency": {
+        "CA - SELVA Agency": {
           displayName: "SELVA AGENCY",
           type: "clicks",
           resultLabel: "Cliques no Link",
@@ -1260,7 +1248,7 @@ export const appRouter = router({
           showAddToCart: false, showLandingPageViews: false,
           showProfileVisits: true, showFollowers: true,
         },
-        "C1-MNBR": {
+        "CA - MNBR": {
           displayName: "MNBR",
           type: "messages",
           resultLabel: "Mensagens Iniciadas",
@@ -1269,7 +1257,7 @@ export const appRouter = router({
           showAddToCart: false, showLandingPageViews: false,
           showProfileVisits: true, showFollowers: true,
         },
-        "UMA COMERCIO E INDUSTRIA": {
+        "UMA COMÉRCIO E INDÚSTRIA LTDA": {
           displayName: "UMA",
           type: "ecommerce",
           resultLabel: "Compras",
@@ -1278,7 +1266,7 @@ export const appRouter = router({
           showAddToCart: false, showLandingPageViews: false,
           showProfileVisits: true, showFollowers: true,
         },
-        "CA-BAESH": {
+        "CA - BAESH": {
           displayName: "BAESH",
           type: "ecommerce",
           resultLabel: "Compras",
@@ -1287,7 +1275,7 @@ export const appRouter = router({
           showAddToCart: false, showLandingPageViews: false,
           showProfileVisits: true, showFollowers: true,
         },
-        "C1-ELWING": {
+        "C1 - ELWING": {
           displayName: "ELWING",
           type: "messages",
           resultLabel: "Mensagens Iniciadas",
@@ -1296,7 +1284,7 @@ export const appRouter = router({
           showAddToCart: false, showLandingPageViews: false,
           showProfileVisits: true, showFollowers: true,
         },
-        "C1-Ultra Malhas": {
+        "CA - Ultra Malhas": {
           displayName: "ULTRAMALHAS",
           type: "messages",
           resultLabel: "Mensagens Iniciadas",
@@ -1305,7 +1293,7 @@ export const appRouter = router({
           showAddToCart: false, showLandingPageViews: false,
           showProfileVisits: true, showFollowers: true,
         },
-        "Scaffold Play": {
+        "CA - Scaffold Play": {
           displayName: "PLAY",
           type: "ecommerce",
           resultLabel: "Compras",
@@ -1314,7 +1302,7 @@ export const appRouter = router({
           showAddToCart: true, showLandingPageViews: true,
           showProfileVisits: false, showFollowers: false,
         },
-        "Phbr Medical": {
+        "CA - Phbr Medical": {
           displayName: "PHBR MEDICAL",
           type: "messages",
           resultLabel: "Mensagens Iniciadas",
@@ -1323,7 +1311,7 @@ export const appRouter = router({
           showAddToCart: false, showLandingPageViews: false,
           showProfileVisits: true, showFollowers: true,
         },
-        "CA-Studio Zeca Marques": {
+        "CA - Studio Zeca Marques": {
           displayName: "STUDIO ZECA MARQUES",
           type: "messages",
           resultLabel: "Mensagens Iniciadas",
@@ -1844,37 +1832,6 @@ export const appRouter = router({
         return { success: false, error: err.message ?? String(err) };
       }
     }),
-
-    sendClientReport: publicProcedure
-      .input(z.object({ clientId: z.string() }))
-      .mutation(async ({ input }) => {
-        try {
-          const { CLIENT_REPORT_CONFIGS } = await import("./clientReportConfig");
-          const config = CLIENT_REPORT_CONFIGS[input.clientId];
-
-          if (!config) {
-            return { success: false, error: `Client ${input.clientId} not found` };
-          }
-
-          const { generateClientReport, formatClientReportHTML } = await import("./clientReportService");
-          const report = await generateClientReport(config);
-          const html = formatClientReportHTML(report, config);
-          const subject = `[TESTE] [SELVA] Relatório Diário ${config.clientName} — ${new Date().toISOString().split("T")[0]}`;
-
-          const success = await sendEmail({
-            to: config.recipients,
-            subject,
-            html,
-            text: `Relatório diário para ${config.clientName}`
-          });
-
-          console.log(`[sendClientReport] Report sent for ${config.clientName}: ${success}`);
-          return { success, clientName: config.clientName, subject };
-        } catch (err: any) {
-          console.error("[sendClientReport] Error:", err);
-          return { success: false, error: err.message ?? String(err) };
-        }
-      }),
   }),
   // ─── Google Ads ──────────────────────────────────────────────────────────
   googleAds: router({
