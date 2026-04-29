@@ -60,6 +60,10 @@ import {
   extractResultsByGoal,
   extractProfileVisits,
   extractFollowers,
+  extractMessages,
+  extractLinkClicks,
+  extractAddToCart,
+  extractLandingPageViews,
   getResultLabel,
   calculateRoas,
   calculateCpa,
@@ -404,6 +408,10 @@ export const appRouter = router({
 
           const profileVisits = extractProfileVisits(insight.actions);
           const followers = extractFollowers(insight.actions);
+          const messages = extractMessages(insight.actions);
+          const linkClicks = extractLinkClicks(insight.actions);
+          const addToCart = extractAddToCart(insight.actions);
+          const landingPageViews = extractLandingPageViews(insight.actions);
 
           await upsertCampaignMetrics({
             campaignId: localId,
@@ -423,6 +431,10 @@ export const appRouter = router({
             roas: String(roas),
             profileVisits,
             followers,
+            messages,
+            linkClicks,
+            addToCart,
+            landingPageViews,
           });
         }
 
@@ -1360,6 +1372,10 @@ export const appRouter = router({
           const clicks = Number(d?.totalClicks ?? 0);
           const profileVisits = Number(d?.totalProfileVisits ?? 0);
           const followers = Number(d?.totalFollowers ?? 0);
+          const messages = Number(d?.totalMessages ?? 0);
+          const linkClicks = Number(d?.totalLinkClicks ?? 0);
+          const addToCart = Number(d?.totalAddToCart ?? 0);
+          const landingPageViews = Number(d?.totalLandingPageViews ?? 0);
           const roas = spend > 0 ? conversionValue / spend : 0;
           const cpa = conversions > 0 ? spend / conversions : 0;
           const cpc = clicks > 0 ? spend / clicks : 0;
@@ -1371,6 +1387,12 @@ export const appRouter = router({
           const prevConversionValue = Number(p?.totalConversionValue ?? 0);
           const prevImpressions = Number(p?.totalImpressions ?? 0);
           const prevClicks = Number(p?.totalClicks ?? 0);
+          const prevMessages = Number(p?.totalMessages ?? 0);
+          const prevLinkClicks = Number(p?.totalLinkClicks ?? 0);
+          const prevAddToCart = Number(p?.totalAddToCart ?? 0);
+          const prevLandingPageViews = Number(p?.totalLandingPageViews ?? 0);
+          const prevProfileVisits = Number(p?.totalProfileVisits ?? 0);
+          const prevFollowers = Number(p?.totalFollowers ?? 0);
           const prevRoas = prevSpend > 0 ? prevConversionValue / prevSpend : 0;
           const prevCpa = prevConversions > 0 ? prevSpend / prevConversions : 0;
           const prevCpc = prevClicks > 0 ? prevSpend / prevClicks : 0;
@@ -1388,10 +1410,17 @@ export const appRouter = router({
           let costPerResult = cpa;
           let prevCostPerResult = prevCpa;
           if (cfg.type === "clicks") {
-            resultValue = clicks;
-            prevResultValue = prevClicks;
-            costPerResult = cpc;
-            prevCostPerResult = prevCpc;
+            // For SELVA: "Cliques no Link" uses linkClicks (from actions link_click)
+            resultValue = linkClicks > 0 ? linkClicks : clicks;
+            prevResultValue = prevLinkClicks > 0 ? prevLinkClicks : prevClicks;
+            costPerResult = resultValue > 0 ? spend / resultValue : 0;
+            prevCostPerResult = prevResultValue > 0 ? prevSpend / prevResultValue : 0;
+          } else if (cfg.type === "messages") {
+            // For message clients: prefer the specific "messages" field over generic conversions
+            resultValue = messages > 0 ? messages : conversions;
+            prevResultValue = prevMessages > 0 ? prevMessages : prevConversions;
+            costPerResult = resultValue > 0 ? spend / resultValue : 0;
+            prevCostPerResult = prevResultValue > 0 ? prevSpend / prevResultValue : 0;
           }
 
           accountResults.push({
@@ -1399,10 +1428,16 @@ export const appRouter = router({
             displayName: cfg.displayName || (acct.accountName ?? acct.accountId),
             config: cfg,
             spend, conversions, conversionValue, roas, cpa, cpc, ctr, clicks, impressions,
-            profileVisits, followers,
+            profileVisits, followers, messages, linkClicks, addToCart, landingPageViews,
             resultValue, costPerResult,
             // Previous day for comparison
-            prev: { spend: prevSpend, conversions: prevConversions, conversionValue: prevConversionValue, roas: prevRoas, cpa: prevCpa, cpc: prevCpc, ctr: prevCtr, clicks: prevClicks, resultValue: prevResultValue, costPerResult: prevCostPerResult },
+            prev: {
+              spend: prevSpend, conversions: prevConversions, conversionValue: prevConversionValue,
+              roas: prevRoas, cpa: prevCpa, cpc: prevCpc, ctr: prevCtr, clicks: prevClicks,
+              messages: prevMessages, linkClicks: prevLinkClicks, addToCart: prevAddToCart,
+              landingPageViews: prevLandingPageViews, profileVisits: prevProfileVisits, followers: prevFollowers,
+              resultValue: prevResultValue, costPerResult: prevCostPerResult,
+            },
             hasData: spend > 0,
           });
         } catch {
@@ -1411,9 +1446,9 @@ export const appRouter = router({
             displayName: cfg.displayName || (acct.accountName ?? acct.accountId),
             config: cfg,
             spend: 0, conversions: 0, conversionValue: 0, roas: 0, cpa: 0, cpc: 0, ctr: 0, clicks: 0, impressions: 0,
-            profileVisits: 0, followers: 0,
+            profileVisits: 0, followers: 0, messages: 0, linkClicks: 0, addToCart: 0, landingPageViews: 0,
             resultValue: 0, costPerResult: 0,
-            prev: { spend: 0, conversions: 0, conversionValue: 0, roas: 0, cpa: 0, cpc: 0, ctr: 0, clicks: 0, resultValue: 0, costPerResult: 0 },
+            prev: { spend: 0, conversions: 0, conversionValue: 0, roas: 0, cpa: 0, cpc: 0, ctr: 0, clicks: 0, messages: 0, linkClicks: 0, addToCart: 0, landingPageViews: 0, profileVisits: 0, followers: 0, resultValue: 0, costPerResult: 0 },
             hasData: false, error: true,
           });
         }
@@ -1557,21 +1592,21 @@ export const appRouter = router({
         }
         // 6. Add to Cart (PLAY only)
         if (cfg.showAddToCart) {
-          cells.push(metricCell("—", "Add Carrinho", ""));
+          cells.push(metricCell(a.addToCart > 0 ? fmtInt(a.addToCart) : "—", "Add Carrinho", a.addToCart > 0 ? compArrow(a.addToCart, prev.addToCart) : ""));
         }
         // 7. CTR (always)
         cells.push(metricCell(`${a.ctr.toFixed(2)}%`, "CTR", compArrow(a.ctr, prev.ctr)));
         // 8. Landing page views (PLAY only)
         if (cfg.showLandingPageViews) {
-          cells.push(metricCell("—", "Sessoes Site", ""));
+          cells.push(metricCell(a.landingPageViews > 0 ? fmtInt(a.landingPageViews) : "—", "Sessoes Site", a.landingPageViews > 0 ? compArrow(a.landingPageViews, prev.landingPageViews) : ""));
         }
         // 9. Profile visits
         if (cfg.showProfileVisits) {
-          cells.push(metricCell(a.profileVisits > 0 ? fmtInt(a.profileVisits) : "—", "Visitas Perfil", ""));
+          cells.push(metricCell(a.profileVisits > 0 ? fmtInt(a.profileVisits) : "—", "Visitas Perfil", a.profileVisits > 0 ? compArrow(a.profileVisits, prev.profileVisits) : ""));
         }
         // 10. Followers
         if (cfg.showFollowers) {
-          cells.push(metricCell(a.followers > 0 ? fmtInt(a.followers) : "—", "Seguidores IG", "", true));
+          cells.push(metricCell(a.followers > 0 ? fmtInt(a.followers) : "—", "Seguidores IG", a.followers > 0 ? compArrow(a.followers, prev.followers) : "", true));
         }
 
         // Ensure last cell has no right border

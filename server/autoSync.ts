@@ -49,6 +49,10 @@ import {
   extractPurchaseRoas,
   extractProfileVisits,
   extractFollowers,
+  extractMessages,
+  extractLinkClicks,
+  extractAddToCart,
+  extractLandingPageViews,
   calculateCpa,
   getResultLabel,
   checkRealTimeAlerts,
@@ -172,6 +176,10 @@ export async function syncAccount(account: { id: number; accountId: string; acce
 
       const profileVisits = extractProfileVisits(insight.actions);
       const followers = extractFollowers(insight.actions);
+      const messages = extractMessages(insight.actions);
+      const linkClicks = extractLinkClicks(insight.actions);
+      const addToCart = extractAddToCart(insight.actions);
+      const landingPageViews = extractLandingPageViews(insight.actions);
 
       await upsertCampaignMetrics({
         campaignId: localId,
@@ -191,6 +199,10 @@ export async function syncAccount(account: { id: number; accountId: string; acce
         roas: String(roas),
         profileVisits,
         followers,
+        messages,
+        linkClicks,
+        addToCart,
+        landingPageViews,
       });
     }
 
