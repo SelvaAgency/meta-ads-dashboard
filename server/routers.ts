@@ -1767,12 +1767,43 @@ export const appRouter = router({
         return { icon: "📝", category: "Atualização" };
       }
 
-      // Friendly commit message cleanup
+      // Friendly commit message cleanup - convert technical terms to simple language
       function friendlyMsg(msg: string): string {
-        return msg
+        let friendly = msg
           .replace(/^(feat|fix|refactor|chore|style|docs|test|ci|perf|build)(\(.+?\))?:\s*/i, "")
           .replace(/^(add|implement|create|update|remove|delete|fix|correct)\s+/i, (m) => m)
           .trim();
+        
+        // Convert technical terms to simple language
+        friendly = friendly
+          .replace(/CLIENT_CONFIG/gi, "configuração de cliente")
+          .replace(/SMTP/gi, "sistema de email")
+          .replace(/cron/gi, "agendamento automático")
+          .replace(/vite\.ts/gi, "arquivo de configuração")
+          .replace(/routers\.ts/gi, "arquivo de rotas")
+          .replace(/autoSync/gi, "sincronização automática")
+          .replace(/emailService/gi, "serviço de email")
+          .replace(/PM2/gi, "gerenciador de processos")
+          .replace(/NODE_ENV/gi, "modo de funcionamento")
+          .replace(/deploy/gi, "publicação")
+          .replace(/rebuild/gi, "reconstrução")
+          .replace(/restart/gi, "reinicialização")
+          .replace(/token/gi, "chave de acesso")
+          .replace(/sync/gi, "sincronização")
+          .replace(/API/gi, "integração")
+          .replace(/endpoint/gi, "ponto de acesso")
+          .replace(/database/gi, "banco de dados")
+          .replace(/schema/gi, "estrutura de dados")
+          .replace(/migration/gi, "atualização de banco")
+          .replace(/bug/gi, "erro")
+          .replace(/fix/gi, "correção")
+          .replace(/feature/gi, "funcionalidade")
+          .replace(/refactor/gi, "reorganização")
+          .replace(/optimize/gi, "otimização")
+          .replace(/performance/gi, "desempenho")
+          .replace(/security/gi, "segurança");
+        
+        return friendly;
       }
 
       const subject = `[SELVA] Progresso do Dashboard — ${fmtDate}`;
@@ -1795,19 +1826,19 @@ export const appRouter = router({
       const metricsHtml = `
         <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden;margin-bottom:16px">
           <div style="background:#1a1a1a;padding:10px 16px">
-            <h3 style="margin:0;font-size:13px;color:#f5c6d0;font-weight:600">📊 Status Operacional</h3>
+            <h3 style="margin:0;font-size:13px;color:#f5c6d0;font-weight:600">✅ Como Está o Painel?</h3>
           </div>
           <div style="padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
             <div>
               <div style="font-size:20px;font-weight:800;color:#1a1a1a">${activeAccounts}</div>
-              <div style="font-size:11px;color:#777">Contas Ativas</div>
+              <div style="font-size:11px;color:#777">Contas Conectadas</div>
             </div>
             <div>
               <div style="font-size:20px;font-weight:800;color:#1a1a1a">${totalCampaigns}</div>
-              <div style="font-size:11px;color:#777">Campanhas</div>
+              <div style="font-size:11px;color:#777">Campanhas Ativas</div>
             </div>
             <div style="grid-column:1/-1">
-              <div style="font-size:12px;color:#1a1a1a">Último Sync: <strong>${lastSyncTime}</strong></div>
+              <div style="font-size:12px;color:#1a1a1a">Última Atualização: <strong>${lastSyncTime}</strong></div>
             </div>
           </div>
         </div>
@@ -1817,7 +1848,7 @@ export const appRouter = router({
       const activitiesHtml = recentActivities.length > 0 ? `
         <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden;margin-bottom:16px">
           <div style="background:#1a1a1a;padding:10px 16px">
-            <h3 style="margin:0;font-size:13px;color:#f5c6d0;font-weight:600">🔄 Atividades Recentes</h3>
+            <h3 style="margin:0;font-size:13px;color:#f5c6d0;font-weight:600">📋 O Que Aconteceu Hoje?</h3>
           </div>
           <div style="padding:12px 16px;font-size:11px;color:#555;line-height:1.6">
             ${recentActivities.map(a => `<div>• ${a.substring(0, 80)}...</div>`).join("")}
@@ -1826,7 +1857,7 @@ export const appRouter = router({
       ` : "";
 
       const noCommitsMsg = `<div style="padding:24px;text-align:center;color:#999;font-size:13px;font-style:italic">
-        Nenhuma alteração registrada no código hoje. O time pode estar planejando, revisando ou trabalhando em tarefas fora do repositório.
+        Nenhuma mudança no código hoje, mas o painel continua funcionando normalmente. O time pode estar em reuniões, planejando ou trabalhando em outras atividades.
       </div>`;
 
       // Summary stats
@@ -1870,16 +1901,12 @@ export const appRouter = router({
 </div>`;
 
       const plainText = `SELVA AGENCY — Progresso do Dashboard — ${fmtDate}\n\n` +
-        `📊 Status Operacional:\n` +
-        `• Contas Ativas: ${activeAccounts}\n` +
-        `• Campanhas: ${totalCampaigns}\n` +
-        `• Último Sync: ${lastSyncTime}\n\n` +
+        `O que melhorou no painel hoje:\n\n` +
         (commits.length > 0
-          ? `Alterações no Código:\n` + commits.map((c) => `• ${friendlyMsg(c.msg)} (${c.hash})`).join("\n")
-          : "Nenhuma alteração registrada no código hoje.") +
-        `\n\nTotal: ${commits.length} alteração(ões)`;
+          ? commits.map((c) => `• ${friendlyMsg(c.msg)}`).join("\n")
+          : "Hoje não houve alterações no painel. Tudo continua funcionando normalmente.");
 
-      return { subject, html, plainText, date: todayStr, commitCount: commits.length };
+      return { subject, html, plainText, date: todayStr, commitCount: commits.length, json: { subject, html, plainText } };
     }),
 
     // ─── Public endpoint to trigger progress report email ───
