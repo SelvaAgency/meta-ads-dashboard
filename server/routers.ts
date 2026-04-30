@@ -170,6 +170,9 @@ async function resolveMetaCampaignId(accountId: number, inputId: string): Promis
 // ─── Meta campaign status type ──────────────────────────────────────────────
 type MetaCampaignStatus = "ACTIVE" | "PAUSED" | "ARCHIVED" | "DELETED";
 
+// ─── Global state for rate limiting ───────────────────────────────────────────
+let lastProgressEmailSentTime = 0; // Timestamp of last progress email sent
+
 // ─── Routers ──────────────────────────────────────────────────────────────────
 
 export const appRouter = router({
@@ -1720,6 +1723,36 @@ export const appRouter = router({
         } catch { /* fallback failed */ }
       }
 
+      // Fetch operational metrics from database
+      let activeAccounts = 0;
+      let totalCampaigns = 0;
+      let lastSyncTime = "—";
+      try {
+        const db = await getDb();
+        if (db) {
+          const accounts = await db.select().from(metaAdAccounts).where(eq(metaAdAccounts.isActive, true));
+          activeAccounts = accounts.length;
+          lastSyncTime = accounts.length > 0 && accounts[0].lastSyncAt
+            ? new Date(accounts[0].lastSyncAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })
+            : "—";
+          
+          const campaignCount = await db.select().from(campaigns);
+          totalCampaigns = campaignCount.length;
+        }
+      } catch { /* db error */ }
+
+      // Extract recent PM2 logs for operational activities
+      let recentActivities: string[] = [];
+      try {
+        const logs = execSync(
+          `tail -100 /home/ubuntu/.pm2/logs/meta-ads-out.log 2>/dev/null | grep -E '\\[AutoSync\\]|\\[DailyReport\\]|✓|Success' | tail -5 || echo ""`,
+          { encoding: "utf-8", timeout: 5000 }
+        ).trim();
+        if (logs) {
+          recentActivities = logs.split("\n").filter(Boolean).slice(0, 5);
+        }
+      } catch { /* logs not available */ }
+
       // Categorize commits into friendly categories
       function categorizeCommit(msg: string): { icon: string; category: string } {
         const m = msg.toLowerCase();
@@ -1758,6 +1791,40 @@ export const appRouter = router({
         </tr>`;
       }).join("");
 
+      // Operational metrics section (always shown, even without commits)
+      const metricsHtml = `
+        <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden;margin-bottom:16px">
+          <div style="background:#1a1a1a;padding:10px 16px">
+            <h3 style="margin:0;font-size:13px;color:#f5c6d0;font-weight:600">📊 Status Operacional</h3>
+          </div>
+          <div style="padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <div style="font-size:20px;font-weight:800;color:#1a1a1a">${activeAccounts}</div>
+              <div style="font-size:11px;color:#777">Contas Ativas</div>
+            </div>
+            <div>
+              <div style="font-size:20px;font-weight:800;color:#1a1a1a">${totalCampaigns}</div>
+              <div style="font-size:11px;color:#777">Campanhas</div>
+            </div>
+            <div style="grid-column:1/-1">
+              <div style="font-size:12px;color:#1a1a1a">Último Sync: <strong>${lastSyncTime}</strong></div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Recent activities section
+      const activitiesHtml = recentActivities.length > 0 ? `
+        <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden;margin-bottom:16px">
+          <div style="background:#1a1a1a;padding:10px 16px">
+            <h3 style="margin:0;font-size:13px;color:#f5c6d0;font-weight:600">🔄 Atividades Recentes</h3>
+          </div>
+          <div style="padding:12px 16px;font-size:11px;color:#555;line-height:1.6">
+            ${recentActivities.map(a => `<div>• ${a.substring(0, 80)}...</div>`).join("")}
+          </div>
+        </div>
+      ` : "";
+
       const noCommitsMsg = `<div style="padding:24px;text-align:center;color:#999;font-size:13px;font-style:italic">
         Nenhuma alteração registrada no código hoje. O time pode estar planejando, revisando ou trabalhando em tarefas fora do repositório.
       </div>`;
@@ -1778,9 +1845,11 @@ export const appRouter = router({
     <p style="color:#777;margin:6px 0 0;font-size:12px">Progresso do Dashboard — ${fmtDate}</p>
   </div>
   <div style="padding:20px 24px">
+    ${metricsHtml}
+    ${activitiesHtml}
     <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden;margin-bottom:16px">
       <div style="background:#f5c6d0;padding:12px 16px">
-        <h2 style="margin:0;font-size:15px;color:#1a1a1a;font-weight:700">Resumo do dia</h2>
+        <h2 style="margin:0;font-size:15px;color:#1a1a1a;font-weight:700">Resumo de Código</h2>
       </div>
       <div style="padding:14px 16px">
         <div style="font-size:28px;font-weight:800;color:#1a1a1a;margin-bottom:4px">${commits.length}</div>
@@ -1801,9 +1870,13 @@ export const appRouter = router({
 </div>`;
 
       const plainText = `SELVA AGENCY — Progresso do Dashboard — ${fmtDate}\n\n` +
+        `📊 Status Operacional:\n` +
+        `• Contas Ativas: ${activeAccounts}\n` +
+        `• Campanhas: ${totalCampaigns}\n` +
+        `• Último Sync: ${lastSyncTime}\n\n` +
         (commits.length > 0
-          ? commits.map((c) => `• ${friendlyMsg(c.msg)} (${c.hash})`).join("\n")
-          : "Nenhuma alteração registrada hoje.") +
+          ? `Alterações no Código:\n` + commits.map((c) => `• ${friendlyMsg(c.msg)} (${c.hash})`).join("\n")
+          : "Nenhuma alteração registrada no código hoje.") +
         `\n\nTotal: ${commits.length} alteração(ões)`;
 
       return { subject, html, plainText, date: todayStr, commitCount: commits.length };
@@ -1814,6 +1887,19 @@ export const appRouter = router({
       if (!isEmailConfigured()) {
         return { success: false, error: "SMTP not configured." };
       }
+      
+      // Anti-duplicata: Check if email was sent in the last 6 hours
+      const now = Date.now();
+      const sixHoursMs = 6 * 60 * 60 * 1000;
+      if (now - lastProgressEmailSentTime < sixHoursMs) {
+        const minutesLeft = Math.ceil((sixHoursMs - (now - lastProgressEmailSentTime)) / 60000);
+        return { 
+          success: false, 
+          error: `Email já foi enviado. Próximo envio em ${minutesLeft} minutos.`, 
+          rateLimited: true 
+        };
+      }
+      
       try {
         const res = await fetch("http://localhost:3000/api/trpc/reports.generateDailyProgress");
         const json = await res.json();
@@ -1827,6 +1913,12 @@ export const appRouter = router({
           html: data.html,
           text: data.plainText,
         });
+        
+        // Update timestamp if email was sent successfully
+        if (sent) {
+          lastProgressEmailSentTime = now;
+        }
+        
         return { success: sent, subject: data.subject, recipients: DAILY_REPORT_RECIPIENTS, commitCount: data.commitCount };
       } catch (err: any) {
         return { success: false, error: err.message ?? String(err) };

@@ -283,3 +283,16 @@ export const googleAdAccounts = mysqlTable("google_ad_accounts", {
 });
 export type GoogleAdAccount = typeof googleAdAccounts.$inferSelect;
 export type InsertGoogleAdAccount = typeof googleAdAccounts.$inferInsert;
+
+// Progress report email tracking (anti-duplicata)
+export const progressEmailLog = mysqlTable("progress_email_log", {
+  id: int("id").autoincrement().primaryKey(),
+  date: varchar("date", { length: 10 }).notNull(), // YYYY-MM-DD
+  sentAt: timestamp("sentAt").defaultNow().notNull(),
+  recipients: text("recipients"), // JSON array of emails
+  subject: varchar("subject", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ProgressEmailLog = typeof progressEmailLog.$inferSelect;
+export type InsertProgressEmailLog = typeof progressEmailLog.$inferInsert;

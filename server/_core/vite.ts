@@ -25,11 +25,11 @@ export async function setupVite(app: Express, server: Server) {
     const url = req.originalUrl;
 
     try {
-      const clientTemplate = path.resolve(
-        import.meta.dirname,
-        "../../client",
-        "index.html"
-      );
+      // In production, use dist/client/index.html; in dev, use client/index.html
+      const isDev = process.env.NODE_ENV !== "production";
+      const clientTemplate = isDev
+        ? path.resolve(import.meta.dirname, "../../client", "index.html")
+        : path.resolve(process.cwd(), "dist", "client", "index.html");
 
       // always reload the index.html file from disk incase it changes
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
