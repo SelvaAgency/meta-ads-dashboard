@@ -91,6 +91,26 @@ import {
   deleteGoogleAdAccount,
   updateGoogleAdAccountSync,
 } from "./db";
+import {
+  isGA4Configured,
+  getGA4Config,
+  listGA4Properties,
+  getGA4Overview,
+  getGA4DailyMetrics,
+  getGA4TrafficSources,
+  getGA4TopPages,
+  getGA4DeviceBreakdown,
+  getGA4GeoBreakdown,
+  getGA4Conversions,
+} from "./ga4Service";
+import {
+  getGA4AccountsByUserId,
+  getAllActiveGA4Accounts,
+  getGA4AccountById,
+  createGA4Account,
+  deleteGA4Account,
+  updateGA4AccountSync,
+} from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount } from "./autoSync";
@@ -2077,6 +2097,202 @@ export const appRouter = router({
         }
         return results;
       }),
+  }),
+
+  // ─── GA4 Analytics ─────────────────────────────────────────────────────────
+  ga4: router({
+    isConfigured: publicProcedure.query(() => {
+      return { configured: isGA4Configured() };
+    }),
+
+    accounts: protectedProcedure.query(async ({ ctx }) => {
+      return getGA4AccountsByUserId(ctx.user.id);
+    }),
+
+    connectAccount: protectedProcedure
+      .input(z.object({
+        propertyId: z.string().min(1),
+        propertyName: z.string().optional(),
+        websiteUrl: z.string().optional(),
+        refreshToken: z.string().min(1),
+        currency: z.string().optional(),
+        timezone: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const id = await createGA4Account({
+          userId: ctx.user.id,
+          propertyId: input.propertyId,
+          propertyName: input.propertyName ?? null,
+          websiteUrl: input.websiteUrl ?? null,
+          refreshToken: input.refreshToken,
+          currency: input.currency ?? "BRL",
+          timezone: input.timezone ?? "America/Sao_Paulo",
+        });
+        return { success: true, id };
+      }),
+
+    disconnectAccount: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteGA4Account(input.id);
+        return { success: true };
+      }),
+
+    properties: protectedProcedure
+      .input(z.object({ refreshToken: z.string().min(1) }))
+      .query(async ({ input }) => {
+        const config = getGA4Config(input.refreshToken);
+        return listGA4Properties(config);
+      }),
+
+    overview: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        const data = await getGA4Overview(config, acct.propertyId, fmt(start), fmt(end));
+        await updateGA4AccountSync(acct.id);
+        return data;
+      }),
+
+    dailyMetrics: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        return getGA4DailyMetrics(config, acct.propertyId, fmt(start), fmt(end));
+      }),
+
+    trafficSources: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+        limit: z.number().min(1).max(50).default(10),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        return getGA4TrafficSources(config, acct.propertyId, fmt(start), fmt(end), input.limit);
+      }),
+
+    topPages: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+        limit: z.number().min(1).max(50).default(10),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        return getGA4TopPages(config, acct.propertyId, fmt(start), fmt(end), input.limit);
+      }),
+
+    devices: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        return getGA4DeviceBreakdown(config, acct.propertyId, fmt(start), fmt(end));
+      }),
+
+    geo: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+        limit: z.number().min(1).max(50).default(10),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        return getGA4GeoBreakdown(config, acct.propertyId, fmt(start), fmt(end), input.limit);
+      }),
+
+    conversions: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        return getGA4Conversions(config, acct.propertyId, fmt(start), fmt(end));
+      }),
+
+    diagnose: protectedProcedure.query(async ({ ctx }) => {
+      const results: any[] = [];
+      const accounts = await getGA4AccountsByUserId(ctx.user.id);
+      for (const acct of accounts) {
+        try {
+          const config = getGA4Config(acct.refreshToken);
+          const end = new Date();
+          const start = new Date();
+          start.setDate(start.getDate() - 7);
+          const fmt = (d: Date) => d.toISOString().split("T")[0];
+          const overview = await getGA4Overview(config, acct.propertyId, fmt(start), fmt(end));
+          results.push({
+            id: acct.id,
+            propertyId: acct.propertyId,
+            name: acct.propertyName,
+            status: "OK",
+            sessions: overview.sessions,
+            users: overview.totalUsers,
+          });
+        } catch (err: any) {
+          results.push({
+            id: acct.id,
+            propertyId: acct.propertyId,
+            name: acct.propertyName,
+            status: "ERROR",
+            error: err?.message ?? String(err),
+          });
+        }
+      }
+      return results;
+    }),
   }),
 
 });

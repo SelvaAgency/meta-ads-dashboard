@@ -283,3 +283,21 @@ export const googleAdAccounts = mysqlTable("google_ad_accounts", {
 });
 export type GoogleAdAccount = typeof googleAdAccounts.$inferSelect;
 export type InsertGoogleAdAccount = typeof googleAdAccounts.$inferInsert;
+
+// ─── GA4 Analytics Accounts ──────────────────────────────────────────────────
+export const ga4Accounts = mysqlTable("ga4_accounts", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  propertyId: varchar("propertyId", { length: 20 }).notNull(), // GA4 property ID
+  propertyName: varchar("propertyName", { length: 255 }),
+  websiteUrl: varchar("websiteUrl", { length: 512 }),
+  refreshToken: text("refreshToken").notNull(),
+  currency: varchar("currency", { length: 8 }).default("BRL"),
+  timezone: varchar("timezone", { length: 64 }).default("America/Sao_Paulo"),
+  isActive: boolean("isActive").default(true).notNull(),
+  lastSyncAt: timestamp("lastSyncAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type GA4Account = typeof ga4Accounts.$inferSelect;
+export type InsertGA4Account = typeof ga4Accounts.$inferInsert;
