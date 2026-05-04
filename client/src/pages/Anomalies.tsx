@@ -18,7 +18,8 @@ import {
   TrendingUp,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
 import { useLocation } from "wouter";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 
@@ -70,6 +71,7 @@ export default function Anomalies() {
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
   const [historyOpen, setHistoryOpen] = useState(false);
+  const { period, setPeriod, isInRange } = usePeriodFilter("30d");
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
 
   const handleFilterClick = (filterKey: string) => {
@@ -117,9 +119,10 @@ export default function Anomalies() {
     );
   }
 
-  // Unread = active (shown in main list); Read = history (collapsible section)
-  const unread = (anomalies ?? []).filter((a) => !a.isRead && !a.isResolved);
-  const history = (anomalies ?? []).filter((a) => a.isRead);
+  // Filter by selected period first, then split into unread/history
+  const dateFiltered = (anomalies ?? []).filter((a) => isInRange(a.detectedAt));
+  const unread = dateFiltered.filter((a) => !a.isRead && !a.isResolved);
+  const history = dateFiltered.filter((a) => a.isRead);
 
   const statsConfig = [
     { key: "active",  label: "Anomalias Ativas", value: unread.length,   color: unread.length > 0   ? "text-yellow-400"       : "text-muted-foreground" },
@@ -150,6 +153,9 @@ export default function Anomalies() {
             Detecção automática a cada hora
           </div>
         </div>
+
+        {/* Filtro de período */}
+        <PeriodFilter period={period} onChange={setPeriod} compact />
 
         {/* Stats clicáveis como filtros */}
         <div className="grid grid-cols-2 gap-3">
