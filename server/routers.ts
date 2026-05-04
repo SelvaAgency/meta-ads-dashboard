@@ -2002,13 +2002,74 @@ export const appRouter = router({
   // ─── Social Networks (Pages + Instagram from SELVA Portfolio) ────────────
   socialNetworks: router({
     list: protectedProcedure.query(async () => {
-      // Get token from any active account
       const accounts = await getMetaAdAccountsByUserId(1);
       if (!accounts.length) return { pages: [] };
       const token = accounts[0].accessToken;
+      
+      // Try multiple approaches with timeout protection
       try {
-        const pages = await getPortfolioPages(token);
-        return { pages };
+        // Approach 1: Get pages from business portfolio (owned_pages)
+        const ownedPages = await Promise.race([
+          getPortfolioPages(token),
+          new Promise<any[]>((_, reject) => setTimeout(() => reject(new Error("timeout")), 12000))
+        ]).catch(() => [] as any[]);
+        
+        if (ownedPages.length > 0) {
+          return { pages: ownedPages };
+        }
+
+        // Approach 2: Get pages directly from each ad account
+        console.log("[socialNetworks.list] Portfolio pages empty, trying per-account pages...");
+        const allPages: any[] = [];
+        const seen = new Set<string>();
+        
+        for (const acc of accounts.filter(a => a.isActive)) {
+          try {
+            const url = `https://graph.facebook.com/v21.0/act_${acc.accountId}/promoted_objects?fields=page_id&limit=50&access_token=${acc.accessToken}`;
+            const controller = new AbortController();
+            const tid = setTimeout(() => controller.abort(), 8000);
+            const res = await fetch(url, { signal: controller.signal });
+            clearTimeout(tid);
+            const data = await res.json() as any;
+            if (data.data) {
+              for (const obj of data.data) {
+                if (obj.page_id && !seen.has(obj.page_id)) {
+                  seen.add(obj.page_id);
+                  // Fetch page details
+                  try {
+                    const pageUrl = `https://graph.facebook.com/v21.0/${obj.page_id}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url,biography}&access_token=${acc.accessToken}`;
+                    const ctrl2 = new AbortController();
+                    const tid2 = setTimeout(() => ctrl2.abort(), 8000);
+                    const pageRes = await fetch(pageUrl, { signal: ctrl2.signal });
+                    clearTimeout(tid2);
+                    const pageData = await pageRes.json();
+                    if (pageData.id) allPages.push(pageData);
+                  } catch {}
+                }
+              }
+            }
+          } catch {}
+        }
+        
+        if (allPages.length > 0) {
+          return { pages: allPages };
+        }
+        
+        // Approach 3: Try business owned_pages only (not client_pages)
+        console.log("[socialNetworks.list] No promoted pages found, trying business owned_pages only...");
+        try {
+          const bpUrl = `https://graph.facebook.com/v21.0/803399908519541/owned_pages?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url,biography}&limit=100&access_token=${token}`;
+          const ctrl3 = new AbortController();
+          const tid3 = setTimeout(() => ctrl3.abort(), 10000);
+          const bpRes = await fetch(bpUrl, { signal: ctrl3.signal });
+          clearTimeout(tid3);
+          const bpData = await bpRes.json() as any;
+          if (bpData.data?.length > 0) {
+            return { pages: bpData.data };
+          }
+        } catch {}
+
+        return { pages: [], error: "Nenhuma página encontrada. O token pode não ter permissão pages_read_engagement." };
       } catch (e: any) {
         console.error("[socialNetworks.list] Error:", e.message);
         return { pages: [], error: e.message };
@@ -2022,8 +2083,11 @@ export const appRouter = router({
         if (!accounts.length) return null;
         const token = accounts[0].accessToken;
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
           const url = `https://graph.facebook.com/v21.0/${input.pageId}?fields=id,name,fan_count,followers_count,new_like_count,talking_about_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&access_token=${token}`;
-          const res = await fetch(url);
+          const res = await fetch(url, { signal: controller.signal });
+          clearTimeout(timeoutId);
           const data = await res.json();
           return data;
         } catch (e: any) {
