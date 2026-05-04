@@ -2014,7 +2014,7 @@ export const appRouter = router({
         
         for (const edge of ["owned_pages", "client_pages"]) {
           try {
-            const url = \`https://graph.facebook.com/v21.0/\${BUSINESS_ID}/\${edge}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url}&limit=100&access_token=\${token}\`;
+            const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url}&limit=100&access_token=${token}`;
             const ctrl = new AbortController();
             const t = setTimeout(() => ctrl.abort(), 10000);
             const res = await fetch(url, { signal: ctrl.signal });
@@ -2026,13 +2026,13 @@ export const appRouter = router({
               }
             }
           } catch (e: any) {
-            console.log(\`[socialNetworks] \${edge} lookup failed: \${e.message}\`);
+            console.log(`[socialNetworks] ${edge} lookup failed: ${e.message}`);
           }
         }
         
         // Also try the /pages edge (may work with different permissions)
         try {
-          const url = \`https://graph.facebook.com/v21.0/\${BUSINESS_ID}/pages?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url}&limit=100&access_token=\${token}\`;
+          const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/pages?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url}&limit=100&access_token=${token}`;
           const ctrl = new AbortController();
           const t = setTimeout(() => ctrl.abort(), 10000);
           const res = await fetch(url, { signal: ctrl.signal });
@@ -2045,7 +2045,7 @@ export const appRouter = router({
           }
         } catch {}
         
-        console.log(\`[socialNetworks] Portfolio lookup found \${pageNameMap.size} pages\`);
+        console.log(`[socialNetworks] Portfolio lookup found ${pageNameMap.size} pages`);
         
         // Step 2: Extract page IDs from ad creatives (actor_id) per account
         const allPages: any[] = [];
@@ -2053,7 +2053,7 @@ export const appRouter = router({
         
         for (const acc of accounts.filter(a => a.isActive)) {
           try {
-            const creativesUrl = \`https://graph.facebook.com/v21.0/act_\${acc.accountId}/adcreatives?fields=actor_id,object_story_spec&limit=100&access_token=\${acc.accessToken}\`;
+            const creativesUrl = `https://graph.facebook.com/v21.0/act_${acc.accountId}/adcreatives?fields=actor_id,object_story_spec&limit=100&access_token=${acc.accessToken}`;
             const controller = new AbortController();
             const tid = setTimeout(() => controller.abort(), 10000);
             const res = await fetch(creativesUrl, { signal: controller.signal });
@@ -2077,7 +2077,7 @@ export const appRouter = router({
                   } else {
                     // Fallback: try individual page fetch with minimal fields
                     try {
-                      const pageUrl = \`https://graph.facebook.com/v21.0/\${pageId}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url}&access_token=\${acc.accessToken}\`;
+                      const pageUrl = `https://graph.facebook.com/v21.0/${pageId}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url}&access_token=${acc.accessToken}`;
                       const ctrl2 = new AbortController();
                       const tid2 = setTimeout(() => ctrl2.abort(), 6000);
                       const pageRes = await fetch(pageUrl, { signal: ctrl2.signal });
@@ -2099,7 +2099,7 @@ export const appRouter = router({
               }
             }
           } catch (accErr: any) {
-            console.log(\`[socialNetworks] Skip account \${acc.accountId}: \${accErr.message}\`);
+            console.log(`[socialNetworks] Skip account ${acc.accountId}: ${accErr.message}`);
           }
         }
         
