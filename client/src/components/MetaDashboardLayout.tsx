@@ -18,7 +18,6 @@ import {
   ChevronRight,
   Building2,
   CalendarCheck,
-  Share2,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
@@ -85,7 +84,6 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/suggestions", label: "Sugestões IA", icon: Lightbulb },
     { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
-    { path: "/social-networks", label: "Redes Sociais", icon: Share2 },
   ];
 
   if (loading) {

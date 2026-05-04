@@ -94,10 +94,6 @@ export const campaignMetrics = mysqlTable("campaign_metrics", {
    roas: decimal("roas", { precision: 10, scale: 4 }).default("0"),
   profileVisits: bigint("profile_visits", { mode: "number" }).default(0),
   followers: bigint("followers", { mode: "number" }).default(0),
-  messages: bigint("messages", { mode: "number" }).default(0),
-  linkClicks: bigint("link_clicks", { mode: "number" }).default(0),
-  addToCart: bigint("add_to_cart", { mode: "number" }).default(0),
-  landingPageViews: bigint("landing_page_views", { mode: "number" }).default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   uqCampaignDate: uniqueIndex("uq_campaign_date").on(table.campaignId, table.date),
@@ -284,15 +280,20 @@ export const googleAdAccounts = mysqlTable("google_ad_accounts", {
 export type GoogleAdAccount = typeof googleAdAccounts.$inferSelect;
 export type InsertGoogleAdAccount = typeof googleAdAccounts.$inferInsert;
 
-// Progress report email tracking (anti-duplicata)
-export const progressEmailLog = mysqlTable("progress_email_log", {
+// ─── GA4 Analytics Accounts ──────────────────────────────────────────────────
+export const ga4Accounts = mysqlTable("ga4_accounts", {
   id: int("id").autoincrement().primaryKey(),
-  date: varchar("date", { length: 10 }).notNull(), // YYYY-MM-DD
-  sentAt: timestamp("sentAt").defaultNow().notNull(),
-  recipients: text("recipients"), // JSON array of emails
-  subject: varchar("subject", { length: 255 }),
+  userId: int("userId").notNull(),
+  propertyId: varchar("propertyId", { length: 20 }).notNull(), // GA4 property ID
+  propertyName: varchar("propertyName", { length: 255 }),
+  websiteUrl: varchar("websiteUrl", { length: 512 }),
+  refreshToken: text("refreshToken").notNull(),
+  currency: varchar("currency", { length: 8 }).default("BRL"),
+  timezone: varchar("timezone", { length: 64 }).default("America/Sao_Paulo"),
+  isActive: boolean("isActive").default(true).notNull(),
+  lastSyncAt: timestamp("lastSyncAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
-
-export type ProgressEmailLog = typeof progressEmailLog.$inferSelect;
-export type InsertProgressEmailLog = typeof progressEmailLog.$inferInsert;
+export type GA4Account = typeof ga4Accounts.$inferSelect;
+export type InsertGA4Account = typeof ga4Accounts.$inferInsert;

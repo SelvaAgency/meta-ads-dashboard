@@ -1,6 +1,5 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { execSync } from "node:child_process";
 import { COOKIE_NAME } from "@shared/const";
 import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -60,10 +59,6 @@ import {
   extractResultsByGoal,
   extractProfileVisits,
   extractFollowers,
-  extractMessages,
-  extractLinkClicks,
-  extractAddToCart,
-  extractLandingPageViews,
   getResultLabel,
   calculateRoas,
   calculateCpa,
@@ -71,8 +66,6 @@ import {
   getAdsWithInsights,
   getDemographicsInsights,
   getDailyAccountInsights,
-  getPortfolioPages,
-  getAccountLinkedPages,
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
@@ -91,6 +84,26 @@ import {
   createGoogleAdAccount,
   deleteGoogleAdAccount,
   updateGoogleAdAccountSync,
+} from "./db";
+import {
+  isGA4Configured,
+  getGA4Config,
+  listGA4Properties,
+  getGA4Overview,
+  getGA4DailyMetrics,
+  getGA4TrafficSources,
+  getGA4TopPages,
+  getGA4DeviceBreakdown,
+  getGA4GeoBreakdown,
+  getGA4Conversions,
+} from "./ga4Service";
+import {
+  getGA4AccountsByUserId,
+  getAllActiveGA4Accounts,
+  getGA4AccountById,
+  createGA4Account,
+  deleteGA4Account,
+  updateGA4AccountSync,
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
@@ -170,9 +183,6 @@ async function resolveMetaCampaignId(accountId: number, inputId: string): Promis
 
 // ─── Meta campaign status type ──────────────────────────────────────────────
 type MetaCampaignStatus = "ACTIVE" | "PAUSED" | "ARCHIVED" | "DELETED";
-
-// ─── Global state for rate limiting ───────────────────────────────────────────
-let lastProgressEmailSentTime = 0; // Timestamp of last progress email sent
 
 // ─── Routers ──────────────────────────────────────────────────────────────────
 
@@ -412,10 +422,6 @@ export const appRouter = router({
 
           const profileVisits = extractProfileVisits(insight.actions);
           const followers = extractFollowers(insight.actions);
-          const messages = extractMessages(insight.actions);
-          const linkClicks = extractLinkClicks(insight.actions);
-          const addToCart = extractAddToCart(insight.actions);
-          const landingPageViews = extractLandingPageViews(insight.actions);
 
           await upsertCampaignMetrics({
             campaignId: localId,
@@ -435,10 +441,6 @@ export const appRouter = router({
             roas: String(roas),
             profileVisits,
             followers,
-            messages,
-            linkClicks,
-            addToCart,
-            landingPageViews,
           });
         }
 
@@ -1226,132 +1228,11 @@ export const appRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "No active accounts found" });
       }
 
-      // ── Client metrics configuration ─────────────────────────────
-      // Maps account name patterns to their specific metric layout
-      type ClientType = "ecommerce" | "messages" | "clicks";
-      interface ClientConfig {
-        displayName: string;
-        type: ClientType;
-        resultLabel: string; // Label for the primary result metric
-        costLabel: string;   // Label for cost per result
-        showRevenue: boolean;
-        showRoas: boolean;
-        showAddToCart: boolean;
-        showLandingPageViews: boolean;
-        showProfileVisits: boolean;
-        showFollowers: boolean;
-      }
-
-      const CLIENT_CONFIG: Record<string, ClientConfig> = {
-        "CA - SELVA Agency": {
-          displayName: "SELVA AGENCY",
-          type: "clicks",
-          resultLabel: "Cliques no Link",
-          costLabel: "CPC",
-          showRevenue: false, showRoas: false,
-          showAddToCart: false, showLandingPageViews: false,
-          showProfileVisits: true, showFollowers: true,
-        },
-        "CA - MNBR": {
-          displayName: "MNBR",
-          type: "messages",
-          resultLabel: "Mensagens Iniciadas",
-          costLabel: "CPA",
-          showRevenue: false, showRoas: false,
-          showAddToCart: false, showLandingPageViews: false,
-          showProfileVisits: true, showFollowers: true,
-        },
-        "UMA COMÉRCIO E INDÚSTRIA LTDA": {
-          displayName: "UMA",
-          type: "ecommerce",
-          resultLabel: "Compras",
-          costLabel: "CPA",
-          showRevenue: true, showRoas: true,
-          showAddToCart: false, showLandingPageViews: false,
-          showProfileVisits: true, showFollowers: true,
-        },
-        "CA - BAESH": {
-          displayName: "BAESH",
-          type: "ecommerce",
-          resultLabel: "Compras",
-          costLabel: "CPA",
-          showRevenue: true, showRoas: true,
-          showAddToCart: false, showLandingPageViews: false,
-          showProfileVisits: true, showFollowers: true,
-        },
-        "C1 - ELWING": {
-          displayName: "ELWING",
-          type: "messages",
-          resultLabel: "Mensagens Iniciadas",
-          costLabel: "CPA",
-          showRevenue: false, showRoas: false,
-          showAddToCart: false, showLandingPageViews: false,
-          showProfileVisits: true, showFollowers: true,
-        },
-        "CA - Ultra Malhas": {
-          displayName: "ULTRAMALHAS",
-          type: "messages",
-          resultLabel: "Mensagens Iniciadas",
-          costLabel: "CPA",
-          showRevenue: false, showRoas: false,
-          showAddToCart: false, showLandingPageViews: false,
-          showProfileVisits: true, showFollowers: true,
-        },
-        "CA - Scaffold Play": {
-          displayName: "PLAY",
-          type: "ecommerce",
-          resultLabel: "Compras",
-          costLabel: "CPA",
-          showRevenue: true, showRoas: true,
-          showAddToCart: true, showLandingPageViews: true,
-          showProfileVisits: false, showFollowers: false,
-        },
-        "CA - Phbr Medical": {
-          displayName: "PHBR MEDICAL",
-          type: "messages",
-          resultLabel: "Mensagens Iniciadas",
-          costLabel: "CPA",
-          showRevenue: false, showRoas: false,
-          showAddToCart: false, showLandingPageViews: false,
-          showProfileVisits: true, showFollowers: true,
-        },
-        "CA - Studio Zeca Marques": {
-          displayName: "STUDIO ZECA MARQUES",
-          type: "messages",
-          resultLabel: "Mensagens Iniciadas",
-          costLabel: "CPA",
-          showRevenue: false, showRoas: false,
-          showAddToCart: false, showLandingPageViews: false,
-          showProfileVisits: true, showFollowers: true,
-        },
-      };
-
-      // Default config for accounts not in the mapping
-      const DEFAULT_CONFIG: ClientConfig = {
-        displayName: "",
-        type: "messages",
-        resultLabel: "Conversões",
-        costLabel: "CPA",
-        showRevenue: true, showRoas: true,
-        showAddToCart: false, showLandingPageViews: false,
-        showProfileVisits: true, showFollowers: true,
-      };
-
-      function getClientConfig(accountName: string): ClientConfig {
-        const cfg = CLIENT_CONFIG[accountName];
-        if (cfg) return cfg;
-        return { ...DEFAULT_CONFIG, displayName: accountName };
-      }
-
-      // ── Date setup — yesterday + day before yesterday for comparison ──
       const now = new Date();
       const spNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
       const yesterday = new Date(spNow);
       yesterday.setDate(yesterday.getDate() - 1);
-      const dayBefore = new Date(spNow);
-      dayBefore.setDate(dayBefore.getDate() - 2);
       const dateStr = yesterday.toISOString().split("T")[0];
-      const prevDateStr = dayBefore.toISOString().split("T")[0];
       const fmtDate = dateStr.split("-").reverse().join("/");
 
       const accountResults: any[] = [];
@@ -1359,48 +1240,17 @@ export const appRouter = router({
       let totalImpressions = 0, totalClicks = 0;
 
       for (const acct of activeAccounts) {
-        const cfg = getClientConfig(acct.accountName ?? "");
         try {
-          // Fetch yesterday and day-before for comparison
-          const [metricsYesterday, metricsPrev] = await Promise.all([
-            getAccountMetricsSummary(acct.id, dateStr, dateStr),
-            getAccountMetricsSummary(acct.id, prevDateStr, prevDateStr),
-          ]);
-          const d = metricsYesterday[0] || null;
-          const p = metricsPrev[0] || null;
-
+          const metrics = await getAccountMetricsSummary(acct.id, dateStr, dateStr);
+          const d = metrics[0] || null;
           const spend = Number(d?.totalSpend ?? 0);
           const conversions = Number(d?.totalConversions ?? 0);
           const conversionValue = Number(d?.totalConversionValue ?? 0);
           const impressions = Number(d?.totalImpressions ?? 0);
           const clicks = Number(d?.totalClicks ?? 0);
-          const profileVisits = Number(d?.totalProfileVisits ?? 0);
-          const followers = Number(d?.totalFollowers ?? 0);
-          const messages = Number(d?.totalMessages ?? 0);
-          const linkClicks = Number(d?.totalLinkClicks ?? 0);
-          const addToCart = Number(d?.totalAddToCart ?? 0);
-          const landingPageViews = Number(d?.totalLandingPageViews ?? 0);
           const roas = spend > 0 ? conversionValue / spend : 0;
           const cpa = conversions > 0 ? spend / conversions : 0;
-          const cpc = clicks > 0 ? spend / clicks : 0;
           const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
-
-          // Previous day metrics for comparison
-          const prevSpend = Number(p?.totalSpend ?? 0);
-          const prevConversions = Number(p?.totalConversions ?? 0);
-          const prevConversionValue = Number(p?.totalConversionValue ?? 0);
-          const prevImpressions = Number(p?.totalImpressions ?? 0);
-          const prevClicks = Number(p?.totalClicks ?? 0);
-          const prevMessages = Number(p?.totalMessages ?? 0);
-          const prevLinkClicks = Number(p?.totalLinkClicks ?? 0);
-          const prevAddToCart = Number(p?.totalAddToCart ?? 0);
-          const prevLandingPageViews = Number(p?.totalLandingPageViews ?? 0);
-          const prevProfileVisits = Number(p?.totalProfileVisits ?? 0);
-          const prevFollowers = Number(p?.totalFollowers ?? 0);
-          const prevRoas = prevSpend > 0 ? prevConversionValue / prevSpend : 0;
-          const prevCpa = prevConversions > 0 ? prevSpend / prevConversions : 0;
-          const prevCpc = prevClicks > 0 ? prevSpend / prevClicks : 0;
-          const prevCtr = prevImpressions > 0 ? (prevClicks / prevImpressions) * 100 : 0;
 
           totalSpend += spend;
           totalConversions += conversions;
@@ -1408,228 +1258,102 @@ export const appRouter = router({
           totalImpressions += impressions;
           totalClicks += clicks;
 
-          // Determine the primary result value based on client type
-          let resultValue = conversions;
-          let prevResultValue = prevConversions;
-          let costPerResult = cpa;
-          let prevCostPerResult = prevCpa;
-          if (cfg.type === "clicks") {
-            // For SELVA: "Cliques no Link" uses linkClicks (from actions link_click)
-            resultValue = linkClicks > 0 ? linkClicks : clicks;
-            prevResultValue = prevLinkClicks > 0 ? prevLinkClicks : prevClicks;
-            costPerResult = resultValue > 0 ? spend / resultValue : 0;
-            prevCostPerResult = prevResultValue > 0 ? prevSpend / prevResultValue : 0;
-          } else if (cfg.type === "messages") {
-            // For message clients: prefer the specific "messages" field over generic conversions
-            resultValue = messages > 0 ? messages : conversions;
-            prevResultValue = prevMessages > 0 ? prevMessages : prevConversions;
-            costPerResult = resultValue > 0 ? spend / resultValue : 0;
-            prevCostPerResult = prevResultValue > 0 ? prevSpend / prevResultValue : 0;
-          }
-
           accountResults.push({
             name: acct.accountName ?? acct.accountId,
-            displayName: cfg.displayName || (acct.accountName ?? acct.accountId),
-            config: cfg,
-            spend, conversions, conversionValue, roas, cpa, cpc, ctr, clicks, impressions,
-            profileVisits, followers, messages, linkClicks, addToCart, landingPageViews,
-            resultValue, costPerResult,
-            // Previous day for comparison
-            prev: {
-              spend: prevSpend, conversions: prevConversions, conversionValue: prevConversionValue,
-              roas: prevRoas, cpa: prevCpa, cpc: prevCpc, ctr: prevCtr, clicks: prevClicks,
-              messages: prevMessages, linkClicks: prevLinkClicks, addToCart: prevAddToCart,
-              landingPageViews: prevLandingPageViews, profileVisits: prevProfileVisits, followers: prevFollowers,
-              resultValue: prevResultValue, costPerResult: prevCostPerResult,
-            },
-            hasData: spend > 0,
+            spend, conversions, conversionValue, roas, cpa, ctr, hasData: spend > 0,
           });
         } catch {
           accountResults.push({
             name: acct.accountName ?? acct.accountId,
-            displayName: cfg.displayName || (acct.accountName ?? acct.accountId),
-            config: cfg,
-            spend: 0, conversions: 0, conversionValue: 0, roas: 0, cpa: 0, cpc: 0, ctr: 0, clicks: 0, impressions: 0,
-            profileVisits: 0, followers: 0, messages: 0, linkClicks: 0, addToCart: 0, landingPageViews: 0,
-            resultValue: 0, costPerResult: 0,
-            prev: { spend: 0, conversions: 0, conversionValue: 0, roas: 0, cpa: 0, cpc: 0, ctr: 0, clicks: 0, messages: 0, linkClicks: 0, addToCart: 0, landingPageViews: 0, profileVisits: 0, followers: 0, resultValue: 0, costPerResult: 0 },
+            spend: 0, conversions: 0, conversionValue: 0, roas: 0, cpa: 0, ctr: 0,
             hasData: false, error: true,
           });
         }
       }
 
       const accountsWithData = accountResults.filter((a: any) => a.hasData);
+      const totalRoas = totalSpend > 0 ? totalConversionValue / totalSpend : 0;
+      const totalCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
 
       const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const fmtInt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 
-      // ── Comparison helper — returns colored arrow + percentage ──
-      function compArrow(current: number, previous: number, invertColor = false): string {
-        if (previous === 0 && current === 0) return "";
-        if (previous === 0) return `<span style="color:#22c55e;font-size:9px;margin-left:3px">NEW</span>`;
-        const pct = ((current - previous) / previous) * 100;
-        if (Math.abs(pct) < 0.5) return "";
-        const up = pct > 0;
-        // For CPA/CPC, going UP is bad (invert colors)
-        const goodColor = invertColor ? (up ? "#ef4444" : "#22c55e") : (up ? "#22c55e" : "#ef4444");
-        const arrow = up ? "&#9650;" : "&#9660;";
-        return `<span style="color:${goodColor};font-size:9px;margin-left:3px">${arrow} ${Math.abs(pct).toFixed(0)}%</span>`;
-      }
-
-      // ── Individual AI Analysis per account (adapted) ─────────────
+      // ── Individual AI Analysis per account ─────────────────────────
       function analyzeAccount(a: any): string {
-        if (!a.hasData) return "Sem investimento no periodo. Verificar se campanhas estao ativas e com orcamento disponivel.";
+        if (!a.hasData) return "Sem investimento no período. Verificar se campanhas estão ativas e com orçamento disponível.";
         const parts: string[] = [];
-        const cfg = a.config as ClientConfig;
-        const prev = a.prev;
-
-        // Spend comparison
-        if (prev.spend > 0) {
-          const spendDelta = ((a.spend - prev.spend) / prev.spend) * 100;
-          if (Math.abs(spendDelta) > 5) {
-            parts.push(`Investimento ${spendDelta > 0 ? "aumentou" : "diminuiu"} ${Math.abs(spendDelta).toFixed(0)}% vs dia anterior.`);
-          }
+        // ROAS assessment
+        if (a.roas >= 3) parts.push(`Excelente performance com ROAS de ${a.roas.toFixed(2)}x — escalar investimento pode ser viável.`);
+        else if (a.roas >= 1.5) parts.push(`ROAS de ${a.roas.toFixed(2)}x indica retorno positivo. Há margem para otimização de criativos e públicos.`);
+        else if (a.roas >= 1) parts.push(`ROAS de ${a.roas.toFixed(2)}x — operando próximo ao break-even. Revisar segmentação e criativos para melhorar eficiência.`);
+        else if (a.conversionValue > 0) parts.push(`ROAS de ${a.roas.toFixed(2)}x — abaixo do break-even. Considerar pausar campanhas com pior desempenho e realocar budget.`);
+        else parts.push(`Sem receita rastreada apesar de R$ ${fmt(a.spend)} investidos.`);
+        // Conversions
+        if (a.conversions > 0 && a.cpa > 0) {
+          if (a.cpa < 15) parts.push(`CPA de R$ ${fmt(a.cpa)} é competitivo.`);
+          else if (a.cpa < 50) parts.push(`CPA de R$ ${fmt(a.cpa)} dentro do aceitável.`);
+          else parts.push(`CPA de R$ ${fmt(a.cpa)} está elevado — revisar funil de conversão.`);
+        } else if (a.conversions === 0 && a.spend > 20) {
+          parts.push(`Nenhuma conversão registrada com R$ ${fmt(a.spend)} de investimento — verificar pixel e configuração de eventos.`);
         }
-
-        if (cfg.type === "ecommerce") {
-          if (a.roas >= 3) parts.push(`ROAS excelente de ${a.roas.toFixed(2)}x — escalar investimento pode ser viavel.`);
-          else if (a.roas >= 1.5) parts.push(`ROAS de ${a.roas.toFixed(2)}x indica retorno positivo.`);
-          else if (a.roas >= 1) parts.push(`ROAS de ${a.roas.toFixed(2)}x — proximo ao break-even. Revisar criativos.`);
-          else if (a.conversionValue > 0) parts.push(`ROAS de ${a.roas.toFixed(2)}x abaixo do break-even.`);
-          else parts.push(`Sem receita rastreada com R$ ${fmt(a.spend)} investidos.`);
-        }
-
-        if (cfg.type === "messages" || cfg.type === "clicks") {
-          if (a.resultValue > 0 && a.costPerResult > 0) {
-            if (a.costPerResult < 5) parts.push(`${cfg.costLabel} de R$ ${fmt(a.costPerResult)} — custo muito competitivo.`);
-            else if (a.costPerResult < 15) parts.push(`${cfg.costLabel} de R$ ${fmt(a.costPerResult)} dentro do ideal.`);
-            else if (a.costPerResult < 40) parts.push(`${cfg.costLabel} de R$ ${fmt(a.costPerResult)} dentro do aceitavel.`);
-            else parts.push(`${cfg.costLabel} de R$ ${fmt(a.costPerResult)} elevado — revisar segmentacao e criativos.`);
-          } else if (a.resultValue === 0 && a.spend > 20) {
-            parts.push(`Nenhum resultado registrado com R$ ${fmt(a.spend)} investidos.`);
-          }
-        }
-
-        if (cfg.type === "ecommerce" && a.conversions > 0) {
-          if (a.cpa < 30) parts.push(`CPA de R$ ${fmt(a.cpa)} competitivo.`);
-          else if (a.cpa < 80) parts.push(`CPA de R$ ${fmt(a.cpa)} aceitavel.`);
-          else parts.push(`CPA de R$ ${fmt(a.cpa)} elevado — revisar funil.`);
-        }
-
+        // CTR
         if (a.ctr >= 3) parts.push(`CTR de ${a.ctr.toFixed(2)}% — engajamento alto.`);
-        else if (a.ctr >= 1) parts.push(`CTR de ${a.ctr.toFixed(2)}% dentro da media.`);
-        else if (a.ctr > 0 && a.ctr < 0.8) parts.push(`CTR de ${a.ctr.toFixed(2)}% abaixo do ideal — testar novos criativos.`);
-
-        // Result comparison
-        if (prev.resultValue > 0 && a.resultValue > 0) {
-          const delta = ((a.resultValue - prev.resultValue) / prev.resultValue) * 100;
-          if (Math.abs(delta) > 10) {
-            parts.push(`${cfg.resultLabel}: ${delta > 0 ? "+" : ""}${delta.toFixed(0)}% vs dia anterior.`);
-          }
-        }
-
+        else if (a.ctr >= 1) parts.push(`CTR de ${a.ctr.toFixed(2)}% dentro da média.`);
+        else if (a.ctr > 0 && a.ctr < 0.8) parts.push(`CTR de ${a.ctr.toFixed(2)}% abaixo do ideal — testar novos criativos e copies.`);
         return parts.join(" ");
       }
 
-      // Attach analysis
+      // Attach analysis to each account
       for (const a of accountResults) {
         a.analysis = analyzeAccount(a);
       }
 
-      const subject = `[SELVA] Report Diario Meta Ads — ${fmtDate}`;
+      const subject = `[SELVA] Report Diário Meta Ads — ${fmtDate}`;
 
-      // ── HTML — Build metric cell helper ───────────────────────────
-      function metricCell(value: string, label: string, comparison: string, isLast = false): string {
-        const border = isLast ? "" : "border-right:1px solid #eee;";
-        return `<td style="padding:8px 4px;text-align:center;${border}">
-          <div style="font-size:14px;font-weight:700;color:#1a1a1a">${value}${comparison}</div>
-          <div style="font-size:9px;color:#999;margin-top:2px">${label}</div>
-        </td>`;
-      }
-
-      // ── HTML — Per-account sections with custom metrics ──────────
+      // ── HTML — Individual account sections ──────────────────────────
       const accountSections = accountResults.map((a: any) => {
-        const cfg = a.config as ClientConfig;
-        const prev = a.prev;
-
-        // Status color based on performance
-        let statusColor = "#999";
-        if (a.hasData) {
-          if (cfg.type === "ecommerce") {
-            statusColor = a.roas >= 1.5 ? "#22c55e" : a.roas >= 1 ? "#f59e0b" : "#ef4444";
-          } else {
-            statusColor = a.resultValue > 0 ? "#22c55e" : "#f59e0b";
-          }
-        }
+        const statusColor = !a.hasData ? "#999" : a.roas >= 1.5 ? "#22c55e" : a.roas >= 1 ? "#f59e0b" : "#ef4444";
+        const roasClr = a.roas >= 1 ? "#22c55e" : a.roas > 0 ? "#ef4444" : "#999";
         const statusDot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:8px"></span>`;
 
-        if (!a.hasData) {
-          return `<div style="margin-bottom:16px;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden">
+        // Metrics row — only show if account has data
+        const metricsHtml = a.hasData ? `
+    <table style="width:100%;border-collapse:collapse;margin:10px 0 0">
+      <tr>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">R$ ${fmt(a.spend)}</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">Investimento</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">${fmtInt(a.conversions)}</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">Conversões</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">R$ ${fmt(a.conversionValue)}</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">Receita</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:${roasClr}">${a.roas.toFixed(2)}x</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">ROAS</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%;border-right:1px solid #eee">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">${a.conversions > 0 ? "R$ " + fmt(a.cpa) : "—"}</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">CPA</div>
+        </td>
+        <td style="padding:8px 0;text-align:center;width:16.6%">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">${a.ctr.toFixed(2)}%</div>
+          <div style="font-size:10px;color:#999;margin-top:2px">CTR</div>
+        </td>
+      </tr>
+    </table>` : `<div style="padding:8px 0;color:#aaa;font-size:12px;font-style:italic">Sem investimento no período</div>`;
+
+        return `<div style="margin-bottom:20px;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden">
   <div style="background:#1a1a1a;padding:10px 16px;display:flex;align-items:center">
-    ${statusDot}<span style="font-size:14px;font-weight:700;color:#f5c6d0">${a.displayName}</span>
-  </div>
-  <div style="padding:12px 16px;background:#fff">
-    <div style="padding:8px 0;color:#aaa;font-size:12px;font-style:italic">Sem investimento no periodo</div>
-  </div>
-</div>`;
-        }
-
-        // Build metric cells dynamically based on client config
-        const cells: string[] = [];
-        // 1. Investimento (always)
-        cells.push(metricCell(`R$ ${fmt(a.spend)}`, "Investimento", compArrow(a.spend, prev.spend)));
-        // 2. Resultado principal
-        cells.push(metricCell(`${fmtInt(a.resultValue)}`, cfg.resultLabel, compArrow(a.resultValue, prev.resultValue)));
-        // 3. Custo por resultado
-        cells.push(metricCell(a.resultValue > 0 ? `R$ ${fmt(a.costPerResult)}` : "—", cfg.costLabel, a.resultValue > 0 ? compArrow(a.costPerResult, prev.costPerResult, true) : ""));
-        // 4. Receita (e-commerce only)
-        if (cfg.showRevenue) {
-          cells.push(metricCell(`R$ ${fmt(a.conversionValue)}`, "Receita", compArrow(a.conversionValue, prev.conversionValue)));
-        }
-        // 5. ROAS (e-commerce only)
-        if (cfg.showRoas) {
-          const roasClr = a.roas >= 1 ? "#22c55e" : a.roas > 0 ? "#ef4444" : "#999";
-          cells.push(`<td style="padding:8px 4px;text-align:center;border-right:1px solid #eee;">
-            <div style="font-size:14px;font-weight:700;color:${roasClr}">${a.roas.toFixed(2)}x${compArrow(a.roas, prev.roas)}</div>
-            <div style="font-size:9px;color:#999;margin-top:2px">ROAS</div>
-          </td>`);
-        }
-        // 6. Add to Cart (PLAY only)
-        if (cfg.showAddToCart) {
-          cells.push(metricCell(a.addToCart > 0 ? fmtInt(a.addToCart) : "—", "Add Carrinho", a.addToCart > 0 ? compArrow(a.addToCart, prev.addToCart) : ""));
-        }
-        // 7. CTR (always)
-        cells.push(metricCell(`${a.ctr.toFixed(2)}%`, "CTR", compArrow(a.ctr, prev.ctr)));
-        // 8. Landing page views (PLAY only)
-        if (cfg.showLandingPageViews) {
-          cells.push(metricCell(a.landingPageViews > 0 ? fmtInt(a.landingPageViews) : "—", "Sessoes Site", a.landingPageViews > 0 ? compArrow(a.landingPageViews, prev.landingPageViews) : ""));
-        }
-        // 9. Profile visits
-        if (cfg.showProfileVisits) {
-          cells.push(metricCell(a.profileVisits > 0 ? fmtInt(a.profileVisits) : "—", "Visitas Perfil", a.profileVisits > 0 ? compArrow(a.profileVisits, prev.profileVisits) : ""));
-        }
-        // 10. Followers
-        if (cfg.showFollowers) {
-          cells.push(metricCell(a.followers > 0 ? fmtInt(a.followers) : "—", "Seguidores IG", a.followers > 0 ? compArrow(a.followers, prev.followers) : "", true));
-        }
-
-        // Ensure last cell has no right border
-        if (cells.length > 0) {
-          cells[cells.length - 1] = cells[cells.length - 1].replace(/border-right:1px solid #eee;?/g, "");
-        }
-
-        const colWidth = `${Math.floor(100 / cells.length)}%`;
-        const cellsWithWidth = cells.map(c => c.replace(/<td style="/, `<td style="width:${colWidth};`));
-
-        const metricsHtml = `<table style="width:100%;border-collapse:collapse;margin:10px 0 0"><tr>${cellsWithWidth.join("")}</tr></table>`;
-
-        return `<div style="margin-bottom:16px;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden">
-  <div style="background:#1a1a1a;padding:10px 16px;display:flex;align-items:center">
-    ${statusDot}<span style="font-size:14px;font-weight:700;color:#f5c6d0">${a.displayName}</span>
+    ${statusDot}<span style="font-size:14px;font-weight:700;color:#f5c6d0">${a.name}</span>
   </div>
   <div style="padding:12px 16px;background:#fff">
     ${metricsHtml}
-    <div style="margin-top:10px;padding:10px 14px;background:#faf9fb;border-radius:6px;font-size:11px;color:#444;line-height:1.5">
+    <div style="margin-top:12px;padding:10px 14px;background:#faf9fb;border-radius:6px;font-size:12px;color:#444;line-height:1.6">
       ${a.analysis}
     </div>
   </div>
@@ -1639,7 +1363,7 @@ export const appRouter = router({
       const html = `<div style="font-family:Arial,sans-serif;max-width:780px;margin:0 auto;background:#f5f5f5">
   <div style="background:#1a1a1a;padding:20px 24px;text-align:center">
     <h1 style="color:#f5c6d0;margin:0;font-size:22px;letter-spacing:2px">SELVA AGENCY</h1>
-    <p style="color:#777;margin:6px 0 0;font-size:13px">Report Diario Meta Ads — ${fmtDate}</p>
+    <p style="color:#777;margin:6px 0 0;font-size:13px">Report Diário Meta Ads — ${fmtDate}</p>
   </div>
   <div style="padding:20px 24px">
     ${accountSections}
@@ -1651,10 +1375,9 @@ export const appRouter = router({
 </div>`;
 
       const plainText = `SELVA AGENCY — Report Meta Ads — ${fmtDate}\n\n` +
-        accountResults.map((a: any) => {
-          const cfg = a.config as ClientConfig;
-          return `▸ ${a.displayName}\n  Invest: R$ ${fmt(a.spend)} | ${cfg.resultLabel}: ${fmtInt(a.resultValue)} | ${cfg.costLabel}: ${a.resultValue > 0 ? "R$ " + fmt(a.costPerResult) : "—"}${cfg.showRevenue ? " | Receita: R$ " + fmt(a.conversionValue) : ""}${cfg.showRoas ? " | ROAS: " + a.roas.toFixed(2) + "x" : ""} | CTR: ${a.hasData ? a.ctr.toFixed(2) + "%" : "—"}\n  ${a.analysis}\n`;
-        }).join("\n") +
+        accountResults.map((a: any) =>
+          `▸ ${a.name}\n  Invest: R$ ${fmt(a.spend)} | Conv: ${fmtInt(a.conversions)} | Receita: R$ ${fmt(a.conversionValue)} | ROAS: ${a.roas.toFixed(2)}x | CPA: ${a.hasData && a.conversions > 0 ? "R$ " + fmt(a.cpa) : "—"} | CTR: ${a.hasData ? a.ctr.toFixed(2) + "%" : "—"}\n  ${a.analysis}\n`
+        ).join("\n") +
         `\n${accountsWithData.length}/${activeAccounts.length} contas com investimento`;
 
       return { subject, html, plainText, date: dateStr, accountCount: activeAccounts.length, accountsWithData: accountsWithData.length };
@@ -1688,6 +1411,7 @@ export const appRouter = router({
 
     // ─── Daily Development Progress Report ────────────────────────────────────
     generateDailyProgress: publicProcedure.query(async () => {
+      const { execSync } = require("child_process");
       const now = new Date();
       const spNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
       const todayStr = spNow.toISOString().split("T")[0];
@@ -1697,7 +1421,7 @@ export const appRouter = router({
       let commits: { hash: string; time: string; msg: string }[] = [];
       try {
         const gitLog = execSync(
-          `cd /home/ubuntu/meta-ads-dashboard && git log --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
+          `cd /root/meta-ads-dashboard && git log --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
           { encoding: "utf-8", timeout: 10000 }
         ).trim();
         if (gitLog) {
@@ -1724,89 +1448,57 @@ export const appRouter = router({
         } catch { /* fallback failed */ }
       }
 
-      // Fetch operational metrics from database
-      let activeAccounts = 0;
-      let totalCampaigns = 0;
-      let lastSyncTime = "—";
-      try {
-        const db = await getDb();
-        if (db) {
-          const accounts = await db.select().from(metaAdAccounts).where(eq(metaAdAccounts.isActive, true));
-          activeAccounts = accounts.length;
-          lastSyncTime = accounts.length > 0 && accounts[0].lastSyncAt
-            ? new Date(accounts[0].lastSyncAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })
-            : "—";
-          
-          const campaignCount = await db.select().from(campaigns);
-          totalCampaigns = campaignCount.length;
-        }
-      } catch { /* db error */ }
-
-      // Extract recent PM2 logs for operational activities
-      let recentActivities: string[] = [];
-      try {
-        const logs = execSync(
-          `tail -100 /home/ubuntu/.pm2/logs/meta-ads-out.log 2>/dev/null | grep -E '\\[AutoSync\\]|\\[DailyReport\\]|✓|Success' | tail -5 || echo ""`,
-          { encoding: "utf-8", timeout: 5000 }
-        ).trim();
-        if (logs) {
-          recentActivities = logs.split("\n").filter(Boolean).slice(0, 5);
-        }
-      } catch { /* logs not available */ }
-
-      // REMOVED: categorizeCommit - not needed for simple language report
-
-      // Convert technical commit messages to simple, non-technical language
-      function friendlyMsg(msg: string): string {
+      // Categorize commits into friendly categories
+      function categorizeCommit(msg: string): { icon: string; category: string } {
         const m = msg.toLowerCase();
-        
-        // Map technical terms to simple descriptions
-        if (m.includes("fix") || m.includes("corrig") || m.includes("bug")) {
-          return "Corrigido um problema que foi descoberto";
-        }
-        if (m.includes("feat") || m.includes("add") || m.includes("implement") || m.includes("criar") || m.includes("adicionar")) {
-          return "Adicionada uma nova funcionalidade ao painel";
-        }
-        if (m.includes("refactor") || m.includes("refatora") || m.includes("reestrutur")) {
-          return "O painel foi reorganizado para funcionar melhor";
-        }
-        if (m.includes("style") || m.includes("visual") || m.includes("css") || m.includes("theme") || m.includes("layout")) {
-          return "A aparência do painel foi melhorada";
-        }
-        if (m.includes("deploy") || m.includes("build") || m.includes("config") || m.includes("pm2") || m.includes("node_env") || m.includes("production")) {
-          return "O sistema foi ajustado para funcionar de forma mais estável";
-        }
-        if (m.includes("report") || m.includes("email") || m.includes("notification") || m.includes("duplicata")) {
-          return "Corrigido um problema que fazia relatórios serem enviados em duplicata";
-        }
-        if (m.includes("sync") || m.includes("api") || m.includes("meta") || m.includes("google") || m.includes("autosync")) {
-          return "A sincronização de dados foi melhorada";
-        }
-        if (m.includes("test") || m.includes("audit")) {
-          return "Foram feitos testes para garantir que tudo está funcionando";
-        }
-        
-        return "O painel foi atualizado com melhorias";
+        if (m.includes("fix") || m.includes("corrig") || m.includes("bug")) return { icon: "🔧", category: "Correção" };
+        if (m.includes("feat") || m.includes("add") || m.includes("implement") || m.includes("criar") || m.includes("adicionar")) return { icon: "✨", category: "Nova Feature" };
+        if (m.includes("refactor") || m.includes("refatora") || m.includes("reestrutur")) return { icon: "♻️", category: "Refatoração" };
+        if (m.includes("style") || m.includes("visual") || m.includes("css") || m.includes("theme") || m.includes("layout")) return { icon: "🎨", category: "Visual" };
+        if (m.includes("deploy") || m.includes("build") || m.includes("config")) return { icon: "🚀", category: "Deploy/Config" };
+        if (m.includes("report") || m.includes("email") || m.includes("notification")) return { icon: "📧", category: "Relatórios" };
+        if (m.includes("sync") || m.includes("api") || m.includes("meta") || m.includes("google")) return { icon: "🔄", category: "Integração" };
+        if (m.includes("test") || m.includes("audit")) return { icon: "🧪", category: "Teste/Auditoria" };
+        return { icon: "📝", category: "Atualização" };
+      }
+
+      // Friendly commit message cleanup
+      function friendlyMsg(msg: string): string {
+        return msg
+          .replace(/^(feat|fix|refactor|chore|style|docs|test|ci|perf|build)(\(.+?\))?:\s*/i, "")
+          .replace(/^(add|implement|create|update|remove|delete|fix|correct)\s+/i, (m) => m)
+          .trim();
       }
 
       const subject = `[SELVA] Progresso do Dashboard — ${fmtDate}`;
 
-      // Build list of improvements in simple language (NO technical details)
-      const improvementsList = commits.map((c) => {
+      // Build commit items HTML
+      const commitItems = commits.map((c) => {
+        const { icon, category } = categorizeCommit(c.msg);
         const friendlyText = friendlyMsg(c.msg);
-        return `<li style="margin-bottom:10px;color:#1a1a1a;font-size:14px;line-height:1.6">${friendlyText}</li>`;
+        const time = c.time ? new Date(c.time).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }) : "";
+        return `<tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;width:40px;text-align:center;font-size:18px">${icon}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0">
+            <div style="font-size:13px;color:#1a1a1a;font-weight:500">${friendlyText}</div>
+            <div style="font-size:10px;color:#999;margin-top:2px">${category} · ${time} · <code style="background:#f5f5f5;padding:1px 4px;border-radius:3px;font-size:10px">${c.hash}</code></div>
+          </td>
+        </tr>`;
       }).join("");
 
-      // REMOVED: Metrics section - not needed for simple language report
-
-      // REMOVED: Activities section - not needed for simple language report
-      const activitiesHtml = "";
-
-      const noChangesMsg = `<div style="padding:24px;text-align:center;color:#666;font-size:14px;line-height:1.6">
-        Hoje não houve alterações no painel. Tudo continua funcionando normalmente.
+      const noCommitsMsg = `<div style="padding:24px;text-align:center;color:#999;font-size:13px;font-style:italic">
+        Nenhuma alteração registrada no código hoje. O time pode estar planejando, revisando ou trabalhando em tarefas fora do repositório.
       </div>`;
 
-      // REMOVED: Category badges - not needed for simple language report
+      // Summary stats
+      const categories = commits.reduce((acc: Record<string, number>, c) => {
+        const { category } = categorizeCommit(c.msg);
+        acc[category] = (acc[category] || 0) + 1;
+        return acc;
+      }, {});
+      const categoryBadges = Object.entries(categories).map(([cat, count]) =>
+        `<span style="display:inline-block;background:#f5f5f5;border-radius:12px;padding:3px 10px;margin:2px 4px;font-size:11px;color:#555">${cat}: ${count}</span>`
+      ).join("");
 
       const html = `<div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;background:#f9f9f9">
   <div style="background:#1a1a1a;padding:20px 24px;text-align:center">
@@ -1815,25 +1507,34 @@ export const appRouter = router({
   </div>
   <div style="padding:20px 24px">
     <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden;margin-bottom:16px">
-      <div style="background:#1a1a1a;padding:12px 16px">
-        <h2 style="margin:0;font-size:15px;color:#f5c6d0;font-weight:700">O que melhorou no painel hoje</h2>
+      <div style="background:#f5c6d0;padding:12px 16px">
+        <h2 style="margin:0;font-size:15px;color:#1a1a1a;font-weight:700">Resumo do dia</h2>
       </div>
-      <div style="padding:16px 20px">
-        ${commits.length > 0 ? `<ul style="margin:0;padding-left:20px;color:#1a1a1a;font-size:14px;line-height:1.8">${improvementsList}</ul>` : noChangesMsg}
+      <div style="padding:14px 16px">
+        <div style="font-size:28px;font-weight:800;color:#1a1a1a;margin-bottom:4px">${commits.length}</div>
+        <div style="font-size:12px;color:#777;margin-bottom:10px">${commits.length === 1 ? "alteração realizada" : "alterações realizadas"} hoje no dashboard</div>
+        ${categoryBadges ? `<div style="margin-top:8px">${categoryBadges}</div>` : ""}
       </div>
     </div>
-    <p style="color:#aaa;font-size:10px;margin-top:16px;text-align:center">
-      <a href="https://selvadash.manus.space" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency · Relatório automático de progresso
+    <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden">
+      <div style="background:#1a1a1a;padding:10px 16px">
+        <h3 style="margin:0;font-size:13px;color:#f5c6d0;font-weight:600">O que foi feito hoje</h3>
+      </div>
+      ${commits.length > 0 ? `<table style="width:100%;border-collapse:collapse">${commitItems}</table>` : noCommitsMsg}
+    </div>
+    <p style="color:#aaa;font-size:10px;margin-top:12px;text-align:center">
+      <a href="https://dashboardselva.manus.space" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency · Relatório automático de progresso
     </p>
   </div>
 </div>`;
 
-      const plainText = `SELVA AGENCY — Progresso do Dashboard — ${fmtDate}\n\nO que melhorou no painel hoje:\n\n` +
+      const plainText = `SELVA AGENCY — Progresso do Dashboard — ${fmtDate}\n\n` +
         (commits.length > 0
-          ? commits.map((c) => `• ${friendlyMsg(c.msg)}`).join("\n")
-          : "Hoje não houve alterações no painel. Tudo continua funcionando normalmente.");
+          ? commits.map((c) => `• ${friendlyMsg(c.msg)} (${c.hash})`).join("\n")
+          : "Nenhuma alteração registrada hoje.") +
+        `\n\nTotal: ${commits.length} alteração(ões)`;
 
-      return { subject, html, plainText, date: todayStr, commitCount: commits.length, json: { subject, html, plainText } };
+      return { subject, html, plainText, date: todayStr, commitCount: commits.length };
     }),
 
     // ─── Public endpoint to trigger progress report email ───
@@ -1841,19 +1542,6 @@ export const appRouter = router({
       if (!isEmailConfigured()) {
         return { success: false, error: "SMTP not configured." };
       }
-      
-      // Anti-duplicata: Check if email was sent in the last 6 hours
-      const now = Date.now();
-      const sixHoursMs = 6 * 60 * 60 * 1000;
-      if (now - lastProgressEmailSentTime < sixHoursMs) {
-        const minutesLeft = Math.ceil((sixHoursMs - (now - lastProgressEmailSentTime)) / 60000);
-        return { 
-          success: false, 
-          error: `Email já foi enviado. Próximo envio em ${minutesLeft} minutos.`, 
-          rateLimited: true 
-        };
-      }
-      
       try {
         const res = await fetch("http://localhost:3000/api/trpc/reports.generateDailyProgress");
         const json = await res.json();
@@ -1867,12 +1555,6 @@ export const appRouter = router({
           html: data.html,
           text: data.plainText,
         });
-        
-        // Update timestamp if email was sent successfully
-        if (sent) {
-          lastProgressEmailSentTime = now;
-        }
-        
         return { success: sent, subject: data.subject, recipients: DAILY_REPORT_RECIPIENTS, commitCount: data.commitCount };
       } catch (err: any) {
         return { success: false, error: err.message ?? String(err) };
@@ -2025,56 +1707,6 @@ export const appRouter = router({
       }),
   }),
 
-  // ─── Social Networks (Pages + Instagram from SELVA Portfolio) ────────────
-  socialNetworks: router({
-    list: protectedProcedure.query(async () => {
-      // Get token from any active account
-      const accounts = await getMetaAdAccountsByUserId(1);
-      if (!accounts.length) return { pages: [] };
-      const token = accounts[0].accessToken;
-      try {
-        const pages = await getPortfolioPages(token);
-        return { pages };
-      } catch (e: any) {
-        console.error("[socialNetworks.list] Error:", e.message);
-        return { pages: [], error: e.message };
-      }
-    }),
-
-    pageInsights: protectedProcedure
-      .input(z.object({ pageId: z.string(), period: z.string().optional() }))
-      .query(async ({ input }) => {
-        const accounts = await getMetaAdAccountsByUserId(1);
-        if (!accounts.length) return null;
-        const token = accounts[0].accessToken;
-        try {
-          const url = `https://graph.facebook.com/v21.0/${input.pageId}?fields=id,name,fan_count,followers_count,new_like_count,talking_about_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&access_token=${token}`;
-          const res = await fetch(url);
-          const data = await res.json();
-          return data;
-        } catch (e: any) {
-          console.error("[socialNetworks.pageInsights] Error:", e.message);
-          return null;
-        }
-      }),
-
-    byAccount: protectedProcedure
-      .input(z.object({ accountId: z.number() }))
-      .query(async ({ input }) => {
-        try {
-          const account = await getMetaAdAccountById(input.accountId);
-          if (!account) {
-            return { pages: [], error: "Account not found" };
-          }
-          const pages = await getAccountLinkedPages(account.accountId, account.accessToken);
-          return { pages };
-        } catch (e: any) {
-          console.error("[socialNetworks.byAccount] Error:", e.message);
-          return { pages: [], error: e.message };
-        }
-      }),
-  }),
-
   // ─── Sync Management ─────────────────────────────────────────────────────
   sync: router({
     // Manual sync for a single account
@@ -2139,6 +1771,202 @@ export const appRouter = router({
         }
         return results;
       }),
+  }),
+
+  // ─── GA4 Analytics ─────────────────────────────────────────────────────────
+  ga4: router({
+    isConfigured: publicProcedure.query(() => {
+      return { configured: isGA4Configured() };
+    }),
+
+    accounts: protectedProcedure.query(async ({ ctx }) => {
+      return getGA4AccountsByUserId(ctx.user.id);
+    }),
+
+    connectAccount: protectedProcedure
+      .input(z.object({
+        propertyId: z.string().min(1),
+        propertyName: z.string().optional(),
+        websiteUrl: z.string().optional(),
+        refreshToken: z.string().min(1),
+        currency: z.string().optional(),
+        timezone: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const id = await createGA4Account({
+          userId: ctx.user.id,
+          propertyId: input.propertyId,
+          propertyName: input.propertyName ?? null,
+          websiteUrl: input.websiteUrl ?? null,
+          refreshToken: input.refreshToken,
+          currency: input.currency ?? "BRL",
+          timezone: input.timezone ?? "America/Sao_Paulo",
+        });
+        return { success: true, id };
+      }),
+
+    disconnectAccount: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteGA4Account(input.id);
+        return { success: true };
+      }),
+
+    properties: protectedProcedure
+      .input(z.object({ refreshToken: z.string().min(1) }))
+      .query(async ({ input }) => {
+        const config = getGA4Config(input.refreshToken);
+        return listGA4Properties(config);
+      }),
+
+    overview: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        const data = await getGA4Overview(config, acct.propertyId, fmt(start), fmt(end));
+        await updateGA4AccountSync(acct.id);
+        return data;
+      }),
+
+    dailyMetrics: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        return getGA4DailyMetrics(config, acct.propertyId, fmt(start), fmt(end));
+      }),
+
+    trafficSources: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+        limit: z.number().min(1).max(50).default(10),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        return getGA4TrafficSources(config, acct.propertyId, fmt(start), fmt(end), input.limit);
+      }),
+
+    topPages: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+        limit: z.number().min(1).max(50).default(10),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        return getGA4TopPages(config, acct.propertyId, fmt(start), fmt(end), input.limit);
+      }),
+
+    devices: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        return getGA4DeviceBreakdown(config, acct.propertyId, fmt(start), fmt(end));
+      }),
+
+    geo: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+        limit: z.number().min(1).max(50).default(10),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        return getGA4GeoBreakdown(config, acct.propertyId, fmt(start), fmt(end), input.limit);
+      }),
+
+    conversions: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(365).default(30),
+      }))
+      .query(async ({ input }) => {
+        const acct = await getGA4AccountById(input.accountId);
+        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
+        const config = getGA4Config(acct.refreshToken);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - input.days);
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+        return getGA4Conversions(config, acct.propertyId, fmt(start), fmt(end));
+      }),
+
+    diagnose: protectedProcedure.query(async ({ ctx }) => {
+      const results: any[] = [];
+      const accounts = await getGA4AccountsByUserId(ctx.user.id);
+      for (const acct of accounts) {
+        try {
+          const config = getGA4Config(acct.refreshToken);
+          const end = new Date();
+          const start = new Date();
+          start.setDate(start.getDate() - 7);
+          const fmt = (d: Date) => d.toISOString().split("T")[0];
+          const overview = await getGA4Overview(config, acct.propertyId, fmt(start), fmt(end));
+          results.push({
+            id: acct.id,
+            propertyId: acct.propertyId,
+            name: acct.propertyName,
+            status: "OK",
+            sessions: overview.sessions,
+            users: overview.totalUsers,
+          });
+        } catch (err: any) {
+          results.push({
+            id: acct.id,
+            propertyId: acct.propertyId,
+            name: acct.propertyName,
+            status: "ERROR",
+            error: err?.message ?? String(err),
+          });
+        }
+      }
+      return results;
+    }),
   }),
 
 });

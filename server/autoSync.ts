@@ -49,10 +49,6 @@ import {
   extractPurchaseRoas,
   extractProfileVisits,
   extractFollowers,
-  extractMessages,
-  extractLinkClicks,
-  extractAddToCart,
-  extractLandingPageViews,
   calculateCpa,
   getResultLabel,
   checkRealTimeAlerts,
@@ -60,38 +56,8 @@ import {
 } from "./metaAdsService";
 import { generateAgencyReport } from "./analysisService";
 import type { CampaignReportData } from "./analysisService";
-import { getAllClientConfigs, getClientConfig } from "./clientReportConfig";
-import { generateAndSendClientReport } from "./clientReportService";
 
 const SYNC_DAYS = 30; // Always sync 30 days to ensure complete data for all dashboard filters
-
-// REGRA: Apenas sincronizar contas do portfólio empresarial SELVA Agency (803399908519541)
-const SELVA_PORTFOLIO_ID = "803399908519541";
-const SELVA_PORTFOLIO_ACCOUNTS = new Set<string>([
-  // Contas verificadas do portfólio SELVA Agency (IDs sem prefixo act_)
-  "416368164738574", // CA - BAESH / Cinase
-  "1367169851301247", // Conta 1367169851301247
-  "2293449447774678", // Conta 2293449447774678
-  "692642033767602", // Conta 692642033767602
-  "734432902582014", // SPIM GAMING BRASIL PORTFÓLIO EMPRESARIAL
-  "975388981734603", // C1 - ELWING
-  "436245678759718", // CA - SELVA Agency
-  "1303446334975032", // CA - Scaffold Play
-  "2749125688806040", // CA - MNBR
-  "509353363688317", // CA - Ultra Malhas
-  "938854617813301", // CA - Ligvegan
-  "2748857121950775", // CA - Phbr Medical / CA - T&D Energy
-  // Contas FORA do portfólio (serão filtradas)
-  // "746370099294331", // CA - Musa Resíduos
-  // "484729473810180", // CA - PE2 - BAESH
-  // "726618102579554", // CA - Caroline Garrafa
-  // "166653156335408", // Victor Pereira
-  // "2060651151073806", // Conta 763528323372836
-]);
-
-function isAccountInSELVAPortfolio(accountId: string): boolean {
-  return SELVA_PORTFOLIO_ACCOUNTS.has(accountId);
-}
 
 function getDateRange(days: number) {
   const end = new Date();
@@ -206,10 +172,6 @@ export async function syncAccount(account: { id: number; accountId: string; acce
 
       const profileVisits = extractProfileVisits(insight.actions);
       const followers = extractFollowers(insight.actions);
-      const messages = extractMessages(insight.actions);
-      const linkClicks = extractLinkClicks(insight.actions);
-      const addToCart = extractAddToCart(insight.actions);
-      const landingPageViews = extractLandingPageViews(insight.actions);
 
       await upsertCampaignMetrics({
         campaignId: localId,
@@ -229,10 +191,6 @@ export async function syncAccount(account: { id: number; accountId: string; acce
         roas: String(roas),
         profileVisits,
         followers,
-        messages,
-        linkClicks,
-        addToCart,
-        landingPageViews,
       });
     }
 
@@ -282,73 +240,20 @@ export async function syncAccount(account: { id: number; accountId: string; acce
   }
 }
 
-export async function runAutoSync() {
-  console.log(`[AutoSync] Starting daily auto-sync for SELVA Agency portfolio (${SELVA_PORTFOLIO_ID})...`);
+async function runAutoSync() {
+  console.log("[AutoSync] Starting daily auto-sync for all accounts...");
   const accounts = await getAllActiveMetaAdAccounts();
-  
-  // REGRA: Apenas sincronizar contas do portfólio empresarial SELVA Agency (803399908519541)
-  const portfolioAccounts = accounts.filter(acc => isAccountInSELVAPortfolio(acc.accountId));
-  
-  if (portfolioAccounts.length === 0) {
-    console.log("[AutoSync] No accounts found in SELVA portfolio, skipping.");
+  if (accounts.length === 0) {
+    console.log("[AutoSync] No accounts found, skipping.");
     return;
   }
-  
-  const filteredOut = accounts.length - portfolioAccounts.length;
-  if (filteredOut > 0) {
-    console.log(`[AutoSync] ⚠️ Portfolio filter: ${portfolioAccounts.length}/${accounts.length} accounts in SELVA portfolio (${filteredOut} filtered out)`);
-  }
-  
   // Sync accounts sequentially to avoid rate limits
-  for (const account of portfolioAccounts) {
+  for (const account of accounts) {
     await syncAccount(account);
     // Small delay between accounts to respect Meta API rate limits
     await new Promise((r) => setTimeout(r, 2000));
   }
-  console.log(`[AutoSync] ✓ Daily sync complete — ${portfolioAccounts.length} account(s) from SELVA portfolio processed.`);
-  
-  // Log auditoria
-  if (filteredOut > 0) {
-    console.log(`[AutoSync] AUDIT: ${filteredOut} account(s) excluded from sync (not in SELVA portfolio 803399908519541)`);
-  }
-  
-  // Disparar reports para todos os clientes
-  console.log("[ClientReports] Starting client reports generation...");
-  await runClientReports();
-}
-
-/**
- * Dispara relatórios para todos os clientes configurados
- */
-async function runClientReports(): Promise<void> {
-  try {
-    const clientConfigs = getAllClientConfigs();
-    console.log(`[ClientReports] Found ${clientConfigs.length} client(s) to send reports`);
-
-    for (const config of clientConfigs) {
-      try {
-        const success = await generateAndSendClientReport(
-          config,
-          sendEmail
-        );
-
-        if (success) {
-          console.log(`[ClientReports] ✓ Report sent for ${config.clientName}`);
-        } else {
-          console.log(`[ClientReports] ✗ Failed to send report for ${config.clientName}`);
-        }
-      } catch (error) {
-        console.error(`[ClientReports] Error sending report for ${config.clientName}:`, error);
-      }
-
-      // Pequeno delay entre envios
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-
-    console.log("[ClientReports] ✓ All client reports processed");
-  } catch (error) {
-    console.error("[ClientReports] Error in runClientReports:", error);
-  }
+  console.log(`[AutoSync] Daily sync complete — ${accounts.length} account(s) processed.`);
 }
 
 // ─── Auto Anomaly Detection ────────────────────────────────────────────────────
@@ -379,7 +284,7 @@ function aggregateCampaignRows(rows: Awaited<ReturnType<typeof getCampaignPerfor
   };
 }
 
-export async function runAnomalyDetection() {
+async function runAnomalyDetection() {
   console.log("[AutoAnomalies] Running hourly anomaly detection...");
   const accounts = await getAllActiveMetaAdAccounts();
   if (accounts.length === 0) return;
@@ -781,8 +686,8 @@ export async function startAutoSync() {
   // Daily sync at 09:00 UTC (06:00 Brasília)
   cron.schedule("0 0 9 * * *", runAutoSync);
 
-  // Daily Meta Ads report email at 09:00 UTC (06:00 BRT)
-  cron.schedule("0 0 9 * * *", runDailyReport);
+  // Daily Meta Ads report email at 04:00 UTC (01:00 BRT)
+  cron.schedule("0 0 4 * * *", runDailyReport);
 
   // Daily development progress report at 23:00 UTC (20:00 BRT)
   cron.schedule("0 0 23 * * *", runDailyProgress);

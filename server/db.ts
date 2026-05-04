@@ -11,6 +11,7 @@ import {
   scheduledReports,
   users,
   googleAdAccounts,
+  ga4Accounts,
   type InsertAiSuggestion,
   type InsertAlert,
   type InsertAnomaly,
@@ -19,6 +20,7 @@ import {
   type InsertMetaAdAccount,
   type InsertScheduledReport,
   type InsertGoogleAdAccount,
+  type InsertGA4Account,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -330,8 +332,6 @@ export async function getAccountMetricsSummary(accountId: number, startDate: str
       // Weighted CPM: total spend / total impressions * 1000
       avgCpm: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.impressions})) * 1000 ELSE 0 END`,
       avgFrequency: sql<number>`AVG(${campaignMetrics.frequency})`,
-      totalProfileVisits: sql<number>`SUM(${campaignMetrics.profileVisits})`,
-      totalFollowers: sql<number>`SUM(${campaignMetrics.followers})`,
     })
     .from(campaignMetrics)
     .where(
@@ -373,10 +373,6 @@ export async function getCampaignPerformanceSummary(accountId: number, startDate
       avgFrequency: sql<number>`CASE WHEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.reach} ELSE 0 END) > 0 THEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.impressions} ELSE 0 END) / SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.reach} ELSE 0 END) ELSE 0 END`,
       totalProfileVisits: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.profileVisits} ELSE 0 END), 0)`,
       totalFollowers: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.followers} ELSE 0 END), 0)`,
-      totalMessages: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.messages} ELSE 0 END), 0)`,
-      totalLinkClicks: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.linkClicks} ELSE 0 END), 0)`,
-      totalAddToCart: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.addToCart} ELSE 0 END), 0)`,
-      totalLandingPageViews: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.landingPageViews} ELSE 0 END), 0)`,
     })
     .from(campaigns)
     .leftJoin(campaignMetrics, eq(campaignMetrics.campaignId, campaigns.id))
@@ -419,10 +415,6 @@ export async function upsertCampaignMetrics(data: InsertCampaignMetrics) {
           roas: data.roas,
           profileVisits: data.profileVisits,
           followers: data.followers,
-          messages: data.messages,
-          linkClicks: data.linkClicks,
-          addToCart: data.addToCart,
-          landingPageViews: data.landingPageViews,
         },
       });
     console.log(`[upsertCampaignMetrics] Success: campaign ${data.campaignId} on ${data.date}`);
@@ -920,4 +912,62 @@ export async function forceUpdateAllTokens(newToken: string) {
     .where(eq(metaAdAccounts.isActive, true));
   console.log(`[DB] Force-updated accessToken for all active accounts`);
   return result;
+}
+
+// ─── GA4 Accounts ───────────────────────────────────────────────────────────
+
+
+export async function getGA4AccountsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(ga4Accounts)
+    .where(and(eq(ga4Accounts.userId, userId), eq(ga4Accounts.isActive, true)))
+    .orderBy(desc(ga4Accounts.createdAt));
+}
+
+export async function getAllActiveGA4Accounts() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(ga4Accounts)
+    .where(eq(ga4Accounts.isActive, true));
+}
+
+export async function getGA4AccountById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(ga4Accounts)
+    .where(eq(ga4Accounts.id, id))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createGA4Account(data: InsertGA4Account) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(ga4Accounts).values(data);
+  return (result as any)[0]?.insertId;
+}
+
+export async function updateGA4AccountSync(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(ga4Accounts)
+    .set({ lastSyncAt: new Date() })
+    .where(eq(ga4Accounts.id, id));
+}
+
+export async function deleteGA4Account(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(ga4Accounts)
+    .set({ isActive: false })
+    .where(eq(ga4Accounts.id, id));
 }
