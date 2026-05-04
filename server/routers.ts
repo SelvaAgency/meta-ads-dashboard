@@ -2005,17 +2005,55 @@ export const appRouter = router({
       const accounts = await getMetaAdAccountsByUserId(1);
       if (!accounts.length) return { pages: [] };
       const token = accounts[0].accessToken;
+      const BUSINESS_ID = "803399908519541";
       
-      // Strategy: extract page_ids from ad creatives (actor_id field)
-      // Works with ads_management permission — no pages_read_engagement needed
       try {
+        // Step 1: Build page name+details lookup from business portfolio
+        // Uses business_management permission (different from individual page read)
+        const pageNameMap = new Map<string, any>();
+        
+        for (const edge of ["owned_pages", "client_pages"]) {
+          try {
+            const url = \`https://graph.facebook.com/v21.0/\${BUSINESS_ID}/\${edge}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url}&limit=100&access_token=\${token}\`;
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 10000);
+            const res = await fetch(url, { signal: ctrl.signal });
+            clearTimeout(t);
+            const data = await res.json() as any;
+            if (data.data) {
+              for (const page of data.data) {
+                if (page.id) pageNameMap.set(page.id, page);
+              }
+            }
+          } catch (e: any) {
+            console.log(\`[socialNetworks] \${edge} lookup failed: \${e.message}\`);
+          }
+        }
+        
+        // Also try the /pages edge (may work with different permissions)
+        try {
+          const url = \`https://graph.facebook.com/v21.0/\${BUSINESS_ID}/pages?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url}&limit=100&access_token=\${token}\`;
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 10000);
+          const res = await fetch(url, { signal: ctrl.signal });
+          clearTimeout(t);
+          const data = await res.json() as any;
+          if (data.data) {
+            for (const page of data.data) {
+              if (page.id && !pageNameMap.has(page.id)) pageNameMap.set(page.id, page);
+            }
+          }
+        } catch {}
+        
+        console.log(\`[socialNetworks] Portfolio lookup found \${pageNameMap.size} pages\`);
+        
+        // Step 2: Extract page IDs from ad creatives (actor_id) per account
         const allPages: any[] = [];
         const seen = new Set<string>();
         
         for (const acc of accounts.filter(a => a.isActive)) {
           try {
-            // Get unique page IDs from ad creatives via actor_id
-            const creativesUrl = `https://graph.facebook.com/v21.0/act_${acc.accountId}/adcreatives?fields=actor_id,object_story_spec&limit=100&access_token=${acc.accessToken}`;
+            const creativesUrl = \`https://graph.facebook.com/v21.0/act_\${acc.accountId}/adcreatives?fields=actor_id,object_story_spec&limit=100&access_token=\${acc.accessToken}\`;
             const controller = new AbortController();
             const tid = setTimeout(() => controller.abort(), 10000);
             const res = await fetch(creativesUrl, { signal: controller.signal });
@@ -2027,46 +2065,57 @@ export const appRouter = router({
                 const pageId = creative.actor_id || creative.object_story_spec?.page_id;
                 if (pageId && !seen.has(pageId)) {
                   seen.add(pageId);
-                  // Try to get page details
-                  try {
-                    const pageUrl = `https://graph.facebook.com/v21.0/${pageId}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url}&access_token=${acc.accessToken}`;
-                    const ctrl2 = new AbortController();
-                    const tid2 = setTimeout(() => ctrl2.abort(), 8000);
-                    const pageRes = await fetch(pageUrl, { signal: ctrl2.signal });
-                    clearTimeout(tid2);
-                    const pageData = await pageRes.json() as any;
-                    if (pageData.id && !pageData.error) {
-                      allPages.push({ ...pageData, _adAccountId: acc.accountId, _adAccountName: acc.accountName });
-                    } else {
-                      // Include page ID even without full details
-                      allPages.push({ id: pageId, name: `Página ${pageId}`, _adAccountId: acc.accountId, _adAccountName: acc.accountName, _limited: true });
+                  
+                  // Try portfolio lookup first (fast, already fetched)
+                  const portfolioData = pageNameMap.get(pageId);
+                  if (portfolioData) {
+                    allPages.push({
+                      ...portfolioData,
+                      _adAccountId: acc.accountId,
+                      _adAccountName: acc.accountName,
+                    });
+                  } else {
+                    // Fallback: try individual page fetch with minimal fields
+                    try {
+                      const pageUrl = \`https://graph.facebook.com/v21.0/\${pageId}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url}&access_token=\${acc.accessToken}\`;
+                      const ctrl2 = new AbortController();
+                      const tid2 = setTimeout(() => ctrl2.abort(), 6000);
+                      const pageRes = await fetch(pageUrl, { signal: ctrl2.signal });
+                      clearTimeout(tid2);
+                      const pageData = await pageRes.json() as any;
+                      if (pageData.id && !pageData.error) {
+                        allPages.push({ ...pageData, _adAccountId: acc.accountId, _adAccountName: acc.accountName });
+                      } else {
+                        // Last resort: derive name from ad account
+                        const clientName = acc.accountName?.replace(/^CA\s*[-–]\s*/i, "").replace(/^C1\s*[-–]\s*/i, "").trim() || pageId;
+                        allPages.push({ id: pageId, name: clientName, _adAccountId: acc.accountId, _adAccountName: acc.accountName, _limited: true });
+                      }
+                    } catch {
+                      const clientName = acc.accountName?.replace(/^CA\s*[-–]\s*/i, "").replace(/^C1\s*[-–]\s*/i, "").trim() || pageId;
+                      allPages.push({ id: pageId, name: clientName, _adAccountId: acc.accountId, _adAccountName: acc.accountName, _limited: true });
                     }
-                  } catch {
-                    allPages.push({ id: pageId, name: `Página ${pageId}`, _adAccountId: acc.accountId, _adAccountName: acc.accountName, _limited: true });
                   }
                 }
               }
             }
           } catch (accErr: any) {
-            console.log(`[socialNetworks] Skip account ${acc.accountId}: ${accErr.message}`);
+            console.log(\`[socialNetworks] Skip account \${acc.accountId}: \${accErr.message}\`);
+          }
+        }
+        
+        // Step 3: Also add portfolio pages NOT found via creatives (pages without ads)
+        for (const [pid, pdata] of pageNameMap) {
+          if (!seen.has(pid)) {
+            seen.add(pid);
+            allPages.push({ ...pdata, _source: "portfolio" });
           }
         }
         
         if (allPages.length > 0) {
           return { pages: allPages };
         }
-
-        // Fallback: try business portfolio endpoints
-        const portfolioPages = await Promise.race([
-          getPortfolioPages(token),
-          new Promise<any[]>((_, reject) => setTimeout(() => reject(new Error("timeout")), 12000))
-        ]).catch(() => [] as any[]);
         
-        if (portfolioPages.length > 0) {
-          return { pages: portfolioPages };
-        }
-
-        return { pages: [], error: "Nenhuma página encontrada via criativos ou portfólio. Verifique as permissões do token." };
+        return { pages: [], error: "Nenhuma página encontrada. Verifique permissões do token." };
       } catch (e: any) {
         console.error("[socialNetworks.list] Error:", e.message);
         return { pages: [], error: e.message };
