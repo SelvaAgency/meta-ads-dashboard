@@ -281,6 +281,80 @@ export async function getPortfolioPages(accessToken: string): Promise<any[]> {
 }
 
 /**
+ * Get pages linked to a specific ad account via promoted_objects in active campaigns.
+ * This discovers which Facebook pages are actually being used by this account.
+ */
+export async function getAccountLinkedPages(
+  accountId: string,
+  accessToken: string
+): Promise<any[]> {
+  try {
+    // Step 1: Fetch active campaigns for this account
+    const campaignsData = await metaFetch<{ data: any[] }>(
+      `act_${accountId}/campaigns`,
+      {
+        access_token: accessToken,
+        fields: "id,name,status",
+        limit: "100",
+      }
+    ).catch(() => ({ data: [] as any[] }));
+
+    const campaigns = campaignsData.data ?? [];
+    if (!campaigns.length) return [];
+
+    // Step 2: For each campaign, fetch adsets with promoted_objects
+    const pageIds = new Set<string>();
+    for (const campaign of campaigns) {
+      try {
+        const adsetsData = await metaFetch<{ data: any[] }>(
+          `${campaign.id}/adsets`,
+          {
+            access_token: accessToken,
+            fields: "id,promoted_object",
+            limit: "100",
+          }
+        ).catch(() => ({ data: [] as any[] }));
+
+        const adsets = adsetsData.data ?? [];
+        for (const adset of adsets) {
+          if (adset.promoted_object?.page_id) {
+            pageIds.add(adset.promoted_object.page_id);
+          }
+        }
+      } catch (err) {
+        // Continue if one campaign fails
+      }
+    }
+
+    if (pageIds.size === 0) return [];
+
+    // Step 3: Fetch full page data for each unique page_id
+    const pages = [];
+    const fields = "id,name,category,fan_count,followers_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}";
+
+    for (const pageId of pageIds) {
+      try {
+        const pageData = await metaFetch<any>(
+          pageId,
+          {
+            access_token: accessToken,
+            fields,
+          }
+        );
+        pages.push(pageData);
+      } catch (err) {
+        // Continue if one page fails
+      }
+    }
+
+    return pages;
+  } catch (err) {
+    console.error(`[getAccountLinkedPages] Error for account ${accountId}:`, err);
+    return [];
+  }
+}
+
+/**
  * Get billing info for an ad account.
  */
 export async function getAccountBilling(

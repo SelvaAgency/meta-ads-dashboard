@@ -72,6 +72,7 @@ import {
   getDemographicsInsights,
   getDailyAccountInsights,
   getPortfolioPages,
+  getAccountLinkedPages,
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
@@ -1753,122 +1754,59 @@ export const appRouter = router({
         }
       } catch { /* logs not available */ }
 
-      // Categorize commits into friendly categories
-      function categorizeCommit(msg: string): { icon: string; category: string } {
-        const m = msg.toLowerCase();
-        if (m.includes("fix") || m.includes("corrig") || m.includes("bug")) return { icon: "🔧", category: "Correção" };
-        if (m.includes("feat") || m.includes("add") || m.includes("implement") || m.includes("criar") || m.includes("adicionar")) return { icon: "✨", category: "Nova Feature" };
-        if (m.includes("refactor") || m.includes("refatora") || m.includes("reestrutur")) return { icon: "♻️", category: "Refatoração" };
-        if (m.includes("style") || m.includes("visual") || m.includes("css") || m.includes("theme") || m.includes("layout")) return { icon: "🎨", category: "Visual" };
-        if (m.includes("deploy") || m.includes("build") || m.includes("config")) return { icon: "🚀", category: "Deploy/Config" };
-        if (m.includes("report") || m.includes("email") || m.includes("notification")) return { icon: "📧", category: "Relatórios" };
-        if (m.includes("sync") || m.includes("api") || m.includes("meta") || m.includes("google")) return { icon: "🔄", category: "Integração" };
-        if (m.includes("test") || m.includes("audit")) return { icon: "🧪", category: "Teste/Auditoria" };
-        return { icon: "📝", category: "Atualização" };
-      }
+      // REMOVED: categorizeCommit - not needed for simple language report
 
-      // Friendly commit message cleanup - convert technical terms to simple language
+      // Convert technical commit messages to simple, non-technical language
       function friendlyMsg(msg: string): string {
-        let friendly = msg
-          .replace(/^(feat|fix|refactor|chore|style|docs|test|ci|perf|build)(\(.+?\))?:\s*/i, "")
-          .replace(/^(add|implement|create|update|remove|delete|fix|correct)\s+/i, (m) => m)
-          .trim();
+        const m = msg.toLowerCase();
         
-        // Convert technical terms to simple language
-        friendly = friendly
-          .replace(/CLIENT_CONFIG/gi, "configuração de cliente")
-          .replace(/SMTP/gi, "sistema de email")
-          .replace(/cron/gi, "agendamento automático")
-          .replace(/vite\.ts/gi, "arquivo de configuração")
-          .replace(/routers\.ts/gi, "arquivo de rotas")
-          .replace(/autoSync/gi, "sincronização automática")
-          .replace(/emailService/gi, "serviço de email")
-          .replace(/PM2/gi, "gerenciador de processos")
-          .replace(/NODE_ENV/gi, "modo de funcionamento")
-          .replace(/deploy/gi, "publicação")
-          .replace(/rebuild/gi, "reconstrução")
-          .replace(/restart/gi, "reinicialização")
-          .replace(/token/gi, "chave de acesso")
-          .replace(/sync/gi, "sincronização")
-          .replace(/API/gi, "integração")
-          .replace(/endpoint/gi, "ponto de acesso")
-          .replace(/database/gi, "banco de dados")
-          .replace(/schema/gi, "estrutura de dados")
-          .replace(/migration/gi, "atualização de banco")
-          .replace(/bug/gi, "erro")
-          .replace(/fix/gi, "correção")
-          .replace(/feature/gi, "funcionalidade")
-          .replace(/refactor/gi, "reorganização")
-          .replace(/optimize/gi, "otimização")
-          .replace(/performance/gi, "desempenho")
-          .replace(/security/gi, "segurança");
+        // Map technical terms to simple descriptions
+        if (m.includes("fix") || m.includes("corrig") || m.includes("bug")) {
+          return "Corrigido um problema que foi descoberto";
+        }
+        if (m.includes("feat") || m.includes("add") || m.includes("implement") || m.includes("criar") || m.includes("adicionar")) {
+          return "Adicionada uma nova funcionalidade ao painel";
+        }
+        if (m.includes("refactor") || m.includes("refatora") || m.includes("reestrutur")) {
+          return "O painel foi reorganizado para funcionar melhor";
+        }
+        if (m.includes("style") || m.includes("visual") || m.includes("css") || m.includes("theme") || m.includes("layout")) {
+          return "A aparência do painel foi melhorada";
+        }
+        if (m.includes("deploy") || m.includes("build") || m.includes("config") || m.includes("pm2") || m.includes("node_env") || m.includes("production")) {
+          return "O sistema foi ajustado para funcionar de forma mais estável";
+        }
+        if (m.includes("report") || m.includes("email") || m.includes("notification") || m.includes("duplicata")) {
+          return "Corrigido um problema que fazia relatórios serem enviados em duplicata";
+        }
+        if (m.includes("sync") || m.includes("api") || m.includes("meta") || m.includes("google") || m.includes("autosync")) {
+          return "A sincronização de dados foi melhorada";
+        }
+        if (m.includes("test") || m.includes("audit")) {
+          return "Foram feitos testes para garantir que tudo está funcionando";
+        }
         
-        return friendly;
+        return "O painel foi atualizado com melhorias";
       }
 
       const subject = `[SELVA] Progresso do Dashboard — ${fmtDate}`;
 
-      // Build commit items HTML
-      const commitItems = commits.map((c) => {
-        const { icon, category } = categorizeCommit(c.msg);
+      // Build list of improvements in simple language (NO technical details)
+      const improvementsList = commits.map((c) => {
         const friendlyText = friendlyMsg(c.msg);
-        const time = c.time ? new Date(c.time).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }) : "";
-        return `<tr>
-          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;width:40px;text-align:center;font-size:18px">${icon}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0">
-            <div style="font-size:13px;color:#1a1a1a;font-weight:500">${friendlyText}</div>
-            <div style="font-size:10px;color:#999;margin-top:2px">${category} · ${time} · <code style="background:#f5f5f5;padding:1px 4px;border-radius:3px;font-size:10px">${c.hash}</code></div>
-          </td>
-        </tr>`;
+        return `<li style="margin-bottom:10px;color:#1a1a1a;font-size:14px;line-height:1.6">${friendlyText}</li>`;
       }).join("");
 
-      // Operational metrics section (always shown, even without commits)
-      const metricsHtml = `
-        <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden;margin-bottom:16px">
-          <div style="background:#1a1a1a;padding:10px 16px">
-            <h3 style="margin:0;font-size:13px;color:#f5c6d0;font-weight:600">✅ Como Está o Painel?</h3>
-          </div>
-          <div style="padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
-            <div>
-              <div style="font-size:20px;font-weight:800;color:#1a1a1a">${activeAccounts}</div>
-              <div style="font-size:11px;color:#777">Contas Conectadas</div>
-            </div>
-            <div>
-              <div style="font-size:20px;font-weight:800;color:#1a1a1a">${totalCampaigns}</div>
-              <div style="font-size:11px;color:#777">Campanhas Ativas</div>
-            </div>
-            <div style="grid-column:1/-1">
-              <div style="font-size:12px;color:#1a1a1a">Última Atualização: <strong>${lastSyncTime}</strong></div>
-            </div>
-          </div>
-        </div>
-      `;
+      // REMOVED: Metrics section - not needed for simple language report
 
-      // Recent activities section
-      const activitiesHtml = recentActivities.length > 0 ? `
-        <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden;margin-bottom:16px">
-          <div style="background:#1a1a1a;padding:10px 16px">
-            <h3 style="margin:0;font-size:13px;color:#f5c6d0;font-weight:600">📋 O Que Aconteceu Hoje?</h3>
-          </div>
-          <div style="padding:12px 16px;font-size:11px;color:#555;line-height:1.6">
-            ${recentActivities.map(a => `<div>• ${a.substring(0, 80)}...</div>`).join("")}
-          </div>
-        </div>
-      ` : "";
+      // REMOVED: Activities section - not needed for simple language report
+      const activitiesHtml = "";
 
-      const noCommitsMsg = `<div style="padding:24px;text-align:center;color:#999;font-size:13px;font-style:italic">
-        Nenhuma mudança no código hoje, mas o painel continua funcionando normalmente. O time pode estar em reuniões, planejando ou trabalhando em outras atividades.
+      const noChangesMsg = `<div style="padding:24px;text-align:center;color:#666;font-size:14px;line-height:1.6">
+        Hoje não houve alterações no painel. Tudo continua funcionando normalmente.
       </div>`;
 
-      // Summary stats
-      const categories = commits.reduce((acc: Record<string, number>, c) => {
-        const { category } = categorizeCommit(c.msg);
-        acc[category] = (acc[category] || 0) + 1;
-        return acc;
-      }, {});
-      const categoryBadges = Object.entries(categories).map(([cat, count]) =>
-        `<span style="display:inline-block;background:#f5f5f5;border-radius:12px;padding:3px 10px;margin:2px 4px;font-size:11px;color:#555">${cat}: ${count}</span>`
-      ).join("");
+      // REMOVED: Category badges - not needed for simple language report
 
       const html = `<div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;background:#f9f9f9">
   <div style="background:#1a1a1a;padding:20px 24px;text-align:center">
@@ -1876,32 +1814,21 @@ export const appRouter = router({
     <p style="color:#777;margin:6px 0 0;font-size:12px">Progresso do Dashboard — ${fmtDate}</p>
   </div>
   <div style="padding:20px 24px">
-    ${metricsHtml}
-    ${activitiesHtml}
     <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden;margin-bottom:16px">
-      <div style="background:#f5c6d0;padding:12px 16px">
-        <h2 style="margin:0;font-size:15px;color:#1a1a1a;font-weight:700">Resumo de Código</h2>
+      <div style="background:#1a1a1a;padding:12px 16px">
+        <h2 style="margin:0;font-size:15px;color:#f5c6d0;font-weight:700">O que melhorou no painel hoje</h2>
       </div>
-      <div style="padding:14px 16px">
-        <div style="font-size:28px;font-weight:800;color:#1a1a1a;margin-bottom:4px">${commits.length}</div>
-        <div style="font-size:12px;color:#777;margin-bottom:10px">${commits.length === 1 ? "alteração realizada" : "alterações realizadas"} hoje no dashboard</div>
-        ${categoryBadges ? `<div style="margin-top:8px">${categoryBadges}</div>` : ""}
+      <div style="padding:16px 20px">
+        ${commits.length > 0 ? `<ul style="margin:0;padding-left:20px;color:#1a1a1a;font-size:14px;line-height:1.8">${improvementsList}</ul>` : noChangesMsg}
       </div>
     </div>
-    <div style="background:#fff;border-radius:8px;border:1px solid #e5e5e5;overflow:hidden">
-      <div style="background:#1a1a1a;padding:10px 16px">
-        <h3 style="margin:0;font-size:13px;color:#f5c6d0;font-weight:600">O que foi feito hoje</h3>
-      </div>
-      ${commits.length > 0 ? `<table style="width:100%;border-collapse:collapse">${commitItems}</table>` : noCommitsMsg}
-    </div>
-    <p style="color:#aaa;font-size:10px;margin-top:12px;text-align:center">
-      <a href="https://dashboardselva.manus.space" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency · Relatório automático de progresso
+    <p style="color:#aaa;font-size:10px;margin-top:16px;text-align:center">
+      <a href="https://selvadash.manus.space" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency · Relatório automático de progresso
     </p>
   </div>
 </div>`;
 
-      const plainText = `SELVA AGENCY — Progresso do Dashboard — ${fmtDate}\n\n` +
-        `O que melhorou no painel hoje:\n\n` +
+      const plainText = `SELVA AGENCY — Progresso do Dashboard — ${fmtDate}\n\nO que melhorou no painel hoje:\n\n` +
         (commits.length > 0
           ? commits.map((c) => `• ${friendlyMsg(c.msg)}`).join("\n")
           : "Hoje não houve alterações no painel. Tudo continua funcionando normalmente.");
@@ -2128,6 +2055,22 @@ export const appRouter = router({
         } catch (e: any) {
           console.error("[socialNetworks.pageInsights] Error:", e.message);
           return null;
+        }
+      }),
+
+    byAccount: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ input }) => {
+        try {
+          const account = await getMetaAdAccountById(input.accountId);
+          if (!account) {
+            return { pages: [], error: "Account not found" };
+          }
+          const pages = await getAccountLinkedPages(account.accountId, account.accessToken);
+          return { pages };
+        } catch (e: any) {
+          console.error("[socialNetworks.byAccount] Error:", e.message);
+          return { pages: [], error: e.message };
         }
       }),
   }),

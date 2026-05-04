@@ -1,5 +1,6 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
+import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import {
   Facebook,
   Instagram,
@@ -123,7 +124,13 @@ function PageCard({ page }: { page: PageData }) {
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 export default function SocialNetworks() {
-  const { data, isLoading, error } = trpc.socialNetworks.list.useQuery();
+  // Get selected account from context
+  const { activeAccount, activeAccountId } = useActiveAccount();
+  
+  // Use byAccount endpoint if account is selected, otherwise use list
+  const { data, isLoading, error } = activeAccountId
+    ? trpc.socialNetworks.byAccount.useQuery({ accountId: activeAccountId })
+    : trpc.socialNetworks.list.useQuery();
 
   const pages: PageData[] = data?.pages ?? [];
   const pagesWithIg = pages.filter(p => p.instagram_business_account);
@@ -141,12 +148,20 @@ export default function SocialNetworks() {
               <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "'Montserrat', sans-serif" }}>
                 Redes Sociais
               </h1>
+            {activeAccount ? (
+              <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
+                {activeAccount.accountName ?? activeAccount.accountId}
+              </Badge>
+            ) : (
               <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
                 Portfolio SELVA Agency
               </Badge>
+            )}
             </div>
             <p className="text-sm text-muted-foreground mt-1 ml-9">
-              Paginas e perfis conectados ao portfolio empresarial SELVA Agency
+              {activeAccount
+                ? `Paginas e perfis conectados a ${activeAccount.accountName ?? activeAccount.accountId}`
+                : "Paginas e perfis conectados ao portfolio empresarial SELVA Agency"}
             </p>
           </div>
         </div>
@@ -206,7 +221,9 @@ export default function SocialNetworks() {
           <div className="flex items-center justify-center py-20">
             <div className="flex flex-col items-center gap-3">
               <Loader2 className="w-8 h-8 text-primary animate-spin" />
-              <p className="text-sm text-muted-foreground">Carregando redes sociais do portfolio...</p>
+              <p className="text-xs text-muted-foreground">
+                {activeAccount ? `Carregando redes sociais de ${activeAccount.accountName ?? activeAccount.accountId}...` : "Carregando redes sociais do portfolio..."}
+              </p>
             </div>
           </div>
         )}
@@ -236,7 +253,9 @@ export default function SocialNetworks() {
             <Share2 className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-40" />
             <p className="text-lg font-medium text-foreground">Nenhuma rede social encontrada</p>
             <p className="text-sm text-muted-foreground mt-1">
-              Verifique as paginas vinculadas ao portfolio empresarial SELVA Agency
+              {activeAccount
+                ? `Nenhuma pagina vinculada a ${activeAccount.accountName ?? activeAccount.accountId}`
+                : "Verifique as paginas vinculadas ao portfolio empresarial SELVA Agency"}
             </p>
           </div>
         )}

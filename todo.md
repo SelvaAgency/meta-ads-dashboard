@@ -202,13 +202,22 @@
 - [ ] Backend: buscar review_feedback dos ads para detectar criativos rejeitados
 - [ ] Backend: verificar funding_source_details para detectar falha de pagamento
 
-## Agendamento Personalizável e Filtro de Campanhas
+- [ ] Agendamento Personalizável e Filtro de Campanhas
 - [ ] Frontend: horário de agendamento de relatório personalizável (input de hora/minuto)
 - [ ] Backend: salvar horário personalizado no scheduled_reports e usar no cron
 - [ ] Frontend: página de Campanhas mostra apenas ATIVAS + PAUSADAS nos últimos 7 dias
 - [ ] Backend: filtrar campanhas por status ACTIVE ou (PAUSED com updatedAt nos últimos 7 dias)
 
-## Separação Anomalias vs Alertas Técnicos
+## MUDANÇA 1: Redes Sociais por Conta Individual (Maio/2026)
+- [ ] Implementar getAccountLinkedPages(accountId, accessToken) no metaAdsService.ts
+- [ ] Adicionar endpoint socialNetworks.byAccount no routers.ts
+- [ ] Testar integração com Meta Ads API para páginas vinculadas
+
+## MUDANÇA 2: Frontend - Refatorar por Conta Selecionada (Maio/2026)
+- [ ] Refatorar componente Redes Sociais para usar socialNetworks.byAccount
+- [ ] Adicionar tratamento para contas sem Google Ads/GA4 configurado
+- [ ] Testar seleção de conta refletindo em todas as seções
+- [ ] Build, restart PM2 e testes finais# Separação Anomalias vs Alertas Técnicos
 - [x] Anomalias: restringir a desvios estatísticos de métricas com base em janela de 7 dias
 - [x] Alertas técnicos: página desvinculada da BM
 - [x] Alertas técnicos: Instagram desvinculado da página
