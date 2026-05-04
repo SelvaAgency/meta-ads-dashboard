@@ -1,20 +1,18 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
-import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import {
   Facebook,
   Instagram,
   Users,
   Heart,
+  MessageCircle,
   ExternalLink,
   Globe,
   Loader2,
   Share2,
   Building2,
-  Filter,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { useMemo, useState } from "react";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -39,10 +37,6 @@ interface PageData {
     profile_picture_url?: string;
     biography?: string;
   };
-  _adAccountId?: string;
-  _adAccountName?: string;
-  _source?: string;
-  _limited?: boolean;
 }
 
 // ─── Page Card Component ────────────────────────────────────────────────────
@@ -130,23 +124,9 @@ function PageCard({ page }: { page: PageData }) {
 
 export default function SocialNetworks() {
   const { data, isLoading, error } = trpc.socialNetworks.list.useQuery();
-  const { activeClient, clientAccounts } = useActiveAccount();
-  const [showAll, setShowAll] = useState(false);
 
-  const allPages: PageData[] = data?.pages ?? [];
+  const pages: PageData[] = data?.pages ?? [];
   const backendError = (data as any)?.error as string | undefined;
-
-  // Filter pages by active client's metaAccountIds
-  const filteredPages = useMemo(() => {
-    if (showAll || !activeClient) return allPages;
-    const clientMetaIds = new Set(activeClient.metaAccountIds);
-    return allPages.filter(p => {
-      if (p._adAccountId && clientMetaIds.has(p._adAccountId)) return true;
-      return false;
-    });
-  }, [allPages, activeClient, showAll]);
-
-  const pages = filteredPages;
   const pagesWithIg = pages.filter(p => p.instagram_business_account);
   const totalFbLikes = pages.reduce((sum, p) => sum + (p.fan_count ?? 0), 0);
   const totalIgFollowers = pagesWithIg.reduce((sum, p) => sum + (p.instagram_business_account?.followers_count ?? 0), 0);
@@ -162,38 +142,14 @@ export default function SocialNetworks() {
               <h1 className="text-2xl font-bold text-foreground" style={{ fontFamily: "'Montserrat', sans-serif" }}>
                 Redes Sociais
               </h1>
-              {activeClient && !showAll && (
-                <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
-                  {activeClient.name}
-                </Badge>
-              )}
-              {showAll && (
-                <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
-                  Portfolio SELVA Agency
-                </Badge>
-              )}
+              <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
+                Portfolio SELVA Agency
+              </Badge>
             </div>
             <p className="text-sm text-muted-foreground mt-1 ml-9">
-              {showAll
-                ? "Todas as paginas e perfis do portfolio empresarial SELVA Agency"
-                : activeClient
-                  ? `Paginas e perfis vinculados a ${activeClient.name}`
-                  : "Selecione um cliente para ver suas redes sociais"
-              }
+              Paginas e perfis conectados ao portfolio empresarial SELVA Agency
             </p>
           </div>
-          {/* Toggle: client-only vs all */}
-          <button
-            onClick={() => setShowAll(!showAll)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
-              showAll
-                ? "bg-primary/10 text-primary border-primary/30"
-                : "bg-card text-muted-foreground border-border hover:bg-muted"
-            }`}
-          >
-            <Filter className="w-3.5 h-3.5" />
-            {showAll ? "Ver todas" : "Filtrado por cliente"}
-          </button>
         </div>
 
         {/* KPI Summary Cards */}
@@ -279,26 +235,10 @@ export default function SocialNetworks() {
         {!isLoading && pages.length === 0 && !error && (
           <div className="bg-card rounded-xl border border-border p-12 text-center">
             <Share2 className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-40" />
-            <p className="text-lg font-medium text-foreground">
-              {activeClient && !showAll
-                ? `Nenhuma rede social encontrada para ${activeClient.name}`
-                : "Nenhuma rede social encontrada"
-              }
-            </p>
+            <p className="text-lg font-medium text-foreground">Nenhuma rede social encontrada</p>
             <p className="text-sm text-muted-foreground mt-1">
-              {backendError || (activeClient && !showAll
-                ? "Esta conta pode nao ter paginas vinculadas via criativos de anuncios. Tente 'Ver todas'."
-                : "Verifique as paginas vinculadas ao portfolio empresarial SELVA Agency"
-              )}
+              {backendError || "Verifique as paginas vinculadas ao portfolio empresarial SELVA Agency"}
             </p>
-            {activeClient && !showAll && (
-              <button
-                onClick={() => setShowAll(true)}
-                className="mt-4 px-4 py-2 bg-primary/10 text-primary rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors"
-              >
-                Ver todas as paginas do portfolio
-              </button>
-            )}
           </div>
         )}
       </div>

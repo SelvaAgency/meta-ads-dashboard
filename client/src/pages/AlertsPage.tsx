@@ -19,6 +19,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useState } from "react";
+import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
 import { toast } from "sonner";
 
 // ─── Alertas técnicos operacionais ────────────────────────────────────────────
@@ -112,6 +113,7 @@ export default function AlertsPage() {
   const utils = trpc.useUtils();
   const { selectedAccountId } = useSelectedAccount();
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const { period, setPeriod, isInRange } = usePeriodFilter("30d");
 
   const handleFilterClick = (filterKey: string) => {
     setActiveFilter((prev) => (prev === filterKey ? null : filterKey));
@@ -124,8 +126,8 @@ export default function AlertsPage() {
     refetchInterval: 30_000,
   });
 
-  // Filtrar apenas alertas técnicos operacionais
-  const alerts = (allAlerts ?? []).filter((a) => TECHNICAL_ALERT_TYPES.has(a.type));
+  // Filtrar apenas alertas técnicos operacionais + período selecionado
+  const alerts = (allAlerts ?? []).filter((a) => TECHNICAL_ALERT_TYPES.has(a.type) && isInRange(a.createdAt));
 
   // Subgrupos para os cards de filtro
   const criticalAlerts = alerts.filter((a) => CRITICAL_TYPES.has(a.type));
@@ -271,6 +273,9 @@ export default function AlertsPage() {
             </Button>
           )}
         </div>
+
+        {/* Filtro de período */}
+        <PeriodFilter period={period} onChange={setPeriod} compact />
 
         {/* Cards de filtro */}
         <div className="grid grid-cols-2 gap-3">

@@ -30,6 +30,7 @@ import {
   BarChart2,
 } from "lucide-react";
 import { useState } from "react";
+import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -410,6 +411,7 @@ function SuggestionCard({ s, onStatusChange }: {
 export default function Suggestions() {
   const [, navigate] = useLocation();
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const { period, setPeriod, isInRange } = usePeriodFilter("30d");
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
 
@@ -491,7 +493,7 @@ export default function Suggestions() {
 
   const pending = suggestions ?? [];
   const hist = history ?? [];
-  const allItems = [...pending, ...hist];
+  const allItems = [...pending, ...hist].filter((s) => isInRange(s.generatedAt));
 
   // Helper: check if an item should be in "history" based on status + time elapsed
   // Applied: goes to history after 7 days from appliedAt
@@ -575,6 +577,9 @@ export default function Suggestions() {
 
         {/* Account State Banner */}
         {lastAnalysis && <AccountStateBanner result={lastAnalysis} />}
+
+        {/* Filtro de período */}
+        <PeriodFilter period={period} onChange={setPeriod} compact />
 
         {/* Info box */}
         {!lastAnalysis && pending.length === 0 && (
