@@ -49,6 +49,8 @@ import {
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
+import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
+import { Globe, BarChart2, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
 
 // ─── Metric formatting helpers ───────────────────────────────────────────────
 
@@ -401,6 +403,15 @@ export default function Dashboard() {
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
 
+  // Derive active client from selected account
+  const activeClient = useMemo(() => {
+    if (!selectedAccountId || !accounts) return null;
+    const acc = accounts.find((a: any) => a.id === selectedAccountId);
+    if (!acc) return null;
+    return getClientByMetaAccountId(acc.accountId) ?? null;
+  }, [selectedAccountId, accounts]);
+  const integrations = useMemo(() => activeClient ? getIntegrationStatus(activeClient) : null, [activeClient]);
+
   // Reset period to default when account changes
   const prevAccountRef = useMemo(() => ({ current: selectedAccountId }), []);
   useEffect(() => {
@@ -600,6 +611,115 @@ export default function Dashboard() {
 
         {/* Balance Card — fixed at top */}
         {selectedAccountId && <BalanceCard accountId={selectedAccountId} />}
+
+        {/* ─── Integration Status Banner ──────────────────────────────────── */}
+        {activeClient && integrations && (
+          <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <Globe className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{activeClient.name}</p>
+                    <p className="text-xs text-muted-foreground">Integrações ativas</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    {integrations.meta ? (
+                      <CheckCircle2 className="w-4 h-4 text-green-500" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-muted-foreground/40" />
+                    )}
+                    <span className={`text-xs font-medium ${integrations.meta ? "text-green-600" : "text-muted-foreground/50"}`}>Meta Ads</span>
+                  </div>
+                  <div className="w-px h-4 bg-border" />
+                  <div className="flex items-center gap-1.5">
+                    {integrations.ga4 ? (
+                      <CheckCircle2 className="w-4 h-4 text-blue-500" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-muted-foreground/40" />
+                    )}
+                    <span className={`text-xs font-medium ${integrations.ga4 ? "text-blue-600" : "text-muted-foreground/50"}`}>GA4</span>
+                  </div>
+                  <div className="w-px h-4 bg-border" />
+                  <div className="flex items-center gap-1.5">
+                    {integrations.googleAds ? (
+                      <CheckCircle2 className="w-4 h-4 text-amber-500" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-muted-foreground/40" />
+                    )}
+                    <span className={`text-xs font-medium ${integrations.googleAds ? "text-amber-600" : "text-muted-foreground/50"}`}>Google Ads</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ─── GA4 Analytics Placeholder ──────────────────────────────────── */}
+        {activeClient && !integrations?.ga4 && (
+          <Card className="border-dashed border-blue-300/40 bg-blue-50/5">
+            <CardContent className="p-6">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center flex-shrink-0">
+                  <BarChart2 className="w-6 h-6 text-blue-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-base font-semibold text-foreground mb-1">Google Analytics 4</h3>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Conecte o GA4 para visualizar tráfego do site, fontes de aquisição, taxa de conversão e comportamento dos usuários.
+                  </p>
+                  <div className="grid grid-cols-4 gap-3 mb-4">
+                    {["Sessões", "Taxa de Conversão", "Fontes de Tráfego", "Páginas Top"].map((metric) => (
+                      <div key={metric} className="bg-muted/30 rounded-lg p-3 text-center">
+                        <p className="text-lg font-bold text-muted-foreground/30">—</p>
+                        <p className="text-xs text-muted-foreground/50">{metric}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/20 rounded-md p-2">
+                    <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span>Para ativar: configure uma propriedade GA4 para <strong>{activeClient.name}</strong> e vincule no painel de integrações.</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ─── Google Ads Placeholder ─────────────────────────────────────── */}
+        {activeClient && !integrations?.googleAds && (
+          <Card className="border-dashed border-amber-300/40 bg-amber-50/5">
+            <CardContent className="p-6">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+                  <Target className="w-6 h-6 text-amber-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-base font-semibold text-foreground mb-1">Google Ads</h3>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Conecte o Google Ads para comparar performance entre Meta e Google, visualizar campanhas Search/Display e otimizar o mix de canais.
+                  </p>
+                  <div className="grid grid-cols-4 gap-3 mb-4">
+                    {["Investimento", "CPC", "Conversões", "ROAS"].map((metric) => (
+                      <div key={metric} className="bg-muted/30 rounded-lg p-3 text-center">
+                        <p className="text-lg font-bold text-muted-foreground/30">—</p>
+                        <p className="text-xs text-muted-foreground/50">{metric}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/20 rounded-md p-2">
+                    <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span>Para ativar: obtenha o Developer Token em ads.google.com e configure o Customer ID para <strong>{activeClient.name}</strong>.</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Error state */}
         {isError && (
