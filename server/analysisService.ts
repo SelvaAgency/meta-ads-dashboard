@@ -34,15 +34,15 @@ import { getObjectiveProfile, detectDominantObjective } from "./campaignObjectiv
 
 // Thresholds por janela e categoria (conforme especificação multi-período)
 const MULTI_PERIOD_THRESHOLDS = {
-  cost: { d7: 150, d14: 120, d30: 100 },       // CPC, CPM, CPA: variação positiva
-  performance: { d7: -50, d14: -40, d30: -35 }, // CTR, ROAS: variação negativa
-  delivery: { d7: -70, d14: -60, d30: -50 },    // Alcance, impressões: variação negativa
-  results: { d7: -20, d14: -20, d30: -20 },     // Resultados: queda ≥ 20%
+  cost: { d7: 200, d14: 160, d30: 130 },       // CPC, CPM, CPA: variação positiva (thresholds elevados para evitar falsos positivos)
+  performance: { d7: -60, d14: -50, d30: -40 }, // CTR, ROAS: variação negativa (thresholds mais conservadores)
+  delivery: { d7: -75, d14: -65, d30: -55 },    // Alcance, impressões: variação negativa
+  results: { d7: -30, d14: -30, d30: -30 },     // Resultados: queda ≥ 30% (evitar alarme com flutuações normais)
 };
 
 // Frequência usa valor absoluto (sem comparação multi-período)
-const FREQUENCY_MEDIUM = 2.5;
-const FREQUENCY_HIGH = 4.0;
+const FREQUENCY_MEDIUM = 3.0;
+const FREQUENCY_HIGH = 5.0;
 
 interface PeriodMetrics {
   roas?: number;

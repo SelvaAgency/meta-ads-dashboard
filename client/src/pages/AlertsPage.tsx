@@ -95,19 +95,19 @@ const typeConfig: Record<
 };
 
 // Tipos que são alertas técnicos operacionais (exibidos nesta aba)
+// Apenas alertas críticos e essenciais (removidos: INSTAGRAM_UNLINKED, PAGE_UNLINKED, ADSET_NO_DELIVERY)
 const TECHNICAL_ALERT_TYPES = new Set([
   "CAMPAIGN_PAUSED",
   "PAYMENT_FAILED",
   "AD_REJECTED",
   "AD_ERROR",
-  "PAGE_UNLINKED",
-  "INSTAGRAM_UNLINKED",
   "BUDGET_WARNING",
+  "PIXEL_ERROR",
 ]);
 
 // Grupos de filtro por categoria
-const CRITICAL_TYPES = new Set(["CAMPAIGN_PAUSED", "PAYMENT_FAILED", "AD_REJECTED", "PAGE_UNLINKED", "INSTAGRAM_UNLINKED"]);
-const WARNING_TYPES  = new Set(["AD_ERROR", "BUDGET_WARNING"]);
+const CRITICAL_TYPES = new Set(["CAMPAIGN_PAUSED", "PAYMENT_FAILED", "AD_REJECTED", "PIXEL_ERROR"]);
+const WARNING_TYPES  = new Set(["AD_ERROR", "BUDGET_WARNING"]);  // Budget agora só aparece em < R$50
 
 export default function AlertsPage() {
   const utils = trpc.useUtils();

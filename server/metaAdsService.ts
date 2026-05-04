@@ -766,10 +766,9 @@ export async function checkRealTimeAlerts(
 
       // Thresholds: alertar apenas quando cruzar cada nível
       // O título inclui o threshold para garantir dedup correto via createAlertIfNotExists
+      // Alertas de saldo apenas para situações CRÍTICAS (evitar ruído)
       const thresholds = [
-        { limit: 200, severity: "WARNING" as const, priority: "MEDIUM" as const, label: "abaixo de R$200" },
-        { limit: 100, severity: "WARNING" as const, priority: "HIGH" as const, label: "abaixo de R$100" },
-        { limit: 50, severity: "CRITICAL" as const, priority: "CRITICAL" as const, label: "abaixo de R$50" },
+        { limit: 50, severity: "CRITICAL" as const, priority: "CRITICAL" as const, label: "abaixo de R$50 — risco de pausa" },
       ];
 
       // Encontrar o threshold mais crítico atingido
@@ -906,68 +905,10 @@ export async function checkRealTimeAlerts(
     console.error("[RealTimeAlerts] Adset status check failed:", err);
   }
 
-  // 5. Check active adsets with no impressions in last 24h (active but not delivering)
-  try {
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0]!;
-    const today = new Date().toISOString().split("T")[0]!;
+  // 5. Adset no-delivery check — REMOVIDO (gera dezenas de alertas desnecessários para conjuntos
+  //    recém-criados, com orçamento zerado, ou em fase de aprendizado). Apenas alertas críticos.
 
-    // Get insights for active adsets in last 24h
-    const insightData = await metaFetch<{ data: Array<{ adset_id: string; adset_name: string; impressions: string }> }>(
-      `act_${accountId}/insights`,
-      {
-        access_token: accessToken,
-        fields: "adset_id,adset_name,impressions",
-        level: "adset",
-        time_range: JSON.stringify({ since: yesterday, until: today }),
-        filtering: JSON.stringify([{ field: "adset.effective_status", operator: "IN", value: ["ACTIVE"] }]),
-        limit: "200",
-      }
-    );
-    const deliveringAdsets = new Set((insightData.data ?? []).map((r) => r.adset_id));
-
-    // Get all active adsets
-    const activeData = await metaFetch<{ data: Array<{ id: string; name: string }> }>(
-      `act_${accountId}/adsets`,
-      {
-        access_token: accessToken,
-        fields: "id,name",
-        limit: "200",
-        effective_status: JSON.stringify(["ACTIVE"]),
-      }
-    );
-      for (const adset of (activeData.data ?? [])) {
-        if (!deliveringAdsets.has(adset.id)) {
-          alerts.push({
-            type: "ADSET_NO_DELIVERY",
-            title: `Conjunto sem entrega: ${adset.name}`,
-            message: `O conjunto "${adset.name}" está ativo mas não registrou impressões nas últimas 24h. Verifique segmentação, orçamento e criativos.`,
-          });
-        }
-      }
-  } catch (err) {
-    console.error("[RealTimeAlerts] Adset no-delivery check failed:", err);
-  }
-
-  // 6. Check for Instagram account not linked to the ad account
-  try {
-    const igData = await metaFetch<{ data: Array<{ id: string; name: string }> }>(
-      `act_${accountId}/connected_instagram_accounts`,
-      {
-        access_token: accessToken,
-        fields: "id,name",
-        limit: "50",
-      }
-    );
-    if ((igData.data ?? []).length === 0) {
-      alerts.push({
-        type: "INSTAGRAM_UNLINKED",
-        title: "Nenhuma conta do Instagram vinculada",
-        message: "A conta de anúncios não possui contas do Instagram vinculadas. Isso pode limitar a entrega em posicionamentos do Instagram.",
-      });
-    }
-  } catch (err) {
-    console.error("[RealTimeAlerts] Instagram account check failed:", err);
-  }
+  // 6. Instagram account check — REMOVIDO (não é alerta crítico, apenas informativo)
 
   // 7. Check pixels for errors or inactivity (>48h without firing)
   try {
@@ -988,16 +929,8 @@ export async function checkRealTimeAlerts(
           title: `Pixel indisponível: ${pixel.name}`,
           message: `O pixel "${pixel.name}" está indisponível. Verifique a instalação no site e as permissões no Business Manager.`,
         });
-      } else if (pixel.last_fired_time) {
-        const hoursSince = (Date.now() - new Date(pixel.last_fired_time).getTime()) / 3600000;
-        if (hoursSince > 48) {
-          alerts.push({
-            type: "PIXEL_ERROR",
-            title: `Pixel inativo: ${pixel.name}`,
-            message: `O pixel "${pixel.name}" não disparou nos últimos ${Math.round(hoursSince)}h (referência: máximo 48h). Verifique se o código está instalado corretamente no site.`,
-          });
-        }
       }
+      // Pixel inactivity check removido — gera ruído excessivo. Manter apenas pixel indisponível.
     }
   } catch (err) {
     console.error("[RealTimeAlerts] Pixel check failed:", err);

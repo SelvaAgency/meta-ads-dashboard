@@ -610,7 +610,7 @@ export default function Dashboard() {
         </div>
 
         {/* Balance Card — fixed at top */}
-        {selectedAccountId && <BalanceCard accountId={selectedAccountId} />}
+        {/* BalanceCard removido — forma de pagamento não é necessária no dashboard */}
 
         {/* ─── Integration Status Banner ──────────────────────────────────── */}
         {activeClient && integrations && (
