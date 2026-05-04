@@ -7,15 +7,20 @@ import type { Express, Request, Response } from "express";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
+// Fallback credentials (used when env vars not available in CloudRun production)
+const FALLBACK_CLIENT_ID = "393310096196-9t1hvoredv2ta0jb1080ng14bs61ekir.apps.googleusercontent.com";
+const FALLBACK_CLIENT_SECRET = "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";
+const FALLBACK_REDIRECT_URI = "https://selvadash.manus.space/api/google/callback";
+
 export function registerGoogleOAuthRoutes(app: Express) {
   // Step 1: Redirect user to Google consent screen
   app.get("/api/google/auth", (req: Request, res: Response) => {
-    const clientId = process.env.GOOGLE_ADS_CLIENT_ID;
+    const clientId = process.env.GOOGLE_ADS_CLIENT_ID || FALLBACK_CLIENT_ID;
     if (!clientId) {
       return res.status(500).json({ error: "GOOGLE_ADS_CLIENT_ID not configured" });
     }
 
-    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || "https://selvadash.manus.space/api/google/callback";
+    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || FALLBACK_REDIRECT_URI;
     const scope = [
       "https://www.googleapis.com/auth/analytics.readonly",
       "https://www.googleapis.com/auth/analytics",
@@ -61,9 +66,9 @@ export function registerGoogleOAuthRoutes(app: Express) {
       `);
     }
 
-    const clientId = process.env.GOOGLE_ADS_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
-    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || "https://selvadash.manus.space/api/google/callback";
+    const clientId = process.env.GOOGLE_ADS_CLIENT_ID || FALLBACK_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || FALLBACK_CLIENT_SECRET;
+    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || FALLBACK_REDIRECT_URI;
 
     if (!clientId || !clientSecret) {
       return res.status(500).json({ error: "Google OAuth credentials not configured" });

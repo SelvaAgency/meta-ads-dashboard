@@ -16,6 +16,18 @@ const GA4_BASE = "https://analyticsdata.googleapis.com/v1beta";
 const GA4_ADMIN_BASE = "https://analyticsadmin.googleapis.com/v1beta";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
+// ─── Fallback config (used when env vars not available in production) ────────
+const FALLBACK_GOOGLE_CLIENT_ID = "393310096196-9t1hvoredv2ta0jb1080ng14bs61ekir.apps.googleusercontent.com";
+const FALLBACK_GOOGLE_CLIENT_SECRET = "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";
+
+function getGoogleClientId(): string {
+  return process.env.GOOGLE_ADS_CLIENT_ID || FALLBACK_GOOGLE_CLIENT_ID;
+}
+
+function getGoogleClientSecret(): string {
+  return process.env.GOOGLE_ADS_CLIENT_SECRET || FALLBACK_GOOGLE_CLIENT_SECRET;
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface GA4Config {
@@ -474,10 +486,7 @@ export async function getGA4Conversions(
  * Check if GA4 is configured (OAuth credentials present).
  */
 export function isGA4Configured(): boolean {
-  return !!(
-    process.env.GOOGLE_ADS_CLIENT_ID &&
-    process.env.GOOGLE_ADS_CLIENT_SECRET
-  );
+  return !!(getGoogleClientId() && getGoogleClientSecret());
 }
 
 /**
@@ -485,8 +494,8 @@ export function isGA4Configured(): boolean {
  */
 export function getGA4Config(refreshToken: string): GA4Config {
   return {
-    clientId: process.env.GOOGLE_ADS_CLIENT_ID!,
-    clientSecret: process.env.GOOGLE_ADS_CLIENT_SECRET!,
+    clientId: getGoogleClientId(),
+    clientSecret: getGoogleClientSecret(),
     refreshToken,
   };
 }
