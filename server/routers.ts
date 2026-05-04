@@ -2006,70 +2006,67 @@ export const appRouter = router({
       if (!accounts.length) return { pages: [] };
       const token = accounts[0].accessToken;
       
-      // Try multiple approaches with timeout protection
+      // Strategy: extract page_ids from ad creatives (actor_id field)
+      // Works with ads_management permission — no pages_read_engagement needed
       try {
-        // Approach 1: Get pages from business portfolio (owned_pages)
-        const ownedPages = await Promise.race([
-          getPortfolioPages(token),
-          new Promise<any[]>((_, reject) => setTimeout(() => reject(new Error("timeout")), 12000))
-        ]).catch(() => [] as any[]);
-        
-        if (ownedPages.length > 0) {
-          return { pages: ownedPages };
-        }
-
-        // Approach 2: Get pages directly from each ad account
-        console.log("[socialNetworks.list] Portfolio pages empty, trying per-account pages...");
         const allPages: any[] = [];
         const seen = new Set<string>();
         
         for (const acc of accounts.filter(a => a.isActive)) {
           try {
-            const url = `https://graph.facebook.com/v21.0/act_${acc.accountId}/promoted_objects?fields=page_id&limit=50&access_token=${acc.accessToken}`;
+            // Get unique page IDs from ad creatives via actor_id
+            const creativesUrl = `https://graph.facebook.com/v21.0/act_${acc.accountId}/adcreatives?fields=actor_id,object_story_spec&limit=100&access_token=${acc.accessToken}`;
             const controller = new AbortController();
-            const tid = setTimeout(() => controller.abort(), 8000);
-            const res = await fetch(url, { signal: controller.signal });
+            const tid = setTimeout(() => controller.abort(), 10000);
+            const res = await fetch(creativesUrl, { signal: controller.signal });
             clearTimeout(tid);
             const data = await res.json() as any;
+            
             if (data.data) {
-              for (const obj of data.data) {
-                if (obj.page_id && !seen.has(obj.page_id)) {
-                  seen.add(obj.page_id);
-                  // Fetch page details
+              for (const creative of data.data) {
+                const pageId = creative.actor_id || creative.object_story_spec?.page_id;
+                if (pageId && !seen.has(pageId)) {
+                  seen.add(pageId);
+                  // Try to get page details
                   try {
-                    const pageUrl = `https://graph.facebook.com/v21.0/${obj.page_id}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url,biography}&access_token=${acc.accessToken}`;
+                    const pageUrl = `https://graph.facebook.com/v21.0/${pageId}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url}&access_token=${acc.accessToken}`;
                     const ctrl2 = new AbortController();
                     const tid2 = setTimeout(() => ctrl2.abort(), 8000);
                     const pageRes = await fetch(pageUrl, { signal: ctrl2.signal });
                     clearTimeout(tid2);
-                    const pageData = await pageRes.json();
-                    if (pageData.id) allPages.push(pageData);
-                  } catch {}
+                    const pageData = await pageRes.json() as any;
+                    if (pageData.id && !pageData.error) {
+                      allPages.push({ ...pageData, _adAccountId: acc.accountId, _adAccountName: acc.accountName });
+                    } else {
+                      // Include page ID even without full details
+                      allPages.push({ id: pageId, name: `Página ${pageId}`, _adAccountId: acc.accountId, _adAccountName: acc.accountName, _limited: true });
+                    }
+                  } catch {
+                    allPages.push({ id: pageId, name: `Página ${pageId}`, _adAccountId: acc.accountId, _adAccountName: acc.accountName, _limited: true });
+                  }
                 }
               }
             }
-          } catch {}
+          } catch (accErr: any) {
+            console.log(`[socialNetworks] Skip account ${acc.accountId}: ${accErr.message}`);
+          }
         }
         
         if (allPages.length > 0) {
           return { pages: allPages };
         }
-        
-        // Approach 3: Try business owned_pages only (not client_pages)
-        console.log("[socialNetworks.list] No promoted pages found, trying business owned_pages only...");
-        try {
-          const bpUrl = `https://graph.facebook.com/v21.0/803399908519541/owned_pages?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,profile_picture_url,biography}&limit=100&access_token=${token}`;
-          const ctrl3 = new AbortController();
-          const tid3 = setTimeout(() => ctrl3.abort(), 10000);
-          const bpRes = await fetch(bpUrl, { signal: ctrl3.signal });
-          clearTimeout(tid3);
-          const bpData = await bpRes.json() as any;
-          if (bpData.data?.length > 0) {
-            return { pages: bpData.data };
-          }
-        } catch {}
 
-        return { pages: [], error: "Nenhuma página encontrada. O token pode não ter permissão pages_read_engagement." };
+        // Fallback: try business portfolio endpoints
+        const portfolioPages = await Promise.race([
+          getPortfolioPages(token),
+          new Promise<any[]>((_, reject) => setTimeout(() => reject(new Error("timeout")), 12000))
+        ]).catch(() => [] as any[]);
+        
+        if (portfolioPages.length > 0) {
+          return { pages: portfolioPages };
+        }
+
+        return { pages: [], error: "Nenhuma página encontrada via criativos ou portfólio. Verifique as permissões do token." };
       } catch (e: any) {
         console.error("[socialNetworks.list] Error:", e.message);
         return { pages: [], error: e.message };
