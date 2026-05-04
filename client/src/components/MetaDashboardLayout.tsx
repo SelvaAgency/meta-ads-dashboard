@@ -2,8 +2,10 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
+import { getIntegrationStatus } from "@/config/clientConfig";
 import {
   AlertTriangle,
+  Users,
   BarChart3,
   Bell,
   ChevronDown,
@@ -50,7 +52,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   const { user, loading, isAuthenticated, logout } = useAuth();
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const { activeAccount, activeAccountId, accounts, setActiveAccountId } = useActiveAccount();
+  const { activeAccount, activeAccountId, accounts, setActiveAccountId, activeClient, clientAccounts, setActiveClient } = useActiveAccount();
 
   const { data: unreadCount } = trpc.alerts.unreadCount.useQuery(
     { accountId: activeAccountId ?? undefined },
@@ -147,11 +149,11 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           )}
         </div>
 
-        {/* Account Selector — fixed, always visible */}
+        {/* Client Selector — grouped by client */}
         {sidebarOpen && (
           <div className="px-3 py-3 border-b border-sidebar-border">
-            <p className="text-xs text-muted-foreground mb-1.5 px-1 uppercase tracking-widest font-semibold">Conta Ativa</p>
-            {accounts.length === 0 ? (
+            <p className="text-xs text-muted-foreground mb-1.5 px-1 uppercase tracking-widest font-semibold">Cliente Ativo</p>
+            {clientAccounts.length === 0 ? (
               <Link href="/connect">
                 <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-primary/30 text-muted-foreground hover:border-primary hover:bg-primary/5 hover:text-primary transition-all text-xs font-medium">
                   <Link2 className="w-3.5 h-3.5" />
@@ -162,54 +164,63 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-sidebar-primary/10 border border-sidebar-border hover:bg-sidebar-primary/20 transition-all group">
-                    <div className="w-6 h-6 rounded-md bg-sidebar-primary/20 flex items-center justify-center flex-shrink-0">
-                      <Building2 className="w-3 h-3 text-primary" />
+                    <div className="w-7 h-7 rounded-lg bg-sidebar-primary/20 flex items-center justify-center flex-shrink-0 font-bold text-xs text-primary">
+                      {activeClient?.shortName ?? <Users className="w-3.5 h-3.5" />}
                     </div>
                     <div className="flex-1 text-left overflow-hidden">
                       <p className="text-xs font-bold text-sidebar-foreground truncate">
-                        {activeAccount?.accountName ?? activeAccount?.accountId ?? "Selecionar"}
+                        {activeClient?.name ?? "Selecionar cliente"}
                       </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {activeAccount?.currency ?? ""} · ID {activeAccount?.accountId ?? "—"}
-                      </p>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-medium">
+                          <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm-1 14l-4-4 1.41-1.41L11 13.17l5.59-5.59L18 9l-7 7z"/></svg>
+                          Meta
+                        </span>
+                        {activeClient?.ga4PropertyId && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-medium">GA4</span>
+                        )}
+                        {activeClient?.googleAdsCustomerId && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-medium">Ads</span>
+                        )}
+                      </div>
                     </div>
                     <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0 group-hover:text-primary transition-colors" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-60">
+                <DropdownMenuContent align="start" className="w-64 max-h-80 overflow-y-auto">
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
-                    Trocar conta ({accounts.length} conectada{accounts.length !== 1 ? "s" : ""})
+                    Clientes ({clientAccounts.length})
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {accounts.map((acc) => {
-                    const scheduleSummary = scheduleMap.get(acc.id);
+                  {clientAccounts.map((ca) => {
+                    const isActive = activeClient?.slug === ca.client.slug;
+                    const integrations = getIntegrationStatus(ca.client);
                     return (
                       <DropdownMenuItem
-                        key={acc.id}
-                        onClick={() => setActiveAccountId(acc.id)}
-                        className="flex items-center gap-2.5 cursor-pointer"
+                        key={ca.client.slug}
+                        onClick={() => setActiveClient(ca.client.slug)}
+                        className="flex items-center gap-2.5 cursor-pointer py-2"
                       >
-                        <div className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 ${acc.id === activeAccountId ? "bg-primary/20" : "bg-muted"}`}>
-                          <Building2 className={`w-3 h-3 ${acc.id === activeAccountId ? "text-primary" : "text-muted-foreground"}`} />
+                        <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 font-bold text-[10px] ${isActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
+                          {ca.client.shortName}
                         </div>
                         <div className="flex-1 overflow-hidden">
-                          <p className="text-xs font-medium truncate">{acc.accountName ?? acc.accountId}</p>
-                          {scheduleSummary ? (
-                            <p className="text-xs text-emerald-400 truncate" title={scheduleSummary}>{scheduleSummary}</p>
-                          ) : (
-                            <p className="text-xs text-muted-foreground truncate">{acc.currency} · {acc.accountId}</p>
-                          )}
+                          <p className="text-xs font-medium truncate">{ca.client.name}</p>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            {integrations.meta && (
+                              <span className="text-[9px] px-1 py-0 rounded bg-blue-500/15 text-blue-400">Meta</span>
+                            )}
+                            {integrations.ga4 && (
+                              <span className="text-[9px] px-1 py-0 rounded bg-emerald-500/15 text-emerald-400">GA4</span>
+                            )}
+                            {integrations.googleAds && (
+                              <span className="text-[9px] px-1 py-0 rounded bg-amber-500/15 text-amber-400">Ads</span>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          {scheduleSummary && (
-                            <span title={scheduleSummary}>
-                              <CalendarCheck className="w-3 h-3 text-emerald-400" />
-                            </span>
-                          )}
-                          {acc.id === activeAccountId && (
-                            <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-                          )}
-                        </div>
+                        {isActive && (
+                          <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                        )}
                       </DropdownMenuItem>
                     );
                   })}
@@ -228,30 +239,31 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           </div>
         )}
 
-        {/* Collapsed account indicator */}
-        {!sidebarOpen && accounts.length > 0 && (
+        {/* Collapsed client indicator */}
+        {!sidebarOpen && clientAccounts.length > 0 && (
           <div className="px-3 py-3 border-b border-sidebar-border flex justify-center">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="w-8 h-8 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center hover:bg-primary/20 transition-colors">
-                  <Building2 className="w-4 h-4 text-primary" />
+                <button className="w-8 h-8 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center hover:bg-primary/20 transition-colors text-[10px] font-bold text-primary">
+                  {activeClient?.shortName ?? <Users className="w-4 h-4" />}
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="right" className="w-60">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">Trocar conta</DropdownMenuLabel>
+                <DropdownMenuLabel className="text-xs text-muted-foreground">Trocar cliente</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {accounts.map((acc) => (
+                {clientAccounts.map((ca) => (
                   <DropdownMenuItem
-                    key={acc.id}
-                    onClick={() => setActiveAccountId(acc.id)}
+                    key={ca.client.slug}
+                    onClick={() => setActiveClient(ca.client.slug)}
                     className="flex items-center gap-2.5 cursor-pointer"
                   >
-                    <Building2 className={`w-3.5 h-3.5 ${acc.id === activeAccountId ? "text-primary" : "text-muted-foreground"}`} />
-                    <div className="flex-1 overflow-hidden">
-                      <p className="text-xs font-medium truncate">{acc.accountName ?? acc.accountId}</p>
-                      <p className="text-xs text-muted-foreground">{acc.currency}</p>
+                    <div className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 font-bold text-[9px] ${ca.client.slug === activeClient?.slug ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
+                      {ca.client.shortName}
                     </div>
-                    {acc.id === activeAccountId && (
+                    <div className="flex-1 overflow-hidden">
+                      <p className="text-xs font-medium truncate">{ca.client.name}</p>
+                    </div>
+                    {ca.client.slug === activeClient?.slug && (
                       <div className="w-1.5 h-1.5 rounded-full bg-primary" />
                     )}
                   </DropdownMenuItem>
@@ -343,11 +355,13 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
               <LayoutDashboard className="w-4 h-4" />
             </button>
             {title && <h1 className="text-sm font-bold text-foreground" style={{fontFamily: "Montserrat, sans-serif", textTransform: "uppercase" as const, letterSpacing: "1px"}}>{title}</h1>}
-            {/* Active account breadcrumb */}
-            {activeAccount && (
+            {/* Active client breadcrumb */}
+            {activeClient && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <ChevronRight className="w-3 h-3 text-primary/50" />
-                <span className="font-semibold text-foreground/80 px-2 py-1 rounded-md bg-secondary/10">{activeAccount.accountName ?? activeAccount.accountId}</span>
+                <span className="font-bold text-foreground/80 px-2 py-1 rounded-md bg-primary/10 text-primary">{activeClient.name}</span>
+                <span className="text-muted-foreground/60">·</span>
+                <span className="text-muted-foreground/80">{activeAccount?.accountName ?? ""}</span>
               </div>
             )}
           </div>
