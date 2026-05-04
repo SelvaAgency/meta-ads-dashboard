@@ -2007,45 +2007,45 @@ export const appRouter = router({
       const token = accounts[0].accessToken;
       const BUSINESS_ID = "803399908519541";
 
-      try {
-        // Fetch pages directly from business portfolio (fast — 2 parallel calls)
-        const edges = ["owned_pages", "client_pages"];
+      // Hard global timeout — guarantee response within 10s
+      const fetchPages = async (): Promise<{ pages: any[]; error?: string }> => {
         const pageMap = new Map<string, any>();
 
-        const results = await Promise.allSettled(
-          edges.map(async (edge) => {
-            const ctrl = new AbortController();
-            const t = setTimeout(() => ctrl.abort(), 12000);
-            try {
-              const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&limit=100&access_token=${token}`;
-              const res = await fetch(url, { signal: ctrl.signal });
-              clearTimeout(t);
-              return await res.json() as any;
-            } catch (e) {
-              clearTimeout(t);
-              throw e;
-            }
-          })
-        );
-
-        for (const r of results) {
-          if (r.status === "fulfilled" && r.value?.data) {
-            for (const page of r.value.data) {
-              if (page.id && !pageMap.has(page.id)) {
-                pageMap.set(page.id, page);
+        // Try owned_pages first (most reliable for System User)
+        for (const edge of ["owned_pages", "client_pages"]) {
+          try {
+            const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&limit=100&access_token=${token}`;
+            const res = await Promise.race([
+              fetch(url),
+              new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000))
+            ]);
+            const data = await res.json() as any;
+            if (data.data) {
+              for (const page of data.data) {
+                if (page.id && !pageMap.has(page.id)) {
+                  pageMap.set(page.id, page);
+                }
               }
             }
+            console.log(`[socialNetworks.list] ${edge}: found ${data.data?.length ?? 0} pages`);
+          } catch (e: any) {
+            console.log(`[socialNetworks.list] ${edge} failed: ${e.message}`);
           }
         }
 
-        console.log(`[socialNetworks.list] Found ${pageMap.size} pages from portfolio`);
-
         const pages = Array.from(pageMap.values());
-        if (pages.length > 0) {
-          return { pages };
-        }
-
+        console.log(`[socialNetworks.list] Total: ${pages.length} pages`);
+        if (pages.length > 0) return { pages };
         return { pages: [], error: "Nenhuma página encontrada. Verifique permissões do token." };
+      };
+
+      try {
+        return await Promise.race([
+          fetchPages(),
+          new Promise<{ pages: any[]; error: string }>((resolve) =>
+            setTimeout(() => resolve({ pages: [], error: "Timeout ao buscar páginas (10s)" }), 10000)
+          )
+        ]);
       } catch (e: any) {
         console.error("[socialNetworks.list] Error:", e.message);
         return { pages: [], error: e.message };
