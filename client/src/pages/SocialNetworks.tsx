@@ -126,6 +126,7 @@ export default function SocialNetworks() {
   const { data, isLoading, error } = trpc.socialNetworks.list.useQuery();
 
   const pages: PageData[] = data?.pages ?? [];
+  const backendError = (data as any)?.error as string | undefined;
   const pagesWithIg = pages.filter(p => p.instagram_business_account);
   const totalFbLikes = pages.reduce((sum, p) => sum + (p.fan_count ?? 0), 0);
   const totalIgFollowers = pagesWithIg.reduce((sum, p) => sum + (p.instagram_business_account?.followers_count ?? 0), 0);
@@ -236,7 +237,7 @@ export default function SocialNetworks() {
             <Share2 className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-40" />
             <p className="text-lg font-medium text-foreground">Nenhuma rede social encontrada</p>
             <p className="text-sm text-muted-foreground mt-1">
-              Verifique as paginas vinculadas ao portfolio empresarial SELVA Agency
+              {backendError || "Verifique as paginas vinculadas ao portfolio empresarial SELVA Agency"}
             </p>
           </div>
         )}

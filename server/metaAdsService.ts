@@ -111,7 +111,19 @@ async function metaFetch<T>(path: string, params: Record<string, string>, retryC
   }
 
   console.log(`[metaFetch] Request to ${path} (account: ${accountId}, attempt: ${retryCount + 1})`);
-  const response = await fetch(url.toString());
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), { signal: controller.signal });
+  } catch (abortErr: any) {
+    clearTimeout(timeoutId);
+    if (abortErr.name === 'AbortError') {
+      throw new Error(`Meta API timeout on ${path} (15s exceeded)`);
+    }
+    throw abortErr;
+  }
+  clearTimeout(timeoutId);
   const data = await response.json() as any;
 
   if (data.error) {
