@@ -2007,7 +2007,7 @@ export const appRouter = router({
       const token = accounts[0].accessToken;
       const BUSINESS_ID = "803399908519541";
 
-      // Hard global timeout — guarantee response within 10s
+      // Hard global timeout — guarantee response within 5s
       const fetchPages = async (): Promise<{ pages: any[]; error?: string }> => {
         const pageMap = new Map<string, any>();
 
@@ -2017,7 +2017,7 @@ export const appRouter = router({
             const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&limit=100&access_token=${token}`;
             const res = await Promise.race([
               fetch(url),
-              new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000))
+              new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 4000))
             ]);
             const data = await res.json() as any;
             if (data.data) {
@@ -2043,7 +2043,7 @@ export const appRouter = router({
         return await Promise.race([
           fetchPages(),
           new Promise<{ pages: any[]; error: string }>((resolve) =>
-            setTimeout(() => resolve({ pages: [], error: "Timeout ao buscar páginas (10s)" }), 10000)
+            setTimeout(() => resolve({ pages: [], error: "Timeout ao buscar páginas (5s)" }), 5000)
           )
         ]);
       } catch (e: any) {
@@ -2065,7 +2065,7 @@ export const appRouter = router({
           let pageToken = systemToken; // fallback
           try {
             const ptCtrl = new AbortController();
-            const ptT = setTimeout(() => ptCtrl.abort(), 10000);
+            const ptT = setTimeout(() => ptCtrl.abort(), 5000);
             const ptUrl = `https://graph.facebook.com/v21.0/${input.pageId}?fields=access_token&access_token=${systemToken}`;
             const ptRes = await fetch(ptUrl, { signal: ptCtrl.signal });
             clearTimeout(ptT);
@@ -2076,7 +2076,7 @@ export const appRouter = router({
             } else {
               // Fallback: try via Business Portfolio owned_pages
               const pt2Ctrl = new AbortController();
-              const pt2T = setTimeout(() => pt2Ctrl.abort(), 10000);
+              const pt2T = setTimeout(() => pt2Ctrl.abort(), 5000);
               const pt2Url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/owned_pages?fields=id,access_token&limit=100&access_token=${systemToken}`;
               const pt2Res = await fetch(pt2Url, { signal: pt2Ctrl.signal });
               clearTimeout(pt2T);
@@ -2095,7 +2095,7 @@ export const appRouter = router({
 
           // 1. Basic page info (using page token)
           const ctrl1 = new AbortController();
-          const t1 = setTimeout(() => ctrl1.abort(), 10000);
+          const t1 = setTimeout(() => ctrl1.abort(), 5000);
           const pageUrl = `https://graph.facebook.com/v21.0/${input.pageId}?fields=id,name,fan_count,followers_count,new_like_count,talking_about_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&access_token=${pageToken}`;
           const pageRes = await fetch(pageUrl, { signal: ctrl1.signal });
           clearTimeout(t1);
@@ -2109,7 +2109,7 @@ export const appRouter = router({
           let fbMetrics: any = null;
           try {
             const ctrl2 = new AbortController();
-            const t2 = setTimeout(() => ctrl2.abort(), 10000);
+            const t2 = setTimeout(() => ctrl2.abort(), 5000);
             const metricsUrl = `https://graph.facebook.com/v21.0/${input.pageId}/insights?metric=page_impressions,page_impressions_unique,page_engaged_users,page_post_engagements,page_fan_adds,page_views_total,page_actions_post_reactions_total&period=${period}&access_token=${pageToken}`;
             const mRes = await fetch(metricsUrl, { signal: ctrl2.signal });
             clearTimeout(t2);
@@ -2135,7 +2135,7 @@ export const appRouter = router({
           if (igId) {
             try {
               const ctrl3 = new AbortController();
-              const t3 = setTimeout(() => ctrl3.abort(), 10000);
+              const t3 = setTimeout(() => ctrl3.abort(), 5000);
               const since = Math.floor(Date.now()/1000) - 28*86400;
               const until = Math.floor(Date.now()/1000);
               const igUrl = `https://graph.facebook.com/v21.0/${igId}/insights?metric=impressions,reach,accounts_engaged,profile_views&period=day&metric_type=total_value&since=${since}&until=${until}&access_token=${pageToken}`;
