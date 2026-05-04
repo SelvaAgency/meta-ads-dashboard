@@ -94,6 +94,10 @@ export const campaignMetrics = mysqlTable("campaign_metrics", {
    roas: decimal("roas", { precision: 10, scale: 4 }).default("0"),
   profileVisits: bigint("profile_visits", { mode: "number" }).default(0),
   followers: bigint("followers", { mode: "number" }).default(0),
+  messages: bigint("messages", { mode: "number" }).default(0),
+  linkClicks: bigint("link_clicks", { mode: "number" }).default(0),
+  addToCart: bigint("add_to_cart", { mode: "number" }).default(0),
+  landingPageViews: bigint("landing_page_views", { mode: "number" }).default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   uqCampaignDate: uniqueIndex("uq_campaign_date").on(table.campaignId, table.date),

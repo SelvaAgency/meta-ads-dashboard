@@ -332,6 +332,8 @@ export async function getAccountMetricsSummary(accountId: number, startDate: str
       // Weighted CPM: total spend / total impressions * 1000
       avgCpm: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.impressions})) * 1000 ELSE 0 END`,
       avgFrequency: sql<number>`AVG(${campaignMetrics.frequency})`,
+      totalProfileVisits: sql<number>`SUM(${campaignMetrics.profileVisits})`,
+      totalFollowers: sql<number>`SUM(${campaignMetrics.followers})`,
     })
     .from(campaignMetrics)
     .where(
@@ -373,6 +375,10 @@ export async function getCampaignPerformanceSummary(accountId: number, startDate
       avgFrequency: sql<number>`CASE WHEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.reach} ELSE 0 END) > 0 THEN SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.impressions} ELSE 0 END) / SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.reach} ELSE 0 END) ELSE 0 END`,
       totalProfileVisits: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.profileVisits} ELSE 0 END), 0)`,
       totalFollowers: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.followers} ELSE 0 END), 0)`,
+      totalMessages: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.messages} ELSE 0 END), 0)`,
+      totalLinkClicks: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.linkClicks} ELSE 0 END), 0)`,
+      totalAddToCart: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.addToCart} ELSE 0 END), 0)`,
+      totalLandingPageViews: sql<number>`COALESCE(SUM(CASE WHEN ${campaignMetrics.date} >= ${startDate} AND ${campaignMetrics.date} <= ${endDate} THEN ${campaignMetrics.landingPageViews} ELSE 0 END), 0)`,
     })
     .from(campaigns)
     .leftJoin(campaignMetrics, eq(campaignMetrics.campaignId, campaigns.id))
@@ -415,6 +421,10 @@ export async function upsertCampaignMetrics(data: InsertCampaignMetrics) {
           roas: data.roas,
           profileVisits: data.profileVisits,
           followers: data.followers,
+          messages: data.messages,
+          linkClicks: data.linkClicks,
+          addToCart: data.addToCart,
+          landingPageViews: data.landingPageViews,
         },
       });
     console.log(`[upsertCampaignMetrics] Success: campaign ${data.campaignId} on ${data.date}`);

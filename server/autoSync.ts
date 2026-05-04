@@ -49,6 +49,10 @@ import {
   extractPurchaseRoas,
   extractProfileVisits,
   extractFollowers,
+  extractMessages,
+  extractLinkClicks,
+  extractAddToCart,
+  extractLandingPageViews,
   calculateCpa,
   getResultLabel,
   checkRealTimeAlerts,
@@ -172,6 +176,10 @@ export async function syncAccount(account: { id: number; accountId: string; acce
 
       const profileVisits = extractProfileVisits(insight.actions);
       const followers = extractFollowers(insight.actions);
+      const messages = extractMessages(insight.actions);
+      const linkClicks = extractLinkClicks(insight.actions);
+      const addToCart = extractAddToCart(insight.actions);
+      const landingPageViews = extractLandingPageViews(insight.actions);
 
       await upsertCampaignMetrics({
         campaignId: localId,
@@ -191,6 +199,10 @@ export async function syncAccount(account: { id: number; accountId: string; acce
         roas: String(roas),
         profileVisits,
         followers,
+        messages,
+        linkClicks,
+        addToCart,
+        landingPageViews,
       });
     }
 
@@ -686,8 +698,8 @@ export async function startAutoSync() {
   // Daily sync at 09:00 UTC (06:00 Brasília)
   cron.schedule("0 0 9 * * *", runAutoSync);
 
-  // Daily Meta Ads report email at 04:00 UTC (01:00 BRT)
-  cron.schedule("0 0 4 * * *", runDailyReport);
+  // Daily Meta Ads report email at 09:00 UTC (06:00 BRT)
+  cron.schedule("0 0 9 * * *", runDailyReport);
 
   // Daily development progress report at 23:00 UTC (20:00 BRT)
   cron.schedule("0 0 23 * * *", runDailyProgress);
