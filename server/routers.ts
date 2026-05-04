@@ -2123,19 +2123,90 @@ export const appRouter = router({
     }),
 
     pageInsights: protectedProcedure
-      .input(z.object({ pageId: z.string(), period: z.string().optional() }))
+      .input(z.object({ pageId: z.string(), period: z.enum(["day", "week_28", "days_28"]).optional() }))
       .query(async ({ input }) => {
         const accounts = await getMetaAdAccountsByUserId(1);
         if (!accounts.length) return null;
         const token = accounts[0].accessToken;
+        const period = input.period ?? "days_28";
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000);
-          const url = `https://graph.facebook.com/v21.0/${input.pageId}?fields=id,name,fan_count,followers_count,new_like_count,talking_about_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&access_token=${token}`;
-          const res = await fetch(url, { signal: controller.signal });
-          clearTimeout(timeoutId);
-          const data = await res.json();
-          return data;
+          // 1. Basic page info
+          const ctrl1 = new AbortController();
+          const t1 = setTimeout(() => ctrl1.abort(), 10000);
+          const pageUrl = `https://graph.facebook.com/v21.0/${input.pageId}?fields=id,name,fan_count,followers_count,new_like_count,talking_about_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&access_token=${token}`;
+          const pageRes = await fetch(pageUrl, { signal: ctrl1.signal });
+          clearTimeout(t1);
+          const pageData = await pageRes.json() as any;
+          if (pageData.error) return { ...pageData, _metrics: null };
+
+          // 2. FB Page Insights (últimos 28 dias)
+          let fbMetrics: any = null;
+          try {
+            const ctrl2 = new AbortController();
+            const t2 = setTimeout(() => ctrl2.abort(), 10000);
+            const metricsUrl = `https://graph.facebook.com/v21.0/${input.pageId}/insights?metric=page_impressions,page_impressions_unique,page_engaged_users,page_post_engagements,page_fan_adds,page_views_total,page_actions_post_reactions_total&period=${period}&access_token=${token}`;
+            const mRes = await fetch(metricsUrl, { signal: ctrl2.signal });
+            clearTimeout(t2);
+            const mData = await mRes.json() as any;
+            if (mData.data) {
+              fbMetrics = {};
+              for (const metric of mData.data) {
+                const vals = metric.values ?? [];
+                const lastVal = vals[vals.length - 1]?.value ?? 0;
+                // For object values (like reactions), sum them
+                const numVal = typeof lastVal === "object" ? Object.values(lastVal as Record<string, number>).reduce((a: number, b: number) => a + b, 0) : Number(lastVal) || 0;
+                fbMetrics[metric.name] = numVal;
+              }
+            }
+          } catch (e: any) {
+            console.log("[socialNetworks.pageInsights] FB metrics failed:", e.message);
+          }
+
+          // 3. Instagram Insights (if IG connected)
+          let igMetrics: any = null;
+          const igId = pageData.instagram_business_account?.id;
+          if (igId) {
+            try {
+              const ctrl3 = new AbortController();
+              const t3 = setTimeout(() => ctrl3.abort(), 10000);
+              const igUrl = `https://graph.facebook.com/v21.0/${igId}/insights?metric=impressions,reach,accounts_engaged,profile_views&period=day&metric_type=total_value&since=${Math.floor(Date.now()/1000) - 28*86400}&until=${Math.floor(Date.now()/1000)}&access_token=${token}`;
+              const igRes = await fetch(igUrl, { signal: ctrl3.signal });
+              clearTimeout(t3);
+              const igData = await igRes.json() as any;
+              if (igData.data) {
+                igMetrics = {};
+                for (const metric of igData.data) {
+                  const totalValue = metric.total_value?.value ?? 0;
+                  igMetrics[metric.name] = Number(totalValue) || 0;
+                }
+              }
+            } catch (e: any) {
+              console.log("[socialNetworks.pageInsights] IG metrics failed:", e.message);
+            }
+
+            // Also try IG media insights for recent posts engagement
+            try {
+              const ctrl4 = new AbortController();
+              const t4 = setTimeout(() => ctrl4.abort(), 8000);
+              const mediaUrl = `https://graph.facebook.com/v21.0/${igId}/media?fields=id,like_count,comments_count,timestamp&limit=25&access_token=${token}`;
+              const mediaRes = await fetch(mediaUrl, { signal: ctrl4.signal });
+              clearTimeout(t4);
+              const mediaData = await mediaRes.json() as any;
+              if (mediaData.data) {
+                const posts = mediaData.data;
+                const totalLikes = posts.reduce((s: number, p: any) => s + (p.like_count ?? 0), 0);
+                const totalComments = posts.reduce((s: number, p: any) => s + (p.comments_count ?? 0), 0);
+                if (!igMetrics) igMetrics = {};
+                igMetrics.recent_posts = posts.length;
+                igMetrics.recent_likes = totalLikes;
+                igMetrics.recent_comments = totalComments;
+                igMetrics.avg_likes = posts.length > 0 ? Math.round(totalLikes / posts.length) : 0;
+                igMetrics.avg_comments = posts.length > 0 ? Math.round(totalComments / posts.length) : 0;
+              }
+            } catch {}
+          }
+
+          return { ...pageData, _fbMetrics: fbMetrics, _igMetrics: igMetrics };
         } catch (e: any) {
           console.error("[socialNetworks.pageInsights] Error:", e.message);
           return null;
