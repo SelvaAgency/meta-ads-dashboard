@@ -56,23 +56,35 @@ export function serveStatic(app: Express) {
     );
   }
 
-  // Add no-cache headers BEFORE express.static to prevent CDN/proxy from caching HTML
-  app.use((req, res, next) => {
-    if (req.path === "/" || req.path.endsWith(".html")) {
-      res.set({
+  const indexPath = path.resolve(distPath, "index.html");
+
+  // Serve static assets (JS, CSS, images) with long cache (they have content hashes)
+  app.use(express.static(distPath, {
+    index: false, // Don't serve index.html via express.static
+    setHeaders: (res, filePath) => {
+      // Assets with hashes in filename can be cached forever
+      if (filePath.match(/\.(js|css)$/) && filePath.includes('/assets/')) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      }
+    }
+  }));
+
+  // Serve index.html dynamically for all other routes (SPA fallback)
+  // Read from disk every time to ensure latest build is served
+  app.use("*", (_req, res) => {
+    try {
+      const html = fs.readFileSync(indexPath, "utf-8");
+      res.status(200).set({
+        "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "CDN-Cache-Control": "no-store",
+        "Cloudflare-CDN-Cache-Control": "no-store",
+        "Surrogate-Control": "no-store",
         "Pragma": "no-cache",
         "Expires": "0",
-        "Surrogate-Control": "no-store",
-      });
+      }).end(html);
+    } catch (e) {
+      res.status(500).send("Server error: could not load index.html");
     }
-    next();
-  });
-
-  app.use(express.static(distPath));
-
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
   });
 }
