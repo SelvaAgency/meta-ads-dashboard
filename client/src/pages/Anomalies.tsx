@@ -147,6 +147,12 @@ export default function Anomalies() {
             <p className="text-sm text-muted-foreground">
               Desvios detectados automaticamente com validação em 3 janelas (7/14/30 dias) — ROAS, resultados, CPA, CTR e frequência
             </p>
+            {(() => {
+              const acct = accounts?.find((a: { id: number }) => a.id === selectedAccountId);
+              return acct?.accountName ? (
+                <p className="text-xs text-primary font-medium mt-1">Conta: {acct.accountName}</p>
+              ) : null;
+            })()}
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <RefreshCw className="w-3 h-3" />
@@ -208,9 +214,9 @@ export default function Anomalies() {
               <div className="space-y-2">
                 {filteredAnomalies.map((anomaly) =>
                   activeFilter === "history" ? (
-                    <HistoryCard key={anomaly.id} anomaly={anomaly} />
+                    <HistoryCard key={anomaly.id} anomaly={anomaly} accounts={accounts} />
                   ) : (
-                    <AnomalyCard key={anomaly.id} anomaly={anomaly} markRead={markRead} />
+                    <AnomalyCard key={anomaly.id} anomaly={anomaly} markRead={markRead} accounts={accounts} />
                   )
                 )}
               </div>
@@ -244,7 +250,7 @@ export default function Anomalies() {
               ) : (
                 <div className="space-y-2">
                   {unread.map((anomaly) => (
-                    <AnomalyCard key={anomaly.id} anomaly={anomaly} markRead={markRead} />
+                    <AnomalyCard key={anomaly.id} anomaly={anomaly} markRead={markRead} accounts={accounts} />
                   ))}
                 </div>
               )}
@@ -282,7 +288,7 @@ export default function Anomalies() {
                     </Card>
                   ) : (
                     history.map((anomaly) => (
-                      <HistoryCard key={anomaly.id} anomaly={anomaly} />
+                      <HistoryCard key={anomaly.id} anomaly={anomaly} accounts={accounts} />
                     ))
                   )}
                 </div>
@@ -316,9 +322,11 @@ export default function Anomalies() {
 function AnomalyCard({
   anomaly,
   markRead,
+  accounts,
 }: {
   anomaly: AnomalyItem;
   markRead: { mutate: (args: { anomalyId: number }) => void; isPending?: boolean };
+  accounts?: { id: number; accountName?: string | null }[];
 }) {
   const tc = typeConfig[anomaly.type];
   const AnomalyIcon = tc?.icon ?? AlertTriangle;
@@ -338,6 +346,14 @@ function AnomalyCard({
                   {tc.label}
                 </Badge>
               )}
+              {(() => {
+                const acct = accounts?.find((a) => a.id === (anomaly as any).accountId);
+                return acct?.accountName ? (
+                  <Badge variant="secondary" className="text-xs bg-primary/10 text-primary border-0">
+                    {acct.accountName}
+                  </Badge>
+                ) : null;
+              })()}
             </div>
             {/* O que aconteceu */}
             <p className="text-xs text-muted-foreground leading-relaxed">{anomaly.description}</p>
@@ -364,7 +380,7 @@ function AnomalyCard({
 }
 
 // ─── Card do histórico (compacto, sem ação) ───────────────────────────────────
-function HistoryCard({ anomaly }: { anomaly: AnomalyItem }) {
+function HistoryCard({ anomaly, accounts }: { anomaly: AnomalyItem; accounts?: { id: number; accountName?: string | null }[] }) {
   const tc = typeConfig[anomaly.type];
 
   // Calculate days remaining before auto-deletion (30 days from detectedAt)
@@ -391,6 +407,14 @@ function HistoryCard({ anomaly }: { anomaly: AnomalyItem }) {
                   {tc.label}
                 </Badge>
               )}
+              {(() => {
+                const acct = accounts?.find((a) => a.id === (anomaly as any).accountId);
+                return acct?.accountName ? (
+                  <Badge variant="secondary" className="text-xs bg-primary/10 text-primary border-0 py-0">
+                    {acct.accountName}
+                  </Badge>
+                ) : null;
+              })()}
             </div>
             <p className="text-xs text-muted-foreground/70 mt-0.5">
               {new Date(anomaly.detectedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}

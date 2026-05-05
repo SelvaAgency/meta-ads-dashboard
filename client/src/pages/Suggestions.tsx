@@ -563,6 +563,12 @@ export default function Suggestions() {
             <p className="text-sm text-muted-foreground">
               A IA diagnostica a conta antes de gerar sugestões — intervenções apenas quando necessário
             </p>
+            {(() => {
+              const acct = accounts?.find((a: any) => a.id === selectedAccountId);
+              return acct?.accountName ? (
+                <p className="text-xs text-primary font-medium mt-0.5">Conta: {acct.accountName}</p>
+              ) : null;
+            })()}
           </div>
           <Button
             size="sm"

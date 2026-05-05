@@ -678,6 +678,12 @@ export default function Campaigns() {
           <p className="text-sm text-muted-foreground">
             Exibindo campanhas ativas e pausadas {periodLabel}
           </p>
+          {(() => {
+            const acct = accounts?.find((a: any) => a.id === selectedAccountId);
+            return acct?.accountName ? (
+              <p className="text-xs text-primary font-medium mt-0.5">Conta: {acct.accountName}</p>
+            ) : null;
+          })()}
         </div>
 
         {/* Period selector with quick buttons */}

@@ -573,6 +573,12 @@ export default function Dashboard() {
               )}
             </div>
             <p className="text-sm text-muted-foreground">Performance das suas campanhas</p>
+            {(() => {
+              const acct = accounts?.find((a: any) => a.id === selectedAccountId);
+              return acct?.accountName ? (
+                <p className="text-xs text-primary font-medium mt-0.5">Conta: {acct.accountName}</p>
+              ) : null;
+            })()}
           </div>
 <div className="flex flex-col items-end gap-2">
             {/* Quick period buttons */}

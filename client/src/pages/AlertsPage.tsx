@@ -111,7 +111,7 @@ const WARNING_TYPES  = new Set(["AD_ERROR", "BUDGET_WARNING"]);  // Budget agora
 
 export default function AlertsPage() {
   const utils = trpc.useUtils();
-  const { selectedAccountId } = useSelectedAccount();
+  const { selectedAccountId, accounts } = useSelectedAccount();
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const { period, setPeriod, isInRange } = usePeriodFilter("30d");
 
@@ -213,6 +213,14 @@ export default function AlertsPage() {
                 <Badge variant="outline" className="text-xs text-muted-foreground border-border/50">
                   {tc.label}
                 </Badge>
+                {(() => {
+                  const acct = accounts?.find((a: { id: number }) => a.id === alert.accountId);
+                  return acct?.accountName ? (
+                    <Badge variant="secondary" className="text-xs bg-primary/10 text-primary border-0">
+                      {acct.accountName}
+                    </Badge>
+                  ) : null;
+                })()}
               </div>
               {/* O que aconteceu */}
               <p className="text-xs text-muted-foreground leading-relaxed">{alert.message}</p>
@@ -259,6 +267,12 @@ export default function AlertsPage() {
             <p className="text-sm text-muted-foreground">
               Erros operacionais detectados automaticamente — campanha parada, pagamento, criativos rejeitados, vínculos quebrados
             </p>
+            {(() => {
+              const acct = accounts?.find((a: { id: number }) => a.id === selectedAccountId);
+              return acct?.accountName ? (
+                <p className="text-xs text-primary font-medium mt-1">Conta: {acct.accountName}</p>
+              ) : null;
+            })()}
           </div>
           {alerts.length > 0 && (
             <Button
