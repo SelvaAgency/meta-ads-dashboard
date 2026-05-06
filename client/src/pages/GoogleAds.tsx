@@ -1,6 +1,8 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useState } from "react";
+import { useSelectedAccount } from "@/hooks/useSelectedAccount";
+import { getClientByMetaAccountId } from "@/config/clientConfig";
 import {
   TrendingUp,
   DollarSign,
@@ -403,12 +405,41 @@ function AccountDashboard({ account, days }: { account: any; days: number }) {
 export default function GoogleAds() {
   const [selectedDays, setSelectedDays] = useState(7);
   const utils = trpc.useUtils();
+  const { selectedAccountId } = useSelectedAccount();
+
+  // Derive active client from sidebar selection
+  const activeClient = selectedAccountId
+    ? getClientByMetaAccountId(selectedAccountId)
+    : null;
 
   const { data: configStatus, isLoading: checkingConfig } = trpc.googleAds.isConfigured.useQuery();
   const { data: accounts, isLoading: loadingAccounts } = trpc.googleAds.accounts.useQuery(
     undefined,
     { enabled: configStatus?.configured === true }
   );
+
+  // Filter Google Ads accounts based on selected client
+  // clientConfig may define googleAdsCustomerId in the future; for now show all accounts
+  // but contextualize to the selected client
+  const filteredAccounts = accounts;
+
+  if (!selectedAccountId) {
+    return (
+      <MetaDashboardLayout title="Google Ads">
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-muted/50 flex items-center justify-center">
+            <TrendingUp className="w-7 h-7 text-muted-foreground/50" />
+          </div>
+          <div className="text-center">
+            <h2 className="text-base font-bold text-foreground mb-1">Selecione uma conta</h2>
+            <p className="text-sm text-muted-foreground">
+              Escolha um cliente na barra lateral para visualizar os dados do Google Ads.
+            </p>
+          </div>
+        </div>
+      </MetaDashboardLayout>
+    );
+  }
 
   if (checkingConfig) {
     return (
@@ -436,7 +467,9 @@ export default function GoogleAds() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-foreground">Google Ads</h1>
-              <p className="text-xs text-muted-foreground">Performance de campanhas Google</p>
+              <p className="text-xs text-muted-foreground">
+                {activeClient ? `Performance de campanhas Google — ${activeClient.name}` : "Performance de campanhas Google"}
+              </p>
             </div>
           </div>
 
@@ -466,8 +499,8 @@ export default function GoogleAds() {
             <Loader2 className="w-4 h-4 animate-spin" />
             <span className="text-sm">Carregando contas...</span>
           </div>
-        ) : accounts && accounts.length > 0 ? (
-          accounts.map((account: any) => (
+        ) : filteredAccounts && filteredAccounts.length > 0 ? (
+          filteredAccounts.map((account: any) => (
             <AccountDashboard key={account.id} account={account} days={selectedDays} />
           ))
         ) : (
@@ -475,7 +508,11 @@ export default function GoogleAds() {
             <CheckCircle2 className="w-8 h-8 text-emerald-500/50" />
             <div className="text-center">
               <p className="text-sm font-medium text-foreground">API configurada com sucesso</p>
-              <p className="text-xs text-muted-foreground mt-1">Conecte uma conta Google Ads acima para começar.</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {activeClient
+                  ? `Nenhuma conta Google Ads conectada para ${activeClient.shortName}. Conecte acima para começar.`
+                  : "Conecte uma conta Google Ads acima para começar."}
+              </p>
             </div>
           </div>
         )}

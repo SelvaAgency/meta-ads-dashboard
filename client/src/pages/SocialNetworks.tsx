@@ -1,6 +1,6 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
 import {
   Facebook,
   Instagram,
@@ -19,8 +19,14 @@ import {
   UserPlus,
   ThumbsUp,
   Image,
+  Link2,
+  Zap,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useLocation } from "wouter";
+import { getClientByMetaAccountId } from "@/config/clientConfig";
+import { useMemo } from "react";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -267,16 +273,53 @@ function PageInsightsCard({ page }: { page: PageData }) {
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 export default function SocialNetworks() {
-  const { data, isLoading, error } = trpc.socialNetworks.list.useQuery();
+  const { selectedAccountId, accounts } = useSelectedAccount();
+  const [, navigate] = useLocation();
+
+  // Derive active client name
+  const activeClient = useMemo(() => {
+    if (!selectedAccountId || !accounts) return null;
+    const acc = accounts.find((a: any) => a.id === selectedAccountId);
+    if (!acc) return null;
+    return getClientByMetaAccountId(acc.accountId) ?? null;
+  }, [selectedAccountId, accounts]);
+
+  // Fetch pages filtered by the selected ad account
+  const { data, isLoading, error } = trpc.socialNetworks.forAccount.useQuery(
+    { accountId: selectedAccountId! },
+    { enabled: !!selectedAccountId, staleTime: 5 * 60 * 1000 }
+  );
 
   const pages: PageData[] = data?.pages ?? [];
   const backendError = (data as any)?.error as string | undefined;
+  const isFallback = (data as any)?.fallback === true;
   const pagesWithIg = pages.filter((p) => p.instagram_business_account);
   const totalFbLikes = pages.reduce((sum, p) => sum + (p.fan_count ?? 0), 0);
   const totalIgFollowers = pagesWithIg.reduce(
     (sum, p) => sum + (p.instagram_business_account?.followers_count ?? 0),
     0
   );
+
+  // No account selected
+  if (!accounts || accounts.length === 0) {
+    return (
+      <MetaDashboardLayout>
+        <div className="flex flex-col items-center justify-center h-64 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+            <Link2 className="w-7 h-7 text-primary" />
+          </div>
+          <h2 className="text-xl font-semibold text-foreground mb-2">Nenhuma conta conectada</h2>
+          <p className="text-muted-foreground mb-6 max-w-sm">
+            Conecte sua conta Meta Ads para visualizar redes sociais.
+          </p>
+          <Button onClick={() => navigate("/connect")} className="gap-2">
+            <Zap className="w-4 h-4" />
+            Conectar conta
+          </Button>
+        </div>
+      </MetaDashboardLayout>
+    );
+  }
 
   return (
     <MetaDashboardLayout>
@@ -300,7 +343,9 @@ export default function SocialNetworks() {
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground mt-1 ml-9">
-              Metricas de performance das paginas e perfis — ultimos 28 dias
+              {activeClient
+                ? `Paginas e perfis de ${activeClient.name} — ultimos 28 dias`
+                : "Metricas de performance das paginas e perfis — ultimos 28 dias"}
             </p>
           </div>
         </div>
@@ -355,13 +400,23 @@ export default function SocialNetworks() {
           </div>
         )}
 
+        {/* Fallback notice */}
+        {isFallback && !isLoading && pages.length > 0 && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-2.5 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-amber-500 flex-shrink-0" />
+            <p className="text-xs text-amber-600">
+              Exibindo todas as paginas do portfolio. Nao foi possivel filtrar por conta especifica.
+            </p>
+          </div>
+        )}
+
         {/* Loading */}
         {isLoading && (
           <div className="flex items-center justify-center py-20">
             <div className="flex flex-col items-center gap-3">
               <Loader2 className="w-8 h-8 text-primary animate-spin" />
               <p className="text-sm text-muted-foreground">
-                Carregando redes sociais do portfolio...
+                Carregando redes sociais{activeClient ? ` de ${activeClient.name}` : ""}...
               </p>
             </div>
           </div>
@@ -395,7 +450,9 @@ export default function SocialNetworks() {
             </p>
             <p className="text-sm text-muted-foreground mt-1">
               {backendError ||
-                "Verifique as paginas vinculadas ao portfolio empresarial SELVA Agency"}
+                (activeClient
+                  ? `Nenhuma pagina vinculada a conta de ${activeClient.name}`
+                  : "Verifique as paginas vinculadas ao portfolio empresarial SELVA Agency")}
             </p>
           </div>
         )}

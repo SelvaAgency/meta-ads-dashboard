@@ -2183,6 +2183,101 @@ export const appRouter = router({
           return null;
         }
       }),
+
+    // ─── Pages filtered by ad account (for per-client filtering) ─────────
+    forAccount: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ input }) => {
+        const account = await getMetaAdAccountById(input.accountId);
+        if (!account) return { pages: [], error: "Conta não encontrada" };
+        const token = account.accessToken;
+        const metaId = account.accountId; // e.g. "2060651151073806"
+        const BUSINESS_ID = "803399908519541";
+
+        const fetchPagesForAccount = async (): Promise<{ pages: any[]; error?: string }> => {
+          // Strategy 1: promote_pages edge on ad account — returns pages the account can promote
+          try {
+            const url = `https://graph.facebook.com/v21.0/act_${metaId}/promote_pages?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&limit=100&access_token=${token}`;
+            const res = await Promise.race([
+              fetch(url),
+              new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000))
+            ]);
+            const data = await res.json() as any;
+            if (data.data && data.data.length > 0) {
+              console.log(`[socialNetworks.forAccount] promote_pages for act_${metaId}: ${data.data.length} pages`);
+              return { pages: data.data };
+            }
+          } catch (e: any) {
+            console.log(`[socialNetworks.forAccount] promote_pages failed: ${e.message}`);
+          }
+
+          // Strategy 2: Find pages from recent ad creatives
+          try {
+            const url = `https://graph.facebook.com/v21.0/act_${metaId}/ads?fields=creative{effective_object_story_id,object_story_spec}&limit=50&access_token=${token}`;
+            const res = await Promise.race([
+              fetch(url),
+              new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000))
+            ]);
+            const data = await res.json() as any;
+            const pageIds = new Set<string>();
+            if (data.data) {
+              for (const ad of data.data) {
+                const storyId = ad.creative?.effective_object_story_id;
+                if (storyId) {
+                  const pageId = storyId.split("_")[0];
+                  if (pageId) pageIds.add(pageId);
+                }
+                const specPageId = ad.creative?.object_story_spec?.page_id;
+                if (specPageId) pageIds.add(specPageId);
+              }
+            }
+            if (pageIds.size > 0) {
+              console.log(`[socialNetworks.forAccount] Found ${pageIds.size} pages from ad creatives for act_${metaId}`);
+              // Fetch full page details for each discovered page
+              const pages: any[] = [];
+              for (const pid of pageIds) {
+                try {
+                  const pUrl = `https://graph.facebook.com/v21.0/${pid}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&access_token=${token}`;
+                  const pRes = await fetch(pUrl);
+                  const pData = await pRes.json() as any;
+                  if (pData.id) pages.push(pData);
+                } catch {}
+              }
+              if (pages.length > 0) return { pages };
+            }
+          } catch (e: any) {
+            console.log(`[socialNetworks.forAccount] ad creatives fallback failed: ${e.message}`);
+          }
+
+          // Strategy 3: Fallback — return ALL portfolio pages (same as list)
+          console.log(`[socialNetworks.forAccount] Falling back to all portfolio pages for act_${metaId}`);
+          const pageMap = new Map<string, any>();
+          for (const edge of ["owned_pages", "client_pages"]) {
+            try {
+              const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&limit=100&access_token=${token}`;
+              const res = await fetch(url);
+              const data = await res.json() as any;
+              if (data.data) {
+                for (const page of data.data) {
+                  if (page.id && !pageMap.has(page.id)) pageMap.set(page.id, page);
+                }
+              }
+            } catch {}
+          }
+          return { pages: Array.from(pageMap.values()), fallback: true };
+        };
+
+        try {
+          return await Promise.race([
+            fetchPagesForAccount(),
+            new Promise<{ pages: any[]; error: string }>((resolve) =>
+              setTimeout(() => resolve({ pages: [], error: "Timeout (10s)" }), 10000)
+            )
+          ]);
+        } catch (e: any) {
+          return { pages: [], error: e.message };
+        }
+      }),
   }),
 
   // ─── Sync Management ─────────────────────────────────────────────────────
