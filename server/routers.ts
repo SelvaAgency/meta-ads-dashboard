@@ -2198,22 +2198,28 @@ export const appRouter = router({
         const PAGE_FIELDS = "id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}";
 
         // Helper: fetch ALL portfolio pages from business (owned + client)
+        // Cached per-request so Strategy 0 and Strategy 3 don't double-fetch
+        let _portfolioCache: Map<string, any> | null = null;
         const fetchAllPortfolioPages = async (): Promise<Map<string, any>> => {
+          if (_portfolioCache) return _portfolioCache;
           const pageMap = new Map<string, any>();
-          for (const edge of ["owned_pages", "client_pages"]) {
-            try {
+          // Fetch both edges in parallel for speed
+          const results = await Promise.allSettled(
+            ["owned_pages", "client_pages"].map(async (edge) => {
               const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=${PAGE_FIELDS}&limit=100&access_token=${token}`;
               const res = await fetch(url);
-              const data = await res.json() as any;
-              if (data.data) {
-                for (const page of data.data) {
-                  if (page.id && !pageMap.has(page.id)) pageMap.set(page.id, page);
-                }
+              return res.json() as Promise<any>;
+            })
+          );
+          for (const result of results) {
+            if (result.status === "fulfilled" && result.value?.data) {
+              for (const page of result.value.data) {
+                if (page.id && !pageMap.has(page.id)) pageMap.set(page.id, page);
               }
-            } catch (e: any) {
-              console.log(`[socialNetworks.forAccount] ${edge} fetch failed: ${e.message}`);
             }
           }
+          console.log(`[socialNetworks.forAccount] Portfolio cache loaded: ${pageMap.size} pages`);
+          _portfolioCache = pageMap;
           return pageMap;
         };
 
@@ -2301,7 +2307,7 @@ export const appRouter = router({
           return await Promise.race([
             fetchPagesForAccount(),
             new Promise<{ pages: any[]; error: string }>((resolve) =>
-              setTimeout(() => resolve({ pages: [], error: "Timeout (10s)" }), 10000)
+              setTimeout(() => resolve({ pages: [], error: "Timeout (25s)" }), 25000)
             )
           ]);
         } catch (e: any) {
