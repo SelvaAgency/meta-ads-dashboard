@@ -2197,24 +2197,47 @@ export const appRouter = router({
 
         const PAGE_FIELDS = "id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}";
 
-        const fetchPagesForAccount = async (): Promise<{ pages: any[]; error?: string; fallback?: boolean }> => {
-          // Strategy 0 (primary): Use hardcoded page mapping — most reliable
-          const knownPageIds = getPageIdsForAdAccount(metaId);
-          if (knownPageIds && knownPageIds.length > 0) {
-            console.log(`[socialNetworks.forAccount] Using hardcoded mapping for act_${metaId}: ${knownPageIds.length} pages`);
-            const pages: any[] = [];
-            for (const pid of knownPageIds) {
-              try {
-                const pUrl = `https://graph.facebook.com/v21.0/${pid}?fields=${PAGE_FIELDS}&access_token=${token}`;
-                const pRes = await fetch(pUrl);
-                const pData = await pRes.json() as any;
-                if (pData.id) pages.push(pData);
-              } catch {}
+        // Helper: fetch ALL portfolio pages from business (owned + client)
+        const fetchAllPortfolioPages = async (): Promise<Map<string, any>> => {
+          const pageMap = new Map<string, any>();
+          for (const edge of ["owned_pages", "client_pages"]) {
+            try {
+              const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=${PAGE_FIELDS}&limit=100&access_token=${token}`;
+              const res = await fetch(url);
+              const data = await res.json() as any;
+              if (data.data) {
+                for (const page of data.data) {
+                  if (page.id && !pageMap.has(page.id)) pageMap.set(page.id, page);
+                }
+              }
+            } catch (e: any) {
+              console.log(`[socialNetworks.forAccount] ${edge} fetch failed: ${e.message}`);
             }
-            if (pages.length > 0) return { pages };
+          }
+          return pageMap;
+        };
+
+        const fetchPagesForAccount = async (): Promise<{ pages: any[]; error?: string; fallback?: boolean }> => {
+          // Strategy 0 (primary): Use hardcoded page mapping + portfolio fetch + filter
+          // We fetch ALL portfolio pages first, then filter by the known IDs.
+          // This is reliable because the System User token can read portfolio edges
+          // but NOT individual pages by ID directly.
+          const knownPageIds = getPageIdsForAdAccount(metaId);
+
+          if (knownPageIds && knownPageIds.length > 0) {
+            console.log(`[socialNetworks.forAccount] Strategy 0: filtering portfolio by mapping for act_${metaId} → pageIds: [${knownPageIds.join(",")}]`);
+            const allPages = await fetchAllPortfolioPages();
+            const filtered = knownPageIds
+              .map(pid => allPages.get(pid))
+              .filter(Boolean);
+            if (filtered.length > 0) {
+              console.log(`[socialNetworks.forAccount] Strategy 0 SUCCESS: ${filtered.length} pages matched for act_${metaId}`);
+              return { pages: filtered };
+            }
+            console.log(`[socialNetworks.forAccount] Strategy 0 FAILED: no matches in ${allPages.size} portfolio pages for IDs [${knownPageIds.join(",")}]`);
           }
 
-          // If mapping exists but is empty (client has no page), return empty
+          // If mapping exists but is empty (client has no dedicated page), return empty
           if (knownPageIds && knownPageIds.length === 0) {
             console.log(`[socialNetworks.forAccount] No pages mapped for act_${metaId}`);
             return { pages: [], error: "Esta conta não possui página Facebook vinculada no portfólio" };
@@ -2229,14 +2252,14 @@ export const appRouter = router({
             ]);
             const data = await res.json() as any;
             if (data.data && data.data.length > 0) {
-              console.log(`[socialNetworks.forAccount] promote_pages for act_${metaId}: ${data.data.length} pages`);
+              console.log(`[socialNetworks.forAccount] Strategy 1 (promote_pages) for act_${metaId}: ${data.data.length} pages`);
               return { pages: data.data };
             }
           } catch (e: any) {
-            console.log(`[socialNetworks.forAccount] promote_pages failed: ${e.message}`);
+            console.log(`[socialNetworks.forAccount] Strategy 1 failed: ${e.message}`);
           }
 
-          // Strategy 2: Find pages from recent ad creatives
+          // Strategy 2: Find pages from recent ad creatives, then filter from portfolio
           try {
             const url = `https://graph.facebook.com/v21.0/act_${metaId}/ads?fields=creative{effective_object_story_id,object_story_spec}&limit=50&access_token=${token}`;
             const res = await Promise.race([
@@ -2244,51 +2267,34 @@ export const appRouter = router({
               new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000))
             ]);
             const data = await res.json() as any;
-            const pageIds = new Set<string>();
+            const creativePageIds = new Set<string>();
             if (data.data) {
               for (const ad of data.data) {
                 const storyId = ad.creative?.effective_object_story_id;
                 if (storyId) {
                   const pageId = storyId.split("_")[0];
-                  if (pageId) pageIds.add(pageId);
+                  if (pageId) creativePageIds.add(pageId);
                 }
                 const specPageId = ad.creative?.object_story_spec?.page_id;
-                if (specPageId) pageIds.add(specPageId);
+                if (specPageId) creativePageIds.add(specPageId);
               }
             }
-            if (pageIds.size > 0) {
-              console.log(`[socialNetworks.forAccount] Found ${pageIds.size} pages from ad creatives for act_${metaId}`);
-              const pages: any[] = [];
-              for (const pid of pageIds) {
-                try {
-                  const pUrl = `https://graph.facebook.com/v21.0/${pid}?fields=${PAGE_FIELDS}&access_token=${token}`;
-                  const pRes = await fetch(pUrl);
-                  const pData = await pRes.json() as any;
-                  if (pData.id) pages.push(pData);
-                } catch {}
-              }
+            if (creativePageIds.size > 0) {
+              console.log(`[socialNetworks.forAccount] Strategy 2: ${creativePageIds.size} page IDs from creatives for act_${metaId}`);
+              const allPages = await fetchAllPortfolioPages();
+              const pages = Array.from(creativePageIds)
+                .map(pid => allPages.get(pid))
+                .filter(Boolean);
               if (pages.length > 0) return { pages };
             }
           } catch (e: any) {
-            console.log(`[socialNetworks.forAccount] ad creatives fallback failed: ${e.message}`);
+            console.log(`[socialNetworks.forAccount] Strategy 2 failed: ${e.message}`);
           }
 
           // Strategy 3: Fallback — return ALL portfolio pages
-          console.log(`[socialNetworks.forAccount] Falling back to all portfolio pages for act_${metaId}`);
-          const pageMap = new Map<string, any>();
-          for (const edge of ["owned_pages", "client_pages"]) {
-            try {
-              const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=${PAGE_FIELDS}&limit=100&access_token=${token}`;
-              const res = await fetch(url);
-              const data = await res.json() as any;
-              if (data.data) {
-                for (const page of data.data) {
-                  if (page.id && !pageMap.has(page.id)) pageMap.set(page.id, page);
-                }
-              }
-            } catch {}
-          }
-          return { pages: Array.from(pageMap.values()), fallback: true };
+          console.log(`[socialNetworks.forAccount] Strategy 3 FALLBACK: all portfolio pages for act_${metaId}`);
+          const allPages = await fetchAllPortfolioPages();
+          return { pages: Array.from(allPages.values()), fallback: true };
         };
 
         try {
