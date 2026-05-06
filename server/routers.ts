@@ -2075,18 +2075,21 @@ export const appRouter = router({
               pageToken = ptData.access_token;
               console.log(`[socialNetworks.pageInsights] Got page token for ${input.pageId}`);
             } else {
-              // Fallback: try via Business Portfolio owned_pages
-              const pt2Ctrl = new AbortController();
-              const pt2T = setTimeout(() => pt2Ctrl.abort(), 10000);
-              const pt2Url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/owned_pages?fields=id,access_token&limit=100&access_token=${systemToken}`;
-              const pt2Res = await fetch(pt2Url, { signal: pt2Ctrl.signal });
-              clearTimeout(pt2T);
-              const pt2Data = await pt2Res.json() as any;
-              if (pt2Data.data) {
-                const match = pt2Data.data.find((p: any) => p.id === input.pageId);
-                if (match?.access_token) {
-                  pageToken = match.access_token;
-                  console.log(`[socialNetworks.pageInsights] Got page token via owned_pages for ${input.pageId}`);
+              // Fallback: try via Business Portfolio owned_pages + client_pages
+              for (const edge of ["owned_pages", "client_pages"]) {
+                const pt2Ctrl = new AbortController();
+                const pt2T = setTimeout(() => pt2Ctrl.abort(), 10000);
+                const pt2Url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=id,access_token&limit=100&access_token=${systemToken}`;
+                const pt2Res = await fetch(pt2Url, { signal: pt2Ctrl.signal });
+                clearTimeout(pt2T);
+                const pt2Data = await pt2Res.json() as any;
+                if (pt2Data.data) {
+                  const match = pt2Data.data.find((p: any) => p.id === input.pageId);
+                  if (match?.access_token) {
+                    pageToken = match.access_token;
+                    console.log(`[socialNetworks.pageInsights] Got page token via ${edge} for ${input.pageId}`);
+                    break;
+                  }
                 }
               }
             }
@@ -2156,16 +2159,18 @@ export const appRouter = router({
               console.log("[socialNetworks.pageInsights] IG metrics failed:", e.message);
             }
 
-            // Also fetch IG media for avg engagement
+            // Also fetch IG media for avg engagement + recent posts
+            let recentPosts: any[] = [];
             try {
               const ctrl4 = new AbortController();
               const t4 = setTimeout(() => ctrl4.abort(), 8000);
-              const mediaUrl = `https://graph.facebook.com/v21.0/${igId}/media?fields=id,like_count,comments_count,timestamp&limit=25&access_token=${pageToken}`;
+              const mediaUrl = `https://graph.facebook.com/v21.0/${igId}/media?fields=id,like_count,comments_count,timestamp,media_url,thumbnail_url,media_type,caption,permalink&limit=25&access_token=${pageToken}`;
               const mediaRes = await fetch(mediaUrl, { signal: ctrl4.signal });
               clearTimeout(t4);
               const mediaData = await mediaRes.json() as any;
               if (mediaData.data) {
                 const posts = mediaData.data;
+                recentPosts = posts;
                 const totalLikes = posts.reduce((s: number, p: any) => s + (p.like_count ?? 0), 0);
                 const totalComments = posts.reduce((s: number, p: any) => s + (p.comments_count ?? 0), 0);
                 if (!igMetrics) igMetrics = {};
@@ -2178,7 +2183,7 @@ export const appRouter = router({
             } catch {}
           }
 
-          return { ...pageData, _fbMetrics: fbMetrics, _igMetrics: igMetrics };
+          return { ...pageData, _fbMetrics: fbMetrics, _igMetrics: igMetrics, _recentPosts: recentPosts };
         } catch (e: any) {
           console.error("[socialNetworks.pageInsights] Error:", e.message);
           return null;
