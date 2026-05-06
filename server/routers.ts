@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { execSync } from "node:child_process";
 import { COOKIE_NAME } from "@shared/const";
+import { getPageIdsForAdAccount } from "@shared/pageMapping";
 import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -2194,10 +2195,34 @@ export const appRouter = router({
         const metaId = account.accountId; // e.g. "2060651151073806"
         const BUSINESS_ID = "803399908519541";
 
-        const fetchPagesForAccount = async (): Promise<{ pages: any[]; error?: string }> => {
-          // Strategy 1: promote_pages edge on ad account — returns pages the account can promote
+        const PAGE_FIELDS = "id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}";
+
+        const fetchPagesForAccount = async (): Promise<{ pages: any[]; error?: string; fallback?: boolean }> => {
+          // Strategy 0 (primary): Use hardcoded page mapping — most reliable
+          const knownPageIds = getPageIdsForAdAccount(metaId);
+          if (knownPageIds && knownPageIds.length > 0) {
+            console.log(`[socialNetworks.forAccount] Using hardcoded mapping for act_${metaId}: ${knownPageIds.length} pages`);
+            const pages: any[] = [];
+            for (const pid of knownPageIds) {
+              try {
+                const pUrl = `https://graph.facebook.com/v21.0/${pid}?fields=${PAGE_FIELDS}&access_token=${token}`;
+                const pRes = await fetch(pUrl);
+                const pData = await pRes.json() as any;
+                if (pData.id) pages.push(pData);
+              } catch {}
+            }
+            if (pages.length > 0) return { pages };
+          }
+
+          // If mapping exists but is empty (client has no page), return empty
+          if (knownPageIds && knownPageIds.length === 0) {
+            console.log(`[socialNetworks.forAccount] No pages mapped for act_${metaId}`);
+            return { pages: [], error: "Esta conta não possui página Facebook vinculada no portfólio" };
+          }
+
+          // Strategy 1: promote_pages edge on ad account
           try {
-            const url = `https://graph.facebook.com/v21.0/act_${metaId}/promote_pages?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&limit=100&access_token=${token}`;
+            const url = `https://graph.facebook.com/v21.0/act_${metaId}/promote_pages?fields=${PAGE_FIELDS}&limit=100&access_token=${token}`;
             const res = await Promise.race([
               fetch(url),
               new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000))
@@ -2233,11 +2258,10 @@ export const appRouter = router({
             }
             if (pageIds.size > 0) {
               console.log(`[socialNetworks.forAccount] Found ${pageIds.size} pages from ad creatives for act_${metaId}`);
-              // Fetch full page details for each discovered page
               const pages: any[] = [];
               for (const pid of pageIds) {
                 try {
-                  const pUrl = `https://graph.facebook.com/v21.0/${pid}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&access_token=${token}`;
+                  const pUrl = `https://graph.facebook.com/v21.0/${pid}?fields=${PAGE_FIELDS}&access_token=${token}`;
                   const pRes = await fetch(pUrl);
                   const pData = await pRes.json() as any;
                   if (pData.id) pages.push(pData);
@@ -2249,12 +2273,12 @@ export const appRouter = router({
             console.log(`[socialNetworks.forAccount] ad creatives fallback failed: ${e.message}`);
           }
 
-          // Strategy 3: Fallback — return ALL portfolio pages (same as list)
+          // Strategy 3: Fallback — return ALL portfolio pages
           console.log(`[socialNetworks.forAccount] Falling back to all portfolio pages for act_${metaId}`);
           const pageMap = new Map<string, any>();
           for (const edge of ["owned_pages", "client_pages"]) {
             try {
-              const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&limit=100&access_token=${token}`;
+              const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=${PAGE_FIELDS}&limit=100&access_token=${token}`;
               const res = await fetch(url);
               const data = await res.json() as any;
               if (data.data) {

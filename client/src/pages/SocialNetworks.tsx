@@ -300,7 +300,24 @@ export default function SocialNetworks() {
     0
   );
 
-  // No account selected
+  // No account selected — prompt to select one
+  if (!selectedAccountId) {
+    return (
+      <MetaDashboardLayout>
+        <div className="flex flex-col items-center justify-center h-64 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+            <Share2 className="w-7 h-7 text-primary" />
+          </div>
+          <h2 className="text-xl font-semibold text-foreground mb-2">Selecione uma conta</h2>
+          <p className="text-muted-foreground max-w-sm">
+            Escolha uma conta no menu lateral para visualizar as redes sociais do cliente.
+          </p>
+        </div>
+      </MetaDashboardLayout>
+    );
+  }
+
+  // No accounts connected at all
   if (!accounts || accounts.length === 0) {
     return (
       <MetaDashboardLayout>
