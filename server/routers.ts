@@ -2062,75 +2062,50 @@ export const appRouter = router({
         const period = input.period ?? "days_28";
         const BUSINESS_ID = "803399908519541";
         try {
-          // 0. Get page data + token via Business Portfolio edges
-          //    System User tokens CANNOT access pages directly (needs pages_read_engagement)
-          //    But CAN list pages via business portfolio edges (owned_pages, client_pages)
-          let pageToken = systemToken;
+          // 0. Get page data via Business Portfolio edges (same approach as forAccount)
+          //    IMPORTANT: Do NOT include 'access_token' in fields — System User tokens
+          //    can list pages but requesting access_token causes silent failures.
           let pageData: any = null;
-          const PAGE_FIELDS = "id,name,fan_count,followers_count,new_like_count,talking_about_count,picture{url},access_token,instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}";
+          const PAGE_FIELDS = "id,name,fan_count,followers_count,new_like_count,talking_about_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}";
 
-          for (const edge of ["owned_pages", "client_pages"]) {
-            try {
+          // Fetch both edges in parallel for speed
+          const edgeResults = await Promise.allSettled(
+            ["owned_pages", "client_pages"].map(async (edge) => {
               const ctrl = new AbortController();
               const t = setTimeout(() => ctrl.abort(), 12000);
               const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=${PAGE_FIELDS}&limit=100&access_token=${systemToken}`;
               const res = await fetch(url, { signal: ctrl.signal });
               clearTimeout(t);
-              const data = await res.json() as any;
-              if (data.data) {
-                const match = data.data.find((p: any) => p.id === input.pageId);
-                if (match) {
-                  pageData = { ...match };
-                  if (match.access_token) {
-                    pageToken = match.access_token;
-                    delete pageData.access_token; // don't leak to frontend
-                    console.log(`[socialNetworks.pageInsights] Got page data+token via ${edge} for ${input.pageId}`);
-                  } else {
-                    console.log(`[socialNetworks.pageInsights] Got page data via ${edge} for ${input.pageId} (no page token)`);
-                  }
-                  break;
-                }
+              return res.json() as Promise<any>;
+            })
+          );
+
+          for (const result of edgeResults) {
+            if (result.status === "fulfilled" && result.value?.data) {
+              const match = result.value.data.find((p: any) => p.id === input.pageId);
+              if (match) {
+                pageData = { ...match };
+                console.log(`[socialNetworks.pageInsights] Found page ${input.pageId} via portfolio edge`);
+                break;
               }
-            } catch (e: any) {
-              console.log(`[socialNetworks.pageInsights] ${edge} fetch failed: ${e.message}`);
             }
           }
 
-          // Fallback: try direct access (works if System User has page-level permission)
           if (!pageData) {
-            try {
-              const ctrl = new AbortController();
-              const t = setTimeout(() => ctrl.abort(), 10000);
-              const url = `https://graph.facebook.com/v21.0/${input.pageId}?fields=${PAGE_FIELDS}&access_token=${systemToken}`;
-              const res = await fetch(url, { signal: ctrl.signal });
-              clearTimeout(t);
-              const data = await res.json() as any;
-              if (!data.error) {
-                pageData = data;
-                if (data.access_token) {
-                  pageToken = data.access_token;
-                  delete pageData.access_token;
-                }
-              } else {
-                console.log(`[socialNetworks.pageInsights] Direct access failed: ${data.error.message}`);
-              }
-            } catch {}
-          }
-
-          if (!pageData) {
+            console.log(`[socialNetworks.pageInsights] Page ${input.pageId} not found in portfolio edges`);
             return { id: input.pageId, _fbMetrics: null, _igMetrics: null, _recentPosts: [] };
           }
 
-          // 2. FB Page Insights (últimos 28 dias) — best-effort with available token
+          // 1. FB Page Insights — best-effort (will likely fail with System User token)
           let fbMetrics: any = null;
           try {
             const ctrl2 = new AbortController();
-            const t2 = setTimeout(() => ctrl2.abort(), 10000);
-            const metricsUrl = `https://graph.facebook.com/v21.0/${input.pageId}/insights?metric=page_impressions,page_impressions_unique,page_engaged_users,page_post_engagements,page_fan_adds,page_views_total,page_actions_post_reactions_total&period=${period}&access_token=${pageToken}`;
+            const t2 = setTimeout(() => ctrl2.abort(), 8000);
+            const metricsUrl = `https://graph.facebook.com/v21.0/${input.pageId}/insights?metric=page_impressions,page_impressions_unique,page_engaged_users,page_post_engagements,page_fan_adds,page_views_total,page_actions_post_reactions_total&period=${period}&access_token=${systemToken}`;
             const mRes = await fetch(metricsUrl, { signal: ctrl2.signal });
             clearTimeout(t2);
             const mData = await mRes.json() as any;
-            if (mData.data) {
+            if (mData.data && !mData.error) {
               fbMetrics = {};
               for (const metric of mData.data) {
                 const vals = metric.values ?? [];
@@ -2138,50 +2113,42 @@ export const appRouter = router({
                 const numVal = typeof lastVal === "object" ? Object.values(lastVal as Record<string, number>).reduce((a: number, b: number) => a + b, 0) : Number(lastVal) || 0;
                 fbMetrics[metric.name] = numVal;
               }
-            } else if (mData.error) {
-              console.log(`[socialNetworks.pageInsights] FB insights error for ${input.pageId}:`, mData.error.message);
             }
-          } catch (e: any) {
-            console.log("[socialNetworks.pageInsights] FB metrics failed:", e.message);
-          }
+          } catch {}
 
-          // 3. Instagram Insights + Media — best-effort
+          // 2. Instagram Insights + Media — best-effort
           let igMetrics: any = null;
           let recentPosts: any[] = [];
           const igId = pageData.instagram_business_account?.id;
           if (igId) {
-            // IG insights
+            // IG insights (will likely fail without page token)
             try {
               const ctrl3 = new AbortController();
-              const t3 = setTimeout(() => ctrl3.abort(), 10000);
+              const t3 = setTimeout(() => ctrl3.abort(), 8000);
               const since = Math.floor(Date.now()/1000) - 28*86400;
               const until = Math.floor(Date.now()/1000);
-              const igUrl = `https://graph.facebook.com/v21.0/${igId}/insights?metric=impressions,reach,accounts_engaged,profile_views&period=day&metric_type=total_value&since=${since}&until=${until}&access_token=${pageToken}`;
+              const igUrl = `https://graph.facebook.com/v21.0/${igId}/insights?metric=impressions,reach,accounts_engaged,profile_views&period=day&metric_type=total_value&since=${since}&until=${until}&access_token=${systemToken}`;
               const igRes = await fetch(igUrl, { signal: ctrl3.signal });
               clearTimeout(t3);
               const igData = await igRes.json() as any;
-              if (igData.data) {
+              if (igData.data && !igData.error) {
                 igMetrics = {};
                 for (const metric of igData.data) {
                   const totalValue = metric.total_value?.value ?? 0;
                   igMetrics[metric.name] = Number(totalValue) || 0;
                 }
-              } else if (igData.error) {
-                console.log(`[socialNetworks.pageInsights] IG insights error for ${igId}:`, igData.error.message);
               }
-            } catch (e: any) {
-              console.log("[socialNetworks.pageInsights] IG metrics failed:", e.message);
-            }
+            } catch {}
 
             // IG media (recent posts)
             try {
               const ctrl4 = new AbortController();
               const t4 = setTimeout(() => ctrl4.abort(), 8000);
-              const mediaUrl = `https://graph.facebook.com/v21.0/${igId}/media?fields=id,like_count,comments_count,timestamp,media_url,thumbnail_url,media_type,caption,permalink&limit=25&access_token=${pageToken}`;
+              const mediaUrl = `https://graph.facebook.com/v21.0/${igId}/media?fields=id,like_count,comments_count,timestamp,media_url,thumbnail_url,media_type,caption,permalink&limit=25&access_token=${systemToken}`;
               const mediaRes = await fetch(mediaUrl, { signal: ctrl4.signal });
               clearTimeout(t4);
               const mediaData = await mediaRes.json() as any;
-              if (mediaData.data) {
+              if (mediaData.data && !mediaData.error) {
                 const posts = mediaData.data;
                 recentPosts = posts;
                 const totalLikes = posts.reduce((s: number, p: any) => s + (p.like_count ?? 0), 0);

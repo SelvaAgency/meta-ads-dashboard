@@ -455,9 +455,13 @@ function ContentTab({
       ) : (
         <div className="bg-card rounded-xl border border-border p-10 text-center">
           <Image className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">Nenhuma publicacao recente encontrada</p>
+          <p className="text-sm text-muted-foreground">
+            {ig ? "Publicacoes indisponiveis com token atual" : "Nenhuma publicacao recente encontrada"}
+          </p>
           <p className="text-[10px] text-muted-foreground/50 mt-1">
-            {ig ? "As publicacoes aparecerão aqui quando o Instagram estiver conectado com permissoes adequadas" : "Conecte uma conta Instagram Business para ver publicacoes"}
+            {ig
+              ? `@${ig.username} possui ${ig.media_count ?? 0} publicacoes. Para exibir o feed, e necessario permissao instagram_basic no token.`
+              : "Conecte uma conta Instagram Business para ver publicacoes"}
           </p>
         </div>
       )}
@@ -515,7 +519,36 @@ function InsightsTab({
 
   return (
     <div className="space-y-6">
-      {/* Engagement Summary */}
+      {/* Info banner when detailed insights aren't available */}
+      {!hasFbData && !hasIgData && hasBasicData && (
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-start gap-3">
+          <Zap className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-amber-800">Insights detalhados indisponiveis</p>
+            <p className="text-xs text-amber-700/70 mt-1">
+              Metricas de impressoes, alcance e engajamento requerem permissoes adicionais de pagina (pages_read_engagement).
+              Os dados basicos de audiencia estao disponiveis na aba Visao Geral.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Audience Overview (from basic data) */}
+      {hasBasicData && !hasFbData && !hasIgData && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {page.fan_count != null && (
+            <KpiCard icon={ThumbsUp} label="Curtidas FB" value={fmt(page.fan_count)} sublabel="total acumulado" color="#1877F2" bgColor="#1877F215" />
+          )}
+          {ig?.followers_count != null && (
+            <KpiCard icon={Heart} label="Seguidores IG" value={fmt(ig.followers_count)} sublabel="total acumulado" color="#E4405F" bgColor="#E4405F15" />
+          )}
+          {ig?.media_count != null && (
+            <KpiCard icon={Image} label="Publicacoes IG" value={fmt(ig.media_count)} sublabel="total" color="#E4405F" bgColor="#E4405F15" />
+          )}
+        </div>
+      )}
+
+      {/* Engagement Summary (when detailed data IS available) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {fb?.page_impressions != null && (
           <KpiCard
