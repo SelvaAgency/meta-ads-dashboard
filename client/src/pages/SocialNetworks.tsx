@@ -397,7 +397,7 @@ function ContentTab({
   return (
     <div className="space-y-6">
       {/* IG Content Stats */}
-      {ig && igM && (
+      {ig && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <KpiCard
             icon={Image}
@@ -406,7 +406,7 @@ function ContentTab({
             color="#E4405F"
             bgColor="#E4405F15"
           />
-          {igM.avg_likes != null && (
+          {igM?.avg_likes != null && (
             <KpiCard
               icon={ThumbsUp}
               label="Media Curtidas"
@@ -416,7 +416,7 @@ function ContentTab({
               bgColor="#E4405F15"
             />
           )}
-          {igM.avg_comments != null && (
+          {igM?.avg_comments != null && (
             <KpiCard
               icon={MessageCircle}
               label="Media Comentarios"
@@ -426,7 +426,7 @@ function ContentTab({
               bgColor="#E4405F15"
             />
           )}
-          {igM.recent_posts != null && (
+          {igM?.recent_posts != null && (
             <KpiCard
               icon={Activity}
               label="Posts Recentes"
@@ -491,8 +491,9 @@ function InsightsTab({
 
   const hasFbData = fb && Object.keys(fb).length > 0;
   const hasIgData = igM && Object.keys(igM).length > 0;
+  const hasBasicData = page.fan_count != null || ig?.followers_count != null;
 
-  if (!hasFbData && !hasIgData) {
+  if (!hasFbData && !hasIgData && !hasBasicData) {
     return (
       <div className="bg-card rounded-xl border border-border p-10 text-center">
         <Activity className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
