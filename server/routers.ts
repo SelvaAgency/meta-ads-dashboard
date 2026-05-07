@@ -1,3 +1,4 @@
+import { logger } from "./logger";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { execSync } from "node:child_process";
@@ -1710,26 +1711,55 @@ export const appRouter = router({
       const todayStr = spNow.toISOString().split("T")[0];
       const fmtDate = todayStr.split("-").reverse().join("/");
 
-      // Get today's git commits
+      // Get today's git commits from GitHub API (source of truth)
+      // The MANUS server git log doesn't have development commits — they live on GitHub's main branch
       let commits: { hash: string; time: string; msg: string }[] = [];
-      try {
-        const gitLog = execSync(
-          `cd /home/ubuntu/meta-ads-dashboard && git log --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
-          { encoding: "utf-8", timeout: 10000 }
-        ).trim();
-        if (gitLog) {
-          commits = gitLog.split("\n").filter(Boolean).map((line: string) => {
-            const [hash, time, ...msgParts] = line.split("|");
-            return { hash: hash || "", time: time || "", msg: msgParts.join("|") || "" };
-          });
-        }
-      } catch { /* git not available or no commits */ }
+      let dataSourceFailed = false;
+      const GITHUB_PAT = process.env.GITHUB_PAT || "";
+      const GITHUB_REPO = "SelvaAgency/meta-ads-dashboard";
 
-      // Also try alternative paths
-      if (commits.length === 0) {
+      try {
+        if (!GITHUB_PAT) {
+          console.warn("[DailyProgress] GITHUB_PAT not configured — falling back to local git");
+          dataSourceFailed = true;
+          throw new Error("No GITHUB_PAT");
+        }
+        const since = `${todayStr}T00:00:00-03:00`;
+        const until = `${todayStr}T23:59:59-03:00`;
+        const apiUrl = `https://api.github.com/repos/${GITHUB_REPO}/commits?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}&sha=main&per_page=100`;
+
+        const ghRes = await fetch(apiUrl, {
+          headers: {
+            "Authorization": `token ${GITHUB_PAT}`,
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "selva-dashboard",
+          },
+        });
+
+        if (ghRes.ok) {
+          const ghData = await ghRes.json() as any[];
+          commits = ghData
+            .filter((c: any) => !c.parents || c.parents.length <= 1) // skip merge commits
+            .map((c: any) => ({
+              hash: (c.sha || "").substring(0, 7),
+              time: c.commit?.author?.date || "",
+              msg: (c.commit?.message || "").split("\n")[0], // first line only
+            }));
+          console.log(`[DailyProgress] GitHub API returned ${ghData.length} commits, ${commits.length} after filtering merges`);
+        } else {
+          console.error(`[DailyProgress] GitHub API error: ${ghRes.status} ${ghRes.statusText}`);
+          dataSourceFailed = true;
+        }
+      } catch (err) {
+        console.error("[DailyProgress] GitHub API fetch failed:", err);
+        dataSourceFailed = true;
+      }
+
+      // Fallback: try local git log if GitHub API failed
+      if (dataSourceFailed) {
         try {
           const gitLog = execSync(
-            `cd ~/meta-ads-dashboard && git log --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
+            `cd /home/ubuntu/meta-ads-dashboard && git log --all --since="${todayStr}T00:00:00-03:00" --until="${todayStr}T23:59:59-03:00" --pretty=format:"%h|%ai|%s" --no-merges 2>/dev/null || echo ""`,
             { encoding: "utf-8", timeout: 10000 }
           ).trim();
           if (gitLog) {
@@ -1737,8 +1767,9 @@ export const appRouter = router({
               const [hash, time, ...msgParts] = line.split("|");
               return { hash: hash || "", time: time || "", msg: msgParts.join("|") || "" };
             });
+            console.log(`[DailyProgress] Local git fallback found ${commits.length} commits`);
           }
-        } catch { /* fallback failed */ }
+        } catch { /* local git also failed */ }
       }
 
       // Categorize commits into friendly categories
@@ -1779,9 +1810,13 @@ export const appRouter = router({
         </tr>`;
       }).join("");
 
-      const noCommitsMsg = `<div style="padding:24px;text-align:center;color:#999;font-size:13px;font-style:italic">
-        Nenhuma alteração registrada no código hoje. O time pode estar planejando, revisando ou trabalhando em tarefas fora do repositório.
-      </div>`;
+      const noCommitsMsg = dataSourceFailed
+        ? `<div style="padding:24px;text-align:center;color:#e57373;font-size:13px;font-style:italic">
+            ⚠️ Falha ao consultar o histórico de commits (GitHub API + git local). Verificar token ou conectividade do servidor.
+          </div>`
+        : `<div style="padding:24px;text-align:center;color:#999;font-size:13px;font-style:italic">
+            Nenhuma alteração registrada no código hoje. O time pode estar planejando, revisando ou trabalhando em tarefas fora do repositório.
+          </div>`;
 
       // Summary stats
       const categories = commits.reduce((acc: Record<string, number>, c) => {
@@ -1827,7 +1862,7 @@ export const appRouter = router({
           : "Nenhuma alteração registrada hoje.") +
         `\n\nTotal: ${commits.length} alteração(ões)`;
 
-      return { subject, html, plainText, date: todayStr, commitCount: commits.length };
+      return { subject, html, plainText, date: todayStr, commitCount: commits.length, dataSourceFailed };
     }),
 
     // ─── Public endpoint to trigger progress report email ───
@@ -2028,14 +2063,14 @@ export const appRouter = router({
                 }
               }
             }
-            console.log(`[socialNetworks.list] ${edge}: found ${data.data?.length ?? 0} pages`);
+            logger.info(`[socialNetworks.list] ${edge}: found ${data.data?.length ?? 0} pages`);
           } catch (e: any) {
-            console.log(`[socialNetworks.list] ${edge} failed: ${e.message}`);
+            logger.info(`[socialNetworks.list] ${edge} failed: ${e.message}`);
           }
         }
 
         const pages = Array.from(pageMap.values());
-        console.log(`[socialNetworks.list] Total: ${pages.length} pages`);
+        logger.info(`[socialNetworks.list] Total: ${pages.length} pages`);
         if (pages.length > 0) return { pages };
         return { pages: [], error: "Nenhuma página encontrada. Verifique permissões do token." };
       };
@@ -2085,14 +2120,14 @@ export const appRouter = router({
               const match = result.value.data.find((p: any) => p.id === input.pageId);
               if (match) {
                 pageData = { ...match };
-                console.log(`[socialNetworks.pageInsights] Found page ${input.pageId} via portfolio edge`);
+                logger.info(`[socialNetworks.pageInsights] Found page ${input.pageId} via portfolio edge`);
                 break;
               }
             }
           }
 
           if (!pageData) {
-            console.log(`[socialNetworks.pageInsights] Page ${input.pageId} not found in portfolio edges`);
+            logger.info(`[socialNetworks.pageInsights] Page ${input.pageId} not found in portfolio edges`);
             return { id: input.pageId, _fbMetrics: null, _igMetrics: null, _recentPosts: [] };
           }
 
@@ -2203,7 +2238,7 @@ export const appRouter = router({
               }
             }
           }
-          console.log(`[socialNetworks.forAccount] Portfolio cache loaded: ${pageMap.size} pages`);
+          logger.info(`[socialNetworks.forAccount] Portfolio cache loaded: ${pageMap.size} pages`);
           _portfolioCache = pageMap;
           return pageMap;
         };
@@ -2216,21 +2251,21 @@ export const appRouter = router({
           const knownPageIds = getPageIdsForAdAccount(metaId);
 
           if (knownPageIds && knownPageIds.length > 0) {
-            console.log(`[socialNetworks.forAccount] Strategy 0: filtering portfolio by mapping for act_${metaId} → pageIds: [${knownPageIds.join(",")}]`);
+            logger.info(`[socialNetworks.forAccount] Strategy 0: filtering portfolio by mapping for act_${metaId} → pageIds: [${knownPageIds.join(",")}]`);
             const allPages = await fetchAllPortfolioPages();
             const filtered = knownPageIds
               .map(pid => allPages.get(pid))
               .filter(Boolean);
             if (filtered.length > 0) {
-              console.log(`[socialNetworks.forAccount] Strategy 0 SUCCESS: ${filtered.length} pages matched for act_${metaId}`);
+              logger.info(`[socialNetworks.forAccount] Strategy 0 SUCCESS: ${filtered.length} pages matched for act_${metaId}`);
               return { pages: filtered };
             }
-            console.log(`[socialNetworks.forAccount] Strategy 0 FAILED: no matches in ${allPages.size} portfolio pages for IDs [${knownPageIds.join(",")}]`);
+            logger.info(`[socialNetworks.forAccount] Strategy 0 FAILED: no matches in ${allPages.size} portfolio pages for IDs [${knownPageIds.join(",")}]`);
           }
 
           // If mapping exists but is empty (client has no dedicated page), return empty
           if (knownPageIds && knownPageIds.length === 0) {
-            console.log(`[socialNetworks.forAccount] No pages mapped for act_${metaId}`);
+            logger.info(`[socialNetworks.forAccount] No pages mapped for act_${metaId}`);
             return { pages: [], error: "Esta conta não possui página Facebook vinculada no portfólio" };
           }
 
@@ -2243,11 +2278,11 @@ export const appRouter = router({
             ]);
             const data = await res.json() as any;
             if (data.data && data.data.length > 0) {
-              console.log(`[socialNetworks.forAccount] Strategy 1 (promote_pages) for act_${metaId}: ${data.data.length} pages`);
+              logger.info(`[socialNetworks.forAccount] Strategy 1 (promote_pages) for act_${metaId}: ${data.data.length} pages`);
               return { pages: data.data };
             }
           } catch (e: any) {
-            console.log(`[socialNetworks.forAccount] Strategy 1 failed: ${e.message}`);
+            logger.info(`[socialNetworks.forAccount] Strategy 1 failed: ${e.message}`);
           }
 
           // Strategy 2: Find pages from recent ad creatives, then filter from portfolio
@@ -2271,7 +2306,7 @@ export const appRouter = router({
               }
             }
             if (creativePageIds.size > 0) {
-              console.log(`[socialNetworks.forAccount] Strategy 2: ${creativePageIds.size} page IDs from creatives for act_${metaId}`);
+              logger.info(`[socialNetworks.forAccount] Strategy 2: ${creativePageIds.size} page IDs from creatives for act_${metaId}`);
               const allPages = await fetchAllPortfolioPages();
               const pages = Array.from(creativePageIds)
                 .map(pid => allPages.get(pid))
@@ -2279,11 +2314,11 @@ export const appRouter = router({
               if (pages.length > 0) return { pages };
             }
           } catch (e: any) {
-            console.log(`[socialNetworks.forAccount] Strategy 2 failed: ${e.message}`);
+            logger.info(`[socialNetworks.forAccount] Strategy 2 failed: ${e.message}`);
           }
 
           // Strategy 3: Fallback — return ALL portfolio pages
-          console.log(`[socialNetworks.forAccount] Strategy 3 FALLBACK: all portfolio pages for act_${metaId}`);
+          logger.info(`[socialNetworks.forAccount] Strategy 3 FALLBACK: all portfolio pages for act_${metaId}`);
           const allPages = await fetchAllPortfolioPages();
           return { pages: Array.from(allPages.values()), fallback: true };
         };

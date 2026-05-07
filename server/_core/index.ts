@@ -1,3 +1,4 @@
+import { logger } from "../logger";
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
@@ -122,11 +123,11 @@ async function startServer() {
   const port = await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
+    logger.info(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
   server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+    logger.info(`Server running on http://localhost:${port}/`);
     // Start daily auto-sync cron job (06:00 Brasília time = 09:00 UTC)
     startAutoSync();
   });
