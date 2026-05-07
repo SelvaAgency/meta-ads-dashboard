@@ -631,12 +631,33 @@ async function runScheduledReports() {
 // ─── Daily Report Email (6h BRT = 9h UTC) ───────────────────────────────────
 
 async function runDailyReport() {
-  logger.info("[DailyReport] Starting daily report generation...");
+  console.log("[DailyReport] Starting daily report generation...");
   if (!isEmailConfigured()) {
     console.warn("[DailyReport] SMTP not configured — skipping. Set SMTP_USER and SMTP_PASS.");
     return;
   }
   try {
+    // Wait for sync to finish — retry up to 5 min if data is stale
+    const maxRetries = 10;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const accounts = await getAllActiveMetaAdAccounts();
+        const today = new Date().toISOString().split("T")[0];
+        const allSynced = accounts.every(a => {
+          const syncDate = (a as any).lastSyncAt;
+          return syncDate && new Date(syncDate).toISOString().split("T")[0] === today;
+        });
+        if (allSynced || attempt === maxRetries) {
+          if (!allSynced) {
+            console.warn(`[DailyReport] Not all accounts synced today after ${maxRetries} retries — proceeding anyway`);
+          }
+          break;
+        }
+        console.log(`[DailyReport] Waiting for sync to finish (attempt ${attempt}/${maxRetries})...`);
+        await new Promise(r => setTimeout(r, 30000)); // wait 30s
+      } catch { break; } // DB error → proceed anyway
+    }
+
     const res = await fetch("http://localhost:3000/api/trpc/reports.generateDaily");
     const json = await res.json();
     // tRPC superjson wraps response in result.data.json
@@ -652,7 +673,7 @@ async function runDailyReport() {
       text: data.plainText,
     });
     if (sent) {
-      logger.info(`[DailyReport] ✓ Report sent: ${data.subject} → ${DAILY_REPORT_RECIPIENTS.length} recipients`);
+      console.log(`[DailyReport] ✓ Report sent: ${data.subject} → ${DAILY_REPORT_RECIPIENTS.length} recipients`);
     } else {
       console.error("[DailyReport] ✗ Failed to send report email");
     }
@@ -664,7 +685,7 @@ async function runDailyReport() {
 // ─── Daily Progress Report (20h BRT = 23h UTC) ────────────────────────────
 
 async function runDailyProgress() {
-  logger.info("[DailyProgress] Starting daily progress report generation...");
+  console.log("[DailyProgress] Starting daily progress report generation...");
   if (!isEmailConfigured()) {
     console.warn("[DailyProgress] SMTP not configured — skipping.");
     return;
@@ -677,6 +698,7 @@ async function runDailyProgress() {
       console.error("[DailyProgress] No report data returned:", JSON.stringify(json).slice(0, 500));
       return;
     }
+    console.log(`[DailyProgress] Generated report: ${data.commitCount ?? 0} commits, dataSourceFailed=${data.dataSourceFailed ?? false}`);
     const sent = await sendEmail({
       to: DAILY_REPORT_RECIPIENTS,
       subject: data.subject,
@@ -684,7 +706,7 @@ async function runDailyProgress() {
       text: data.plainText,
     });
     if (sent) {
-      logger.info(`[DailyProgress] ✓ Progress report sent: ${data.subject} → ${DAILY_REPORT_RECIPIENTS.length} recipients`);
+      console.log(`[DailyProgress] ✓ Progress report sent: ${data.subject} → ${DAILY_REPORT_RECIPIENTS.length} recipients`);
     } else {
       console.error("[DailyProgress] ✗ Failed to send progress report email");
     }
