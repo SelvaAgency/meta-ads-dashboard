@@ -1,3 +1,4 @@
+import { logger } from "./logger";
 import { and, desc, eq, gte, lt, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
@@ -102,7 +103,7 @@ export async function getMetaAdAccountsByUserId(userId: number) {
   const seen = new Set<string>();
   const deduped = accounts.filter((acc) => {
     if (seen.has(acc.accountId)) {
-      console.log(`[DB] Duplicate account detected: ${acc.accountId} (id: ${acc.id}), filtering out`);
+      logger.info(`[DB] Duplicate account detected: ${acc.accountId} (id: ${acc.id}), filtering out`);
       return false;
     }
     seen.add(acc.accountId);
@@ -110,7 +111,7 @@ export async function getMetaAdAccountsByUserId(userId: number) {
   });
   
   if (deduped.length < accounts.length) {
-    console.log(`[DB] Deduplication: ${accounts.length} accounts -> ${deduped.length} unique accounts`);
+    logger.info(`[DB] Deduplication: ${accounts.length} accounts -> ${deduped.length} unique accounts`);
   }
   
   return deduped;
@@ -136,7 +137,7 @@ export async function createMetaAdAccount(data: InsertMetaAdAccount) {
   
   if (existing.length > 0) {
     // Update accessToken, reactivate, and update other fields if account already exists
-    console.log(`[DB] Account ${data.accountId} already exists (id=${existing[0].id}), updating accessToken and reactivating`);
+    logger.info(`[DB] Account ${data.accountId} already exists (id=${existing[0].id}), updating accessToken and reactivating`);
     await db
       .update(metaAdAccounts)
       .set({
@@ -150,7 +151,7 @@ export async function createMetaAdAccount(data: InsertMetaAdAccount) {
     return { ...existing[0], accessToken: data.accessToken, isActive: true };
   }
   
-  console.log(`[DB] Creating new account ${data.accountId} for user ${data.userId}`);
+  logger.info(`[DB] Creating new account ${data.accountId} for user ${data.userId}`);
   const result = await db.insert(metaAdAccounts).values(data);
   return result;
 }
@@ -220,7 +221,7 @@ export async function upsertCampaign(data: InsertCampaign) {
   if (!db) throw new Error("DB not available");
   
   try {
-    console.log(`[upsertCampaign] Upserting campaign ${data.metaCampaignId} for account ${data.accountId}`);
+    logger.info(`[upsertCampaign] Upserting campaign ${data.metaCampaignId} for account ${data.accountId}`);
     await db
       .insert(campaigns)
       .values(data)
@@ -237,7 +238,7 @@ export async function upsertCampaign(data: InsertCampaign) {
           updatedAt: new Date(),
         },
       });
-    console.log(`[upsertCampaign] Success: ${data.metaCampaignId}`);
+    logger.info(`[upsertCampaign] Success: ${data.metaCampaignId}`);
   } catch (error) {
     console.error(`[upsertCampaign] Error upserting campaign ${data.metaCampaignId} for account ${data.accountId}:`, error);
     throw error;
@@ -279,12 +280,12 @@ export async function markStaleCampaignsArchived(accountId: number, activeMetaCa
           .set({ status: "ARCHIVED", updatedAt: new Date() })
           .where(eq(campaigns.id, lc.id));
         archivedCount++;
-        console.log(`[markStaleCampaignsArchived] Archived stale campaign ${lc.metaCampaignId} (local id ${lc.id})`);
+        logger.info(`[markStaleCampaignsArchived] Archived stale campaign ${lc.metaCampaignId} (local id ${lc.id})`);
       }
     }
 
     if (archivedCount > 0) {
-      console.log(`[markStaleCampaignsArchived] Archived ${archivedCount} stale campaigns for account ${accountId}`);
+      logger.info(`[markStaleCampaignsArchived] Archived ${archivedCount} stale campaigns for account ${accountId}`);
     }
   } catch (error) {
     console.error("[markStaleCampaignsArchived] Error:", error);
@@ -401,7 +402,7 @@ export async function upsertCampaignMetrics(data: InsertCampaignMetrics) {
   if (!db) throw new Error("DB not available");
   
   try {
-    console.log(`[upsertCampaignMetrics] Upserting metrics for campaign ${data.campaignId} on ${data.date} (spend: ${data.spend}, impressions: ${data.impressions})`);
+    logger.info(`[upsertCampaignMetrics] Upserting metrics for campaign ${data.campaignId} on ${data.date} (spend: ${data.spend}, impressions: ${data.impressions})`);
     await db
       .insert(campaignMetrics)
       .values(data)
@@ -427,7 +428,7 @@ export async function upsertCampaignMetrics(data: InsertCampaignMetrics) {
           landingPageViews: data.landingPageViews,
         },
       });
-    console.log(`[upsertCampaignMetrics] Success: campaign ${data.campaignId} on ${data.date}`);
+    logger.info(`[upsertCampaignMetrics] Success: campaign ${data.campaignId} on ${data.date}`);
   } catch (error) {
     console.error(`[upsertCampaignMetrics] Error upserting metrics for campaign ${data.campaignId} on ${data.date}:`, error);
     throw error;
@@ -920,7 +921,7 @@ export async function forceUpdateAllTokens(newToken: string) {
     .update(metaAdAccounts)
     .set({ accessToken: newToken })
     .where(eq(metaAdAccounts.isActive, true));
-  console.log(`[DB] Force-updated accessToken for all active accounts`);
+  logger.info(`[DB] Force-updated accessToken for all active accounts`);
   return result;
 }
 

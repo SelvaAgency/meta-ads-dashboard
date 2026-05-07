@@ -1,3 +1,4 @@
+import { logger } from "./logger";
 /**
  * emailService.ts — Serviço de envio de email via SMTP (nodemailer).
  *
@@ -52,7 +53,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
       html: opts.html,
       text: opts.text,
     });
-    console.log(`[EmailService] ✓ Email sent: ${info.messageId} → ${recipients}`);
+    logger.info(`[EmailService] ✓ Email sent: ${info.messageId} → ${recipients}`);
     return true;
   } catch (err) {
     console.error("[EmailService] ✗ Failed to send email:", err);

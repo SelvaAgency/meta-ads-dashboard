@@ -1,3 +1,4 @@
+import { logger } from "./logger";
 /**
  * autoSync.ts — Cron job para sincronização automática diária de todas as contas Meta Ads.
  *
@@ -95,7 +96,7 @@ const objectiveToGoalFallback: Record<string, string> = {
 export async function syncAccount(account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number }) {
   const { startDate, endDate } = getDateRange(SYNC_DAYS);
   const label = account.accountName ?? account.accountId;
-  console.log(`[AutoSync] Syncing account "${label}" (${account.accountId}) — ${startDate} to ${endDate}`);
+  logger.info(`[AutoSync] Syncing account "${label}" (${account.accountId}) — ${startDate} to ${endDate}`);
 
   try {
     // Validate token before any API call
@@ -154,9 +155,9 @@ export async function syncAccount(account: { id: number; accountId: string; acce
     }
 
     // 3. Fetch insights for the last 30 days
-    console.log(`[AutoSync] About to fetch insights for account ${account.accountId} (${startDate} to ${endDate})`);
+    logger.info(`[AutoSync] About to fetch insights for account ${account.accountId} (${startDate} to ${endDate})`);
     const insights = await getCampaignInsights(account.accountId, account.accessToken, startDate, endDate);
-    console.log(`[AutoSync] Received ${insights.length} insight rows for account ${account.accountId}`);
+    logger.info(`[AutoSync] Received ${insights.length} insight rows for account ${account.accountId}`);
     const localCampaigns = await getCampaignsByAccountId(account.id);
     const campaignMap = new Map(localCampaigns.map((c) => [c.metaCampaignId, c.id]));
 
@@ -207,7 +208,7 @@ export async function syncAccount(account: { id: number; accountId: string; acce
     }
 
     await updateMetaAdAccountSync(account.id);
-    console.log(`[AutoSync] ✓ Account "${label}" synced — ${metaCampaigns.length} campaigns, ${insights.length} insight rows`);
+    logger.info(`[AutoSync] ✓ Account "${label}" synced — ${metaCampaigns.length} campaigns, ${insights.length} insight rows`);
   } catch (err: any) {
     const errMsg = err?.message ?? String(err);
     const metaCodeMatch = errMsg.match(/Meta API Error \((\d+)\)/);
@@ -253,10 +254,10 @@ export async function syncAccount(account: { id: number; accountId: string; acce
 }
 
 async function runAutoSync() {
-  console.log("[AutoSync] Starting daily auto-sync for all accounts...");
+  logger.info("[AutoSync] Starting daily auto-sync for all accounts...");
   const accounts = await getAllActiveMetaAdAccounts();
   if (accounts.length === 0) {
-    console.log("[AutoSync] No accounts found, skipping.");
+    logger.info("[AutoSync] No accounts found, skipping.");
     return;
   }
   // Sync accounts sequentially to avoid rate limits
@@ -265,7 +266,7 @@ async function runAutoSync() {
     // Small delay between accounts to respect Meta API rate limits
     await new Promise((r) => setTimeout(r, 2000));
   }
-  console.log(`[AutoSync] Daily sync complete — ${accounts.length} account(s) processed.`);
+  logger.info(`[AutoSync] Daily sync complete — ${accounts.length} account(s) processed.`);
 }
 
 // ─── Auto Anomaly Detection ────────────────────────────────────────────────────
@@ -297,7 +298,7 @@ function aggregateCampaignRows(rows: Awaited<ReturnType<typeof getCampaignPerfor
 }
 
 async function runAnomalyDetection() {
-  console.log("[AutoAnomalies] Running hourly anomaly detection...");
+  logger.info("[AutoAnomalies] Running hourly anomaly detection...");
   const accounts = await getAllActiveMetaAdAccounts();
   if (accounts.length === 0) return;
 
@@ -326,7 +327,7 @@ async function runAnomalyDetection() {
       );
 
       if (activeCampaignIds.size === 0) {
-        console.log(`[AutoAnomalies] No active campaigns for account "${account.accountName ?? account.accountId}", skipping.`);
+        logger.info(`[AutoAnomalies] No active campaigns for account "${account.accountName ?? account.accountId}", skipping.`);
         await runRealTimeAlerts(account);
         continue;
       }
@@ -391,7 +392,7 @@ async function runAnomalyDetection() {
       }
 
       if (detected.length > 0) {
-        console.log(`[AutoAnomalies] ✓ ${detected.length} anomalia(s) detectada(s) na conta "${account.accountName ?? account.accountId}"`);
+        logger.info(`[AutoAnomalies] ✓ ${detected.length} anomalia(s) detectada(s) na conta "${account.accountName ?? account.accountId}"`);
       }
 
       // ── Real-time technical alerts ─────────────────────────────────────────
@@ -404,7 +405,7 @@ async function runAnomalyDetection() {
     await new Promise((r) => setTimeout(r, 1000));
   }
 
-  console.log("[AutoAnomalies] Anomaly detection cycle complete.");
+  logger.info("[AutoAnomalies] Anomaly detection cycle complete.");
 }
 
 // ─── Real-time Technical Alerts ───────────────────────────────────────────────
@@ -434,7 +435,7 @@ async function runRealTimeAlerts(account: { id: number; accountId: string; acces
       }
     }
     if (alerts.length > 0) {
-      console.log(`[RealTimeAlerts] ✓ ${alerts.length} alerta(s) técnico(s) para "${account.accountName ?? account.accountId}"`);
+      logger.info(`[RealTimeAlerts] ✓ ${alerts.length} alerta(s) técnico(s) para "${account.accountName ?? account.accountId}"`);
     }
   } catch (err) {
     console.error(`[RealTimeAlerts] Erro ao verificar alertas para ${account.accountId}:`, err);
@@ -493,7 +494,7 @@ function scheduleReportForAccount(
   if (existing) existing.stop();
 
   const job = cron.schedule(cronExpr, async () => {
-    console.log(`[ScheduledReports] Running scheduled report for account "${account.accountName ?? account.accountId}"`);
+    logger.info(`[ScheduledReports] Running scheduled report for account "${account.accountName ?? account.accountId}"`);
     try {
       const { startDate, endDate } = getDateRange(30);
       const localCampaigns = await getCampaignsByAccountId(account.id);
@@ -530,7 +531,7 @@ function scheduleReportForAccount(
         lastReportContent: reportContent,
       });
 
-      console.log(`[ScheduledReports] ✓ Report generated for "${account.accountName ?? account.accountId}"`);
+      logger.info(`[ScheduledReports] ✓ Report generated for "${account.accountName ?? account.accountId}"`);
     } catch (err) {
       console.error(`[ScheduledReports] Error generating report for ${account.accountId}:`, err);
     }
@@ -568,7 +569,7 @@ async function runScheduledReports() {
     const due = await getDueScheduledReports();
     if (due.length === 0) return;
 
-    console.log(`[ScheduledReports] ${due.length} report(s) due for generation`);
+    logger.info(`[ScheduledReports] ${due.length} report(s) due for generation`);
     for (const report of due) {
       try {
         const account = await getMetaAdAccountById(report.accountId ?? 0);
@@ -614,7 +615,7 @@ async function runScheduledReports() {
           lastReportContent: reportContent,
         });
 
-        console.log(`[ScheduledReports] ✓ Report generated for account ${account.accountId}`);
+        logger.info(`[ScheduledReports] ✓ Report generated for account ${account.accountId}`);
       } catch (err) {
         console.error(`[ScheduledReports] Error generating report ${report.id}:`, err);
       }
@@ -630,7 +631,7 @@ async function runScheduledReports() {
 // ─── Daily Report Email (6h BRT = 9h UTC) ───────────────────────────────────
 
 async function runDailyReport() {
-  console.log("[DailyReport] Starting daily report generation...");
+  logger.info("[DailyReport] Starting daily report generation...");
   if (!isEmailConfigured()) {
     console.warn("[DailyReport] SMTP not configured — skipping. Set SMTP_USER and SMTP_PASS.");
     return;
@@ -651,7 +652,7 @@ async function runDailyReport() {
       text: data.plainText,
     });
     if (sent) {
-      console.log(`[DailyReport] ✓ Report sent: ${data.subject} → ${DAILY_REPORT_RECIPIENTS.length} recipients`);
+      logger.info(`[DailyReport] ✓ Report sent: ${data.subject} → ${DAILY_REPORT_RECIPIENTS.length} recipients`);
     } else {
       console.error("[DailyReport] ✗ Failed to send report email");
     }
@@ -663,7 +664,7 @@ async function runDailyReport() {
 // ─── Daily Progress Report (20h BRT = 23h UTC) ────────────────────────────
 
 async function runDailyProgress() {
-  console.log("[DailyProgress] Starting daily progress report generation...");
+  logger.info("[DailyProgress] Starting daily progress report generation...");
   if (!isEmailConfigured()) {
     console.warn("[DailyProgress] SMTP not configured — skipping.");
     return;
@@ -683,7 +684,7 @@ async function runDailyProgress() {
       text: data.plainText,
     });
     if (sent) {
-      console.log(`[DailyProgress] ✓ Progress report sent: ${data.subject} → ${DAILY_REPORT_RECIPIENTS.length} recipients`);
+      logger.info(`[DailyProgress] ✓ Progress report sent: ${data.subject} → ${DAILY_REPORT_RECIPIENTS.length} recipients`);
     } else {
       console.error("[DailyProgress] ✗ Failed to send progress report email");
     }
@@ -693,13 +694,13 @@ async function runDailyProgress() {
 }
 
 export async function startAutoSync() {
-  console.log("[AutoSync] Initializing auto-sync service...");
+  logger.info("[AutoSync] Initializing auto-sync service...");
 
   // Daily sync at 09:00 UTC (06:00 Brasília)
   cron.schedule("0 0 9 * * *", runAutoSync);
 
-  // Daily Meta Ads report email at 09:00 UTC (06:00 BRT)
-  cron.schedule("0 0 9 * * *", runDailyReport);
+  // Daily Meta Ads report email at 09:03 UTC (06:03 BRT) — offset from sync to avoid overlap
+  cron.schedule("0 3 9 * * *", runDailyReport);
 
   // Daily development progress report at 23:00 UTC (20:00 BRT)
   cron.schedule("0 0 23 * * *", runDailyProgress);
@@ -712,7 +713,7 @@ export async function startAutoSync() {
     try {
       const deleted = await purgeOldReadAnomalies();
       if (deleted > 0) {
-        console.log(`[AutoSync] Purged ${deleted} old read anomalies (>30 days)`);
+        logger.info(`[AutoSync] Purged ${deleted} old read anomalies (>30 days)`);
       }
     } catch (err) {
       console.error("[AutoSync] Error purging old anomalies:", err);
@@ -728,7 +729,7 @@ export async function startAutoSync() {
     try {
       const purged = await purgeDuplicateAlerts();
       if (purged > 0) {
-        console.log(`[AutoSync] Purged ${purged} duplicate alerts on startup`);
+        logger.info(`[AutoSync] Purged ${purged} duplicate alerts on startup`);
       }
     } catch (err) {
       console.error("[AutoSync] Error purging duplicate alerts:", err);
@@ -738,7 +739,7 @@ export async function startAutoSync() {
     try {
       const purgedAnomalies = await purgeDuplicateAnomalies();
       if (purgedAnomalies > 0) {
-        console.log(`[AutoSync] Purged ${purgedAnomalies} duplicate anomalies on startup`);
+        logger.info(`[AutoSync] Purged ${purgedAnomalies} duplicate anomalies on startup`);
       }
     } catch (err) {
       console.error("[AutoSync] Error purging duplicate anomalies:", err);
@@ -749,5 +750,5 @@ export async function startAutoSync() {
     await rebuildScheduledReportJobs();
   }, 15000);
 
-  console.log("[AutoSync] Auto-sync service initialized.");
+  logger.info("[AutoSync] Auto-sync service initialized.");
 }

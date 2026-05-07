@@ -1,3 +1,4 @@
+import { logger } from "./logger";
 /**
  * Meta Ads API Service
  * Handles all communication with the Meta Graph API for fetching campaign data.
@@ -110,7 +111,7 @@ async function metaFetch<T>(path: string, params: Record<string, string>, retryC
     url.searchParams.set(key, val);
   }
 
-  console.log(`[metaFetch] Request to ${path} (account: ${accountId}, attempt: ${retryCount + 1})`);
+  logger.info(`[metaFetch] Request to ${path} (account: ${accountId}, attempt: ${retryCount + 1})`);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
   let response: Response;
@@ -160,7 +161,7 @@ async function metaFetch<T>(path: string, params: Record<string, string>, retryC
     return metaFetch<T>(path, params, retryCount + 1);
   }
 
-  console.log(`[metaFetch] Success on ${path} (${accountId})`);
+  logger.info(`[metaFetch] Success on ${path} (${accountId})`);
   return data as T;
 }
 
@@ -179,7 +180,7 @@ async function metaFetchAll<T>(path: string, params: Record<string, string>, max
   
   while (nextUrl && pageCount < maxPages) {
     pageCount++;
-    console.log(`[metaFetchAll] Page ${pageCount} for ${path} (${accountId}), accumulated ${allData.length} items`);
+    logger.info(`[metaFetchAll] Page ${pageCount} for ${path} (${accountId}), accumulated ${allData.length} items`);
     
     try {
       const response = await fetch(nextUrl);
@@ -206,7 +207,7 @@ async function metaFetchAll<T>(path: string, params: Record<string, string>, max
   if (pageCount >= maxPages) {
     console.warn(`[metaFetchAll] Hit maxPages (${maxPages}) for ${path} (${accountId}). Total: ${allData.length} items`);
   } else {
-    console.log(`[metaFetchAll] Completed ${pageCount} pages for ${path} (${accountId}). Total: ${allData.length} items`);
+    logger.info(`[metaFetchAll] Completed ${pageCount} pages for ${path} (${accountId}). Total: ${allData.length} items`);
   }
   
   return allData;
@@ -345,13 +346,13 @@ export async function getAccountBilling(
  * Get all campaigns for an ad account
  */
 export async function getCampaigns(accountId: string, accessToken: string): Promise<MetaCampaign[]> {
-  console.log(`[getCampaigns] Fetching ALL campaigns for account ${accountId} (paginated)`);
+  logger.info(`[getCampaigns] Fetching ALL campaigns for account ${accountId} (paginated)`);
   const allCampaigns = await metaFetchAll<MetaCampaign>(`act_${accountId}/campaigns`, {
     access_token: accessToken,
     fields: "id,name,status,objective,daily_budget,lifetime_budget,start_time,stop_time",
     limit: "500",
   });
-  console.log(`[getCampaigns] Total campaigns for ${accountId}: ${allCampaigns.length}`);
+  logger.info(`[getCampaigns] Total campaigns for ${accountId}: ${allCampaigns.length}`);
   return allCampaigns;
 }
 
@@ -361,13 +362,13 @@ export async function getCampaigns(accountId: string, accessToken: string): Prom
  */
 export async function getAdSets(accountId: string, accessToken: string): Promise<MetaAdSet[]> {
   try {
-    console.log(`[getAdSets] Fetching ALL adsets for account ${accountId} (paginated)`);
+    logger.info(`[getAdSets] Fetching ALL adsets for account ${accountId} (paginated)`);
     const allAdSets = await metaFetchAll<MetaAdSet>(`act_${accountId}/adsets`, {
       access_token: accessToken,
       fields: "id,campaign_id,optimization_goal",
       limit: "500",
     });
-    console.log(`[getAdSets] Total adsets for ${accountId}: ${allAdSets.length}`);
+    logger.info(`[getAdSets] Total adsets for ${accountId}: ${allAdSets.length}`);
     return allAdSets;
   } catch {
     return [];
@@ -467,7 +468,7 @@ export async function getCampaignInsights(
   startDate: string,
   endDate: string
 ): Promise<MetaCampaignInsights[]> {
-  console.log(`[getCampaignInsights] Fetching insights for account ${accountId} (${startDate} to ${endDate})`);
+  logger.info(`[getCampaignInsights] Fetching insights for account ${accountId} (${startDate} to ${endDate})`);
   const insights = await metaFetchAll<MetaCampaignInsights>(`act_${accountId}/insights`, {
     access_token: accessToken,
     level: "campaign",
@@ -496,7 +497,7 @@ export async function getCampaignInsights(
     time_increment: "1",
     limit: "500",
   });
-  console.log(`[getCampaignInsights] Received ${insights.length} campaigns for account ${accountId}`);
+  logger.info(`[getCampaignInsights] Received ${insights.length} campaigns for account ${accountId}`);
   
   // Log if data is empty or all zeros
   if (insights.length === 0) {
@@ -504,7 +505,7 @@ export async function getCampaignInsights(
   } else {
     const totalSpend = insights.reduce((sum, c) => sum + (parseFloat(c.spend) || 0), 0);
     const totalImpressions = insights.reduce((sum, c) => sum + (parseFloat(c.impressions) || 0), 0);
-    console.log(`[getCampaignInsights] Account ${accountId} totals: spend=${totalSpend}, impressions=${totalImpressions}`);
+    logger.info(`[getCampaignInsights] Account ${accountId} totals: spend=${totalSpend}, impressions=${totalImpressions}`);
     
     if (totalSpend === 0 && totalImpressions === 0) {
       console.warn(`[getCampaignInsights] WARNING: All data is zero for account ${accountId}. Check token permissions.`);
@@ -1217,7 +1218,7 @@ export async function getDemographicsInsights(
   startDate: string,
   endDate: string
 ): Promise<DemographicRow[]> {
-  console.log(`[getDemographicsInsights] Fetching for account ${accountId} (${startDate}–${endDate})`);
+  logger.info(`[getDemographicsInsights] Fetching for account ${accountId} (${startDate}–${endDate})`);
   const raw = await metaFetchAll<any>(`act_${accountId}/insights`, {
     access_token: accessToken,
     fields: "spend,impressions,clicks,reach,actions",
@@ -1263,7 +1264,7 @@ export async function getDailyAccountInsights(
   startDate: string,
   endDate: string
 ): Promise<DailyInsightRow[]> {
-  console.log(`[getDailyAccountInsights] Fetching for account ${accountId} (${startDate}–${endDate})`);
+  logger.info(`[getDailyAccountInsights] Fetching for account ${accountId} (${startDate}–${endDate})`);
   const raw = await metaFetchAll<any>(`act_${accountId}/insights`, {
     access_token: accessToken,
     fields: "spend,impressions,clicks,reach,actions,action_values",
