@@ -2089,7 +2089,7 @@ export const appRouter = router({
     }),
 
     pageInsights: protectedProcedure
-      .input(z.object({ pageId: z.string(), period: z.enum(["day", "week_28", "days_28"]).optional() }))
+      .input(z.object({ pageId: z.string(), period: z.enum(["day", "week_28", "days_28"]).optional(), since: z.string().optional(), until: z.string().optional() }))
       .query(async ({ input }) => {
         const accounts = await getMetaAdAccountsByUserId(1);
         if (!accounts.length) return null;
@@ -2160,9 +2160,13 @@ export const appRouter = router({
             try {
               const ctrl3 = new AbortController();
               const t3 = setTimeout(() => ctrl3.abort(), 8000);
-              const since = Math.floor(Date.now()/1000) - 28*86400;
-              const until = Math.floor(Date.now()/1000);
-              const igUrl = `https://graph.facebook.com/v21.0/${igId}/insights?metric=impressions,reach,accounts_engaged,profile_views&period=day&metric_type=total_value&since=${since}&until=${until}&access_token=${systemToken}`;
+              const sinceTs = input.since 
+                ? Math.floor(new Date(input.since).getTime()/1000)
+                : Math.floor(Date.now()/1000) - 28*86400;
+              const untilTs = input.until
+                ? Math.floor(new Date(input.until + "T23:59:59").getTime()/1000)
+                : Math.floor(Date.now()/1000);
+              const igUrl = `https://graph.facebook.com/v21.0/${igId}/insights?metric=impressions,reach,accounts_engaged,profile_views&period=day&metric_type=total_value&since=${sinceTs}&until=${untilTs}&access_token=${systemToken}`;
               const igRes = await fetch(igUrl, { signal: ctrl3.signal });
               clearTimeout(t3);
               const igData = await igRes.json() as any;
@@ -2205,7 +2209,43 @@ export const appRouter = router({
         }
       }),
 
-    // ─── Pages filtered by ad account (for per-client filtering) ─────────
+    // ─── Paid metrics for the Social Networks tab ──────────────────────────
+    socialPaidMetrics: protectedProcedure
+      .input(z.object({ accountId: z.number(), startDate: z.string(), endDate: z.string() }))
+      .query(async ({ input }) => {
+        try {
+          const rows = await getAccountMetricsSummary(input.accountId, input.startDate, input.endDate);
+          if (!rows || rows.length === 0) return null;
+          // Aggregate all days into a single summary
+          let totalSpend = 0, totalImpressions = 0, totalClicks = 0, totalConversions = 0, totalConversionValue = 0, totalReach = 0;
+          for (const r of rows) {
+            totalSpend += Number(r.totalSpend) || 0;
+            totalImpressions += Number(r.totalImpressions) || 0;
+            totalClicks += Number(r.totalClicks) || 0;
+            totalConversions += Number(r.totalConversions) || 0;
+            totalConversionValue += Number(r.totalConversionValue) || 0;
+            totalReach += Number(r.totalReach) || 0;
+          }
+          return {
+            spend: totalSpend,
+            impressions: totalImpressions,
+            clicks: totalClicks,
+            conversions: totalConversions,
+            conversionValue: totalConversionValue,
+            reach: totalReach,
+            ctr: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
+            cpc: totalClicks > 0 ? totalSpend / totalClicks : 0,
+            cpm: totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0,
+            roas: totalSpend > 0 ? totalConversionValue / totalSpend : 0,
+            cpa: totalConversions > 0 ? totalSpend / totalConversions : 0,
+          };
+        } catch (e: any) {
+          console.error("[socialNetworks.socialPaidMetrics] Error:", e.message);
+          return null;
+        }
+      }),
+
+        // ─── Pages filtered by ad account (for per-client filtering) ─────────
     forAccount: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ input }) => {
