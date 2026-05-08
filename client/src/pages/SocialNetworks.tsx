@@ -33,6 +33,8 @@ import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import { getClientByMetaAccountId } from "@/config/clientConfig";
 import { useMemo, useState } from "react";
+import { PeriodFilter, usePeriodFilter, getPresetDateRange } from "@/components/PeriodFilter";
+import { DollarSign, Target, Percent } from "lucide-react";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -46,6 +48,11 @@ function fmt(n: number | undefined | null): string {
 function fmtPct(n: number | undefined | null): string {
   if (n == null) return "–";
   return n.toFixed(1) + "%";
+}
+
+function fmtCurrency(n: number | undefined | null): string {
+  if (n == null) return "–";
+  return "R$ " + n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -66,7 +73,7 @@ interface PageData {
   };
 }
 
-type TabId = "overview" | "content" | "insights";
+type TabId = "overview" | "content" | "insights" | "paid";
 
 // ─── KPI Card (Business Suite style) ────────────────────────────────────────
 
@@ -668,10 +675,86 @@ function InsightsTab({
 
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
+// ─── Paid Metrics Section ────────────────────────────────────────────────────
+
+function PaidMetricsSection({
+  metrics,
+  isLoading,
+}: {
+  metrics: any;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-6 h-6 text-primary animate-spin" />
+        <span className="ml-2 text-sm text-muted-foreground">Carregando metricas pagas...</span>
+      </div>
+    );
+  }
+
+  if (!metrics) {
+    return (
+      <div className="bg-card rounded-xl border border-border p-8 text-center">
+        <DollarSign className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+        <p className="text-base font-medium text-foreground">Sem dados de midia paga</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          Nenhuma metrica de campanha encontrada para o periodo selecionado.
+        </p>
+      </div>
+    );
+  }
+
+  const cards = [
+    { icon: DollarSign, label: "Investimento", value: fmtCurrency(metrics.spend), color: "#10B981", bgColor: "#10B98115" },
+    { icon: Eye, label: "Impressoes", value: fmt(metrics.impressions), color: "#6366F1", bgColor: "#6366F115" },
+    { icon: MousePointerClick, label: "Cliques", value: fmt(metrics.clicks), color: "#F59E0B", bgColor: "#F59E0B15" },
+    { icon: Users, label: "Alcance", value: fmt(metrics.reach), color: "#8B5CF6", bgColor: "#8B5CF615" },
+    { icon: Target, label: "Conversoes", value: fmt(metrics.conversions), color: "#EF4444", bgColor: "#EF444415" },
+    { icon: TrendingUp, label: "Receita", value: fmtCurrency(metrics.conversionValue), color: "#10B981", bgColor: "#10B98115" },
+  ];
+
+  const ratios = [
+    { icon: Percent, label: "CTR", value: fmtPct(metrics.ctr), color: "#F59E0B" },
+    { icon: DollarSign, label: "CPC", value: fmtCurrency(metrics.cpc), color: "#6366F1" },
+    { icon: DollarSign, label: "CPM", value: fmtCurrency(metrics.cpm), color: "#8B5CF6" },
+    { icon: TrendingUp, label: "ROAS", value: metrics.roas ? metrics.roas.toFixed(2) + "x" : "–", color: "#10B981" },
+    { icon: DollarSign, label: "CPA", value: fmtCurrency(metrics.cpa), color: "#EF4444" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Main KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {cards.map((c) => (
+          <KpiCard key={c.label} icon={c.icon} label={c.label} value={c.value} color={c.color} bgColor={c.bgColor} />
+        ))}
+      </div>
+
+      {/* Efficiency Ratios */}
+      <div className="bg-card rounded-xl border border-border p-4">
+        <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-primary" />
+          Indicadores de Eficiencia
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {ratios.map((r) => (
+            <div key={r.label} className="text-center">
+              <p className="text-xl font-bold text-foreground">{r.value}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{r.label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SocialNetworks() {
   const { selectedAccountId, accounts } = useSelectedAccount();
   const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const { period, setPeriod, dateRange } = usePeriodFilter("30d");
 
   // Derive active client name
   const activeClient = useMemo(() => {
@@ -701,14 +784,22 @@ export default function SocialNetworks() {
   const primaryPage = pages[0];
   const { data: primaryInsights, isLoading: insightsLoading } =
     trpc.socialNetworks.pageInsights.useQuery(
-      { pageId: primaryPage?.id ?? "" },
+      { pageId: primaryPage?.id ?? "", since: dateRange.startDate, until: dateRange.endDate },
       { enabled: !!primaryPage?.id, staleTime: 5 * 60 * 1000 }
+    );
+
+  // Paid metrics from campaign_metrics DB
+  const { data: paidMetrics, isLoading: paidLoading } =
+    trpc.socialNetworks.socialPaidMetrics.useQuery(
+      { accountId: selectedAccountId!, startDate: dateRange.startDate, endDate: dateRange.endDate },
+      { enabled: !!selectedAccountId, staleTime: 5 * 60 * 1000 }
     );
 
   const tabs: { id: TabId; label: string; icon: any }[] = [
     { id: "overview", label: "Visao Geral", icon: LayoutGrid },
     { id: "content", label: "Conteudo", icon: Image },
     { id: "insights", label: "Insights", icon: Activity },
+    { id: "paid", label: "Pago", icon: DollarSign },
   ];
 
   // No account selected
@@ -768,10 +859,18 @@ export default function SocialNetworks() {
           </div>
           <p className="text-sm text-muted-foreground mt-1 ml-9">
             {activeClient
-              ? `Paginas e perfis de ${activeClient.name} — ultimos 28 dias`
-              : "Metricas de performance das paginas e perfis — ultimos 28 dias"}
+              ? `Paginas e perfis de ${activeClient.name}`
+              : "Metricas de performance das paginas e perfis"}
           </p>
         </div>
+
+        {/* Period Filter */}
+        <PeriodFilter
+          period={period}
+          onChange={setPeriod}
+          compact
+          presets={["7d", "14d", "30d", "custom"]}
+        />
 
         {/* KPI Summary Row */}
         {!isLoading && pages.length > 0 && (
@@ -887,6 +986,12 @@ export default function SocialNetworks() {
                 page={primaryPage}
                 insights={primaryInsights}
                 insightsLoading={insightsLoading}
+              />
+            )}
+            {activeTab === "paid" && (
+              <PaidMetricsSection
+                metrics={paidMetrics}
+                isLoading={paidLoading}
               />
             )}
           </>
