@@ -55,8 +55,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   const { activeAccount, activeAccountId, accounts, setActiveAccountId, activeClient, clientAccounts, setActiveClient } = useActiveAccount();
 
   const { data: unreadCount } = trpc.alerts.unreadCount.useQuery(
-    { accountId: activeAccountId ?? undefined },
-    { enabled: isAuthenticated, refetchInterval: 30000 }
+    { accountId: activeAccountId! },
+    { enabled: isAuthenticated && !!activeAccountId, refetchInterval: 30000 }
   );
 
   // Load all schedules to show indicator per account in the dropdown

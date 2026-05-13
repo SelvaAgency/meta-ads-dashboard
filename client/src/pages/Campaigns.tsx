@@ -12,15 +12,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 
 const fmtCurrency = (v: number | null | undefined) => {
-  if (v == null || v === 0) return "—";
-  return `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (v == null) return "—";
+  const n = Number(v);
+  if (isNaN(n)) return "—";
+  if (n === 0) return "R$ 0,00";
+  return `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
 const fmtNum = (v: number | null | undefined) => {
-  if (v == null || v === 0) return "—";
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
-  return v.toLocaleString("pt-BR");
+  if (v == null) return "—";
+  const n = Number(v);
+  if (isNaN(n)) return "—";
+  if (n === 0) return "0";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString("pt-BR");
 };
 
 const fmtPct = (v: number | null | undefined) => {
@@ -29,8 +35,10 @@ const fmtPct = (v: number | null | undefined) => {
 };
 
 const fmtFreq = (v: number | null | undefined) => {
-  if (v == null || v === 0) return "—";
-  return Number(v).toFixed(2);
+  if (v == null) return "—";
+  const n = Number(v);
+  if (isNaN(n) || n === 0) return "0,00";
+  return n.toFixed(2);
 };
 
 // Fixed 12-column definition (order is mandatory per spec)
