@@ -1654,7 +1654,7 @@ export const appRouter = router({
     ${accountSections}
     <p style="color:#aaa;font-size:10px;margin-top:8px;text-align:center">
       ${accountsWithData.length}/${activeAccounts.length} contas com investimento ·
-      <a href="https://dashboardselva.manus.space" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency
+      <a href="${process.env.APP_URL ?? 'http://localhost:3000'}" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency
     </p>
   </div>
 </div>`;
@@ -1842,7 +1842,7 @@ export const appRouter = router({
       ${commits.length > 0 ? `<table style="width:100%;border-collapse:collapse">${commitItems}</table>` : noCommitsMsg}
     </div>
     <p style="color:#aaa;font-size:10px;margin-top:12px;text-align:center">
-      <a href="https://dashboardselva.manus.space" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency · Relatório automático de progresso
+      <a href="${process.env.APP_URL ?? 'http://localhost:3000'}" style="color:#f5c6d0">Abrir Dashboard</a> · SELVA Agency · Relatório automático de progresso
     </p>
   </div>
 </div>`;
