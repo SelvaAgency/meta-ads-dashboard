@@ -1,10 +1,15 @@
 export const ENV = {
-  appId: process.env.VITE_APP_ID ?? "",
   cookieSecret: process.env.JWT_SECRET ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
-  oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
-  ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
+  // Anthropic API (replaces Forge/Manus LLM proxy)
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
+  // App URL for email links (e.g. https://app.selvadash.com.br)
+  appUrl: process.env.APP_URL ?? "http://localhost:3000",
+  // Local admin credentials
+  adminEmail: process.env.ADMIN_EMAIL ?? "",
+  adminPasswordHash: process.env.ADMIN_PASSWORD_HASH ?? "",
+  // Forge/Manus — kept temporarily for notification.ts, removed in etapa 5
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   // Google Ads API credentials

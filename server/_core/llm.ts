@@ -1,5 +1,7 @@
 import { ENV } from "./env";
 
+// ─── Public types (unchanged interface — callers are not affected) ─────────────
+
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
 export type TextContent = {
@@ -19,7 +21,7 @@ export type FileContent = {
   type: "file_url";
   file_url: {
     url: string;
-    mime_type?: "audio/mpeg" | "audio/wav" | "application/pdf" | "audio/mp4" | "video/mp4" ;
+    mime_type?: "audio/mpeg" | "audio/wav" | "application/pdf" | "audio/mp4" | "video/mp4";
   };
 };
 
@@ -45,15 +47,9 @@ export type ToolChoicePrimitive = "none" | "auto" | "required";
 export type ToolChoiceByName = { name: string };
 export type ToolChoiceExplicit = {
   type: "function";
-  function: {
-    name: string;
-  };
+  function: { name: string };
 };
-
-export type ToolChoice =
-  | ToolChoicePrimitive
-  | ToolChoiceByName
-  | ToolChoiceExplicit;
+export type ToolChoice = ToolChoicePrimitive | ToolChoiceByName | ToolChoiceExplicit;
 
 export type InvokeParams = {
   messages: Message[];
@@ -66,11 +62,11 @@ export type InvokeParams = {
   output_schema?: OutputSchema;
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
-  /** Override the default model (gemini-2.5-flash). Use sparingly — only for tasks that require higher precision. */
+  /** Override the default model (claude-sonnet-4-6). Use sparingly — only for tasks that require higher precision. */
   model?: string;
   /**
-   * Control thinking budget. Pass `false` to disable thinking entirely (required for json_object mode).
-   * Pass `{ budget_tokens: N }` to override the default (128). Omit to use the default.
+   * Enable extended thinking. Pass `{ budget_tokens: N }` (minimum 1024).
+   * Omit or pass `false` to disable (default).
    */
   thinking?: { budget_tokens: number } | false;
 };
@@ -117,221 +113,257 @@ export type ResponseFormat =
   | { type: "json_object" }
   | { type: "json_schema"; json_schema: JsonSchema };
 
-const ensureArray = (
-  value: MessageContent | MessageContent[]
-): MessageContent[] => (Array.isArray(value) ? value : [value]);
+// ─── Internal Anthropic types ─────────────────────────────────────────────────
 
-const normalizeContentPart = (
-  part: MessageContent
-): TextContent | ImageContent | FileContent => {
-  if (typeof part === "string") {
-    return { type: "text", text: part };
+type AnthropicImageSource =
+  | { type: "base64"; media_type: string; data: string }
+  | { type: "url"; url: string };
+
+type AnthropicContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; source: AnthropicImageSource }
+  | { type: "tool_result"; tool_use_id: string; content: string };
+
+type AnthropicMessage = {
+  role: "user" | "assistant";
+  content: string | AnthropicContentPart[];
+};
+
+type AnthropicTool = {
+  name: string;
+  description?: string;
+  input_schema: Record<string, unknown>;
+};
+
+type AnthropicToolChoice =
+  | { type: "auto" }
+  | { type: "none" }
+  | { type: "any" }
+  | { type: "tool"; name: string };
+
+type AnthropicResponseBlock =
+  | { type: "text"; text: string }
+  | { type: "thinking"; thinking: string }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> };
+
+type AnthropicResponse = {
+  id: string;
+  type: "message";
+  role: "assistant";
+  content: AnthropicResponseBlock[];
+  model: string;
+  stop_reason: string;
+  stop_sequence: string | null;
+  usage: { input_tokens: number; output_tokens: number };
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const ensureArray = (value: MessageContent | MessageContent[]): MessageContent[] =>
+  Array.isArray(value) ? value : [value];
+
+function convertImageForAnthropic(part: ImageContent): AnthropicContentPart {
+  const url = part.image_url.url;
+  if (url.startsWith("data:")) {
+    const commaIdx = url.indexOf(",");
+    const header = url.slice(5, commaIdx); // e.g. "image/jpeg;base64"
+    const media_type = header.split(";")[0] ?? "image/jpeg";
+    const data = url.slice(commaIdx + 1);
+    return { type: "image", source: { type: "base64", media_type, data } };
   }
+  return { type: "image", source: { type: "url", url } };
+}
 
-  if (part.type === "text") {
-    return part;
-  }
-
-  if (part.type === "image_url") {
-    return part;
-  }
-
+function convertContentForAnthropic(part: MessageContent): AnthropicContentPart | null {
+  if (typeof part === "string") return { type: "text", text: part };
+  if (part.type === "text") return { type: "text", text: part.text };
+  if (part.type === "image_url") return convertImageForAnthropic(part);
   if (part.type === "file_url") {
-    return part;
+    console.warn("[LLM] file_url content is not supported by Anthropic API — skipping part");
+    return null;
   }
+  return null;
+}
 
-  throw new Error("Unsupported message content part");
-};
+function buildAnthropicMessages(messages: Message[]): {
+  system: string | undefined;
+  anthropicMessages: AnthropicMessage[];
+} {
+  const systemParts: string[] = [];
+  const anthropicMessages: AnthropicMessage[] = [];
 
-const normalizeMessage = (message: Message) => {
-  const { role, name, tool_call_id } = message;
+  for (const msg of messages) {
+    if (msg.role === "system") {
+      const text = ensureArray(msg.content)
+        .map((p) => (typeof p === "string" ? p : p.type === "text" ? p.text : ""))
+        .join("\n");
+      if (text) systemParts.push(text);
+      continue;
+    }
 
-  if (role === "tool" || role === "function") {
-    const content = ensureArray(message.content)
-      .map(part => (typeof part === "string" ? part : JSON.stringify(part)))
-      .join("\n");
+    if (msg.role === "tool" || msg.role === "function") {
+      // Tool results in Anthropic format
+      const content = ensureArray(msg.content)
+        .map((p) => (typeof p === "string" ? p : JSON.stringify(p)))
+        .join("\n");
+      anthropicMessages.push({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: msg.tool_call_id ?? msg.name ?? "", content }],
+      });
+      continue;
+    }
 
-    return {
-      role,
-      name,
-      tool_call_id,
-      content,
-    };
-  }
+    const role = msg.role as "user" | "assistant";
+    const parts = ensureArray(msg.content);
+    const converted = parts.map(convertContentForAnthropic).filter((p): p is AnthropicContentPart => p !== null);
 
-  const contentParts = ensureArray(message.content).map(normalizeContentPart);
-
-  // If there's only text content, collapse to a single string for compatibility
-  if (contentParts.length === 1 && contentParts[0].type === "text") {
-    return {
-      role,
-      name,
-      content: contentParts[0].text,
-    };
+    if (converted.length === 1 && converted[0].type === "text") {
+      anthropicMessages.push({ role, content: converted[0].text });
+    } else if (converted.length > 0) {
+      anthropicMessages.push({ role, content: converted });
+    }
   }
 
   return {
-    role,
-    name,
-    content: contentParts,
+    system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined,
+    anthropicMessages,
   };
-};
+}
 
-const normalizeToolChoice = (
-  toolChoice: ToolChoice | undefined,
+function convertToolsForAnthropic(tools: Tool[]): AnthropicTool[] {
+  return tools.map((t) => ({
+    name: t.function.name,
+    description: t.function.description,
+    input_schema: t.function.parameters ?? { type: "object", properties: {} },
+  }));
+}
+
+function convertToolChoiceForAnthropic(
+  tc: ToolChoice | undefined,
   tools: Tool[] | undefined
-): "none" | "auto" | ToolChoiceExplicit | undefined => {
-  if (!toolChoice) return undefined;
+): AnthropicToolChoice | undefined {
+  if (!tc) return undefined;
+  if (tc === "none") return { type: "none" };
+  if (tc === "auto") return { type: "auto" };
+  if (tc === "required") return { type: "any" };
+  if ("name" in tc) return { type: "tool", name: tc.name };
+  if ("type" in tc && tc.type === "function") return { type: "tool", name: tc.function.name };
+  return undefined;
+}
 
-  if (toolChoice === "none" || toolChoice === "auto") {
-    return toolChoice;
+function wantsJsonObject(params: InvokeParams): boolean {
+  const fmt = params.responseFormat ?? params.response_format;
+  return fmt?.type === "json_object";
+}
+
+function injectJsonInstruction(messages: AnthropicMessage[]): AnthropicMessage[] {
+  const instruction = "Responda apenas com JSON válido, sem markdown e sem blocos de código.";
+  if (messages.length === 0) return messages;
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") {
+    return [...messages, { role: "user", content: instruction }];
   }
+  // Append instruction to last user message
+  const updated: AnthropicMessage = {
+    role: "user",
+    content:
+      typeof last.content === "string"
+        ? `${last.content}\n\n${instruction}`
+        : [
+            ...(last.content as AnthropicContentPart[]),
+            { type: "text", text: instruction },
+          ],
+  };
+  return [...messages.slice(0, -1), updated];
+}
 
-  if (toolChoice === "required") {
-    if (!tools || tools.length === 0) {
-      throw new Error(
-        "tool_choice 'required' was provided but no tools were configured"
-      );
-    }
+function mapAnthropicResponseToInvokeResult(resp: AnthropicResponse): InvokeResult {
+  const textParts = resp.content
+    .filter((b): b is { type: "text"; text: string } => b.type === "text")
+    .map((b) => b.text);
 
-    if (tools.length > 1) {
-      throw new Error(
-        "tool_choice 'required' needs a single tool or specify the tool name explicitly"
-      );
-    }
+  const toolUseParts = resp.content.filter(
+    (b): b is { type: "tool_use"; id: string; name: string; input: Record<string, unknown> } =>
+      b.type === "tool_use"
+  );
 
-    return {
-      type: "function",
-      function: { name: tools[0].function.name },
-    };
-  }
-
-  if ("name" in toolChoice) {
-    return {
-      type: "function",
-      function: { name: toolChoice.name },
-    };
-  }
-
-  return toolChoice;
-};
-
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
-
-const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
-  }
-};
-
-const normalizeResponseFormat = ({
-  responseFormat,
-  response_format,
-  outputSchema,
-  output_schema,
-}: {
-  responseFormat?: ResponseFormat;
-  response_format?: ResponseFormat;
-  outputSchema?: OutputSchema;
-  output_schema?: OutputSchema;
-}):
-  | { type: "json_schema"; json_schema: JsonSchema }
-  | { type: "text" }
-  | { type: "json_object" }
-  | undefined => {
-  const explicitFormat = responseFormat || response_format;
-  if (explicitFormat) {
-    if (
-      explicitFormat.type === "json_schema" &&
-      !explicitFormat.json_schema?.schema
-    ) {
-      throw new Error(
-        "responseFormat json_schema requires a defined schema object"
-      );
-    }
-    return explicitFormat;
-  }
-
-  const schema = outputSchema || output_schema;
-  if (!schema) return undefined;
-
-  if (!schema.name || !schema.schema) {
-    throw new Error("outputSchema requires both name and schema");
-  }
+  const toolCalls: ToolCall[] = toolUseParts.map((b) => ({
+    id: b.id,
+    type: "function",
+    function: { name: b.name, arguments: JSON.stringify(b.input) },
+  }));
 
   return {
-    type: "json_schema",
-    json_schema: {
-      name: schema.name,
-      schema: schema.schema,
-      ...(typeof schema.strict === "boolean" ? { strict: schema.strict } : {}),
+    id: resp.id,
+    created: Math.floor(Date.now() / 1000),
+    model: resp.model,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: textParts.join("\n"),
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+        },
+        finish_reason: resp.stop_reason ?? null,
+      },
+    ],
+    usage: {
+      prompt_tokens: resp.usage.input_tokens,
+      completion_tokens: resp.usage.output_tokens,
+      total_tokens: resp.usage.input_tokens + resp.usage.output_tokens,
     },
   };
-};
+}
+
+// ─── Main export ──────────────────────────────────────────────────────────────
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
+  if (!ENV.anthropicApiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not configured");
+  }
 
-  const {
-    messages,
-    tools,
-    toolChoice,
-    tool_choice,
-    outputSchema,
-    output_schema,
-    responseFormat,
-    response_format,
-    model,
-  } = params;
+  const { messages, tools, toolChoice, tool_choice, maxTokens, max_tokens, model, thinking } = params;
+
+  const { system, anthropicMessages: rawMessages } = buildAnthropicMessages(messages);
+
+  // Inject JSON instruction when json_object mode is requested (Anthropic has no response_format)
+  const finalMessages = wantsJsonObject(params) ? injectJsonInstruction(rawMessages) : rawMessages;
 
   const payload: Record<string, unknown> = {
-    model: model ?? "gemini-2.5-flash",
-    messages: messages.map(normalizeMessage),
+    model: model ?? "claude-sonnet-4-6",
+    max_tokens: maxTokens ?? max_tokens ?? 32768,
+    messages: finalMessages,
   };
 
+  if (system) payload.system = system;
+
+  // Extended thinking — minimum budget 1024 for Anthropic, disabled by default
+  if (thinking && thinking !== false) {
+    payload.thinking = {
+      type: "enabled",
+      budget_tokens: Math.max(1024, thinking.budget_tokens),
+    };
+  }
+
   if (tools && tools.length > 0) {
-    payload.tools = tools;
+    payload.tools = convertToolsForAnthropic(tools);
+    const tc = convertToolChoiceForAnthropic(toolChoice ?? tool_choice, tools);
+    if (tc) payload.tool_choice = tc;
   }
 
-  const normalizedToolChoice = normalizeToolChoice(
-    toolChoice || tool_choice,
-    tools
-  );
-  if (normalizedToolChoice) {
-    payload.tool_choice = normalizedToolChoice;
-  }
-
-  payload.max_tokens = params.maxTokens ?? params.max_tokens ?? 32768;
-  // Only add thinking if not explicitly disabled
-  if (params.thinking !== false) {
-    payload.thinking = params.thinking ?? { budget_tokens: 128 };
-  }
-
-  const normalizedResponseFormat = normalizeResponseFormat({
-    responseFormat,
-    response_format,
-    outputSchema,
-    output_schema,
-  });
-
-  if (normalizedResponseFormat) {
-    payload.response_format = normalizedResponseFormat;
-  }
-
-  // 300s timeout — Dashboard Builder with high-res images + pro model can take up to 5 minutes
+  // 300s timeout — long-running analysis with large prompts
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 300_000);
 
   let response: Response;
   try {
-    response = await fetch(resolveApiUrl(), {
+    response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${ENV.forgeApiKey}`,
+        "x-api-key": ENV.anthropicApiKey,
+        "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify(payload),
       signal: controller.signal,
@@ -339,7 +371,9 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } catch (err: any) {
     clearTimeout(timeoutId);
     if (err?.name === "AbortError") {
-      throw new Error("A análise demorou mais de 5 minutos. Tente novamente com uma imagem menor ou com menos campanhas visíveis.");
+      throw new Error(
+        "A análise demorou mais de 5 minutos. Tente novamente com uma imagem menor ou com menos campanhas visíveis."
+      );
     }
     throw err;
   } finally {
@@ -348,7 +382,6 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   if (!response.ok) {
     const errorText = await response.text();
-    // Check if the error response is HTML (e.g., gateway error page) and give a descriptive message
     const isHtml = errorText.trim().startsWith("<");
     if (isHtml) {
       throw new Error(
@@ -360,7 +393,6 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     );
   }
 
-  // Verify content-type before parsing JSON to avoid "Unexpected token <" errors
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
     const rawText = await response.text();
@@ -375,13 +407,13 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     );
   }
 
-  return (await response.json()) as InvokeResult;
+  const anthropicResp = (await response.json()) as AnthropicResponse;
+  return mapAnthropicResponseToInvokeResult(anthropicResp);
 }
 
 /**
- * Extract the text content from an LLM response, handling both string and array content.
- * When thinking is enabled, Gemini returns content as an array of {type:"thinking"} and {type:"text"} parts.
- * This helper safely extracts only the text parts.
+ * Extract the text content from an InvokeResult.
+ * Works for both string content and array content (thinking responses return content as array).
  */
 export function extractTextContent(result: InvokeResult): string {
   const content = result?.choices?.[0]?.message?.content;
