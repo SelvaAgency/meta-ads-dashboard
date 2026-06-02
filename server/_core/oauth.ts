@@ -108,6 +108,11 @@ export function registerOAuthRoutes(app: Express) {
 
     if (!email || !password) return fail("E-mail e senha são obrigatórios.");
 
+    console.log('[DEBUG LOGIN] email recebido:', email);
+    console.log('[DEBUG LOGIN] ADMIN_EMAIL:', ENV.adminEmail);
+    console.log('[DEBUG LOGIN] emails batem:', email.toLowerCase() === ENV.adminEmail?.toLowerCase());
+    console.log('[DEBUG LOGIN] hash length:', ENV.adminPasswordHash?.length);
+
     // Primary: check ENV admin credentials
     const isEnvAdmin =
       ENV.adminEmail &&
