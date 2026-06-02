@@ -1,5 +1,8 @@
 {
-  "build": { "builder": "NIXPACKS" },
+  "build": {
+    "builder": "NIXPACKS",
+    "nixpacksConfigPath": "nixpacks.toml"
+  },
   "deploy": {
     "startCommand": "pnpm run build && pnpm start",
     "restartPolicyType": "ON_FAILURE"
