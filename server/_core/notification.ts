@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { ENV } from "./env";
+import { sendEmail, isEmailConfigured } from "../emailService";
 
 export type NotificationPayload = {
   title: string;
@@ -13,28 +14,12 @@ const trimValue = (value: string): string => value.trim();
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
 
-const buildEndpointUrl = (baseUrl: string): string => {
-  const normalizedBase = baseUrl.endsWith("/")
-    ? baseUrl
-    : `${baseUrl}/`;
-  return new URL(
-    "webdevtoken.v1.WebDevService/SendNotification",
-    normalizedBase
-  ).toString();
-};
-
 const validatePayload = (input: NotificationPayload): NotificationPayload => {
   if (!isNonEmptyString(input.title)) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "Notification title is required.",
-    });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Notification title is required." });
   }
   if (!isNonEmptyString(input.content)) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "Notification content is required.",
-    });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Notification content is required." });
   }
 
   const title = trimValue(input.title);
@@ -46,7 +31,6 @@ const validatePayload = (input: NotificationPayload): NotificationPayload => {
       message: `Notification title must be at most ${TITLE_MAX_LENGTH} characters.`,
     });
   }
-
   if (content.length > CONTENT_MAX_LENGTH) {
     throw new TRPCError({
       code: "BAD_REQUEST",
@@ -58,57 +42,45 @@ const validatePayload = (input: NotificationPayload): NotificationPayload => {
 };
 
 /**
- * Dispatches a project-owner notification through the Manus Notification Service.
- * Returns `true` if the request was accepted, `false` when the upstream service
- * cannot be reached (callers can fall back to email/slack). Validation errors
- * bubble up as TRPC errors so callers can fix the payload.
+ * Notify the dashboard owner via email.
+ * Returns true if the message was sent, false if SMTP is not configured (silent skip).
+ * Validation errors bubble up as TRPCErrors.
  */
-export async function notifyOwner(
-  payload: NotificationPayload
-): Promise<boolean> {
+export async function notifyOwner(payload: NotificationPayload): Promise<boolean> {
   const { title, content } = validatePayload(payload);
 
-  if (!ENV.forgeApiUrl) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Notification service URL is not configured.",
-    });
+  if (!isEmailConfigured()) {
+    console.warn("[Notification] SMTP not configured — skipping owner notification");
+    return false;
   }
 
-  if (!ENV.forgeApiKey) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Notification service API key is not configured.",
-    });
+  const to = ENV.adminEmail ? [ENV.adminEmail] : [];
+  if (to.length === 0) {
+    console.warn("[Notification] ADMIN_EMAIL not set — skipping owner notification");
+    return false;
   }
 
-  const endpoint = buildEndpointUrl(ENV.forgeApiUrl);
+  const htmlContent = content
+    .split("\n")
+    .map((line) => `<p style="margin:4px 0;font-size:14px;color:#333">${line}</p>`)
+    .join("");
+
+  const html = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:24px">
+  <div style="background:#1a1a1a;padding:16px 24px;border-radius:8px 8px 0 0">
+    <h2 style="color:#E85BA8;margin:0;font-size:16px;letter-spacing:1px">SELVA AGENCY</h2>
+  </div>
+  <div style="background:#fff;padding:24px;border:1px solid #e5e5e5;border-top:none;border-radius:0 0 8px 8px">
+    <h3 style="margin:0 0 16px;color:#1a1a1a;font-size:15px">${title}</h3>
+    ${htmlContent}
+  </div>
+</div>`;
 
   try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${ENV.forgeApiKey}`,
-        "content-type": "application/json",
-        "connect-protocol-version": "1",
-      },
-      body: JSON.stringify({ title, content }),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      console.warn(
-        `[Notification] Failed to notify owner (${response.status} ${response.statusText})${
-          detail ? `: ${detail}` : ""
-        }`
-      );
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    console.warn("[Notification] Error calling notification service:", error);
+    const sent = await sendEmail({ to, subject: title, html, text: content });
+    return sent;
+  } catch (err) {
+    console.warn("[Notification] Failed to send owner email:", err);
     return false;
   }
 }
