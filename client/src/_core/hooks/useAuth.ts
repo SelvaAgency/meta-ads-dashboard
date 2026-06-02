@@ -44,7 +44,7 @@ export function useAuth(options?: UseAuthOptions) {
   // Persist user info for runtime use (side effect belongs in useEffect, not useMemo)
   useEffect(() => {
     localStorage.setItem(
-      "manus-runtime-user-info",
+      "selva-runtime-user-info",
       JSON.stringify(meQuery.data)
     );
   }, [meQuery.data]);
