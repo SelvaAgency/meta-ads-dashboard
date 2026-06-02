@@ -50,13 +50,6 @@ export const CLIENTS: ClientConfig[] = [
     metaAccountIds: ["1367169851301247"],
   },
   {
-    slug: "phbr",
-    name: "PHBR Medical",
-    shortName: "PH",
-    color: "rose",
-    metaAccountIds: ["746370099294331"],
-  },
-  {
     slug: "ligvegan",
     name: "Ligvegan",
     shortName: "LV",

@@ -531,14 +531,6 @@
 
 ## Bugs Críticos (Abril 2026)
 - [x] BUG 1: Contas duplicadas na sidebar - deduplicação implementada em createMetaAdAccount e getMetaAdAccountsByUserId
-- [x] BUG 2: Conta PHBR Medical (ID 746370099294331) com dados zerados - logs de debug adicionados em metaFetch, getCampaignInsights, upsertCampaign, upsertCampaignMetrics
-
-## Validação Final - PHBR Medical (Abril 2026)
-- [ ] Executar sincronização manual da conta PHBR Medical
-- [ ] Verificar se dados aparecem no dashboard (Investimento, Impressões, Cliques, etc.)
-- [ ] Confirmar que não há mais dados zerados
-- [ ] Validar que as métricas estão sendo inseridas corretamente no banco
-
 
 ## Bug Crítico - Timestamp 1969-12-31 (Abril 2026) - RESOLVIDO
 - [x] CRÍTICO: Validação de timestamps não estava sendo aplicada - servidor usando código cacheado

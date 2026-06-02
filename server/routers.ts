@@ -1324,15 +1324,6 @@ export const appRouter = router({
           showAddToCart: true, showLandingPageViews: true,
           showProfileVisits: false, showFollowers: false,
         },
-        "Phbr Medical": {
-          displayName: "PHBR MEDICAL",
-          type: "messages",
-          resultLabel: "Mensagens Iniciadas",
-          costLabel: "CPA",
-          showRevenue: false, showRoas: false,
-          showAddToCart: false, showLandingPageViews: false,
-          showProfileVisits: true, showFollowers: true,
-        },
         "CA-Studio Zeca Marques": {
           displayName: "STUDIO ZECA MARQUES",
           type: "messages",
