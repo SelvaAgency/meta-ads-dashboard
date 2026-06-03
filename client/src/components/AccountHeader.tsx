@@ -2,8 +2,9 @@ import { trpc } from "@/lib/trpc";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, ChevronDown, ChevronUp, Pencil, Check, X } from "lucide-react";
+import { RefreshCw, ChevronDown, ChevronUp, Pencil, Check, X, Lightbulb } from "lucide-react";
 import { useMemo, useState, useRef, useEffect } from "react";
+import { useLocation } from "wouter";
 import { toast } from "sonner";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ const divider = (
 export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; goalEmoji?: string }) {
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
+  const [, navigate] = useLocation();
 
   const activeAccount = useMemo(
     () => accounts?.find((a: any) => a.id === selectedAccountId),
@@ -200,7 +202,7 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
 
       {divider}
 
-      {/* ── Bloco meio — últimas ações + nota ───────────────────────────── */}
+      {/* ── Bloco 2 — Últimas ações + Nota ──────────────────────────────── */}
       <div style={{ width: 220, flexShrink: 0 }}>
 
         {/* Últimas ações */}
@@ -256,7 +258,6 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
               </button>
             )}
           </div>
-
           {editing ? (
             <textarea
               ref={textareaRef}
@@ -266,8 +267,7 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
               style={{
                 width: "100%", fontSize: 11, lineHeight: 1.4, padding: "3px 6px",
                 borderRadius: 6, border: "1px solid rgba(232,91,168,0.4)",
-                resize: "none", outline: "none", fontFamily: "inherit",
-                color: "#111",
+                resize: "none", outline: "none", fontFamily: "inherit", color: "#111",
               }}
               placeholder="Adicionar nota..."
             />
@@ -285,29 +285,20 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
 
       {divider}
 
-      {/* ── Bloco direito — Status IA ────────────────────────────────────── */}
-      <div style={{ width: 190, flexShrink: 0 }}>
+      {/* ── Bloco 3 — Status IA ──────────────────────────────────────────── */}
+      <div style={{ width: 220, flexShrink: 0 }}>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
           <div style={{
             width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
             background: statusCfg?.color ?? "rgba(0,0,0,0.2)",
           }} />
-          <span style={{ fontSize: 11, fontWeight: 500, color: statusCfg?.color ?? muted, flex: 1 }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: statusCfg?.color ?? muted }}>
             {statusCfg?.label ?? "Status IA"} — 7 dias
           </span>
-          <Button
-            variant="ghost" size="icon"
-            style={{ width: 18, height: 18, flexShrink: 0, marginLeft: "auto" }}
-            title="Atualizar análise IA"
-            disabled={refreshStatus.isPending}
-            onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
-          >
-            <RefreshCw style={{ width: 11, height: 11, color: muted, animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
-          </Button>
         </div>
 
-        <div style={{ marginTop: 2 }}>
+        <div>
           <p style={{
             fontSize: 11, lineHeight: 1.4, color: muted,
             transition: "all 0.2s ease",
@@ -323,6 +314,56 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
           >
             {expanded ? <ChevronUp style={{ width: 10, height: 10 }} /> : <ChevronDown style={{ width: 10, height: 10 }} />}
           </button>
+        </div>
+
+      </div>
+
+      {divider}
+
+      {/* ── Bloco 4 — Botão Sugestões IA ─────────────────────────────────── */}
+      <div style={{ width: 140, flexShrink: 0, position: "relative" }}>
+
+        {/* Botão refresh — canto superior direito */}
+        <button
+          onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
+          disabled={refreshStatus.isPending}
+          title="Atualizar análise IA"
+          style={{
+            position: "absolute", top: 0, right: 0,
+            background: "none", border: "none", cursor: "pointer", padding: 2,
+            color: "rgba(255,255,255,0.6)",
+            transition: "color 0.15s",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "white")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.6)")}
+        >
+          <RefreshCw style={{ width: 10, height: 10, animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
+        </button>
+
+        {/* Botão principal — navega para /suggestions */}
+        <div
+          onClick={() => navigate("/suggestions")}
+          style={{
+            background: "#E85BA8",
+            borderRadius: 10,
+            padding: "10px 12px",
+            cursor: "pointer",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 4,
+            transition: "opacity 0.15s",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
+          onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+          title="Ver sugestões da IA"
+        >
+          <Lightbulb style={{ width: 18, height: 18, color: "white" }} />
+          <div style={{ textAlign: "center", lineHeight: 1.2 }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "white", margin: 0 }}>Sugestões</p>
+            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.8)", margin: 0 }}>da IA</p>
+          </div>
         </div>
 
       </div>
