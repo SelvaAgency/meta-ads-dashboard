@@ -328,7 +328,7 @@ const PERIOD_LABELS: Record<PeriodPreset, string> = {
   custom: "Personalizado",
 };
 
-function toIso(d: Date) {
+function toIsoLocal(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -343,24 +343,24 @@ function getPresetRange(preset: PeriodPreset): { startDate: string; endDate: str
   const daysAgo = (n: number) => {
     const d = new Date(today);
     d.setDate(d.getDate() - n);
-    return toIso(d);
+    return toIsoLocal(d);
   };
 
   switch (preset) {
     case "today":
-      return { startDate: toIso(today), endDate: toIso(today) };
+      return { startDate: toIsoLocal(today), endDate: toIsoLocal(today) };
     case "yesterday":
-      return { startDate: toIso(yesterday), endDate: toIso(yesterday) };
+      return { startDate: toIsoLocal(yesterday), endDate: toIsoLocal(yesterday) };
     case "today_yesterday":
-      return { startDate: toIso(yesterday), endDate: toIso(today) };
+      return { startDate: toIsoLocal(yesterday), endDate: toIsoLocal(today) };
     case "7d":
-      return { startDate: daysAgo(6), endDate: toIso(today) };
+      return { startDate: daysAgo(6), endDate: toIsoLocal(today) };
     case "14d":
-      return { startDate: daysAgo(13), endDate: toIso(today) };
+      return { startDate: daysAgo(13), endDate: toIsoLocal(today) };
     case "30d":
-      return { startDate: daysAgo(29), endDate: toIso(today) };
+      return { startDate: daysAgo(29), endDate: toIsoLocal(today) };
     default:
-      return { startDate: daysAgo(6), endDate: toIso(today) };
+      return { startDate: daysAgo(6), endDate: toIsoLocal(today) };
   }
 }
 
@@ -424,7 +424,10 @@ export default function Dashboard() {
       if (period.customStart && period.customEnd) {
         return { startDate: period.customStart, endDate: period.customEnd };
       }
-      return { days: 7 };
+      // Fallback: explicit dates so server never defaults endDate to yesterday
+      const d = new Date();
+      const s = new Date(d); s.setDate(s.getDate() - 6);
+      return { startDate: toIsoLocal(s), endDate: toIsoLocal(d) };
     }
     return getPresetRange(period.preset);
   }, [period]);
