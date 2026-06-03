@@ -953,6 +953,8 @@ export const appRouter = router({
           return [];
         }
 
+        console.log('[adTopByCtr] accountId:', account.accountId, 'start:', startDate, 'end:', endDate, 'total ads:', ads.length, 'with spend:', ads.filter(a => a.spend > 0).length);
+
         return ads
           .filter((ad) => ad.spend > 0)
           .sort((a, b) => {
