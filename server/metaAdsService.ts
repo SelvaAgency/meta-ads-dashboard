@@ -1147,8 +1147,8 @@ export async function getAdsWithInsights(
       level: "ad",
       fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,impressions,clicks,frequency,ctr,cpc,cpm,actions,purchase_roas",
       time_range: JSON.stringify({ since: startDate, until: endDate }),
-      limit: "500",
-    }, 20); // Cap at 20 pages for ad-level insights
+      limit: "200",
+    }, 5); // Cap at 5 pages for ad-level insights
 
     const insightMap = new Map<string, AdInsightRow>();
     for (const ins of adInsights) {
