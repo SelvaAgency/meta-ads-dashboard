@@ -1187,8 +1187,9 @@ export async function getAdsWithInsights(
         creative_id: ad.creative?.id ?? "",
         // Prefer image_url (permanent CDN) > thumbnail_url (may expire)
         thumbnail_url: ad.creative?.image_url || ad.creative?.thumbnail_url || "",
-        // Public preview link — falls back to archive URL if API doesn't return the field
-        preview_url: ad.ad_preview_shareable_link || `https://www.facebook.com/ads/archive/render_ad/?id=${ad.id}`,
+        // Public preview link — falls back to Ads Manager direct link
+        preview_url: ad.ad_preview_shareable_link ||
+          `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${accountId}&selected_ad_ids=${ad.id}`,
         spend, impressions, clicks, frequency, ctr, cpc, cpm,
         conversions, costPerResult, roas,
       };
