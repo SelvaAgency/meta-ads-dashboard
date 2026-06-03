@@ -129,17 +129,20 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
   const [summaryOverflows, setSummaryOverflows] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  const aiColor   = (activeAccount as any).aiStatusColor as "green" | "yellow" | "red" | null ?? null;
-  const aiSummary = (activeAccount as any).aiStatusSummary as string | null;
+  // Safe read before guard — used only as dep for overflow detection
+  const rawAiSummary = (activeAccount as any)?.aiStatusSummary as string | null | undefined;
 
   useLayoutEffect(() => {
     const el = summaryRef.current;
     if (!el) return;
-    // Temporarily remove clamp to measure natural height, then compare
     setSummaryOverflows(el.scrollHeight > el.clientHeight + 2);
-  }, [aiSummary, expanded]);
+  }, [rawAiSummary, expanded]);
 
   if (!selectedAccountId || !activeAccount) return null;
+
+  const aiColor   = ((activeAccount as any)?.aiStatusColor ?? "yellow") as "green" | "yellow" | "red";
+  const aiSummary: string = (activeAccount as any)?.aiStatusSummary
+    ?? "Análise pendente — execute um sync para gerar";
 
   const accountName: string = activeAccount.accountName ?? activeAccount.accountId;
   const initials  = accountName.slice(0, 2).toUpperCase();
@@ -271,7 +274,7 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
               maxHeight: expanded ? "none" : CLAMP_HEIGHT,
             }}
           >
-            {aiSummary ?? "Análise pendente — execute um sync"}
+            {aiSummary}
           </p>
 
           {/* Chevron — only rendered when overflow is detected */}
