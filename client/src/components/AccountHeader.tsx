@@ -2,8 +2,8 @@ import { trpc } from "@/lib/trpc";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
-import { useMemo } from "react";
+import { RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -82,6 +82,8 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
     onError:   () => toast.error("Erro ao atualizar status IA"),
   });
 
+  const [expanded, setExpanded] = useState(false);
+
   if (!selectedAccountId || !activeAccount) return null;
 
   const accountName: string = activeAccount.accountName ?? activeAccount.accountId;
@@ -109,9 +111,10 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
         alignItems: "center",
         gap: 16,
         padding: "12px 16px",
-        background: "hsl(var(--card))",
-        border: "1px solid hsl(var(--border) / 0.6)",
-        borderRadius: 12,
+        marginBottom: 16,
+        background: "var(--color-background-primary, hsl(var(--card)))",
+        border: "0.5px solid var(--color-border-tertiary, hsl(var(--border) / 0.5))",
+        borderRadius: "var(--border-radius-lg, 12px)",
       }}
     >
       {/* ── Bloco esquerdo ──────────────────────────────────────────── */}
@@ -228,17 +231,47 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
           </Button>
         </div>
 
-        {/* Linha 2 — summary */}
-        <p style={{
-          fontSize: 11, lineHeight: 1.4, marginTop: 2,
-          color: "hsl(var(--muted-foreground))",
-          display: "-webkit-box",
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: "vertical",
-          overflow: "hidden",
-        }}>
-          {aiSummary ?? "Análise pendente — execute um sync"}
-        </p>
+        {/* Linha 2 — summary expansível */}
+        <div style={{ marginTop: 2 }}>
+          <p style={{
+            fontSize: 11, lineHeight: 1.4,
+            color: "hsl(var(--muted-foreground))",
+            transition: "all 0.2s ease",
+            ...(expanded
+              ? {}
+              : {
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }),
+          }}>
+            {aiSummary ?? "Análise pendente — execute um sync"}
+          </p>
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 2,
+              marginTop: 2,
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              color: "hsl(var(--muted-foreground))",
+              opacity: 0.5,
+              fontSize: 10,
+              transition: "opacity 0.2s ease",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
+          >
+            {expanded
+              ? <ChevronUp style={{ width: 10, height: 10 }} />
+              : <ChevronDown style={{ width: 10, height: 10 }} />}
+          </button>
+        </div>
 
       </div>
     </div>
