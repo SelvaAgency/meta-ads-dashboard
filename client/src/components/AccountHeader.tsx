@@ -1,10 +1,8 @@
 import { trpc } from "@/lib/trpc";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, XCircle, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useMemo } from "react";
 import { toast } from "sonner";
 
@@ -27,25 +25,25 @@ function fmtN(n: number) {
   return n.toLocaleString("pt-BR");
 }
 
-const ACCOUNT_COLORS: Record<string, { bg: string; text: string }> = {
-  blue:    { bg: "bg-blue-500/20",    text: "text-blue-400" },
-  violet:  { bg: "bg-violet-500/20",  text: "text-violet-400" },
-  emerald: { bg: "bg-emerald-500/20", text: "text-emerald-400" },
-  amber:   { bg: "bg-amber-500/20",   text: "text-amber-400" },
-  cyan:    { bg: "bg-cyan-500/20",    text: "text-cyan-400" },
-  rose:    { bg: "bg-rose-500/20",    text: "text-rose-400" },
-  lime:    { bg: "bg-lime-500/20",    text: "text-lime-400" },
-  orange:  { bg: "bg-orange-500/20",  text: "text-orange-400" },
-  pink:    { bg: "bg-pink-500/20",    text: "text-pink-400" },
-  teal:    { bg: "bg-teal-500/20",    text: "text-teal-400" },
-  indigo:  { bg: "bg-indigo-500/20",  text: "text-indigo-400" },
-  fuchsia: { bg: "bg-fuchsia-500/20", text: "text-fuchsia-400" },
+const ACCOUNT_COLORS: Record<string, { bg: string; color: string }> = {
+  blue:    { bg: "rgba(59,130,246,0.15)",   color: "#60a5fa" },
+  violet:  { bg: "rgba(139,92,246,0.15)",   color: "#a78bfa" },
+  emerald: { bg: "rgba(16,185,129,0.15)",   color: "#34d399" },
+  amber:   { bg: "rgba(245,158,11,0.15)",   color: "#fbbf24" },
+  cyan:    { bg: "rgba(6,182,212,0.15)",    color: "#22d3ee" },
+  rose:    { bg: "rgba(244,63,94,0.15)",    color: "#fb7185" },
+  lime:    { bg: "rgba(132,204,22,0.15)",   color: "#a3e635" },
+  orange:  { bg: "rgba(249,115,22,0.15)",   color: "#fb923c" },
+  pink:    { bg: "rgba(232,91,168,0.15)",   color: "#E85BA8" },
+  teal:    { bg: "rgba(20,184,166,0.15)",   color: "#2dd4bf" },
+  indigo:  { bg: "rgba(99,102,241,0.15)",   color: "#818cf8" },
+  fuchsia: { bg: "rgba(232,91,168,0.15)",   color: "#E85BA8" },
 };
 
 const STATUS_CFG = {
-  green:  { indicator: "🟢", text: "text-emerald-400", label: "Saudável" },
-  yellow: { indicator: "🟡", text: "text-amber-400",   label: "Atenção"  },
-  red:    { indicator: "🔴", text: "text-red-400",     label: "Crítico"  },
+  green:  { color: "#1D9E75", label: "Saudável" },
+  yellow: { color: "#EF9F27", label: "Atenção"  },
+  red:    { color: "#E24B4A", label: "Crítico"  },
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -90,122 +88,159 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
   const initials  = accountName.slice(0, 2).toUpperCase();
   const palette   = ACCOUNT_COLORS[activeClient?.color ?? "fuchsia"] ?? ACCOUNT_COLORS.fuchsia!;
 
-  const todayT     = todayData?.totals;
-  const todaySpend = Number(todayT?.spend ?? 0);
-  const todayConv  = Number(todayT?.conversions ?? 0);
-  const todayRoas  = Number(todayT?.roas ?? 0);
-
-  const yestT     = yestData?.totals;
-  const yestSpend = Number(yestT?.spend ?? 0);
-  const yestConv  = Number(yestT?.conversions ?? 0);
-  const yestRoas  = Number(yestT?.roas ?? 0);
+  const todaySpend = Number(todayData?.totals?.spend ?? 0);
+  const todayConv  = Number(todayData?.totals?.conversions ?? 0);
+  const todayRoas  = Number(todayData?.totals?.roas ?? 0);
+  const yestSpend  = Number(yestData?.totals?.spend ?? 0);
+  const yestConv   = Number(yestData?.totals?.conversions ?? 0);
+  const yestRoas   = Number(yestData?.totals?.roas ?? 0);
 
   const aiColor   = (activeAccount as any).aiStatusColor as "green" | "yellow" | "red" | null ?? null;
   const aiSummary = (activeAccount as any).aiStatusSummary as string | null;
   const statusCfg = aiColor ? STATUS_CFG[aiColor] : null;
 
+  const sep = <span style={{ opacity: 0.3, margin: "0 4px" }}>·</span>;
+  const pipe = <span style={{ opacity: 0.25, margin: "0 8px" }}>|</span>;
+
   return (
-    <Card className="border-border/60 bg-card/80">
-      <CardContent className="px-4 py-3 space-y-2.5">
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
+        padding: "12px 16px",
+        background: "hsl(var(--card))",
+        border: "1px solid hsl(var(--border) / 0.6)",
+        borderRadius: 12,
+      }}
+    >
+      {/* ── Bloco esquerdo ──────────────────────────────────────────── */}
+      <div style={{ flex: 1, minWidth: 0 }}>
 
-        {/* ── Linha 1: Identidade + Integrações ─────────────────────────── */}
-        <div className="flex items-center justify-between gap-3">
+        {/* Linha 1 — identidade + integrações */}
+        <div style={{ display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", overflow: "hidden" }}>
 
-          {/* Identidade */}
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${palette.bg} ${palette.text}`}>
-              {initials}
-            </div>
-            <span className="text-sm font-bold text-foreground truncate">{accountName}</span>
-            {goalLabel && (
-              <Badge variant="outline" className="text-xs border-primary/30 text-primary flex-shrink-0">
-                {goalEmoji} {goalLabel}
-              </Badge>
-            )}
+          {/* Círculo iniciais */}
+          <div style={{
+            width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+            background: palette.bg, color: palette.color,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+          }}>
+            {initials}
           </div>
+
+          {/* Nome */}
+          <span style={{
+            fontSize: 13, fontWeight: 500,
+            color: "hsl(var(--foreground))",
+            overflow: "hidden", textOverflow: "ellipsis",
+            maxWidth: 180,
+          }}>
+            {accountName}
+          </span>
+
+          {/* Badge objetivo */}
+          {goalLabel && (
+            <span style={{
+              fontSize: 10, fontWeight: 500, flexShrink: 0,
+              padding: "2px 8px", borderRadius: 99,
+              background: "hsl(var(--primary) / 0.12)",
+              color: "hsl(var(--primary))",
+              border: "1px solid hsl(var(--primary) / 0.25)",
+            }}>
+              {goalEmoji} {goalLabel}
+            </span>
+          )}
 
           {/* Integrações */}
-          <div className="flex items-center gap-3 flex-shrink-0">
-            <div className="flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-              <span className="text-xs font-medium text-emerald-600">Meta Ads</span>
-            </div>
-            <div className="flex items-center gap-1">
-              {integrations?.ga4
-                ? <CheckCircle2 className="w-3 h-3 text-blue-500" />
-                : <XCircle className="w-3 h-3 text-muted-foreground/35" />}
-              <span className={`text-xs font-medium ${integrations?.ga4 ? "text-blue-500" : "text-muted-foreground/35"}`}>
-                GA4
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              {integrations?.googleAds
-                ? <CheckCircle2 className="w-3 h-3 text-amber-500" />
-                : <XCircle className="w-3 h-3 text-muted-foreground/35" />}
-              <span className={`text-xs font-medium ${integrations?.googleAds ? "text-amber-500" : "text-muted-foreground/35"}`}>
-                Google Ads
-              </span>
-            </div>
-          </div>
+          <span style={{ opacity: 0.25, margin: "0 2px" }}>•</span>
 
+          <span style={{ fontSize: 10, fontWeight: 500, color: "#1D9E75", opacity: 0.85, flexShrink: 0 }}>
+            ● Meta Ads
+          </span>
+          <span style={{
+            fontSize: 10, fontWeight: 500, flexShrink: 0,
+            color: integrations?.ga4 ? "#60a5fa" : "hsl(var(--muted-foreground))",
+            opacity: integrations?.ga4 ? 0.85 : 0.45,
+          }}>
+            {integrations?.ga4 ? "●" : "○"} GA4
+          </span>
+          <span style={{
+            fontSize: 10, fontWeight: 500, flexShrink: 0,
+            color: integrations?.googleAds ? "#fbbf24" : "hsl(var(--muted-foreground))",
+            opacity: integrations?.googleAds ? 0.85 : 0.45,
+          }}>
+            {integrations?.googleAds ? "●" : "○"} Google Ads
+          </span>
         </div>
 
-        {/* ── Linha 2: Resumo diário + Status IA ───────────────────────── */}
-        <div className="flex items-stretch gap-0 rounded-lg border border-border/40 overflow-hidden">
-
-          {/* Bloco esquerdo — Hoje e Ontem */}
-          <div className="flex-1 px-3 py-2 space-y-0.5">
-            <p className="text-xs text-foreground leading-snug">
-              <span className="font-semibold text-[#E85BA8]">Hoje</span>
-              <span className="text-muted-foreground"> · </span>
-              {fmt(todaySpend)}
-              <span className="text-muted-foreground"> · </span>
-              {fmtN(todayConv)} result.
-              {todayRoas > 0 && (
-                <span className="text-muted-foreground"> · {todayRoas.toFixed(2)}x ROAS</span>
-              )}
-            </p>
-            <p className="text-xs text-muted-foreground leading-snug">
-              <span className="font-medium text-muted-foreground">Ontem</span>
-              <span> · </span>
-              {fmt(yestSpend)}
-              <span> · </span>
-              {fmtN(yestConv)} result.
-              {yestRoas > 0 && ` · ${yestRoas.toFixed(2)}x ROAS`}
-            </p>
-          </div>
-
-          {/* Divisor */}
-          <div className="w-px bg-border/40" />
-
-          {/* Bloco direito — Status IA */}
-          <div className="flex items-center gap-2 px-3 py-2 min-w-0" style={{ flex: "0 0 auto", maxWidth: "55%" }}>
-            <span className="text-sm flex-shrink-0" aria-hidden>
-              {statusCfg?.indicator ?? "⚪"}
-            </span>
-            <div className="flex-1 min-w-0">
-              <p className={`text-xs font-semibold leading-none mb-0.5 ${statusCfg?.text ?? "text-muted-foreground"}`}>
-                {statusCfg?.label ?? "Status IA"} — 7 dias
-              </p>
-              <p className="text-xs text-muted-foreground leading-snug line-clamp-1">
-                {aiSummary ?? "Análise pendente — execute um sync"}
-              </p>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5 flex-shrink-0 text-muted-foreground/50 hover:text-foreground"
-              title="Atualizar análise IA"
-              disabled={refreshStatus.isPending}
-              onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
-            >
-              <RefreshCw className={`w-3 h-3 ${refreshStatus.isPending ? "animate-spin" : ""}`} />
-            </Button>
-          </div>
-
+        {/* Linha 2 — resumo diário */}
+        <div style={{
+          display: "flex", alignItems: "center",
+          marginTop: 4, whiteSpace: "nowrap",
+          overflow: "hidden", textOverflow: "ellipsis",
+          fontSize: 12, color: "hsl(var(--muted-foreground))",
+        }}>
+          <span style={{ color: "#E85BA8", fontWeight: 500 }}>Hoje</span>
+          {sep}{fmt(todaySpend)}{sep}{fmtN(todayConv)} result.
+          {todayRoas > 0 && <>{sep}{todayRoas.toFixed(2)}x ROAS</>}
+          {pipe}
+          <span style={{ fontWeight: 500, color: "hsl(var(--muted-foreground))" }}>Ontem</span>
+          {sep}{fmt(yestSpend)}{sep}{fmtN(yestConv)} result.
+          {yestRoas > 0 && <>{sep}{yestRoas.toFixed(2)}x ROAS</>}
         </div>
 
-      </CardContent>
-    </Card>
+      </div>
+
+      {/* ── Divisor vertical ────────────────────────────────────────── */}
+      <div style={{ width: "0.5px", alignSelf: "stretch", background: "hsl(var(--border))", opacity: 0.5, flexShrink: 0 }} />
+
+      {/* ── Bloco direito — Status IA ────────────────────────────────── */}
+      <div style={{ width: 190, flexShrink: 0 }}>
+
+        {/* Linha 1 — dot + label + refresh */}
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <div style={{
+            width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+            background: statusCfg?.color ?? "hsl(var(--muted-foreground) / 0.4)",
+          }} />
+          <span style={{
+            fontSize: 11, fontWeight: 500,
+            color: statusCfg?.color ?? "hsl(var(--muted-foreground))",
+            flex: 1,
+          }}>
+            {statusCfg?.label ?? "Status IA"} — 7 dias
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            style={{ width: 18, height: 18, flexShrink: 0, marginLeft: "auto" }}
+            title="Atualizar análise IA"
+            disabled={refreshStatus.isPending}
+            onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
+          >
+            <RefreshCw style={{
+              width: 11, height: 11,
+              color: "hsl(var(--muted-foreground))",
+              animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined,
+            }} />
+          </Button>
+        </div>
+
+        {/* Linha 2 — summary */}
+        <p style={{
+          fontSize: 11, lineHeight: 1.4, marginTop: 2,
+          color: "hsl(var(--muted-foreground))",
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
+        }}>
+          {aiSummary ?? "Análise pendente — execute um sync"}
+        </p>
+
+      </div>
+    </div>
   );
 }
