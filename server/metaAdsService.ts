@@ -1146,6 +1146,7 @@ export async function getAdsWithInsights(
       level: "ad",
       fields: "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,spend,impressions,clicks,frequency,ctr,cpc,cpm,actions,purchase_roas",
       time_range: JSON.stringify({ since: startDate, until: endDate }),
+      filtering: JSON.stringify([{ field: "spend", operator: "GREATER_THAN", value: "0" }]),
       limit: "200",
     }, 5); // Cap at 5 pages for ad-level insights
 
@@ -1154,7 +1155,8 @@ export async function getAdsWithInsights(
       insightMap.set(ins.ad_id, ins);
     }
 
-    return ads.map((ad) => {
+    const adsWithSpend = ads.filter((ad) => insightMap.has(ad.id));
+    return adsWithSpend.map((ad) => {
       const ins = insightMap.get(ad.id);
       const spend = parseFloat(ins?.spend ?? "0") || 0;
       const impressions = parseInt(ins?.impressions ?? "0") || 0;
