@@ -10,8 +10,11 @@ import { toast } from "sonner";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function toIso(d: Date) {
-  return d.toISOString().split("T")[0]!;
+function toIsoLocal(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function fmt(n: number, currency = "R$") {
@@ -65,9 +68,9 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
     [activeClient]
   );
 
-  // Today and yesterday date ranges
-  const today = toIso(new Date());
-  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return toIso(d); })();
+  // Today and yesterday in local timezone (avoids UTC offset shifting the date for BRT users)
+  const today     = toIsoLocal(new Date());
+  const yesterday = toIsoLocal(new Date(Date.now() - 86_400_000));
 
   const { data: todayData } = trpc.dashboard.overview.useQuery(
     { accountId: selectedAccountId!, startDate: today, endDate: today },
