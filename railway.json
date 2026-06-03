@@ -1,10 +1,7 @@
 {
-  "build": {
-    "builder": "NIXPACKS",
-    "nixpacksConfigPath": "nixpacks.toml"
-  },
+  "build": { "builder": "NIXPACKS", "nixpacksConfigPath": "nixpacks.toml" },
   "deploy": {
-    "startCommand": "pnpm run build && pnpm start",
+    "startCommand": "pnpm drizzle-kit push && pnpm start",
     "restartPolicyType": "ON_FAILURE"
   }
 }
