@@ -4,7 +4,7 @@ import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientC
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, XCircle, RefreshCw, CircleDot } from "lucide-react";
+import { CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 import { useMemo } from "react";
 import { toast } from "sonner";
 
@@ -17,10 +17,10 @@ function toIsoLocal(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
-function fmt(n: number, currency = "R$") {
-  if (n >= 1_000_000) return `${currency} ${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `${currency} ${(n / 1_000).toFixed(1)}k`;
-  return `${currency} ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function fmt(n: number) {
+  if (n >= 1_000_000) return `R$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000)     return `R$${(n / 1_000).toFixed(1)}k`;
+  return `R$${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 function fmtN(n: number) {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
@@ -42,10 +42,10 @@ const ACCOUNT_COLORS: Record<string, { bg: string; text: string }> = {
   fuchsia: { bg: "bg-fuchsia-500/20", text: "text-fuchsia-400" },
 };
 
-const STATUS_COLORS = {
-  green:  { dot: "bg-emerald-400", text: "text-emerald-400", label: "Saudável" },
-  yellow: { dot: "bg-amber-400",   text: "text-amber-400",   label: "Atenção" },
-  red:    { dot: "bg-red-400",     text: "text-red-400",     label: "Crítico" },
+const STATUS_CFG = {
+  green:  { indicator: "🟢", text: "text-emerald-400", label: "Saudável" },
+  yellow: { indicator: "🟡", text: "text-amber-400",   label: "Atenção"  },
+  red:    { indicator: "🔴", text: "text-red-400",     label: "Crítico"  },
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -58,7 +58,6 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
     () => accounts?.find((a: any) => a.id === selectedAccountId),
     [accounts, selectedAccountId]
   );
-
   const activeClient = useMemo(
     () => activeAccount ? getClientByMetaAccountId(activeAccount.accountId) : null,
     [activeAccount]
@@ -68,7 +67,6 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
     [activeClient]
   );
 
-  // Today and yesterday in local timezone (avoids UTC offset shifting the date for BRT users)
   const today     = toIsoLocal(new Date());
   const yesterday = toIsoLocal(new Date(Date.now() - 86_400_000));
 
@@ -82,114 +80,121 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
   );
 
   const refreshStatus = trpc.accounts.refreshStatus.useMutation({
-    onSuccess: () => {
-      utils.accounts.list.invalidate();
-      toast.success("Status IA atualizado");
-    },
-    onError: () => toast.error("Erro ao atualizar status IA"),
+    onSuccess: () => { utils.accounts.list.invalidate(); toast.success("Status IA atualizado"); },
+    onError:   () => toast.error("Erro ao atualizar status IA"),
   });
 
   if (!selectedAccountId || !activeAccount) return null;
 
   const accountName: string = activeAccount.accountName ?? activeAccount.accountId;
-  const initials = accountName.slice(0, 2).toUpperCase();
-  const colorKey = activeClient?.color ?? "fuchsia";
-  const palette = ACCOUNT_COLORS[colorKey] ?? ACCOUNT_COLORS.fuchsia!;
+  const initials  = accountName.slice(0, 2).toUpperCase();
+  const palette   = ACCOUNT_COLORS[activeClient?.color ?? "fuchsia"] ?? ACCOUNT_COLORS.fuchsia!;
 
-  // Today totals
-  const todayT = todayData?.totals;
+  const todayT     = todayData?.totals;
   const todaySpend = Number(todayT?.spend ?? 0);
   const todayConv  = Number(todayT?.conversions ?? 0);
   const todayRoas  = Number(todayT?.roas ?? 0);
 
-  // Yesterday totals
-  const yestT = yestData?.totals;
+  const yestT     = yestData?.totals;
   const yestSpend = Number(yestT?.spend ?? 0);
   const yestConv  = Number(yestT?.conversions ?? 0);
   const yestRoas  = Number(yestT?.roas ?? 0);
 
-  // AI status
-  const aiColor = (activeAccount as any).aiStatusColor as "green" | "yellow" | "red" | null ?? null;
+  const aiColor   = (activeAccount as any).aiStatusColor as "green" | "yellow" | "red" | null ?? null;
   const aiSummary = (activeAccount as any).aiStatusSummary as string | null;
-  const statusCfg = aiColor ? STATUS_COLORS[aiColor] : null;
+  const statusCfg = aiColor ? STATUS_CFG[aiColor] : null;
 
   return (
     <Card className="border-border/60 bg-card/80">
-      <CardContent className="p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 md:divide-x md:divide-border/40">
+      <CardContent className="px-4 py-3 space-y-2.5">
 
-          {/* Bloco 1 — Identidade */}
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${palette.bg} ${palette.text}`}>
+        {/* ── Linha 1: Identidade + Integrações ─────────────────────────── */}
+        <div className="flex items-center justify-between gap-3">
+
+          {/* Identidade */}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${palette.bg} ${palette.text}`}>
               {initials}
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-foreground truncate">{accountName}</p>
-              {goalLabel && (
-                <Badge variant="outline" className="text-xs border-primary/30 text-primary mt-0.5">
-                  {goalEmoji} {goalLabel}
-                </Badge>
+            <span className="text-sm font-bold text-foreground truncate">{accountName}</span>
+            {goalLabel && (
+              <Badge variant="outline" className="text-xs border-primary/30 text-primary flex-shrink-0">
+                {goalEmoji} {goalLabel}
+              </Badge>
+            )}
+          </div>
+
+          {/* Integrações */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <div className="flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+              <span className="text-xs font-medium text-emerald-600">Meta Ads</span>
+            </div>
+            <div className="flex items-center gap-1">
+              {integrations?.ga4
+                ? <CheckCircle2 className="w-3 h-3 text-blue-500" />
+                : <XCircle className="w-3 h-3 text-muted-foreground/35" />}
+              <span className={`text-xs font-medium ${integrations?.ga4 ? "text-blue-500" : "text-muted-foreground/35"}`}>
+                GA4
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              {integrations?.googleAds
+                ? <CheckCircle2 className="w-3 h-3 text-amber-500" />
+                : <XCircle className="w-3 h-3 text-muted-foreground/35" />}
+              <span className={`text-xs font-medium ${integrations?.googleAds ? "text-amber-500" : "text-muted-foreground/35"}`}>
+                Google Ads
+              </span>
+            </div>
+          </div>
+
+        </div>
+
+        {/* ── Linha 2: Resumo diário + Status IA ───────────────────────── */}
+        <div className="flex items-stretch gap-0 rounded-lg border border-border/40 overflow-hidden">
+
+          {/* Bloco esquerdo — Hoje e Ontem */}
+          <div className="flex-1 px-3 py-2 space-y-0.5">
+            <p className="text-xs text-foreground leading-snug">
+              <span className="font-semibold text-[#E85BA8]">Hoje</span>
+              <span className="text-muted-foreground"> · </span>
+              {fmt(todaySpend)}
+              <span className="text-muted-foreground"> · </span>
+              {fmtN(todayConv)} result.
+              {todayRoas > 0 && (
+                <span className="text-muted-foreground"> · {todayRoas.toFixed(2)}x ROAS</span>
               )}
-            </div>
-          </div>
-
-          {/* Bloco 2 — Integrações */}
-          <div className="md:pl-4 flex flex-col justify-center gap-1.5">
-            <p className="text-xs text-muted-foreground font-medium mb-0.5">Integrações</p>
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                <span className="text-xs text-emerald-600 font-medium">Meta Ads</span>
-              </div>
-              <div className="flex items-center gap-1">
-                {integrations?.ga4
-                  ? <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
-                  : <XCircle className="w-3.5 h-3.5 text-muted-foreground/40" />}
-                <span className={`text-xs font-medium ${integrations?.ga4 ? "text-blue-600" : "text-muted-foreground/40"}`}>GA4</span>
-              </div>
-              <div className="flex items-center gap-1">
-                {integrations?.googleAds
-                  ? <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />
-                  : <XCircle className="w-3.5 h-3.5 text-muted-foreground/40" />}
-                <span className={`text-xs font-medium ${integrations?.googleAds ? "text-amber-600" : "text-muted-foreground/40"}`}>Google Ads</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Bloco 3 — Hoje e Ontem */}
-          <div className="md:pl-4 flex flex-col justify-center gap-1">
-            <p className="text-xs text-muted-foreground font-medium mb-0.5">Resumo diário</p>
-            <p className="text-xs text-foreground">
-              <span className="font-semibold text-primary">Hoje</span>
-              {" "}· {fmt(todaySpend)} gasto · {fmtN(todayConv)} result.
-              {todayRoas > 0 && ` · ${todayRoas.toFixed(2)}x ROAS`}
             </p>
-            <p className="text-xs text-muted-foreground">
-              <span className="font-semibold">Ontem</span>
-              {" "}· {fmt(yestSpend)} gasto · {fmtN(yestConv)} result.
+            <p className="text-xs text-muted-foreground leading-snug">
+              <span className="font-medium text-muted-foreground">Ontem</span>
+              <span> · </span>
+              {fmt(yestSpend)}
+              <span> · </span>
+              {fmtN(yestConv)} result.
               {yestRoas > 0 && ` · ${yestRoas.toFixed(2)}x ROAS`}
             </p>
           </div>
 
-          {/* Bloco 4 — Status IA */}
-          <div className="md:pl-4 flex items-start gap-2">
+          {/* Divisor */}
+          <div className="w-px bg-border/40" />
+
+          {/* Bloco direito — Status IA */}
+          <div className="flex items-center gap-2 px-3 py-2 min-w-0" style={{ flex: "0 0 auto", maxWidth: "55%" }}>
+            <span className="text-sm flex-shrink-0" aria-hidden>
+              {statusCfg?.indicator ?? "⚪"}
+            </span>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 mb-1">
-                {statusCfg
-                  ? <CircleDot className={`w-3.5 h-3.5 ${statusCfg.text}`} />
-                  : <CircleDot className="w-3.5 h-3.5 text-muted-foreground/40" />}
-                <p className={`text-xs font-semibold ${statusCfg?.text ?? "text-muted-foreground"}`}>
-                  {statusCfg?.label ?? "Status IA"} — 7 dias
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-                {aiSummary ?? "Análise pendente — execute um sync para gerar"}
+              <p className={`text-xs font-semibold leading-none mb-0.5 ${statusCfg?.text ?? "text-muted-foreground"}`}>
+                {statusCfg?.label ?? "Status IA"} — 7 dias
+              </p>
+              <p className="text-xs text-muted-foreground leading-snug line-clamp-1">
+                {aiSummary ?? "Análise pendente — execute um sync"}
               </p>
             </div>
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-foreground"
+              className="h-5 w-5 flex-shrink-0 text-muted-foreground/50 hover:text-foreground"
               title="Atualizar análise IA"
               disabled={refreshStatus.isPending}
               onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
@@ -199,6 +204,7 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
           </div>
 
         </div>
+
       </CardContent>
     </Card>
   );
