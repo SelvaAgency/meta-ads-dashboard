@@ -1119,6 +1119,7 @@ export async function getAdsWithInsights(
     }>(`act_${accountId}/ads`, {
       access_token: accessToken,
       fields: "id,name,adset_id,campaign_id,status,effective_status,ad_preview_shareable_link,creative{id,object_type,thumbnail_url,image_url}",
+      filtering: JSON.stringify([{ field: "ad.impressions", operator: "GREATER_THAN", value: 0 }]),
       limit: "200",
     }, 5); // Cap at 5 pages for ads
     if (ads.length === 0) return [];
