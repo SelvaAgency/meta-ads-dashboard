@@ -712,17 +712,15 @@ export default function Dashboard() {
                     <div key={ad.adId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/30 transition-colors">
                       <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-foreground truncate">{ad.adName}</p>
-                        <p className="text-xs text-muted-foreground">{ad.ctr.toFixed(2)}% CTR</p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <div className="text-right">
-                          <p className="text-xs font-bold text-primary">{fmtNumber(ad.conversions)}</p>
-                          <p className="text-xs text-muted-foreground">{resultLabel}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs font-medium text-foreground truncate flex-1">{ad.adName}</p>
+                          <a href={ad.managerUrl} target="_blank" rel="noopener noreferrer" title="Abrir no Gerenciador" className="flex-shrink-0">
+                            <ExternalLink className="w-3 h-3 text-muted-foreground/40 hover:text-primary transition-colors" />
+                          </a>
                         </div>
-                        <a href={ad.managerUrl} target="_blank" rel="noopener noreferrer" title="Abrir no Gerenciador">
-                          <ExternalLink className="w-3.5 h-3.5 text-muted-foreground/50 hover:text-primary transition-colors" />
-                        </a>
+                        <p className="text-xs text-muted-foreground">
+                          {ad.ctr.toFixed(2)}% CTR · {fmtCurrency(ad.spend)} investido · {fmtNumber(ad.conversions)} {resultLabel.toLowerCase()}
+                        </p>
                       </div>
                     </div>
                   ))
@@ -738,11 +736,9 @@ export default function Dashboard() {
                       <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-foreground truncate">{as.adsetName}</p>
-                        <p className="text-xs text-muted-foreground">{as.ctr.toFixed(2)}% CTR</p>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-xs font-bold text-primary">{fmtNumber(as.conversions)}</p>
-                        <p className="text-xs text-muted-foreground">{resultLabel}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {as.ctr.toFixed(2)}% CTR · {fmtCurrency(as.spend)} investido · {fmtNumber(as.conversions)} {resultLabel.toLowerCase()}
+                        </p>
                       </div>
                     </div>
                   ))

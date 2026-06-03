@@ -962,6 +962,7 @@ export const appRouter = router({
             adName: ad.name,
             ctr: ad.ctr,
             conversions: ad.conversions,
+            spend: ad.spend,
             campaignId: ad.campaign_id,
             managerUrl: ad.preview_url,
           }));
@@ -996,6 +997,7 @@ export const appRouter = router({
             adsetName: as.name,
             ctr: as.ctr,
             conversions: as.conversions,
+            spend: as.spend,
             campaignId: as.campaign_id,
           }));
       }),

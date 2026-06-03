@@ -293,9 +293,19 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
             width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
             background: statusCfg?.color ?? "rgba(0,0,0,0.2)",
           }} />
-          <span style={{ fontSize: 11, fontWeight: 500, color: statusCfg?.color ?? muted }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: statusCfg?.color ?? muted, flex: 1 }}>
             {statusCfg?.label ?? "Status IA"} — 7 dias
           </span>
+          <button
+            onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
+            disabled={refreshStatus.isPending}
+            title="Atualizar análise IA"
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: muted, opacity: 0.5, transition: "opacity 0.15s" }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
+          >
+            <RefreshCw style={{ width: 10, height: 10, animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
+          </button>
         </div>
 
         <div>
@@ -321,30 +331,13 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
       {divider}
 
       {/* ── Bloco 4 — Botão Sugestões IA ─────────────────────────────────── */}
-      <div style={{ width: 140, flexShrink: 0, position: "relative" }}>
-
-        {/* Botão refresh — canto superior direito */}
-        <button
-          onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
-          disabled={refreshStatus.isPending}
-          title="Atualizar análise IA"
-          style={{
-            position: "absolute", top: 0, right: 0,
-            background: "none", border: "none", cursor: "pointer", padding: 2,
-            color: "rgba(255,255,255,0.6)",
-            transition: "color 0.15s",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "white")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.6)")}
-        >
-          <RefreshCw style={{ width: 10, height: 10, animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
-        </button>
+      <div style={{ width: 140, flexShrink: 0 }}>
 
         {/* Botão principal — navega para /suggestions */}
         <div
           onClick={() => navigate("/suggestions")}
           style={{
-            background: "#E85BA8",
+            background: "#F97316",
             borderRadius: 10,
             padding: "10px 12px",
             cursor: "pointer",
