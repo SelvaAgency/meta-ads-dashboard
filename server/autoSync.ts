@@ -66,14 +66,20 @@ import type { CampaignReportData } from "./analysisService";
 
 const SYNC_DAYS = 30; // Always sync 30 days to ensure complete data for all dashboard filters
 
+function toIsoLocal(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function getDateRange(days: number) {
   const end = new Date();
-  end.setDate(end.getDate() - 1); // ontem = último dia completo
-  const start = new Date(end);
-  start.setDate(start.getDate() - (days - 1)); // days dias contando ontem
+  const start = new Date();
+  start.setDate(start.getDate() - (days - 1));
   return {
-    startDate: start.toISOString().split("T")[0],
-    endDate: end.toISOString().split("T")[0],
+    startDate: toIsoLocal(start),
+    endDate: toIsoLocal(end), // hoje inclusive
   };
 }
 
@@ -294,6 +300,10 @@ export async function syncAccount(account: { id: number; accountId: string; acce
       } catch (_) { /* ignore alert creation errors */ }
     }
   }
+}
+
+export async function syncAllAccounts() {
+  return runAutoSync();
 }
 
 async function runAutoSync() {

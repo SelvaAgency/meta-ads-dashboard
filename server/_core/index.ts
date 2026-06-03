@@ -104,6 +104,13 @@ async function startServer() {
     }
   });
 
+  // Force sync all accounts immediately (fire-and-forget)
+  app.post("/api/sync-now", async (req, res) => {
+    const { syncAllAccounts } = await import("../autoSync");
+    syncAllAccounts().catch(console.error);
+    res.json({ ok: true, message: "Sync iniciado" });
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",
