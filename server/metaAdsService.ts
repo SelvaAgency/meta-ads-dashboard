@@ -990,6 +990,7 @@ export interface AdWithInsights {
   creative_type: string; // VIDEO, IMAGE, CAROUSEL, CATALOG
   creative_id: string; // Meta creative ID for proxy fallback
   thumbnail_url: string; // Creative preview image URL from Meta
+  preview_url: string; // ad_preview_shareable_link from Meta (public preview)
   // Insights (period)
   spend: number;
   impressions: number;
@@ -1113,10 +1114,11 @@ export async function getAdsWithInsights(
       campaign_id: string;
       status: string;
       effective_status: string;
+      ad_preview_shareable_link?: string;
       creative?: { id?: string; object_type?: string; thumbnail_url?: string; image_url?: string };
     }>(`act_${accountId}/ads`, {
       access_token: accessToken,
-      fields: "id,name,adset_id,campaign_id,status,effective_status,creative{id,object_type,thumbnail_url,image_url}",
+      fields: "id,name,adset_id,campaign_id,status,effective_status,ad_preview_shareable_link,creative{id,object_type,thumbnail_url,image_url}",
       filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]),
       limit: "500",
     }, 10); // Cap at 10 pages for ads
@@ -1185,6 +1187,8 @@ export async function getAdsWithInsights(
         creative_id: ad.creative?.id ?? "",
         // Prefer image_url (permanent CDN) > thumbnail_url (may expire)
         thumbnail_url: ad.creative?.image_url || ad.creative?.thumbnail_url || "",
+        // Public preview link — falls back to archive URL if API doesn't return the field
+        preview_url: ad.ad_preview_shareable_link || `https://www.facebook.com/ads/archive/render_ad/?id=${ad.id}`,
         spend, impressions, clicks, frequency, ctr, cpc, cpm,
         conversions, costPerResult, roas,
       };

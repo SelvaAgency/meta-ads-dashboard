@@ -963,7 +963,7 @@ export const appRouter = router({
             ctr: ad.ctr,
             conversions: ad.conversions,
             campaignId: ad.campaign_id,
-            managerUrl: `https://adsmanager.facebook.com/adsmanager/manage/ads?act=act_${account.accountId}&selected_ad_ids=${ad.id}`,
+            managerUrl: ad.preview_url,
           }));
       }),
 
