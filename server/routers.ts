@@ -46,6 +46,7 @@ import {
   upsertCampaignMetrics,
   updateMetaAdAccountSync,
   updateAccountAiStatus,
+  updateAccountNote,
   markStaleCampaignsArchived,
   forceUpdateAllTokens,
 } from "./db";
@@ -464,6 +465,15 @@ export const appRouter = router({
 
         await updateMetaAdAccountSync(account.id);
         return { success: true, campaignsSynced: metaCampaigns.length, insightsSynced: insights.length };
+      }),
+
+    // ─── Account Note ─────────────────────────────────────────────────────────
+    updateNote: protectedProcedure
+      .input(z.object({ accountId: z.number(), note: z.string().max(1000) }))
+      .mutation(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id);
+        await updateAccountNote(input.accountId, input.note);
+        return { success: true };
       }),
 
     // ─── AI Status Summary ────────────────────────────────────────────────────

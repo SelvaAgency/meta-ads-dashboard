@@ -276,30 +276,49 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             const isActive = location === item.path;
             const Icon = item.icon;
             return (
-              <Link key={item.path} href={item.path}>
-                <div
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-150 group ${
-                    isActive
-                      ? "bg-sidebar-primary/15 text-sidebar-primary font-semibold border-l-2 border-sidebar-primary"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-primary/10 hover:text-sidebar-primary"
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 flex-shrink-0 transition-colors ${isActive ? "text-primary" : "group-hover:text-primary"}`} />
-                  {sidebarOpen && (
-                    <>
-                      <span className="text-sm font-medium flex-1 truncate">{item.label}</span>
-                      {item.badge != null && item.badge > 0 && (
-                        <Badge
-                          variant="destructive"
-                          className="h-5 min-w-5 px-1.5 text-xs flex items-center justify-center font-bold shadow-sm"
-                        >
-                          {item.badge > 99 ? "99+" : item.badge}
-                        </Badge>
+              <div key={item.path}>
+                <Link href={item.path}>
+                  <div
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-150 group ${
+                      isActive
+                        ? "bg-sidebar-primary/15 text-sidebar-primary font-semibold border-l-2 border-sidebar-primary"
+                        : "text-sidebar-foreground/70 hover:bg-sidebar-primary/10 hover:text-sidebar-primary"
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 flex-shrink-0 transition-colors ${isActive ? "text-primary" : "group-hover:text-primary"}`} />
+                    {sidebarOpen && (
+                      <>
+                        <span className="text-sm font-medium flex-1 truncate">{item.label}</span>
+                        {item.badge != null && item.badge > 0 && (
+                          <Badge
+                            variant="destructive"
+                            className="h-5 min-w-5 px-1.5 text-xs flex items-center justify-center font-bold shadow-sm"
+                          >
+                            {item.badge > 99 ? "99+" : item.badge}
+                          </Badge>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </Link>
+                {/* Sugestões IA — submenu indentado abaixo de Dashboard */}
+                {item.path === "/dashboard" && (
+                  <Link href="/suggestions">
+                    <div
+                      className={`flex items-center gap-2.5 pl-9 pr-3 py-2 rounded-lg cursor-pointer transition-all duration-150 group ${
+                        location === "/suggestions"
+                          ? "bg-sidebar-primary/15 text-sidebar-primary font-semibold border-l-2 border-sidebar-primary"
+                          : "text-sidebar-foreground/50 hover:bg-sidebar-primary/10 hover:text-sidebar-primary"
+                      }`}
+                    >
+                      <Lightbulb className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${location === "/suggestions" ? "text-primary" : "group-hover:text-primary"}`} />
+                      {sidebarOpen && (
+                        <span className="text-xs font-medium flex-1 truncate">Sugestões IA</span>
                       )}
-                    </>
-                  )}
-                </div>
-              </Link>
+                    </div>
+                  </Link>
+                )}
+              </div>
             );
           })}
 

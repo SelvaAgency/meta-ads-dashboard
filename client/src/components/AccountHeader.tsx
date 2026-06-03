@@ -2,8 +2,8 @@ import { trpc } from "@/lib/trpc";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
-import { useMemo, useState } from "react";
+import { RefreshCw, ChevronDown, ChevronUp, Pencil, Check, X } from "lucide-react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -23,6 +23,10 @@ function fmt(n: number) {
 function fmtN(n: number) {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return n.toLocaleString("pt-BR");
+}
+function fmtDateShort(d: Date | string | null) {
+  if (!d) return "";
+  return new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
 const ACCOUNT_COLORS: Record<string, { bg: string; color: string }> = {
@@ -45,6 +49,10 @@ const STATUS_CFG = {
   yellow: { color: "#EF9F27", label: "Atenção"  },
   red:    { color: "#E24B4A", label: "Crítico"  },
 };
+
+const divider = (
+  <div style={{ width: "0.5px", alignSelf: "stretch", background: "rgba(0,0,0,0.08)", flexShrink: 0 }} />
+);
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -77,11 +85,34 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
     { enabled: !!selectedAccountId, staleTime: 60_000 }
   );
 
+  // Last 2 applied suggestions
+  const { data: suggestions } = trpc.suggestions.list.useQuery(
+    { accountId: selectedAccountId! },
+    { enabled: !!selectedAccountId, staleTime: 120_000 }
+  );
+  const lastApplied = useMemo(
+    () => (suggestions ?? []).filter((s: any) => s.status === "applied").slice(0, 2),
+    [suggestions]
+  );
+
+  // Account note editing
+  const savedNote = (activeAccount as any)?.accountNote as string | null ?? "";
+  const [editing, setEditing] = useState(false);
+  const [noteValue, setNoteValue] = useState(savedNote);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { setNoteValue(savedNote); }, [savedNote]);
+  useEffect(() => { if (editing) textareaRef.current?.focus(); }, [editing]);
+
+  const updateNote = trpc.accounts.updateNote.useMutation({
+    onSuccess: () => { utils.accounts.list.invalidate(); setEditing(false); },
+    onError: () => toast.error("Erro ao salvar nota"),
+  });
+
+  // AI status + refresh
   const refreshStatus = trpc.accounts.refreshStatus.useMutation({
     onSuccess: () => { utils.accounts.list.invalidate(); toast.success("Status IA atualizado"); },
     onError:   () => toast.error("Erro ao atualizar status IA"),
   });
-
   const [expanded, setExpanded] = useState(false);
 
   if (!selectedAccountId || !activeAccount) return null;
@@ -101,29 +132,28 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
   const aiSummary = (activeAccount as any).aiStatusSummary as string | null;
   const statusCfg = aiColor ? STATUS_CFG[aiColor] : null;
 
-  const sep = <span style={{ opacity: 0.3, margin: "0 4px" }}>·</span>;
+  const sep  = <span style={{ opacity: 0.3, margin: "0 4px" }}>·</span>;
   const pipe = <span style={{ opacity: 0.25, margin: "0 8px" }}>|</span>;
 
+  const muted = "rgba(0,0,0,0.4)";
+
   return (
-    <div
-      style={{
-        background: "white",
-        border: "1px solid rgba(0,0,0,0.08)",
-        borderRadius: "12px",
-        padding: "12px 16px",
-        marginBottom: "16px",
-        display: "flex",
-        alignItems: "center",
-        gap: "16px",
-      }}
-    >
-      {/* ── Bloco esquerdo ──────────────────────────────────────────── */}
+    <div style={{
+      background: "white",
+      border: "1px solid rgba(0,0,0,0.08)",
+      borderRadius: "12px",
+      padding: "12px 16px",
+      marginBottom: "16px",
+      display: "flex",
+      alignItems: "center",
+      gap: "16px",
+    }}>
+
+      {/* ── Bloco esquerdo — identidade + diário ────────────────────────── */}
       <div style={{ flex: 1, minWidth: 0 }}>
 
         {/* Linha 1 — identidade + integrações */}
         <div style={{ display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", overflow: "hidden" }}>
-
-          {/* Círculo iniciais */}
           <div style={{
             width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
             background: palette.bg, color: palette.color,
@@ -132,144 +162,166 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
           }}>
             {initials}
           </div>
-
-          {/* Nome */}
-          <span style={{
-            fontSize: 13, fontWeight: 500,
-            color: "hsl(var(--foreground))",
-            overflow: "hidden", textOverflow: "ellipsis",
-            maxWidth: 180,
-          }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: "#111", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 180 }}>
             {accountName}
           </span>
-
-          {/* Badge objetivo */}
           {goalLabel && (
             <span style={{
               fontSize: 10, fontWeight: 500, flexShrink: 0,
               padding: "2px 8px", borderRadius: 99,
-              background: "hsl(var(--primary) / 0.12)",
-              color: "hsl(var(--primary))",
-              border: "1px solid hsl(var(--primary) / 0.25)",
+              background: "rgba(232,91,168,0.1)", color: "#E85BA8",
+              border: "1px solid rgba(232,91,168,0.25)",
             }}>
               {goalEmoji} {goalLabel}
             </span>
           )}
-
-          {/* Integrações */}
-          <span style={{ opacity: 0.25, margin: "0 2px" }}>•</span>
-
-          <span style={{ fontSize: 10, fontWeight: 500, color: "#1D9E75", opacity: 0.85, flexShrink: 0 }}>
-            ● Meta Ads
-          </span>
-          <span style={{
-            fontSize: 10, fontWeight: 500, flexShrink: 0,
-            color: integrations?.ga4 ? "#60a5fa" : "hsl(var(--muted-foreground))",
-            opacity: integrations?.ga4 ? 0.85 : 0.45,
-          }}>
+          <span style={{ opacity: 0.2, margin: "0 2px" }}>•</span>
+          <span style={{ fontSize: 10, fontWeight: 500, color: "#1D9E75", opacity: 0.85, flexShrink: 0 }}>● Meta Ads</span>
+          <span style={{ fontSize: 10, fontWeight: 500, flexShrink: 0, color: integrations?.ga4 ? "#60a5fa" : muted, opacity: integrations?.ga4 ? 0.85 : 0.5 }}>
             {integrations?.ga4 ? "●" : "○"} GA4
           </span>
-          <span style={{
-            fontSize: 10, fontWeight: 500, flexShrink: 0,
-            color: integrations?.googleAds ? "#fbbf24" : "hsl(var(--muted-foreground))",
-            opacity: integrations?.googleAds ? 0.85 : 0.45,
-          }}>
+          <span style={{ fontSize: 10, fontWeight: 500, flexShrink: 0, color: integrations?.googleAds ? "#fbbf24" : muted, opacity: integrations?.googleAds ? 0.85 : 0.5 }}>
             {integrations?.googleAds ? "●" : "○"} Google Ads
           </span>
         </div>
 
         {/* Linha 2 — resumo diário */}
-        <div style={{
-          display: "flex", alignItems: "center",
-          marginTop: 4, whiteSpace: "nowrap",
-          overflow: "hidden", textOverflow: "ellipsis",
-          fontSize: 12, color: "hsl(var(--muted-foreground))",
-        }}>
+        <div style={{ display: "flex", alignItems: "center", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 12, color: muted }}>
           <span style={{ color: "#E85BA8", fontWeight: 500 }}>Hoje</span>
           {sep}{fmt(todaySpend)}{sep}{fmtN(todayConv)} result.
           {todayRoas > 0 && <>{sep}{todayRoas.toFixed(2)}x ROAS</>}
           {pipe}
-          <span style={{ fontWeight: 500, color: "hsl(var(--muted-foreground))" }}>Ontem</span>
+          <span style={{ fontWeight: 500, color: muted }}>Ontem</span>
           {sep}{fmt(yestSpend)}{sep}{fmtN(yestConv)} result.
           {yestRoas > 0 && <>{sep}{yestRoas.toFixed(2)}x ROAS</>}
         </div>
 
       </div>
 
-      {/* ── Divisor vertical ────────────────────────────────────────── */}
-      <div style={{ width: "0.5px", alignSelf: "stretch", background: "hsl(var(--border))", opacity: 0.5, flexShrink: 0 }} />
+      {divider}
 
-      {/* ── Bloco direito — Status IA ────────────────────────────────── */}
+      {/* ── Bloco meio — últimas ações + nota ───────────────────────────── */}
+      <div style={{ width: 220, flexShrink: 0 }}>
+
+        {/* Últimas ações */}
+        <div style={{ marginBottom: 6 }}>
+          <p style={{ fontSize: 10, fontWeight: 600, color: muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>
+            Últimas ações
+          </p>
+          {lastApplied.length === 0 ? (
+            <p style={{ fontSize: 11, color: muted, opacity: 0.6 }}>Nenhuma ação registrada</p>
+          ) : (
+            lastApplied.map((s: any) => (
+              <div key={s.id} style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 2 }}>
+                <span style={{ fontSize: 11, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+                  {s.title}
+                </span>
+                <span style={{ fontSize: 10, color: muted, flexShrink: 0 }}>{fmtDateShort(s.appliedAt)}</span>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Nota da conta */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
+            <p style={{ fontSize: 10, fontWeight: 600, color: muted, textTransform: "uppercase", letterSpacing: 0.5, flex: 1 }}>
+              Nota
+            </p>
+            {editing ? (
+              <div style={{ display: "flex", gap: 2 }}>
+                <button
+                  onClick={() => { updateNote.mutate({ accountId: selectedAccountId, note: noteValue }); }}
+                  disabled={updateNote.isPending}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: "#1D9E75" }}
+                  title="Salvar"
+                >
+                  <Check style={{ width: 11, height: 11 }} />
+                </button>
+                <button
+                  onClick={() => { setNoteValue(savedNote); setEditing(false); }}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: muted }}
+                  title="Cancelar"
+                >
+                  <X style={{ width: 11, height: 11 }} />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setEditing(true)}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: muted, opacity: 0.5 }}
+                title="Editar nota"
+              >
+                <Pencil style={{ width: 10, height: 10 }} />
+              </button>
+            )}
+          </div>
+
+          {editing ? (
+            <textarea
+              ref={textareaRef}
+              value={noteValue}
+              onChange={(e) => setNoteValue(e.target.value)}
+              rows={2}
+              style={{
+                width: "100%", fontSize: 11, lineHeight: 1.4, padding: "3px 6px",
+                borderRadius: 6, border: "1px solid rgba(232,91,168,0.4)",
+                resize: "none", outline: "none", fontFamily: "inherit",
+                color: "#111",
+              }}
+              placeholder="Adicionar nota..."
+            />
+          ) : (
+            <p
+              style={{ fontSize: 11, color: noteValue ? "#111" : muted, lineHeight: 1.4, cursor: "text", opacity: noteValue ? 1 : 0.5 }}
+              onClick={() => setEditing(true)}
+            >
+              {noteValue || "Adicionar nota..."}
+            </p>
+          )}
+        </div>
+
+      </div>
+
+      {divider}
+
+      {/* ── Bloco direito — Status IA ────────────────────────────────────── */}
       <div style={{ width: 190, flexShrink: 0 }}>
 
-        {/* Linha 1 — dot + label + refresh */}
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
           <div style={{
             width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
-            background: statusCfg?.color ?? "hsl(var(--muted-foreground) / 0.4)",
+            background: statusCfg?.color ?? "rgba(0,0,0,0.2)",
           }} />
-          <span style={{
-            fontSize: 11, fontWeight: 500,
-            color: statusCfg?.color ?? "hsl(var(--muted-foreground))",
-            flex: 1,
-          }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: statusCfg?.color ?? muted, flex: 1 }}>
             {statusCfg?.label ?? "Status IA"} — 7 dias
           </span>
           <Button
-            variant="ghost"
-            size="icon"
+            variant="ghost" size="icon"
             style={{ width: 18, height: 18, flexShrink: 0, marginLeft: "auto" }}
             title="Atualizar análise IA"
             disabled={refreshStatus.isPending}
             onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
           >
-            <RefreshCw style={{
-              width: 11, height: 11,
-              color: "hsl(var(--muted-foreground))",
-              animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined,
-            }} />
+            <RefreshCw style={{ width: 11, height: 11, color: muted, animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
           </Button>
         </div>
 
-        {/* Linha 2 — summary expansível */}
         <div style={{ marginTop: 2 }}>
           <p style={{
-            fontSize: 11, lineHeight: 1.4,
-            color: "hsl(var(--muted-foreground))",
+            fontSize: 11, lineHeight: 1.4, color: muted,
             transition: "all 0.2s ease",
-            ...(expanded
-              ? {}
-              : {
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }),
+            ...(expanded ? {} : { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }),
           }}>
             {aiSummary ?? "Análise pendente — execute um sync"}
           </p>
           <button
-            onClick={() => setExpanded((v) => !v)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 2,
-              marginTop: 2,
-              background: "none",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-              color: "hsl(var(--muted-foreground))",
-              opacity: 0.5,
-              fontSize: 10,
-              transition: "opacity 0.2s ease",
-            }}
+            onClick={() => setExpanded(v => !v)}
+            style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 2, background: "none", border: "none", padding: 0, cursor: "pointer", color: muted, opacity: 0.5, fontSize: 10, transition: "opacity 0.2s ease" }}
             onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
           >
-            {expanded
-              ? <ChevronUp style={{ width: 10, height: 10 }} />
-              : <ChevronDown style={{ width: 10, height: 10 }} />}
+            {expanded ? <ChevronUp style={{ width: 10, height: 10 }} /> : <ChevronDown style={{ width: 10, height: 10 }} />}
           </button>
         </div>
 

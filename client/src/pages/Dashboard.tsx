@@ -609,111 +609,6 @@ export default function Dashboard() {
           </Card>
         )}
 
-        {/* Adaptive KPI Cards — 4 per row */}
-        {isLoading ? (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {[...Array(8)].map((_, i) => (
-              <Card key={i} className="border-border bg-card">
-                <CardContent className="p-5">
-                  <div className="h-4 bg-muted rounded animate-pulse mb-3 w-8" />
-                  <div className="h-7 bg-muted rounded animate-pulse mb-1 w-24" />
-                  <div className="h-3 bg-muted rounded animate-pulse w-20" />
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in-50 duration-500">
-              {kpiDefs.slice(0, 4).map((kpi, idx) => (
-                <div key={kpi.key} style={{ animationDelay: `${idx * 50}ms` }}>
-                  <MetricCard
-                    title={kpi.label}
-                    subtitle={kpi.subtitle}
-                    value={totals ? kpi.format(totals) : "—"}
-                    icon={kpi.icon}
-                    color={kpi.color}
-                    trend={kpi.trend ? kpi.trend(totals ?? {}) : undefined}
-                    trendValue={kpi.trendLabel ? kpi.trendLabel(totals ?? {}) : undefined}
-                  />
-                </div>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in-50 duration-500" style={{ animationDelay: "200ms" }}>
-              {kpiDefs.slice(4, 8).map((kpi, idx) => (
-                <div key={kpi.key} style={{ animationDelay: `${idx * 50}ms` }}>
-                  <MetricCard
-                    title={kpi.label}
-                    subtitle={kpi.subtitle}
-                    value={totals ? kpi.format(totals) : "—"}
-                    icon={kpi.icon}
-                    color={kpi.color}
-                  />
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card className="border-border bg-card">
-            <CardHeader className="pb-2 border-b border-border/30">
-              <CardTitle className="text-sm font-bold text-foreground">Investimento Diário (R$)</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-4">
-              <ResponsiveContainer width="100%" height={200}>
-                <AreaChart data={chartData}>
-                  <defs>
-                    <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#E85BA8" stopOpacity={0.25} />
-                      <stop offset="95%" stopColor="#E85BA8" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E8D5E0" opacity={0.5} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#666666" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#666666" }} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Area type="monotone" dataKey="Gasto" stroke="#E85BA8" fill="url(#spendGrad)" strokeWidth={2.5} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border bg-card">
-            <CardHeader className="pb-2 border-b border-border/30">
-              <CardTitle className="text-sm font-bold text-foreground">
-                {chartMetricKey === "ROAS"
-                  ? "ROAS Diário"
-                  : `${chartMetricLabel} Diários`}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-4">
-              <ResponsiveContainer width="100%" height={200}>
-                <AreaChart data={chartData}>
-                  <defs>
-                    <linearGradient id="resultGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#F5B8D8" stopOpacity={0.25} />
-                      <stop offset="95%" stopColor="#F5B8D8" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E8D5E0" opacity={0.5} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#666666" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#666666" }} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Area
-                    type="monotone"
-                    dataKey={chartMetricKey}
-                    stroke="#F5B8D8"
-                    fill="url(#resultGrad)"
-                    strokeWidth={2.5}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
-
         {/* ─── Campanhas + Top Criativos/Públicos ───────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
@@ -839,6 +734,129 @@ export default function Dashboard() {
 
         </div>
 
+        {/* Adaptive KPI Cards — 4 per row */}
+        {isLoading ? (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[...Array(8)].map((_, i) => (
+              <Card key={i} className="border-border bg-card">
+                <CardContent className="p-5">
+                  <div className="h-4 bg-muted rounded animate-pulse mb-3 w-8" />
+                  <div className="h-7 bg-muted rounded animate-pulse mb-1 w-24" />
+                  <div className="h-3 bg-muted rounded animate-pulse w-20" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in-50 duration-500">
+              {kpiDefs.slice(0, 4).map((kpi, idx) => (
+                <div key={kpi.key} style={{ animationDelay: `${idx * 50}ms` }}>
+                  <MetricCard
+                    title={kpi.label}
+                    subtitle={kpi.subtitle}
+                    value={totals ? kpi.format(totals) : "—"}
+                    icon={kpi.icon}
+                    color={kpi.color}
+                    trend={kpi.trend ? kpi.trend(totals ?? {}) : undefined}
+                    trendValue={kpi.trendLabel ? kpi.trendLabel(totals ?? {}) : undefined}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in-50 duration-500" style={{ animationDelay: "200ms" }}>
+              {kpiDefs.slice(4, 8).map((kpi, idx) => (
+                <div key={kpi.key} style={{ animationDelay: `${idx * 50}ms` }}>
+                  <MetricCard
+                    title={kpi.label}
+                    subtitle={kpi.subtitle}
+                    value={totals ? kpi.format(totals) : "—"}
+                    icon={kpi.icon}
+                    color={kpi.color}
+                  />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="border-border bg-card">
+            <CardHeader className="pb-2 border-b border-border/30">
+              <CardTitle className="text-sm font-bold text-foreground">Investimento Diário (R$)</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#E85BA8" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#E85BA8" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E8D5E0" opacity={0.5} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#666666" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#666666" }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Area type="monotone" dataKey="Gasto" stroke="#E85BA8" fill="url(#spendGrad)" strokeWidth={2.5} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border bg-card">
+            <CardHeader className="pb-2 border-b border-border/30">
+              <CardTitle className="text-sm font-bold text-foreground">
+                {chartMetricKey === "ROAS"
+                  ? "ROAS Diário"
+                  : `${chartMetricLabel} Diários`}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="resultGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#F5B8D8" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#F5B8D8" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E8D5E0" opacity={0.5} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#666666" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#666666" }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Area
+                    type="monotone"
+                    dataKey={chartMetricKey}
+                    stroke="#F5B8D8"
+                    fill="url(#resultGrad)"
+                    strokeWidth={2.5}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </div>
+
+
+        {/* Ver sugestões da IA */}
+        <div style={{ textAlign: "center", paddingTop: 4 }}>
+          <a
+            href="/suggestions"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              fontSize: 13, fontWeight: 500, color: "#E85BA8",
+              textDecoration: "none", padding: "8px 20px",
+              border: "1px solid rgba(232,91,168,0.3)", borderRadius: 99,
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={(e: any) => { e.currentTarget.style.background = "rgba(232,91,168,0.06)"; }}
+            onMouseLeave={(e: any) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            Ver sugestões da IA →
+          </a>
+        </div>
       </div>
     </MetaDashboardLayout>
   );

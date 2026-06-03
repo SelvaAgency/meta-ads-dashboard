@@ -43,6 +43,7 @@ export const metaAdAccounts = mysqlTable("meta_ad_accounts", {
   lastSyncAt: timestamp("lastSyncAt"),
   aiStatusSummary: text("aiStatusSummary"),
   aiStatusColor: mysqlEnum("aiStatusColor", ["green", "yellow", "red"]),
+  accountNote: text("accountNote"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
