@@ -51,15 +51,6 @@ const STATUS_CFG = {
   red:    { color: "#E24B4A", label: "Crítico"  },
 };
 
-// Block widths — must match the spacers in Row 2 exactly
-const W2 = 190; // Últimas ações
-const W3 = 220; // Resumo geral
-const W4 = 190; // Nota
-
-const vDivider = (
-  <div style={{ width: "0.5px", alignSelf: "stretch", background: "rgba(0,0,0,0.08)", flexShrink: 0 }} />
-);
-
 const blockLabel = (text: string) => (
   <p style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.3)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>
     {text}
@@ -169,18 +160,22 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
       background: "white",
       border: "1px solid rgba(0,0,0,0.08)",
       borderRadius: "12px",
-      padding: "12px 16px",
       marginBottom: "16px",
       display: "flex",
-      flexDirection: "column",
-      gap: 0,
+      flexDirection: "row",
+      alignItems: "stretch",
+      overflow: "hidden",
     }}>
 
-      {/* ══ ROW 1 ══════════════════════════════════════════════════════════ */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      {/* ══ Col 1 — Identity quadrant (280px, column) ═══════════════════════ */}
+      <div style={{
+        width: 280, flexShrink: 0,
+        display: "flex", flexDirection: "column",
+        padding: "12px 16px",
+      }}>
 
-        {/* Block 1 — Identity + daily snapshot */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Top: identity + today/yesterday */}
+        <div>
           <div style={{ display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", overflow: "hidden" }}>
             <div style={{
               width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
@@ -190,7 +185,7 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
             }}>
               {initials}
             </div>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "#111", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 180 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "#111", overflow: "hidden", textOverflow: "ellipsis" }}>
               {accountName}
             </span>
             {goalLabel && (
@@ -203,16 +198,17 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
                 {goalEmoji} {goalLabel}
               </span>
             )}
-            <span style={{ opacity: 0.2, margin: "0 2px" }}>•</span>
-            <span style={{ fontSize: 10, fontWeight: 500, color: "#1D9E75", opacity: 0.85, flexShrink: 0 }}>● Meta Ads</span>
-            <span style={{ fontSize: 10, fontWeight: 500, flexShrink: 0, color: integrations?.ga4 ? "#60a5fa" : muted, opacity: integrations?.ga4 ? 0.85 : 0.45 }}>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", fontSize: 10 }}>
+            <span style={{ fontWeight: 500, color: "#1D9E75", opacity: 0.85 }}>● Meta Ads</span>
+            <span style={{ fontWeight: 500, color: integrations?.ga4 ? "#60a5fa" : muted, opacity: integrations?.ga4 ? 0.85 : 0.4 }}>
               {integrations?.ga4 ? "●" : "○"} GA4
             </span>
-            <span style={{ fontSize: 10, fontWeight: 500, flexShrink: 0, color: integrations?.googleAds ? "#fbbf24" : muted, opacity: integrations?.googleAds ? 0.85 : 0.45 }}>
+            <span style={{ fontWeight: 500, color: integrations?.googleAds ? "#fbbf24" : muted, opacity: integrations?.googleAds ? 0.85 : 0.4 }}>
               {integrations?.googleAds ? "●" : "○"} Google Ads
             </span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 12, color: muted }}>
+          <div style={{ display: "flex", alignItems: "center", marginTop: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 12, color: muted }}>
             <span style={{ color: "#E85BA8", fontWeight: 500 }}>Hoje</span>
             {sep}{fmt(todaySpend)}{sep}{fmtN(todayConv)} result.
             {todayRoas > 0 && <>{sep}{todayRoas.toFixed(2)}x ROAS</>}
@@ -223,10 +219,34 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
           </div>
         </div>
 
-        {vDivider}
+        {/* Bottom: Sugestões button fills remaining height */}
+        <div style={{ flex: 1, display: "flex", alignItems: "flex-end", paddingTop: 12 }}>
+          <div
+            onClick={() => navigate("/suggestions")}
+            style={{
+              width: "100%",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+              background: "#F97316", borderRadius: 8, padding: "8px 12px",
+              cursor: "pointer", transition: "opacity 0.15s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+            title="Ver sugestões da IA"
+          >
+            <Lightbulb style={{ width: 14, height: 14, color: "white", flexShrink: 0 }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: "white", whiteSpace: "nowrap" }}>Sugestões da IA</span>
+          </div>
+        </div>
+      </div>
 
-        {/* Block 2 — Últimas Ações */}
-        <div style={{ width: W2, flexShrink: 0 }}>
+      {/* Divider between col 1 and right columns */}
+      <div style={{ borderLeft: "1px solid rgba(0,0,0,0.06)", alignSelf: "stretch" }} />
+
+      {/* ══ Col 2 — Right three blocks (flex: 1, row, stretch) ══════════════ */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "row", alignItems: "stretch", minWidth: 0 }}>
+
+        {/* Block A — Últimas Ações */}
+        <div style={{ flex: 1, padding: "12px 16px", minWidth: 0 }}>
           {blockLabel("Últimas Ações")}
           {lastApplied.length === 0 ? (
             <p style={{ fontSize: 11, color: muted, opacity: 0.6 }}>Nenhuma ação registrada</p>
@@ -242,12 +262,12 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
           )}
         </div>
 
-        {vDivider}
+        <div style={{ borderLeft: "1px solid rgba(0,0,0,0.06)", alignSelf: "stretch" }} />
 
-        {/* Block 3 — Resumo Geral */}
-        <div style={{ width: W3, flexShrink: 0 }}>
+        {/* Block B — Resumo Geral */}
+        <div style={{ flex: 1, padding: "12px 16px", minWidth: 0 }}>
           {blockLabel("Resumo Geral")}
-          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
             <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: statusCfg?.color ?? "rgba(0,0,0,0.2)" }} />
             <span style={{ fontSize: 11, fontWeight: 500, color: statusCfg?.color ?? muted, flex: 1 }}>
               {statusCfg?.label ?? "Status IA"} — 7 dias
@@ -263,25 +283,21 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
               <RefreshCw style={{ width: 10, height: 10, animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
             </button>
           </div>
-
-          {/* Summary — full text by default; clamped only when expanded=false AND overflows */}
           <p
             ref={summaryRef}
             style={{
               fontSize: 11, lineHeight: 1.4, color: muted,
-              transition: "max-height 0.2s ease",
               overflow: "hidden",
               maxHeight: expanded ? "none" : CLAMP_HEIGHT,
+              transition: "max-height 0.2s ease",
             }}
           >
             {aiSummary}
           </p>
-
-          {/* Chevron — only rendered when overflow is detected */}
           {summaryOverflows && (
             <button
               onClick={() => setExpanded(v => !v)}
-              style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 2, background: "none", border: "none", padding: 0, cursor: "pointer", color: muted, opacity: 0.5, fontSize: 10, transition: "opacity 0.2s ease" }}
+              style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 3, background: "none", border: "none", padding: 0, cursor: "pointer", color: muted, opacity: 0.5, fontSize: 10, transition: "opacity 0.2s ease" }}
               onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
               onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
             >
@@ -290,10 +306,10 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
           )}
         </div>
 
-        {vDivider}
+        <div style={{ borderLeft: "1px solid rgba(0,0,0,0.06)", alignSelf: "stretch" }} />
 
-        {/* Block 4 — Nota */}
-        <div style={{ width: W4, flexShrink: 0 }}>
+        {/* Block C — Nota */}
+        <div style={{ flex: 1, padding: "12px 16px", minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
             {blockLabel("Nota")}
             <div style={{ flex: 1 }} />
@@ -320,7 +336,7 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
               ref={textareaRef}
               value={noteValue}
               onChange={(e) => setNoteValue(e.target.value)}
-              rows={2}
+              rows={3}
               style={{ width: "100%", fontSize: 11, lineHeight: 1.4, padding: "3px 6px", borderRadius: 6, border: "1px solid rgba(232,91,168,0.4)", resize: "none", outline: "none", fontFamily: "inherit", color: "#111" }}
               placeholder="Adicionar nota..."
             />
@@ -332,38 +348,6 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
         </div>
 
       </div>
-
-      {/* ══ ROW 2 — footer ══════════════════════════════════════════════════ */}
-      <div style={{ borderTop: "1px solid rgba(0,0,0,0.06)", marginTop: 10, paddingTop: 8, display: "flex", alignItems: "center", gap: 16 }}>
-
-        {/* flex:1 wrapper matches Block 1 width exactly; button fills it */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            onClick={() => navigate("/suggestions")}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-              width: "100%",
-              background: "#F97316", borderRadius: 8, padding: "7px 14px",
-              cursor: "pointer", transition: "opacity 0.15s",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-            title="Ver sugestões da IA"
-          >
-            <Lightbulb style={{ width: 14, height: 14, color: "white", flexShrink: 0 }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: "white", whiteSpace: "nowrap" }}>Sugestões da IA</span>
-          </div>
-        </div>
-
-        {/* Invisible spacers — keep button aligned with Block 1 */}
-        <div style={{ width: "0.5px", flexShrink: 0 }} />
-        <div style={{ width: W2, flexShrink: 0 }} />
-        <div style={{ width: "0.5px", flexShrink: 0 }} />
-        <div style={{ width: W3, flexShrink: 0 }} />
-        <div style={{ width: "0.5px", flexShrink: 0 }} />
-        <div style={{ width: W4, flexShrink: 0 }} />
-      </div>
-
     </div>
   );
 }
