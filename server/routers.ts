@@ -45,6 +45,7 @@ import {
   upsertCampaign,
   upsertCampaignMetrics,
   updateMetaAdAccountSync,
+  updateAccountAiStatus,
   markStaleCampaignsArchived,
   forceUpdateAllTokens,
 } from "./db";
@@ -77,6 +78,7 @@ import {
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
+import { invokeLLM, extractTextContent } from "./_core/llm";
 import {
   getGoogleAdsConfig,
   isGoogleAdsConfigured,
@@ -462,6 +464,49 @@ export const appRouter = router({
 
         await updateMetaAdAccountSync(account.id);
         return { success: true, campaignsSynced: metaCampaigns.length, insightsSynced: insights.length };
+      }),
+
+    // ─── AI Status Summary ────────────────────────────────────────────────────
+    refreshStatus: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id);
+        const { startDate, endDate } = getDateRange(7);
+        const metrics = await getAccountMetricsSummary(input.accountId, startDate, endDate);
+
+        const totals = metrics.reduce(
+          (acc, m) => ({
+            spend: acc.spend + Number(m.totalSpend ?? 0),
+            impressions: acc.impressions + Number(m.totalImpressions ?? 0),
+            clicks: acc.clicks + Number(m.totalClicks ?? 0),
+            conversions: acc.conversions + Number(m.totalConversions ?? 0),
+            conversionValue: acc.conversionValue + Number(m.totalConversionValue ?? 0),
+          }),
+          { spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionValue: 0 }
+        );
+        const roas = totals.spend > 0 ? totals.conversionValue / totals.spend : 0;
+        const cpa = totals.conversions > 0 ? totals.spend / totals.conversions : 0;
+        const ctr = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
+
+        const result = await invokeLLM({
+          messages: [{
+            role: "user",
+            content: `Analise os dados de performance dos últimos 7 dias e retorne um JSON com dois campos: "color" (green/yellow/red) e "summary" (máx 120 caracteres em português, direto ao ponto, sem emoji). Verde = conta saudável, Amarelo = atenção necessária, Vermelho = problema crítico.\n\nDados:\n${JSON.stringify({ ...totals, roas: roas.toFixed(2), cpa: cpa.toFixed(2), ctr: ctr.toFixed(2) })}`,
+          }],
+          responseFormat: { type: "json_object" },
+          thinking: false,
+        });
+
+        let color: "green" | "yellow" | "red" = "yellow";
+        let summary = "Análise pendente";
+        try {
+          const parsed = JSON.parse(extractTextContent(result));
+          if (["green", "yellow", "red"].includes(parsed.color)) color = parsed.color;
+          if (typeof parsed.summary === "string") summary = parsed.summary.slice(0, 120);
+        } catch { /* keep defaults */ }
+
+        await updateAccountAiStatus(input.accountId, color, summary);
+        return { color, summary };
       }),
   }),
 

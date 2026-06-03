@@ -41,6 +41,8 @@ export const metaAdAccounts = mysqlTable("meta_ad_accounts", {
   timezone: varchar("timezone", { length: 64 }),
   isActive: boolean("isActive").default(true).notNull(),
   lastSyncAt: timestamp("lastSyncAt"),
+  aiStatusSummary: text("aiStatusSummary"),
+  aiStatusColor: mysqlEnum("aiStatusColor", ["green", "yellow", "red"]),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

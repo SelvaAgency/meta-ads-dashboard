@@ -22,6 +22,7 @@ import {
   getAllActiveMetaAdAccounts,
   getCampaignsByAccountId,
   updateMetaAdAccountSync,
+  updateAccountAiStatus,
   upsertCampaign,
   upsertCampaignMetrics,
   getAccountMetricsSummary,
@@ -39,6 +40,7 @@ import {
   updateScheduledReport,
   purgeOldReadAnomalies,
 } from "./db";
+import { invokeLLM, extractTextContent } from "./_core/llm";
 import {
   getCampaigns,
   getAdSets,
@@ -209,6 +211,47 @@ export async function syncAccount(account: { id: number; accountId: string; acce
 
     await updateMetaAdAccountSync(account.id);
     logger.info(`[AutoSync] ✓ Account "${label}" synced — ${metaCampaigns.length} campaigns, ${insights.length} insight rows`);
+
+    // Refresh AI status summary (non-blocking — failure must not abort sync)
+    try {
+      const { startDate: s7, endDate: e7 } = getDateRange(7);
+      const metrics7 = await getAccountMetricsSummary(account.id, s7, e7);
+      const t = metrics7.reduce(
+        (acc, m) => ({
+          spend: acc.spend + Number(m.totalSpend ?? 0),
+          conversions: acc.conversions + Number(m.totalConversions ?? 0),
+          conversionValue: acc.conversionValue + Number(m.totalConversionValue ?? 0),
+          impressions: acc.impressions + Number(m.totalImpressions ?? 0),
+          clicks: acc.clicks + Number(m.totalClicks ?? 0),
+        }),
+        { spend: 0, conversions: 0, conversionValue: 0, impressions: 0, clicks: 0 }
+      );
+      const roas = t.spend > 0 ? (t.conversionValue / t.spend).toFixed(2) : "0";
+      const cpa  = t.conversions > 0 ? (t.spend / t.conversions).toFixed(2) : "0";
+      const ctr  = t.impressions > 0 ? ((t.clicks / t.impressions) * 100).toFixed(2) : "0";
+
+      const aiResult = await invokeLLM({
+        messages: [{
+          role: "user",
+          content: `Analise os dados de performance dos últimos 7 dias e retorne um JSON com dois campos: "color" (green/yellow/red) e "summary" (máx 120 caracteres em português, direto ao ponto, sem emoji). Verde = conta saudável, Amarelo = atenção necessária, Vermelho = problema crítico.\n\nDados:\n${JSON.stringify({ ...t, roas, cpa, ctr })}`,
+        }],
+        responseFormat: { type: "json_object" },
+        thinking: false,
+      });
+
+      let color: "green" | "yellow" | "red" = "yellow";
+      let summary = "Análise pendente";
+      try {
+        const parsed = JSON.parse(extractTextContent(aiResult));
+        if (["green", "yellow", "red"].includes(parsed.color)) color = parsed.color;
+        if (typeof parsed.summary === "string") summary = parsed.summary.slice(0, 120);
+      } catch { /* keep defaults */ }
+
+      await updateAccountAiStatus(account.id, color, summary);
+      logger.info(`[AutoSync] ✓ AI status refreshed for "${label}": ${color}`);
+    } catch (aiErr) {
+      console.warn(`[AutoSync] AI status refresh failed for "${label}":`, aiErr);
+    }
   } catch (err: any) {
     const errMsg = err?.message ?? String(err);
     const metaCodeMatch = errMsg.match(/Meta API Error \((\d+)\)/);

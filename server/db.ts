@@ -161,6 +161,15 @@ export async function updateMetaAdAccountSync(id: number) {
     .where(eq(metaAdAccounts.id, id));
 }
 
+export async function updateAccountAiStatus(id: number, color: "green" | "yellow" | "red", summary: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(metaAdAccounts)
+    .set({ aiStatusColor: color, aiStatusSummary: summary.slice(0, 500) })
+    .where(eq(metaAdAccounts.id, id));
+}
+
 export async function deleteMetaAdAccount(id: number, userId: number) {
   const db = await getDb();
   if (!db) return;
