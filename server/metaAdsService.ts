@@ -1106,25 +1106,8 @@ export async function getAdsWithInsights(
   adsetGoalMap?: Map<string, string>
 ): Promise<AdWithInsights[]> {
   try {
-    // Step 1: Get ads with creative type (paginated)
-    const ads = await metaFetchAll<{
-      id: string;
-      name: string;
-      adset_id: string;
-      campaign_id: string;
-      status: string;
-      effective_status: string;
-      ad_preview_shareable_link?: string;
-      creative?: { id?: string; object_type?: string; thumbnail_url?: string; image_url?: string };
-    }>(`act_${accountId}/ads`, {
-      access_token: accessToken,
-      fields: "id,name,adset_id,campaign_id,status,effective_status,ad_preview_shareable_link,creative{id,object_type,thumbnail_url,image_url}",
-      filtering: JSON.stringify([{ field: "ad.impressions", operator: "GREATER_THAN", value: 0 }]),
-      limit: "200",
-    }, 5); // Cap at 5 pages for ads
-    if (ads.length === 0) return [];
-
-    // Step 2: Get insights for all ads (paginated)
+    // Step 1: Get insights first (filtered by spend > 0 in period) to get ad IDs
+    // This avoids fetching all historical ads for large accounts
     type AdInsightRow = {
       ad_id: string;
       ad_name: string;
@@ -1150,14 +1133,44 @@ export async function getAdsWithInsights(
       filtering: JSON.stringify([{ field: "spend", operator: "GREATER_THAN", value: "0" }]),
       limit: "200",
     }, 5); // Cap at 5 pages for ad-level insights
+    if (adInsights.length === 0) return [];
 
     const insightMap = new Map<string, AdInsightRow>();
     for (const ins of adInsights) {
       insightMap.set(ins.ad_id, ins);
     }
 
-    const adsWithSpend = ads.filter((ad) => insightMap.has(ad.id));
-    return adsWithSpend.map((ad) => {
+    // Step 2: Fetch only the ads that had spend in the period, by ID
+    const adIds = Array.from(insightMap.keys());
+    const adIdChunks: string[][] = [];
+    for (let i = 0; i < adIds.length; i += 50) {
+      adIdChunks.push(adIds.slice(i, i + 50));
+    }
+
+    type AdRow = {
+      id: string;
+      name: string;
+      adset_id: string;
+      campaign_id: string;
+      status: string;
+      effective_status: string;
+      ad_preview_shareable_link?: string;
+      creative?: { id?: string; object_type?: string; thumbnail_url?: string; image_url?: string };
+    };
+
+    const ads: AdRow[] = [];
+    for (const chunk of adIdChunks) {
+      const chunkAds = await metaFetchAll<AdRow>(`act_${accountId}/ads`, {
+        access_token: accessToken,
+        fields: "id,name,adset_id,campaign_id,status,effective_status,ad_preview_shareable_link,creative{id,object_type,thumbnail_url,image_url}",
+        filtering: JSON.stringify([{ field: "id", operator: "IN", value: chunk }]),
+        limit: "50",
+      }, 1);
+      ads.push(...chunkAds);
+    }
+    if (ads.length === 0) return [];
+
+    return ads.map((ad) => {
       const ins = insightMap.get(ad.id);
       const spend = parseFloat(ins?.spend ?? "0") || 0;
       const impressions = parseInt(ins?.impressions ?? "0") || 0;
