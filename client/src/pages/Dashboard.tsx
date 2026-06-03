@@ -719,7 +719,7 @@ export default function Dashboard() {
                           </a>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          {ad.ctr.toFixed(2)}% CTR · {fmtCurrency(ad.spend)} investido · {fmtNumber(ad.conversions)} {resultLabel.toLowerCase()}
+                          {fmtNumber(ad.conversions)} {resultLabel.toLowerCase()} · {fmtCurrency(ad.spend)} · {ad.ctr.toFixed(2)}% CTR · {ad.costPerResult != null ? `${fmtCurrency(ad.costPerResult)} por resultado` : "—"}
                         </p>
                       </div>
                     </div>
@@ -737,7 +737,7 @@ export default function Dashboard() {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-foreground truncate">{as.adsetName}</p>
                         <p className="text-xs text-muted-foreground">
-                          {as.ctr.toFixed(2)}% CTR · {fmtCurrency(as.spend)} investido · {fmtNumber(as.conversions)} {resultLabel.toLowerCase()}
+                          {fmtNumber(as.conversions)} {resultLabel.toLowerCase()} · {fmtCurrency(as.spend)} · {as.ctr.toFixed(2)}% CTR · {as.costPerResult != null ? `${fmtCurrency(as.costPerResult)} por resultado` : "—"}
                         </p>
                       </div>
                     </div>

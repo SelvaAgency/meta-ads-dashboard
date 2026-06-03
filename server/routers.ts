@@ -963,6 +963,7 @@ export const appRouter = router({
             ctr: ad.ctr,
             conversions: ad.conversions,
             spend: ad.spend,
+            costPerResult: ad.conversions > 0 ? ad.spend / ad.conversions : null,
             campaignId: ad.campaign_id,
             managerUrl: ad.preview_url,
           }));
@@ -998,6 +999,7 @@ export const appRouter = router({
             ctr: as.ctr,
             conversions: as.conversions,
             spend: as.spend,
+            costPerResult: as.conversions > 0 ? as.spend / as.conversions : null,
             campaignId: as.campaign_id,
           }));
       }),
