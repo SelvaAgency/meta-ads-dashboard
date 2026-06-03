@@ -954,8 +954,12 @@ export const appRouter = router({
         }
 
         return ads
-          .filter((ad) => ad.spend > 0 && ad.ctr > 0)
-          .sort((a, b) => b.ctr - a.ctr)
+          .filter((ad) => ad.spend > 0)
+          .sort((a, b) => {
+            if (!a.conversions) return 1;
+            if (!b.conversions) return -1;
+            return (a.spend / a.conversions) - (b.spend / b.conversions);
+          })
           .slice(0, 5)
           .map((ad) => ({
             adId: ad.id,
@@ -990,8 +994,12 @@ export const appRouter = router({
         }
 
         return adsets
-          .filter((as) => as.spend > 0 && as.ctr > 0)
-          .sort((a, b) => b.ctr - a.ctr)
+          .filter((as) => as.spend > 0)
+          .sort((a, b) => {
+            if (!a.conversions) return 1;
+            if (!b.conversions) return -1;
+            return (a.spend / a.conversions) - (b.spend / b.conversions);
+          })
           .slice(0, 5)
           .map((as) => ({
             adsetId: as.id,

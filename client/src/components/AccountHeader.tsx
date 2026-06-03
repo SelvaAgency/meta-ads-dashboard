@@ -51,8 +51,19 @@ const STATUS_CFG = {
   red:    { color: "#E24B4A", label: "Crítico"  },
 };
 
-const divider = (
+// Block widths — must match the spacers in Row 2 exactly
+const W2 = 190; // Últimas ações
+const W3 = 220; // Resumo geral
+const W4 = 190; // Nota
+
+const vDivider = (
   <div style={{ width: "0.5px", alignSelf: "stretch", background: "rgba(0,0,0,0.08)", flexShrink: 0 }} />
+);
+
+const blockLabel = (text: string) => (
+  <p style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.3)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>
+    {text}
+  </p>
 );
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -87,7 +98,6 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
     { enabled: !!selectedAccountId, staleTime: 60_000 }
   );
 
-  // Last 2 applied suggestions
   const { data: suggestions } = trpc.suggestions.list.useQuery(
     { accountId: selectedAccountId! },
     { enabled: !!selectedAccountId, staleTime: 120_000 }
@@ -97,7 +107,6 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
     [suggestions]
   );
 
-  // Account note editing
   const savedNote = (activeAccount as any)?.accountNote as string | null ?? "";
   const [editing, setEditing] = useState(false);
   const [noteValue, setNoteValue] = useState(savedNote);
@@ -110,7 +119,6 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
     onError: () => toast.error("Erro ao salvar nota"),
   });
 
-  // AI status + refresh
   const refreshStatus = trpc.accounts.refreshStatus.useMutation({
     onSuccess: () => { utils.accounts.list.invalidate(); toast.success("Status IA atualizado"); },
     onError:   () => toast.error("Erro ao atualizar status IA"),
@@ -136,7 +144,6 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
 
   const sep  = <span style={{ opacity: 0.3, margin: "0 4px" }}>·</span>;
   const pipe = <span style={{ opacity: 0.25, margin: "0 8px" }}>|</span>;
-
   const muted = "rgba(0,0,0,0.4)";
 
   return (
@@ -147,69 +154,62 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
       padding: "12px 16px",
       marginBottom: "16px",
       display: "flex",
-      alignItems: "center",
-      gap: "16px",
+      flexDirection: "column",
+      gap: 0,
     }}>
 
-      {/* ── Bloco esquerdo — identidade + diário ────────────────────────── */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      {/* ══ ROW 1 — main content ══════════════════════════════════════════ */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
 
-        {/* Linha 1 — identidade + integrações */}
-        <div style={{ display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", overflow: "hidden" }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
-            background: palette.bg, color: palette.color,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
-          }}>
-            {initials}
-          </div>
-          <span style={{ fontSize: 13, fontWeight: 500, color: "#111", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 180 }}>
-            {accountName}
-          </span>
-          {goalLabel && (
-            <span style={{
-              fontSize: 10, fontWeight: 500, flexShrink: 0,
-              padding: "2px 8px", borderRadius: 99,
-              background: "rgba(232,91,168,0.1)", color: "#E85BA8",
-              border: "1px solid rgba(232,91,168,0.25)",
+        {/* Block 1 — Identity + daily snapshot */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", overflow: "hidden" }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+              background: palette.bg, color: palette.color,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
             }}>
-              {goalEmoji} {goalLabel}
+              {initials}
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "#111", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 180 }}>
+              {accountName}
             </span>
-          )}
-          <span style={{ opacity: 0.2, margin: "0 2px" }}>•</span>
-          <span style={{ fontSize: 10, fontWeight: 500, color: "#1D9E75", opacity: 0.85, flexShrink: 0 }}>● Meta Ads</span>
-          <span style={{ fontSize: 10, fontWeight: 500, flexShrink: 0, color: integrations?.ga4 ? "#60a5fa" : muted, opacity: integrations?.ga4 ? 0.85 : 0.5 }}>
-            {integrations?.ga4 ? "●" : "○"} GA4
-          </span>
-          <span style={{ fontSize: 10, fontWeight: 500, flexShrink: 0, color: integrations?.googleAds ? "#fbbf24" : muted, opacity: integrations?.googleAds ? 0.85 : 0.5 }}>
-            {integrations?.googleAds ? "●" : "○"} Google Ads
-          </span>
+            {goalLabel && (
+              <span style={{
+                fontSize: 10, fontWeight: 500, flexShrink: 0,
+                padding: "2px 8px", borderRadius: 99,
+                background: "rgba(232,91,168,0.1)", color: "#E85BA8",
+                border: "1px solid rgba(232,91,168,0.25)",
+              }}>
+                {goalEmoji} {goalLabel}
+              </span>
+            )}
+            <span style={{ opacity: 0.2, margin: "0 2px" }}>•</span>
+            <span style={{ fontSize: 10, fontWeight: 500, color: "#1D9E75", opacity: 0.85, flexShrink: 0 }}>● Meta Ads</span>
+            <span style={{ fontSize: 10, fontWeight: 500, flexShrink: 0, color: integrations?.ga4 ? "#60a5fa" : muted, opacity: integrations?.ga4 ? 0.85 : 0.45 }}>
+              {integrations?.ga4 ? "●" : "○"} GA4
+            </span>
+            <span style={{ fontSize: 10, fontWeight: 500, flexShrink: 0, color: integrations?.googleAds ? "#fbbf24" : muted, opacity: integrations?.googleAds ? 0.85 : 0.45 }}>
+              {integrations?.googleAds ? "●" : "○"} Google Ads
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 12, color: muted }}>
+            <span style={{ color: "#E85BA8", fontWeight: 500 }}>Hoje</span>
+            {sep}{fmt(todaySpend)}{sep}{fmtN(todayConv)} result.
+            {todayRoas > 0 && <>{sep}{todayRoas.toFixed(2)}x ROAS</>}
+            {pipe}
+            <span style={{ fontWeight: 500, color: muted }}>Ontem</span>
+            {sep}{fmt(yestSpend)}{sep}{fmtN(yestConv)} result.
+            {yestRoas > 0 && <>{sep}{yestRoas.toFixed(2)}x ROAS</>}
+          </div>
         </div>
 
-        {/* Linha 2 — resumo diário */}
-        <div style={{ display: "flex", alignItems: "center", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 12, color: muted }}>
-          <span style={{ color: "#E85BA8", fontWeight: 500 }}>Hoje</span>
-          {sep}{fmt(todaySpend)}{sep}{fmtN(todayConv)} result.
-          {todayRoas > 0 && <>{sep}{todayRoas.toFixed(2)}x ROAS</>}
-          {pipe}
-          <span style={{ fontWeight: 500, color: muted }}>Ontem</span>
-          {sep}{fmt(yestSpend)}{sep}{fmtN(yestConv)} result.
-          {yestRoas > 0 && <>{sep}{yestRoas.toFixed(2)}x ROAS</>}
-        </div>
+        {vDivider}
 
-      </div>
-
-      {divider}
-
-      {/* ── Bloco 2 — Últimas ações + Nota ──────────────────────────────── */}
-      <div style={{ width: 220, flexShrink: 0 }}>
-
-        {/* Últimas ações */}
-        <div style={{ marginBottom: 6 }}>
-          <p style={{ fontSize: 10, fontWeight: 600, color: muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>
-            Últimas ações
-          </p>
+        {/* Block 2 — Últimas Ações */}
+        <div style={{ width: W2, flexShrink: 0 }}>
+          {blockLabel("Últimas Ações")}
           {lastApplied.length === 0 ? (
             <p style={{ fontSize: 11, color: muted, opacity: 0.6 }}>Nenhuma ação registrada</p>
           ) : (
@@ -224,91 +224,27 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
           )}
         </div>
 
-        {/* Nota da conta */}
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
-            <p style={{ fontSize: 10, fontWeight: 600, color: muted, textTransform: "uppercase", letterSpacing: 0.5, flex: 1 }}>
-              Nota
-            </p>
-            {editing ? (
-              <div style={{ display: "flex", gap: 2 }}>
-                <button
-                  onClick={() => { updateNote.mutate({ accountId: selectedAccountId, note: noteValue }); }}
-                  disabled={updateNote.isPending}
-                  style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: "#1D9E75" }}
-                  title="Salvar"
-                >
-                  <Check style={{ width: 11, height: 11 }} />
-                </button>
-                <button
-                  onClick={() => { setNoteValue(savedNote); setEditing(false); }}
-                  style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: muted }}
-                  title="Cancelar"
-                >
-                  <X style={{ width: 11, height: 11 }} />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setEditing(true)}
-                style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: muted, opacity: 0.5 }}
-                title="Editar nota"
-              >
-                <Pencil style={{ width: 10, height: 10 }} />
-              </button>
-            )}
-          </div>
-          {editing ? (
-            <textarea
-              ref={textareaRef}
-              value={noteValue}
-              onChange={(e) => setNoteValue(e.target.value)}
-              rows={2}
-              style={{
-                width: "100%", fontSize: 11, lineHeight: 1.4, padding: "3px 6px",
-                borderRadius: 6, border: "1px solid rgba(232,91,168,0.4)",
-                resize: "none", outline: "none", fontFamily: "inherit", color: "#111",
-              }}
-              placeholder="Adicionar nota..."
-            />
-          ) : (
-            <p
-              style={{ fontSize: 11, color: noteValue ? "#111" : muted, lineHeight: 1.4, cursor: "text", opacity: noteValue ? 1 : 0.5 }}
-              onClick={() => setEditing(true)}
+        {vDivider}
+
+        {/* Block 3 — Resumo Geral */}
+        <div style={{ width: W3, flexShrink: 0 }}>
+          {blockLabel("Resumo Geral")}
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: statusCfg?.color ?? "rgba(0,0,0,0.2)" }} />
+            <span style={{ fontSize: 11, fontWeight: 500, color: statusCfg?.color ?? muted, flex: 1 }}>
+              {statusCfg?.label ?? "Status IA"} — 7 dias
+            </span>
+            <button
+              onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
+              disabled={refreshStatus.isPending}
+              title="Atualizar análise IA"
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: muted, opacity: 0.5, transition: "opacity 0.15s" }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
             >
-              {noteValue || "Adicionar nota..."}
-            </p>
-          )}
-        </div>
-
-      </div>
-
-      {divider}
-
-      {/* ── Bloco 3 — Status IA ──────────────────────────────────────────── */}
-      <div style={{ width: 220, flexShrink: 0 }}>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
-          <div style={{
-            width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
-            background: statusCfg?.color ?? "rgba(0,0,0,0.2)",
-          }} />
-          <span style={{ fontSize: 11, fontWeight: 500, color: statusCfg?.color ?? muted, flex: 1 }}>
-            {statusCfg?.label ?? "Status IA"} — 7 dias
-          </span>
-          <button
-            onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
-            disabled={refreshStatus.isPending}
-            title="Atualizar análise IA"
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: muted, opacity: 0.5, transition: "opacity 0.15s" }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
-          >
-            <RefreshCw style={{ width: 10, height: 10, animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
-          </button>
-        </div>
-
-        <div>
+              <RefreshCw style={{ width: 10, height: 10, animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
+            </button>
+          </div>
           <p style={{
             fontSize: 11, lineHeight: 1.4, color: muted,
             transition: "all 0.2s ease",
@@ -326,40 +262,79 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
           </button>
         </div>
 
-      </div>
+        {vDivider}
 
-      {divider}
-
-      {/* ── Bloco 4 — Botão Sugestões IA ─────────────────────────────────── */}
-      <div style={{ width: 140, flexShrink: 0 }}>
-
-        {/* Botão principal — navega para /suggestions */}
-        <div
-          onClick={() => navigate("/suggestions")}
-          style={{
-            background: "#F97316",
-            borderRadius: 10,
-            padding: "10px 12px",
-            cursor: "pointer",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 4,
-            transition: "opacity 0.15s",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
-          onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-          title="Ver sugestões da IA"
-        >
-          <Lightbulb style={{ width: 18, height: 18, color: "white" }} />
-          <div style={{ textAlign: "center", lineHeight: 1.2 }}>
-            <p style={{ fontSize: 12, fontWeight: 700, color: "white", margin: 0 }}>Sugestões</p>
-            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.8)", margin: 0 }}>da IA</p>
+        {/* Block 4 — Nota */}
+        <div style={{ width: W4, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
+            {blockLabel("Nota")}
+            <div style={{ flex: 1 }} />
+            {editing ? (
+              <div style={{ display: "flex", gap: 2 }}>
+                <button onClick={() => updateNote.mutate({ accountId: selectedAccountId, note: noteValue })} disabled={updateNote.isPending}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: "#1D9E75" }} title="Salvar">
+                  <Check style={{ width: 11, height: 11 }} />
+                </button>
+                <button onClick={() => { setNoteValue(savedNote); setEditing(false); }}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: muted }} title="Cancelar">
+                  <X style={{ width: 11, height: 11 }} />
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setEditing(true)}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: muted, opacity: 0.5 }} title="Editar nota">
+                <Pencil style={{ width: 10, height: 10 }} />
+              </button>
+            )}
           </div>
+          {editing ? (
+            <textarea
+              ref={textareaRef}
+              value={noteValue}
+              onChange={(e) => setNoteValue(e.target.value)}
+              rows={2}
+              style={{ width: "100%", fontSize: 11, lineHeight: 1.4, padding: "3px 6px", borderRadius: 6, border: "1px solid rgba(232,91,168,0.4)", resize: "none", outline: "none", fontFamily: "inherit", color: "#111" }}
+              placeholder="Adicionar nota..."
+            />
+          ) : (
+            <p style={{ fontSize: 11, color: noteValue ? "#111" : muted, lineHeight: 1.4, cursor: "text", opacity: noteValue ? 1 : 0.5 }} onClick={() => setEditing(true)}>
+              {noteValue || "Adicionar nota..."}
+            </p>
+          )}
         </div>
 
       </div>
+
+      {/* ══ ROW 2 — footer com botão Sugestões alinhado ao Block 1 ════════ */}
+      <div style={{ borderTop: "1px solid rgba(0,0,0,0.06)", marginTop: 10, paddingTop: 8, display: "flex", alignItems: "center", gap: 16 }}>
+
+        {/* Wrapper flex:1 — same as Block 1 */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            onClick={() => navigate("/suggestions")}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7,
+              background: "#F97316", borderRadius: 8, padding: "6px 14px",
+              cursor: "pointer", transition: "opacity 0.15s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+            title="Ver sugestões da IA"
+          >
+            <Lightbulb style={{ width: 14, height: 14, color: "white", flexShrink: 0 }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: "white", whiteSpace: "nowrap" }}>Sugestões da IA</span>
+          </div>
+        </div>
+
+        {/* Invisible spacers to align with Blocks 2/3/4 and their dividers */}
+        <div style={{ width: "0.5px", flexShrink: 0 }} />
+        <div style={{ width: W2, flexShrink: 0 }} />
+        <div style={{ width: "0.5px", flexShrink: 0 }} />
+        <div style={{ width: W3, flexShrink: 0 }} />
+        <div style={{ width: "0.5px", flexShrink: 0 }} />
+        <div style={{ width: W4, flexShrink: 0 }} />
+      </div>
+
     </div>
   );
 }
