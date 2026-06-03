@@ -233,7 +233,7 @@ export async function syncAccount(account: { id: number; accountId: string; acce
       const aiResult = await invokeLLM({
         messages: [{
           role: "user",
-          content: `Analise os dados de performance dos últimos 7 dias e retorne um JSON com dois campos: "color" (green/yellow/red) e "summary" (máx 120 caracteres em português, direto ao ponto, sem emoji). Verde = conta saudável, Amarelo = atenção necessária, Vermelho = problema crítico.\n\nDados:\n${JSON.stringify({ ...t, roas, cpa, ctr })}`,
+          content: `Analise os dados de performance dos últimos 7 dias e retorne um JSON com dois campos: "color" (green/yellow/red) e "summary" (máx 300 caracteres em português, sem emoji). O summary deve conter: (1) status geral da conta, (2) principal métrica positiva ou problemática com valor, (3) uma ação sugerida objetiva. Verde = conta saudável, Amarelo = atenção necessária, Vermelho = problema crítico.\n\nDados:\n${JSON.stringify({ ...t, roas, cpa, ctr })}`,
         }],
         responseFormat: { type: "json_object" },
         thinking: false,
@@ -244,7 +244,7 @@ export async function syncAccount(account: { id: number; accountId: string; acce
       try {
         const parsed = JSON.parse(extractTextContent(aiResult));
         if (["green", "yellow", "red"].includes(parsed.color)) color = parsed.color;
-        if (typeof parsed.summary === "string") summary = parsed.summary.slice(0, 120);
+        if (typeof parsed.summary === "string") summary = parsed.summary.slice(0, 300);
       } catch { /* keep defaults */ }
 
       await updateAccountAiStatus(account.id, color, summary);

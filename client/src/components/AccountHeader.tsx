@@ -107,14 +107,14 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
   return (
     <div
       style={{
+        background: "var(--color-background-primary)",
+        border: "0.5px solid var(--color-border-tertiary)",
+        borderRadius: "var(--border-radius-lg)",
+        padding: "12px 16px",
+        marginBottom: "16px",
         display: "flex",
         alignItems: "center",
-        gap: 16,
-        padding: "12px 16px",
-        marginBottom: 16,
-        background: "var(--color-background-primary, hsl(var(--card)))",
-        border: "0.5px solid var(--color-border-tertiary, hsl(var(--border) / 0.5))",
-        borderRadius: "var(--border-radius-lg, 12px)",
+        gap: "16px",
       }}
     >
       {/* ── Bloco esquerdo ──────────────────────────────────────────── */}
