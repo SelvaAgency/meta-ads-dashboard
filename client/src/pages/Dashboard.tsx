@@ -41,7 +41,6 @@ import {
   Target,
   Play,
   Heart,
-  ArrowDown,
 } from "lucide-react";
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -341,6 +340,12 @@ function getPresetRange(preset: PeriodPreset): { startDate: string; endDate: str
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
 
+  const daysAgo = (n: number) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - n);
+    return toIso(d);
+  };
+
   switch (preset) {
     case "today":
       return { startDate: toIso(today), endDate: toIso(today) };
@@ -349,13 +354,13 @@ function getPresetRange(preset: PeriodPreset): { startDate: string; endDate: str
     case "today_yesterday":
       return { startDate: toIso(yesterday), endDate: toIso(today) };
     case "7d":
-      return { days: 7 };
+      return { startDate: daysAgo(6), endDate: toIso(today) };
     case "14d":
-      return { days: 14 };
+      return { startDate: daysAgo(13), endDate: toIso(today) };
     case "30d":
-      return { days: 30 };
+      return { startDate: daysAgo(29), endDate: toIso(today) };
     default:
-      return { days: 7 };
+      return { startDate: daysAgo(6), endDate: toIso(today) };
   }
 }
 
@@ -400,6 +405,7 @@ export default function Dashboard() {
     customStart: "",
     customEnd: "",
   });
+  const [creativeTab, setCreativeTab] = useState<"creatives" | "audiences">("creatives");
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
 
@@ -487,34 +493,7 @@ export default function Dashboard() {
     );
   }, [data]);
 
-  const topCampaigns = useMemo(() => {
-    // Filter only campaigns with actual spend > 0
-    const withSpend = activeCampaignsWithData.filter(
-      (c) => Number(c.totalSpend ?? 0) > 0
-    );
-    const sorted = [...withSpend].sort(
-      (a, b) => Number(b.totalConversions ?? 0) - Number(a.totalConversions ?? 0)
-    );
-    // Limit to top 5
-    return sorted.slice(0, 5);
-  }, [activeCampaignsWithData]);
-
-  const underCampaigns = useMemo(() => {
-    // Filter campaigns with spend > 0 that are NOT in topCampaigns
-    const topIds = new Set(topCampaigns.map((c) => c.campaignId));
-    const withSpend = activeCampaignsWithData.filter(
-      (c) => Number(c.totalSpend ?? 0) > 0 && !topIds.has(c.campaignId)
-    );
-    if (withSpend.length === 0) return [];
-    // Sort ascending by conversions (worst first)
-    const sorted = [...withSpend].sort(
-      (a, b) => Number(a.totalConversions ?? 0) - Number(b.totalConversions ?? 0)
-    );
-    // Show bottom 3 underperformers
-    return sorted.slice(0, 3);
-  }, [activeCampaignsWithData, topCampaigns]);
-
-  // Label for the result metric in Top/Under performers
+  // Label for the result metric in campaigns list
   const resultLabel = data?.goalProfile?.resultLabel ?? "Resultados";
 
   if (!accounts || accounts.length === 0) {
@@ -596,6 +575,9 @@ export default function Dashboard() {
 
         {/* Account summary header — identity, integrations, daily snapshot, AI status */}
         <AccountHeader goalLabel={objInfo.label} goalEmoji={objInfo.emoji} />
+
+        {/* Em andamento — sugestões aplicadas em monitoramento */}
+        <ActiveOptimizations />
 
         {/* Error state */}
         {isError && (
@@ -729,83 +711,131 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Campaign Comparison — only ACTIVE campaigns, sorted by results */}
+        {/* ─── Campanhas + Top Criativos/Públicos ───────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-emerald-400" />
-                  Top Performers
-                </CardTitle>
-                <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-400/30">
-                  Por {resultLabel}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {isLoading ? (
-                <div className="space-y-2">{[...Array(3)].map((_, i) => <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />)}</div>
-              ) : topCampaigns.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">Nenhuma campanha ativa encontrada. Sincronize sua conta.</p>
-              ) : (
-                topCampaigns.map((c, i) => (
-                  <div key={c.campaignId} className="flex items-center gap-3 p-2.5 rounded-lg bg-accent/30">
-                    <span className="w-5 h-5 rounded-full bg-emerald-400/20 text-emerald-400 text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-foreground truncate">{c.campaignName}</p>
-                      <p className="text-xs text-muted-foreground">R$ {Number(c.totalSpend ?? 0).toFixed(2)} gasto</p>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-xs font-bold text-emerald-400">{fmtNumber(Number(c.totalConversions ?? 0))}</p>
-                      <p className="text-xs text-muted-foreground">{resultLabel}</p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <ArrowDown className="w-4 h-4 text-red-400" />
-                  Underperformers
-                </CardTitle>
-                <Badge variant="outline" className="text-xs text-red-400 border-red-400/30">Precisam atenção</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {isLoading ? (
-                <div className="space-y-2">{[...Array(3)].map((_, i) => <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />)}</div>
-              ) : underCampaigns.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  {activeCampaignsWithData.length <= 2
-                    ? "Com 2 ou menos campanhas ativas, todas aparecem em Top Performers."
-                    : "Nenhuma campanha ativa encontrada."}
-                </p>
-              ) : (
-                underCampaigns.map((c, i) => (
-                  <div key={c.campaignId} className="flex items-center gap-3 p-2.5 rounded-lg bg-accent/30">
-                    <span className="w-5 h-5 rounded-full bg-red-400/20 text-red-400 text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-foreground truncate">{c.campaignName}</p>
-                      <p className="text-xs text-muted-foreground">R$ {Number(c.totalSpend ?? 0).toFixed(2)} gasto</p>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-xs font-bold text-red-400">{fmtNumber(Number(c.totalConversions ?? 0))}</p>
-                      <p className="text-xs text-muted-foreground">{resultLabel}</p>
+          {/* Card esquerdo — lista unificada de campanhas com badges relativos */}
+          {(() => {
+            const sorted = [...activeCampaignsWithData]
+              .filter((c) => Number(c.totalSpend ?? 0) > 0)
+              .sort((a, b) => Number(b.totalConversions ?? 0) - Number(a.totalConversions ?? 0));
+            const N = sorted.length;
+            const tier = (i: number) => {
+              if (N <= 1) return { emoji: "🟢", label: "Top", color: "text-emerald-400" };
+              if (i < Math.ceil(N / 3)) return { emoji: "🟢", label: "Top",   color: "text-emerald-400" };
+              if (i < Math.ceil(2 * N / 3)) return { emoji: "🟡", label: "Média", color: "text-amber-400" };
+              return { emoji: "🔴", label: "Under", color: "text-red-400" };
+            };
+            return (
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-primary" />
+                      Campanhas Ativas
+                    </CardTitle>
+                    <Badge variant="outline" className="text-xs text-muted-foreground">{sorted.length} ativas</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-1.5">
+                  {isLoading ? (
+                    <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
+                  ) : sorted.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">Nenhuma campanha ativa com dados no período.</p>
+                  ) : (
+                    sorted.map((c, i) => {
+                      const t = tier(i);
+                      const roas = Number((c as any).avgRoas ?? 0);
+                      return (
+                        <div key={c.campaignId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/30 transition-colors">
+                          <span className="text-base flex-shrink-0">{t.emoji}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-foreground truncate">{c.campaignName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              R$ {Number(c.totalSpend ?? 0).toFixed(0)} gasto
+                              {roas > 0 && ` · ${roas.toFixed(2)}x ROAS`}
+                            </p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className={`text-xs font-bold ${t.color}`}>{fmtNumber(Number(c.totalConversions ?? 0))}</p>
+                            <p className="text-xs text-muted-foreground">{resultLabel}</p>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          {/* Card direito — Top Criativos / Top Públicos */}
+          {(() => {
+            const byCtr = [...activeCampaignsWithData]
+              .filter((c) => Number(c.totalSpend ?? 0) > 0)
+              .sort((a, b) => Number((b as any).avgCtr ?? 0) - Number((a as any).avgCtr ?? 0))
+              .slice(0, 5);
+            const byReach = [...activeCampaignsWithData]
+              .filter((c) => Number(c.totalSpend ?? 0) > 0)
+              .sort((a, b) => Number((b as any).totalReach ?? 0) - Number((a as any).totalReach ?? 0))
+              .slice(0, 5);
+            const rows = creativeTab === "creatives" ? byCtr : byReach;
+            const tabLabel = creativeTab === "creatives" ? "CTR" : "Alcance";
+            const tabValue = (c: any) => creativeTab === "creatives"
+              ? `${Number(c.avgCtr ?? 0).toFixed(2)}% CTR`
+              : fmtNumber(Number(c.totalReach ?? 0));
+
+            return (
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-sm font-semibold text-foreground flex-1">
+                      Top por {tabLabel}
+                    </CardTitle>
+                    <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-0.5">
+                      {(["creatives", "audiences"] as const).map((tab) => (
+                        <button
+                          key={tab}
+                          onClick={() => setCreativeTab(tab)}
+                          className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                            creativeTab === tab
+                              ? "bg-[#E85BA8] text-white shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {tab === "creatives" ? "Criativos" : "Públicos"}
+                        </button>
+                      ))}
                     </div>
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+                </CardHeader>
+                <CardContent className="space-y-1.5">
+                  {isLoading ? (
+                    <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
+                  ) : rows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">Sem dados no período.</p>
+                  ) : (
+                    rows.map((c, i) => (
+                      <div key={c.campaignId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/30 transition-colors">
+                        <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-foreground truncate">{c.campaignName}</p>
+                          <p className="text-xs text-muted-foreground">{tabValue(c)}</p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-xs font-bold text-primary">{fmtNumber(Number(c.totalConversions ?? 0))}</p>
+                          <p className="text-xs text-muted-foreground">{resultLabel}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
+
         </div>
 
-        {/* Em andamento — sugestões aplicadas em monitoramento */}
-        <ActiveOptimizations />
       </div>
     </MetaDashboardLayout>
   );
