@@ -107,9 +107,9 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
   return (
     <div
       style={{
-        background: "var(--color-background-primary)",
-        border: "0.5px solid var(--color-border-tertiary)",
-        borderRadius: "var(--border-radius-lg)",
+        background: "white",
+        border: "1px solid rgba(0,0,0,0.08)",
+        borderRadius: "12px",
         padding: "12px 16px",
         marginBottom: "16px",
         display: "flex",
