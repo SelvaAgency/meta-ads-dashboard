@@ -51,6 +51,7 @@ import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
 import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
 import { Globe, BarChart2, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
+import { ActiveOptimizations } from "@/components/ActiveOptimizations";
 
 // ─── Metric formatting helpers ───────────────────────────────────────────────
 
@@ -1199,6 +1200,9 @@ export default function Dashboard() {
             );
           })()}
         </div>
+
+        {/* Em andamento — sugestões aplicadas em monitoramento */}
+        <ActiveOptimizations />
       </div>
     </MetaDashboardLayout>
   );

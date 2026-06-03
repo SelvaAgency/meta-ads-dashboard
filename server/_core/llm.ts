@@ -339,7 +339,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   if (system) payload.system = system;
 
   // Extended thinking — minimum budget 1024 for Anthropic, disabled by default
-  if (thinking && thinking !== false) {
+  if (thinking) {
     payload.thinking = {
       type: "enabled",
       budget_tokens: Math.max(1024, thinking.budget_tokens),

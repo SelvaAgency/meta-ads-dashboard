@@ -82,12 +82,9 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   const navItems: NavItem[] = [
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
-    { path: "/anomalies", label: "Anomalias", icon: AlertTriangle },
     { path: "/alerts", label: "Alertas", icon: Bell, badge: unreadCount ?? 0 },
-    { path: "/suggestions", label: "Sugestões IA", icon: Lightbulb },
     { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
-    { path: "/social-networks", label: "Redes Sociais", icon: Share2 },
   ];
 
   if (loading) {

@@ -2,19 +2,26 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
+import { useEffect } from "react";
+import { useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ActiveAccountProvider } from "./contexts/ActiveAccountContext";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Campaigns from "./pages/Campaigns";
-import Anomalies from "./pages/Anomalies";
 import Suggestions from "./pages/Suggestions";
 import Reports from "./pages/Reports";
 import Connect from "./pages/Connect";
 import AlertsPage from "./pages/AlertsPage";
 import GoogleAds from "./pages/GoogleAds";
 import SocialNetworks from "./pages/SocialNetworks";
+
+function RedirectTo({ to }: { to: string }) {
+  const [, navigate] = useLocation();
+  useEffect(() => { navigate(to, { replace: true }); }, []);
+  return null;
+}
 
 function Router() {
   return (
@@ -23,12 +30,13 @@ function Router() {
       <Route path="/connect" component={Connect} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/campaigns" component={Campaigns} />
-      <Route path="/anomalies" component={Anomalies} />
+      <Route path="/alerts" component={AlertsPage} />
       <Route path="/suggestions" component={Suggestions} />
       <Route path="/reports" component={Reports} />
-      <Route path="/alerts" component={AlertsPage} />
       <Route path="/google-ads" component={GoogleAds} />
       <Route path="/social-networks" component={SocialNetworks} />
+      {/* Redirects for removed nav items */}
+      <Route path="/anomalies" component={() => <RedirectTo to="/alerts" />} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
