@@ -927,6 +927,79 @@ export const appRouter = router({
         return filtered;
       }),
 
+    // ── Top ads by CTR for the account (account-level, period-aware) ─────
+    adTopByCtr: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(90).default(7),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const { startDate, endDate } = resolveDateRange(input);
+
+        const rawAdsets = await getAdSets(account.accountId, account.accessToken);
+        const adsetGoalMap = new Map<string, string>();
+        for (const as of rawAdsets) {
+          if (as.optimization_goal) adsetGoalMap.set(as.id, as.optimization_goal);
+        }
+
+        let ads: Awaited<ReturnType<typeof getAdsWithInsights>> = [];
+        try {
+          ads = await getAdsWithInsights(account.accountId, account.accessToken, startDate, endDate, adsetGoalMap);
+        } catch (err) {
+          console.error("[campaigns.adTopByCtr] Failed:", err);
+          return [];
+        }
+
+        return ads
+          .filter((ad) => ad.spend > 0 && ad.ctr > 0)
+          .sort((a, b) => b.ctr - a.ctr)
+          .slice(0, 5)
+          .map((ad) => ({
+            adId: ad.id,
+            adName: ad.name,
+            ctr: ad.ctr,
+            conversions: ad.conversions,
+            campaignId: ad.campaign_id,
+            managerUrl: `https://adsmanager.facebook.com/adsmanager/manage/ads?act=act_${account.accountId}&selected_ad_ids=${ad.id}`,
+          }));
+      }),
+
+    // ── Top adsets by CTR for the account (account-level, period-aware) ──
+    adsetTopByCtr: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(90).default(7),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+      }))
+      .query(async ({ ctx, input }) => {
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const { startDate, endDate } = resolveDateRange(input);
+
+        let adsets: Awaited<ReturnType<typeof getAdSetsWithInsights>> = [];
+        try {
+          adsets = await getAdSetsWithInsights(account.accountId, account.accessToken, startDate, endDate);
+        } catch (err) {
+          console.error("[campaigns.adsetTopByCtr] Failed:", err);
+          return [];
+        }
+
+        return adsets
+          .filter((as) => as.spend > 0 && as.ctr > 0)
+          .sort((a, b) => b.ctr - a.ctr)
+          .slice(0, 5)
+          .map((as) => ({
+            adsetId: as.id,
+            adsetName: as.name,
+            ctr: as.ctr,
+            conversions: as.conversions,
+            campaignId: as.campaign_id,
+          }));
+      }),
+
     // Diagnostic: raw Meta API call without error swallowing
     adsDebug: protectedProcedure
       .input(z.object({ accountId: z.number() }))

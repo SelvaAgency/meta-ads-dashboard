@@ -41,6 +41,7 @@ import {
   Target,
   Play,
   Heart,
+  ExternalLink,
 } from "lucide-react";
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -437,6 +438,15 @@ export default function Dashboard() {
     { enabled: !!selectedAccountId, refetchInterval: 60000 }
   );
 
+  const { data: topAds, isLoading: adsLoading } = trpc.campaigns.adTopByCtr.useQuery(
+    { accountId: selectedAccountId!, ...queryParams },
+    { enabled: !!selectedAccountId && creativeTab === "creatives", staleTime: 120_000 }
+  );
+  const { data: topAdsets, isLoading: adsetsLoading } = trpc.campaigns.adsetTopByCtr.useQuery(
+    { accountId: selectedAccountId!, ...queryParams },
+    { enabled: !!selectedAccountId && creativeTab === "audiences", staleTime: 120_000 }
+  );
+
   // Use goalProfile from backend (based on optimization_goal, NOT campaign.objective)
   // This ensures KPI cards reflect the actual performance target of the adsets
   const goalType = useMemo<GoalType>(() => {
@@ -667,70 +677,79 @@ export default function Dashboard() {
             );
           })()}
 
-          {/* Card direito — Top Criativos / Top Públicos */}
-          {(() => {
-            const byCtr = [...activeCampaignsWithData]
-              .filter((c) => Number(c.totalSpend ?? 0) > 0)
-              .sort((a, b) => Number((b as any).avgCtr ?? 0) - Number((a as any).avgCtr ?? 0))
-              .slice(0, 5);
-            const byReach = [...activeCampaignsWithData]
-              .filter((c) => Number(c.totalSpend ?? 0) > 0)
-              .sort((a, b) => Number((b as any).totalReach ?? 0) - Number((a as any).totalReach ?? 0))
-              .slice(0, 5);
-            const rows = creativeTab === "creatives" ? byCtr : byReach;
-            const tabLabel = creativeTab === "creatives" ? "CTR" : "Alcance";
-            const tabValue = (c: any) => creativeTab === "creatives"
-              ? `${Number(c.avgCtr ?? 0).toFixed(2)}% CTR`
-              : fmtNumber(Number(c.totalReach ?? 0));
-
-            return (
-              <Card>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-sm font-semibold text-foreground flex-1">
-                      Top por {tabLabel}
-                    </CardTitle>
-                    <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-0.5">
-                      {(["creatives", "audiences"] as const).map((tab) => (
-                        <button
-                          key={tab}
-                          onClick={() => setCreativeTab(tab)}
-                          className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                            creativeTab === tab
-                              ? "bg-[#E85BA8] text-white shadow-sm"
-                              : "text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          {tab === "creatives" ? "Criativos" : "Públicos"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-1.5">
-                  {isLoading ? (
-                    <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
-                  ) : rows.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">Sem dados no período.</p>
-                  ) : (
-                    rows.map((c, i) => (
-                      <div key={c.campaignId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/30 transition-colors">
-                        <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-foreground truncate">{c.campaignName}</p>
-                          <p className="text-xs text-muted-foreground">{tabValue(c)}</p>
-                        </div>
-                        <div className="text-right flex-shrink-0">
-                          <p className="text-xs font-bold text-primary">{fmtNumber(Number(c.totalConversions ?? 0))}</p>
+          {/* Card direito — Destaques do Período */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-sm font-semibold text-foreground flex-1">
+                  Destaques do Período
+                </CardTitle>
+                <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-0.5">
+                  {(["creatives", "audiences"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setCreativeTab(tab)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                        creativeTab === tab
+                          ? "bg-[#E85BA8] text-white shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {tab === "creatives" ? "Criativos" : "Públicos"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              {creativeTab === "creatives" ? (
+                adsLoading ? (
+                  <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
+                ) : !topAds?.length ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">Sem dados de anúncios no período.</p>
+                ) : (
+                  topAds.map((ad, i) => (
+                    <div key={ad.adId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/30 transition-colors">
+                      <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-foreground truncate">{ad.adName}</p>
+                        <p className="text-xs text-muted-foreground">{ad.ctr.toFixed(2)}% CTR</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="text-right">
+                          <p className="text-xs font-bold text-primary">{fmtNumber(ad.conversions)}</p>
                           <p className="text-xs text-muted-foreground">{resultLabel}</p>
                         </div>
+                        <a href={ad.managerUrl} target="_blank" rel="noopener noreferrer" title="Abrir no Gerenciador">
+                          <ExternalLink className="w-3.5 h-3.5 text-muted-foreground/50 hover:text-primary transition-colors" />
+                        </a>
                       </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })()}
+                    </div>
+                  ))
+                )
+              ) : (
+                adsetsLoading ? (
+                  <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
+                ) : !topAdsets?.length ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">Sem dados de públicos no período.</p>
+                ) : (
+                  topAdsets.map((as, i) => (
+                    <div key={as.adsetId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/30 transition-colors">
+                      <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-foreground truncate">{as.adsetName}</p>
+                        <p className="text-xs text-muted-foreground">{as.ctr.toFixed(2)}% CTR</p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-xs font-bold text-primary">{fmtNumber(as.conversions)}</p>
+                        <p className="text-xs text-muted-foreground">{resultLabel}</p>
+                      </div>
+                    </div>
+                  ))
+                )
+              )}
+            </CardContent>
+          </Card>
 
         </div>
 
