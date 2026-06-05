@@ -208,8 +208,8 @@ export default function Dashboard() {
     customEnd: "",
   });
   const [creativeTab, setCreativeTab] = useState<"creatives" | "audiences">("creatives");
-  const [highlightsCollapsed, setHighlightsCollapsed] = useState(false);
-  const [campaignsCollapsed, setCampaignsCollapsed] = useState(false);
+  const [highlightsCollapsed, setHighlightsCollapsed] = useState(true);
+  const [campaignsCollapsed, setCampaignsCollapsed] = useState(true);
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
 
@@ -462,6 +462,7 @@ export default function Dashboard() {
               if (i < Math.ceil(2 * N / 3)) return { emoji: "🟡", label: "Média", color: "text-amber-400" };
               return { emoji: "🔴", label: "Under", color: "text-red-400" };
             };
+            const topCampaign = sorted[0];
             return (
               <Card>
                 <div className="flex items-center justify-between px-6 pt-4 pb-3 cursor-pointer select-none" onClick={() => setCampaignsCollapsed(v => !v)}>
@@ -474,6 +475,15 @@ export default function Dashboard() {
                     {campaignsCollapsed ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
                   </div>
                 </div>
+                {campaignsCollapsed && topCampaign && (
+                  <div className="px-6 pb-3 border-t border-border/40">
+                    <p className="text-xs text-muted-foreground truncate mt-2">
+                      <span className="font-medium text-foreground">{topCampaign.campaignName}</span>
+                      {" · "}
+                      {fmtNumber(Number(topCampaign.totalConversions ?? 0))} {resultLabel.toLowerCase()}
+                    </p>
+                  </div>
+                )}
                 {!campaignsCollapsed && <CardContent className="space-y-1.5">
                   {isLoading ? (
                     <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
@@ -507,6 +517,13 @@ export default function Dashboard() {
           })()}
 
           {/* Card direito — Destaques do Período */}
+          {(() => {
+            const topHighlight = creativeTab === "creatives" ? topAds?.[0] : topAdsets?.[0];
+            const topHighlightName = creativeTab === "creatives"
+              ? (topAds?.[0] as any)?.adName
+              : (topAdsets?.[0] as any)?.adsetName;
+            const topHighlightConv = topHighlight ? Number((topHighlight as any).conversions ?? 0) : 0;
+            return (
           <Card>
             <div className="flex items-center justify-between px-6 pt-4 pb-2 cursor-pointer select-none" onClick={() => setHighlightsCollapsed(v => !v)}>
               <span className="text-sm font-semibold text-foreground">Destaques do Período</span>
@@ -529,6 +546,15 @@ export default function Dashboard() {
                 {highlightsCollapsed ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
               </div>
             </div>
+            {highlightsCollapsed && topHighlightName && (
+              <div className="px-6 pb-3 border-t border-border/40">
+                <p className="text-xs text-muted-foreground truncate mt-2">
+                  <span className="font-medium text-foreground">{topHighlightName}</span>
+                  {" · "}
+                  {fmtNumber(topHighlightConv)} {resultLabel.toLowerCase()}
+                </p>
+              </div>
+            )}
             {!highlightsCollapsed && <CardContent className="space-y-1.5">
               {creativeTab === "creatives" ? (
                 adsLoading ? (
@@ -574,6 +600,8 @@ export default function Dashboard() {
               )}
             </CardContent>}
           </Card>
+            );
+          })()}
 
         </div>
 
