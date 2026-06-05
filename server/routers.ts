@@ -582,8 +582,12 @@ export const appRouter = router({
           (acc, m) => ({
             spend: acc.spend + Number(m.totalSpend ?? 0),
             conversionValue: acc.conversionValue + Number(m.totalConversionValue ?? 0),
+            conversions: acc.conversions + Number(m.totalConversions ?? 0),
+            impressions: acc.impressions + Number(m.totalImpressions ?? 0),
+            clicks: acc.clicks + Number(m.totalClicks ?? 0),
+            reach: acc.reach + Number(m.totalReach ?? 0),
           }),
-          { spend: 0, conversionValue: 0 }
+          { spend: 0, conversionValue: 0, conversions: 0, impressions: 0, clicks: 0, reach: 0 }
         );
         return {
           totals: { ...totals, roas: overallRoas, cpa: overallCpa, ctr: overallCtr },

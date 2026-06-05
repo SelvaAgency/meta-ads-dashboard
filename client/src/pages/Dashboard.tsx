@@ -288,8 +288,8 @@ function MetricCard({
               </div>
             )}
             {trendPercent && (
-              <span className={`flex items-center text-xs font-medium ${trendPercent.startsWith("-") ? "text-red-500" : "text-green-600"}`}>
-                {trendPercent.startsWith("-") ? <TrendingDown className="w-3 h-3 mr-0.5" /> : <TrendingUp className="w-3 h-3 mr-0.5" />}
+              <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${trendPercent.startsWith("-") ? "text-red-500 bg-red-50" : "text-emerald-600 bg-emerald-50"}`}>
+                {trendPercent.startsWith("-") ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
                 {trendPercent}
               </span>
             )}
@@ -833,8 +833,8 @@ export default function Dashboard() {
                     const pct = ((curr - prev) / prev) * 100;
                     const isUp = pct >= 0;
                     return (
-                      <span className={`flex items-center text-xs font-medium ${isUp ? "text-green-600" : "text-red-500"}`}>
-                        {isUp ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
+                      <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${isUp ? "text-emerald-600 bg-emerald-50" : "text-red-500 bg-red-50"}`}>
+                        {isUp ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                         {Math.abs(pct).toFixed(1)}%
                       </span>
                     );
@@ -879,16 +879,16 @@ export default function Dashboard() {
                   {(() => {
                     const curr = chartMetricKey === "ROAS"
                       ? (data?.totals?.conversionValue ?? 0)
-                      : chartData.reduce((s: number, d: any) => s + (d[chartMetricKey] ?? 0), 0);
+                      : (data?.totals?.conversions ?? 0);
                     const prev = chartMetricKey === "ROAS"
                       ? ((data as any)?.previousTotals?.conversionValue ?? 0)
-                      : ((data as any)?.previousTotals?.spend ?? 0);
+                      : ((data as any)?.previousTotals?.conversions ?? 0);
                     if (!prev) return null;
                     const pct = ((curr - prev) / prev) * 100;
                     const isUp = pct >= 0;
                     return (
-                      <span className={`flex items-center text-xs font-medium ${isUp ? "text-green-600" : "text-red-500"}`}>
-                        {isUp ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
+                      <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${isUp ? "text-emerald-600 bg-emerald-50" : "text-red-500 bg-red-50"}`}>
+                        {isUp ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                         {Math.abs(pct).toFixed(1)}%
                       </span>
                     );
