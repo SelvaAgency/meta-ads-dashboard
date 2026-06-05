@@ -14,7 +14,6 @@ import {
   Link2,
   LogOut,
   Lightbulb,
-  RefreshCw,
   TrendingUp,
   Zap,
   ChevronRight,
@@ -385,11 +384,6 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Quick sync button */}
-            {activeAccountId && (
-              <SyncButton accountId={activeAccountId} />
-            )}
-
             {/* Alerts bell */}
             <Link href="/alerts">
               <button className="relative p-2 rounded-lg hover:bg-primary/10 transition-all text-muted-foreground hover:text-primary hover:shadow-sm">
@@ -411,25 +405,4 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   );
 }
 
-function SyncButton({ accountId }: { accountId: number }) {
-  const utils = trpc.useUtils();
-  const sync = trpc.accounts.sync.useMutation({
-    onSuccess: () => {
-      utils.dashboard.overview.invalidate();
-      utils.campaigns.performance.invalidate();
-    },
-  });
-
-  return (
-    <Button
-      size="sm"
-      className="h-8 gap-1.5 text-xs bg-primary hover:bg-accent text-primary-foreground font-semibold transition-all"
-      onClick={() => sync.mutate({ accountId, days: 30 })}
-      disabled={sync.isPending}
-    >
-      <RefreshCw className={`w-3 h-3 ${sync.isPending ? "animate-spin" : ""}`} />
-      {sync.isPending ? "Sincronizando..." : "Sincronizar"}
-    </Button>
-  );
-}
 

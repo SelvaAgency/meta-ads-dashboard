@@ -1,11 +1,10 @@
 import { trpc } from "@/lib/trpc";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
-import { Button } from "@/components/ui/button";
-import { RefreshCw, ChevronDown, ChevronUp, Pencil, Check, X, Lightbulb } from "lucide-react";
+import { RefreshCw, ChevronDown, ChevronUp, Pencil, Check, X } from "lucide-react";
 import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
-import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { KPI_CONFIGS, type GoalType } from "@/lib/kpiConfig";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -16,18 +15,26 @@ function toIsoLocal(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
-function fmt(n: number) {
-  if (n >= 1_000_000) return `R$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000)     return `R$${(n / 1_000).toFixed(1)}k`;
-  return `R$${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-function fmtN(n: number) {
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return n.toLocaleString("pt-BR");
-}
-function fmtDateShort(d: Date | string | null) {
-  if (!d) return "";
-  return new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+function buildTotals(t: any) {
+  if (!t) return {};
+  const spend = Number(t.spend ?? 0);
+  const clicks = Number(t.clicks ?? 0);
+  const impressions = Number(t.impressions ?? 0);
+  return {
+    ...t,
+    spend,
+    clicks,
+    impressions,
+    conversions: Number(t.conversions ?? 0),
+    conversionValue: Number(t.conversionValue ?? 0),
+    roas: Number(t.roas ?? 0),
+    cpa: Number(t.cpa ?? 0),
+    ctr: Number(t.ctr ?? 0),
+    reach: Number(t.reach ?? 0),
+    cpc: clicks > 0 ? spend / clicks : 0,
+    cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+    frequency: 0,
+  };
 }
 
 const ACCOUNT_COLORS: Record<string, { bg: string; color: string }> = {
@@ -52,17 +59,24 @@ const STATUS_CFG = {
 };
 
 const blockLabel = (text: string) => (
-  <p style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.3)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>
+  <p style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.3)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>
     {text}
   </p>
 );
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; goalEmoji?: string }) {
+export function AccountHeader({
+  goalLabel,
+  goalEmoji,
+  goalType = "DEFAULT",
+}: {
+  goalLabel?: string;
+  goalEmoji?: string;
+  goalType?: GoalType;
+}) {
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
-  const [, navigate] = useLocation();
 
   const activeAccount = useMemo(
     () => accounts?.find((a: any) => a.id === selectedAccountId),
@@ -89,15 +103,6 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
     { enabled: !!selectedAccountId, staleTime: 60_000 }
   );
 
-  const { data: suggestions } = trpc.suggestions.list.useQuery(
-    { accountId: selectedAccountId! },
-    { enabled: !!selectedAccountId, staleTime: 120_000 }
-  );
-  const lastApplied = useMemo(
-    () => (suggestions ?? []).filter((s: any) => s.status === "applied").slice(0, 2),
-    [suggestions]
-  );
-
   const savedNote = (activeAccount as any)?.accountNote as string | null ?? "";
   const [editing, setEditing] = useState(false);
   const [noteValue, setNoteValue] = useState(savedNote);
@@ -115,12 +120,20 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
     onError:   () => toast.error("Erro ao atualizar status IA"),
   });
 
-  // Summary overflow detection — chevron only shows when text genuinely overflows
+  const sync = trpc.accounts.sync.useMutation({
+    onSuccess: () => {
+      utils.dashboard.overview.invalidate();
+      utils.campaigns.performance.invalidate();
+      toast.success("Sincronização concluída");
+    },
+    onError: () => toast.error("Erro ao sincronizar"),
+  });
+
+  // Summary overflow detection
   const summaryRef = useRef<HTMLParagraphElement>(null);
   const [summaryOverflows, setSummaryOverflows] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  // Safe read before guard — used only as dep for overflow detection
   const rawAiSummary = (activeAccount as any)?.aiStatusSummary as string | null | undefined;
 
   useLayoutEffect(() => {
@@ -139,215 +152,228 @@ export function AccountHeader({ goalLabel, goalEmoji }: { goalLabel?: string; go
   const initials  = accountName.slice(0, 2).toUpperCase();
   const palette   = ACCOUNT_COLORS[activeClient?.color ?? "fuchsia"] ?? ACCOUNT_COLORS.fuchsia!;
 
-  const todaySpend = Number(todayData?.totals?.spend ?? 0);
-  const todayConv  = Number(todayData?.totals?.conversions ?? 0);
-  const todayRoas  = Number(todayData?.totals?.roas ?? 0);
-  const yestSpend  = Number(yestData?.totals?.spend ?? 0);
-  const yestConv   = Number(yestData?.totals?.conversions ?? 0);
-  const yestRoas   = Number(yestData?.totals?.roas ?? 0);
-
   const statusCfg = aiColor ? STATUS_CFG[aiColor] : null;
-
-  const sep  = <span style={{ opacity: 0.3, margin: "0 4px" }}>·</span>;
-  const pipe = <span style={{ opacity: 0.25, margin: "0 8px" }}>|</span>;
   const muted = "rgba(0,0,0,0.4)";
 
-  // Max height for clamped summary (~4 lines × 1.4 line-height × 11px font ≈ 62px)
-  const CLAMP_HEIGHT = 62;
+  const kpiDefs = KPI_CONFIGS[goalType].slice(0, 4);
+  const todayTotals = buildTotals(todayData?.totals);
+  const yestTotals  = buildTotals(yestData?.totals);
+
+  const CLAMP_HEIGHT = 72;
 
   return (
     <div style={{
+      display: "grid",
+      gridTemplateColumns: "220px 1fr 1fr 1fr",
       background: "white",
       border: "1px solid rgba(0,0,0,0.08)",
       borderRadius: "12px",
       marginBottom: "16px",
-      display: "flex",
-      flexDirection: "row",
-      alignItems: "stretch",
       overflow: "hidden",
     }}>
 
-      {/* ══ Col 1 — Identity quadrant (280px, column) ═══════════════════════ */}
-      <div style={{
-        width: 280, flexShrink: 0,
-        display: "flex", flexDirection: "column",
-        padding: "12px 16px",
-      }}>
+      {/* ══ Block 1 — Identity ══════════════════════════════════════════════ */}
+      <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", borderRight: "1px solid rgba(0,0,0,0.06)" }}>
 
-        {/* Top: identity + today/yesterday */}
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", overflow: "hidden" }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
-              background: palette.bg, color: palette.color,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
-            }}>
-              {initials}
-            </div>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "#111", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {accountName}
-            </span>
-            {goalLabel && (
-              <span style={{
-                fontSize: 10, fontWeight: 500, flexShrink: 0,
-                padding: "2px 8px", borderRadius: 99,
-                background: "rgba(232,91,168,0.1)", color: "#E85BA8",
-                border: "1px solid rgba(232,91,168,0.25)",
-              }}>
-                {goalEmoji} {goalLabel}
-              </span>
-            )}
+        {/* Avatar + name */}
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6, overflow: "hidden" }}>
+          <div style={{
+            width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
+            background: palette.bg, color: palette.color,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+          }}>
+            {initials}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", fontSize: 10 }}>
-            <span style={{ fontWeight: 500, color: "#1D9E75", opacity: 0.85 }}>● Meta Ads</span>
-            <span style={{ fontWeight: 500, color: integrations?.ga4 ? "#60a5fa" : muted, opacity: integrations?.ga4 ? 0.85 : 0.4 }}>
-              {integrations?.ga4 ? "●" : "○"} GA4
-            </span>
-            <span style={{ fontWeight: 500, color: integrations?.googleAds ? "#fbbf24" : muted, opacity: integrations?.googleAds ? 0.85 : 0.4 }}>
-              {integrations?.googleAds ? "●" : "○"} Google Ads
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", marginTop: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 12, color: muted }}>
-            <span style={{ color: "#E85BA8", fontWeight: 500 }}>Hoje</span>
-            {sep}{fmt(todaySpend)}{sep}{fmtN(todayConv)} result.
-            {todayRoas > 0 && <>{sep}{todayRoas.toFixed(2)}x ROAS</>}
-            {pipe}
-            <span style={{ fontWeight: 500, color: muted }}>Ontem</span>
-            {sep}{fmt(yestSpend)}{sep}{fmtN(yestConv)} result.
-            {yestRoas > 0 && <>{sep}{yestRoas.toFixed(2)}x ROAS</>}
-          </div>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {accountName}
+          </span>
         </div>
 
-        {/* Bottom: Sugestões button fills remaining height */}
-        <div style={{ flex: 1, display: "flex", alignItems: "flex-end", paddingTop: 12 }}>
-          <div
-            onClick={() => navigate("/suggestions")}
+        {/* Goal badge */}
+        {goalLabel && (
+          <div style={{ marginBottom: 6 }}>
+            <span style={{
+              fontSize: 10, fontWeight: 500,
+              padding: "2px 8px", borderRadius: 99,
+              background: "rgba(232,91,168,0.1)", color: "#E85BA8",
+              border: "1px solid rgba(232,91,168,0.25)",
+              whiteSpace: "nowrap",
+            }}>
+              {goalEmoji} {goalLabel}
+            </span>
+          </div>
+        )}
+
+        {/* Platform pills */}
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+          <span style={{
+            fontSize: 10, fontWeight: 500, color: "#1D9E75",
+            padding: "1px 7px", borderRadius: 99,
+            background: "rgba(29,158,117,0.1)", border: "1px solid rgba(29,158,117,0.25)",
+          }}>
+            ● Meta Ads
+          </span>
+          <span style={{
+            fontSize: 10, fontWeight: 500,
+            color: integrations?.ga4 ? "#60a5fa" : muted,
+            opacity: integrations?.ga4 ? 1 : 0.45,
+            padding: "1px 7px", borderRadius: 99,
+            background: integrations?.ga4 ? "rgba(96,165,250,0.1)" : "rgba(0,0,0,0.04)",
+            border: `1px solid ${integrations?.ga4 ? "rgba(96,165,250,0.25)" : "rgba(0,0,0,0.1)"}`,
+          }}>
+            {integrations?.ga4 ? "●" : "○"} GA4
+          </span>
+          <span style={{
+            fontSize: 10, fontWeight: 500,
+            color: integrations?.googleAds ? "#fbbf24" : muted,
+            opacity: integrations?.googleAds ? 1 : 0.45,
+            padding: "1px 7px", borderRadius: 99,
+            background: integrations?.googleAds ? "rgba(251,191,36,0.1)" : "rgba(0,0,0,0.04)",
+            border: `1px solid ${integrations?.googleAds ? "rgba(251,191,36,0.25)" : "rgba(0,0,0,0.1)"}`,
+          }}>
+            {integrations?.googleAds ? "●" : "○"} Google Ads
+          </span>
+        </div>
+
+        {/* Sync button — fills remaining height */}
+        <div style={{ flex: 1, display: "flex", alignItems: "flex-end" }}>
+          <button
+            onClick={() => sync.mutate({ accountId: selectedAccountId, days: 30 })}
+            disabled={sync.isPending}
             style={{
               width: "100%",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-              background: "#F97316", borderRadius: 8, padding: "8px 12px",
-              cursor: "pointer", transition: "opacity 0.15s",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              background: "#E85BA8", borderRadius: 8, padding: "7px 12px",
+              cursor: sync.isPending ? "not-allowed" : "pointer",
+              border: "none", opacity: sync.isPending ? 0.75 : 1,
+              transition: "opacity 0.15s",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.88")}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-            title="Ver sugestões da IA"
+            onMouseEnter={(e) => { if (!sync.isPending) e.currentTarget.style.opacity = "0.88"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = sync.isPending ? "0.75" : "1"; }}
           >
-            <Lightbulb style={{ width: 14, height: 14, color: "white", flexShrink: 0 }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: "white", whiteSpace: "nowrap" }}>Sugestões da IA</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Divider between col 1 and right columns */}
-      <div style={{ borderLeft: "1px solid rgba(0,0,0,0.06)", alignSelf: "stretch" }} />
-
-      {/* ══ Col 2 — Right three blocks (flex: 1, row, stretch) ══════════════ */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "row", alignItems: "stretch", minWidth: 0 }}>
-
-        {/* Block A — Últimas Ações */}
-        <div style={{ flex: 1, padding: "12px 16px", minWidth: 0 }}>
-          {blockLabel("Últimas Ações")}
-          {lastApplied.length === 0 ? (
-            <p style={{ fontSize: 11, color: muted, opacity: 0.6 }}>Nenhuma ação registrada</p>
-          ) : (
-            lastApplied.map((s: any) => (
-              <div key={s.id} style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 2 }}>
-                <span style={{ fontSize: 11, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-                  {s.title}
-                </span>
-                <span style={{ fontSize: 10, color: muted, flexShrink: 0 }}>{fmtDateShort(s.appliedAt)}</span>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div style={{ borderLeft: "1px solid rgba(0,0,0,0.06)", alignSelf: "stretch" }} />
-
-        {/* Block B — Resumo Geral */}
-        <div style={{ flex: 1, padding: "12px 16px", minWidth: 0 }}>
-          {blockLabel("Resumo Geral")}
-          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: statusCfg?.color ?? "rgba(0,0,0,0.2)" }} />
-            <span style={{ fontSize: 11, fontWeight: 500, color: statusCfg?.color ?? muted, flex: 1 }}>
-              {statusCfg?.label ?? "Status IA"} — 7 dias
+            <RefreshCw style={{ width: 13, height: 13, color: "white", flexShrink: 0, animation: sync.isPending ? "spin 1s linear infinite" : undefined }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: "white", whiteSpace: "nowrap" }}>
+              {sync.isPending ? "Sincronizando..." : "Sincronizar"}
             </span>
-            <button
-              onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
-              disabled={refreshStatus.isPending}
-              title="Atualizar análise IA"
-              style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: muted, opacity: 0.5, transition: "opacity 0.15s" }}
-              onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-              onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
-            >
-              <RefreshCw style={{ width: 10, height: 10, animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
-            </button>
-          </div>
-          <p
-            ref={summaryRef}
-            style={{
-              fontSize: 11, lineHeight: 1.4, color: muted,
-              overflow: "hidden",
-              maxHeight: expanded ? "none" : CLAMP_HEIGHT,
-              transition: "max-height 0.2s ease",
-            }}
-          >
-            {aiSummary}
-          </p>
-          {summaryOverflows && (
-            <button
-              onClick={() => setExpanded(v => !v)}
-              style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 3, background: "none", border: "none", padding: 0, cursor: "pointer", color: muted, opacity: 0.5, fontSize: 10, transition: "opacity 0.2s ease" }}
-              onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
-              onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
-            >
-              {expanded ? <ChevronUp style={{ width: 10, height: 10 }} /> : <ChevronDown style={{ width: 10, height: 10 }} />}
-            </button>
-          )}
+          </button>
         </div>
-
-        <div style={{ borderLeft: "1px solid rgba(0,0,0,0.06)", alignSelf: "stretch" }} />
-
-        {/* Block C — Nota */}
-        <div style={{ flex: 1, padding: "12px 16px", minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
-            {blockLabel("Nota")}
-            <div style={{ flex: 1 }} />
-            {editing ? (
-              <div style={{ display: "flex", gap: 2 }}>
-                <button onClick={() => updateNote.mutate({ accountId: selectedAccountId, note: noteValue })} disabled={updateNote.isPending}
-                  style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: "#1D9E75" }} title="Salvar">
-                  <Check style={{ width: 11, height: 11 }} />
-                </button>
-                <button onClick={() => { setNoteValue(savedNote); setEditing(false); }}
-                  style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: muted }} title="Cancelar">
-                  <X style={{ width: 11, height: 11 }} />
-                </button>
-              </div>
-            ) : (
-              <button onClick={() => setEditing(true)}
-                style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: muted, opacity: 0.5 }} title="Editar nota">
-                <Pencil style={{ width: 10, height: 10 }} />
-              </button>
-            )}
-          </div>
-          {editing ? (
-            <textarea
-              ref={textareaRef}
-              value={noteValue}
-              onChange={(e) => setNoteValue(e.target.value)}
-              rows={3}
-              style={{ width: "100%", fontSize: 11, lineHeight: 1.4, padding: "3px 6px", borderRadius: 6, border: "1px solid rgba(232,91,168,0.4)", resize: "none", outline: "none", fontFamily: "inherit", color: "#111" }}
-              placeholder="Adicionar nota..."
-            />
-          ) : (
-            <p style={{ fontSize: 11, color: noteValue ? "#111" : muted, lineHeight: 1.4, cursor: "text", opacity: noteValue ? 1 : 0.5 }} onClick={() => setEditing(true)}>
-              {noteValue || "Adicionar nota..."}
-            </p>
-          )}
-        </div>
-
       </div>
+
+      {/* ══ Block 2 — Resultados (Hoje / Ontem) ═════════════════════════════ */}
+      <div style={{ padding: "12px 16px", borderRight: "1px solid rgba(0,0,0,0.06)" }}>
+        {blockLabel("Resultados")}
+
+        {[
+          { period: "Hoje",  totals: todayTotals, color: "#E85BA8" },
+          { period: "Ontem", totals: yestTotals,  color: muted     },
+        ].map(({ period, totals, color }, i) => (
+          <div key={period} style={{ marginBottom: i === 0 ? 10 : 0 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color, display: "block", marginBottom: 3 }}>
+              {period}
+            </span>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0 6px" }}>
+              {kpiDefs.map((kpi) => (
+                <div key={kpi.key}>
+                  <div style={{
+                    fontSize: 9, color: muted, fontWeight: 500,
+                    textTransform: "uppercase", letterSpacing: 0.4,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    marginBottom: 1,
+                  }}>
+                    {kpi.label}
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#111", whiteSpace: "nowrap" }}>
+                    {kpi.format(totals)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ══ Block 3 — Resumo Geral ═══════════════════════════════════════════ */}
+      <div style={{ padding: "12px 16px", borderRight: "1px solid rgba(0,0,0,0.06)" }}>
+        {blockLabel("Resumo Geral")}
+        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+          <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: statusCfg?.color ?? "rgba(0,0,0,0.2)" }} />
+          <span style={{ fontSize: 11, fontWeight: 500, color: statusCfg?.color ?? muted, flex: 1 }}>
+            {statusCfg?.label ?? "Status IA"} — 7 dias
+          </span>
+          <button
+            onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
+            disabled={refreshStatus.isPending}
+            title="Atualizar análise IA"
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: muted, opacity: 0.5, transition: "opacity 0.15s" }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
+          >
+            <RefreshCw style={{ width: 10, height: 10, animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
+          </button>
+        </div>
+        <p
+          ref={summaryRef}
+          style={{
+            fontSize: 11, lineHeight: 1.45, color: muted,
+            overflow: "hidden",
+            maxHeight: expanded ? "none" : CLAMP_HEIGHT,
+            transition: "max-height 0.2s ease",
+          }}
+        >
+          {aiSummary}
+        </p>
+        {summaryOverflows && (
+          <button
+            onClick={() => setExpanded(v => !v)}
+            style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 3, background: "none", border: "none", padding: 0, cursor: "pointer", color: muted, opacity: 0.5, fontSize: 10, transition: "opacity 0.2s ease" }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
+          >
+            {expanded ? <ChevronUp style={{ width: 10, height: 10 }} /> : <ChevronDown style={{ width: 10, height: 10 }} />}
+          </button>
+        )}
+      </div>
+
+      {/* ══ Block 4 — Nota ══════════════════════════════════════════════════ */}
+      <div style={{ padding: "12px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
+          {blockLabel("Nota")}
+          <div style={{ flex: 1 }} />
+          {editing ? (
+            <div style={{ display: "flex", gap: 2 }}>
+              <button onClick={() => updateNote.mutate({ accountId: selectedAccountId, note: noteValue })} disabled={updateNote.isPending}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: "#1D9E75" }} title="Salvar">
+                <Check style={{ width: 11, height: 11 }} />
+              </button>
+              <button onClick={() => { setNoteValue(savedNote); setEditing(false); }}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: muted }} title="Cancelar">
+                <X style={{ width: 11, height: 11 }} />
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setEditing(true)}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: muted, opacity: 0.5 }} title="Editar nota">
+              <Pencil style={{ width: 10, height: 10 }} />
+            </button>
+          )}
+        </div>
+        {editing ? (
+          <textarea
+            ref={textareaRef}
+            value={noteValue}
+            onChange={(e) => setNoteValue(e.target.value)}
+            rows={4}
+            style={{ width: "100%", fontSize: 11, lineHeight: 1.4, padding: "3px 6px", borderRadius: 6, border: "1px solid rgba(232,91,168,0.4)", resize: "none", outline: "none", fontFamily: "inherit", color: "#111" }}
+            placeholder="Adicionar nota..."
+          />
+        ) : (
+          <p style={{ fontSize: 11, color: noteValue ? "#111" : muted, lineHeight: 1.4, cursor: "text", opacity: noteValue ? 1 : 0.5 }} onClick={() => setEditing(true)}>
+            {noteValue || "Adicionar nota..."}
+          </p>
+        )}
+      </div>
+
     </div>
   );
 }
