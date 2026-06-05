@@ -257,11 +257,11 @@ const GOAL_LABELS: Record<GoalType, { label: string; emoji: string }> = {
 // ─── MetricCard component ─────────────────────────────────────────────────────
 
 function MetricCard({
-  title, value, subtitle, icon: Icon, trend, trendValue, color = "blue",
+  title, value, subtitle, icon: Icon, trend, trendValue, trendPercent, color = "blue",
 }: {
   title: string; value: string; subtitle?: string;
   icon: React.ComponentType<{ className?: string }>;
-  trend?: "up" | "down" | "neutral"; trendValue?: string;
+  trend?: "up" | "down" | "neutral"; trendValue?: string; trendPercent?: string;
   color?: "blue" | "green" | "red" | "purple" | "orange";
 }) {
   const colorMap = {
@@ -278,14 +278,22 @@ function MetricCard({
           <div className={`w-9 h-9 rounded-lg flex items-center justify-center shadow-sm ${colorMap[color]}`}>
             <Icon className="w-4 h-4 font-bold" />
           </div>
-          {trend && trendValue && (
-            <div className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${
-              trend === "up" ? "text-emerald-400 bg-emerald-400/10" : trend === "down" ? "text-red-400 bg-red-400/10" : "text-muted-foreground bg-muted/30"
-            }`}>
-              {trend === "up" ? <TrendingUp className="w-3 h-3" /> : trend === "down" ? <TrendingDown className="w-3 h-3" /> : null}
-              {trendValue}
-            </div>
-          )}
+          <div className="flex flex-col items-end gap-1">
+            {trend && trendValue && (
+              <div className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${
+                trend === "up" ? "text-emerald-400 bg-emerald-400/10" : trend === "down" ? "text-red-400 bg-red-400/10" : "text-muted-foreground bg-muted/30"
+              }`}>
+                {trend === "up" ? <TrendingUp className="w-3 h-3" /> : trend === "down" ? <TrendingDown className="w-3 h-3" /> : null}
+                {trendValue}
+              </div>
+            )}
+            {trendPercent && (
+              <span className={`flex items-center text-xs font-medium ${trendPercent.startsWith("-") ? "text-red-500" : "text-green-600"}`}>
+                {trendPercent.startsWith("-") ? <TrendingDown className="w-3 h-3 mr-0.5" /> : <TrendingUp className="w-3 h-3 mr-0.5" />}
+                {trendPercent}
+              </span>
+            )}
+          </div>
         </div>
         <p className="text-2xl font-bold text-foreground mb-0.5">{value}</p>
         <p className="text-xs font-semibold text-foreground/80">{title}</p>
@@ -475,6 +483,15 @@ export default function Dashboard() {
     const reach = Number(t.reach ?? 0);
     return { ...t, cpc, cpm, frequency, reach };
   }, [data]);
+
+  const prevTotals = (data as any)?.previousTotals ?? null;
+
+  // Helper to calculate percent change between current and previous period
+  const pctChange = (curr: number, prev: number): string | undefined => {
+    if (!prev) return undefined;
+    const pct = ((curr - prev) / prev) * 100;
+    return (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%";
+  };
 
   // Chart: use primary metric based on goalType
   // ROAS only for SALES/VALUE; for everything else use Resultados (conversions)
@@ -776,6 +793,7 @@ export default function Dashboard() {
                     color={kpi.color}
                     trend={kpi.trend ? kpi.trend(totals ?? {}) : undefined}
                     trendValue={kpi.trendLabel ? kpi.trendLabel(totals ?? {}) : undefined}
+                    trendPercent={totals && prevTotals ? pctChange((totals as any)[kpi.key] ?? 0, prevTotals[kpi.key] ?? 0) : undefined}
                   />
                 </div>
               ))}
@@ -789,6 +807,7 @@ export default function Dashboard() {
                     value={totals ? kpi.format(totals) : "—"}
                     icon={kpi.icon}
                     color={kpi.color}
+                    trendPercent={totals && prevTotals ? pctChange((totals as any)[kpi.key] ?? 0, prevTotals[kpi.key] ?? 0) : undefined}
                   />
                 </div>
               ))}
@@ -803,7 +822,10 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-bold text-foreground">Investimento Diário (R$)</CardTitle>
                 <div className="flex items-center gap-2 text-right">
-                  <span className="text-sm font-bold text-foreground">{fmtCurrency(data?.totals?.spend ?? 0)}</span>
+                  <div className="flex flex-col items-end">
+                    <span className="text-xs text-muted-foreground leading-none mb-0.5">Total no período</span>
+                    <span className="text-sm font-bold text-foreground">{fmtCurrency(data?.totals?.spend ?? 0)}</span>
+                  </div>
                   {(() => {
                     const curr = data?.totals?.spend ?? 0;
                     const prev = (data as any)?.previousTotals?.spend ?? 0;
@@ -845,24 +867,33 @@ export default function Dashboard() {
                 <CardTitle className="text-sm font-bold text-foreground">
                   {chartMetricKey === "ROAS" ? "Receita Gerada (R$)" : `${chartMetricLabel} Diários`}
                 </CardTitle>
-                {chartMetricKey === "ROAS" && (
-                  <div className="flex items-center gap-2 text-right">
-                    <span className="text-sm font-bold text-foreground">{fmtCurrency(data?.totals?.conversionValue ?? 0)}</span>
-                    {(() => {
-                      const curr = data?.totals?.conversionValue ?? 0;
-                      const prev = (data as any)?.previousTotals?.conversionValue ?? 0;
-                      if (!prev) return null;
-                      const pct = ((curr - prev) / prev) * 100;
-                      const isUp = pct >= 0;
-                      return (
-                        <span className={`flex items-center text-xs font-medium ${isUp ? "text-green-600" : "text-red-500"}`}>
-                          {isUp ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
-                          {Math.abs(pct).toFixed(1)}%
-                        </span>
-                      );
-                    })()}
+                <div className="flex items-center gap-2 text-right">
+                  <div className="flex flex-col items-end">
+                    <span className="text-xs text-muted-foreground leading-none mb-0.5">Total no período</span>
+                    <span className="text-sm font-bold text-foreground">
+                      {chartMetricKey === "ROAS"
+                        ? fmtCurrency(data?.totals?.conversionValue ?? 0)
+                        : String((data?.totals as any)?.[chartMetricKey.toLowerCase()] ?? chartData.reduce((s: number, d: any) => s + (d[chartMetricKey] ?? 0), 0).toFixed(chartMetricKey === "Resultado" ? 0 : 2))}
+                    </span>
                   </div>
-                )}
+                  {(() => {
+                    const curr = chartMetricKey === "ROAS"
+                      ? (data?.totals?.conversionValue ?? 0)
+                      : chartData.reduce((s: number, d: any) => s + (d[chartMetricKey] ?? 0), 0);
+                    const prev = chartMetricKey === "ROAS"
+                      ? ((data as any)?.previousTotals?.conversionValue ?? 0)
+                      : ((data as any)?.previousTotals?.spend ?? 0);
+                    if (!prev) return null;
+                    const pct = ((curr - prev) / prev) * 100;
+                    const isUp = pct >= 0;
+                    return (
+                      <span className={`flex items-center text-xs font-medium ${isUp ? "text-green-600" : "text-red-500"}`}>
+                        {isUp ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
+                        {Math.abs(pct).toFixed(1)}%
+                      </span>
+                    );
+                  })()}
+                </div>
               </div>
             </CardHeader>
             <CardContent className="pt-4">
