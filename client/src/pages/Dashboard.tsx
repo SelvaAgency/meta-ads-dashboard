@@ -274,23 +274,30 @@ function MetricCard({
   const displayTitle = subtitle ? `${title} (${subtitle})` : title;
   return (
     <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200 h-full">
-      <CardContent className="p-4 flex flex-col h-full min-h-[130px]">
-        <div className="flex items-center justify-between mb-auto pb-3">
+      <CardContent className="p-4 pb-3 flex flex-col h-full min-h-[110px]">
+        <div className="flex items-center justify-between mb-3">
           <div className={`w-8 h-8 rounded-lg flex items-center justify-center shadow-sm ${colorMap[color]}`}>
             <Icon className="w-4 h-4 font-bold" />
           </div>
           {trendPercent && (
-            <span
-              title={trendPrevValue ? `Período anterior: ${trendPrevValue}` : undefined}
-              className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md cursor-default ${trendPercent.startsWith("-") ? "text-red-500 bg-red-50" : "text-emerald-600 bg-emerald-50"}`}
-            >
-              {trendPercent.startsWith("-") ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
-              {trendPercent}
-            </span>
+            <div className="relative group">
+              <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md cursor-default ${trendPercent.startsWith("-") ? "text-red-500 bg-red-50" : "text-emerald-600 bg-emerald-50"}`}>
+                {trendPercent.startsWith("-") ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+                {trendPercent}
+              </span>
+              {trendPrevValue && (
+                <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block bg-popover border border-border rounded-lg px-3 py-2 shadow-xl whitespace-nowrap">
+                  <p className="text-xs text-muted-foreground">Período anterior</p>
+                  <p className="text-sm font-bold text-foreground">{trendPrevValue}</p>
+                </div>
+              )}
+            </div>
           )}
         </div>
-        <p className="text-2xl font-bold text-foreground mb-0.5">{value}</p>
-        <p className="text-xs font-semibold text-foreground/80">{displayTitle}</p>
+        <div className="mt-auto">
+          <p className="text-2xl font-bold text-foreground mb-0.5">{value}</p>
+          <p className="text-xs font-semibold text-foreground/80">{displayTitle}</p>
+        </div>
       </CardContent>
     </Card>
   );
@@ -835,10 +842,16 @@ export default function Dashboard() {
                     const pct = ((curr - prev) / prev) * 100;
                     const isUp = pct >= 0;
                     return (
-                      <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${isUp ? "text-emerald-600 bg-emerald-50" : "text-red-500 bg-red-50"}`}>
-                        {isUp ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                        {Math.abs(pct).toFixed(1)}%
-                      </span>
+                      <div className="relative group">
+                        <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md cursor-default ${isUp ? "text-emerald-600 bg-emerald-50" : "text-red-500 bg-red-50"}`}>
+                          {isUp ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                          {Math.abs(pct).toFixed(1)}%
+                        </span>
+                        <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block bg-popover border border-border rounded-lg px-3 py-2 shadow-xl whitespace-nowrap">
+                          <p className="text-xs text-muted-foreground">Período anterior</p>
+                          <p className="text-sm font-bold text-foreground">{fmtCurrency(prev)}</p>
+                        </div>
+                      </div>
                     );
                   })()}
                 </div>
@@ -888,11 +901,18 @@ export default function Dashboard() {
                     if (!prev) return null;
                     const pct = ((curr - prev) / prev) * 100;
                     const isUp = pct >= 0;
+                    const prevLabel = chartMetricKey === "ROAS" ? fmtCurrency(prev) : fmtNumber(prev);
                     return (
-                      <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${isUp ? "text-emerald-600 bg-emerald-50" : "text-red-500 bg-red-50"}`}>
-                        {isUp ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                        {Math.abs(pct).toFixed(1)}%
-                      </span>
+                      <div className="relative group">
+                        <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md cursor-default ${isUp ? "text-emerald-600 bg-emerald-50" : "text-red-500 bg-red-50"}`}>
+                          {isUp ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                          {Math.abs(pct).toFixed(1)}%
+                        </span>
+                        <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block bg-popover border border-border rounded-lg px-3 py-2 shadow-xl whitespace-nowrap">
+                          <p className="text-xs text-muted-foreground">Período anterior</p>
+                          <p className="text-sm font-bold text-foreground">{prevLabel}</p>
+                        </div>
+                      </div>
                     );
                   })()}
                 </div>
