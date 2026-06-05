@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
-import { RefreshCw, ChevronDown, ChevronUp, Pencil, Check, X } from "lucide-react";
+import { RefreshCw, ChevronDown, ChevronUp, Check } from "lucide-react";
 import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
 import { toast } from "sonner";
 import { KPI_CONFIGS, getDayStatus, type GoalType } from "@/lib/kpiConfig";
@@ -104,16 +104,43 @@ export function AccountHeader({
   );
 
   const savedNote = (activeAccount as any)?.accountNote as string | null ?? "";
-  const [editing, setEditing] = useState(false);
-  const [noteValue, setNoteValue] = useState(savedNote);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { setNoteValue(savedNote); }, [savedNote]);
-  useEffect(() => { if (editing) textareaRef.current?.focus(); }, [editing]);
+
+  function parseTags(raw: string | null): string[] {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch {
+      return raw.trim() ? [raw.trim()] : [];
+    }
+  }
+
+  const [tags, setTags] = useState<string[]>(() => parseTags(savedNote));
+  const [tagInput, setTagInput] = useState("");
+  const [hoveredTag, setHoveredTag] = useState<number | null>(null);
+  const tagInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { setTags(parseTags(savedNote)); }, [savedNote]);
 
   const updateNote = trpc.accounts.updateNote.useMutation({
-    onSuccess: () => { utils.accounts.list.invalidate(); setEditing(false); },
+    onSuccess: () => { utils.accounts.list.invalidate(); },
     onError: () => toast.error("Erro ao salvar nota"),
   });
+
+  function commitTag() {
+    const val = tagInput.trim();
+    if (!val) return;
+    const next = [...tags, val];
+    setTags(next);
+    setTagInput("");
+    updateNote.mutate({ accountId: selectedAccountId!, note: JSON.stringify(next) });
+  }
+
+  function removeTag(idx: number) {
+    const next = tags.filter((_, i) => i !== idx);
+    setTags(next);
+    setHoveredTag(null);
+    updateNote.mutate({ accountId: selectedAccountId!, note: JSON.stringify(next) });
+  }
 
   const refreshStatus = trpc.accounts.refreshStatus.useMutation({
     onSuccess: () => { utils.accounts.list.invalidate(); toast.success("Status IA atualizado"); },
@@ -351,43 +378,72 @@ export function AccountHeader({
         )}
       </div>
 
-      {/* ══ Block 4 — Nota ══════════════════════════════════════════════════ */}
+      {/* ══ Block 4 — Notas (tags) ══════════════════════════════════════════ */}
       <div style={{ padding: "12px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
-          {blockLabel("Nota")}
-          <div style={{ flex: 1 }} />
-          {editing ? (
-            <div style={{ display: "flex", gap: 2 }}>
-              <button onClick={() => updateNote.mutate({ accountId: selectedAccountId, note: noteValue })} disabled={updateNote.isPending}
-                style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: "#1D9E75" }} title="Salvar">
-                <Check style={{ width: 11, height: 11 }} />
-              </button>
-              <button onClick={() => { setNoteValue(savedNote); setEditing(false); }}
-                style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: muted }} title="Cancelar">
-                <X style={{ width: 11, height: 11 }} />
-              </button>
-            </div>
-          ) : (
-            <button onClick={() => setEditing(true)}
-              style={{ background: "none", border: "none", cursor: "pointer", padding: 1, color: muted, opacity: 0.5 }} title="Editar nota">
-              <Pencil style={{ width: 10, height: 10 }} />
-            </button>
-          )}
-        </div>
-        {editing ? (
-          <textarea
-            ref={textareaRef}
-            value={noteValue}
-            onChange={(e) => setNoteValue(e.target.value)}
-            rows={4}
-            style={{ width: "100%", fontSize: 11, lineHeight: 1.4, padding: "3px 6px", borderRadius: 6, border: "1px solid rgba(232,91,168,0.4)", resize: "none", outline: "none", fontFamily: "inherit", color: "#111" }}
-            placeholder="Adicionar nota..."
-          />
-        ) : (
-          <p style={{ fontSize: 11, color: noteValue ? "#111" : muted, lineHeight: 1.4, cursor: "text", opacity: noteValue ? 1 : 0.5 }} onClick={() => setEditing(true)}>
-            {noteValue || "Adicionar nota..."}
-          </p>
+        {blockLabel("Notas")}
+
+        {/* Tag pills */}
+        {tags.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+            {tags.map((tag, idx) => (
+              <span
+                key={idx}
+                onMouseEnter={() => setHoveredTag(idx)}
+                onMouseLeave={() => setHoveredTag(null)}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  fontSize: 11, fontWeight: 500, color: "#333",
+                  padding: "2px 8px", borderRadius: 99,
+                  background: "rgba(0,0,0,0.04)",
+                  border: "0.5px solid rgba(0,0,0,0.18)",
+                  userSelect: "none",
+                }}
+              >
+                {tag}
+                {hoveredTag === idx && (
+                  <button
+                    onClick={() => removeTag(idx)}
+                    title="Concluir"
+                    style={{
+                      background: "none", border: "none", padding: 0,
+                      cursor: "pointer", color: "#1D9E75",
+                      display: "flex", alignItems: "center",
+                      marginLeft: 1,
+                    }}
+                  >
+                    <Check style={{ width: 10, height: 10 }} />
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
         )}
+
+        {/* Input */}
+        <input
+          ref={tagInputRef}
+          value={tagInput}
+          onChange={(e) => setTagInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === ",") {
+              e.preventDefault();
+              commitTag();
+            }
+          }}
+          placeholder="Adicionar nota..."
+          style={{
+            width: "100%", fontSize: 11, lineHeight: 1.4,
+            padding: "2px 0", background: "none",
+            border: "none", borderBottom: tagInput ? "1px solid rgba(232,91,168,0.35)" : "1px solid transparent",
+            outline: "none", fontFamily: "inherit", color: "#111",
+            transition: "border-color 0.15s",
+          }}
+          onFocus={(e) => (e.currentTarget.style.borderBottomColor = "rgba(232,91,168,0.35)")}
+          onBlur={(e) => {
+            e.currentTarget.style.borderBottomColor = "transparent";
+            commitTag();
+          }}
+        />
       </div>
 
     </div>
