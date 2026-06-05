@@ -462,7 +462,6 @@ export default function Dashboard() {
               if (i < Math.ceil(2 * N / 3)) return { emoji: "🟡", label: "Média", color: "text-amber-400" };
               return { emoji: "🔴", label: "Under", color: "text-red-400" };
             };
-            const topCampaign = sorted[0];
             return (
               <Card>
                 <div className="flex items-center justify-between px-6 pt-4 pb-3 cursor-pointer select-none" onClick={() => setCampaignsCollapsed(v => !v)}>
@@ -475,22 +474,13 @@ export default function Dashboard() {
                     {campaignsCollapsed ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
                   </div>
                 </div>
-                {campaignsCollapsed && topCampaign && (
-                  <div className="px-6 pb-3 border-t border-border/40">
-                    <p className="text-xs text-muted-foreground truncate mt-2">
-                      <span className="font-medium text-foreground">{topCampaign.campaignName}</span>
-                      {" · "}
-                      {fmtNumber(Number(topCampaign.totalConversions ?? 0))} {resultLabel.toLowerCase()}
-                    </p>
-                  </div>
-                )}
-                {!campaignsCollapsed && <CardContent className="space-y-1.5">
+                <CardContent className="space-y-1.5">
                   {isLoading ? (
-                    <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
+                    <div className="space-y-2">{[...Array(campaignsCollapsed ? 1 : 4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
                   ) : sorted.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">Nenhuma campanha ativa com dados no período.</p>
                   ) : (
-                    sorted.map((c, i) => {
+                    (campaignsCollapsed ? sorted.slice(0, 1) : sorted).map((c, i) => {
                       const t = tier(i);
                       const roas = Number((c as any).avgRoas ?? 0);
                       return (
@@ -511,19 +501,12 @@ export default function Dashboard() {
                       );
                     })
                   )}
-                </CardContent>}
+                </CardContent>
               </Card>
             );
           })()}
 
           {/* Card direito — Destaques do Período */}
-          {(() => {
-            const topHighlight = creativeTab === "creatives" ? topAds?.[0] : topAdsets?.[0];
-            const topHighlightName = creativeTab === "creatives"
-              ? (topAds?.[0] as any)?.adName
-              : (topAdsets?.[0] as any)?.adsetName;
-            const topHighlightConv = topHighlight ? Number((topHighlight as any).conversions ?? 0) : 0;
-            return (
           <Card>
             <div className="flex items-center justify-between px-6 pt-4 pb-2 cursor-pointer select-none" onClick={() => setHighlightsCollapsed(v => !v)}>
               <span className="text-sm font-semibold text-foreground">Destaques do Período</span>
@@ -546,23 +529,14 @@ export default function Dashboard() {
                 {highlightsCollapsed ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
               </div>
             </div>
-            {highlightsCollapsed && topHighlightName && (
-              <div className="px-6 pb-3 border-t border-border/40">
-                <p className="text-xs text-muted-foreground truncate mt-2">
-                  <span className="font-medium text-foreground">{topHighlightName}</span>
-                  {" · "}
-                  {fmtNumber(topHighlightConv)} {resultLabel.toLowerCase()}
-                </p>
-              </div>
-            )}
-            {!highlightsCollapsed && <CardContent className="space-y-1.5">
+            <CardContent className="space-y-1.5">
               {creativeTab === "creatives" ? (
                 adsLoading ? (
-                  <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
+                  <div className="space-y-2">{[...Array(highlightsCollapsed ? 1 : 4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
                 ) : !topAds?.length ? (
                   <p className="text-sm text-muted-foreground text-center py-4">Sem dados de anúncios no período.</p>
                 ) : (
-                  topAds.map((ad, i) => (
+                  (highlightsCollapsed ? topAds.slice(0, 1) : topAds).map((ad, i) => (
                     <div key={ad.adId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/30 transition-colors">
                       <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
                       <div className="flex-1 min-w-0">
@@ -581,11 +555,11 @@ export default function Dashboard() {
                 )
               ) : (
                 adsetsLoading ? (
-                  <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
+                  <div className="space-y-2">{[...Array(highlightsCollapsed ? 1 : 4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
                 ) : !topAdsets?.length ? (
                   <p className="text-sm text-muted-foreground text-center py-4">Sem dados de públicos no período.</p>
                 ) : (
-                  topAdsets.map((as, i) => (
+                  (highlightsCollapsed ? topAdsets.slice(0, 1) : topAdsets).map((as, i) => (
                     <div key={as.adsetId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/30 transition-colors">
                       <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
                       <div className="flex-1 min-w-0">
@@ -598,10 +572,8 @@ export default function Dashboard() {
                   ))
                 )
               )}
-            </CardContent>}
+            </CardContent>
           </Card>
-            );
-          })()}
 
         </div>
 
