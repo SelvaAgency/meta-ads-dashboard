@@ -194,3 +194,61 @@ export const KPI_CONFIGS: Record<GoalType, KpiDef[]> = {
     { key: "cpa", label: "Custo por Resultado", icon: ShoppingCart, color: "purple", format: (t) => fmtCurrency(t.cpa) },
   ],
 };
+
+export type DayStatus = "bom" | "regular" | "ruim";
+
+export interface DayStatusResult {
+  status: DayStatus;
+  label: "Bom" | "Regular" | "Ruim";
+  bg: string;
+  color: string;
+  border: string;
+}
+
+const STATUS_STYLES: Record<DayStatus, Omit<DayStatusResult, "status" | "label">> = {
+  bom:     { bg: "rgba(29,158,117,0.1)",  color: "#1D9E75", border: "rgba(29,158,117,0.3)"  },
+  regular: { bg: "rgba(239,159,39,0.1)",  color: "#B97D10", border: "rgba(239,159,39,0.3)"  },
+  ruim:    { bg: "rgba(226,75,74,0.1)",   color: "#C0312F", border: "rgba(226,75,74,0.3)"   },
+};
+
+export function getDayStatus(goalType: GoalType, totals: any): DayStatusResult | null {
+  const spend       = Number(totals?.spend ?? 0);
+  const results     = Number(totals?.conversions ?? 0);
+  const ctr         = Number(totals?.ctr ?? 0);
+  const cpm         = Number(totals?.cpm ?? 0);
+
+  if (spend === 0) return null;
+
+  let status: DayStatus;
+
+  switch (goalType) {
+    case "SALES":
+    case "VALUE":
+    case "LEADS":
+      status = results > 0 ? "bom" : ctr > 1 ? "regular" : "ruim";
+      break;
+
+    case "MESSAGES":
+      status = results === 0 ? "ruim" : cpm < 50 ? "bom" : "regular";
+      break;
+
+    case "TRAFFIC":
+      status = ctr > 2 ? "bom" : ctr >= 0.5 ? "regular" : "ruim";
+      break;
+
+    case "ENGAGEMENT": {
+      const ratio = spend > 0 ? results / spend : 0;
+      status = ratio > 10 ? "bom" : ratio >= 3 ? "regular" : "ruim";
+      break;
+    }
+
+    default:
+      return null;
+  }
+
+  const LABELS: Record<DayStatus, "Bom" | "Regular" | "Ruim"> = {
+    bom: "Bom", regular: "Regular", ruim: "Ruim",
+  };
+
+  return { status, label: LABELS[status], ...STATUS_STYLES[status] };
+}

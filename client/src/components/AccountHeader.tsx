@@ -4,7 +4,7 @@ import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientC
 import { RefreshCw, ChevronDown, ChevronUp, Pencil, Check, X } from "lucide-react";
 import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
 import { toast } from "sonner";
-import { KPI_CONFIGS, type GoalType } from "@/lib/kpiConfig";
+import { KPI_CONFIGS, getDayStatus, type GoalType } from "@/lib/kpiConfig";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -267,11 +267,26 @@ export function AccountHeader({
         {[
           { period: "Hoje",  totals: todayTotals, color: "#E85BA8" },
           { period: "Ontem", totals: yestTotals,  color: muted     },
-        ].map(({ period, totals, color }, i) => (
+        ].map(({ period, totals, color }, i) => {
+          const tag = getDayStatus(goalType, totals);
+          return (
           <div key={period} style={{ marginBottom: i === 0 ? 10 : 0 }}>
-            <span style={{ fontSize: 10, fontWeight: 600, color, display: "block", marginBottom: 3 }}>
-              {period}
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color }}>
+                {period}
+              </span>
+              {tag && (
+                <span style={{
+                  fontSize: 9, fontWeight: 600, lineHeight: 1,
+                  padding: "2px 6px", borderRadius: 99,
+                  background: tag.bg, color: tag.color,
+                  border: `1px solid ${tag.border}`,
+                  whiteSpace: "nowrap",
+                }}>
+                  {tag.label}
+                </span>
+              )}
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0 6px" }}>
               {kpiDefs.map((kpi) => (
                 <div key={kpi.key}>
@@ -290,7 +305,8 @@ export function AccountHeader({
               ))}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* ══ Block 3 — Resumo Geral ═══════════════════════════════════════════ */}
