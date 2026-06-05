@@ -16,6 +16,7 @@ import Connect from "./pages/Connect";
 import AlertsPage from "./pages/AlertsPage";
 import GoogleAds from "./pages/GoogleAds";
 import SocialNetworks from "./pages/SocialNetworks";
+import AccountSettings from "./pages/AccountSettings";
 
 function RedirectTo({ to }: { to: string }) {
   const [, navigate] = useLocation();
@@ -35,6 +36,7 @@ function Router() {
       <Route path="/reports" component={Reports} />
       <Route path="/google-ads" component={GoogleAds} />
       <Route path="/social-networks" component={SocialNetworks} />
+      <Route path="/settings/accounts" component={AccountSettings} />
       {/* Redirects for removed nav items */}
       <Route path="/anomalies" component={() => <RedirectTo to="/alerts" />} />
       <Route path="/404" component={NotFound} />

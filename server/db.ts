@@ -167,6 +167,12 @@ export async function updateAccountNote(id: number, note: string) {
   await db.update(metaAdAccounts).set({ accountNote: note }).where(eq(metaAdAccounts.id, id));
 }
 
+export async function updateAccountGoalType(id: number, goalTypeOverride: string | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(metaAdAccounts).set({ goalTypeOverride }).where(eq(metaAdAccounts.id, id));
+}
+
 export async function updateAccountAiStatus(id: number, color: "green" | "yellow" | "red", summary: string) {
   const db = await getDb();
   if (!db) return;

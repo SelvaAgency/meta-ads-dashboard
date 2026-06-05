@@ -456,10 +456,16 @@ export default function Dashboard() {
   );
 
   // Use goalProfile from backend (based on optimization_goal, NOT campaign.objective)
-  // This ensures KPI cards reflect the actual performance target of the adsets
+  // If account has a manual goalTypeOverride, use that instead
+  const activeAccount = useMemo(
+    () => accounts?.find((a: any) => a.id === selectedAccountId),
+    [accounts, selectedAccountId]
+  );
   const goalType = useMemo<GoalType>(() => {
+    const override = (activeAccount as any)?.goalTypeOverride;
+    if (override) return override as GoalType;
     return mapGoalToType(data?.dominantGoal);
-  }, [data?.dominantGoal]);
+  }, [data?.dominantGoal, activeAccount]);
 
   // Use label/emoji from backend goalProfile when available, fallback to local map
   const goalLabelFromBackend = data?.goalProfile?.label;

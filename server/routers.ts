@@ -47,6 +47,7 @@ import {
   updateMetaAdAccountSync,
   updateAccountAiStatus,
   updateAccountNote,
+  updateAccountGoalType,
   markStaleCampaignsArchived,
   forceUpdateAllTokens,
 } from "./db";
@@ -473,6 +474,14 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         await getVerifiedAccount(input.accountId, ctx.user.id);
         await updateAccountNote(input.accountId, input.note);
+        return { success: true };
+      }),
+
+    updateGoalType: protectedProcedure
+      .input(z.object({ accountId: z.number(), goalTypeOverride: z.string().nullable() }))
+      .mutation(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id);
+        await updateAccountGoalType(input.accountId, input.goalTypeOverride);
         return { success: true };
       }),
 

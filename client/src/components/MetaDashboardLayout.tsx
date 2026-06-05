@@ -21,6 +21,7 @@ import {
   Building2,
   CalendarCheck,
   Share2,
+  Settings,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
@@ -85,6 +86,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/alerts", label: "Alertas", icon: Bell, badge: unreadCount ?? 0 },
     { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
+    { path: "/settings/accounts", label: "Configurações", icon: Settings },
   ];
 
   if (loading) {
