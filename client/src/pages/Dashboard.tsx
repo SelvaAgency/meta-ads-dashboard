@@ -42,6 +42,8 @@ import {
   Play,
   Heart,
   ExternalLink,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -415,6 +417,8 @@ export default function Dashboard() {
     customEnd: "",
   });
   const [creativeTab, setCreativeTab] = useState<"creatives" | "audiences">("creatives");
+  const [highlightsCollapsed, setHighlightsCollapsed] = useState(false);
+  const [campaignsCollapsed, setCampaignsCollapsed] = useState(false);
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
 
@@ -669,16 +673,19 @@ export default function Dashboard() {
             };
             return (
               <Card>
-                <CardHeader className="pb-3">
+                <CardHeader className="pb-3 cursor-pointer select-none" onClick={() => setCampaignsCollapsed(v => !v)}>
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-semibold flex items-center gap-2">
                       <TrendingUp className="w-4 h-4 text-primary" />
                       Campanhas Ativas
                     </CardTitle>
-                    <Badge variant="outline" className="text-xs text-muted-foreground">{sorted.length} ativas</Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-xs text-muted-foreground">{sorted.length} ativas</Badge>
+                      {campaignsCollapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
+                    </div>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-1.5">
+                {!campaignsCollapsed && <CardContent className="space-y-1.5">
                   {isLoading ? (
                     <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
                   ) : sorted.length === 0 ? (
@@ -705,18 +712,19 @@ export default function Dashboard() {
                       );
                     })
                   )}
-                </CardContent>
+                </CardContent>}
               </Card>
             );
           })()}
 
           {/* Card direito — Destaques do Período */}
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-2 cursor-pointer select-none" onClick={() => setHighlightsCollapsed(v => !v)}>
               <div className="flex items-center gap-2">
                 <CardTitle className="text-sm font-semibold text-foreground flex-1">
                   Destaques do Período
                 </CardTitle>
+                {highlightsCollapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
                 <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-0.5">
                   {(["creatives", "audiences"] as const).map((tab) => (
                     <button
@@ -734,7 +742,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-1.5">
+            {!highlightsCollapsed && <CardContent className="space-y-1.5">
               {creativeTab === "creatives" ? (
                 adsLoading ? (
                   <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
@@ -946,7 +954,7 @@ export default function Dashboard() {
                   />
                 </AreaChart>
               </ResponsiveContainer>
-            </CardContent>
+            </CardContent>}
           </Card>
         </div>
 
