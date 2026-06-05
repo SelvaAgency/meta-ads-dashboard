@@ -681,7 +681,7 @@ export default function Dashboard() {
                     </CardTitle>
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="text-xs text-muted-foreground">{sorted.length} ativas</Badge>
-                      {campaignsCollapsed ? <ChevronDown className="w-4 h-4 text-foreground/60 flex-shrink-0" /> : <ChevronUp className="w-4 h-4 text-foreground/60 flex-shrink-0" />}
+                      {campaignsCollapsed ? <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" /> : <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" />}
                     </div>
                   </div>
                 </CardHeader>
