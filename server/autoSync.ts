@@ -317,7 +317,7 @@ async function runAutoSync() {
   for (const account of accounts) {
     await syncAccount(account);
     // Small delay between accounts to respect Meta API rate limits
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 15000));
   }
   logger.info(`[AutoSync] Daily sync complete — ${accounts.length} account(s) processed.`);
 }
