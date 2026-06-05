@@ -781,7 +781,7 @@ export default function Dashboard() {
                   ))
                 )
               )}
-            </CardContent>
+            </CardContent>}
           </Card>
 
         </div>
