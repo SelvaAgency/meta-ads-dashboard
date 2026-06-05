@@ -534,11 +534,22 @@ export const appRouter = router({
 
         // If explicit startDate/endDate provided, use them; otherwise fall back to days-based range
         const { startDate, endDate } = resolveDateRange(input);
-        const [metrics, campaigns, unreadAlerts, unreadAnomalies] = await Promise.all([
+        // Calculate previous period (same number of days, immediately before)
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const periodDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        const prevEnd = new Date(start);
+        prevEnd.setDate(prevEnd.getDate() - 1);
+        const prevStart = new Date(prevEnd);
+        prevStart.setDate(prevStart.getDate() - (periodDays - 1));
+        const prevStartStr = prevStart.toISOString().split("T")[0];
+        const prevEndStr = prevEnd.toISOString().split("T")[0];
+        const [metrics, campaigns, unreadAlerts, unreadAnomalies, prevMetrics] = await Promise.all([
           getAccountMetricsSummary(input.accountId, startDate, endDate),
           getCampaignPerformanceSummary(input.accountId, startDate, endDate),
           getUnreadAlertsCount(ctx.user.id),
           getUnreadAnomaliesCount(input.accountId),
+          getAccountMetricsSummary(input.accountId, prevStartStr, prevEndStr),
         ]);
 
         const totals = metrics.reduce(
@@ -567,8 +578,16 @@ export const appRouter = router({
         const dominantGoal = detectDominantGoal(optimizationGoals);
         const goalProfile = getPerformanceGoalProfile(dominantGoal);
 
+        const prevTotals = prevMetrics.reduce(
+          (acc, m) => ({
+            spend: acc.spend + Number(m.totalSpend ?? 0),
+            conversionValue: acc.conversionValue + Number(m.totalConversionValue ?? 0),
+          }),
+          { spend: 0, conversionValue: 0 }
+        );
         return {
           totals: { ...totals, roas: overallRoas, cpa: overallCpa, ctr: overallCtr },
+          previousTotals: prevTotals,
           timeSeries: metrics,
           campaigns,
           unreadAlerts,

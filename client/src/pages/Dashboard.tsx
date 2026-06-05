@@ -800,7 +800,25 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card className="border-border bg-card">
             <CardHeader className="pb-2 border-b border-border/30">
-              <CardTitle className="text-sm font-bold text-foreground">Investimento Diário (R$)</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-bold text-foreground">Investimento Diário (R$)</CardTitle>
+                <div className="flex items-center gap-2 text-right">
+                  <span className="text-sm font-bold text-foreground">{fmtCurrency(data?.totals?.spend ?? 0)}</span>
+                  {(() => {
+                    const curr = data?.totals?.spend ?? 0;
+                    const prev = (data as any)?.previousTotals?.spend ?? 0;
+                    if (!prev) return null;
+                    const pct = ((curr - prev) / prev) * 100;
+                    const isUp = pct >= 0;
+                    return (
+                      <span className={`flex items-center text-xs font-medium ${isUp ? "text-green-600" : "text-red-500"}`}>
+                        {isUp ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
+                        {Math.abs(pct).toFixed(1)}%
+                      </span>
+                    );
+                  })()}
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="pt-4">
               <ResponsiveContainer width="100%" height={200}>
@@ -823,11 +841,29 @@ export default function Dashboard() {
 
           <Card className="border-border bg-card">
             <CardHeader className="pb-2 border-b border-border/30">
-              <CardTitle className="text-sm font-bold text-foreground">
-                {chartMetricKey === "ROAS"
-                  ? "Receita Gerada (R$)"
-                  : `${chartMetricLabel} Diários`}
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-bold text-foreground">
+                  {chartMetricKey === "ROAS" ? "Receita Gerada (R$)" : `${chartMetricLabel} Diários`}
+                </CardTitle>
+                {chartMetricKey === "ROAS" && (
+                  <div className="flex items-center gap-2 text-right">
+                    <span className="text-sm font-bold text-foreground">{fmtCurrency(data?.totals?.conversionValue ?? 0)}</span>
+                    {(() => {
+                      const curr = data?.totals?.conversionValue ?? 0;
+                      const prev = (data as any)?.previousTotals?.conversionValue ?? 0;
+                      if (!prev) return null;
+                      const pct = ((curr - prev) / prev) * 100;
+                      const isUp = pct >= 0;
+                      return (
+                        <span className={`flex items-center text-xs font-medium ${isUp ? "text-green-600" : "text-red-500"}`}>
+                          {isUp ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
+                          {Math.abs(pct).toFixed(1)}%
+                        </span>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="pt-4">
               <ResponsiveContainer width="100%" height={200}>
