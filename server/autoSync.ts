@@ -419,8 +419,8 @@ async function runAnomalyDetection() {
           changePercent: String(anomaly.changePercent),
         });
 
-        // Get the inserted anomaly ID
-        const insertId = (result as any).insertId as number | undefined;
+        // Get the inserted anomaly ID — result may be null if anomaly already exists
+        const insertId = result ? (result as any).insertId as number | undefined : undefined;
 
         // Create alert for account owner — only once (emailSentAt guards against duplicates)
         const alertResult = await createAlertIfNotExists({
