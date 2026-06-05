@@ -272,8 +272,8 @@ function MetricCard({
     orange: "text-orange-400 bg-gradient-to-br from-orange-400/20 to-orange-400/10",
   };
   return (
-    <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200">
-      <CardContent className="p-5">
+    <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200 h-full">
+      <CardContent className="p-5 flex flex-col justify-between h-full min-h-[140px]">
         <div className="flex items-start justify-between mb-3">
           <div className={`w-9 h-9 rounded-lg flex items-center justify-center shadow-sm ${colorMap[color]}`}>
             <Icon className="w-4 h-4 font-bold" />
@@ -484,7 +484,16 @@ export default function Dashboard() {
     return { ...t, cpc, cpm, frequency, reach };
   }, [data]);
 
-  const prevTotals = (data as any)?.previousTotals ?? null;
+  const prevTotals = useMemo(() => {
+    const p = (data as any)?.previousTotals;
+    if (!p) return null;
+    const cpc = p.clicks > 0 ? p.spend / p.clicks : 0;
+    const cpm = p.impressions > 0 ? (p.spend / p.impressions) * 1000 : 0;
+    const ctr = p.impressions > 0 ? (p.clicks / p.impressions) * 100 : 0;
+    const cpa = p.conversions > 0 ? p.spend / p.conversions : 0;
+    const roas = p.spend > 0 ? p.conversionValue / p.spend : 0;
+    return { ...p, cpc, cpm, ctr, cpa, roas };
+  }, [data]);
 
   // Helper to calculate percent change between current and previous period
   const pctChange = (curr: number, prev: number): string | undefined => {
@@ -822,8 +831,8 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-bold text-foreground">Investimento Diário (R$)</CardTitle>
                 <div className="flex items-center gap-2 text-right">
-                  <div className="flex flex-col items-end">
-                    <span className="text-xs text-muted-foreground leading-none mb-0.5">Total no período</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">Total no período</span>
                     <span className="text-sm font-bold text-foreground">{fmtCurrency(data?.totals?.spend ?? 0)}</span>
                   </div>
                   {(() => {
@@ -868,8 +877,8 @@ export default function Dashboard() {
                   {chartMetricKey === "ROAS" ? "Receita Gerada (R$)" : `${chartMetricLabel} Diários`}
                 </CardTitle>
                 <div className="flex items-center gap-2 text-right">
-                  <div className="flex flex-col items-end">
-                    <span className="text-xs text-muted-foreground leading-none mb-0.5">Total no período</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">Total no período</span>
                     <span className="text-sm font-bold text-foreground">
                       {chartMetricKey === "ROAS"
                         ? fmtCurrency(data?.totals?.conversionValue ?? 0)
