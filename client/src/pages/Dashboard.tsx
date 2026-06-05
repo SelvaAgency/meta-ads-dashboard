@@ -302,7 +302,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       <p className="text-muted-foreground mb-2">{label}</p>
       {payload.map((p: any) => (
         <p key={p.name} style={{ color: p.color }} className="font-medium">
-          {p.name}: {typeof p.value === "number" ? p.value.toFixed(2) : p.value}
+          {p.name}: {typeof p.value === "number" ? (p.name === "Receita" || p.name === "Gasto" ? fmtCurrency(p.value) : p.value.toFixed(2)) : p.value}
         </p>
       ))}
     </div>
@@ -490,6 +490,7 @@ export default function Dashboard() {
       Gasto: parseFloat(String(d.totalSpend ?? 0)),
       Resultado: parseFloat(String(d.totalConversions ?? 0)),
       ROAS: parseFloat(String(d.avgRoas ?? 0)),
+      Receita: parseFloat(String(d.totalConversionValue ?? 0)),
     }));
   }, [data]);
 
@@ -824,7 +825,7 @@ export default function Dashboard() {
             <CardHeader className="pb-2 border-b border-border/30">
               <CardTitle className="text-sm font-bold text-foreground">
                 {chartMetricKey === "ROAS"
-                  ? "ROAS Diário"
+                  ? "Receita Gerada (R$)"
                   : `${chartMetricLabel} Diários`}
               </CardTitle>
             </CardHeader>
@@ -843,7 +844,7 @@ export default function Dashboard() {
                   <Tooltip content={<CustomTooltip />} />
                   <Area
                     type="monotone"
-                    dataKey={chartMetricKey}
+                    dataKey={chartMetricKey === "ROAS" ? "Receita" : chartMetricKey}
                     stroke="#F5B8D8"
                     fill="url(#resultGrad)"
                     strokeWidth={2.5}
