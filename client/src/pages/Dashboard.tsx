@@ -257,11 +257,11 @@ const GOAL_LABELS: Record<GoalType, { label: string; emoji: string }> = {
 // ─── MetricCard component ─────────────────────────────────────────────────────
 
 function MetricCard({
-  title, value, subtitle, icon: Icon, trend, trendValue, trendPercent, color = "blue",
+  title, value, subtitle, icon: Icon, trendPercent, trendPrevValue, color = "blue",
 }: {
   title: string; value: string; subtitle?: string;
   icon: React.ComponentType<{ className?: string }>;
-  trend?: "up" | "down" | "neutral"; trendValue?: string; trendPercent?: string;
+  trendPercent?: string; trendPrevValue?: string;
   color?: "blue" | "green" | "red" | "purple" | "orange";
 }) {
   const colorMap = {
@@ -271,33 +271,26 @@ function MetricCard({
     purple: "text-purple-400 bg-gradient-to-br from-purple-400/20 to-purple-400/10",
     orange: "text-orange-400 bg-gradient-to-br from-orange-400/20 to-orange-400/10",
   };
+  const displayTitle = subtitle ? `${title} (${subtitle})` : title;
   return (
     <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200 h-full">
-      <CardContent className="p-5 flex flex-col justify-between h-full min-h-[140px]">
-        <div className="flex items-start justify-between mb-3">
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shadow-sm ${colorMap[color]}`}>
+      <CardContent className="p-4 flex flex-col h-full min-h-[130px]">
+        <div className="flex items-center justify-between mb-auto pb-3">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shadow-sm ${colorMap[color]}`}>
             <Icon className="w-4 h-4 font-bold" />
           </div>
-          <div className="flex flex-col items-end gap-1">
-            {trend && trendValue && (
-              <div className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${
-                trend === "up" ? "text-emerald-400 bg-emerald-400/10" : trend === "down" ? "text-red-400 bg-red-400/10" : "text-muted-foreground bg-muted/30"
-              }`}>
-                {trend === "up" ? <TrendingUp className="w-3 h-3" /> : trend === "down" ? <TrendingDown className="w-3 h-3" /> : null}
-                {trendValue}
-              </div>
-            )}
-            {trendPercent && (
-              <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${trendPercent.startsWith("-") ? "text-red-500 bg-red-50" : "text-emerald-600 bg-emerald-50"}`}>
-                {trendPercent.startsWith("-") ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
-                {trendPercent}
-              </span>
-            )}
-          </div>
+          {trendPercent && (
+            <span
+              title={trendPrevValue ? `Período anterior: ${trendPrevValue}` : undefined}
+              className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md cursor-default ${trendPercent.startsWith("-") ? "text-red-500 bg-red-50" : "text-emerald-600 bg-emerald-50"}`}
+            >
+              {trendPercent.startsWith("-") ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+              {trendPercent}
+            </span>
+          )}
         </div>
         <p className="text-2xl font-bold text-foreground mb-0.5">{value}</p>
-        <p className="text-xs font-semibold text-foreground/80">{title}</p>
-        {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
+        <p className="text-xs font-semibold text-foreground/80">{displayTitle}</p>
       </CardContent>
     </Card>
   );
@@ -800,9 +793,8 @@ export default function Dashboard() {
                     value={totals ? kpi.format(totals) : "—"}
                     icon={kpi.icon}
                     color={kpi.color}
-                    trend={kpi.trend ? kpi.trend(totals ?? {}) : undefined}
-                    trendValue={kpi.trendLabel ? kpi.trendLabel(totals ?? {}) : undefined}
                     trendPercent={totals && prevTotals ? pctChange((totals as any)[kpi.key] ?? 0, prevTotals[kpi.key] ?? 0) : undefined}
+                    trendPrevValue={prevTotals ? kpi.format(prevTotals) : undefined}
                   />
                 </div>
               ))}
@@ -817,6 +809,7 @@ export default function Dashboard() {
                     icon={kpi.icon}
                     color={kpi.color}
                     trendPercent={totals && prevTotals ? pctChange((totals as any)[kpi.key] ?? 0, prevTotals[kpi.key] ?? 0) : undefined}
+                    trendPrevValue={prevTotals ? kpi.format(prevTotals) : undefined}
                   />
                 </div>
               ))}
