@@ -673,18 +673,16 @@ export default function Dashboard() {
             };
             return (
               <Card>
-                <CardHeader className="pb-3 cursor-pointer select-none" onClick={() => setCampaignsCollapsed(v => !v)}>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                      <TrendingUp className="w-4 h-4 text-primary" />
-                      Campanhas Ativas
-                    </CardTitle>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="text-xs text-muted-foreground">{sorted.length} ativas</Badge>
-                      {campaignsCollapsed ? <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" /> : <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" />}
-                    </div>
+                <div className="flex items-center justify-between px-6 pt-4 pb-3 cursor-pointer select-none" onClick={() => setCampaignsCollapsed(v => !v)}>
+                  <div className="text-sm font-semibold flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-primary" />
+                    Campanhas Ativas
                   </div>
-                </CardHeader>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs text-muted-foreground">{sorted.length} ativas</Badge>
+                    {campaignsCollapsed ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
+                  </div>
+                </div>
                 {!campaignsCollapsed && <CardContent className="space-y-1.5">
                   {isLoading ? (
                     <div className="space-y-2">{[...Array(4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
@@ -719,13 +717,10 @@ export default function Dashboard() {
 
           {/* Card direito — Destaques do Período */}
           <Card>
-            <CardHeader className="pb-2 cursor-pointer select-none" onClick={() => setHighlightsCollapsed(v => !v)}>
+            <div className="flex items-center justify-between px-6 pt-4 pb-2 cursor-pointer select-none" onClick={() => setHighlightsCollapsed(v => !v)}>
+              <span className="text-sm font-semibold text-foreground">Destaques do Período</span>
               <div className="flex items-center gap-2">
-                <CardTitle className="text-sm font-semibold text-foreground flex-1">
-                  Destaques do Período
-                </CardTitle>
-                {highlightsCollapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
-                <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-0.5">
+                <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-0.5" onClick={e => e.stopPropagation()}>
                   {(["creatives", "audiences"] as const).map((tab) => (
                     <button
                       key={tab}
@@ -740,8 +735,9 @@ export default function Dashboard() {
                     </button>
                   ))}
                 </div>
+                {highlightsCollapsed ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
               </div>
-            </CardHeader>
+            </div>
             {!highlightsCollapsed && <CardContent className="space-y-1.5">
               {creativeTab === "creatives" ? (
                 adsLoading ? (
