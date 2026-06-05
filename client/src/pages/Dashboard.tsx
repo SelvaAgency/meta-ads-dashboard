@@ -274,7 +274,7 @@ function MetricCard({
   const displayTitle = subtitle ? `${title} (${subtitle})` : title;
   return (
     <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200 h-full">
-      <CardContent className="p-4 pb-3 flex flex-col h-full min-h-[110px]">
+      <CardContent className="p-3 flex flex-col h-full min-h-[95px]">
         <div className="flex items-center justify-between mb-3">
           <div className={`w-8 h-8 rounded-lg flex items-center justify-center shadow-sm ${colorMap[color]}`}>
             <Icon className="w-4 h-4 font-bold" />
