@@ -171,7 +171,8 @@ export function AccountHeader({
 
   if (!selectedAccountId || !activeAccount) return null;
 
-  const aiColor   = ((activeAccount as any)?.aiStatusColor ?? "yellow") as "green" | "yellow" | "red";
+  const rawAiColor = (activeAccount as any)?.aiStatusColor as "green" | "yellow" | "red" | null | undefined;
+  const aiColor   = (rawAiColor ?? "yellow") as "green" | "yellow" | "red";
   const aiSummary: string = (activeAccount as any)?.aiStatusSummary
     ?? "Análise pendente — execute um sync para gerar";
 
@@ -179,6 +180,13 @@ export function AccountHeader({
   const initials  = (activeClient?.shortName ?? accountName.slice(0, 2)).toUpperCase();
   const palette   = ACCOUNT_COLORS[activeClient?.color ?? "fuchsia"] ?? ACCOUNT_COLORS.fuchsia!;
   const pictureUrl: string | null | undefined = (activeAccount as any).pictureUrl ?? activeClient?.pictureUrl;
+
+  const STATE_BORDER: Record<"green" | "yellow" | "red", string> = {
+    green:  "#639922",
+    yellow: "#EF9F27",
+    red:    "#E24B4A",
+  };
+  const block1BorderColor = rawAiColor ? STATE_BORDER[rawAiColor] : null;
 
   const statusCfg = aiColor ? STATUS_CFG[aiColor] : null;
   const muted = "rgba(0,0,0,0.4)";
@@ -201,7 +209,16 @@ export function AccountHeader({
     }}>
 
       {/* ══ Block 1 — Identity ══════════════════════════════════════════════ */}
-      <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", borderRight: "1px solid rgba(0,0,0,0.06)" }}>
+      <div style={{
+        padding: "12px 16px",
+        display: "flex",
+        flexDirection: "column",
+        borderRight: "1px solid rgba(0,0,0,0.06)",
+        ...(block1BorderColor ? {
+          borderLeft: `3px solid ${block1BorderColor}`,
+          borderRadius: "12px 0 0 12px",
+        } : {}),
+      }}>
 
         {/* Avatar + name */}
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6, overflow: "hidden" }}>
