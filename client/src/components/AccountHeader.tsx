@@ -178,7 +178,7 @@ export function AccountHeader({
   const accountName: string = (activeAccount as any).displayName ?? activeAccount.accountName ?? activeAccount.accountId;
   const initials  = (activeClient?.shortName ?? accountName.slice(0, 2)).toUpperCase();
   const palette   = ACCOUNT_COLORS[activeClient?.color ?? "fuchsia"] ?? ACCOUNT_COLORS.fuchsia!;
-  const pictureUrl: string | undefined = activeClient?.pictureUrl;
+  const pictureUrl: string | null | undefined = (activeAccount as any).pictureUrl ?? activeClient?.pictureUrl;
 
   const statusCfg = aiColor ? STATUS_CFG[aiColor] : null;
   const muted = "rgba(0,0,0,0.4)";

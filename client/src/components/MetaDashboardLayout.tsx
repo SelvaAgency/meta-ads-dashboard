@@ -230,10 +230,12 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                     style={{ border: activeClient ? "0.5px solid rgba(255,255,255,0.1)" : "0.5px dashed rgba(255,255,255,0.15)" }}
                   >
                     <div
-                      className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 font-bold text-xs"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 font-bold text-xs overflow-hidden"
                       style={{ background: "rgba(212,83,126,0.2)", color: ACTIVE_CLR }}
                     >
-                      {activeClient?.shortName ?? <Users className="w-3.5 h-3.5" />}
+                      {activeAccount?.pictureUrl
+                        ? <img src={activeAccount.pictureUrl} alt="" className="w-full h-full object-cover" />
+                        : (activeClient?.shortName ?? <Users className="w-3.5 h-3.5" />)}
                     </div>
                     <div className="flex-1 text-left overflow-hidden">
                       <p className="text-xs font-semibold truncate" style={{ color: activeClient ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.45)" }}>
@@ -255,14 +257,16 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                   </button>
                 ) : (
                   <button
-                    className={`w-full h-8 flex items-center justify-center rounded-lg transition-all text-[10px] font-bold ${HOVER_CLS}`}
+                    className={`w-full h-8 flex items-center justify-center rounded-lg transition-all text-[10px] font-bold overflow-hidden ${HOVER_CLS}`}
                     style={{
                       border: activeClient ? "0.5px solid rgba(255,255,255,0.1)" : "0.5px dashed rgba(255,255,255,0.15)",
                       background: "rgba(212,83,126,0.12)",
                       color: ACTIVE_CLR,
                     }}
                   >
-                    {activeClient?.shortName ?? <Users className="w-3.5 h-3.5" />}
+                    {activeAccount?.pictureUrl
+                      ? <img src={activeAccount.pictureUrl} alt="" className="w-full h-full object-cover" />
+                      : (activeClient?.shortName ?? <Users className="w-3.5 h-3.5" />)}
                   </button>
                 )}
               </DropdownMenuTrigger>
@@ -280,8 +284,10 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                       onClick={() => { setActiveClient(ca.client.slug); navigate("/dashboard"); }}
                       className="flex items-center gap-2.5 cursor-pointer py-2"
                     >
-                      <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 font-bold text-[10px] ${isActiveCa ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
-                        {ca.client.shortName}
+                      <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 font-bold text-[10px] overflow-hidden ${isActiveCa ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
+                        {ca.accounts[0]?.pictureUrl
+                          ? <img src={ca.accounts[0].pictureUrl} alt="" className="w-full h-full object-cover rounded-md" />
+                          : ca.client.shortName}
                       </div>
                       <div className="flex-1 overflow-hidden">
                         <p className="text-xs font-medium truncate">{ca.client.name}</p>

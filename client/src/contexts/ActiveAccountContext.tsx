@@ -10,6 +10,7 @@ interface AdAccount {
   currency: string | null;
   timezone: string | null;
   lastSyncAt: Date | null;
+  pictureUrl: string | null;
 }
 
 interface ClientWithAccounts {

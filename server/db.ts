@@ -150,6 +150,7 @@ export async function createMetaAdAccount(data: InsertMetaAdAccount) {
         currency: data.currency ?? existing[0].currency,
         timezone: data.timezone ?? existing[0].timezone,
         isActive: true,
+        ...(data.pictureUrl !== undefined ? { pictureUrl: data.pictureUrl } : {}),
       })
       .where(eq(metaAdAccounts.id, existing[0].id));
     return { ...existing[0], accessToken: data.accessToken, isActive: true };
@@ -187,6 +188,15 @@ export async function updateAccountAiStatus(id: number, color: "green" | "yellow
   await db
     .update(metaAdAccounts)
     .set({ aiStatusColor: color, aiStatusSummary: summary.slice(0, 500) })
+    .where(eq(metaAdAccounts.id, id));
+}
+
+export async function updateAccountPicture(id: number, pictureUrl: string | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(metaAdAccounts)
+    .set({ pictureUrl })
     .where(eq(metaAdAccounts.id, id));
 }
 

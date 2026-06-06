@@ -45,6 +45,7 @@ export const metaAdAccounts = mysqlTable("meta_ad_accounts", {
   aiStatusColor: mysqlEnum("aiStatusColor", ["green", "yellow", "red"]),
   accountNote: text("accountNote"),
   goalTypeOverride: varchar("goalTypeOverride", { length: 64 }),
+  pictureUrl: varchar("pictureUrl", { length: 1024 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

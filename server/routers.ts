@@ -51,6 +51,7 @@ import {
   updateAccountAiStatus,
   updateAccountNote,
   updateAccountGoalType,
+  updateAccountPicture,
   markStaleCampaignsArchived,
   forceUpdateAllTokens,
 } from "./db";
@@ -285,6 +286,7 @@ export const appRouter = router({
             accessToken: input.accessToken,
             currency: acc.currency ?? "BRL",
             timezone: acc.timezone_name ?? "America/Sao_Paulo",
+            pictureUrl: acc.pictureUrl ?? null,
           });
           connected++;
         }
@@ -301,6 +303,26 @@ export const appRouter = router({
         // Force-update all active accounts
         await forceUpdateAllTokens(input.accessToken);
         return { success: true, message: "Token atualizado para todas as contas ativas." };
+      }),
+
+    // Refresh picture URLs for all accounts from Meta API
+    refreshPictures: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        const dbAccounts = await getMetaAdAccountsByUserId(ctx.user.id);
+        if (!dbAccounts.length) return { updated: 0 };
+        const token = dbAccounts[0].accessToken;
+        const metaAccounts = await getAdAccounts(token);
+        const pictureMap = new Map<string, string | undefined>();
+        for (const acc of metaAccounts) {
+          pictureMap.set(acc.id.replace("act_", ""), acc.pictureUrl);
+        }
+        let updated = 0;
+        for (const acc of dbAccounts) {
+          const url = pictureMap.get(acc.accountId) ?? null;
+          await updateAccountPicture(acc.id, url);
+          updated++;
+        }
+        return { updated };
       }),
 
     disconnect: protectedProcedure

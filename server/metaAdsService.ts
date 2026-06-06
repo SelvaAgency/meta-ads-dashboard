@@ -30,6 +30,8 @@ export interface MetaAdAccountInfo {
   currency: string;
   timezone_name: string;
   account_status: number;
+  pictureUrl?: string;
+  business?: { profile_picture_uri?: string };
 }
 
 export interface MetaFundingSourceDetails {
@@ -240,7 +242,7 @@ const SELVA_BUSINESS_PORTFOLIO_ID = "803399908519541";
  * Fetches both owned and client ad accounts from portfolio 803399908519541.
  */
 export async function getAdAccounts(accessToken: string): Promise<MetaAdAccountInfo[]> {
-  const fields = "id,name,currency,timezone_name,account_status";
+  const fields = "id,name,currency,timezone_name,account_status,business{profile_picture_uri}";
 
   // Fetch owned ad accounts from the business portfolio
   const owned = await metaFetch<{ data: MetaAdAccountInfo[] }>(
@@ -254,14 +256,19 @@ export async function getAdAccounts(accessToken: string): Promise<MetaAdAccountI
     { access_token: accessToken, fields, limit: "100" }
   ).catch(() => ({ data: [] as MetaAdAccountInfo[] }));
 
-  // Merge and deduplicate by account id
+  // Merge, deduplicate by account id, and flatten pictureUrl
   const all = [...(owned.data ?? []), ...(client.data ?? [])];
   const seen = new Set<string>();
-  return all.filter(acc => {
-    if (seen.has(acc.id)) return false;
-    seen.add(acc.id);
-    return true;
-  });
+  return all
+    .filter(acc => {
+      if (seen.has(acc.id)) return false;
+      seen.add(acc.id);
+      return true;
+    })
+    .map(acc => ({
+      ...acc,
+      pictureUrl: acc.business?.profile_picture_uri ?? undefined,
+    }));
 }
 
 /**
