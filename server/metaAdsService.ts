@@ -452,6 +452,8 @@ export function getResultActionTypes(optimizationGoal: string): string[] {
     THRUPLAY: ["video_thruplay_watched"],
     APP_INSTALLS: ["app_install", "mobile_app_install"],
     VALUE: ["offsite_conversion.fb_pixel_purchase", "purchase", "onsite_web_purchase"],
+    VISIT_INSTAGRAM_PROFILE: ["profile_visit", "instagram_profile_visit"],
+    INSTAGRAM_PROFILE_REACH: ["profile_visit", "instagram_profile_visit"],
   };
   return mapping[optimizationGoal] ?? [];
 }
@@ -1236,7 +1238,8 @@ export async function getDemographicsInsights(
   accountId: string,
   accessToken: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  optimizationGoal?: string
 ): Promise<DemographicRow[]> {
   logger.info(`[getDemographicsInsights] Fetching for account ${accountId} (${startDate}–${endDate})`);
   const raw = await metaFetchAll<any>(`act_${accountId}/insights`, {
@@ -1249,7 +1252,7 @@ export async function getDemographicsInsights(
   });
 
   return raw.map((r: any) => {
-    const conversions = extractConversions(r.actions);
+    const conversions = extractResultsByGoal(r.actions, optimizationGoal ?? "");
     return {
       age: r.age ?? "unknown",
       gender: r.gender ?? "unknown",
@@ -1282,7 +1285,8 @@ export async function getDailyAccountInsights(
   accountId: string,
   accessToken: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  optimizationGoal?: string
 ): Promise<DailyInsightRow[]> {
   logger.info(`[getDailyAccountInsights] Fetching for account ${accountId} (${startDate}–${endDate})`);
   const raw = await metaFetchAll<any>(`act_${accountId}/insights`, {
@@ -1294,7 +1298,7 @@ export async function getDailyAccountInsights(
   });
 
   return raw.map((r: any) => {
-    const conversions = extractConversions(r.actions);
+    const conversions = extractResultsByGoal(r.actions, optimizationGoal ?? "");
     const conversionValue = extractConversionValue(r.action_values);
     return {
       date: r.date_start ?? "",

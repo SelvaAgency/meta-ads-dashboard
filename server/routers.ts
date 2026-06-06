@@ -626,7 +626,9 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         const { startDate, endDate } = resolveDateRange(input);
-        const rows = await getDemographicsInsights(account.accountId, account.accessToken, startDate, endDate);
+        const dbCampaigns = await getCampaignsByAccountId(account.id);
+        const dominantGoal = detectDominantGoal(dbCampaigns.map(c => c.optimizationGoal).filter((g): g is string => !!g));
+        const rows = await getDemographicsInsights(account.accountId, account.accessToken, startDate, endDate, dominantGoal);
         // Aggregate by age
         const byAge: Record<string, { spend: number; impressions: number; clicks: number; conversions: number; reach: number }> = {};
         for (const r of rows) {
@@ -668,7 +670,9 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         const { startDate, endDate } = resolveDateRange(input);
-        const rows = await getDailyAccountInsights(account.accountId, account.accessToken, startDate, endDate);
+        const dbCampaigns = await getCampaignsByAccountId(account.id);
+        const dominantGoal = detectDominantGoal(dbCampaigns.map(c => c.optimizationGoal).filter((g): g is string => !!g));
+        const rows = await getDailyAccountInsights(account.accountId, account.accessToken, startDate, endDate, dominantGoal);
         // Also compute weekend vs weekday aggregates
         let weekdayTotals = { days: 0, spend: 0, conversions: 0, conversionValue: 0, impressions: 0, clicks: 0, reach: 0 };
         let weekendTotals = { days: 0, spend: 0, conversions: 0, conversionValue: 0, impressions: 0, clicks: 0, reach: 0 };
