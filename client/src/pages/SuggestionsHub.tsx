@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   Bell,
   CheckCircle2,
+  ChevronDown,
   Flame,
   RefreshCw,
   Sparkles,
@@ -125,6 +126,45 @@ function splitBriefing(text: string): { first: string; rest: string } {
   return { first: text.slice(0, idx + 1), rest: text.slice(idx + 1) };
 }
 
+// Goal-aware primary result label
+function getPrimaryResult(goalType: string | null | undefined, t: ReturnType<typeof normalizeTotals>): string {
+  if (t.spend === 0) return "—";
+  switch (goalType) {
+    case "SALES":
+    case "VALUE":      return fmtMultiplier(t.roas) + "x ROAS";
+    case "LEADS":      return fmtNumber(t.conversions) + " leads";
+    case "MESSAGES":   return fmtNumber(t.conversions) + " msgs";
+    case "TRAFFIC":    return fmtNumber(t.clicks) + " cliques";
+    case "AWARENESS":  return fmtNumber(t.reach) + " alcance";
+    case "FOLLOWERS":  return fmtNumber(t.conversions) + " seguid.";
+    case "ENGAGEMENT": return fmtNumber(t.conversions) + " engaj.";
+    default:           return fmtNumber(t.impressions) + " impr.";
+  }
+}
+
+// Goal-aware cost per result
+function getCostPerResult(goalType: string | null | undefined, t: ReturnType<typeof normalizeTotals>): string {
+  if (t.spend === 0) return "—";
+  switch (goalType) {
+    case "SALES":
+    case "VALUE":
+    case "LEADS":
+    case "MESSAGES":
+    case "FOLLOWERS":
+    case "ENGAGEMENT": return t.conversions > 0 ? fmtCurrency(t.cpa) + "/res." : "—";
+    case "AWARENESS":  return t.impressions > 0 ? fmtCurrency(t.cpm) + "/mil" : "—";
+    default:           return t.clicks > 0 ? fmtCurrency(t.cpc) + "/clique" : "—";
+  }
+}
+
+// Trend bar from AI status color
+function getTrendBar(aiStatusColor: string | null | undefined): { width: string; color: string; label: string } {
+  if (aiStatusColor === "green")  return { width: "75%", color: "#10b981", label: "A" };
+  if (aiStatusColor === "yellow") return { width: "50%", color: "#f59e0b", label: "B" };
+  if (aiStatusColor === "red")    return { width: "25%", color: "#ef4444", label: "C" };
+  return { width: "30%", color: "hsl(var(--muted-foreground))", label: "—" };
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type FogoTab = "URGENT" | "P1" | "P2" | "P3";
@@ -132,11 +172,12 @@ type FogoTab = "URGENT" | "P1" | "P2" | "P3";
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SuggestionsHub() {
-  const [fogoTab, setFogoTab]                   = useState<FogoTab>("URGENT");
-  const [syncingAll, setSyncingAll]             = useState(false);
-  const [syncProgress, setSyncProgress]         = useState<{ done: number; total: number } | null>(null);
-  const [briefingExpanded, setBriefingExpanded] = useState(false);
+  const [fogoTab, setFogoTab]                     = useState<FogoTab>("URGENT");
+  const [syncingAll, setSyncingAll]               = useState(false);
+  const [syncProgress, setSyncProgress]           = useState<{ done: number; total: number } | null>(null);
+  const [briefingExpanded, setBriefingExpanded]   = useState(false);
   const [briefingOverflows, setBriefingOverflows] = useState(false);
+  const [panoramaOpen, setPanoramaOpen]           = useState(false);
   const briefingRef = useRef<HTMLParagraphElement>(null);
 
   const utils = trpc.useUtils();
@@ -431,7 +472,7 @@ export default function SuggestionsHub() {
                 <div
                   key={label}
                   style={{
-                    background: "var(--color-background-secondary)",
+                    background: "var(--color-background-secondary, rgba(0,0,0,0.04))",
                     border: `0.5px solid ${BORDER_T}`,
                     borderRadius: 8,
                     padding: "10px 12px",
@@ -648,11 +689,15 @@ export default function SuggestionsHub() {
           </div>
         </div>
 
-        {/* ══ 4 — Separador "Panorama geral" ═══════════════════════════════ */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "20px 24px" }}>
+        {/* ══ 4 — Separador "Panorama geral" (toggle) ════════════════════ */}
+        <button
+          onClick={() => setPanoramaOpen((v) => !v)}
+          className="w-full"
+          style={{ display: "flex", alignItems: "center", gap: 12, padding: "20px 24px", cursor: "pointer" }}
+        >
           <div style={{ flex: 1, height: "0.5px", background: BORDER_T }} />
           <span
-            className="text-muted-foreground flex-shrink-0"
+            className="flex items-center gap-1.5 text-muted-foreground flex-shrink-0 hover:opacity-70 transition-opacity"
             style={{
               fontSize: 11,
               fontWeight: 700,
@@ -663,9 +708,147 @@ export default function SuggestionsHub() {
               borderRadius: 20,
             }}
           >
-            Panorama geral
+            {panoramaOpen ? "Fechar panorama" : "Panorama geral"}
+            <ChevronDown
+              className="w-3 h-3 transition-transform duration-200"
+              style={{ transform: panoramaOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+            />
           </span>
           <div style={{ flex: 1, height: "0.5px", background: BORDER_T }} />
+        </button>
+
+        {/* ══ 5 — Tabela de performance (expansível) ════════════════════════ */}
+        <div
+          style={{
+            maxHeight: panoramaOpen ? "3000px" : "0px",
+            opacity: panoramaOpen ? 1 : 0,
+            overflow: "hidden",
+            transition: "max-height 0.4s ease, opacity 0.25s ease",
+          }}
+        >
+          <div className="px-6 pb-8">
+            <div
+              style={{
+                background: BG_PRIMARY,
+                border: `0.5px solid ${BORDER_T}`,
+                borderRadius: RADIUS_LG,
+                overflow: "hidden",
+              }}
+            >
+              {/* Header */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "2fr 1.4fr 1.4fr 0.7fr 1.3fr 1.2fr",
+                  gap: 8,
+                  padding: "8px 16px",
+                  background: "var(--color-background-secondary, rgba(0,0,0,0.04))",
+                  borderBottom: `0.5px solid ${BORDER_T}`,
+                }}
+              >
+                {["Conta", "Investido hoje", "Resultado", "CTR", "Custo/resultado", "Tendência"].map((col) => (
+                  <span key={col} className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                    {col}
+                  </span>
+                ))}
+              </div>
+
+              {/* Rows */}
+              {sortedAccounts.map((account, idx) => {
+                const m         = metricsMap.get(account.id);
+                const totals    = normalizeTotals(m);
+                const goalType  = ((account as any).goalTypeOverride as string | null) ?? null;
+                const dayS      = totals.spend > 0
+                  ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })
+                  : null;
+                const trend     = getTrendBar((account as any).aiStatusColor);
+                const picture   = (account as any).pictureUrl as string | null;
+                const primary   = getPrimaryResult(goalType, totals);
+                const costRes   = getCostPerResult(goalType, totals);
+
+                return (
+                  <button
+                    key={account.id}
+                    onClick={() => handleSelectAccount(account.id)}
+                    className="w-full text-left transition-colors hover:bg-black/[0.025] dark:hover:bg-white/[0.025]"
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "2fr 1.4fr 1.4fr 0.7fr 1.3fr 1.2fr",
+                      gap: 8,
+                      padding: "10px 16px",
+                      borderTop: idx > 0 ? `0.5px solid ${BORDER_T}` : undefined,
+                      alignItems: "center",
+                    }}
+                  >
+                    {/* Conta */}
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div
+                        className="flex-shrink-0 flex items-center justify-center font-bold overflow-hidden text-primary"
+                        style={{ width: 24, height: 24, borderRadius: 6, background: "rgba(212,83,126,0.12)", fontSize: 9 }}
+                      >
+                        {picture
+                          ? <img src={picture} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          : (getClientByMetaAccountId(account.accountId)?.shortName ?? initials(account.accountName))}
+                      </div>
+                      <span className="text-xs font-medium text-foreground truncate">
+                        {displayNameMap.get(account.id) ?? account.accountName}
+                      </span>
+                    </div>
+
+                    {/* Investido hoje */}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-xs font-semibold text-foreground">{fmtCurrency(totals.spend)}</span>
+                      {dayS && (
+                        <span
+                          className="text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+                          style={{ background: dayS.bg, color: dayS.color, border: `0.5px solid ${dayS.border}` }}
+                        >
+                          {dayS.label}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Resultado principal */}
+                    <span className="text-xs text-foreground/80">{primary}</span>
+
+                    {/* CTR */}
+                    <span className="text-xs text-foreground/80">{totals.spend > 0 ? fmtPercent(totals.ctr) : "—"}</span>
+
+                    {/* Custo/resultado */}
+                    <span className="text-xs text-foreground/80">{costRes}</span>
+
+                    {/* Tendência */}
+                    <div className="flex items-center gap-2">
+                      <div
+                        style={{
+                          flex: 1,
+                          height: 4,
+                          background: "rgba(0,0,0,0.08)",
+                          borderRadius: 2,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={{
+                            height: "100%",
+                            width: trend.width,
+                            background: trend.color,
+                            borderRadius: 2,
+                          }}
+                        />
+                      </div>
+                      <span
+                        className="text-[10px] font-bold flex-shrink-0"
+                        style={{ color: trend.color, minWidth: 12 }}
+                      >
+                        {trend.label}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
       </div>
