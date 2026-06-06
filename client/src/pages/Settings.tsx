@@ -204,7 +204,7 @@ function AccountCard({ account }: { account: any }) {
     onSuccess: () => { utils.accounts.list.invalidate(); toast.success("Conta desconectada"); },
   });
 
-  const isExpired = account.tokenExpiresAt && new Date(account.tokenExpiresAt) < new Date();
+  const isExpired = account.hasTokenError;
 
   async function handleGoalChange(value: string | null) {
     setSaving(true);

@@ -230,7 +230,18 @@ export const appRouter = router({
   // ─── Meta Ad Accounts ──────────────────────────────────────────────────────
   accounts: router({
     list: protectedProcedure.query(async ({ ctx }) => {
-      return getMetaAdAccountsByUserId(ctx.user.id);
+      const accounts = await getMetaAdAccountsByUserId(ctx.user.id);
+      // Enrich with token error status from alerts
+      const accountsWithStatus = await Promise.all(
+        accounts.map(async (acc) => {
+          const recentAlerts = await getAlertsByAccountId(ctx.user.id, acc.id);
+          const hasTokenError = recentAlerts.some(
+            (a) => a.type === "SYNC_ERROR" && !a.isRead
+          );
+          return { ...acc, hasTokenError };
+        })
+      );
+      return accountsWithStatus;
     }),
 
     todayMetrics: protectedProcedure.query(async ({ ctx }) => {
