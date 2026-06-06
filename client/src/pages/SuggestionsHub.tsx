@@ -16,14 +16,14 @@ import {
   Sparkles,
 } from "lucide-react";
 
-// ─── CSS variable shorthands ──────────────────────────────────────────────────
+// ─── CSS variable constants ───────────────────────────────────────────────────
 
 const BG_PRIMARY   = "var(--color-background-primary, var(--card))";
 const BG_SECONDARY = "var(--color-background-secondary, hsl(var(--muted)))";
 const BORDER_T     = "var(--color-border-tertiary, var(--border))";
 const RADIUS_LG    = "var(--border-radius-lg, 12px)";
 
-// ─── Config ──────────────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 
 const categoryConfig: Record<string, { label: string; color: string }> = {
   BUDGET:    { label: "Orçamento",   color: "text-yellow-400" },
@@ -66,8 +66,8 @@ function secondaryMetrics(goalType: string | null | undefined): MetricDef[] {
 }
 
 function normalizeTotals(m: any) {
-  const spend = Number(m?.totalSpend ?? 0);
-  const clicks = Number(m?.totalClicks ?? 0);
+  const spend       = Number(m?.totalSpend ?? 0);
+  const clicks      = Number(m?.totalClicks ?? 0);
   const impressions = Number(m?.totalImpressions ?? 0);
   return {
     spend,
@@ -85,18 +85,6 @@ function normalizeTotals(m: any) {
   };
 }
 
-function getPrimaryResult(totals: ReturnType<typeof normalizeTotals>, goalType: string | null | undefined) {
-  const gt = goalType ?? "";
-  if (gt === "SALES" || gt === "VALUE") return { label: "ROAS",    value: fmtMultiplier(totals.roas) };
-  if (gt === "TRAFFIC")                 return { label: "Visitas", value: fmtNumber(totals.clicks) };
-  if (gt === "AWARENESS")               return { label: "Alcance", value: fmtNumber(totals.reach) };
-  if (gt === "MESSAGES")                return { label: "Msgs",    value: fmtNumber(totals.conversions) };
-  if (gt === "FOLLOWERS")               return { label: "Seguid.", value: fmtNumber(totals.conversions) };
-  if (gt === "ENGAGEMENT")              return { label: "Engaj.",  value: fmtNumber(totals.conversions) };
-  if (gt === "LEADS")                   return { label: "Leads",   value: fmtNumber(totals.conversions) };
-  return { label: "Resultados", value: fmtNumber(totals.conversions) };
-}
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function cleanTitle(title: string) {
@@ -110,8 +98,8 @@ function initials(name: string | null | undefined) {
 
 function relativeTime(d: Date | string | null): string {
   if (!d) return "";
-  const date = typeof d === "string" ? new Date(d) : d;
-  const diffMs = Date.now() - date.getTime();
+  const date    = typeof d === "string" ? new Date(d) : d;
+  const diffMs  = Date.now() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);
   if (diffMin < 1) return "agora";
   if (diffMin < 60) return `há ${diffMin}min`;
@@ -121,13 +109,20 @@ function relativeTime(d: Date | string | null): string {
 }
 
 function statusDateLabel(): string {
-  const d = new Date();
+  const d   = new Date();
   const raw = d.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 function quickDayStatus(totals: { spend: number; conversions: number; ctr: number }) {
   return getDayStatus("LEADS" as GoalType, { spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr });
+}
+
+// Split briefing text: first sentence vs remainder
+function splitBriefing(text: string): { first: string; rest: string } {
+  const idx = text.indexOf(".");
+  if (idx === -1 || idx === text.length - 1) return { first: text, rest: "" };
+  return { first: text.slice(0, idx + 1), rest: text.slice(idx + 1) };
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -137,9 +132,9 @@ type FogoTab = "URGENT" | "P1" | "P2" | "P3";
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SuggestionsHub() {
-  const [fogoTab, setFogoTab]             = useState<FogoTab>("URGENT");
-  const [syncingAll, setSyncingAll]       = useState(false);
-  const [syncProgress, setSyncProgress]   = useState<{ done: number; total: number } | null>(null);
+  const [fogoTab, setFogoTab]                   = useState<FogoTab>("URGENT");
+  const [syncingAll, setSyncingAll]             = useState(false);
+  const [syncProgress, setSyncProgress]         = useState<{ done: number; total: number } | null>(null);
   const [briefingExpanded, setBriefingExpanded] = useState(false);
   const [briefingOverflows, setBriefingOverflows] = useState(false);
   const briefingRef = useRef<HTMLParagraphElement>(null);
@@ -152,7 +147,7 @@ export default function SuggestionsHub() {
   const { data: briefingData, isLoading: briefingLoading } = trpc.suggestions.getDailyBriefing.useQuery(undefined, { refetchOnWindowFocus: false });
   const syncAccount = trpc.accounts.sync.useMutation();
   const { setActiveAccountId } = useActiveAccount();
-  const [, navigate] = useLocation();
+  const [, navigate]           = useLocation();
 
   // ── Measure briefing overflow once content arrives ────────────────────────
 
@@ -160,7 +155,6 @@ export default function SuggestionsHub() {
     if (!briefingData?.content) return;
     setBriefingExpanded(false);
     setBriefingOverflows(false);
-    // Two frames: first to paint, second to have stable layout
     let raf1 = requestAnimationFrame(() => {
       const raf2 = requestAnimationFrame(() => {
         const el = briefingRef.current;
@@ -171,7 +165,7 @@ export default function SuggestionsHub() {
     return () => cancelAnimationFrame(raf1);
   }, [briefingData?.content]);
 
-  // ── displayName lookup ────────────────────────────────────────────────────
+  // ── Display name lookup ───────────────────────────────────────────────────
 
   const displayNameMap = useMemo(() => {
     const m = new Map<number, string>();
@@ -189,10 +183,13 @@ export default function SuggestionsHub() {
 
   const p1ByAccount = suggestions
     .filter((s) => s.priority === "HIGH")
-    .reduce<Record<number, number>>((acc, s) => { acc[s.accountId] = (acc[s.accountId] ?? 0) + 1; return acc; }, {});
+    .reduce<Record<number, number>>((acc, s) => {
+      acc[s.accountId] = (acc[s.accountId] ?? 0) + 1;
+      return acc;
+    }, {});
 
   const totalSpendToday = (todayMetrics ?? []).reduce((sum, m) => sum + Number(m.totalSpend ?? 0), 0);
-  const lastSyncDate = (accounts ?? []).reduce<Date | null>((latest, a) => {
+  const lastSyncDate    = (accounts ?? []).reduce<Date | null>((latest, a) => {
     if (!a.lastSyncAt) return latest;
     const d = new Date(a.lastSyncAt);
     return !latest || d > latest ? d : latest;
@@ -204,7 +201,7 @@ export default function SuggestionsHub() {
   const healthyCount = (accounts ?? []).filter((a) => (a as any).aiStatusColor === "green").length;
   const urgencyCount = (accounts ?? []).filter((a) => (a as any).aiStatusColor === "red").length;
 
-  // Accounts sorted by today's spend desc
+  // Sorted by today's spend desc (used by carousel)
   const sortedAccounts = useMemo(() => [...(accounts ?? [])].sort((a, b) => {
     const sa = Number(metricsMap.get(a.id)?.totalSpend ?? 0);
     const sb = Number(metricsMap.get(b.id)?.totalSpend ?? 0);
@@ -224,17 +221,12 @@ export default function SuggestionsHub() {
     return (accounts ?? []).filter((a) => ids.has(a.id));
   }, [accounts, urgentAlerts]);
 
-  // Suggestions for active tab
+  // Suggestions filtered for active tab
   const tabSuggestions = useMemo(() => {
     if (fogoTab === "URGENT") return [];
     const priority = fogoTab === "P1" ? "HIGH" : fogoTab === "P2" ? "MEDIUM" : "LOW";
     return suggestions.filter((s) => s.priority === priority);
   }, [fogoTab, suggestions]);
-
-  const maxSpend = sortedAccounts.reduce((max, a) => {
-    const s = Number(metricsMap.get(a.id)?.totalSpend ?? 0);
-    return s > max ? s : max;
-  }, 0);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -274,22 +266,26 @@ export default function SuggestionsHub() {
     { id: "P3",     label: "P3",      count: p3Count,             activeColor: "text-blue-400 border-blue-400/50 bg-blue-400/8" },
   ];
 
-  // ── Stat cards data ───────────────────────────────────────────────────────
+  // ── Stat cards ────────────────────────────────────────────────────────────
 
   const statCards = [
-    { label: "Contas saudáveis", value: healthyCount,     color: "#10b981", icon: CheckCircle2, subtitle: "Estado A" },
+    { label: "Contas saudáveis", value: healthyCount,                        color: "#10b981", icon: CheckCircle2, subtitle: "Estado A" },
     { label: "Sugestões P1",     value: suggestionsLoading ? null : p1Count, color: p1Count > 0 ? "#ef4444" : "var(--foreground)", icon: AlertTriangle, subtitle: "alta prioridade" },
-    { label: "Urgências",        value: urgencyCount,     color: urgencyCount > 0 ? "#f59e0b" : "var(--foreground)", icon: Flame,         subtitle: "Estado C" },
-    { label: "Alertas ativos",   value: urgentAlerts?.length ?? 0, color: (urgentAlerts?.length ?? 0) > 0 ? "#3b82f6" : "var(--foreground)", icon: Bell, subtitle: "requerem atenção" },
+    { label: "Urgências",        value: urgencyCount,                         color: urgencyCount > 0 ? "#f59e0b" : "var(--foreground)", icon: Flame,         subtitle: "Estado C" },
+    { label: "Alertas ativos",   value: urgentAlerts?.length ?? 0,           color: (urgentAlerts?.length ?? 0) > 0 ? "#3b82f6" : "var(--foreground)", icon: Bell, subtitle: "requerem atenção" },
   ];
+
+  // ── Briefing split ────────────────────────────────────────────────────────
+
+  const briefingSplit = briefingData?.content ? splitBriefing(briefingData.content) : null;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <MetaDashboardLayout>
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-4xl mx-auto pb-8">
 
-        {/* ── Faixa de status ───────────────────────────────────────────── */}
+        {/* ══ 1 — Faixa de status ═══════════════════════════════════════════ */}
         <div className="px-6 pt-6">
           <div
             className="flex items-center gap-2 text-xs text-muted-foreground"
@@ -321,7 +317,104 @@ export default function SuggestionsHub() {
           </div>
         </div>
 
-        {/* ── Caixa única — stats + briefing + fogo ─────────────────────── */}
+        {/* ══ 2 — Carrossel de clientes ═════════════════════════════════════ */}
+        {sortedAccounts.length > 0 && (
+          <div className="px-6 pt-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">
+              Clientes
+            </p>
+            <div className="flex gap-3 pb-1" style={{ overflowX: "auto", scrollbarWidth: "none" }}>
+              {sortedAccounts.map((account) => {
+                const m          = metricsMap.get(account.id);
+                const totals     = normalizeTotals(m);
+                const p1         = p1ByAccount[account.id] ?? 0;
+                const estado     = estadoConfig[(account as any).aiStatusColor ?? ""] ?? null;
+                const goalType   = ((account as any).goalTypeOverride as string | null) ?? "DEFAULT";
+                const dayS       = totals.spend > 0
+                  ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })
+                  : null;
+                const secMetrics = secondaryMetrics(goalType);
+
+                return (
+                  <button
+                    key={account.id}
+                    onClick={() => handleSelectAccount(account.id)}
+                    className="flex-shrink-0 rounded-xl text-left transition-all hover:shadow-md relative overflow-hidden"
+                    style={{
+                      width: 200,
+                      background: BG_PRIMARY,
+                      border: `0.5px solid ${BORDER_T}`,
+                      borderLeft: `3px solid ${estado?.border ?? BORDER_T}`,
+                      borderRadius: RADIUS_LG,
+                    }}
+                  >
+                    {p1 > 0 && (
+                      <span
+                        className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full z-10 text-white"
+                        style={{ background: "#ef4444" }}
+                      >
+                        {p1} P1
+                      </span>
+                    )}
+                    <div className="p-3 space-y-2">
+                      <div className="flex items-center gap-2 pr-8">
+                        <div
+                          className="flex-shrink-0 flex items-center justify-center font-bold overflow-hidden text-primary"
+                          style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(212,83,126,0.12)", fontSize: 11 }}
+                        >
+                          {account.pictureUrl
+                            ? <img src={account.pictureUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            : (getClientByMetaAccountId(account.accountId)?.shortName ?? initials(account.accountName))}
+                        </div>
+                        <p className="text-xs font-semibold text-foreground truncate leading-snug">
+                          {displayNameMap.get(account.id) ?? account.accountName ?? account.accountId}
+                        </p>
+                      </div>
+
+                      {estado ? (
+                        <Badge variant="outline" className={`text-[10px] font-bold ${estado.cls}`}>
+                          Estado {estado.badge}
+                        </Badge>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground/50">Sem análise</span>
+                      )}
+
+                      <div className="border-t pt-2" style={{ borderColor: BORDER_T }}>
+                        <p className="text-[10px] text-muted-foreground mb-1">Investido hoje</p>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-lg font-medium text-foreground leading-none">
+                            {fmtCurrency(totals.spend)}
+                          </span>
+                          {dayS && (
+                            <span
+                              className="text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+                              style={{ background: dayS.bg, color: dayS.color, border: `0.5px solid ${dayS.border}` }}
+                            >
+                              {dayS.label}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between border-t pt-1.5" style={{ borderColor: BORDER_T }}>
+                        {secMetrics.map((sm) => (
+                          <div key={sm.label} className="flex flex-col items-start gap-0.5">
+                            <span className="text-[9px] text-muted-foreground uppercase tracking-wide">{sm.label}</span>
+                            <span className="text-[11px] font-semibold text-foreground">
+                              {totals.spend > 0 ? sm.fmt(totals) : "—"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ══ 3 — Caixa unificada (stats + briefing + fogo) ════════════════ */}
         <div className="px-6 pt-4">
           <div
             style={{
@@ -338,7 +431,7 @@ export default function SuggestionsHub() {
                 <div
                   key={label}
                   style={{
-                    background: BG_SECONDARY,
+                    background: "var(--color-background-secondary)",
                     border: `0.5px solid ${BORDER_T}`,
                     borderRadius: 8,
                     padding: "10px 12px",
@@ -356,14 +449,17 @@ export default function SuggestionsHub() {
               ))}
             </div>
 
-            {/* Internal divider */}
+            {/* Divider */}
             <div style={{ borderTop: `0.5px solid ${BORDER_T}`, margin: "16px 0" }} />
 
             {/* Briefing da IA */}
             <div>
               <div className="flex items-center gap-2 mb-2.5">
                 <Sparkles className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#E85BA8" }} />
-                <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "#E85BA8" }}>
+                <span
+                  className="text-[10px] font-bold uppercase tracking-[0.12em]"
+                  style={{ color: "#E85BA8" }}
+                >
                   Briefing do Dia — IA
                 </span>
               </div>
@@ -373,11 +469,11 @@ export default function SuggestionsHub() {
                   <Sparkles className="w-3 h-3 animate-pulse" style={{ color: "#E85BA8" }} />
                   Gerando briefing do dia…
                 </div>
-              ) : briefingData?.content ? (
+              ) : briefingSplit ? (
                 <div>
                   <p
                     ref={briefingRef}
-                    className="text-[13px] leading-relaxed text-foreground/85"
+                    className="text-[13px] leading-relaxed"
                     style={briefingExpanded ? {} : {
                       overflow: "hidden",
                       display: "-webkit-box",
@@ -385,12 +481,19 @@ export default function SuggestionsHub() {
                       WebkitLineClamp: 3,
                     } as React.CSSProperties}
                   >
-                    {briefingData.content}
+                    <strong style={{ fontWeight: 500, color: "var(--color-text-primary, var(--foreground))" }}>
+                      {briefingSplit.first}
+                    </strong>
+                    {briefingSplit.rest && (
+                      <span style={{ color: "var(--color-text-secondary, var(--muted-foreground))" }}>
+                        {briefingSplit.rest}
+                      </span>
+                    )}
                   </p>
                   {briefingOverflows && (
                     <button
                       onClick={() => setBriefingExpanded((v) => !v)}
-                      className="text-[11px] font-medium mt-1.5 transition-opacity hover:opacity-70"
+                      className="text-[11px] font-medium mt-1.5 hover:opacity-70 transition-opacity"
                       style={{ color: "#E85BA8" }}
                     >
                       {briefingExpanded ? "ver menos" : "ver mais"}
@@ -402,7 +505,7 @@ export default function SuggestionsHub() {
               )}
             </div>
 
-            {/* Internal divider */}
+            {/* Divider */}
             <div style={{ borderTop: `0.5px solid ${BORDER_T}`, margin: "16px 0" }} />
 
             {/* O que está pegando fogo — com tabs */}
@@ -451,7 +554,7 @@ export default function SuggestionsHub() {
                           onClick={() => handleSelectAccount(account.id)}
                           className="rounded-xl text-left transition-all hover:shadow-sm"
                           style={{
-                            background: BG_SECONDARY,
+                            background: "var(--color-background-secondary)",
                             border: `0.5px solid ${BORDER_T}`,
                             borderLeft: "3px solid #f87171",
                             borderRadius: RADIUS_LG,
@@ -493,15 +596,12 @@ export default function SuggestionsHub() {
                 )
               )}
 
-              {/* Tabs: P1 / P2 / P3 — compact suggestion rows */}
+              {/* Tabs: P1 / P2 / P3 */}
               {fogoTab !== "URGENT" && (
                 tabSuggestions.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Nenhuma sugestão {fogoTab} pendente.</p>
                 ) : (
-                  <div
-                    className="rounded-xl overflow-hidden"
-                    style={{ border: `0.5px solid ${BORDER_T}` }}
-                  >
+                  <div className="rounded-xl overflow-hidden" style={{ border: `0.5px solid ${BORDER_T}` }}>
                     {tabSuggestions.map((s, idx) => {
                       const account = accounts?.find((a) => a.id === s.accountId);
                       const picture = ((account as any)?.pictureUrl as string | null) ?? null;
@@ -548,7 +648,7 @@ export default function SuggestionsHub() {
           </div>
         </div>
 
-        {/* ── Separador "Panorama geral" ─────────────────────────────────── */}
+        {/* ══ 4 — Separador "Panorama geral" ═══════════════════════════════ */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "20px 24px" }}>
           <div style={{ flex: 1, height: "0.5px", background: BORDER_T }} />
           <span
@@ -566,227 +666,6 @@ export default function SuggestionsHub() {
             Panorama geral
           </span>
           <div style={{ flex: 1, height: "0.5px", background: BORDER_T }} />
-        </div>
-
-        {/* ── Zona inferior — fundo secundário ──────────────────────────── */}
-        <div style={{ background: BG_SECONDARY, padding: "1.25rem 0 1.5rem" }}>
-
-          {/* S4 — Carrossel */}
-          {sortedAccounts.length > 0 && (
-            <div className="px-6 mb-5">
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">
-                Clientes
-              </p>
-              <div className="flex gap-3 pb-2" style={{ overflowX: "auto", scrollbarWidth: "none" }}>
-                {sortedAccounts.map((account) => {
-                  const m         = metricsMap.get(account.id);
-                  const totals    = normalizeTotals(m);
-                  const p1        = p1ByAccount[account.id] ?? 0;
-                  const estado    = estadoConfig[(account as any).aiStatusColor ?? ""] ?? null;
-                  const goalType  = (account as any).goalTypeOverride as string | null ?? "DEFAULT";
-                  const dayS      = totals.spend > 0
-                    ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })
-                    : null;
-                  const secMetrics = secondaryMetrics(goalType);
-
-                  return (
-                    <button
-                      key={account.id}
-                      onClick={() => handleSelectAccount(account.id)}
-                      className="flex-shrink-0 rounded-xl text-left transition-all hover:shadow-md hover:border-primary/40 relative overflow-hidden"
-                      style={{
-                        width: 200,
-                        background: BG_PRIMARY,
-                        border: `0.5px solid ${BORDER_T}`,
-                        borderLeft: `3px solid ${estado?.border ?? BORDER_T}`,
-                        borderRadius: RADIUS_LG,
-                      }}
-                    >
-                      {p1 > 0 && (
-                        <span
-                          className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full z-10 text-white"
-                          style={{ background: "#ef4444" }}
-                        >
-                          {p1} P1
-                        </span>
-                      )}
-                      <div className="p-3 space-y-2">
-                        <div className="flex items-center gap-2 pr-8">
-                          <div
-                            className="flex-shrink-0 flex items-center justify-center font-bold overflow-hidden text-primary"
-                            style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(212,83,126,0.12)", fontSize: 11 }}
-                          >
-                            {account.pictureUrl
-                              ? <img src={account.pictureUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                              : (getClientByMetaAccountId(account.accountId)?.shortName ?? initials(account.accountName))}
-                          </div>
-                          <p className="text-xs font-semibold text-foreground truncate leading-snug">
-                            {displayNameMap.get(account.id) ?? account.accountName ?? account.accountId}
-                          </p>
-                        </div>
-                        {estado ? (
-                          <Badge variant="outline" className={`text-[10px] font-bold ${estado.cls}`}>
-                            Estado {estado.badge}
-                          </Badge>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground/50">Sem análise</span>
-                        )}
-                        <div className="border-t pt-2" style={{ borderColor: BORDER_T }}>
-                          <p className="text-[10px] text-muted-foreground mb-1">Investido hoje</p>
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-lg font-medium text-foreground leading-none">
-                              {fmtCurrency(totals.spend)}
-                            </span>
-                            {dayS && (
-                              <span
-                                className="text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
-                                style={{ background: dayS.bg, color: dayS.color, border: `0.5px solid ${dayS.border}` }}
-                              >
-                                {dayS.label}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between border-t pt-1.5" style={{ borderColor: BORDER_T }}>
-                          {secMetrics.map((sm) => (
-                            <div key={sm.label} className="flex flex-col items-start gap-0.5">
-                              <span className="text-[9px] text-muted-foreground uppercase tracking-wide">{sm.label}</span>
-                              <span className="text-[11px] font-semibold text-foreground">
-                                {totals.spend > 0 ? sm.fmt(totals) : "—"}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* S5 — Performance table */}
-          <div className="px-6">
-            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">
-              Performance hoje
-            </p>
-
-            {sortedAccounts.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Nenhum dado disponível.</p>
-            ) : (
-              <div
-                style={{
-                  background: BG_PRIMARY,
-                  border: `0.5px solid ${BORDER_T}`,
-                  borderRadius: RADIUS_LG,
-                  overflow: "hidden",
-                }}
-              >
-                {/* Header */}
-                <div
-                  className="grid text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground px-3 py-2"
-                  style={{
-                    gridTemplateColumns: "1fr 110px 90px 70px 100px 60px",
-                    background: BG_SECONDARY,
-                    borderBottom: `0.5px solid ${BORDER_T}`,
-                  }}
-                >
-                  <span>Conta</span>
-                  <span>Investido</span>
-                  <span>Resultado</span>
-                  <span>CTR</span>
-                  <span>Custo/result.</span>
-                  <span>Tendência</span>
-                </div>
-
-                {/* Rows */}
-                {sortedAccounts.map((account, idx) => {
-                  const m         = metricsMap.get(account.id);
-                  const totals    = normalizeTotals(m);
-                  const goalType  = (account as any).goalTypeOverride as string | null;
-                  const dayS      = totals.spend > 0
-                    ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })
-                    : null;
-                  const primary   = getPrimaryResult(totals, goalType);
-                  const barWidth  = maxSpend > 0 ? Math.round((totals.spend / maxSpend) * 100) : 0;
-                  const picture   = (account as any).pictureUrl as string | null;
-
-                  return (
-                    <button
-                      key={account.id}
-                      onClick={() => handleSelectAccount(account.id)}
-                      className="w-full grid items-center px-3 py-2.5 text-left transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-                      style={{
-                        gridTemplateColumns: "1fr 110px 90px 70px 100px 60px",
-                        borderBottom: idx < sortedAccounts.length - 1 ? `0.5px solid ${BORDER_T}` : undefined,
-                      }}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div
-                          className="flex-shrink-0 flex items-center justify-center font-bold overflow-hidden text-primary"
-                          style={{ width: 24, height: 24, borderRadius: 6, background: "rgba(212,83,126,0.12)", fontSize: 9 }}
-                        >
-                          {picture
-                            ? <img src={picture} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                            : (getClientByMetaAccountId(account.accountId)?.shortName ?? initials(account.accountName))}
-                        </div>
-                        <span className="text-xs font-medium text-foreground truncate">
-                          {displayNameMap.get(account.id) ?? account.accountName}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-semibold text-foreground">
-                          {totals.spend > 0 ? fmtCurrency(totals.spend) : "—"}
-                        </span>
-                        {dayS && (
-                          <span
-                            className="text-[9px] font-bold px-1 py-0.5 rounded flex-shrink-0"
-                            style={{ background: dayS.bg, color: dayS.color, border: `0.5px solid ${dayS.border}` }}
-                          >
-                            {dayS.label}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="text-left">
-                        {totals.spend > 0 ? (
-                          <>
-                            <p className="text-xs font-semibold text-foreground">{primary.value}</p>
-                            <p className="text-[10px] text-muted-foreground">{primary.label}</p>
-                          </>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </div>
-
-                      <span className="text-xs text-foreground">
-                        {totals.spend > 0 ? fmtPercent(totals.ctr) : "—"}
-                      </span>
-
-                      <span className="text-xs text-foreground">
-                        {totals.spend > 0 && totals.cpa > 0 ? fmtCurrency(totals.cpa) : "—"}
-                      </span>
-
-                      <div className="flex items-center">
-                        <div className="h-2 rounded-full overflow-hidden" style={{ width: 56, background: BG_SECONDARY }}>
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${barWidth}%`,
-                              background: dayS?.color ?? "var(--muted-foreground)",
-                              opacity: barWidth > 0 ? 1 : 0,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
         </div>
 
       </div>
