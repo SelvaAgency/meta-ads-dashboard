@@ -744,7 +744,7 @@ Responda sempre em português brasileiro com JSON válido.`,
         category: dbCategory as any,
         priority: dbPriority as any,
         title: s.title,
-        description: s.description,
+        description: s.description ?? "",
         expectedImpact: s.expectedImpact,
         actionItems: s.actionItems,
         // Store original category/priority in description prefix for frontend display

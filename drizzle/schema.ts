@@ -161,7 +161,7 @@ export const aiSuggestions = mysqlTable("ai_suggestions", {
   ]).notNull(),
   priority: mysqlEnum("priority", ["LOW", "MEDIUM", "HIGH"]).notNull(),
   title: varchar("title", { length: 255 }).notNull(),
-  description: text("description").notNull(),
+  description: text("description").notNull().default(""),
   expectedImpact: text("expectedImpact"),
   actionItems: json("actionItems"),
   // Status: pending = aguardando decisão, applied = marcado como aplicado, rejected = marcado como não aplicado
