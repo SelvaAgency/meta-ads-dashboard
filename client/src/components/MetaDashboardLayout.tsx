@@ -23,7 +23,7 @@ import {
   Share2,
   Settings,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -54,7 +54,9 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   const [location, navigate] = useLocation();
   const [pinnedOpen, setPinnedOpen] = useState(false);
   const [hovering, setHovering] = useState(false);
-  const sidebarOpen = pinnedOpen || hovering;
+  const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
+  const leaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sidebarOpen = pinnedOpen || hovering || clientDropdownOpen;
   const { activeAccount, activeAccountId, accounts, setActiveAccountId, activeClient, clientAccounts, setActiveClient } = useActiveAccount();
 
   const { data: unreadCount } = trpc.alerts.unreadCount.useQuery(
@@ -134,8 +136,13 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
       {/* Sidebar */}
       <aside
         className={`${sidebarOpen ? "w-64" : "w-16"} flex-shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-200 shadow-lg`}
-        onMouseEnter={() => setHovering(true)}
-        onMouseLeave={() => setHovering(false)}
+        onMouseEnter={() => {
+          if (leaveTimeout.current) clearTimeout(leaveTimeout.current);
+          setHovering(true);
+        }}
+        onMouseLeave={() => {
+          leaveTimeout.current = setTimeout(() => setHovering(false), 300);
+        }}
       >
         {/* Logo */}
         <div className="h-16 flex items-center px-4 border-b border-sidebar-border gap-3">
@@ -165,7 +172,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 </button>
               </Link>
             ) : (
-              <DropdownMenu>
+              <DropdownMenu onOpenChange={setClientDropdownOpen}>
                 <DropdownMenuTrigger asChild>
                   <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-sidebar-primary/10 border border-sidebar-border hover:bg-sidebar-primary/20 transition-all group">
                     <div className="w-7 h-7 rounded-lg bg-sidebar-primary/20 flex items-center justify-center flex-shrink-0 font-bold text-xs text-primary">
@@ -246,7 +253,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
         {/* Collapsed client indicator */}
         {!sidebarOpen && clientAccounts.length > 0 && (
           <div className="px-3 py-3 border-b border-sidebar-border flex justify-center">
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={setClientDropdownOpen}>
               <DropdownMenuTrigger asChild>
                 <button className="w-8 h-8 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center hover:bg-primary/20 transition-colors text-[10px] font-bold text-primary">
                   {activeClient?.shortName ?? <Users className="w-4 h-4" />}
