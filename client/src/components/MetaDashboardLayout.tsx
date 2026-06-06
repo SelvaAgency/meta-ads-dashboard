@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  FlaskConical,
   Home,
   LayoutDashboard,
   Link2,
@@ -328,6 +329,18 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                       >
                         <Lightbulb className="w-3.5 h-3.5 flex-shrink-0" />
                         <span className="text-xs font-medium flex-1 truncate">Sugestões IA</span>
+                      </div>
+                    </Link>
+                  )}
+                  {/* Experimentos sub-item */}
+                  {item.path === "/dashboard" && sidebarOpen && (
+                    <Link href="/experiments">
+                      <div
+                        className={`flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg cursor-pointer transition-all duration-150 ${location !== "/experiments" && !location.startsWith("/experiments/") ? HOVER_CLS : ""}`}
+                        style={location === "/experiments" || location.startsWith("/experiments/") ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: "rgba(255,255,255,0.4)" }}
+                      >
+                        <FlaskConical className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span className="text-xs font-medium flex-1 truncate">Experimentos</span>
                       </div>
                     </Link>
                   )}

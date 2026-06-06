@@ -119,6 +119,13 @@ import {
   createGA4Account,
   deleteGA4Account,
   updateGA4AccountSync,
+  getExperimentsByUserId,
+  getExperimentById,
+  createExperiment,
+  updateExperimentStatus,
+  updateCheckpointNote,
+  deleteExperiment,
+  getExperimentCampaignMetrics,
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
@@ -2830,6 +2837,170 @@ export const appRouter = router({
       }
       return results;
     }),
+  }),
+
+  // ─── Experiments ──────────────────────────────────────────────────────────
+  experiments: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return getExperimentsByUserId(ctx.user.id);
+    }),
+
+    get: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const exp = await getExperimentById(input.id, ctx.user.id);
+        if (!exp) throw new TRPCError({ code: "NOT_FOUND", message: "Experimento não encontrado" });
+        const metrics = exp.campaignIds && exp.campaignIds.length > 0
+          ? await getExperimentCampaignMetrics(exp.campaignIds, exp.startDate, exp.endDate)
+          : null;
+        const kpisWithValues = exp.kpis.map(kpi => {
+          let realValue: number | null = null;
+          if (metrics) {
+            switch (kpi.metric) {
+              case "spend":        realValue = metrics.totalSpend; break;
+              case "conversions":  realValue = metrics.totalConversions; break;
+              case "impressions":  realValue = metrics.totalImpressions; break;
+              case "clicks":       realValue = metrics.totalClicks; break;
+              case "reach":        realValue = metrics.totalReach; break;
+              case "ctr":          realValue = metrics.avgCtr; break;
+              case "cpa":          realValue = metrics.avgCpa; break;
+              case "roas":         realValue = metrics.avgRoas; break;
+            }
+          }
+          return { ...kpi, realValue };
+        });
+        return { ...exp, kpisWithValues };
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        title: z.string().min(1),
+        centralQuestion: z.string().optional(),
+        hypothesis: z.string().optional(),
+        startDate: z.string(),
+        endDate: z.string(),
+        status: z.enum(["planned", "active", "completed", "paused"]).default("planned"),
+        dailyBudget: z.number().optional(),
+        totalBudget: z.number().optional(),
+        channels: z.array(z.string()).optional(),
+        campaignIds: z.array(z.number()).optional(),
+        kpis: z.array(z.object({
+          metric: z.string(),
+          unit: z.string().default("#"),
+          minSignal: z.number().optional(),
+          goal: z.number(),
+        })),
+        checkpoints: z.array(z.object({
+          date: z.string(),
+          title: z.string(),
+        })),
+        decisions: z.array(z.object({
+          scenario: z.string(),
+          reading: z.string().optional(),
+          nextStep: z.string().optional(),
+          isCurrent: z.boolean().default(false),
+        })),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { kpis, checkpoints, decisions, ...expData } = input;
+        const id = await createExperiment(
+          {
+            ...expData,
+            userId: ctx.user.id,
+            dailyBudget: expData.dailyBudget ? String(expData.dailyBudget) : null,
+            totalBudget: expData.totalBudget ? String(expData.totalBudget) : null,
+          } as any,
+          kpis.map(k => ({
+            experimentId: 0,
+            metric: k.metric,
+            unit: k.unit,
+            minSignal: k.minSignal != null ? String(k.minSignal) : null,
+            goal: String(k.goal),
+          })) as any,
+          checkpoints.map(c => ({
+            experimentId: 0,
+            date: c.date,
+            title: c.title,
+            status: "pending" as const,
+          })),
+          decisions.map(d => ({
+            experimentId: 0,
+            scenario: d.scenario,
+            reading: d.reading ?? null,
+            nextStep: d.nextStep ?? null,
+            isCurrent: d.isCurrent,
+          })),
+        );
+        return { id };
+      }),
+
+    updateStatus: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["planned", "active", "completed", "paused"]),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const exp = await getExperimentById(input.id, ctx.user.id);
+        if (!exp) throw new TRPCError({ code: "NOT_FOUND", message: "Experimento não encontrado" });
+        await updateExperimentStatus(input.id, input.status);
+        return { ok: true };
+      }),
+
+    updateCheckpointNote: protectedProcedure
+      .input(z.object({ checkpointId: z.number(), note: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        await updateCheckpointNote(input.checkpointId, input.note);
+        return { ok: true };
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await deleteExperiment(input.id, ctx.user.id);
+        return { ok: true };
+      }),
+
+    analyze: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const exp = await getExperimentById(input.id, ctx.user.id);
+        if (!exp) throw new TRPCError({ code: "NOT_FOUND", message: "Experimento não encontrado" });
+        const metrics = exp.campaignIds && exp.campaignIds.length > 0
+          ? await getExperimentCampaignMetrics(exp.campaignIds, exp.startDate, exp.endDate)
+          : null;
+
+        const prompt = `Você é um especialista em mídia paga. Analise este experimento de marketing:
+
+Título: ${exp.title}
+Pergunta central: ${exp.centralQuestion ?? "N/A"}
+Hipótese: ${exp.hypothesis ?? "N/A"}
+Período: ${exp.startDate} a ${exp.endDate}
+Status: ${exp.status}
+Canais: ${(exp.channels ?? []).join(", ") || "N/A"}
+
+KPIs definidos:
+${exp.kpis.map(k => `- ${k.metric}: meta=${k.goal}${k.unit}, sinal mínimo=${k.minSignal ?? "N/A"}`).join("\n")}
+
+Métricas reais do período:
+${metrics ? `- Investimento: R$ ${metrics.totalSpend?.toFixed(2) ?? "N/A"}
+- Conversões: ${metrics.totalConversions ?? "N/A"}
+- CTR: ${metrics.avgCtr?.toFixed(2) ?? "N/A"}%
+- CPA: R$ ${metrics.avgCpa?.toFixed(2) ?? "N/A"}
+- ROAS: ${metrics.avgRoas?.toFixed(2) ?? "N/A"}x` : "Sem dados de métricas ainda"}
+
+Checkpoints:
+${exp.checkpoints.map(c => `- ${c.date} (${c.status}): ${c.title}${c.qualitativeNote ? " — " + c.qualitativeNote : ""}`).join("\n")}
+
+Árvore de decisões:
+${exp.decisions.map(d => `- ${d.scenario}: ${d.reading ?? ""} → ${d.nextStep ?? ""}`).join("\n")}
+
+Forneça uma análise em 3-4 parágrafos cobrindo: (1) avaliação dos resultados vs hipótese, (2) pontos positivos e negativos, (3) recomendação de próximo passo, (4) aprendizado chave. Seja direto e prático.`;
+
+        const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], maxTokens: 800 });
+        const analysis = extractTextContent(response);
+        return { analysis };
+      }),
   }),
 
 });

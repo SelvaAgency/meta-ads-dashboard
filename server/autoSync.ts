@@ -39,6 +39,9 @@ import {
   getDueScheduledReports,
   updateScheduledReport,
   purgeOldReadAnomalies,
+  getPendingCheckpointsForDate,
+  getExperimentCampaignMetrics,
+  markCheckpointDone,
 } from "./db";
 import { invokeLLM, extractTextContent } from "./_core/llm";
 import {
@@ -773,6 +776,38 @@ async function runDailyProgress() {
   }
 }
 
+async function runExperimentCheckpoints() {
+  const today = new Date().toISOString().split("T")[0];
+  try {
+    const pending = await getPendingCheckpointsForDate(today);
+    if (pending.length === 0) return;
+    for (const cp of pending) {
+      try {
+        const campaignIds: number[] = Array.isArray(cp.campaignIds) ? cp.campaignIds : [];
+        const metrics = campaignIds.length > 0
+          ? await getExperimentCampaignMetrics(campaignIds, (cp as any).startDate, today)
+          : null;
+        const snapshot: Record<string, number> = {};
+        if (metrics) {
+          if (metrics.totalSpend != null)       snapshot.spend       = Number(metrics.totalSpend);
+          if (metrics.totalConversions != null) snapshot.conversions = Number(metrics.totalConversions);
+          if (metrics.totalImpressions != null) snapshot.impressions = Number(metrics.totalImpressions);
+          if (metrics.totalClicks != null)      snapshot.clicks      = Number(metrics.totalClicks);
+          if (metrics.avgCtr != null)           snapshot.ctr         = Number(metrics.avgCtr);
+          if (metrics.avgCpa != null)           snapshot.cpa         = Number(metrics.avgCpa);
+          if (metrics.avgRoas != null)          snapshot.roas        = Number(metrics.avgRoas);
+        }
+        await markCheckpointDone(cp.id, snapshot);
+        logger.info(`[Experiments] Checkpoint ${cp.id} (${cp.title}) snapshot done`);
+      } catch (err) {
+        console.error(`[Experiments] Error snapshotting checkpoint ${cp.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error("[Experiments] Error running checkpoints:", err);
+  }
+}
+
 export async function startAutoSync() {
   logger.info("[AutoSync] Initializing auto-sync service...");
 
@@ -802,6 +837,9 @@ export async function startAutoSync() {
 
   // Polling fallback for scheduled reports (every 5 minutes)
   cron.schedule("0 */5 * * * *", runScheduledReports);
+
+  // Daily experiment checkpoint snapshots at 09:10 UTC
+  cron.schedule("0 10 9 * * *", runExperimentCheckpoints);
 
   // Run initial sync after a short delay to let the server warm up
   setTimeout(async () => {

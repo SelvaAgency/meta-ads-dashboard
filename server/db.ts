@@ -13,6 +13,10 @@ import {
   users,
   googleAdAccounts,
   ga4Accounts,
+  experiments,
+  experimentKpis,
+  experimentCheckpoints,
+  experimentDecisions,
   type InsertAiSuggestion,
   type InsertAlert,
   type InsertAnomaly,
@@ -22,6 +26,10 @@ import {
   type InsertScheduledReport,
   type InsertGoogleAdAccount,
   type InsertGA4Account,
+  type InsertExperiment,
+  type InsertExperimentKpi,
+  type InsertExperimentCheckpoint,
+  type InsertExperimentDecision,
 } from "../drizzle/schema";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1101,4 +1109,174 @@ export async function deleteGA4Account(id: number) {
     .update(ga4Accounts)
     .set({ isActive: false })
     .where(eq(ga4Accounts.id, id));
+}
+
+// ─── Experiments ─────────────────────────────────────────────────────────────
+
+export async function getExperimentsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: experiments.id,
+      title: experiments.title,
+      status: experiments.status,
+      startDate: experiments.startDate,
+      endDate: experiments.endDate,
+      dailyBudget: experiments.dailyBudget,
+      totalBudget: experiments.totalBudget,
+      channels: experiments.channels,
+      accountId: experiments.accountId,
+      accountName: metaAdAccounts.accountName,
+      createdAt: experiments.createdAt,
+    })
+    .from(experiments)
+    .innerJoin(metaAdAccounts, eq(experiments.accountId, metaAdAccounts.id))
+    .where(eq(experiments.userId, userId))
+    .orderBy(desc(experiments.createdAt));
+}
+
+export async function getExperimentById(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(experiments)
+    .where(and(eq(experiments.id, id), eq(experiments.userId, userId)))
+    .limit(1);
+  if (!rows[0]) return null;
+  const exp = rows[0];
+  const kpis = await db
+    .select()
+    .from(experimentKpis)
+    .where(eq(experimentKpis.experimentId, id));
+  const checkpoints = await db
+    .select()
+    .from(experimentCheckpoints)
+    .where(eq(experimentCheckpoints.experimentId, id))
+    .orderBy(experimentCheckpoints.date);
+  const decisions = await db
+    .select()
+    .from(experimentDecisions)
+    .where(eq(experimentDecisions.experimentId, id));
+  const accountRow = await db
+    .select({ accountName: metaAdAccounts.accountName })
+    .from(metaAdAccounts)
+    .where(eq(metaAdAccounts.id, exp.accountId))
+    .limit(1);
+  return {
+    ...exp,
+    accountName: accountRow[0]?.accountName ?? null,
+    kpis,
+    checkpoints,
+    decisions,
+  };
+}
+
+export async function createExperiment(
+  data: InsertExperiment,
+  kpis: InsertExperimentKpi[],
+  checkpointDefs: InsertExperimentCheckpoint[],
+  decisionDefs: InsertExperimentDecision[],
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(experiments).values(data);
+  const expId = (result as any)[0]?.insertId as number;
+  if (kpis.length > 0) {
+    await db.insert(experimentKpis).values(kpis.map(k => ({ ...k, experimentId: expId })));
+  }
+  if (checkpointDefs.length > 0) {
+    await db.insert(experimentCheckpoints).values(checkpointDefs.map(c => ({ ...c, experimentId: expId })));
+  }
+  if (decisionDefs.length > 0) {
+    await db.insert(experimentDecisions).values(decisionDefs.map(d => ({ ...d, experimentId: expId })));
+  }
+  return expId;
+}
+
+export async function updateExperimentStatus(id: number, status: "planned" | "active" | "completed" | "paused") {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(experiments).set({ status, updatedAt: new Date() }).where(eq(experiments.id, id));
+}
+
+export async function updateCheckpointNote(checkpointId: number, note: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(experimentCheckpoints).set({ qualitativeNote: note }).where(eq(experimentCheckpoints.id, checkpointId));
+}
+
+export async function deleteExperiment(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(experimentDecisions).where(eq(experimentDecisions.experimentId, id));
+  await db.delete(experimentCheckpoints).where(eq(experimentCheckpoints.experimentId, id));
+  await db.delete(experimentKpis).where(eq(experimentKpis.experimentId, id));
+  await db.delete(experiments).where(and(eq(experiments.id, id), eq(experiments.userId, userId)));
+}
+
+export async function getExperimentCampaignMetrics(
+  campaignIds: number[],
+  startDate: string,
+  endDate: string,
+) {
+  const db = await getDb();
+  if (!db || campaignIds.length === 0) return null;
+  const conditions = campaignIds.map(id => eq(campaignMetrics.campaignId, id));
+  const campaignFilter = conditions.length === 1 ? conditions[0] : or(...conditions);
+  const rows = await db
+    .select({
+      totalSpend:       sql<number>`SUM(${campaignMetrics.spend})`,
+      totalConversions: sql<number>`SUM(${campaignMetrics.conversions})`,
+      totalImpressions: sql<number>`SUM(${campaignMetrics.impressions})`,
+      totalClicks:      sql<number>`SUM(${campaignMetrics.clicks})`,
+      totalReach:       sql<number>`SUM(${campaignMetrics.reach})`,
+      avgCtr: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.clicks}) / SUM(${campaignMetrics.impressions})) * 100 ELSE 0 END`,
+      avgCpa: sql<number>`CASE WHEN SUM(${campaignMetrics.conversions}) > 0 THEN SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.conversions}) ELSE NULL END`,
+      avgRoas: sql<number>`CASE WHEN SUM(${campaignMetrics.spend}) > 0 THEN SUM(${campaignMetrics.conversionValue}) / SUM(${campaignMetrics.spend}) ELSE NULL END`,
+    })
+    .from(campaignMetrics)
+    .where(
+      and(
+        campaignFilter!,
+        gte(campaignMetrics.date, startDate),
+        lte(campaignMetrics.date, endDate),
+      )
+    );
+  return rows[0] ?? null;
+}
+
+export async function getPendingCheckpointsForDate(date: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: experimentCheckpoints.id,
+      experimentId: experimentCheckpoints.experimentId,
+      title: experimentCheckpoints.title,
+      campaignIds: experiments.campaignIds,
+      startDate: experiments.startDate,
+    })
+    .from(experimentCheckpoints)
+    .innerJoin(experiments, eq(experimentCheckpoints.experimentId, experiments.id))
+    .where(
+      and(
+        eq(experimentCheckpoints.date, date),
+        eq(experimentCheckpoints.status, "pending"),
+        eq(experiments.status, "active"),
+      )
+    );
+}
+
+export async function markCheckpointDone(
+  checkpointId: number,
+  snapshotData: Record<string, number>,
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(experimentCheckpoints)
+    .set({ status: "done", snapshotData })
+    .where(eq(experimentCheckpoints.id, checkpointId));
 }

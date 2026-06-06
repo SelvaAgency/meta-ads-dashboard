@@ -306,3 +306,58 @@ export const ga4Accounts = mysqlTable("ga4_accounts", {
 });
 export type GA4Account = typeof ga4Accounts.$inferSelect;
 export type InsertGA4Account = typeof ga4Accounts.$inferInsert;
+
+// ─── Experiments ─────────────────────────────────────────────────────────────
+export const experiments = mysqlTable("experiments", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  accountId: int("accountId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  centralQuestion: text("centralQuestion"),
+  hypothesis: text("hypothesis"),
+  startDate: varchar("startDate", { length: 10 }).notNull(),
+  endDate: varchar("endDate", { length: 10 }).notNull(),
+  status: mysqlEnum("status", ["planned", "active", "completed", "paused"]).notNull().default("planned"),
+  dailyBudget: decimal("dailyBudget", { precision: 10, scale: 2 }),
+  totalBudget: decimal("totalBudget", { precision: 10, scale: 2 }),
+  channels: json("channels").$type<string[]>(),
+  campaignIds: json("campaignIds").$type<number[]>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type Experiment = typeof experiments.$inferSelect;
+export type InsertExperiment = typeof experiments.$inferInsert;
+
+export const experimentKpis = mysqlTable("experiment_kpis", {
+  id: int("id").autoincrement().primaryKey(),
+  experimentId: int("experimentId").notNull(),
+  metric: varchar("metric", { length: 64 }).notNull(),
+  unit: varchar("unit", { length: 8 }).notNull().default("#"),
+  minSignal: decimal("minSignal", { precision: 10, scale: 4 }),
+  goal: decimal("goal", { precision: 10, scale: 4 }).notNull(),
+});
+export type ExperimentKpi = typeof experimentKpis.$inferSelect;
+export type InsertExperimentKpi = typeof experimentKpis.$inferInsert;
+
+export const experimentCheckpoints = mysqlTable("experiment_checkpoints", {
+  id: int("id").autoincrement().primaryKey(),
+  experimentId: int("experimentId").notNull(),
+  date: varchar("date", { length: 10 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  qualitativeNote: text("qualitativeNote"),
+  snapshotData: json("snapshotData").$type<Record<string, number>>(),
+  status: mysqlEnum("status", ["pending", "active", "done"]).notNull().default("pending"),
+});
+export type ExperimentCheckpoint = typeof experimentCheckpoints.$inferSelect;
+export type InsertExperimentCheckpoint = typeof experimentCheckpoints.$inferInsert;
+
+export const experimentDecisions = mysqlTable("experiment_decisions", {
+  id: int("id").autoincrement().primaryKey(),
+  experimentId: int("experimentId").notNull(),
+  scenario: varchar("scenario", { length: 255 }).notNull(),
+  reading: text("reading"),
+  nextStep: text("nextStep"),
+  isCurrent: boolean("isCurrent").default(false).notNull(),
+});
+export type ExperimentDecision = typeof experimentDecisions.$inferSelect;
+export type InsertExperimentDecision = typeof experimentDecisions.$inferInsert;
