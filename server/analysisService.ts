@@ -288,6 +288,7 @@ export function detectAnomalies(
 export async function generateAiSuggestions(
   accountId: number,
   userId: number,
+  goalTypeOverride: string | null | undefined,
   campaignData: Array<{
     campaignId: number;
     campaignName: string;
@@ -365,7 +366,8 @@ export async function generateAiSuggestions(
       goalCounts[c.optimizationGoal] = (goalCounts[c.optimizationGoal] ?? 0) + 1;
     }
   }
-  const dominantGoal = Object.entries(goalCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "OFFSITE_CONVERSIONS";
+  const detectedGoal = Object.entries(goalCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "OFFSITE_CONVERSIONS";
+  const dominantGoal = goalTypeOverride ?? detectedGoal;
   const resultLabel = campaignsWithData.find((c) => c.resultLabel)?.resultLabel ?? "Resultados";
 
   // Sort by results (conversions) for top/under — not ROAS
@@ -488,7 +490,8 @@ Avalie TODOS estes pontos com base nos dados abaixo:
 - Vendas/E-commerce: ROAS saudável >3.0, CTR >0.8%, frequência <2.5
 - Tráfego: CTR saudável >1.5%, frequência <3.0
 - Reconhecimento/Alcance: frequência <2.0
-- Objetivo atual inferido: ${dominantGoal}
+- Mensagens/Conversas: Custo por mensagem baixo, CTR >0.5%, frequência <3.0. NÃO use ROAS como métrica.
+- Objetivo atual: ${dominantGoal}. Se o objetivo for MESSAGES, CONVERSATIONS, REPLIES ou TRAFFIC, IGNORE completamente métricas de ROAS e valor de conversão.
 
 ## REGRAS ABSOLUTAS:
 1. NUNCA gerar sugestões só porque o usuário clicou no botão — a necessidade deve ser real e comprovada pelos dados
@@ -516,10 +519,10 @@ Avalie TODOS estes pontos com base nos dados abaixo:
 
 ## DADOS DA CONTA — NÍVEL 1 (Campanhas, últimos 30 dias)
 ### Médias gerais da conta:
-- CTR médio: ${avgCtr.toFixed(2)}% | ROAS médio: ${avgRoas.toFixed(2)}x | CPA médio: R$${avgCpa.toFixed(2)} | Frequência média: ${avgFrequency.toFixed(2)} | Total ${resultLabel}: ${totalConversions} | Total investido: R$${totalSpend.toFixed(2)}
+- CTR médio: ${avgCtr.toFixed(2)}% | ${['MESSAGES','CONVERSATIONS','REPLIES','TRAFFIC'].includes(dominantGoal) ? '' : `ROAS médio: ${avgRoas.toFixed(2)}x | `}CPA médio: R$${avgCpa.toFixed(2)} | Frequência média: ${avgFrequency.toFixed(2)} | Total ${resultLabel}: ${totalConversions} | Total investido: R$${totalSpend.toFixed(2)}
 
 ### Top performers (${resultLabel}):
-${topPerformers.map((c) => `- [${c.campaignName}] ${resultLabel}: ${c.totalConversions} | Gasto: R$${c.totalSpend.toFixed(2)} | Custo/resultado: R$${c.avgCpa.toFixed(2)} | CTR: ${c.avgCtr.toFixed(2)}% | ROAS: ${c.avgRoas.toFixed(2)}x`).join("\n")}
+${topPerformers.map((c) => `- [${c.campaignName}] ${resultLabel}: ${c.totalConversions} | Gasto: R$${c.totalSpend.toFixed(2)} | Custo/resultado: R$${c.avgCpa.toFixed(2)} | CTR: ${c.avgCtr.toFixed(2)}%${['MESSAGES','CONVERSATIONS','REPLIES','TRAFFIC'].includes(dominantGoal) ? '' : ` | ROAS: ${c.avgRoas.toFixed(2)}x`}`).join("\n")}
 ### Underperformers:
 ${underPerformers.map((c) => `- [${c.campaignName}] ${resultLabel}: ${c.totalConversions} | Gasto: R$${c.totalSpend.toFixed(2)} | Custo/resultado: R$${c.avgCpa.toFixed(2)} | CTR: ${c.avgCtr.toFixed(2)}% | Impressões: ${c.totalImpressions}`).join("\n")}
 ${adsetBlock}

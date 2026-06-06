@@ -1356,7 +1356,7 @@ export const appRouter = router({
             console.error("[suggestions.generate] 3-level fetch failed, falling back to campaign-only:", e);
           }
         }
-        const result = await generateAiSuggestions(input.accountId, ctx.user.id, mapped, rejectedFeedback, adsetInsights, adInsights);
+        const result = await generateAiSuggestions(input.accountId, ctx.user.id, account.goalTypeOverride ?? null, mapped, rejectedFeedback, adsetInsights, adInsights);
         return result;
       }),
     updateStatus: protectedProcedure
