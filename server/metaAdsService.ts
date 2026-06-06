@@ -452,8 +452,8 @@ export function getResultActionTypes(optimizationGoal: string): string[] {
     THRUPLAY: ["video_thruplay_watched"],
     APP_INSTALLS: ["app_install", "mobile_app_install"],
     VALUE: ["offsite_conversion.fb_pixel_purchase", "purchase", "onsite_web_purchase"],
-    VISIT_INSTAGRAM_PROFILE: ["profile_visit", "instagram_profile_visit"],
-    INSTAGRAM_PROFILE_REACH: ["profile_visit", "instagram_profile_visit"],
+    VISIT_INSTAGRAM_PROFILE: ["link_click"],
+    INSTAGRAM_PROFILE_REACH: ["link_click"],
   };
   return mapping[optimizationGoal] ?? [];
 }
@@ -1081,7 +1081,6 @@ export async function getAdSetsWithInsights(
       const ctr = parseFloat(ins?.ctr ?? "0") || 0;
       const cpc = parseFloat(ins?.cpc ?? "0") || 0;
       const cpm = parseFloat(ins?.cpm ?? "0") || 0;
-      console.log("[DEBUG] adset.optimization_goal:", adset.optimization_goal, "actions:", JSON.stringify(ins?.actions?.slice(0,3)));
       const conversions = extractResultsByGoal(ins?.actions, adset.optimization_goal);
       const costPerResult = spend > 0 && conversions > 0 ? spend / conversions : 0;
       const roas = extractPurchaseRoas(ins?.purchase_roas, spend, 0);
