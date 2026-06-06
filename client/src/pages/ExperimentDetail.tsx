@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -76,6 +77,13 @@ export default function ExperimentDetail() {
   const [, navigate] = useLocation();
   const [match, params] = useRoute("/experiments/:id");
   const id = match ? Number(params!.id) : 0;
+
+  const { accounts } = useActiveAccount();
+  const displayNameById = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const a of accounts) m.set(a.id, a.displayName);
+    return m;
+  }, [accounts]);
 
   const { data: exp, isLoading, refetch } = trpc.experiments.get.useQuery({ id }, { enabled: id > 0 });
   const analyzeMut = trpc.experiments.analyze.useMutation();
@@ -158,7 +166,7 @@ export default function ExperimentDetail() {
                 {statusMeta.label}
               </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">{exp.accountName}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{displayNameById.get(exp.accountId) ?? exp.accountName}</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {nextStatuses.slice(0, 2).map(s => (

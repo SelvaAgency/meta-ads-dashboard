@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
+import { useMemo } from "react";
 import { FlaskConical, Plus, Calendar, Banknote, CheckCircle2, CircleDashed, CirclePause, CirclePlay } from "lucide-react";
 import { useState } from "react";
 import ExperimentCreateModal from "@/components/ExperimentCreateModal";
@@ -30,7 +31,14 @@ function fmtCurrency(v: string | number | null | undefined) {
 export default function Experiments() {
   const [, navigate] = useLocation();
   const [createOpen, setCreateOpen] = useState(false);
-  const { activeAccountId } = useActiveAccount();
+  const { activeAccountId, accounts } = useActiveAccount();
+
+  // displayName lookup by internal account DB id
+  const displayNameById = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const a of accounts) m.set(a.id, a.displayName);
+    return m;
+  }, [accounts]);
 
   const { data: experiments = [], isLoading, refetch } = trpc.experiments.list.useQuery(
     { accountId: activeAccountId ?? undefined },
@@ -128,7 +136,7 @@ export default function Experiments() {
                       <div className="flex items-start justify-between gap-2 mb-3">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors">{exp.title}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5 truncate">{exp.accountName ?? "—"}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate">{displayNameById.get(exp.accountId) ?? exp.accountName ?? "—"}</p>
                         </div>
                         <span
                           className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"

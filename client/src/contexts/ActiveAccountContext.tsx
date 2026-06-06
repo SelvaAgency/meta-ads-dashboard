@@ -6,6 +6,7 @@ interface AdAccount {
   id: number;
   accountId: string;
   accountName: string | null;
+  displayName: string;
   currency: string | null;
   timezone: string | null;
   lastSyncAt: Date | null;
@@ -22,6 +23,7 @@ interface ActiveAccountContextValue {
   activeAccountId: number | null;
   accounts: AdAccount[];
   setActiveAccountId: (id: number) => void;
+  clearActiveAccount: () => void;
   isLoading: boolean;
   // Client-level
   activeClient: ClientConfig | null;
@@ -34,6 +36,7 @@ const ActiveAccountContext = createContext<ActiveAccountContextValue>({
   activeAccountId: null,
   accounts: [],
   setActiveAccountId: () => {},
+  clearActiveAccount: () => {},
   isLoading: true,
   activeClient: null,
   clientAccounts: [],
@@ -41,8 +44,16 @@ const ActiveAccountContext = createContext<ActiveAccountContextValue>({
 });
 
 export function ActiveAccountProvider({ children }: { children: React.ReactNode }) {
-  const { data: accounts = [], isLoading } = trpc.accounts.list.useQuery();
+  const { data: rawAccounts = [], isLoading } = trpc.accounts.list.useQuery();
   const [activeAccountId, setActiveAccountIdState] = useState<number | null>(null);
+
+  // Enrich accounts with displayName from clientConfig
+  const accounts = useMemo<AdAccount[]>(() => {
+    return rawAccounts.map(a => ({
+      ...a,
+      displayName: getClientByMetaAccountId(a.accountId)?.name ?? a.accountName ?? a.accountId,
+    }));
+  }, [rawAccounts]);
 
   // Build client-account mapping
   const clientAccounts = useMemo<ClientWithAccounts[]>(() => {
@@ -53,7 +64,7 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
         accounts: accs,
         integrations: getIntegrationStatus(client),
       };
-    }).filter(ca => ca.accounts.length > 0); // Only show clients with connected accounts
+    }).filter(ca => ca.accounts.length > 0);
   }, [accounts]);
 
   // Derive active client from active account
@@ -64,10 +75,13 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
     return getClientByMetaAccountId(acc.accountId) ?? null;
   }, [activeAccountId, accounts]);
 
-
   const setActiveAccountId = (id: number) => {
     setActiveAccountIdState(id);
     localStorage.setItem("meta_active_account_id", String(id));
+  };
+
+  const clearActiveAccount = () => {
+    setActiveAccountIdState(null);
   };
 
   // Set active client by slug → selects first Meta account of that client
@@ -87,6 +101,7 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
         activeAccountId,
         accounts,
         setActiveAccountId,
+        clearActiveAccount,
         isLoading,
         activeClient,
         clientAccounts,

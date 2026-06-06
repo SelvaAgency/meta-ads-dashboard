@@ -279,7 +279,7 @@ export default function ExperimentCreateModal({
                       : { borderColor: "var(--color-border)", color: "var(--color-foreground)" }
                     }
                   >
-                    {a.accountName ?? a.accountId}
+                    {a.displayName}
                   </button>
                 ))}
               </div>

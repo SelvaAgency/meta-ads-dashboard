@@ -61,6 +61,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     activeClient,
     clientAccounts,
     setActiveClient,
+    clearActiveAccount,
   } = useActiveAccount();
 
   const { data: unreadCount } = trpc.alerts.unreadCount.useQuery(
@@ -407,7 +408,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
         <header className="h-16 border-b border-border flex items-center justify-between px-6 bg-background sticky top-0 z-10">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setPinnedOpen(!pinnedOpen)}
               className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all hover:shadow-sm"
@@ -419,14 +420,25 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 {title}
               </h1>
             )}
-            {activeClient && (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <ChevronRight className="w-3 h-3 text-primary/50" />
-                <span className="font-bold text-foreground/80 px-2 py-1 rounded-md bg-primary/10 text-primary">{activeClient.name}</span>
-                <span className="text-muted-foreground/60">·</span>
-                <span className="text-muted-foreground/80">{activeAccount?.accountName ?? ""}</span>
-              </div>
-            )}
+            {/* Breadcrumb */}
+            <div className="flex items-center gap-1.5 text-xs">
+              {location !== "/" && (
+                <button
+                  onClick={() => { clearActiveAccount(); navigate("/"); }}
+                  className="font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Visão Geral
+                </button>
+              )}
+              {location !== "/" && activeClient && (
+                <ChevronRight className="w-3 h-3 text-muted-foreground/40" />
+              )}
+              {activeClient && (
+                <span className="font-bold px-2 py-1 rounded-md bg-primary/10 text-primary">
+                  {activeAccount?.displayName ?? activeClient.name}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-2">

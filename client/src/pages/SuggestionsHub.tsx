@@ -2,10 +2,11 @@ import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useLocation, Link } from "wouter";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import { toast } from "sonner";
+import { getClientByMetaAccountId } from "@/config/clientConfig";
 import { fmtCurrency, getDayStatus, type GoalType } from "@/lib/kpiConfig";
 import {
   AlertTriangle,
@@ -209,6 +210,15 @@ export default function SuggestionsHub() {
   const { setActiveAccountId } = useActiveAccount();
   const [, navigate] = useLocation();
 
+  // displayName lookup: internal accountId → display name from clientConfig
+  const displayNameMap = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const a of accounts ?? []) {
+      m.set(a.id, getClientByMetaAccountId(a.accountId)?.name ?? a.accountName ?? a.accountId);
+    }
+    return m;
+  }, [accounts]);
+
   const suggestions = data?.suggestions ?? [];
   const appliedToday = data?.appliedToday ?? 0;
 
@@ -385,10 +395,10 @@ export default function SuggestionsHub() {
                           className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
                           style={{ background: "rgba(212,83,126,0.2)", color: "#D4537E" }}
                         >
-                          {initials(account.accountName)}
+                          {getClientByMetaAccountId(account.accountId)?.shortName ?? initials(account.accountName)}
                         </div>
                         <p className="text-xs font-semibold text-foreground/80 truncate leading-snug" style={{ maxWidth: 90 }}>
-                          {account.accountName ?? account.accountId}
+                          {displayNameMap.get(account.id) ?? account.accountName ?? account.accountId}
                         </p>
                       </div>
 
@@ -492,7 +502,7 @@ export default function SuggestionsHub() {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-foreground/80 truncate">{alert.title}</p>
                         <p className="text-[10px] text-muted-foreground mt-0.5">
-                          {alert.accountName ?? "—"} · {relativeTime(alert.createdAt)}
+                          {displayNameMap.get(alert.accountId) ?? alert.accountName ?? "—"} · {relativeTime(alert.createdAt)}
                         </p>
                       </div>
                     </div>
@@ -550,11 +560,11 @@ export default function SuggestionsHub() {
                   <div key={group.accountId} className="rounded-xl border border-border/50 overflow-hidden">
                     <div className="flex items-center gap-3 px-4 py-3 bg-muted/30 border-b border-border/50">
                       <div className="w-8 h-8 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0">
-                        {initials(group.accountName)}
+                        {getClientByMetaAccountId(group.metaAccountId)?.shortName ?? initials(group.accountName)}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-foreground truncate">
-                          {group.accountName ?? group.metaAccountId}
+                          {displayNameMap.get(group.accountId) ?? getClientByMetaAccountId(group.metaAccountId)?.name ?? group.accountName ?? group.metaAccountId}
                         </p>
                       </div>
                       {estado && (
