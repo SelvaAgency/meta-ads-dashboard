@@ -40,9 +40,11 @@ queryClient.getMutationCache().subscribe(event => {
 const trpcClient = trpc.createClient({
   links: [
     splitLink({
-      // socialNetworks queries go through a separate non-batched link
+      // socialNetworks and suggestions.generate go through a separate non-batched link
       // so they can't block auth.me / accounts.list when Meta API is slow
-      condition: (op) => op.path.startsWith("socialNetworks."),
+      condition: (op) =>
+        op.path.startsWith("socialNetworks.") ||
+        op.path === "suggestions.generate",
       true: httpLink({
         url: "/api/trpc",
         transformer: superjson,
