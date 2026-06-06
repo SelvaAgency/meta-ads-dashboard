@@ -258,6 +258,8 @@ export async function syncAccount(account: { id: number; accountId: string; acce
 
       await updateAccountAiStatus(account.id, color, summary);
       logger.info(`[AutoSync] ✓ AI status refreshed for "${label}": ${color}`);
+      // Throttle AI calls — 2s gap between accounts to avoid Claude rate limit (429)
+      await new Promise((r) => setTimeout(r, 2000));
     } catch (aiErr) {
       console.warn(`[AutoSync] AI status refresh failed for "${label}":`, aiErr);
     }
@@ -434,7 +436,7 @@ async function runAnomalyDetection() {
           type: "ANOMALY",
           severity: "WARNING",
         });
-        const alertId = (alertResult as any).insertId as number | undefined;
+        const alertId = alertResult ? (alertResult as any).insertId as number | undefined : undefined;
 
         // Notificar o dono da conta para toda anomalia detectada (sem filtro por prioridade)
         if (insertId) {

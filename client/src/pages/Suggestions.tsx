@@ -218,7 +218,9 @@ function SuggestionCard({ s, onStatusChange }: {
   const cat = categoryConfig[s.category] ?? categoryConfig.GENERAL;
   const pri = priorityConfig[s.priority] ?? priorityConfig.P3;
   const CatIcon = cat.icon;
-  const actionItems = Array.isArray(s.actionItems) ? s.actionItems as string[] : [];
+  const actionItems = Array.isArray(s.actionItems)
+    ? s.actionItems.map((a: any) => (typeof a === "string" ? a : JSON.stringify(a)))
+    : [];
   const isApplied = s.status === "applied";
   const isRejected = s.status === "rejected";
   const isMonitoring = isApplied && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult;
@@ -309,7 +311,7 @@ function SuggestionCard({ s, onStatusChange }: {
 
             {expanded && (
               <div className="mt-3 space-y-3">
-                {s.expectedImpact && (
+                {s.expectedImpact && typeof s.expectedImpact === "string" && (
                   <div className="p-3 rounded-lg bg-emerald-400/5 border border-emerald-400/20">
                     <p className="text-xs font-medium text-emerald-400 mb-1">Impacto Esperado</p>
                     <p className="text-xs text-muted-foreground">{s.expectedImpact}</p>
