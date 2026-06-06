@@ -17,6 +17,7 @@ import {
   experimentKpis,
   experimentCheckpoints,
   experimentDecisions,
+  dailyBriefings,
   type InsertAiSuggestion,
   type InsertAlert,
   type InsertAnomaly,
@@ -1298,4 +1299,24 @@ export async function markCheckpointDone(
     .update(experimentCheckpoints)
     .set({ status: "done", snapshotData })
     .where(eq(experimentCheckpoints.id, checkpointId));
+}
+
+export async function getDailyBriefing(userId: number, date: string): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(dailyBriefings)
+    .where(and(eq(dailyBriefings.userId, userId), eq(dailyBriefings.date, date)))
+    .limit(1);
+  return rows[0]?.content ?? null;
+}
+
+export async function saveDailyBriefing(userId: number, date: string, content: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(dailyBriefings)
+    .values({ userId, date, content })
+    .onDuplicateKeyUpdate({ set: { content } });
 }

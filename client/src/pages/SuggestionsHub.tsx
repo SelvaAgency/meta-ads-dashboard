@@ -17,8 +17,10 @@ import {
   ChevronUp,
   DollarSign,
   ExternalLink,
+  Flame,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   TrendingUp,
   XCircle,
   Zap,
@@ -98,6 +100,18 @@ function normalizeTotals(m: any) {
   };
 }
 
+function getPrimaryResult(totals: ReturnType<typeof normalizeTotals>, goalType: string | null | undefined) {
+  const gt = goalType ?? "";
+  if (gt === "SALES" || gt === "VALUE") return { label: "ROAS", value: fmtMultiplier(totals.roas) };
+  if (gt === "TRAFFIC") return { label: "Visitas", value: fmtNumber(totals.clicks) };
+  if (gt === "AWARENESS") return { label: "Alcance", value: fmtNumber(totals.reach) };
+  if (gt === "MESSAGES") return { label: "Msgs", value: fmtNumber(totals.conversions) };
+  if (gt === "FOLLOWERS") return { label: "Seguid.", value: fmtNumber(totals.conversions) };
+  if (gt === "ENGAGEMENT") return { label: "Engaj.", value: fmtNumber(totals.conversions) };
+  if (gt === "LEADS") return { label: "Leads", value: fmtNumber(totals.conversions) };
+  return { label: "Resultados", value: fmtNumber(totals.conversions) };
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function cleanTitle(title: string) {
@@ -128,26 +142,12 @@ function relativeTime(d: Date | string | null): string {
   return `há ${diffD}d`;
 }
 
-function todayLabel(): string {
-  return new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
-}
-
-function heroDateLabel(): string {
-  const d = new Date();
-  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-  const weekday = cap(d.toLocaleDateString("pt-BR", { weekday: "long" }));
-  const day = d.getDate();
-  const month = cap(d.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""));
-  return `${weekday}, ${day} ${month}`;
-}
-
 function statusDateLabel(): string {
   const d = new Date();
   const raw = d.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
-// Universal day status using LEADS-style logic (any conversion = bom, CTR-based otherwise)
 function quickDayStatus(totals: { spend: number; conversions: number; ctr: number }) {
   return getDayStatus("LEADS" as GoalType, {
     spend: totals.spend,
@@ -265,6 +265,7 @@ export default function SuggestionsHub() {
   const { data: accounts } = trpc.accounts.list.useQuery(undefined, { refetchOnWindowFocus: false });
   const { data: todayMetrics } = trpc.accounts.todayMetrics.useQuery(undefined, { refetchOnWindowFocus: false });
   const { data: urgentAlerts } = trpc.alerts.listUrgent.useQuery(undefined, { refetchOnWindowFocus: false });
+  const { data: briefingData, isLoading: briefingLoading } = trpc.suggestions.getDailyBriefing.useQuery(undefined, { refetchOnWindowFocus: false });
   const generate = trpc.suggestions.generate.useMutation();
   const syncAccount = trpc.accounts.sync.useMutation();
   const updateStatus = trpc.suggestions.updateStatus.useMutation({
@@ -273,7 +274,7 @@ export default function SuggestionsHub() {
   const { setActiveAccountId } = useActiveAccount();
   const [, navigate] = useLocation();
 
-  // displayName lookup: internal accountId → display name from clientConfig
+  // displayName lookup
   const displayNameMap = useMemo(() => {
     const m = new Map<number, string>();
     for (const a of accounts ?? []) {
@@ -287,15 +288,12 @@ export default function SuggestionsHub() {
 
   // ── Derived data ─────────────────────────────────────────────────────────
 
-  // Today metrics map: accountId → metrics
   const metricsMap = new Map((todayMetrics ?? []).map((m) => [m.accountId, m]));
 
-  // P1 count per account
   const p1ByAccount = suggestions
     .filter((s) => s.priority === "HIGH")
     .reduce<Record<number, number>>((acc, s) => { acc[s.accountId] = (acc[s.accountId] ?? 0) + 1; return acc; }, {});
 
-  // Status bar
   const totalSpendToday = (todayMetrics ?? []).reduce((sum, m) => sum + Number(m.totalSpend ?? 0), 0);
   const lastSyncDate = (accounts ?? []).reduce<Date | null>((latest, a) => {
     if (!a.lastSyncAt) return latest;
@@ -309,6 +307,25 @@ export default function SuggestionsHub() {
     const sb = Number(metricsMap.get(b.id)?.totalSpend ?? 0);
     return sb - sa;
   });
+
+  // "O que está pegando fogo": Estado C accounts + accounts with critical alerts
+  const fogoAccounts = useMemo(() => {
+    const ids = new Set<number>();
+    for (const a of accounts ?? []) {
+      if ((a as any).aiStatusColor === "red") ids.add(a.id);
+    }
+    for (const alert of urgentAlerts ?? []) {
+      if (alert.severity === "CRITICAL") ids.add(alert.accountId);
+    }
+    return (accounts ?? []).filter((a) => ids.has(a.id));
+  }, [accounts, urgentAlerts]);
+
+  // Performance table: all accounts sorted by spend desc
+  const perfRows = carouselAccounts;
+  const maxSpend = perfRows.reduce((max, a) => {
+    const s = Number(metricsMap.get(a.id)?.totalSpend ?? 0);
+    return s > max ? s : max;
+  }, 0);
 
   // Suggestion groups
   const filtered = priorityFilter === "ALL" ? suggestions : suggestions.filter((s) => s.priority === priorityFilter);
@@ -492,9 +509,244 @@ export default function SuggestionsHub() {
             </div>
 
           </div>
+        </div>
 
-          {/* 2 — Client carousel */}
-          {carouselAccounts.length > 0 && (
+        {/* Divisor 1 */}
+        <div className="border-t border-border/40 mt-5" />
+
+        {/* ══ BRIEFING + FOGO ═══════════════════════════════════════════════ */}
+        <div className="px-6 py-5 space-y-5">
+
+          {/* 3 — Briefing da IA */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#E85BA8" }} />
+              <span
+                className="text-[10px] font-bold uppercase tracking-[0.12em]"
+                style={{ color: "#E85BA8" }}
+              >
+                Briefing do Dia — IA
+              </span>
+            </div>
+            <div
+              className="rounded-xl p-4"
+              style={{ background: "hsl(var(--muted))", border: "0.5px solid var(--border)" }}
+            >
+              {briefingLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Sparkles className="w-3.5 h-3.5 animate-pulse" style={{ color: "#E85BA8" }} />
+                  Gerando briefing do dia…
+                </div>
+              ) : briefingData?.content ? (
+                <p className="text-[13px] text-foreground/85 leading-relaxed">{briefingData.content}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">Nenhum dado disponível para gerar o briefing.</p>
+              )}
+            </div>
+          </div>
+
+          {/* 4 — O que está pegando fogo */}
+          {fogoAccounts.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Flame className="w-3.5 h-3.5 flex-shrink-0 text-red-400" />
+                <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-red-400">
+                  O que está pegando fogo
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {fogoAccounts.map((account) => {
+                  const m = metricsMap.get(account.id);
+                  const totals = normalizeTotals(m);
+                  const p1 = p1ByAccount[account.id] ?? 0;
+                  const summary = (account as any).aiStatusSummary as string | null;
+                  const picture = (account as any).pictureUrl as string | null;
+
+                  return (
+                    <button
+                      key={account.id}
+                      onClick={() => handleSelectAccount(account.id)}
+                      className="rounded-xl text-left transition-all hover:shadow-md bg-card"
+                      style={{
+                        border: "0.5px solid var(--border)",
+                        borderLeft: "3px solid #f87171",
+                        borderRadius: "12px",
+                      }}
+                    >
+                      <div className="p-3 space-y-2">
+                        {/* Avatar + name */}
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="flex-shrink-0 flex items-center justify-center font-bold overflow-hidden text-red-400"
+                            style={{ width: 28, height: 28, borderRadius: 7, background: "rgba(248,113,113,0.12)", fontSize: 10 }}
+                          >
+                            {picture
+                              ? <img src={picture} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              : (getClientByMetaAccountId(account.accountId)?.shortName ?? initials(account.accountName))}
+                          </div>
+                          <p className="text-xs font-semibold text-foreground truncate leading-snug flex-1 min-w-0">
+                            {displayNameMap.get(account.id) ?? account.accountName}
+                          </p>
+                        </div>
+
+                        {/* Estado badge */}
+                        <Badge variant="outline" className="text-[10px] font-bold text-red-400 border-red-400/30 bg-red-400/10">
+                          Estado C
+                        </Badge>
+
+                        {/* Problem description */}
+                        {summary && (
+                          <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">{summary}</p>
+                        )}
+
+                        {/* Footer: spend + p1 count */}
+                        <div className="flex items-center justify-between border-t border-border/40 pt-1.5">
+                          <span className="text-[11px] font-medium text-foreground">{fmtCurrency(totals.spend)}</span>
+                          {p1 > 0 && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white" style={{ background: "#ef4444" }}>
+                              {p1} P1
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+        </div>
+
+        {/* Divisor 2 */}
+        <div className="border-t border-border/40" />
+
+        {/* ══ PERFORMANCE TABLE ═════════════════════════════════════════════ */}
+        <div className="px-6 py-5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">
+            Performance hoje
+          </p>
+
+          {perfRows.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nenhum dado disponível.</p>
+          ) : (
+            <div className="rounded-xl overflow-hidden" style={{ border: "0.5px solid var(--border)" }}>
+              {/* Table header */}
+              <div
+                className="grid text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground px-3 py-2"
+                style={{ gridTemplateColumns: "1fr 110px 90px 70px 100px 60px", background: "hsl(var(--muted))", borderBottom: "0.5px solid var(--border)" }}
+              >
+                <span>Conta</span>
+                <span>Investido</span>
+                <span>Resultado</span>
+                <span>CTR</span>
+                <span>Custo/result.</span>
+                <span>Tendência</span>
+              </div>
+
+              {/* Table rows */}
+              {perfRows.map((account, idx) => {
+                const m = metricsMap.get(account.id);
+                const totals = normalizeTotals(m);
+                const goalType = (account as any).goalTypeOverride as string | null;
+                const dayS = totals.spend > 0
+                  ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })
+                  : null;
+                const primary = getPrimaryResult(totals, goalType);
+                const barWidth = maxSpend > 0 ? Math.round((totals.spend / maxSpend) * 100) : 0;
+                const picture = (account as any).pictureUrl as string | null;
+
+                return (
+                  <button
+                    key={account.id}
+                    onClick={() => handleSelectAccount(account.id)}
+                    className="w-full grid items-center px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                    style={{
+                      gridTemplateColumns: "1fr 110px 90px 70px 100px 60px",
+                      borderBottom: idx < perfRows.length - 1 ? "0.5px solid var(--border)" : undefined,
+                    }}
+                  >
+                    {/* Conta */}
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div
+                        className="flex-shrink-0 flex items-center justify-center font-bold overflow-hidden text-primary"
+                        style={{ width: 24, height: 24, borderRadius: 6, background: "rgba(212,83,126,0.12)", fontSize: 9 }}
+                      >
+                        {picture
+                          ? <img src={picture} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          : (getClientByMetaAccountId(account.accountId)?.shortName ?? initials(account.accountName))}
+                      </div>
+                      <span className="text-xs font-medium text-foreground truncate">
+                        {displayNameMap.get(account.id) ?? account.accountName}
+                      </span>
+                    </div>
+
+                    {/* Investido */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-semibold text-foreground">
+                        {totals.spend > 0 ? fmtCurrency(totals.spend) : "—"}
+                      </span>
+                      {dayS && (
+                        <span
+                          className="text-[9px] font-bold px-1 py-0.5 rounded flex-shrink-0"
+                          style={{ background: dayS.bg, color: dayS.color, border: `0.5px solid ${dayS.border}` }}
+                        >
+                          {dayS.label}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Resultado principal */}
+                    <div className="text-left">
+                      {totals.spend > 0 ? (
+                        <>
+                          <p className="text-xs font-semibold text-foreground">{primary.value}</p>
+                          <p className="text-[10px] text-muted-foreground">{primary.label}</p>
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </div>
+
+                    {/* CTR */}
+                    <span className="text-xs text-foreground">
+                      {totals.spend > 0 ? fmtPercent(totals.ctr) : "—"}
+                    </span>
+
+                    {/* Custo/resultado */}
+                    <span className="text-xs text-foreground">
+                      {totals.spend > 0 && totals.cpa > 0 ? fmtCurrency(totals.cpa) : "—"}
+                    </span>
+
+                    {/* Tendência bar */}
+                    <div className="flex items-center">
+                      <div className="w-full h-2 rounded-full bg-muted overflow-hidden" style={{ maxWidth: 56 }}>
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${barWidth}%`,
+                            background: dayS?.color ?? "var(--muted-foreground)",
+                            opacity: barWidth > 0 ? 1 : 0,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Divisor 3 */}
+        <div className="border-t border-border/40" />
+
+        {/* ══ CAROUSEL ══════════════════════════════════════════════════════ */}
+        {carouselAccounts.length > 0 && (
+          <div className="px-6 pt-5 pb-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">
+              Clientes
+            </p>
             <div
               className="flex gap-3 pb-2"
               style={{ overflowX: "auto", scrollbarWidth: "none" }}
@@ -521,7 +773,6 @@ export default function SuggestionsHub() {
                       borderLeft: `3px solid ${estado?.border ?? "var(--border)"}`,
                     }}
                   >
-                    {/* P1 badge — absolute top-right */}
                     {p1 > 0 && (
                       <span
                         className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full z-10 text-white"
@@ -532,15 +783,10 @@ export default function SuggestionsHub() {
                     )}
 
                     <div className="p-3 space-y-2">
-                      {/* Avatar + name */}
                       <div className="flex items-center gap-2 pr-8">
                         <div
                           className="flex-shrink-0 flex items-center justify-center font-bold overflow-hidden text-primary"
-                          style={{
-                            width: 32, height: 32, borderRadius: 8,
-                            background: "rgba(212,83,126,0.12)",
-                            fontSize: 11,
-                          }}
+                          style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(212,83,126,0.12)", fontSize: 11 }}
                         >
                           {account.pictureUrl
                             ? <img src={account.pictureUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -551,7 +797,6 @@ export default function SuggestionsHub() {
                         </p>
                       </div>
 
-                      {/* Estado badge */}
                       {estado ? (
                         <Badge variant="outline" className={`text-[10px] font-bold ${estado.cls}`}>
                           Estado {estado.badge}
@@ -560,7 +805,6 @@ export default function SuggestionsHub() {
                         <span className="text-[10px] text-muted-foreground/50">Sem análise</span>
                       )}
 
-                      {/* Spend + day tag */}
                       <div className="border-t border-border/50 pt-2">
                         <p className="text-[10px] text-muted-foreground mb-1">Investido hoje</p>
                         <div className="flex items-center justify-between gap-1">
@@ -578,7 +822,6 @@ export default function SuggestionsHub() {
                         </div>
                       </div>
 
-                      {/* Secondary metrics row */}
                       <div className="flex items-center justify-between border-t border-border/40 pt-1.5">
                         {secMetrics.map((sm) => (
                           <div key={sm.label} className="flex flex-col items-start gap-0.5">
@@ -591,19 +834,15 @@ export default function SuggestionsHub() {
                           </div>
                         ))}
                       </div>
-
                     </div>
                   </button>
                 );
               })}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Divider */}
-        <div className="border-t border-border/40 mt-4" />
-
-        {/* ══ MAIN CONTENT ═════════════════════════════════════════════════ */}
+        {/* ══ CENTRAL DE SUGESTÕES ══════════════════════════════════════════ */}
         <div className="px-6 py-6 space-y-6">
 
           {/* Header */}
@@ -638,7 +877,7 @@ export default function SuggestionsHub() {
             })}
           </div>
 
-          {/* ── Urgent alerts ────────────────────────────────────────────── */}
+          {/* Urgent alerts */}
           {urgentAlerts && urgentAlerts.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -655,18 +894,17 @@ export default function SuggestionsHub() {
                   return (
                     <div
                       key={alert.id}
-                      className="flex items-start gap-3 px-3 py-2.5 rounded-lg"
+                      className="flex items-start gap-3 px-3 py-2.5 rounded-lg bg-card"
                       style={{
-                        background: "rgba(255,255,255,0.03)",
                         borderLeft: `3px solid ${sev.border}`,
-                        border: "0.5px solid rgba(255,255,255,0.07)",
+                        border: "0.5px solid var(--border)",
                         borderLeftWidth: 3,
                         borderLeftColor: sev.border,
                       }}
                     >
                       <Bell className={`w-3.5 h-3.5 flex-shrink-0 mt-0.5 ${sev.icon}`} />
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-foreground/80 truncate">{alert.title}</p>
+                        <p className="text-xs font-medium text-foreground truncate">{alert.title}</p>
                         <p className="text-[10px] text-muted-foreground mt-0.5">
                           {displayNameMap.get(alert.accountId) ?? alert.accountName ?? "—"} · {relativeTime(alert.createdAt)}
                         </p>

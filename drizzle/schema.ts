@@ -362,3 +362,14 @@ export const experimentDecisions = mysqlTable("experiment_decisions", {
 });
 export type ExperimentDecision = typeof experimentDecisions.$inferSelect;
 export type InsertExperimentDecision = typeof experimentDecisions.$inferInsert;
+
+export const dailyBriefings = mysqlTable("daily_briefings", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  date: varchar("date", { length: 10 }).notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  uqUserDate: uniqueIndex("uq_user_date_briefing").on(table.userId, table.date),
+}));
+export type DailyBriefing = typeof dailyBriefings.$inferSelect;

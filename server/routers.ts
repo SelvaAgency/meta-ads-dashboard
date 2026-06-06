@@ -54,6 +54,8 @@ import {
   updateAccountPicture,
   markStaleCampaignsArchived,
   forceUpdateAllTokens,
+  getDailyBriefing,
+  saveDailyBriefing,
 } from "./db";
 import {
   validateToken,
@@ -1315,6 +1317,40 @@ export const appRouter = router({
         await updateSuggestionStatus(input.suggestionId, "applied");
         return { success: true };
       }),
+
+    getDailyBriefing: protectedProcedure.query(async ({ ctx }) => {
+      const today = new Date().toISOString().split("T")[0];
+      const cached = await getDailyBriefing(ctx.user.id, today);
+      if (cached) return { content: cached };
+
+      const accounts = await getMetaAdAccountsByUserId(ctx.user.id);
+      if (!accounts.length) return { content: null };
+
+      const todayMetrics = await getTodayMetricsForAllAccounts(ctx.user.id);
+      const metricsMap = new Map(todayMetrics.map((m) => [m.accountId, m]));
+
+      const accountLines = accounts.map((a) => {
+        const m = metricsMap.get(a.id);
+        const spend = Number(m?.totalSpend ?? 0).toFixed(2);
+        const roas = Number(m?.avgRoas ?? 0).toFixed(2);
+        const conversions = Number(m?.totalConversions ?? 0).toFixed(0);
+        const estado = a.aiStatusColor ? { green: "A (saudável)", yellow: "B (atenção)", red: "C (crítico)" }[a.aiStatusColor] : "sem análise";
+        const summary = a.aiStatusSummary ?? "Sem análise";
+        return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend}, ROAS ${roas}x, Resultados ${conversions}. ${summary}`;
+      }).join("\n");
+
+      const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Gere um briefing executivo conciso (4-6 frases) sobre o desempenho das contas Meta Ads hoje.
+
+Dados:
+${accountLines}
+
+Escreva em português brasileiro, de forma direta e profissional. Destaque padrões, o que está indo bem e o que precisa de atenção imediata. Não use markdown, listas ou tópicos — escreva em prosa corrida.`;
+
+      const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], maxTokens: 400 });
+      const content = extractTextContent(response);
+      await saveDailyBriefing(ctx.user.id, today, content);
+      return { content };
+    }),
   }),
 
   // ─── Alerts ───────────────────────────────────────────────────────────────────────────
