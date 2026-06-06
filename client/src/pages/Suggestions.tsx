@@ -218,9 +218,15 @@ function SuggestionCard({ s, onStatusChange }: {
   const cat = categoryConfig[s.category] ?? categoryConfig.GENERAL;
   const pri = priorityConfig[s.priority] ?? priorityConfig.P3;
   const CatIcon = cat.icon;
-  const actionItems = Array.isArray(s.actionItems)
-    ? s.actionItems.map((a: any) => (typeof a === "string" ? a : JSON.stringify(a)))
-    : [];
+  const parsedActionItems: any[] = (() => {
+    if (Array.isArray(s.actionItems)) return s.actionItems;
+    if (typeof s.actionItems === "string" && s.actionItems.trim().startsWith("[")) {
+      try { return JSON.parse(s.actionItems); } catch { return []; }
+    }
+    return [];
+  })();
+  const actionItems = parsedActionItems.map((a: any) => (typeof a === "string" ? a : JSON.stringify(a)));
+  const expectedImpact = typeof s.expectedImpact === "string" ? s.expectedImpact.trim() : "";
   const isApplied = s.status === "applied";
   const isRejected = s.status === "rejected";
   const isMonitoring = isApplied && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult;
@@ -309,31 +315,37 @@ function SuggestionCard({ s, onStatusChange }: {
               </div>
             )}
 
-            {expanded && (
-              <div className="mt-3 space-y-3">
-                {s.expectedImpact && typeof s.expectedImpact === "string" && (
-                  <div className="p-3 rounded-lg bg-emerald-400/5 border border-emerald-400/20">
-                    <p className="text-xs font-medium text-emerald-400 mb-1">Impacto Esperado</p>
-                    <p className="text-xs text-muted-foreground">{s.expectedImpact}</p>
-                  </div>
-                )}
-                {actionItems.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-foreground mb-2">Ações para Aplicar Manualmente</p>
-                    <ul className="space-y-1.5">
-                      {actionItems.map((action: string, i: number) => (
-                        <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
-                          <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
-                            {i + 1}
-                          </span>
-                          {action}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
+            {expanded && (() => {
+              console.log("[SuggestionCard] expanded id=%s expectedImpact=%o actionItems=%o", s.id, s.expectedImpact, s.actionItems);
+              return (
+                <div className="mt-3 space-y-3">
+                  {expectedImpact && (
+                    <div className="p-3 rounded-lg bg-emerald-400/5 border border-emerald-400/20">
+                      <p className="text-xs font-medium text-emerald-400 mb-1">Impacto Esperado</p>
+                      <p className="text-xs text-muted-foreground">{expectedImpact}</p>
+                    </div>
+                  )}
+                  {actionItems.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-foreground mb-2">Ações para Aplicar Manualmente</p>
+                      <ul className="space-y-1.5">
+                        {actionItems.map((action: string, i: number) => (
+                          <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                            <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
+                              {i + 1}
+                            </span>
+                            {action}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {!expectedImpact && actionItems.length === 0 && (
+                    <p className="text-xs text-muted-foreground italic">Nenhuma ação detalhada disponível para esta sugestão.</p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Action buttons */}
             <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/30 flex-wrap">
