@@ -12,18 +12,17 @@ import {
   AlertTriangle,
   Bell,
   Brain,
-  CalendarDays,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   DollarSign,
   ExternalLink,
+  RefreshCw,
   ShieldCheck,
   TrendingUp,
   XCircle,
   Zap,
 } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -142,6 +141,12 @@ function heroDateLabel(): string {
   return `${weekday}, ${day} ${month}`;
 }
 
+function statusDateLabel(): string {
+  const d = new Date();
+  const raw = d.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
 // Universal day status using LEADS-style logic (any conversion = bom, CTR-based otherwise)
 function quickDayStatus(totals: { spend: number; conversions: number; ctr: number }) {
   return getDayStatus("LEADS" as GoalType, {
@@ -252,6 +257,8 @@ export default function SuggestionsHub() {
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("ALL");
   const [analyzingAll, setAnalyzingAll] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState<{ done: number; total: number } | null>(null);
+  const [syncingAll, setSyncingAll] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ done: number; total: number } | null>(null);
 
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.suggestions.listAll.useQuery(undefined, { refetchOnWindowFocus: false });
@@ -259,6 +266,7 @@ export default function SuggestionsHub() {
   const { data: todayMetrics } = trpc.accounts.todayMetrics.useQuery(undefined, { refetchOnWindowFocus: false });
   const { data: urgentAlerts } = trpc.alerts.listUrgent.useQuery(undefined, { refetchOnWindowFocus: false });
   const generate = trpc.suggestions.generate.useMutation();
+  const syncAccount = trpc.accounts.sync.useMutation();
   const updateStatus = trpc.suggestions.updateStatus.useMutation({
     onSuccess: () => { utils.suggestions.listAll.invalidate(); },
   });
@@ -357,6 +365,23 @@ export default function SuggestionsHub() {
     navigate("/dashboard");
   };
 
+  const handleSyncAll = async () => {
+    if (!accounts || accounts.length === 0) { toast.warning("Nenhuma conta conectada."); return; }
+    setSyncingAll(true);
+    let done = 0;
+    for (const account of accounts) {
+      setSyncProgress({ done, total: accounts.length });
+      try { await syncAccount.mutateAsync({ accountId: account.id, days: 30 }); } catch { /* continue */ }
+      done++;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    setSyncProgress(null);
+    setSyncingAll(false);
+    utils.accounts.list.invalidate();
+    utils.accounts.todayMetrics.invalidate();
+    toast.success(`Sync concluído para ${done} conta(s).`);
+  };
+
   const summaryCards = [
     { label: "P1 Pendentes",   value: p1Count,       color: "text-red-400",     bg: "bg-red-400/5 border-red-400/20",     icon: AlertTriangle },
     { label: "P2 Pendentes",   value: p2Count,       color: "text-amber-400",   bg: "bg-amber-400/5 border-amber-400/20", icon: TrendingUp },
@@ -380,86 +405,91 @@ export default function SuggestionsHub() {
         {/* ══ HERO ══════════════════════════════════════════════════════════ */}
         <div className="px-6 pt-6 pb-0 space-y-4">
 
-          {/* 1 — Summary cards (same pattern as Dashboard MetricCard) */}
-          <div className="grid grid-cols-4 gap-3">
+          {/* 1 — Status line */}
+          <div
+            className="flex items-center gap-2 text-xs text-muted-foreground"
+            style={{ border: "0.5px solid var(--border)", borderRadius: 8, padding: "8px 14px" }}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+            <span className="text-foreground/80 font-medium">{statusDateLabel()}</span>
+            <span className="text-border/60 select-none">·</span>
+            <span>{accounts?.length ?? 0} contas ativas</span>
+            {lastSyncDate && (
+              <>
+                <span className="text-border/60 select-none">·</span>
+                <span>Última sync {relativeTime(lastSyncDate)}</span>
+              </>
+            )}
+            <div className="ml-auto flex-shrink-0">
+              <button
+                onClick={handleSyncAll}
+                disabled={syncingAll}
+                className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md transition-colors disabled:opacity-50"
+                style={{ border: "0.5px solid rgba(232,91,168,0.5)", color: "#E85BA8", background: "rgba(232,91,168,0.06)" }}
+              >
+                <RefreshCw className={`w-3 h-3 ${syncingAll ? "animate-spin" : ""}`} />
+                {syncProgress
+                  ? `Sincronizando ${syncProgress.done + 1}/${syncProgress.total}…`
+                  : "Sincronizar todas"}
+              </button>
+            </div>
+          </div>
 
-            {/* Card — Hoje */}
-            <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200">
-              <CardContent className="p-3 flex flex-col min-h-[95px]">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shadow-sm text-emerald-400 bg-gradient-to-br from-emerald-400/20 to-emerald-400/10">
-                    <CalendarDays className="w-4 h-4" />
-                  </div>
-                  <span className="flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-md text-emerald-600 bg-emerald-50">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
-                    Ativo
-                  </span>
-                </div>
-                <div className="mt-auto">
-                  <p className="text-2xl font-bold text-foreground mb-0.5 leading-tight">{heroDateLabel()}</p>
-                  <p className="text-[13px] text-muted-foreground">
-                    {accounts?.length ?? 0} contas{lastSyncDate ? ` · sync ${relativeTime(lastSyncDate)}` : ""}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+          {/* 2 — Stats (3 cols) */}
+          <div className="grid grid-cols-3 gap-3">
 
-            {/* Card — Investido hoje */}
-            <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200">
-              <CardContent className="p-3 flex flex-col min-h-[95px]">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shadow-sm text-primary bg-gradient-to-br from-primary/20 to-primary/10">
-                    <DollarSign className="w-4 h-4" />
-                  </div>
-                </div>
-                <div className="mt-auto">
-                  <p className="text-2xl font-bold text-foreground mb-0.5">{fmtCurrency(totalSpendToday)}</p>
-                  <p className="text-[13px] text-muted-foreground">Investido hoje · todas as contas</p>
-                </div>
-              </CardContent>
-            </Card>
+            {/* Investido hoje */}
+            <div
+              className="flex items-center gap-3"
+              style={{ border: "0.5px solid var(--border)", borderRadius: 12, padding: "12px 14px" }}
+            >
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-emerald-500 bg-emerald-500/10">
+                <DollarSign className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-medium text-foreground leading-none" style={{ fontSize: 22 }}>
+                  {fmtCurrency(totalSpendToday)}
+                </p>
+                <p className="text-[12px] text-muted-foreground mt-1">Investido hoje</p>
+                <p className="text-[11px] text-muted-foreground/60">em todas as contas</p>
+              </div>
+            </div>
 
-            {/* Card — Sugestões P1 */}
-            <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200">
-              <CardContent className="p-3 flex flex-col min-h-[95px]">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shadow-sm text-red-400 bg-gradient-to-br from-red-400/20 to-red-400/10">
-                    <AlertTriangle className="w-4 h-4" />
-                  </div>
-                  {p1Count > 0 && (
-                    <span className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md text-red-500 bg-red-50">
-                      <Zap className="w-3 h-3" />{p1Count}
-                    </span>
-                  )}
-                </div>
-                <div className="mt-auto">
-                  <p className="text-2xl font-bold text-foreground mb-0.5">{isLoading ? "—" : p1Count}</p>
-                  <p className="text-[13px] text-muted-foreground">
-                    Sugestões P1 · {criticalCount} conta{criticalCount !== 1 ? "s" : ""} crítica{criticalCount !== 1 ? "s" : ""}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+            {/* Sugestões P1 */}
+            <div
+              className="flex items-center gap-3"
+              style={{ border: "0.5px solid var(--border)", borderRadius: 12, padding: "12px 14px" }}
+            >
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-red-500 bg-red-500/10">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-medium leading-none" style={{ fontSize: 22, color: p1Count > 0 ? "#ef4444" : "var(--foreground)" }}>
+                  {isLoading ? "—" : p1Count}
+                </p>
+                <p className="text-[12px] text-muted-foreground mt-1">Sugestões P1</p>
+                <p className="text-[11px] text-muted-foreground/60">
+                  em {criticalCount} conta{criticalCount !== 1 ? "s" : ""} crítica{criticalCount !== 1 ? "s" : ""}
+                </p>
+              </div>
+            </div>
 
-            {/* Card — Alertas ativos */}
-            <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200">
-              <CardContent className="p-3 flex flex-col min-h-[95px]">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shadow-sm text-orange-400 bg-gradient-to-br from-orange-400/20 to-orange-400/10">
-                    <Bell className="w-4 h-4" />
-                  </div>
-                  {(urgentAlerts?.length ?? 0) > 0 && (
-                    <span className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md text-amber-600 bg-amber-50">
-                      <TrendingUp className="w-3 h-3" />{urgentAlerts!.length}
-                    </span>
-                  )}
-                </div>
-                <div className="mt-auto">
-                  <p className="text-2xl font-bold text-foreground mb-0.5">{urgentAlerts?.length ?? 0}</p>
-                  <p className="text-[13px] text-muted-foreground">Alertas ativos · requerem atenção</p>
-                </div>
-              </CardContent>
-            </Card>
+            {/* Alertas ativos */}
+            <div
+              className="flex items-center gap-3"
+              style={{ border: "0.5px solid var(--border)", borderRadius: 12, padding: "12px 14px" }}
+            >
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-amber-500 bg-amber-500/10">
+                <Bell className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-medium leading-none" style={{ fontSize: 22, color: (urgentAlerts?.length ?? 0) > 0 ? "#f59e0b" : "var(--foreground)" }}>
+                  {urgentAlerts?.length ?? 0}
+                </p>
+                <p className="text-[12px] text-muted-foreground mt-1">Alertas ativos</p>
+                <p className="text-[11px] text-muted-foreground/60">requerem atenção</p>
+              </div>
+            </div>
 
           </div>
 

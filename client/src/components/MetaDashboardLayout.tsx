@@ -416,9 +416,9 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             >
               <LayoutDashboard className="w-4 h-4" />
             </button>
-            {title && (
+            {(title || location === "/") && (
               <h1 className="text-sm font-bold text-foreground" style={{ fontFamily: "Montserrat, sans-serif", textTransform: "uppercase", letterSpacing: "1px" }}>
-                {title}
+                {title ?? "Visão Geral"}
               </h1>
             )}
             {/* Breadcrumb */}
