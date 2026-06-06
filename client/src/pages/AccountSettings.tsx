@@ -2,7 +2,7 @@ import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
-import { Settings, Check } from "lucide-react";
+import { Settings, Check, ImageDown } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -31,6 +31,11 @@ export default function AccountSettings() {
     onError: () => toast.error("Erro ao salvar"),
   });
 
+  const refreshPictures = trpc.accounts.refreshPictures.useMutation({
+    onSuccess: (data) => toast.success(`Fotos atualizadas (${data.updated} conta${data.updated !== 1 ? "s" : ""})`),
+    onError: () => toast.error("Erro ao atualizar fotos"),
+  });
+
   const [saving, setSaving] = useState<number | null>(null);
 
   async function handleChange(accountId: number, value: string | null) {
@@ -50,6 +55,17 @@ export default function AccountSettings() {
             <h1 className="text-xl font-bold text-foreground">Configurações de Contas</h1>
             <p className="text-sm text-muted-foreground">Defina o objetivo de cada conta para personalizar as métricas do dashboard</p>
           </div>
+        </div>
+
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={() => refreshPictures.mutate()}
+            disabled={refreshPictures.isPending}
+            className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:border-border/80 transition-colors disabled:opacity-50"
+          >
+            <ImageDown className={`w-4 h-4 ${refreshPictures.isPending ? "animate-pulse" : ""}`} />
+            {refreshPictures.isPending ? "Atualizando fotos..." : "Atualizar fotos das contas"}
+          </button>
         </div>
 
         <div className="flex flex-col gap-3">

@@ -12,15 +12,18 @@ import {
   AlertTriangle,
   Bell,
   Brain,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  DollarSign,
   ExternalLink,
   ShieldCheck,
   TrendingUp,
   XCircle,
   Zap,
 } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -377,42 +380,86 @@ export default function SuggestionsHub() {
         {/* ══ HERO ══════════════════════════════════════════════════════════ */}
         <div className="px-6 pt-6 pb-0 space-y-4">
 
-          {/* 1 — Summary cards */}
+          {/* 1 — Summary cards (same pattern as Dashboard MetricCard) */}
           <div className="grid grid-cols-4 gap-3">
 
             {/* Card — Hoje */}
-            <div className="rounded-lg bg-card border border-border/60 px-4 py-3.5">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
-                <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Hoje</span>
-              </div>
-              <p className="text-sm font-bold text-foreground leading-tight">{heroDateLabel()}</p>
-              <p className="text-[10px] text-muted-foreground mt-1">
-                {accounts?.length ?? 0} contas ativas
-                {lastSyncDate && <> · sync {relativeTime(lastSyncDate)}</>}
-              </p>
-            </div>
+            <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200">
+              <CardContent className="p-3 flex flex-col min-h-[95px]">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shadow-sm text-emerald-400 bg-gradient-to-br from-emerald-400/20 to-emerald-400/10">
+                    <CalendarDays className="w-4 h-4" />
+                  </div>
+                  <span className="flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-md text-emerald-600 bg-emerald-50">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                    Ativo
+                  </span>
+                </div>
+                <div className="mt-auto">
+                  <p className="text-2xl font-bold text-foreground mb-0.5 leading-tight">{heroDateLabel()}</p>
+                  <p className="text-[13px] text-muted-foreground">
+                    {accounts?.length ?? 0} contas{lastSyncDate ? ` · sync ${relativeTime(lastSyncDate)}` : ""}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Card — Investido hoje */}
-            <div className="rounded-lg bg-card border border-border/60 px-4 py-3.5">
-              <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground mb-1.5">Investido hoje</p>
-              <p className="text-sm font-bold text-foreground leading-tight">{fmtCurrency(totalSpendToday)}</p>
-              <p className="text-[10px] text-muted-foreground mt-1">em todas as contas</p>
-            </div>
+            <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200">
+              <CardContent className="p-3 flex flex-col min-h-[95px]">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shadow-sm text-primary bg-gradient-to-br from-primary/20 to-primary/10">
+                    <DollarSign className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-auto">
+                  <p className="text-2xl font-bold text-foreground mb-0.5">{fmtCurrency(totalSpendToday)}</p>
+                  <p className="text-[13px] text-muted-foreground">Investido hoje · todas as contas</p>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Card — Sugestões P1 */}
-            <div className="rounded-lg bg-card border border-border/60 px-4 py-3.5">
-              <p className="text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5" style={{ color: "#f87171" }}>Sugestões P1</p>
-              <p className="text-sm font-bold text-foreground leading-tight">{isLoading ? "—" : p1Count}</p>
-              <p className="text-[10px] text-muted-foreground mt-1">em {criticalCount} conta{criticalCount !== 1 ? "s" : ""} crítica{criticalCount !== 1 ? "s" : ""}</p>
-            </div>
+            <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200">
+              <CardContent className="p-3 flex flex-col min-h-[95px]">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shadow-sm text-red-400 bg-gradient-to-br from-red-400/20 to-red-400/10">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  {p1Count > 0 && (
+                    <span className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md text-red-500 bg-red-50">
+                      <Zap className="w-3 h-3" />{p1Count}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-auto">
+                  <p className="text-2xl font-bold text-foreground mb-0.5">{isLoading ? "—" : p1Count}</p>
+                  <p className="text-[13px] text-muted-foreground">
+                    Sugestões P1 · {criticalCount} conta{criticalCount !== 1 ? "s" : ""} crítica{criticalCount !== 1 ? "s" : ""}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Card — Alertas ativos */}
-            <div className="rounded-lg bg-card border border-border/60 px-4 py-3.5">
-              <p className="text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5" style={{ color: "#fbbf24" }}>Alertas ativos</p>
-              <p className="text-sm font-bold text-foreground leading-tight">{urgentAlerts?.length ?? 0}</p>
-              <p className="text-[10px] text-muted-foreground mt-1">requerem atenção</p>
-            </div>
+            <Card className="border-border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200">
+              <CardContent className="p-3 flex flex-col min-h-[95px]">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shadow-sm text-orange-400 bg-gradient-to-br from-orange-400/20 to-orange-400/10">
+                    <Bell className="w-4 h-4" />
+                  </div>
+                  {(urgentAlerts?.length ?? 0) > 0 && (
+                    <span className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md text-amber-600 bg-amber-50">
+                      <TrendingUp className="w-3 h-3" />{urgentAlerts!.length}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-auto">
+                  <p className="text-2xl font-bold text-foreground mb-0.5">{urgentAlerts?.length ?? 0}</p>
+                  <p className="text-[13px] text-muted-foreground">Alertas ativos · requerem atenção</p>
+                </div>
+              </CardContent>
+            </Card>
 
           </div>
 
@@ -437,19 +484,18 @@ export default function SuggestionsHub() {
                   <button
                     key={account.id}
                     onClick={() => handleSelectAccount(account.id)}
-                    className="flex-shrink-0 rounded-xl text-left transition-all hover:brightness-105 relative overflow-hidden"
+                    className="flex-shrink-0 rounded-xl text-left transition-all hover:shadow-md hover:border-primary/40 relative overflow-hidden bg-card"
                     style={{
                       width: 200,
-                      background: "rgba(255,255,255,0.04)",
-                      border: "0.5px solid rgba(255,255,255,0.10)",
-                      borderLeft: `3px solid ${estado?.border ?? "rgba(255,255,255,0.12)"}`,
+                      border: `0.5px solid var(--border)`,
+                      borderLeft: `3px solid ${estado?.border ?? "var(--border)"}`,
                     }}
                   >
                     {/* P1 badge — absolute top-right */}
                     {p1 > 0 && (
                       <span
-                        className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full z-10"
-                        style={{ background: "rgba(239,68,68,0.9)", color: "#fff" }}
+                        className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full z-10 text-white"
+                        style={{ background: "#ef4444" }}
                       >
                         {p1} P1
                       </span>
@@ -459,10 +505,10 @@ export default function SuggestionsHub() {
                       {/* Avatar + name */}
                       <div className="flex items-center gap-2 pr-8">
                         <div
-                          className="flex-shrink-0 flex items-center justify-center font-bold overflow-hidden"
+                          className="flex-shrink-0 flex items-center justify-center font-bold overflow-hidden text-primary"
                           style={{
                             width: 32, height: 32, borderRadius: 8,
-                            background: "rgba(212,83,126,0.2)", color: "#D4537E",
+                            background: "rgba(212,83,126,0.12)",
                             fontSize: 11,
                           }}
                         >
@@ -470,7 +516,7 @@ export default function SuggestionsHub() {
                             ? <img src={account.pictureUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                             : (getClientByMetaAccountId(account.accountId)?.shortName ?? initials(account.accountName))}
                         </div>
-                        <p className="text-xs font-semibold text-foreground/85 truncate leading-snug">
+                        <p className="text-xs font-semibold text-foreground truncate leading-snug">
                           {displayNameMap.get(account.id) ?? account.accountName ?? account.accountId}
                         </p>
                       </div>
@@ -481,14 +527,14 @@ export default function SuggestionsHub() {
                           Estado {estado.badge}
                         </Badge>
                       ) : (
-                        <span className="text-[10px] text-muted-foreground/40">Sem análise</span>
+                        <span className="text-[10px] text-muted-foreground/50">Sem análise</span>
                       )}
 
                       {/* Spend + day tag */}
-                      <div style={{ borderTop: "0.5px solid rgba(255,255,255,0.08)" }} className="pt-2">
+                      <div className="border-t border-border/50 pt-2">
                         <p className="text-[10px] text-muted-foreground mb-1">Investido hoje</p>
                         <div className="flex items-center justify-between gap-1">
-                          <span style={{ fontSize: 18, fontWeight: 500, color: "rgba(255,255,255,0.9)", lineHeight: 1 }}>
+                          <span className="text-lg font-medium text-foreground leading-none">
                             {fmtCurrency(totals.spend)}
                           </span>
                           {dayS && (
@@ -503,16 +549,13 @@ export default function SuggestionsHub() {
                       </div>
 
                       {/* Secondary metrics row */}
-                      <div
-                        className="flex items-center justify-between"
-                        style={{ borderTop: "0.5px solid rgba(255,255,255,0.06)", paddingTop: 6 }}
-                      >
+                      <div className="flex items-center justify-between border-t border-border/40 pt-1.5">
                         {secMetrics.map((sm) => (
                           <div key={sm.label} className="flex flex-col items-start gap-0.5">
-                            <span style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 0.4 }}>
+                            <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
                               {sm.label}
                             </span>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.75)" }}>
+                            <span className="text-[11px] font-semibold text-foreground">
                               {totals.spend > 0 ? sm.fmt(totals) : "—"}
                             </span>
                           </div>
@@ -528,7 +571,7 @@ export default function SuggestionsHub() {
         </div>
 
         {/* Divider */}
-        <div style={{ borderTop: "0.5px solid rgba(255,255,255,0.07)", margin: "16px 0 0" }} />
+        <div className="border-t border-border/40 mt-4" />
 
         {/* ══ MAIN CONTENT ═════════════════════════════════════════════════ */}
         <div className="px-6 py-6 space-y-6">
