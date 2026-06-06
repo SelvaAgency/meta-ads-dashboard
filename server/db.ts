@@ -352,6 +352,10 @@ export async function getAccountMetricsSummary(accountId: number, startDate: str
       avgFrequency: sql<number>`AVG(${campaignMetrics.frequency})`,
       totalProfileVisits: sql<number>`SUM(${campaignMetrics.profileVisits})`,
       totalFollowers: sql<number>`SUM(${campaignMetrics.followers})`,
+      totalMessages: sql<number>`SUM(${campaignMetrics.messages})`,
+      totalLinkClicks: sql<number>`SUM(${campaignMetrics.linkClicks})`,
+      totalAddToCart: sql<number>`SUM(${campaignMetrics.addToCart})`,
+      totalLandingPageViews: sql<number>`SUM(${campaignMetrics.landingPageViews})`,
     })
     .from(campaignMetrics)
     .where(
