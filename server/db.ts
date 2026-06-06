@@ -601,12 +601,18 @@ export async function getTodayMetricsForAllAccounts(userId: number) {
   const today = new Date().toISOString().split("T")[0];
   return db
     .select({
-      accountId: campaignMetrics.accountId,
-      totalSpend:       sql<number>`SUM(${campaignMetrics.spend})`,
-      totalConversions: sql<number>`SUM(${campaignMetrics.conversions})`,
-      totalImpressions: sql<number>`SUM(${campaignMetrics.impressions})`,
-      totalClicks:      sql<number>`SUM(${campaignMetrics.clicks})`,
-      avgCtr: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.clicks}) / SUM(${campaignMetrics.impressions})) * 100 ELSE 0 END`,
+      accountId:            campaignMetrics.accountId,
+      totalSpend:           sql<number>`SUM(${campaignMetrics.spend})`,
+      totalConversions:     sql<number>`SUM(${campaignMetrics.conversions})`,
+      totalImpressions:     sql<number>`SUM(${campaignMetrics.impressions})`,
+      totalClicks:          sql<number>`SUM(${campaignMetrics.clicks})`,
+      totalReach:           sql<number>`SUM(${campaignMetrics.reach})`,
+      totalConversionValue: sql<number>`SUM(${campaignMetrics.conversionValue})`,
+      avgCtr:  sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.clicks}) / SUM(${campaignMetrics.impressions})) * 100 ELSE 0 END`,
+      avgRoas: sql<number>`CASE WHEN SUM(${campaignMetrics.spend}) > 0 THEN SUM(${campaignMetrics.conversionValue}) / SUM(${campaignMetrics.spend}) ELSE 0 END`,
+      avgCpa:  sql<number>`CASE WHEN SUM(${campaignMetrics.conversions}) > 0 THEN SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.conversions}) ELSE 0 END`,
+      avgCpc:  sql<number>`CASE WHEN SUM(${campaignMetrics.clicks}) > 0 THEN SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.clicks}) ELSE 0 END`,
+      avgCpm:  sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.spend}) / SUM(${campaignMetrics.impressions})) * 1000 ELSE 0 END`,
     })
     .from(campaignMetrics)
     .innerJoin(metaAdAccounts, eq(campaignMetrics.accountId, metaAdAccounts.id))

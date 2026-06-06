@@ -7,7 +7,7 @@ import { useLocation, Link } from "wouter";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import { toast } from "sonner";
 import { getClientByMetaAccountId } from "@/config/clientConfig";
-import { fmtCurrency, getDayStatus, type GoalType } from "@/lib/kpiConfig";
+import { fmtCurrency, fmtNumber, fmtPercent, fmtMultiplier, getDayStatus, type GoalType } from "@/lib/kpiConfig";
 import {
   AlertTriangle,
   Bell,
@@ -15,7 +15,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  Circle,
   ExternalLink,
   ShieldCheck,
   TrendingUp,
@@ -53,6 +52,50 @@ const severityConfig: Record<string, { border: string; icon: string }> = {
   INFO:     { border: "rgba(148,163,184,0.4)",  icon: "text-slate-400" },
 };
 
+// ─── Secondary metrics per goal type ─────────────────────────────────────────
+
+type MetricDef = { label: string; fmt: (t: any) => string };
+
+const SECONDARY: Record<string, MetricDef[]> = {
+  SALES:      [{ label: "ROAS",   fmt: (t) => fmtMultiplier(t.roas) },    { label: "Conv.",  fmt: (t) => fmtNumber(t.conversions) },    { label: "CTR",  fmt: (t) => fmtPercent(t.ctr) }],
+  VALUE:      [{ label: "ROAS",   fmt: (t) => fmtMultiplier(t.roas) },    { label: "Conv.",  fmt: (t) => fmtNumber(t.conversions) },    { label: "CTR",  fmt: (t) => fmtPercent(t.ctr) }],
+  LEADS:      [{ label: "Leads",  fmt: (t) => fmtNumber(t.conversions) }, { label: "CTR",   fmt: (t) => fmtPercent(t.ctr) },          { label: "CPA",  fmt: (t) => fmtCurrency(t.cpa) }],
+  MESSAGES:   [{ label: "Msgs",   fmt: (t) => fmtNumber(t.conversions) }, { label: "CTR",   fmt: (t) => fmtPercent(t.ctr) },          { label: "CPM",  fmt: (t) => fmtCurrency(t.cpm) }],
+  TRAFFIC:    [{ label: "Visitas",fmt: (t) => fmtNumber(t.clicks) },      { label: "CTR",   fmt: (t) => fmtPercent(t.ctr) },          { label: "CPM",  fmt: (t) => fmtCurrency(t.cpm) }],
+  AWARENESS:  [{ label: "Alcance",fmt: (t) => fmtNumber(t.reach) },       { label: "CTR",   fmt: (t) => fmtPercent(t.ctr) },          { label: "CPM",  fmt: (t) => fmtCurrency(t.cpm) }],
+  FOLLOWERS:  [{ label: "Seguid.",fmt: (t) => fmtNumber(t.conversions) }, { label: "CTR",   fmt: (t) => fmtPercent(t.ctr) },          { label: "CPM",  fmt: (t) => fmtCurrency(t.cpm) }],
+  ENGAGEMENT: [{ label: "Engaj.", fmt: (t) => fmtNumber(t.conversions) }, { label: "CTR",   fmt: (t) => fmtPercent(t.ctr) },          { label: "CPM",  fmt: (t) => fmtCurrency(t.cpm) }],
+};
+const SECONDARY_DEFAULT: MetricDef[] = [
+  { label: "Impr.",  fmt: (t) => fmtNumber(t.impressions) },
+  { label: "CTR",   fmt: (t) => fmtPercent(t.ctr) },
+  { label: "CPM",   fmt: (t) => fmtCurrency(t.cpm) },
+];
+
+function secondaryMetrics(goalType: string | null | undefined): MetricDef[] {
+  return SECONDARY[goalType ?? ""] ?? SECONDARY_DEFAULT;
+}
+
+function normalizeTotals(m: any) {
+  const spend = Number(m?.totalSpend ?? 0);
+  const clicks = Number(m?.totalClicks ?? 0);
+  const impressions = Number(m?.totalImpressions ?? 0);
+  return {
+    spend,
+    clicks,
+    impressions,
+    conversions:     Number(m?.totalConversions ?? 0),
+    conversionValue: Number(m?.totalConversionValue ?? 0),
+    reach:           Number(m?.totalReach ?? 0),
+    roas:            Number(m?.avgRoas ?? 0),
+    cpa:             Number(m?.avgCpa ?? (m?.totalConversions > 0 ? spend / m.totalConversions : 0)),
+    ctr:             Number(m?.avgCtr ?? 0),
+    cpc:             Number(m?.avgCpc ?? (clicks > 0 ? spend / clicks : 0)),
+    cpm:             Number(m?.avgCpm ?? (impressions > 0 ? (spend / impressions) * 1000 : 0)),
+    frequency:       0,
+  };
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function cleanTitle(title: string) {
@@ -85,6 +128,15 @@ function relativeTime(d: Date | string | null): string {
 
 function todayLabel(): string {
   return new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+}
+
+function heroDateLabel(): string {
+  const d = new Date();
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const weekday = cap(d.toLocaleDateString("pt-BR", { weekday: "long" }));
+  const day = d.getDate();
+  const month = cap(d.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""));
+  return `${weekday}, ${day} ${month}`;
 }
 
 // Universal day status using LEADS-style logic (any conversion = bom, CTR-based otherwise)
@@ -325,30 +377,43 @@ export default function SuggestionsHub() {
         {/* ══ HERO ══════════════════════════════════════════════════════════ */}
         <div className="px-6 pt-6 pb-0 space-y-4">
 
-          {/* 1 — Status bar */}
-          <div
-            className="flex items-center gap-3 flex-wrap px-3 py-2 rounded-lg text-xs"
-            style={{ background: "rgba(255,255,255,0.04)", border: "0.5px solid rgba(255,255,255,0.08)" }}
-          >
-            <span className="flex items-center gap-1.5">
-              <Circle className="w-2 h-2 fill-emerald-400 text-emerald-400" />
-              <span className="text-muted-foreground capitalize">{todayLabel()}</span>
-            </span>
-            <span className="text-border/50">·</span>
-            <span className="text-muted-foreground">
-              <span className="text-foreground/70 font-medium">{accounts?.length ?? 0}</span> contas ativas
-            </span>
-            <span className="text-border/50">·</span>
-            <span className="text-muted-foreground">
-              Investido hoje:{" "}
-              <span className="text-foreground/70 font-medium">{fmtCurrency(totalSpendToday)}</span>
-            </span>
-            {lastSyncDate && (
-              <>
-                <span className="text-border/50">·</span>
-                <span className="text-muted-foreground">Última sync {relativeTime(lastSyncDate)}</span>
-              </>
-            )}
+          {/* 1 — Summary cards */}
+          <div className="grid grid-cols-4 gap-3">
+
+            {/* Card — Hoje */}
+            <div className="rounded-lg bg-card border border-border/60 px-4 py-3.5">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Hoje</span>
+              </div>
+              <p className="text-sm font-bold text-foreground leading-tight">{heroDateLabel()}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {accounts?.length ?? 0} contas ativas
+                {lastSyncDate && <> · sync {relativeTime(lastSyncDate)}</>}
+              </p>
+            </div>
+
+            {/* Card — Investido hoje */}
+            <div className="rounded-lg bg-card border border-border/60 px-4 py-3.5">
+              <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground mb-1.5">Investido hoje</p>
+              <p className="text-sm font-bold text-foreground leading-tight">{fmtCurrency(totalSpendToday)}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">em todas as contas</p>
+            </div>
+
+            {/* Card — Sugestões P1 */}
+            <div className="rounded-lg bg-card border border-border/60 px-4 py-3.5">
+              <p className="text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5" style={{ color: "#f87171" }}>Sugestões P1</p>
+              <p className="text-sm font-bold text-foreground leading-tight">{isLoading ? "—" : p1Count}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">em {criticalCount} conta{criticalCount !== 1 ? "s" : ""} crítica{criticalCount !== 1 ? "s" : ""}</p>
+            </div>
+
+            {/* Card — Alertas ativos */}
+            <div className="rounded-lg bg-card border border-border/60 px-4 py-3.5">
+              <p className="text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5" style={{ color: "#fbbf24" }}>Alertas ativos</p>
+              <p className="text-sm font-bold text-foreground leading-tight">{urgentAlerts?.length ?? 0}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">requerem atenção</p>
+            </div>
+
           </div>
 
           {/* 2 — Client carousel */}
@@ -359,47 +424,53 @@ export default function SuggestionsHub() {
             >
               {carouselAccounts.map((account) => {
                 const m = metricsMap.get(account.id);
-                const spend = Number(m?.totalSpend ?? 0);
+                const totals = normalizeTotals(m);
                 const p1 = p1ByAccount[account.id] ?? 0;
-                const estado = estadoConfig[account.aiStatusColor ?? ""] ?? null;
-                const dayS = m
-                  ? quickDayStatus({ spend, conversions: Number(m.totalConversions ?? 0), ctr: Number(m.avgCtr ?? 0) })
+                const estado = estadoConfig[(account as any).aiStatusColor ?? ""] ?? null;
+                const goalType: string = (account as any).goalTypeOverride ?? "DEFAULT";
+                const dayS = totals.spend > 0
+                  ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })
                   : null;
+                const secMetrics = secondaryMetrics(goalType);
 
                 return (
                   <button
                     key={account.id}
                     onClick={() => handleSelectAccount(account.id)}
-                    className="flex-shrink-0 rounded-xl text-left transition-all hover:brightness-110 relative overflow-hidden"
+                    className="flex-shrink-0 rounded-xl text-left transition-all hover:brightness-105 relative overflow-hidden"
                     style={{
-                      width: 160,
+                      width: 200,
                       background: "rgba(255,255,255,0.04)",
                       border: "0.5px solid rgba(255,255,255,0.10)",
-                      borderLeft: `3px solid ${estado?.border ?? "rgba(255,255,255,0.15)"}`,
+                      borderLeft: `3px solid ${estado?.border ?? "rgba(255,255,255,0.12)"}`,
                     }}
                   >
-                    {/* P1 badge */}
+                    {/* P1 badge — absolute top-right */}
                     {p1 > 0 && (
                       <span
-                        className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                        className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full z-10"
                         style={{ background: "rgba(239,68,68,0.9)", color: "#fff" }}
                       >
                         {p1} P1
                       </span>
                     )}
 
-                    <div className="p-3 space-y-2.5">
+                    <div className="p-3 space-y-2">
                       {/* Avatar + name */}
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 pr-8">
                         <div
-                          className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0 overflow-hidden"
-                          style={{ background: "rgba(212,83,126,0.2)", color: "#D4537E" }}
+                          className="flex-shrink-0 flex items-center justify-center font-bold overflow-hidden"
+                          style={{
+                            width: 32, height: 32, borderRadius: 8,
+                            background: "rgba(212,83,126,0.2)", color: "#D4537E",
+                            fontSize: 11,
+                          }}
                         >
                           {account.pictureUrl
-                            ? <img src={account.pictureUrl} alt="" className="w-full h-full object-cover" />
+                            ? <img src={account.pictureUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                             : (getClientByMetaAccountId(account.accountId)?.shortName ?? initials(account.accountName))}
                         </div>
-                        <p className="text-xs font-semibold text-foreground/80 truncate leading-snug" style={{ maxWidth: 90 }}>
+                        <p className="text-xs font-semibold text-foreground/85 truncate leading-snug">
                           {displayNameMap.get(account.id) ?? account.accountName ?? account.accountId}
                         </p>
                       </div>
@@ -413,14 +484,16 @@ export default function SuggestionsHub() {
                         <span className="text-[10px] text-muted-foreground/40">Sem análise</span>
                       )}
 
-                      {/* Investido hoje */}
+                      {/* Spend + day tag */}
                       <div style={{ borderTop: "0.5px solid rgba(255,255,255,0.08)" }} className="pt-2">
-                        <p className="text-[10px] text-muted-foreground mb-0.5">Investido hoje</p>
+                        <p className="text-[10px] text-muted-foreground mb-1">Investido hoje</p>
                         <div className="flex items-center justify-between gap-1">
-                          <span className="text-xs font-bold text-foreground/90">{fmtCurrency(spend)}</span>
+                          <span style={{ fontSize: 18, fontWeight: 500, color: "rgba(255,255,255,0.9)", lineHeight: 1 }}>
+                            {fmtCurrency(totals.spend)}
+                          </span>
                           {dayS && (
                             <span
-                              className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                              className="text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
                               style={{ background: dayS.bg, color: dayS.color, border: `0.5px solid ${dayS.border}` }}
                             >
                               {dayS.label}
@@ -428,6 +501,24 @@ export default function SuggestionsHub() {
                           )}
                         </div>
                       </div>
+
+                      {/* Secondary metrics row */}
+                      <div
+                        className="flex items-center justify-between"
+                        style={{ borderTop: "0.5px solid rgba(255,255,255,0.06)", paddingTop: 6 }}
+                      >
+                        {secMetrics.map((sm) => (
+                          <div key={sm.label} className="flex flex-col items-start gap-0.5">
+                            <span style={{ fontSize: 9, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 0.4 }}>
+                              {sm.label}
+                            </span>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.75)" }}>
+                              {totals.spend > 0 ? sm.fmt(totals) : "—"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
                     </div>
                   </button>
                 );
