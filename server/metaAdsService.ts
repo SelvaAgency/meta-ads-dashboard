@@ -1081,6 +1081,7 @@ export async function getAdSetsWithInsights(
       const ctr = parseFloat(ins?.ctr ?? "0") || 0;
       const cpc = parseFloat(ins?.cpc ?? "0") || 0;
       const cpm = parseFloat(ins?.cpm ?? "0") || 0;
+      console.log("[DEBUG] adset.optimization_goal:", adset.optimization_goal, "actions:", JSON.stringify(ins?.actions?.slice(0,3)));
       const conversions = extractResultsByGoal(ins?.actions, adset.optimization_goal);
       const costPerResult = spend > 0 && conversions > 0 ? spend / conversions : 0;
       const roas = extractPurchaseRoas(ins?.purchase_roas, spend, 0);
