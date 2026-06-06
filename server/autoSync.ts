@@ -42,6 +42,7 @@ import {
   getPendingCheckpointsForDate,
   getExperimentCampaignMetrics,
   markCheckpointDone,
+  markSyncErrorAlertsRead,
 } from "./db";
 import { invokeLLM, extractTextContent } from "./_core/llm";
 import {
@@ -222,6 +223,10 @@ export async function syncAccount(account: { id: number; accountId: string; acce
     }
 
     await updateMetaAdAccountSync(account.id);
+    // Mark SYNC_ERROR alerts as read when sync succeeds
+    try {
+      await markSyncErrorAlertsRead(account.userId, account.id);
+    } catch (_) { /* non-blocking */ }
     logger.info(`[AutoSync] ✓ Account "${label}" synced — ${metaCampaigns.length} campaigns, ${insights.length} insight rows`);
 
     // Refresh AI status summary (non-blocking — failure must not abort sync)

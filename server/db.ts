@@ -1370,3 +1370,19 @@ export async function upsertNotificationSettings(
     .values({ userId, ...values })
     .onDuplicateKeyUpdate({ set: { ...values } });
 }
+
+export async function markSyncErrorAlertsRead(userId: number, accountId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(alerts)
+    .set({ isRead: true })
+    .where(
+      and(
+        eq(alerts.userId, userId),
+        eq(alerts.accountId, accountId),
+        eq(alerts.type, "SYNC_ERROR" as any),
+        eq(alerts.isRead, false)
+      )
+    );
+}
