@@ -251,19 +251,26 @@ function convertToolChoiceForAnthropic(
   return undefined;
 }
 
-function wantsJsonObject(params: InvokeParams): boolean {
+function wantsJson(params: InvokeParams): boolean {
   const fmt = params.responseFormat ?? params.response_format;
-  return fmt?.type === "json_object";
+  return fmt?.type === "json_object" || fmt?.type === "json_schema";
 }
 
-function injectJsonInstruction(messages: AnthropicMessage[]): AnthropicMessage[] {
-  const instruction = "Responda apenas com JSON válido, sem markdown e sem blocos de código.";
+function getJsonSchema(params: InvokeParams): JsonSchema | undefined {
+  const fmt = params.responseFormat ?? params.response_format;
+  return fmt?.type === "json_schema" ? fmt.json_schema : undefined;
+}
+
+function injectJsonInstruction(messages: AnthropicMessage[], schema?: JsonSchema): AnthropicMessage[] {
+  let instruction = "Responda apenas com JSON válido, sem markdown e sem blocos de código.";
+  if (schema) {
+    instruction += `\n\nO JSON deve seguir exatamente esta estrutura (sem campos extras):\n${JSON.stringify(schema.schema, null, 2)}`;
+  }
   if (messages.length === 0) return messages;
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user") {
     return [...messages, { role: "user", content: instruction }];
   }
-  // Append instruction to last user message
   const updated: AnthropicMessage = {
     role: "user",
     content:
@@ -327,8 +334,8 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   const { system, anthropicMessages: rawMessages } = buildAnthropicMessages(messages);
 
-  // Inject JSON instruction when json_object mode is requested (Anthropic has no response_format)
-  const finalMessages = wantsJsonObject(params) ? injectJsonInstruction(rawMessages) : rawMessages;
+  // Inject JSON instruction when json_object/json_schema mode is requested (Anthropic has no response_format)
+  const finalMessages = wantsJson(params) ? injectJsonInstruction(rawMessages, getJsonSchema(params)) : rawMessages;
 
   const payload: Record<string, unknown> = {
     model: model ?? "claude-sonnet-4-6",

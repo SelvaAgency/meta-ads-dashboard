@@ -702,19 +702,35 @@ Responda sempre em português brasileiro com JSON válido.`,
     if (!rawContent || typeof rawContent !== "string") return { generated: 0, skippedReason: "Erro ao processar resposta da IA." };
     const content = rawContent.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
 
-    const parsed = JSON.parse(content) as {
-      accountState: string;
-      healthSummary: string;
-      benchmarksUsed: { ctrBenchmark: string; roasBenchmark: string; frequencyBenchmark: string };
-      suggestions: Array<{
-        category: string;
-        priority: string;
-        title: string;
-        description: string;
-        expectedImpact: string;
-        actionItems: string[];
-      }>;
+    const raw = JSON.parse(content) as Record<string, any>;
+
+    // Normalize accountState — Claude may return object or alternative keys
+    const rawState = raw.accountState ?? raw.overallAssessment ?? raw.state;
+    const accountState: string = typeof rawState === "string"
+      ? rawState
+      : (rawState && typeof rawState === "object")
+        ? String(rawState.state ?? rawState.level ?? rawState.assessment ?? "ESTADO_B")
+        : "ESTADO_B";
+
+    // Normalize healthSummary
+    const rawSummary = raw.healthSummary ?? raw.summary ?? raw.diagnosis ?? raw.overview;
+    const healthSummary: string = typeof rawSummary === "string"
+      ? rawSummary
+      : (rawSummary && typeof rawSummary === "object")
+        ? String(rawSummary.summary ?? rawSummary.text ?? JSON.stringify(rawSummary))
+        : "";
+
+    // Normalize benchmarksUsed
+    const rawBench = raw.benchmarksUsed ?? {};
+    const benchmarksUsed = {
+      ctrBenchmark: String(rawBench.ctrBenchmark ?? ""),
+      roasBenchmark: String(rawBench.roasBenchmark ?? ""),
+      frequencyBenchmark: String(rawBench.frequencyBenchmark ?? ""),
     };
+
+    // Normalize suggestions array
+    const rawSuggestions: Array<Record<string, any>> = Array.isArray(raw.suggestions) ? raw.suggestions : [];
+    const parsed = { accountState, healthSummary, benchmarksUsed, suggestions: rawSuggestions };
 
     // Map new category/priority names to DB-compatible values
     const newCategoryMap: Record<string, string> = {
@@ -733,8 +749,9 @@ Responda sempre em português brasileiro com JSON válido.`,
 
     let count = 0;
     for (const s of parsed.suggestions) {
-      const catUpper = s.category.toUpperCase();
-      const priUpper = s.priority.toUpperCase();
+      if (!s || typeof s !== "object") continue;
+      const catUpper = String(s.category ?? "GENERAL").toUpperCase();
+      const priUpper = String(s.priority ?? "MEDIUM").toUpperCase();
       const validCategories = ["BUDGET", "TARGETING", "CREATIVE", "BIDDING", "SCHEDULE", "AUDIENCE", "GENERAL"];
       const validPriorities = ["LOW", "MEDIUM", "HIGH"];
       const dbCategory = newCategoryMap[catUpper] ?? (validCategories.includes(catUpper) ? catUpper : "GENERAL");

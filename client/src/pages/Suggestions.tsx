@@ -114,14 +114,14 @@ function AccountStateBanner({ result }: { result: AccountStateResult }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <Badge variant="outline" className={`text-xs font-bold ${cfg.badgeColor}`}>
-              {state.replace("_", " ")}
+              {(typeof state === "string" ? state : "").replace("_", " ")}
             </Badge>
             <span className={`text-sm font-semibold ${cfg.color}`}>{cfg.label}</span>
           </div>
           <p className="text-xs text-muted-foreground mb-1">{cfg.sublabel}</p>
           {result.healthSummary && (
             <p className="text-xs text-foreground/80 leading-relaxed mt-2 p-2 rounded-lg bg-background/50">
-              {result.healthSummary}
+              {typeof result.healthSummary === "string" ? result.healthSummary : JSON.stringify(result.healthSummary)}
             </p>
           )}
           {result.benchmarksUsed && (
@@ -137,9 +137,9 @@ function AccountStateBanner({ result }: { result: AccountStateResult }) {
               {showBenchmarks && (
                 <div className="mt-2 grid grid-cols-3 gap-2">
                   {[
-                    { label: "CTR", value: result.benchmarksUsed.ctrBenchmark },
-                    { label: "ROAS", value: result.benchmarksUsed.roasBenchmark },
-                    { label: "Frequência", value: result.benchmarksUsed.frequencyBenchmark },
+                    { label: "CTR", value: String(result.benchmarksUsed.ctrBenchmark ?? "") },
+                    { label: "ROAS", value: String(result.benchmarksUsed.roasBenchmark ?? "") },
+                    { label: "Frequência", value: String(result.benchmarksUsed.frequencyBenchmark ?? "") },
                   ].map((b) => (
                     <div key={b.label} className="p-2 rounded-lg bg-background/50 text-center">
                       <p className="text-xs text-muted-foreground">{b.label}</p>
