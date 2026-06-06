@@ -156,15 +156,14 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           {(() => {
             const isActive = location === "/";
             return (
-              <Link href="/">
-                <div
-                  className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
-                  style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
-                >
-                  <Home className="w-4 h-4 flex-shrink-0" />
-                  {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Visão Geral</span>}
-                </div>
-              </Link>
+              <div
+                onClick={() => { clearActiveAccount(); navigate("/"); }}
+                className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
+                style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
+              >
+                <Home className="w-4 h-4 flex-shrink-0" />
+                {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Visão Geral</span>}
+              </div>
             );
           })()}
         </div>

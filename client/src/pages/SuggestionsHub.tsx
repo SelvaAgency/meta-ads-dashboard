@@ -392,10 +392,12 @@ export default function SuggestionsHub() {
                       {/* Avatar + name */}
                       <div className="flex items-center gap-2">
                         <div
-                          className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0 overflow-hidden"
                           style={{ background: "rgba(212,83,126,0.2)", color: "#D4537E" }}
                         >
-                          {getClientByMetaAccountId(account.accountId)?.shortName ?? initials(account.accountName)}
+                          {getClientByMetaAccountId(account.accountId)?.pictureUrl
+                            ? <img src={getClientByMetaAccountId(account.accountId)!.pictureUrl} alt="" className="w-full h-full object-cover" />
+                            : (getClientByMetaAccountId(account.accountId)?.shortName ?? initials(account.accountName))}
                         </div>
                         <p className="text-xs font-semibold text-foreground/80 truncate leading-snug" style={{ maxWidth: 90 }}>
                           {displayNameMap.get(account.id) ?? account.accountName ?? account.accountId}
@@ -559,8 +561,10 @@ export default function SuggestionsHub() {
                 return (
                   <div key={group.accountId} className="rounded-xl border border-border/50 overflow-hidden">
                     <div className="flex items-center gap-3 px-4 py-3 bg-muted/30 border-b border-border/50">
-                      <div className="w-8 h-8 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0">
-                        {getClientByMetaAccountId(group.metaAccountId)?.shortName ?? initials(group.accountName)}
+                      <div className="w-8 h-8 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0 overflow-hidden">
+                        {getClientByMetaAccountId(group.metaAccountId)?.pictureUrl
+                          ? <img src={getClientByMetaAccountId(group.metaAccountId)!.pictureUrl} alt="" className="w-full h-full object-cover" />
+                          : (getClientByMetaAccountId(group.metaAccountId)?.shortName ?? initials(group.accountName))}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-foreground truncate">

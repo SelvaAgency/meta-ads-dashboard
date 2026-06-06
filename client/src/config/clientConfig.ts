@@ -9,6 +9,7 @@ export interface ClientConfig {
   shortName: string;
   color: string;
   metaAccountIds: string[];
+  pictureUrl?: string;
   ga4PropertyId?: string;
   googleAdsCustomerId?: string;
 }

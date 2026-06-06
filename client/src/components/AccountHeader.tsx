@@ -175,9 +175,10 @@ export function AccountHeader({
   const aiSummary: string = (activeAccount as any)?.aiStatusSummary
     ?? "Análise pendente — execute um sync para gerar";
 
-  const accountName: string = activeAccount.accountName ?? activeAccount.accountId;
-  const initials  = accountName.slice(0, 2).toUpperCase();
+  const accountName: string = (activeAccount as any).displayName ?? activeAccount.accountName ?? activeAccount.accountId;
+  const initials  = (activeClient?.shortName ?? accountName.slice(0, 2)).toUpperCase();
   const palette   = ACCOUNT_COLORS[activeClient?.color ?? "fuchsia"] ?? ACCOUNT_COLORS.fuchsia!;
+  const pictureUrl: string | undefined = activeClient?.pictureUrl;
 
   const statusCfg = aiColor ? STATUS_CFG[aiColor] : null;
   const muted = "rgba(0,0,0,0.4)";
@@ -209,8 +210,11 @@ export function AccountHeader({
             background: palette.bg, color: palette.color,
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+            overflow: "hidden",
           }}>
-            {initials}
+            {pictureUrl
+              ? <img src={pictureUrl} alt={initials} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              : initials}
           </div>
           <span style={{ fontSize: 12, fontWeight: 600, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {accountName}
