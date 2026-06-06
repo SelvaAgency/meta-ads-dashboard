@@ -7,7 +7,6 @@ import { useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ActiveAccountProvider } from "./contexts/ActiveAccountContext";
-import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Campaigns from "./pages/Campaigns";
 import Suggestions from "./pages/Suggestions";
@@ -28,13 +27,13 @@ function RedirectTo({ to }: { to: string }) {
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Home} />
+      <Route path="/" component={SuggestionsHub} />
       <Route path="/connect" component={Connect} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/campaigns" component={Campaigns} />
       <Route path="/alerts" component={AlertsPage} />
       <Route path="/suggestions" component={Suggestions} />
-      <Route path="/suggestions-hub" component={SuggestionsHub} />
+      <Route path="/suggestions-hub" component={() => <RedirectTo to="/" />} />
       <Route path="/reports" component={Reports} />
       <Route path="/google-ads" component={GoogleAds} />
       <Route path="/social-networks" component={SocialNetworks} />

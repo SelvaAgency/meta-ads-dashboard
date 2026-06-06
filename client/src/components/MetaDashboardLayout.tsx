@@ -10,6 +10,7 @@ import {
   Bell,
   ChevronDown,
   FileText,
+  Home,
   LayoutDashboard,
   Link2,
   LogOut,
@@ -50,8 +51,10 @@ interface MetaDashboardLayoutProps {
 
 export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProps) {
   const { user, loading, isAuthenticated, logout } = useAuth();
-  const [location] = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [location, navigate] = useLocation();
+  const [pinnedOpen, setPinnedOpen] = useState(false);
+  const [hovering, setHovering] = useState(false);
+  const sidebarOpen = pinnedOpen || hovering;
   const { activeAccount, activeAccountId, accounts, setActiveAccountId, activeClient, clientAccounts, setActiveClient } = useActiveAccount();
 
   const { data: unreadCount } = trpc.alerts.unreadCount.useQuery(
@@ -80,6 +83,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   }
 
   const navItems: NavItem[] = [
+    { path: "/", label: "Visão Geral", icon: Home },
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
     { path: "/alerts", label: "Alertas", icon: Bell, badge: unreadCount ?? 0 },
@@ -130,6 +134,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
       {/* Sidebar */}
       <aside
         className={`${sidebarOpen ? "w-64" : "w-16"} flex-shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-200 shadow-lg`}
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
       >
         {/* Logo */}
         <div className="h-16 flex items-center px-4 border-b border-sidebar-border gap-3">
@@ -196,7 +202,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                     return (
                       <DropdownMenuItem
                         key={ca.client.slug}
-                        onClick={() => setActiveClient(ca.client.slug)}
+                        onClick={() => { setActiveClient(ca.client.slug); navigate("/dashboard"); }}
                         className="flex items-center gap-2.5 cursor-pointer py-2"
                       >
                         <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 font-bold text-[10px] ${isActive ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
@@ -252,7 +258,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 {clientAccounts.map((ca) => (
                   <DropdownMenuItem
                     key={ca.client.slug}
-                    onClick={() => setActiveClient(ca.client.slug)}
+                    onClick={() => { setActiveClient(ca.client.slug); navigate("/dashboard"); }}
                     className="flex items-center gap-2.5 cursor-pointer"
                   >
                     <div className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 font-bold text-[9px] ${ca.client.slug === activeClient?.slug ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
@@ -274,7 +280,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
         {/* Navigation */}
         <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
-            const isActive = location === item.path;
+            const isActive = item.path === "/" ? location === "/" : location === item.path;
             const Icon = item.icon;
             return (
               <div key={item.path}>
@@ -304,36 +310,20 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 </Link>
                 {/* Sugestões IA — submenu indentado abaixo de Dashboard */}
                 {item.path === "/dashboard" && (
-                  <>
-                    <Link href="/suggestions-hub">
-                      <div
-                        className={`flex items-center gap-2.5 pl-9 pr-3 py-2 rounded-lg cursor-pointer transition-all duration-150 group ${
-                          location === "/suggestions-hub"
-                            ? "bg-sidebar-primary/15 text-sidebar-primary font-semibold border-l-2 border-sidebar-primary"
-                            : "text-sidebar-foreground/50 hover:bg-sidebar-primary/10 hover:text-sidebar-primary"
-                        }`}
-                      >
-                        <Lightbulb className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${location === "/suggestions-hub" ? "text-primary" : "group-hover:text-primary"}`} />
-                        {sidebarOpen && (
-                          <span className="text-xs font-medium flex-1 truncate">Central</span>
-                        )}
-                      </div>
-                    </Link>
-                    <Link href="/suggestions">
-                      <div
-                        className={`flex items-center gap-2.5 pl-9 pr-3 py-2 rounded-lg cursor-pointer transition-all duration-150 group ${
-                          location === "/suggestions"
-                            ? "bg-sidebar-primary/15 text-sidebar-primary font-semibold border-l-2 border-sidebar-primary"
-                            : "text-sidebar-foreground/50 hover:bg-sidebar-primary/10 hover:text-sidebar-primary"
-                        }`}
-                      >
-                        <Lightbulb className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${location === "/suggestions" ? "text-primary" : "group-hover:text-primary"}`} />
-                        {sidebarOpen && (
-                          <span className="text-xs font-medium flex-1 truncate">Sugestões IA</span>
-                        )}
-                      </div>
-                    </Link>
-                  </>
+                  <Link href="/suggestions">
+                    <div
+                      className={`flex items-center gap-2.5 pl-9 pr-3 py-2 rounded-lg cursor-pointer transition-all duration-150 group ${
+                        location === "/suggestions"
+                          ? "bg-sidebar-primary/15 text-sidebar-primary font-semibold border-l-2 border-sidebar-primary"
+                          : "text-sidebar-foreground/50 hover:bg-sidebar-primary/10 hover:text-sidebar-primary"
+                      }`}
+                    >
+                      <Lightbulb className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${location === "/suggestions" ? "text-primary" : "group-hover:text-primary"}`} />
+                      {sidebarOpen && (
+                        <span className="text-xs font-medium flex-1 truncate">Sugestões IA</span>
+                      )}
+                    </div>
+                  </Link>
                 )}
               </div>
             );
@@ -382,7 +372,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
         <header className="h-16 border-b border-border flex items-center justify-between px-6 bg-background sticky top-0 z-10">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
+              onClick={() => setPinnedOpen(!pinnedOpen)}
               className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all hover:shadow-sm"
             >
               <LayoutDashboard className="w-4 h-4" />
