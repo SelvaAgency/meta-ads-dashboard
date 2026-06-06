@@ -31,6 +31,8 @@ import {
   getScheduledReportsByUserId,
   getAnomaliesByAccountId,
   getSuggestionsByAccountId,
+  getTodayMetricsForAllAccounts,
+  getUrgentAlertsForUser,
   getAllSuggestionsForUser,
   getSuggestionsHistory,
   updateSuggestionStatus,
@@ -215,6 +217,10 @@ export const appRouter = router({
   accounts: router({
     list: protectedProcedure.query(async ({ ctx }) => {
       return getMetaAdAccountsByUserId(ctx.user.id);
+    }),
+
+    todayMetrics: protectedProcedure.query(async ({ ctx }) => {
+      return getTodayMetricsForAllAccounts(ctx.user.id);
     }),
 
     validateToken: protectedProcedure
@@ -1291,6 +1297,10 @@ export const appRouter = router({
         const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         return getAlertsByAccountId(ctx.user.id, input.accountId);
       }),
+
+    listUrgent: protectedProcedure.query(async ({ ctx }) => {
+      return getUrgentAlertsForUser(ctx.user.id);
+    }),
 
     // unreadCount filtered by account for sidebar badge
     unreadCount: protectedProcedure

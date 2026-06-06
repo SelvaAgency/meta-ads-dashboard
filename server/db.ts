@@ -577,6 +577,54 @@ export async function getSuggestionsByAccountId(accountId: number, limit = 50) {
     .limit(limit);
 }
 
+export async function getTodayMetricsForAllAccounts(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const today = new Date().toISOString().split("T")[0];
+  return db
+    .select({
+      accountId: campaignMetrics.accountId,
+      totalSpend:       sql<number>`SUM(${campaignMetrics.spend})`,
+      totalConversions: sql<number>`SUM(${campaignMetrics.conversions})`,
+      totalImpressions: sql<number>`SUM(${campaignMetrics.impressions})`,
+      totalClicks:      sql<number>`SUM(${campaignMetrics.clicks})`,
+      avgCtr: sql<number>`CASE WHEN SUM(${campaignMetrics.impressions}) > 0 THEN (SUM(${campaignMetrics.clicks}) / SUM(${campaignMetrics.impressions})) * 100 ELSE 0 END`,
+    })
+    .from(campaignMetrics)
+    .innerJoin(metaAdAccounts, eq(campaignMetrics.accountId, metaAdAccounts.id))
+    .where(and(
+      eq(metaAdAccounts.userId, userId),
+      eq(campaignMetrics.date, today),
+      eq(metaAdAccounts.isActive, true)
+    ))
+    .groupBy(campaignMetrics.accountId);
+}
+
+export async function getUrgentAlertsForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id:          alerts.id,
+      title:       alerts.title,
+      message:     alerts.message,
+      severity:    alerts.severity,
+      type:        alerts.type,
+      createdAt:   alerts.createdAt,
+      accountId:   alerts.accountId,
+      accountName: metaAdAccounts.accountName,
+    })
+    .from(alerts)
+    .innerJoin(metaAdAccounts, eq(alerts.accountId, metaAdAccounts.id))
+    .where(and(
+      eq(alerts.userId, userId),
+      eq(alerts.isRead, false),
+      or(eq(alerts.severity, "CRITICAL"), eq(alerts.severity, "WARNING"))
+    ))
+    .orderBy(desc(alerts.createdAt))
+    .limit(3);
+}
+
 export async function getAllSuggestionsForUser(userId: number) {
   const db = await getDb();
   if (!db) return { suggestions: [], appliedToday: 0 };
