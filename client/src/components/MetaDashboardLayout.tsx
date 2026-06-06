@@ -166,6 +166,22 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
               </div>
             );
           })()}
+
+          {/* Configurações — always accessible */}
+          {(() => {
+            const isActive = location === "/settings/accounts";
+            return (
+              <Link href="/settings/accounts">
+                <div
+                  className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
+                  style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
+                >
+                  <Settings className="w-4 h-4 flex-shrink-0" />
+                  {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Configurações</span>}
+                </div>
+              </Link>
+            );
+          })()}
         </div>
 
         {/* Divider */}
@@ -349,26 +365,6 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             })}
           </div>
 
-          {/* Divider before settings */}
-          <div style={{ borderTop: DIVIDER, margin: "8px 4px" }} />
-
-          {/* Configurações */}
-          {(() => {
-            const isActive = location === "/settings/accounts";
-            return (
-              <div style={!hasClient ? { opacity: 0.25, pointerEvents: "none" as const } : {}}>
-                <Link href="/settings/accounts">
-                  <div
-                    className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
-                    style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
-                  >
-                    <Settings className="w-4 h-4 flex-shrink-0" />
-                    {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Configurações</span>}
-                  </div>
-                </Link>
-              </div>
-            );
-          })()}
         </div>
 
         {/* ── User footer ───────────────────────────────────────────────────── */}
