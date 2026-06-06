@@ -236,7 +236,7 @@ export const appRouter = router({
         accounts.map(async (acc) => {
           const recentAlerts = await getAlertsByAccountId(ctx.user.id, acc.id);
           const hasTokenError = recentAlerts.some(
-            (a) => a.type === "SYNC_ERROR" && !a.isRead
+            (a) => a.type === "SYNC_ERROR" && !a.isRead && a.title.startsWith("Token expirado")
           );
           return { ...acc, hasTokenError };
         })
