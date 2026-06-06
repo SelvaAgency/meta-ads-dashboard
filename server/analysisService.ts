@@ -699,8 +699,8 @@ Responda sempre em português brasileiro com JSON válido.`,
     });
 
     const rawContent = response.choices[0]?.message?.content;
-    const content = typeof rawContent === "string" ? rawContent : null;
-    if (!content) return { generated: 0, skippedReason: "Erro ao processar resposta da IA." };
+    if (!rawContent || typeof rawContent !== "string") return { generated: 0, skippedReason: "Erro ao processar resposta da IA." };
+    const content = rawContent.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
 
     const parsed = JSON.parse(content) as {
       accountState: string;
