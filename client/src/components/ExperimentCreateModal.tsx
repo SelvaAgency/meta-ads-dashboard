@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import {
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ChevronLeft, ChevronRight, Plus, Trash2, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Trash2, Check, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface KpiRow { metric: string; unit: string; minSignal: string; goal: string; }
@@ -31,32 +31,50 @@ const METRIC_OPTIONS = [
 ];
 
 const CHANNEL_OPTIONS = ["Meta Ads", "Google Ads", "Instagram", "Facebook", "WhatsApp", "TikTok Ads"];
-
 const STEPS = ["Conta & Período", "Pergunta & Hipótese", "KPIs", "Checkpoints", "Árvore de Decisão", "Campanhas"];
 
 function StepDots({ current }: { current: number }) {
   return (
     <div className="flex items-center gap-2 justify-center mb-6">
-      {STEPS.map((label, i) => (
+      {STEPS.map((_, i) => (
         <div key={i} className="flex items-center gap-1">
           <div
             className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold transition-all"
             style={
               i < current
-                ? { background: "rgba(212,83,126,0.3)", color: "#D4537E" }
+                ? { background: "#EAF3DE", color: "#3B6D11" }
                 : i === current
                 ? { background: "#D4537E", color: "#fff" }
-                : { background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.3)" }
+                : { background: "var(--color-muted)", color: "var(--color-muted-foreground)" }
             }
           >
             {i < current ? <Check className="w-3 h-3" /> : i + 1}
           </div>
           {i < STEPS.length - 1 && (
-            <div className="w-6 h-px" style={{ background: i < current ? "rgba(212,83,126,0.4)" : "rgba(255,255,255,0.08)" }} />
+            <div
+              className="w-6 h-px"
+              style={{ background: i < current ? "#D4537E" : "var(--color-border)" }}
+            />
           )}
         </div>
       ))}
     </div>
+  );
+}
+
+function SuggestButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={loading}
+      onClick={onClick}
+      className="flex items-center gap-1 text-[10px] font-semibold text-primary hover:text-primary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {loading
+        ? <><Loader2 className="w-3 h-3 animate-spin" />Gerando...</>
+        : <><Sparkles className="w-3 h-3" />Sugerir</>
+      }
+    </button>
   );
 }
 
@@ -69,8 +87,9 @@ export default function ExperimentCreateModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const { clientAccounts } = useActiveAccount();
+  const { clientAccounts, activeAccountId } = useActiveAccount();
   const [step, setStep] = useState(0);
+  const [suggestingField, setSuggestingField] = useState<string | null>(null);
 
   // Step 1 state
   const [accountId, setAccountId] = useState<number | null>(null);
@@ -107,6 +126,76 @@ export default function ExperimentCreateModal({
     onSuccess: () => { toast.success("Experimento criado!"); onCreated(); },
     onError: (e) => toast.error(e.message),
   });
+
+  const suggestMut = trpc.experiments.suggestField.useMutation({
+    onError: (e) => { toast.error(`Erro ao gerar sugestão: ${e.message}`); setSuggestingField(null); },
+  });
+
+  // Pre-select active account when modal opens
+  useEffect(() => {
+    if (open && activeAccountId && accountId === null) {
+      setAccountId(activeAccountId);
+    }
+  }, [open, activeAccountId]);
+
+  function getContext() {
+    const allAccounts = clientAccounts.flatMap(ca => ca.accounts);
+    const acct = allAccounts.find(a => a.id === accountId);
+    return {
+      title,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      dailyBudget: dailyBudget || undefined,
+      channels: channels.length > 0 ? channels : undefined,
+      accountName: acct?.accountName ?? undefined,
+      centralQuestion: centralQuestion || undefined,
+    };
+  }
+
+  function handleSuggest(field: "centralQuestion" | "hypothesis" | "checkpoints" | "decisions") {
+    setSuggestingField(field);
+    suggestMut.mutate(
+      { field, context: getContext() },
+      {
+        onSuccess: (data) => {
+          const raw = data.value.trim();
+          if (field === "centralQuestion") {
+            setCentralQuestion(raw);
+          } else if (field === "hypothesis") {
+            setHypothesis(raw);
+          } else if (field === "checkpoints") {
+            try {
+              const jsonStr = raw.replace(/```json\n?|\n?```/g, "").trim();
+              const parsed: { date: string; title: string }[] = JSON.parse(jsonStr);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setCheckpoints(parsed.map(c => ({ date: c.date ?? "", title: c.title ?? "" })));
+                toast.success("Checkpoints gerados.");
+              }
+            } catch {
+              toast.error("Não foi possível interpretar a resposta. Tente novamente.");
+            }
+          } else if (field === "decisions") {
+            try {
+              const jsonStr = raw.replace(/```json\n?|\n?```/g, "").trim();
+              const parsed: DecisionRow[] = JSON.parse(jsonStr);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setDecisions(parsed.map(d => ({
+                  scenario: d.scenario ?? "",
+                  reading: d.reading ?? "",
+                  nextStep: d.nextStep ?? "",
+                  isCurrent: !!d.isCurrent,
+                })));
+                toast.success("Cenários gerados.");
+              }
+            } catch {
+              toast.error("Não foi possível interpretar a resposta. Tente novamente.");
+            }
+          }
+          setSuggestingField(null);
+        },
+      }
+    );
+  }
 
   function resetState() {
     setStep(0);
@@ -177,16 +266,17 @@ export default function ExperimentCreateModal({
         {step === 0 && (
           <div className="space-y-4">
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Conta Meta Ads</label>
+              <label className="text-xs font-medium text-foreground mb-1.5 block">Conta Meta Ads</label>
               <div className="flex flex-wrap gap-2">
                 {allAccounts.map(a => (
                   <button
                     key={a.id}
+                    type="button"
                     onClick={() => setAccountId(a.id)}
                     className="px-3 py-1.5 rounded-lg text-xs font-medium border transition-all"
                     style={accountId === a.id
-                      ? { borderColor: "#D4537E", background: "rgba(212,83,126,0.12)", color: "#D4537E" }
-                      : { borderColor: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)" }
+                      ? { borderColor: "#D4537E", background: "#FDEEF4", color: "#D4537E" }
+                      : { borderColor: "var(--color-border)", color: "var(--color-foreground)" }
                     }
                   >
                     {a.accountName ?? a.accountId}
@@ -196,39 +286,40 @@ export default function ExperimentCreateModal({
             </div>
 
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Título do experimento</label>
+              <label className="text-xs font-medium text-foreground mb-1.5 block">Título do experimento</label>
               <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Ex: Teste criativo vídeo vs imagem" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Início</label>
+                <label className="text-xs font-medium text-foreground mb-1.5 block">Início</label>
                 <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Fim</label>
+                <label className="text-xs font-medium text-foreground mb-1.5 block">Fim</label>
                 <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
               </div>
             </div>
 
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Verba diária (R$) — opcional</label>
+              <label className="text-xs font-medium text-foreground mb-1.5 block">Verba diária (R$) — opcional</label>
               <Input type="number" value={dailyBudget} onChange={e => setDailyBudget(e.target.value)} placeholder="Ex: 500" />
             </div>
 
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Canais</label>
+              <label className="text-xs font-medium text-foreground mb-1.5 block">Canais</label>
               <div className="flex flex-wrap gap-2">
                 {CHANNEL_OPTIONS.map(ch => {
                   const active = channels.includes(ch);
                   return (
                     <button
                       key={ch}
+                      type="button"
                       onClick={() => setChannels(prev => active ? prev.filter(c => c !== ch) : [...prev, ch])}
                       className="px-2.5 py-1 rounded-md text-xs border transition-all"
                       style={active
-                        ? { borderColor: "#D4537E", background: "rgba(212,83,126,0.12)", color: "#D4537E" }
-                        : { borderColor: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.4)" }
+                        ? { borderColor: "#D4537E", background: "#FDEEF4", color: "#D4537E" }
+                        : { borderColor: "var(--color-border)", color: "var(--color-foreground)" }
                       }
                     >
                       {ch}
@@ -244,7 +335,13 @@ export default function ExperimentCreateModal({
         {step === 1 && (
           <div className="space-y-4">
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Pergunta central</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-foreground">Pergunta central</label>
+                <SuggestButton
+                  loading={suggestingField === "centralQuestion"}
+                  onClick={() => handleSuggest("centralQuestion")}
+                />
+              </div>
               <Textarea
                 value={centralQuestion}
                 onChange={e => setCentralQuestion(e.target.value)}
@@ -253,7 +350,13 @@ export default function ExperimentCreateModal({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Hipótese</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-foreground">Hipótese</label>
+                <SuggestButton
+                  loading={suggestingField === "hypothesis"}
+                  onClick={() => handleSuggest("hypothesis")}
+                />
+              </div>
               <Textarea
                 value={hypothesis}
                 onChange={e => setHypothesis(e.target.value)}
@@ -268,7 +371,7 @@ export default function ExperimentCreateModal({
         {step === 2 && (
           <div className="space-y-3">
             {kpis.map((kpi, i) => (
-              <div key={i} className="flex items-end gap-2 p-3 rounded-lg border border-border/60 bg-background/40">
+              <div key={i} className="flex items-end gap-2 p-3 rounded-lg border border-border bg-muted/30">
                 <div className="flex-1 min-w-0">
                   <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Métrica</label>
                   <select
@@ -283,7 +386,7 @@ export default function ExperimentCreateModal({
                   </select>
                 </div>
                 <div className="w-20">
-                  <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Sinal min.</label>
+                  <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Sinal mín.</label>
                   <Input
                     type="number"
                     className="h-8 text-xs"
@@ -304,10 +407,14 @@ export default function ExperimentCreateModal({
                 </div>
                 <div className="w-10 text-center">
                   <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Un.</label>
-                  <span className="text-xs text-muted-foreground">{kpi.unit}</span>
+                  <span className="text-xs text-foreground font-medium">{kpi.unit}</span>
                 </div>
                 {kpis.length > 1 && (
-                  <button onClick={() => setKpis(prev => prev.filter((_, j) => j !== i))} className="mb-1 text-muted-foreground hover:text-destructive transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setKpis(prev => prev.filter((_, j) => j !== i))}
+                    className="mb-1 text-muted-foreground hover:text-destructive transition-colors"
+                  >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 )}
@@ -328,8 +435,15 @@ export default function ExperimentCreateModal({
         {/* ── Step 4: Checkpoints ─────────────────────────────────────────────── */}
         {step === 3 && (
           <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">Defina datas de avaliação ao longo do experimento.</p>
+              <SuggestButton
+                loading={suggestingField === "checkpoints"}
+                onClick={() => handleSuggest("checkpoints")}
+              />
+            </div>
             {checkpoints.map((cp, i) => (
-              <div key={i} className="flex items-end gap-2 p-3 rounded-lg border border-border/60 bg-background/40">
+              <div key={i} className="flex items-end gap-2 p-3 rounded-lg border border-border bg-muted/30">
                 <div className="w-36 flex-shrink-0">
                   <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Data *</label>
                   <Input
@@ -349,7 +463,11 @@ export default function ExperimentCreateModal({
                   />
                 </div>
                 {checkpoints.length > 1 && (
-                  <button onClick={() => setCheckpoints(prev => prev.filter((_, j) => j !== i))} className="mb-1 text-muted-foreground hover:text-destructive transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setCheckpoints(prev => prev.filter((_, j) => j !== i))}
+                    className="mb-1 text-muted-foreground hover:text-destructive transition-colors"
+                  >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 )}
@@ -370,8 +488,15 @@ export default function ExperimentCreateModal({
         {/* ── Step 5: Árvore de Decisão ────────────────────────────────────────── */}
         {step === 4 && (
           <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">Defina os cenários possíveis e o que fazer em cada um.</p>
+              <SuggestButton
+                loading={suggestingField === "decisions"}
+                onClick={() => handleSuggest("decisions")}
+              />
+            </div>
             {decisions.map((dec, i) => (
-              <div key={i} className="p-3 rounded-lg border border-border/60 bg-background/40 space-y-2">
+              <div key={i} className="p-3 rounded-lg border border-border bg-muted/30 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <Input
                     className="h-8 text-xs font-semibold flex-1"
@@ -387,7 +512,11 @@ export default function ExperimentCreateModal({
                     <span className="text-[10px] text-muted-foreground">Atual</span>
                   </div>
                   {decisions.length > 1 && (
-                    <button onClick={() => setDecisions(prev => prev.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-destructive transition-colors">
+                    <button
+                      type="button"
+                      onClick={() => setDecisions(prev => prev.filter((_, j) => j !== i))}
+                      className="text-muted-foreground hover:text-destructive transition-colors"
+                    >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -432,8 +561,11 @@ export default function ExperimentCreateModal({
                     <div
                       key={c.id}
                       onClick={() => setCampaignIds(prev => checked ? prev.filter(id => id !== c.id) : [...prev, c.id])}
-                      className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all"
-                      style={checked ? { background: "rgba(212,83,126,0.08)", borderLeft: "2px solid #D4537E" } : { borderLeft: "2px solid transparent" }}
+                      className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all border-l-2"
+                      style={checked
+                        ? { background: "#FDEEF4", borderLeftColor: "#D4537E" }
+                        : { borderLeftColor: "transparent" }
+                      }
                     >
                       <Checkbox checked={checked} className="pointer-events-none" />
                       <div className="flex-1 min-w-0">
@@ -454,7 +586,7 @@ export default function ExperimentCreateModal({
         )}
 
         {/* ── Navigation ──────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between pt-4 border-t border-border/60 mt-6">
+        <div className="flex items-center justify-between pt-4 border-t border-border mt-6">
           <Button
             variant="ghost"
             size="sm"

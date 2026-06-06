@@ -1113,9 +1113,12 @@ export async function deleteGA4Account(id: number) {
 
 // ─── Experiments ─────────────────────────────────────────────────────────────
 
-export async function getExperimentsByUserId(userId: number) {
+export async function getExperimentsByUserId(userId: number, accountId?: number) {
   const db = await getDb();
   if (!db) return [];
+  const whereClause = accountId != null
+    ? and(eq(experiments.userId, userId), eq(experiments.accountId, accountId))
+    : eq(experiments.userId, userId);
   return db
     .select({
       id: experiments.id,
@@ -1132,7 +1135,7 @@ export async function getExperimentsByUserId(userId: number) {
     })
     .from(experiments)
     .innerJoin(metaAdAccounts, eq(experiments.accountId, metaAdAccounts.id))
-    .where(eq(experiments.userId, userId))
+    .where(whereClause)
     .orderBy(desc(experiments.createdAt));
 }
 

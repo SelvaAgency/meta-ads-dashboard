@@ -2841,9 +2841,11 @@ export const appRouter = router({
 
   // ─── Experiments ──────────────────────────────────────────────────────────
   experiments: router({
-    list: protectedProcedure.query(async ({ ctx }) => {
-      return getExperimentsByUserId(ctx.user.id);
-    }),
+    list: protectedProcedure
+      .input(z.object({ accountId: z.number().optional() }))
+      .query(async ({ ctx, input }) => {
+        return getExperimentsByUserId(ctx.user.id, input.accountId);
+      }),
 
     get: protectedProcedure
       .input(z.object({ id: z.number() }))
@@ -3000,6 +3002,72 @@ Forneça uma análise em 3-4 parágrafos cobrindo: (1) avaliação dos resultado
         const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], maxTokens: 800 });
         const analysis = extractTextContent(response);
         return { analysis };
+      }),
+
+    suggestField: protectedProcedure
+      .input(z.object({
+        field: z.enum(["centralQuestion", "hypothesis", "checkpoints", "decisions"]),
+        context: z.object({
+          title: z.string(),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          dailyBudget: z.string().optional(),
+          channels: z.array(z.string()).optional(),
+          accountName: z.string().optional(),
+          centralQuestion: z.string().optional(),
+        }),
+      }))
+      .mutation(async ({ input }) => {
+        const { field, context } = input;
+        const channelStr = context.channels?.join(", ") || "Meta Ads";
+        const budgetStr = context.dailyBudget ? `R$ ${context.dailyBudget}/dia` : "não definida";
+        const periodStr = context.startDate && context.endDate ? `${context.startDate} a ${context.endDate}` : "não definido";
+
+        let prompt = "";
+
+        if (field === "centralQuestion") {
+          prompt = `Você é especialista em marketing digital. Sugira uma pergunta central clara e objetiva para um experimento de mídia paga.
+
+Título: ${context.title}
+Período: ${periodStr}
+Verba: ${budgetStr}
+Canais: ${channelStr}
+Conta: ${context.accountName ?? "—"}
+
+Responda APENAS com a pergunta central — uma única frase interrogativa, direta e mensurável. Nenhuma explicação adicional.`;
+
+        } else if (field === "hypothesis") {
+          prompt = `Você é especialista em marketing digital. Elabore uma hipótese no formato "Acreditamos que X terá Y resultado porque Z".
+
+Título: ${context.title}
+Pergunta central: ${context.centralQuestion ?? "não informada"}
+Canais: ${channelStr}
+Verba: ${budgetStr}
+
+Responda APENAS com a hipótese em até 3 linhas. Nenhuma explicação adicional.`;
+
+        } else if (field === "checkpoints") {
+          prompt = `Você é especialista em gestão de experimentos de mídia paga. Sugira exatamente 3 checkpoints estratégicos distribuídos uniformemente no período abaixo.
+
+Título: ${context.title}
+Período: ${periodStr}
+
+Responda APENAS com JSON válido, sem markdown, no formato exato:
+[{"date":"YYYY-MM-DD","title":"string"},{"date":"YYYY-MM-DD","title":"string"},{"date":"YYYY-MM-DD","title":"string"}]`;
+
+        } else {
+          prompt = `Você é especialista em estratégia de mídia paga. Sugira exatamente 3 cenários de decisão: sucesso total, sinal positivo parcial, e falha/abaixo do esperado.
+
+Título: ${context.title}
+Período: ${periodStr}
+Canais: ${channelStr}
+
+Responda APENAS com JSON válido, sem markdown, no formato exato:
+[{"scenario":"string","reading":"string","nextStep":"string","isCurrent":false},{"scenario":"string","reading":"string","nextStep":"string","isCurrent":false},{"scenario":"string","reading":"string","nextStep":"string","isCurrent":false}]`;
+        }
+
+        const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], maxTokens: 500 });
+        return { value: extractTextContent(response) };
       }),
   }),
 

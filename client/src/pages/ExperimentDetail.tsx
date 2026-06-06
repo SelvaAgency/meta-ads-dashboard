@@ -4,7 +4,6 @@ import { trpc } from "@/lib/trpc";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import {
   FlaskConical,
@@ -26,16 +25,24 @@ import { toast } from "sonner";
 type ExpStatus = "planned" | "active" | "completed" | "paused";
 
 const STATUS_META: Record<ExpStatus, { label: string; bg: string; color: string; icon: React.ElementType }> = {
-  active:    { label: "Ativo",     bg: "rgba(16,185,129,0.12)",  color: "#34d399", icon: CirclePlay },
-  planned:   { label: "Planejado", bg: "rgba(99,102,241,0.12)",  color: "#818cf8", icon: CircleDashed },
-  paused:    { label: "Pausado",   bg: "rgba(245,158,11,0.12)",  color: "#fbbf24", icon: CirclePause },
-  completed: { label: "Concluído", bg: "rgba(107,114,128,0.12)", color: "#9ca3af", icon: CheckCircle2 },
+  active:    { label: "Em andamento", bg: "#EAF3DE", color: "#3B6D11", icon: CirclePlay },
+  planned:   { label: "Planejado",    bg: "#E6F1FB", color: "#185FA5", icon: CircleDashed },
+  paused:    { label: "Pausado",      bg: "#FAEEDA", color: "#854F0B", icon: CirclePause },
+  completed: { label: "Concluído",    bg: "#F1EFE8", color: "#444441", icon: CheckCircle2 },
 };
 
-const CHECKPOINT_META = {
-  pending: { label: "Pendente", color: "rgba(255,255,255,0.3)",  dot: "rgba(255,255,255,0.2)" },
-  active:  { label: "Ativo",    color: "#fbbf24",                dot: "#fbbf24" },
-  done:    { label: "Concluído", color: "#34d399",               dot: "#34d399" },
+// Semantic colors for both themes
+const KPI_STATUS = {
+  goal:    { bg: "#EAF3DE", color: "#3B6D11", label: "Meta" },
+  signal:  { bg: "#FAEEDA", color: "#854F0B", label: "Sinal" },
+  below:   { bg: "#FDECEA", color: "#9B1C1C", label: "Abaixo" },
+  noData:  { bg: "", color: "", label: "—" },
+};
+
+const CHECKPOINT_STATUS = {
+  pending: { label: "Pendente", color: "var(--color-muted-foreground)", dot: "var(--color-border)" },
+  active:  { label: "Ativo",    color: "#854F0B",                       dot: "#854F0B" },
+  done:    { label: "Concluído", color: "#3B6D11",                      dot: "#3B6D11" },
 };
 
 const METRIC_LABELS: Record<string, string> = {
@@ -56,13 +63,13 @@ function fmtValue(value: number | null | undefined, unit: string): string {
 }
 
 function kpiProgress(realValue: number | null, goal: string | number, minSignal: string | number | null) {
-  if (realValue == null) return { pct: 0, color: "bg-muted", status: "no-data" };
+  if (realValue == null) return { pct: 0, barColor: "bg-muted", statusKey: "noData" as const };
   const g = Number(goal);
   const m = minSignal != null ? Number(minSignal) : null;
   const pct = Math.min(100, Math.round((realValue / g) * 100));
-  if (realValue >= g) return { pct, color: "bg-emerald-500", status: "goal" };
-  if (m != null && realValue >= m) return { pct, color: "bg-amber-500", status: "signal" };
-  return { pct, color: "bg-red-500", status: "below" };
+  if (realValue >= g) return { pct, barColor: "bg-emerald-600", statusKey: "goal" as const };
+  if (m != null && realValue >= m) return { pct, barColor: "bg-amber-600", statusKey: "signal" as const };
+  return { pct, barColor: "bg-red-600", statusKey: "below" as const };
 }
 
 export default function ExperimentDetail() {
@@ -119,7 +126,6 @@ export default function ExperimentDetail() {
 
   const statusMeta = STATUS_META[exp.status as ExpStatus] ?? STATUS_META.planned;
   const StatusIcon = statusMeta.icon;
-
   const nextStatuses: ExpStatus[] = (["planned", "active", "paused", "completed"] as ExpStatus[]).filter(s => s !== exp.status);
 
   function saveNote(cpId: number) {
@@ -135,20 +141,22 @@ export default function ExperimentDetail() {
 
         {/* ── Back + Header ──────────────────────────────────────────────────── */}
         <div className="flex items-start gap-4">
-          <button onClick={() => navigate("/experiments")} className="mt-1 p-1.5 rounded-lg hover:bg-white/[0.06] transition-all text-muted-foreground">
+          <button
+            onClick={() => navigate("/experiments")}
+            className="mt-1 p-1.5 rounded-lg hover:bg-muted transition-all text-muted-foreground"
+          >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-lg font-bold text-foreground">{exp.title}</h1>
-              <Badge
-                variant="outline"
-                className="text-[10px] px-2 py-0.5 border-0 gap-1"
+              <span
+                className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1"
                 style={{ background: statusMeta.bg, color: statusMeta.color }}
               >
                 <StatusIcon className="w-3 h-3" />
                 {statusMeta.label}
-              </Badge>
+              </span>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">{exp.accountName}</p>
           </div>
@@ -170,7 +178,7 @@ export default function ExperimentDetail() {
 
         {/* ── 3 Info Cards ───────────────────────────────────────────────────── */}
         <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-xl border border-border/60 bg-card p-4">
+          <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-center gap-2 mb-1 text-muted-foreground">
               <Calendar className="w-3.5 h-3.5" />
               <span className="text-xs font-medium">Período</span>
@@ -179,16 +187,14 @@ export default function ExperimentDetail() {
             <p className="text-xs text-muted-foreground">até {fmtDate(exp.endDate)}</p>
           </div>
 
-          <div className="rounded-xl border border-border/60 bg-card p-4">
+          <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-center gap-2 mb-1 text-muted-foreground">
               <Banknote className="w-3.5 h-3.5" />
               <span className="text-xs font-medium">Verba</span>
             </div>
             {exp.dailyBudget ? (
               <>
-                <p className="text-sm font-semibold text-foreground">
-                  {fmtValue(Number(exp.dailyBudget), "R$")}/dia
-                </p>
+                <p className="text-sm font-semibold text-foreground">{fmtValue(Number(exp.dailyBudget), "R$")}/dia</p>
                 {exp.totalBudget && <p className="text-xs text-muted-foreground">Total: {fmtValue(Number(exp.totalBudget), "R$")}</p>}
               </>
             ) : (
@@ -196,7 +202,7 @@ export default function ExperimentDetail() {
             )}
           </div>
 
-          <div className="rounded-xl border border-border/60 bg-card p-4">
+          <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-center gap-2 mb-1 text-muted-foreground">
               <FlaskConical className="w-3.5 h-3.5" />
               <span className="text-xs font-medium">Canais</span>
@@ -204,7 +210,7 @@ export default function ExperimentDetail() {
             {exp.channels && exp.channels.length > 0 ? (
               <div className="flex flex-wrap gap-1">
                 {exp.channels.map(ch => (
-                  <span key={ch} className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.5)" }}>{ch}</span>
+                  <span key={ch} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{ch}</span>
                 ))}
               </div>
             ) : (
@@ -215,7 +221,7 @@ export default function ExperimentDetail() {
 
         {/* ── Hypothesis block ───────────────────────────────────────────────── */}
         {(exp.centralQuestion || exp.hypothesis) && (
-          <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
+          <div className="rounded-xl border border-border bg-card p-4 space-y-3">
             {exp.centralQuestion && (
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Pergunta central</p>
@@ -233,13 +239,14 @@ export default function ExperimentDetail() {
 
         {/* ── KPI Table ──────────────────────────────────────────────────────── */}
         {exp.kpisWithValues && exp.kpisWithValues.length > 0 && (
-          <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border/60">
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-4 py-3 border-b border-border">
               <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">KPIs do Experimento</p>
             </div>
-            <div className="divide-y divide-border/40">
+            <div className="divide-y divide-border">
               {exp.kpisWithValues.map((kpi: any) => {
-                const { pct, color, status } = kpiProgress(kpi.realValue, kpi.goal, kpi.minSignal);
+                const { pct, barColor, statusKey } = kpiProgress(kpi.realValue, kpi.goal, kpi.minSignal);
+                const kpiS = KPI_STATUS[statusKey];
                 const metricLabel = METRIC_LABELS[kpi.metric] ?? kpi.metric;
                 return (
                   <div key={kpi.id} className="px-4 py-3 flex items-center gap-4">
@@ -253,26 +260,25 @@ export default function ExperimentDetail() {
                           Real: <span className="font-semibold text-foreground">{fmtValue(kpi.realValue, kpi.unit)}</span>
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          Meta: <span className="font-semibold">{fmtValue(Number(kpi.goal), kpi.unit)}</span>
+                          Meta: <span className="font-semibold text-foreground">{fmtValue(Number(kpi.goal), kpi.unit)}</span>
                           {kpi.minSignal && <span className="ml-2 text-[10px]">Sinal: {fmtValue(Number(kpi.minSignal), kpi.unit)}</span>}
                         </span>
                       </div>
-                      <div className="w-full h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+                      <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
                       </div>
                     </div>
                     <div className="w-16 text-right flex-shrink-0">
-                      <span
-                        className="text-[10px] font-bold px-2 py-0.5 rounded"
-                        style={
-                          status === "goal"   ? { background: "rgba(16,185,129,0.12)", color: "#34d399" } :
-                          status === "signal" ? { background: "rgba(245,158,11,0.12)", color: "#fbbf24" } :
-                          status === "below"  ? { background: "rgba(239,68,68,0.12)",  color: "#f87171" } :
-                                               { background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.3)" }
-                        }
-                      >
-                        {status === "goal" ? "Meta" : status === "signal" ? "Sinal" : status === "below" ? "Abaixo" : "—"}
-                      </span>
+                      {statusKey === "noData" ? (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      ) : (
+                        <span
+                          className="text-[10px] font-bold px-2 py-0.5 rounded"
+                          style={{ background: kpiS.bg, color: kpiS.color }}
+                        >
+                          {kpiS.label}
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
@@ -283,33 +289,36 @@ export default function ExperimentDetail() {
 
         {/* ── Checkpoint Timeline ─────────────────────────────────────────────── */}
         {exp.checkpoints.length > 0 && (
-          <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border/60">
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-4 py-3 border-b border-border">
               <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Checkpoints</p>
             </div>
             <div className="p-4 space-y-4">
               {exp.checkpoints.map((cp: any, i: number) => {
-                const meta = CHECKPOINT_META[cp.status as keyof typeof CHECKPOINT_META] ?? CHECKPOINT_META.pending;
+                const cMeta = CHECKPOINT_STATUS[cp.status as keyof typeof CHECKPOINT_STATUS] ?? CHECKPOINT_STATUS.pending;
                 const isEditing = editingNoteId === cp.id;
                 return (
                   <div key={cp.id} className="flex gap-3">
                     <div className="flex flex-col items-center flex-shrink-0">
-                      <div className="w-3 h-3 rounded-full mt-0.5 flex-shrink-0" style={{ background: meta.dot }} />
+                      <div
+                        className="w-3 h-3 rounded-full mt-0.5 flex-shrink-0 border-2"
+                        style={{ background: cMeta.dot, borderColor: cMeta.dot }}
+                      />
                       {i < exp.checkpoints.length - 1 && (
-                        <div className="w-px flex-1 mt-1" style={{ background: "rgba(255,255,255,0.06)", minHeight: "24px" }} />
+                        <div className="w-px flex-1 mt-1 bg-border" style={{ minHeight: "24px" }} />
                       )}
                     </div>
                     <div className="flex-1 min-w-0 pb-2">
                       <div className="flex items-center gap-2 mb-0.5">
                         <p className="text-xs font-semibold text-foreground">{cp.title}</p>
-                        <span className="text-[10px]" style={{ color: meta.color }}>{meta.label}</span>
+                        <span className="text-[10px] font-medium" style={{ color: cMeta.color }}>{cMeta.label}</span>
                       </div>
                       <p className="text-[10px] text-muted-foreground mb-1">{fmtDate(cp.date)}</p>
 
                       {cp.snapshotData && Object.keys(cp.snapshotData).length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-2">
                           {Object.entries(cp.snapshotData as Record<string, number>).slice(0, 4).map(([k, v]) => (
-                            <span key={k} className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.5)" }}>
+                            <span key={k} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                               {METRIC_LABELS[k] ?? k}: {fmtValue(v, k === "spend" || k === "cpa" ? "R$" : k === "ctr" ? "%" : k === "roas" ? "x" : "#")}
                             </span>
                           ))}
@@ -337,7 +346,7 @@ export default function ExperimentDetail() {
                           {cp.qualitativeNote && <p className="text-xs text-muted-foreground mb-1 italic">{cp.qualitativeNote}</p>}
                           <button
                             onClick={() => { setEditingNoteId(cp.id); setNoteText(cp.qualitativeNote ?? ""); }}
-                            className="text-[10px] text-muted-foreground/60 hover:text-primary transition-colors"
+                            className="text-[10px] text-muted-foreground hover:text-primary transition-colors"
                           >
                             {cp.qualitativeNote ? "Editar nota" : "Adicionar nota"}
                           </button>
@@ -353,28 +362,35 @@ export default function ExperimentDetail() {
 
         {/* ── Decision Tree ───────────────────────────────────────────────────── */}
         {exp.decisions.length > 0 && (
-          <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
             <button
-              className="w-full px-4 py-3 border-b border-border/60 flex items-center justify-between hover:bg-white/[0.03] transition-all"
+              className="w-full px-4 py-3 border-b border-border flex items-center justify-between hover:bg-muted/50 transition-all"
               onClick={() => setDecisionsOpen(v => !v)}
             >
               <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Árvore de Decisão</p>
               {decisionsOpen ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
             </button>
             {decisionsOpen && (
-              <div className="divide-y divide-border/40">
+              <div className="divide-y divide-border">
                 {exp.decisions.map((dec: any) => (
                   <div
                     key={dec.id}
                     className="px-4 py-3"
-                    style={dec.isCurrent ? { background: "rgba(245,158,11,0.04)", borderLeft: "2px solid rgba(245,158,11,0.5)" } : { borderLeft: "2px solid transparent" }}
+                    style={dec.isCurrent
+                      ? { background: "#FAEEDA", borderLeft: "3px solid #854F0B" }
+                      : { borderLeft: "3px solid transparent" }
+                    }
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <p className="text-xs font-semibold text-foreground">{dec.scenario}</p>
-                      {dec.isCurrent && <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-400">Atual</Badge>}
+                      {dec.isCurrent && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: "#FAEEDA", color: "#854F0B" }}>
+                          Atual
+                        </span>
+                      )}
                     </div>
                     {dec.reading && <p className="text-xs text-muted-foreground mb-0.5">Leitura: {dec.reading}</p>}
-                    {dec.nextStep && <p className="text-xs text-primary/70">→ {dec.nextStep}</p>}
+                    {dec.nextStep && <p className="text-xs font-medium text-primary">→ {dec.nextStep}</p>}
                   </div>
                 ))}
               </div>
@@ -383,10 +399,10 @@ export default function ExperimentDetail() {
         )}
 
         {/* ── AI Analysis ──────────────────────────────────────────────────────── */}
-        <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between">
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-3.5 h-3.5" style={{ color: "#D4537E" }} />
+              <Sparkles className="w-3.5 h-3.5 text-primary" />
               <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Análise IA</p>
             </div>
             {!analysisLoading && analysis && (
@@ -414,7 +430,7 @@ export default function ExperimentDetail() {
                 Analisando experimento...
               </div>
             ) : analysis ? (
-              <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{analysis}</p>
+              <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{analysis}</p>
             ) : (
               <p className="text-xs text-muted-foreground">Análise não disponível.</p>
             )}
