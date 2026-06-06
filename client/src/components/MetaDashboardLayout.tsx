@@ -48,7 +48,7 @@ const DIVIDER     = "0.5px solid rgba(255,255,255,0.08)";
 export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProps) {
   const { user, loading, isAuthenticated, logout } = useAuth();
   const [location, navigate] = useLocation();
-  const [pinnedOpen, setPinnedOpen] = useState(false);
+  const [pinnedOpen, setPinnedOpen] = useState(true);
   const [hovering, setHovering] = useState(false);
   const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
   const leaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);

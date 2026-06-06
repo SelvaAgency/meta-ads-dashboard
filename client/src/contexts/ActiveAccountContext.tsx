@@ -1,6 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { CLIENTS, ClientConfig, getClientByMetaAccountId, getIntegrationStatus, ClientIntegrationStatus } from "@/config/clientConfig";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 
 interface AdAccount {
   id: number;
@@ -64,20 +64,6 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
     return getClientByMetaAccountId(acc.accountId) ?? null;
   }, [activeAccountId, accounts]);
 
-  // Persist active account in localStorage
-  useEffect(() => {
-    if (accounts.length > 0) {
-      const saved = localStorage.getItem("meta_active_account_id");
-      const savedId = saved ? parseInt(saved) : null;
-      const exists = savedId && accounts.some((a) => a.id === savedId);
-      if (exists) {
-        setActiveAccountIdState(savedId);
-      } else {
-        setActiveAccountIdState(accounts[0].id);
-        localStorage.setItem("meta_active_account_id", String(accounts[0].id));
-      }
-    }
-  }, [accounts]);
 
   const setActiveAccountId = (id: number) => {
     setActiveAccountIdState(id);
