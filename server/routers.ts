@@ -1232,13 +1232,19 @@ export const appRouter = router({
         // Fetch 3-level data for richer AI analysis
         let adsetInsights: Awaited<ReturnType<typeof getAdSetsWithInsights>> = [];
         let adInsights: Awaited<ReturnType<typeof getAdsWithInsights>> = [];
+        const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+          Promise.race([promise, new Promise<T>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))]);
         try {
-          adsetInsights = await getAdSetsWithInsights(account.accountId, account.accessToken, startDate, endDate);
+          adsetInsights = await withTimeout(getAdSetsWithInsights(account.accountId, account.accessToken, startDate, endDate), 15000);
           // Build adset->goal map for correct result extraction at ad level
           const adsetGoalMap = new Map(adsetInsights.map(a => [a.id, a.optimization_goal]));
-          adInsights = await getAdsWithInsights(account.accountId, account.accessToken, startDate, endDate, adsetGoalMap);
-        } catch (e) {
-          console.error("[suggestions.generate] 3-level fetch failed, falling back to campaign-only:", e);
+          adInsights = await withTimeout(getAdsWithInsights(account.accountId, account.accessToken, startDate, endDate, adsetGoalMap), 15000);
+        } catch (e: any) {
+          if (e?.message === "timeout") {
+            console.warn("[suggestions.generate] adInsights timeout — falling back to campaign-only");
+          } else {
+            console.error("[suggestions.generate] 3-level fetch failed, falling back to campaign-only:", e);
+          }
         }
         const result = await generateAiSuggestions(input.accountId, ctx.user.id, mapped, rejectedFeedback, adsetInsights, adInsights);
         return result;
