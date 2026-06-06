@@ -179,6 +179,9 @@ export async function syncAccount(account: { id: number; accountId: string; acce
       const conversions = optimizationGoal
         ? extractResultsByGoal(insight.actions, optimizationGoal)
         : extractConversions(insight.actions);
+      if (conversions === 0 && spend > 0) {
+        logger.info(`[SYNC_GOAL] account=${account.accountId} campaign=${insight.campaign_id} goal="${optimizationGoal}" conversions=0 actions=${JSON.stringify((insight.actions ?? []).map(a => a.action_type))}`);
+      }
       const conversionValue = extractConversionValue(insight.action_values);
       const roas = extractPurchaseRoas(insight.purchase_roas, spend, conversionValue);
       const cpa = calculateCpa(spend, conversions);

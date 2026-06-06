@@ -444,6 +444,8 @@ export function getResultActionTypes(optimizationGoal: string): string[] {
     QUALITY_LEAD: ["onsite_conversion.lead_grouped", "lead", "offsite_conversion.fb_pixel_lead"],
     REPLIES: ["onsite_conversion.messaging_conversation_started_7d", "onsite_conversion.messaging_first_reply", "messaging_first_reply"],
     CONVERSATIONS: ["onsite_conversion.messaging_conversation_started_7d", "onsite_conversion.messaging_first_reply", "messaging_first_reply"],
+    QUALITY_COMMUNICATION: ["onsite_conversion.messaging_conversation_started_7d", "onsite_conversion.messaging_first_reply", "messaging_first_reply"],
+    CONTACTS: ["onsite_conversion.messaging_conversation_started_7d", "onsite_conversion.messaging_first_reply", "messaging_first_reply", "contact"],
     LINK_CLICKS: ["link_click"],
     LANDING_PAGE_VIEWS: ["landing_page_view"],
     POST_ENGAGEMENT: ["post_engagement"],

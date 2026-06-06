@@ -627,7 +627,9 @@ export const appRouter = router({
         const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         const { startDate, endDate } = resolveDateRange(input);
         const dbCampaigns = await getCampaignsByAccountId(account.id);
-        const dominantGoal = detectDominantGoal(dbCampaigns.map(c => c.optimizationGoal).filter((g): g is string => !!g));
+        const allGoals = dbCampaigns.map(c => c.optimizationGoal).filter((g): g is string => !!g);
+        const dominantGoal = detectDominantGoal(allGoals);
+        console.log(`[GOAL_DB] demographics account=${account.accountId} goals=${JSON.stringify(Array.from(new Set(allGoals)))} dominant=${dominantGoal}`);
         const rows = await getDemographicsInsights(account.accountId, account.accessToken, startDate, endDate, dominantGoal);
         // Aggregate by age
         const byAge: Record<string, { spend: number; impressions: number; clicks: number; conversions: number; reach: number }> = {};
@@ -671,7 +673,9 @@ export const appRouter = router({
         const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         const { startDate, endDate } = resolveDateRange(input);
         const dbCampaigns = await getCampaignsByAccountId(account.id);
-        const dominantGoal = detectDominantGoal(dbCampaigns.map(c => c.optimizationGoal).filter((g): g is string => !!g));
+        const allGoals2 = dbCampaigns.map(c => c.optimizationGoal).filter((g): g is string => !!g);
+        const dominantGoal = detectDominantGoal(allGoals2);
+        console.log(`[GOAL_DB] dailyInsights account=${account.accountId} goals=${JSON.stringify(Array.from(new Set(allGoals2)))} dominant=${dominantGoal}`);
         const rows = await getDailyAccountInsights(account.accountId, account.accessToken, startDate, endDate, dominantGoal);
         // Also compute weekend vs weekday aggregates
         let weekdayTotals = { days: 0, spend: 0, conversions: 0, conversionValue: 0, impressions: 0, clicks: 0, reach: 0 };
