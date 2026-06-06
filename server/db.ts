@@ -1320,3 +1320,53 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
     .values({ userId, date, content })
     .onDuplicateKeyUpdate({ set: { content } });
 }
+
+// ─── Account Thresholds ───────────────────────────────────────────────────────
+import { accountThresholds, notificationSettings } from "../drizzle/schema";
+
+export async function getAccountThresholds(accountId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(accountThresholds)
+    .where(eq(accountThresholds.accountId, accountId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertAccountThresholds(
+  accountId: number,
+  values: Partial<Omit<typeof accountThresholds.$inferInsert, "id" | "accountId" | "createdAt" | "updatedAt">>,
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(accountThresholds)
+    .values({ accountId, ...values })
+    .onDuplicateKeyUpdate({ set: { ...values } });
+}
+
+// ─── Notification Settings ────────────────────────────────────────────────────
+export async function getNotificationSettings(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(notificationSettings)
+    .where(eq(notificationSettings.userId, userId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertNotificationSettings(
+  userId: number,
+  values: Partial<Omit<typeof notificationSettings.$inferInsert, "id" | "userId" | "createdAt" | "updatedAt">>,
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(notificationSettings)
+    .values({ userId, ...values })
+    .onDuplicateKeyUpdate({ set: { ...values } });
+}

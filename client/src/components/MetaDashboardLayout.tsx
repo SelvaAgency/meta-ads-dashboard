@@ -169,9 +169,9 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
           {/* Configurações — always accessible */}
           {(() => {
-            const isActive = location === "/settings/accounts";
+            const isActive = location === "/settings";
             return (
-              <Link href="/settings/accounts">
+              <Link href="/settings">
                 <div
                   className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
                   style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
@@ -201,7 +201,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           {clientAccounts.length === 0 ? (
             /* No Meta accounts connected yet */
             sidebarOpen ? (
-              <Link href="/connect">
+              <Link href="/settings">
                 <button
                   className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all ${HOVER_CLS}`}
                   style={{ border: "0.5px dashed rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.4)" }}
@@ -211,7 +211,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 </button>
               </Link>
             ) : (
-              <Link href="/connect">
+              <Link href="/settings">
                 <button
                   className={`w-full h-8 flex items-center justify-center rounded-lg transition-all ${HOVER_CLS}`}
                   style={{ border: "0.5px dashed rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.4)" }}
@@ -303,7 +303,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 })}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/connect">
+                  <Link href="/settings">
                     <div className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer w-full">
                       <Link2 className="w-3.5 h-3.5" />
                       Gerenciar contas

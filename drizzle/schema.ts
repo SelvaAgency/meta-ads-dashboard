@@ -373,3 +373,48 @@ export const dailyBriefings = mysqlTable("daily_briefings", {
   uqUserDate: uniqueIndex("uq_user_date_briefing").on(table.userId, table.date),
 }));
 export type DailyBriefing = typeof dailyBriefings.$inferSelect;
+
+// ─── Account Thresholds ───────────────────────────────────────────────────────
+export const accountThresholds = mysqlTable("account_thresholds", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull().unique(),
+  // ROAS
+  roasGood: decimal("roasGood", { precision: 8, scale: 2 }),
+  roasRegular: decimal("roasRegular", { precision: 8, scale: 2 }),
+  // CPA
+  cpaGood: decimal("cpaGood", { precision: 10, scale: 2 }),
+  cpaRegular: decimal("cpaRegular", { precision: 10, scale: 2 }),
+  // CTR
+  ctrGood: decimal("ctrGood", { precision: 6, scale: 2 }),
+  ctrRegular: decimal("ctrRegular", { precision: 6, scale: 2 }),
+  // CPL (leads)
+  cplGood: decimal("cplGood", { precision: 10, scale: 2 }),
+  cplRegular: decimal("cplRegular", { precision: 10, scale: 2 }),
+  // CPM
+  cpmGood: decimal("cpmGood", { precision: 10, scale: 2 }),
+  cpmRegular: decimal("cpmRegular", { precision: 10, scale: 2 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AccountThreshold = typeof accountThresholds.$inferSelect;
+export type InsertAccountThreshold = typeof accountThresholds.$inferInsert;
+
+// ─── Notification Settings ────────────────────────────────────────────────────
+export const notificationSettings = mysqlTable("notification_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  emailDestination: varchar("emailDestination", { length: 320 }),
+  // Toggles
+  alertCpaEnabled: boolean("alertCpaEnabled").default(true).notNull(),
+  alertRoasEnabled: boolean("alertRoasEnabled").default(true).notNull(),
+  alertTokenExpiredEnabled: boolean("alertTokenExpiredEnabled").default(true).notNull(),
+  alertBudgetEnabled: boolean("alertBudgetEnabled").default(false).notNull(),
+  // Thresholds de disparo
+  alertCpaThreshold: decimal("alertCpaThreshold", { precision: 10, scale: 2 }),
+  alertRoasThreshold: decimal("alertRoasThreshold", { precision: 8, scale: 2 }),
+  alertBudgetPercent: int("alertBudgetPercent").default(85),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type NotificationSettings = typeof notificationSettings.$inferSelect;
+export type InsertNotificationSettings = typeof notificationSettings.$inferInsert;

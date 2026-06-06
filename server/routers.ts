@@ -56,6 +56,10 @@ import {
   forceUpdateAllTokens,
   getDailyBriefing,
   saveDailyBriefing,
+  getAccountThresholds,
+  upsertAccountThresholds,
+  getNotificationSettings,
+  upsertNotificationSettings,
 } from "./db";
 import {
   validateToken,
@@ -327,6 +331,35 @@ export const appRouter = router({
         return { updated };
       }),
 
+
+    getThresholds: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id);
+        return getAccountThresholds(input.accountId);
+      }),
+
+    upsertThresholds: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        roasGood:    z.string().optional().nullable(),
+        roasRegular: z.string().optional().nullable(),
+        cpaGood:     z.string().optional().nullable(),
+        cpaRegular:  z.string().optional().nullable(),
+        ctrGood:     z.string().optional().nullable(),
+        ctrRegular:  z.string().optional().nullable(),
+        cplGood:     z.string().optional().nullable(),
+        cplRegular:  z.string().optional().nullable(),
+        cpmGood:     z.string().optional().nullable(),
+        cpmRegular:  z.string().optional().nullable(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id);
+        const { accountId, ...values } = input;
+        await upsertAccountThresholds(accountId, values);
+        return { success: true };
+      }),
+
     disconnect: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -568,6 +601,30 @@ export const appRouter = router({
   }),
 
   // ─── Dashboard ─────────────────────────────────────────────────────────────
+
+  notifications: router({
+    get: protectedProcedure
+      .query(async ({ ctx }) => {
+        return getNotificationSettings(ctx.user.id);
+      }),
+
+    upsert: protectedProcedure
+      .input(z.object({
+        emailDestination:          z.string().email().optional().nullable(),
+        alertCpaEnabled:           z.boolean().optional(),
+        alertRoasEnabled:          z.boolean().optional(),
+        alertTokenExpiredEnabled:  z.boolean().optional(),
+        alertBudgetEnabled:        z.boolean().optional(),
+        alertCpaThreshold:         z.string().optional().nullable(),
+        alertRoasThreshold:        z.string().optional().nullable(),
+        alertBudgetPercent:        z.number().min(1).max(100).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await upsertNotificationSettings(ctx.user.id, input);
+        return { success: true };
+      }),
+  }),
+
   dashboard: router({
     overview: protectedProcedure
       .input(z.object({

@@ -2,6 +2,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
+import Settings from "./pages/Settings";
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -12,11 +13,11 @@ import Campaigns from "./pages/Campaigns";
 import Suggestions from "./pages/Suggestions";
 import SuggestionsHub from "./pages/SuggestionsHub";
 import Reports from "./pages/Reports";
-import Connect from "./pages/Connect";
+
 import AlertsPage from "./pages/AlertsPage";
 import GoogleAds from "./pages/GoogleAds";
 import SocialNetworks from "./pages/SocialNetworks";
-import AccountSettings from "./pages/AccountSettings";
+
 import Experiments from "./pages/Experiments";
 import ExperimentDetail from "./pages/ExperimentDetail";
 
@@ -30,7 +31,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={SuggestionsHub} />
-      <Route path="/connect" component={Connect} />
+      
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/campaigns" component={Campaigns} />
       <Route path="/alerts" component={AlertsPage} />
@@ -39,7 +40,7 @@ function Router() {
       <Route path="/reports" component={Reports} />
       <Route path="/google-ads" component={GoogleAds} />
       <Route path="/social-networks" component={SocialNetworks} />
-      <Route path="/settings/accounts" component={AccountSettings} />
+      <Route path="/settings" component={Settings} />
       <Route path="/experiments" component={Experiments} />
       <Route path="/experiments/:id" component={ExperimentDetail} />
       {/* Redirects for removed nav items */}
