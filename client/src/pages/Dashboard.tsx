@@ -208,8 +208,7 @@ export default function Dashboard() {
     customEnd: "",
   });
   const [creativeTab, setCreativeTab] = useState<"creatives" | "audiences">("creatives");
-  const [highlightsCollapsed, setHighlightsCollapsed] = useState(true);
-  const [campaignsCollapsed, setCampaignsCollapsed] = useState(true);
+  const [cardsExpanded, setCardsExpanded] = useState(false);
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
 
@@ -464,23 +463,23 @@ export default function Dashboard() {
             };
             return (
               <Card>
-                <div className="flex items-center justify-between px-6 pt-4 pb-3 cursor-pointer select-none" onClick={() => setCampaignsCollapsed(v => !v)}>
+                <div className="flex items-center justify-between px-6 pt-4 pb-3 cursor-pointer select-none" onClick={() => setCardsExpanded(v => !v)}>
                   <div className="text-sm font-semibold flex items-center gap-2">
                     <TrendingUp className="w-4 h-4 text-primary" />
                     Campanhas Ativas
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="text-xs text-muted-foreground">{sorted.length} ativas</Badge>
-                    {campaignsCollapsed ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
+                    {cardsExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                   </div>
                 </div>
                 <CardContent className="space-y-1.5">
                   {isLoading ? (
-                    <div className="space-y-2">{[...Array(campaignsCollapsed ? 1 : 4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
+                    <div className="space-y-2">{[...Array(cardsExpanded ? 4 : 1)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
                   ) : sorted.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">Nenhuma campanha ativa com dados no período.</p>
                   ) : (
-                    (campaignsCollapsed ? sorted.slice(0, 1) : sorted).map((c, i) => {
+                    (cardsExpanded ? sorted : sorted.slice(0, 1)).map((c, i) => {
                       const t = tier(i);
                       const roas = Number((c as any).avgRoas ?? 0);
                       return (
@@ -508,7 +507,7 @@ export default function Dashboard() {
 
           {/* Card direito — Destaques do Período */}
           <Card>
-            <div className="flex items-center justify-between px-6 pt-4 pb-2 cursor-pointer select-none" onClick={() => setHighlightsCollapsed(v => !v)}>
+            <div className="flex items-center justify-between px-6 pt-4 pb-2 cursor-pointer select-none" onClick={() => setCardsExpanded(v => !v)}>
               <span className="text-sm font-semibold text-foreground">Destaques do Período</span>
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-0.5" onClick={e => e.stopPropagation()}>
@@ -526,17 +525,17 @@ export default function Dashboard() {
                     </button>
                   ))}
                 </div>
-                {highlightsCollapsed ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronUp className="w-4 h-4 text-gray-400" />}
+                {cardsExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
               </div>
             </div>
             <CardContent className="space-y-1.5">
               {creativeTab === "creatives" ? (
                 adsLoading ? (
-                  <div className="space-y-2">{[...Array(highlightsCollapsed ? 1 : 4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
+                  <div className="space-y-2">{[...Array(cardsExpanded ? 4 : 1)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
                 ) : !topAds?.length ? (
                   <p className="text-sm text-muted-foreground text-center py-4">Sem dados de anúncios no período.</p>
                 ) : (
-                  (highlightsCollapsed ? topAds.slice(0, 1) : topAds).map((ad, i) => (
+                  (cardsExpanded ? topAds : topAds.slice(0, 1)).map((ad, i) => (
                     <div key={ad.adId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/30 transition-colors">
                       <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
                       <div className="flex-1 min-w-0">
@@ -555,11 +554,11 @@ export default function Dashboard() {
                 )
               ) : (
                 adsetsLoading ? (
-                  <div className="space-y-2">{[...Array(highlightsCollapsed ? 1 : 4)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
+                  <div className="space-y-2">{[...Array(cardsExpanded ? 4 : 1)].map((_, i) => <div key={i} className="h-11 bg-muted rounded-lg animate-pulse" />)}</div>
                 ) : !topAdsets?.length ? (
                   <p className="text-sm text-muted-foreground text-center py-4">Sem dados de públicos no período.</p>
                 ) : (
-                  (highlightsCollapsed ? topAdsets.slice(0, 1) : topAdsets).map((as, i) => (
+                  (cardsExpanded ? topAdsets : topAdsets.slice(0, 1)).map((as, i) => (
                     <div key={as.adsetId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-accent/30 transition-colors">
                       <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold flex-shrink-0">{i + 1}</span>
                       <div className="flex-1 min-w-0">
