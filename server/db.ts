@@ -577,6 +577,57 @@ export async function getSuggestionsByAccountId(accountId: number, limit = 50) {
     .limit(limit);
 }
 
+export async function getAllSuggestionsForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return { suggestions: [], appliedToday: 0 };
+
+  const suggestions = await db
+    .select({
+      id: aiSuggestions.id,
+      accountId: aiSuggestions.accountId,
+      category: aiSuggestions.category,
+      priority: aiSuggestions.priority,
+      title: aiSuggestions.title,
+      description: aiSuggestions.description,
+      expectedImpact: aiSuggestions.expectedImpact,
+      actionItems: aiSuggestions.actionItems,
+      status: aiSuggestions.status,
+      generatedAt: aiSuggestions.generatedAt,
+      expiresAt: aiSuggestions.expiresAt,
+      accountName: metaAdAccounts.accountName,
+      metaAccountId: metaAdAccounts.accountId,
+      aiStatusColor: metaAdAccounts.aiStatusColor,
+    })
+    .from(aiSuggestions)
+    .innerJoin(metaAdAccounts, eq(aiSuggestions.accountId, metaAdAccounts.id))
+    .where(
+      and(
+        eq(metaAdAccounts.userId, userId),
+        eq(metaAdAccounts.isActive, true),
+        eq(aiSuggestions.status, "pending"),
+        eq(aiSuggestions.isDismissed, false)
+      )
+    )
+    .orderBy(desc(aiSuggestions.generatedAt))
+    .limit(200);
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const appliedRows = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(aiSuggestions)
+    .innerJoin(metaAdAccounts, eq(aiSuggestions.accountId, metaAdAccounts.id))
+    .where(
+      and(
+        eq(metaAdAccounts.userId, userId),
+        eq(aiSuggestions.status, "applied"),
+        gte(aiSuggestions.appliedAt, todayStart)
+      )
+    );
+
+  return { suggestions, appliedToday: Number(appliedRows[0]?.count ?? 0) };
+}
+
 // Get history (applied or rejected, within 30 days)
 export async function getSuggestionsHistory(accountId: number, limit = 100) {
   const db = await getDb();

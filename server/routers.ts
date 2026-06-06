@@ -31,6 +31,7 @@ import {
   getScheduledReportsByUserId,
   getAnomaliesByAccountId,
   getSuggestionsByAccountId,
+  getAllSuggestionsForUser,
   getSuggestionsHistory,
   updateSuggestionStatus,
   saveSuggestionMonitorResult,
@@ -1191,6 +1192,10 @@ export const appRouter = router({
 
   // ─── AI Suggestions ────────────────────────────────────────────────────────
   suggestions: router({
+    listAll: protectedProcedure
+      .query(async ({ ctx }) => {
+        return getAllSuggestionsForUser(ctx.user.id);
+      }),
     list: protectedProcedure
       .input(z.object({ accountId: z.number() }))
       .query(async ({ ctx, input }) => {

@@ -304,20 +304,36 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 </Link>
                 {/* Sugestões IA — submenu indentado abaixo de Dashboard */}
                 {item.path === "/dashboard" && (
-                  <Link href="/suggestions">
-                    <div
-                      className={`flex items-center gap-2.5 pl-9 pr-3 py-2 rounded-lg cursor-pointer transition-all duration-150 group ${
-                        location === "/suggestions"
-                          ? "bg-sidebar-primary/15 text-sidebar-primary font-semibold border-l-2 border-sidebar-primary"
-                          : "text-sidebar-foreground/50 hover:bg-sidebar-primary/10 hover:text-sidebar-primary"
-                      }`}
-                    >
-                      <Lightbulb className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${location === "/suggestions" ? "text-primary" : "group-hover:text-primary"}`} />
-                      {sidebarOpen && (
-                        <span className="text-xs font-medium flex-1 truncate">Sugestões IA</span>
-                      )}
-                    </div>
-                  </Link>
+                  <>
+                    <Link href="/suggestions-hub">
+                      <div
+                        className={`flex items-center gap-2.5 pl-9 pr-3 py-2 rounded-lg cursor-pointer transition-all duration-150 group ${
+                          location === "/suggestions-hub"
+                            ? "bg-sidebar-primary/15 text-sidebar-primary font-semibold border-l-2 border-sidebar-primary"
+                            : "text-sidebar-foreground/50 hover:bg-sidebar-primary/10 hover:text-sidebar-primary"
+                        }`}
+                      >
+                        <Lightbulb className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${location === "/suggestions-hub" ? "text-primary" : "group-hover:text-primary"}`} />
+                        {sidebarOpen && (
+                          <span className="text-xs font-medium flex-1 truncate">Central</span>
+                        )}
+                      </div>
+                    </Link>
+                    <Link href="/suggestions">
+                      <div
+                        className={`flex items-center gap-2.5 pl-9 pr-3 py-2 rounded-lg cursor-pointer transition-all duration-150 group ${
+                          location === "/suggestions"
+                            ? "bg-sidebar-primary/15 text-sidebar-primary font-semibold border-l-2 border-sidebar-primary"
+                            : "text-sidebar-foreground/50 hover:bg-sidebar-primary/10 hover:text-sidebar-primary"
+                        }`}
+                      >
+                        <Lightbulb className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${location === "/suggestions" ? "text-primary" : "group-hover:text-primary"}`} />
+                        {sidebarOpen && (
+                          <span className="text-xs font-medium flex-1 truncate">Sugestões IA</span>
+                        )}
+                      </div>
+                    </Link>
+                  </>
                 )}
               </div>
             );

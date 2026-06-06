@@ -11,6 +11,7 @@ import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Campaigns from "./pages/Campaigns";
 import Suggestions from "./pages/Suggestions";
+import SuggestionsHub from "./pages/SuggestionsHub";
 import Reports from "./pages/Reports";
 import Connect from "./pages/Connect";
 import AlertsPage from "./pages/AlertsPage";
@@ -33,6 +34,7 @@ function Router() {
       <Route path="/campaigns" component={Campaigns} />
       <Route path="/alerts" component={AlertsPage} />
       <Route path="/suggestions" component={Suggestions} />
+      <Route path="/suggestions-hub" component={SuggestionsHub} />
       <Route path="/reports" component={Reports} />
       <Route path="/google-ads" component={GoogleAds} />
       <Route path="/social-networks" component={SocialNetworks} />
