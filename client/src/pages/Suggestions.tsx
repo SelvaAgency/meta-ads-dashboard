@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
 import {
   Brain, CheckCircle2, ChevronDown, ChevronUp, Clock, DollarSign,
   Lightbulb, Link2, RefreshCw, Target, Users, XCircle, Zap, Eye,
-  AlertCircle, RotateCcw, TrendingUp, Info, Send, History, Maximize2, X,
+  AlertCircle, RotateCcw, TrendingUp, Info, Send, History, Maximize2, X, ExternalLink,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -61,8 +61,9 @@ function RejectionForm({ onConfirm, onCancel }: { onConfirm: (r: string) => void
   );
 }
 
-function SuggestionCard({ s, onStatusChange }: {
+function SuggestionCard({ s, onStatusChange, accountMetaId }: {
   s: any;
+  accountMetaId?: string;
   onStatusChange: (id: number, status: "applied" | "rejected" | "pending", reason?: string, monitorDays?: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -149,6 +150,18 @@ function SuggestionCard({ s, onStatusChange }: {
           <button onClick={() => { setIsPending(true); onStatusChange(s.id, "pending"); setTimeout(() => setIsPending(false), 1000); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 20, border: "1px solid rgba(0,0,0,0.12)", background: "white", color: "rgba(0,0,0,0.4)", fontSize: 11, cursor: "pointer" }}>
             <RotateCcw style={{ width: 10, height: 10 }} /> Reverter
           </button>
+        )}
+        {accountMetaId && (
+          <a
+            href={`https://adsmanager.facebook.com/adsmanager/manage/ads?act=${accountMetaId.replace("act_", "")}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "rgba(0,0,0,0.35)", textDecoration: "none", padding: "3px 8px", borderRadius: 6, border: "0.5px solid rgba(0,0,0,0.1)", background: "white" }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(24,95,165,0.4)"; e.currentTarget.style.color = "#185FA5"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(0,0,0,0.1)"; e.currentTarget.style.color = "rgba(0,0,0,0.35)"; }}
+          >
+            <ExternalLink style={{ width: 10, height: 10 }} /> BM
+          </a>
         )}
         <span style={{ fontSize: 11, color: "rgba(0,0,0,0.3)", marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
           <Clock style={{ width: 10, height: 10 }} />{formatDate(s.generatedAt)}{s.expiresAt && ` · expira ${formatDate(s.expiresAt)}`}
@@ -609,28 +622,28 @@ export default function Suggestions() {
             {fp1.length > 0 && (
               <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
                 {sectionHeader("#E24B4A", "Críticas — requerem ação imediata", "critical", fp1.length)}
-                {openGroups.critical && fp1.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
+                {openGroups.critical && fp1.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} />)}
               </div>
             )}
 
             {fp2.length > 0 && (
               <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
                 {sectionHeader("#EF9F27", "Em atenção — monitorar nos próximos dias", "attention", fp2.length)}
-                {openGroups.attention && fp2.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
+                {openGroups.attention && fp2.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} />)}
               </div>
             )}
 
             {fp3.length > 0 && (
               <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
                 {sectionHeader("#378ADD", "Oportunidades — crescimento", "opportunities", fp3.length)}
-                {openGroups.opportunities && fp3.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
+                {openGroups.opportunities && fp3.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} />)}
               </div>
             )}
 
             {recentApplied.length > 0 && !activeFilter && (
               <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
                 {sectionHeader("#1D9E75", "Aplicadas — em observação", "applied", recentApplied.length)}
-                {openGroups.applied && recentApplied.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
+                {openGroups.applied && recentApplied.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} />)}
               </div>
             )}
 
@@ -662,7 +675,7 @@ export default function Suggestions() {
                   {historyDeduped.length === 0 ? (
                     <p style={{ fontSize: 12, color: "rgba(0,0,0,0.3)", textAlign: "center", padding: "16px 0" }}>Nenhuma ação no histórico ainda.</p>
                   ) : historyDeduped.map((s: any) => (
-                    <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />
+                    <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} />
                   ))}
                 </div>
               )}
