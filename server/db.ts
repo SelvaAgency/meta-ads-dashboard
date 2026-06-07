@@ -751,7 +751,7 @@ export async function createAiSuggestion(data: InsertAiSuggestion) {
   // Set expiry to 30 days from now
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 30);
-  await db.insert(aiSuggestions).values({ ...data, expiresAt, status: "pending" });
+  await db.insert(aiSuggestions).values({ ...data, expiresAt, status: data.status ?? "pending" });
 }
 
 export async function dismissSuggestion(id: number) {

@@ -135,7 +135,7 @@ function SuggestionCard({ s, onStatusChange }: {
       )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
-        {!isApplied && !isRejected && (
+        {!isApplied && !isRejected && s.description !== "Ação criada a partir do Chat IA." && (
           <>
             <button onClick={() => setShowApplyModal(true)} disabled={isPending} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 20, border: "1px solid rgba(29,158,117,0.4)", background: "rgba(29,158,117,0.06)", color: "#1D9E75", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
               <CheckCircle2 style={{ width: 11, height: 11 }} /> Marcar Aplicado
@@ -205,11 +205,19 @@ function ChatMessages({ messages, isPending, accountId }: { messages: Array<{ ro
           <div style={{ background: "white", borderRadius: 14, padding: "24px 28px", width: 400 }}>
             <p style={{ fontSize: 14, fontWeight: 600, color: "#111", marginBottom: 8 }}>Adicionar ao Plano de Ação</p>
             <p style={{ fontSize: 12, color: "rgba(0,0,0,0.5)", marginBottom: 14, lineHeight: 1.5 }}>{actionModal.text}</p>
-            <p style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", marginBottom: 8 }}>Período de monitoramento:</p>
-            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <p style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", marginBottom: 8 }}>Período de monitoramento (dias):</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
               {[3, 5, 7, 14].map(d => (
-                <button key={d} onClick={() => setMonitorDays(d)} style={{ flex: 1, padding: "7px 0", borderRadius: 8, fontSize: 12, fontWeight: 600, border: monitorDays === d ? "2px solid #E85BA8" : "1px solid rgba(0,0,0,0.12)", background: monitorDays === d ? "rgba(232,91,168,0.08)" : "white", color: monitorDays === d ? "#E85BA8" : "rgba(0,0,0,0.5)", cursor: "pointer" }}>{d}d</button>
+                <button key={d} onClick={() => setMonitorDays(d)} style={{ padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600, border: monitorDays === d ? "2px solid #E85BA8" : "1px solid rgba(0,0,0,0.12)", background: monitorDays === d ? "rgba(232,91,168,0.08)" : "white", color: monitorDays === d ? "#E85BA8" : "rgba(0,0,0,0.5)", cursor: "pointer" }}>{d}d</button>
               ))}
+              <input
+                type="number"
+                min={1}
+                max={60}
+                value={monitorDays}
+                onChange={e => setMonitorDays(Math.max(1, Math.min(60, parseInt(e.target.value) || 1)))}
+                style={{ width: 60, fontSize: 12, padding: "5px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", textAlign: "center", outline: "none" }}
+              />
             </div>
             <p style={{ fontSize: 10, color: "rgba(0,0,0,0.3)", marginBottom: 16, lineHeight: 1.5 }}>A ação entra direto em monitoramento. Após {monitorDays} dias, a IA registra um aprendizado automático.</p>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
