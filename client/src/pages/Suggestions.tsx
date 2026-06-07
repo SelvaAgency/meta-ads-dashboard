@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
 import {
   Brain, CheckCircle2, ChevronDown, ChevronUp, Clock, DollarSign,
   Lightbulb, Link2, RefreshCw, Target, Users, XCircle, Zap, Eye,
-  AlertCircle, RotateCcw, TrendingUp, Info, Send, History,
+  AlertCircle, RotateCcw, TrendingUp, Info, Send, History, Maximize2, X,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -182,9 +182,31 @@ function SuggestionCard({ s, onStatusChange }: {
   );
 }
 
+function ChatMessages({ messages, isPending }: { messages: Array<{ role: string; content: string }>; isPending: boolean }) {
+  return (
+    <>
+      {messages.length === 0 && (
+        <div style={{ margin: "auto", textAlign: "center", padding: "20px 0" }}>
+          <Brain style={{ width: 24, height: 24, color: "rgba(232,91,168,0.3)", margin: "0 auto 8px" }} />
+          <p style={{ fontSize: 11, color: "rgba(0,0,0,0.35)", lineHeight: 1.5 }}>Pergunte, peça análises ou descreva uma demanda. A IA já conhece o contexto desta conta.</p>
+        </div>
+      )}
+      {messages.map((m, i) => (
+        <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+          <div style={{ maxWidth: "90%", padding: "8px 12px", borderRadius: m.role === "user" ? "10px 10px 2px 10px" : "10px 10px 10px 2px", background: m.role === "user" ? "#E85BA8" : "rgba(0,0,0,0.04)", color: m.role === "user" ? "white" : "#111", fontSize: 12, lineHeight: 1.6 }}>
+            {m.content}
+          </div>
+        </div>
+      ))}
+      {isPending && <div style={{ padding: "8px 12px", borderRadius: "10px 10px 10px 2px", background: "rgba(0,0,0,0.04)", fontSize: 12, color: "rgba(0,0,0,0.4)" }}>Pensando...</div>}
+    </>
+  );
+}
+
 function ChatPanel({ accountId }: { accountId: number | null }) {
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [input, setInput] = useState("");
+  const [modal, setModal] = useState(false);
 
   const chat = trpc.context.chat.useMutation({
     onError: () => setMessages(prev => [...prev, { role: "assistant", content: "Erro ao conectar com a IA. Tente novamente." }]),
@@ -202,35 +224,55 @@ function ChatPanel({ accountId }: { accountId: number | null }) {
     );
   }
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 12, overflow: "hidden", background: "white", position: "sticky", top: 20 }}>
-      <div style={{ padding: "10px 14px", borderBottom: "0.5px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.02)" }}>
-        <Brain style={{ width: 13, height: 13, color: "#E85BA8" }} />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "#111" }}>Chat IA</span>
-      </div>
-      <div style={{ minHeight: 180, maxHeight: 400, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: 8 }}>
-        {messages.length === 0 && (
-          <div style={{ margin: "auto", textAlign: "center", padding: "20px 0" }}>
-            <Brain style={{ width: 24, height: 24, color: "rgba(232,91,168,0.3)", margin: "0 auto 8px" }} />
-            <p style={{ fontSize: 11, color: "rgba(0,0,0,0.35)", lineHeight: 1.5 }}>Pergunte, peça análises ou descreva uma demanda. A IA já conhece o contexto desta conta.</p>
-          </div>
-        )}
-        {messages.map((m, i) => (
-          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-            <div style={{ maxWidth: "90%", padding: "8px 12px", borderRadius: m.role === "user" ? "10px 10px 2px 10px" : "10px 10px 10px 2px", background: m.role === "user" ? "#E85BA8" : "rgba(0,0,0,0.04)", color: m.role === "user" ? "white" : "#111", fontSize: 12, lineHeight: 1.5 }}>
-              {m.content}
-            </div>
-          </div>
-        ))}
-        {chat.isPending && <div style={{ padding: "8px 12px", borderRadius: "10px 10px 10px 2px", background: "rgba(0,0,0,0.04)", fontSize: 12, color: "rgba(0,0,0,0.4)" }}>Pensando...</div>}
-      </div>
-      <div style={{ borderTop: "0.5px solid rgba(0,0,0,0.08)", padding: "8px", display: "flex", gap: 6, background: "rgba(0,0,0,0.02)" }}>
-        <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} placeholder="Pergunte ou peça análise... (Enter)" rows={2} style={{ flex: 1, fontSize: 11, padding: "6px 10px", borderRadius: 6, border: "0.5px solid rgba(0,0,0,0.12)", background: "white", resize: "none", fontFamily: "inherit", outline: "none", color: "#111" }} />
-        <button onClick={sendMessage} disabled={chat.isPending || !input.trim() || !accountId} style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "#E85BA8", color: "white", cursor: chat.isPending || !input.trim() ? "not-allowed" : "pointer", opacity: chat.isPending || !input.trim() ? 0.6 : 1, alignSelf: "flex-end" }}>
-          <Send style={{ width: 14, height: 14 }} />
-        </button>
-      </div>
+  const inputArea = (large: boolean) => (
+    <div style={{ borderTop: "0.5px solid rgba(0,0,0,0.08)", padding: "8px", display: "flex", gap: 6, background: "rgba(0,0,0,0.02)" }}>
+      <textarea
+        value={input}
+        onChange={e => setInput(e.target.value)}
+        onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+        placeholder="Pergunte ou peça análise... (Enter)"
+        rows={large ? 3 : 2}
+        style={{ flex: 1, fontSize: large ? 13 : 11, padding: "6px 10px", borderRadius: 6, border: "0.5px solid rgba(0,0,0,0.12)", background: "white", resize: "none", fontFamily: "inherit", outline: "none", color: "#111" }}
+      />
+      <button onClick={sendMessage} disabled={chat.isPending || !input.trim() || !accountId} style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "#E85BA8", color: "white", cursor: chat.isPending || !input.trim() ? "not-allowed" : "pointer", opacity: chat.isPending || !input.trim() ? 0.6 : 1, alignSelf: "flex-end" }}>
+        <Send style={{ width: 14, height: 14 }} />
+      </button>
     </div>
+  );
+
+  return (
+    <>
+      {modal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ background: "white", borderRadius: 14, width: "100%", maxWidth: 720, height: "80vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "0.5px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: 8 }}>
+              <Brain style={{ width: 14, height: 14, color: "#E85BA8" }} />
+              <span style={{ fontSize: 13, fontWeight: 500, color: "#111", flex: 1 }}>Chat IA</span>
+              <button onClick={() => setModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.4)", padding: 2 }}>
+                <X style={{ width: 16, height: 16 }} />
+              </button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+              <ChatMessages messages={messages} isPending={chat.isPending} />
+            </div>
+            {inputArea(true)}
+          </div>
+        </div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 12, overflow: "hidden", background: "white", position: "sticky", top: 20 }}>
+        <div style={{ padding: "10px 14px", borderBottom: "0.5px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.02)" }}>
+          <Brain style={{ width: 13, height: 13, color: "#E85BA8" }} />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "#111", flex: 1 }}>Chat IA</span>
+          <button onClick={() => setModal(true)} title="Expandir" style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.3)", padding: 2 }}>
+            <Maximize2 style={{ width: 12, height: 12 }} />
+          </button>
+        </div>
+        <div style={{ minHeight: 180, maxHeight: 400, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <ChatMessages messages={messages} isPending={chat.isPending} />
+        </div>
+        {inputArea(false)}
+      </div>
+    </>
   );
 }
 
