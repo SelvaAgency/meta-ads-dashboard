@@ -94,7 +94,9 @@ function SuggestionCard({ s, onStatusChange }: {
         <p style={{ flex: 1, fontSize: 13, fontWeight: 500, color: "#111", lineHeight: 1.45, margin: 0 }}>{s.title}</p>
         <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: cat.bg, color: cat.color, flexShrink: 0 }}>{cat.label}</span>
       </div>
-      <p style={{ fontSize: 12, color: "rgba(0,0,0,0.5)", lineHeight: 1.55, margin: "8px 0 0 0" }}>{s.description}</p>
+      {expanded && (
+        <p style={{ fontSize: 12, color: "rgba(0,0,0,0.5)", lineHeight: 1.55, margin: "8px 0 0 0" }}>{s.description}</p>
+      )}
 
       {expanded && (
         <div style={{ marginTop: 12 }}>
