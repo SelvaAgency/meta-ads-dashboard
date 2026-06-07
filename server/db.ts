@@ -582,19 +582,18 @@ export async function purgeOldReadAnomalies() {
 
 // ─── AI Suggestions ───────────────────────────────────────────────────────────
 
-// Get pending suggestions (status = pending, not expired)
+// Get active suggestions (pending + applied/monitoring)
 export async function getSuggestionsByAccountId(accountId: number, limit = 50) {
   const db = await getDb();
   if (!db) return [];
-  const now = new Date();
   return db
     .select()
     .from(aiSuggestions)
     .where(
       and(
         eq(aiSuggestions.accountId, accountId),
-        eq(aiSuggestions.status, "pending"),
-        eq(aiSuggestions.isDismissed, false)
+        eq(aiSuggestions.isDismissed, false),
+        sql`${aiSuggestions.status} IN ('pending', 'applied')`
       )
     )
     .orderBy(desc(aiSuggestions.generatedAt))
