@@ -494,21 +494,65 @@ function NotificationsSection() {
 
 // ─── Agency bar ───────────────────────────────────────────────────────────────
 function AgencyBar({ totalAccounts }: { totalAccounts: number }) {
+  const [openPanel, setOpenPanel] = useState<"token" | "knowledge" | null>(null);
+  const toggle = (p: "token" | "knowledge") => setOpenPanel(v => v === p ? null : p);
+
   return (
-    <div className="rounded-xl border border-border bg-card/60 p-4 flex items-center gap-4">
-      <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-        <span className="text-primary-foreground font-bold text-sm">S</span>
-      </div>
-      <div className="flex-1">
-        <p className="text-sm font-semibold text-foreground">SELVA AGENCY</p>
-        <p className="text-xs text-muted-foreground">selva.agency · São Paulo, BR · BRL</p>
-      </div>
-      <div className="flex gap-6 text-right">
-        <div>
-          <p className="text-sm font-semibold text-foreground">{totalAccounts}</p>
-          <p className="text-xs text-muted-foreground">contas ativas</p>
+    <div className="rounded-xl border border-border bg-card/60 overflow-hidden">
+      {/* Header */}
+      <div className="p-4 flex items-center gap-4">
+        <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
+          <span className="text-primary-foreground font-bold text-sm">S</span>
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-foreground">SELVA AGENCY</p>
+          <p className="text-xs text-muted-foreground">selva.agency · São Paulo, BR · BRL</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-right mr-4">
+            <p className="text-sm font-semibold text-foreground">{totalAccounts}</p>
+            <p className="text-xs text-muted-foreground">contas ativas</p>
+          </div>
+          <button
+            onClick={() => toggle("token")}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors"
+            style={{
+              background: openPanel === "token" ? "rgba(232,91,168,0.1)" : "transparent",
+              borderColor: openPanel === "token" ? "rgba(232,91,168,0.4)" : "rgba(0,0,0,0.12)",
+              color: openPanel === "token" ? "#E85BA8" : "rgba(0,0,0,0.45)",
+            }}
+          >
+            <Key className="w-3 h-3" />
+            Token
+          </button>
+          <button
+            onClick={() => toggle("knowledge")}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors"
+            style={{
+              background: openPanel === "knowledge" ? "rgba(232,91,168,0.1)" : "transparent",
+              borderColor: openPanel === "knowledge" ? "rgba(232,91,168,0.4)" : "rgba(0,0,0,0.12)",
+              color: openPanel === "knowledge" ? "#E85BA8" : "rgba(0,0,0,0.45)",
+            }}
+          >
+            <Brain className="w-3 h-3" />
+            Base de Conhecimento
+          </button>
         </div>
       </div>
+
+      {/* Token panel */}
+      {openPanel === "token" && (
+        <div className="border-t border-border px-6 py-5">
+          <TokenSection />
+        </div>
+      )}
+
+      {/* Knowledge panel */}
+      {openPanel === "knowledge" && (
+        <div className="border-t border-border px-6 py-5">
+          <KnowledgeBaseSection />
+        </div>
+      )}
     </div>
   );
 }
@@ -660,19 +704,10 @@ export default function Settings() {
               <AccountCard key={account.id} account={account} />
             ))}
           </div>
-          <div className="mt-4">
-            <TokenSection />
-          </div>
+
         </section>
 
-        {/* Base de Conhecimento */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Brain className="w-3.5 h-3.5 text-muted-foreground" />
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Base de Conhecimento — IA</h2>
-          </div>
-          <KnowledgeBaseSection />
-        </section>
+
         {/* Alertas */}
         <section>
           <div className="flex items-center gap-2 mb-3">
