@@ -261,6 +261,8 @@ export default function Suggestions() {
   const [focusInput, setFocusInput] = useState("");
   const [savingFocus, setSavingFocus] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ critical: true, attention: false, opportunities: false, applied: false });
+  const toggleGroup = (key: string) => setOpenGroups(prev => ({ ...prev, [key]: !prev[key] }));
 
   const { data: suggestions, isLoading } = trpc.suggestions.list.useQuery({ accountId: selectedAccountId! }, { enabled: !!selectedAccountId });
   const { data: hist = [] } = trpc.suggestions.history.useQuery({ accountId: selectedAccountId! }, { enabled: !!selectedAccountId });
@@ -352,8 +354,14 @@ export default function Suggestions() {
   };
   const { p1: fp1, p2: fp2, p3: fp3 } = getFilteredActions();
 
-  const sectionLabel = (color: string, text: string) => (
-    <p style={{ fontSize: 10, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>{text}</p>
+  const sectionHeader = (color: string, text: string, key: string, count: number) => (
+    <div onClick={() => toggleGroup(key)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: openGroups[key] ? 10 : 0, cursor: "pointer", padding: "6px 0" }}>
+      <p style={{ fontSize: 10, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
+        {text}
+        <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, background: `${color}18`, color }}>{count}</span>
+      </p>
+      <ChevronDown style={{ width: 13, height: 13, color, transform: openGroups[key] ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }} />
+    </div>
   );
 
   return (
@@ -417,7 +425,17 @@ export default function Suggestions() {
                 <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#378ADD", flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
                   <p style={{ fontSize: 11, fontWeight: 500, color: "#111" }}>{e.title}</p>
-                  <p style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>dia {e.currentDay ?? "?"} de {e.durationDays ?? "?"}</p>
+                  <p style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>
+                    {(() => {
+                      if (!e.startDate || !e.endDate) return "datas não definidas";
+                      const start = new Date(e.startDate);
+                      const end = new Date(e.endDate);
+                      const today = new Date();
+                      const totalDays = Math.ceil((end.getTime() - start.getTime()) / 86400000);
+                      const currentDay = Math.min(Math.max(1, Math.ceil((today.getTime() - start.getTime()) / 86400000)), totalDays);
+                      return `dia ${currentDay} de ${totalDays}`;
+                    })()}
+                  </p>
                 </div>
                 <button onClick={() => navigate("/experiments")} style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", background: "none", border: "none", cursor: "pointer" }}>Ver →</button>
               </div>
@@ -458,30 +476,30 @@ export default function Suggestions() {
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
             {fp1.length > 0 && (
-              <div>
-                {sectionLabel("#E24B4A", "Críticas — requerem ação imediata")}
-                {fp1.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
+              <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
+                {sectionHeader("#E24B4A", "Críticas — requerem ação imediata", "critical", fp1.length)}
+                {openGroups.critical && fp1.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
               </div>
             )}
 
             {fp2.length > 0 && (
-              <div>
-                {sectionLabel("#EF9F27", "Em atenção — monitorar nos próximos dias")}
-                {fp2.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
+              <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
+                {sectionHeader("#EF9F27", "Em atenção — monitorar nos próximos dias", "attention", fp2.length)}
+                {openGroups.attention && fp2.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
               </div>
             )}
 
             {fp3.length > 0 && (
-              <div>
-                {sectionLabel("#378ADD", "Oportunidades — crescimento")}
-                {fp3.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
+              <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
+                {sectionHeader("#378ADD", "Oportunidades — crescimento", "opportunities", fp3.length)}
+                {openGroups.opportunities && fp3.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
               </div>
             )}
 
             {recentApplied.length > 0 && !activeFilter && (
-              <div>
-                {sectionLabel("#1D9E75", "Aplicadas — em observação")}
-                {recentApplied.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
+              <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
+                {sectionHeader("#1D9E75", "Aplicadas — em observação", "applied", recentApplied.length)}
+                {openGroups.applied && recentApplied.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
               </div>
             )}
 
