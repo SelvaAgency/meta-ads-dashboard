@@ -185,41 +185,21 @@ function SuggestionCard({ s, onStatusChange }: {
 function ChatPanel({ accountId }: { accountId: number | null }) {
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const { accounts } = useSelectedAccount();
-  const { data: accountCtx } = trpc.context.getAccount.useQuery({ accountId: accountId! }, { enabled: !!accountId, staleTime: 30_000 });
-  const { data: agencyCtx } = trpc.context.getAgency.useQuery(undefined, { staleTime: 60_000 });
-  const account = accounts?.find((a: any) => a.id === accountId);
 
-  async function sendMessage() {
-    if (!input.trim() || loading) return;
+  const chat = trpc.context.chat.useMutation({
+    onError: () => setMessages(prev => [...prev, { role: "assistant", content: "Erro ao conectar com a IA. Tente novamente." }]),
+  });
+
+  function sendMessage() {
+    if (!input.trim() || chat.isPending || !accountId) return;
     const userMsg = input.trim();
     setInput("");
-    setMessages(prev => [...prev, { role: "user", content: userMsg }]);
-    setLoading(true);
-    try {
-      const contextBlocks = [
-        agencyCtx?.benchmarks ? `BENCHMARKS DA AGÊNCIA:\n${agencyCtx.benchmarks}` : "",
-        agencyCtx?.institutionalKnowledge ? `CONHECIMENTO INSTITUCIONAL:\n${agencyCtx.institutionalKnowledge}` : "",
-        accountCtx?.clientProfile ? `PERFIL DO CLIENTE:\n${accountCtx.clientProfile}` : "",
-        accountCtx?.operationalRules ? `REGRAS OPERACIONAIS:\n${accountCtx.operationalRules}` : "",
-        (accountCtx as any)?.focusMoment ? `FOCO DO MOMENTO:\n${(accountCtx as any).focusMoment}` : "",
-        accountCtx?.learnings ? `APRENDIZADOS HISTÓRICOS:\n${accountCtx.learnings}` : "",
-      ].filter(Boolean).join("\n\n");
-      const systemPrompt = `Você é um estrategista sênior de Meta Ads da SELVA Agency. Responda de forma direta, prática e acionável.${contextBlocks ? `\n\n${contextBlocks}` : ""}\n\nConta atual: ${account?.accountName ?? "não identificada"}`;
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: systemPrompt, messages: [...messages.map(m => ({ role: m.role, content: m.content })), { role: "user", content: userMsg }] }),
-      });
-      const data = await response.json();
-      const text = data.content?.find((c: any) => c.type === "text")?.text ?? "Erro ao processar resposta.";
-      setMessages(prev => [...prev, { role: "assistant", content: text }]);
-    } catch {
-      setMessages(prev => [...prev, { role: "assistant", content: "Erro ao conectar com a IA." }]);
-    } finally {
-      setLoading(false);
-    }
+    const newMessages = [...messages, { role: "user" as const, content: userMsg }];
+    setMessages(newMessages);
+    chat.mutate(
+      { accountId, messages: newMessages },
+      { onSuccess: (data) => setMessages(prev => [...prev, { role: "assistant", content: data.reply }]) }
+    );
   }
 
   return (
@@ -242,11 +222,11 @@ function ChatPanel({ accountId }: { accountId: number | null }) {
             </div>
           </div>
         ))}
-        {loading && <div style={{ padding: "8px 12px", borderRadius: "10px 10px 10px 2px", background: "rgba(0,0,0,0.04)", fontSize: 12, color: "rgba(0,0,0,0.4)" }}>Pensando...</div>}
+        {chat.isPending && <div style={{ padding: "8px 12px", borderRadius: "10px 10px 10px 2px", background: "rgba(0,0,0,0.04)", fontSize: 12, color: "rgba(0,0,0,0.4)" }}>Pensando...</div>}
       </div>
       <div style={{ borderTop: "0.5px solid rgba(0,0,0,0.08)", padding: "8px", display: "flex", gap: 6, background: "rgba(0,0,0,0.02)" }}>
         <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} placeholder="Pergunte ou peça análise... (Enter)" rows={2} style={{ flex: 1, fontSize: 11, padding: "6px 10px", borderRadius: 6, border: "0.5px solid rgba(0,0,0,0.12)", background: "white", resize: "none", fontFamily: "inherit", outline: "none", color: "#111" }} />
-        <button onClick={sendMessage} disabled={loading || !input.trim()} style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "#E85BA8", color: "white", cursor: loading || !input.trim() ? "not-allowed" : "pointer", opacity: loading || !input.trim() ? 0.6 : 1, alignSelf: "flex-end" }}>
+        <button onClick={sendMessage} disabled={chat.isPending || !input.trim() || !accountId} style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "#E85BA8", color: "white", cursor: chat.isPending || !input.trim() ? "not-allowed" : "pointer", opacity: chat.isPending || !input.trim() ? 0.6 : 1, alignSelf: "flex-end" }}>
           <Send style={{ width: 14, height: 14 }} />
         </button>
       </div>

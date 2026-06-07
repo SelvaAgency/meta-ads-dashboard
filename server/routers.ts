@@ -288,6 +288,43 @@ const contextRouter = router({
       });
       return { ok: true };
     }),
+
+  chat: protectedProcedure
+    .input(z.object({
+      accountId: z.number(),
+      messages: z.array(z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const [accountCtx, agencyCtx] = await Promise.all([
+        getAccountContext(input.accountId),
+        getAgencyContext((ctx.user as any).id),
+      ]);
+
+      const contextBlocks = [
+        agencyCtx?.benchmarks ? `BENCHMARKS DA AGÊNCIA:\n${agencyCtx.benchmarks}` : "",
+        agencyCtx?.institutionalKnowledge ? `CONHECIMENTO INSTITUCIONAL:\n${agencyCtx.institutionalKnowledge}` : "",
+        agencyCtx?.patterns ? `PADRÕES DO PORTFÓLIO:\n${agencyCtx.patterns}` : "",
+        accountCtx?.clientProfile ? `PERFIL DO CLIENTE:\n${accountCtx.clientProfile}` : "",
+        accountCtx?.operationalRules ? `REGRAS OPERACIONAIS:\n${accountCtx.operationalRules}` : "",
+        (accountCtx as any)?.focusMoment ? `FOCO DO MOMENTO (prioridade máxima):\n${(accountCtx as any).focusMoment}` : "",
+        accountCtx?.learnings ? `APRENDIZADOS HISTÓRICOS:\n${accountCtx.learnings}` : "",
+      ].filter(Boolean).join("\n\n");
+
+      const systemPrompt = `Você é um estrategista sênior de Meta Ads da SELVA Agency — uma boutique de branding e performance digital em São Paulo. Responda de forma direta, prática e acionável. Sem enrolação.${contextBlocks ? `\n\n${contextBlocks}` : ""}`;
+
+      const response = await invokeLLM({
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...input.messages,
+        ],
+        maxTokens: 1000,
+      });
+
+      return { reply: extractTextContent(response) };
+    }),
 });
 
 export const appRouter = router({
