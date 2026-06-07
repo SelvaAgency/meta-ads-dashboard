@@ -320,6 +320,25 @@ export function AccountHeader({
           </span>
         </div>
 
+        {/* Contexto IA button */}
+        <div style={{ marginBottom: 6 }}>
+          <button
+            onClick={() => setContextOpen(v => !v)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              fontSize: 10, fontWeight: 500,
+              padding: "2px 8px", borderRadius: 99,
+              background: contextOpen ? "rgba(232,91,168,0.12)" : "rgba(0,0,0,0.04)",
+              border: contextOpen ? "1px solid rgba(232,91,168,0.35)" : "1px solid rgba(0,0,0,0.12)",
+              color: contextOpen ? "#E85BA8" : "rgba(0,0,0,0.4)",
+              cursor: "pointer",
+            }}
+          >
+            <Brain style={{ width: 10, height: 10 }} />
+            Contexto IA
+          </button>
+        </div>
+
         {/* Sync button — fills remaining height */}
         <div style={{ flex: 1, display: "flex", alignItems: "flex-end" }}>
           <button
@@ -437,25 +456,7 @@ export function AccountHeader({
 
       {/* ══ Block 4 — Notas (tags) + Contexto IA ══════════════════════════ */}
       <div style={{ padding: "12px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          {blockLabel("Notas")}
-          <button
-            onClick={() => setContextOpen(v => !v)}
-            title="Contexto da conta para IA"
-            style={{
-              display: "flex", alignItems: "center", gap: 4,
-              fontSize: 10, fontWeight: 500,
-              padding: "2px 8px", borderRadius: 99,
-              background: contextOpen ? "rgba(232,91,168,0.12)" : "rgba(0,0,0,0.04)",
-              border: contextOpen ? "1px solid rgba(232,91,168,0.35)" : "0.5px solid rgba(0,0,0,0.15)",
-              color: contextOpen ? "#E85BA8" : "rgba(0,0,0,0.4)",
-              cursor: "pointer", marginBottom: 6,
-            }}
-          >
-            <Brain style={{ width: 10, height: 10 }} />
-            Contexto IA
-          </button>
-        </div>
+        {blockLabel("Notas")}
 
         {/* Tag pills */}
         {tags.length > 0 && (
@@ -525,9 +526,9 @@ export function AccountHeader({
       {contextOpen && (
         <div style={{
           gridColumn: "1 / -1",
-          borderTop: "1px solid rgba(0,0,0,0.06)",
+          borderTop: "1px solid rgba(0,0,0,0.08)",
           padding: "16px 20px",
-          background: "rgba(232,91,168,0.02)",
+          background: "white",
         }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
