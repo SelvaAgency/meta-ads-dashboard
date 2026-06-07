@@ -209,7 +209,7 @@ function RejectionForm({
 // ─── Unified Suggestion Card ─────────────────────────────────────────────────
 function SuggestionCard({ s, onStatusChange }: {
   s: any;
-  onStatusChange: (id: number, status: "applied" | "rejected" | "pending", reason?: string) => void;
+  onStatusChange: (id: number, status: "applied" | "rejected" | "pending", reason?: string, monitorDays?: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showRejectForm, setShowRejectForm] = useState(false);
@@ -230,10 +230,19 @@ function SuggestionCard({ s, onStatusChange }: {
   const isApplied = s.status === "applied";
   const isRejected = s.status === "rejected";
   const isMonitoring = isApplied && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult;
-
-  const handleApply = () => {
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [monitorDays, setMonitorDays] = useState(() => {
+    const defaults: Record<string, number> = {
+      PAUSAR_CRIATIVO: 3, PAUSAR_CONJUNTO: 5, REALOCAR_ORCAMENTO: 5,
+      NOVO_PUBLICO: 14, NOVO_CRIATIVO: 7, NOVO_CONJUNTO: 14,
+    };
+    return defaults[s.category ?? ""] ?? 7;
+  });
+  const handleApply = () => setShowApplyModal(true);
+  const confirmApply = () => {
+    setShowApplyModal(false);
     setIsPending(true);
-    onStatusChange(s.id, "applied");
+    onStatusChange(s.id, "applied", undefined, monitorDays);
     setTimeout(() => setIsPending(false), 1000);
   };
 
@@ -387,6 +396,61 @@ function SuggestionCard({ s, onStatusChange }: {
                 </Button>
               )}
 
+            {/* Modal de confirmação — monitorDays */}
+            {showApplyModal && (
+              <div style={{
+                position: "fixed", inset: 0, zIndex: 50,
+                background: "rgba(0,0,0,0.35)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <div style={{
+                  background: "white", borderRadius: 14, padding: "24px 28px",
+                  width: 360, boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+                }}>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: "#111", marginBottom: 6 }}>
+                    Confirmar ação aplicada
+                  </p>
+                  <p style={{ fontSize: 12, color: "rgba(0,0,0,0.5)", marginBottom: 18, lineHeight: 1.5 }}>
+                    Por quanto tempo a IA deve monitorar o resultado desta ação?
+                  </p>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                    {[3, 5, 7, 14].map(d => (
+                      <button
+                        key={d}
+                        onClick={() => setMonitorDays(d)}
+                        style={{
+                          flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                          border: monitorDays === d ? "2px solid #E85BA8" : "1px solid rgba(0,0,0,0.12)",
+                          background: monitorDays === d ? "rgba(232,91,168,0.08)" : "white",
+                          color: monitorDays === d ? "#E85BA8" : "rgba(0,0,0,0.5)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {d}d
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: 11, color: "rgba(0,0,0,0.35)", marginBottom: 20, lineHeight: 1.5 }}>
+                    Após {monitorDays} dias, a IA analisa os resultados e registra um aprendizado automático para esta conta.
+                  </p>
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <button
+                      onClick={() => setShowApplyModal(false)}
+                      style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={confirmApply}
+                      style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      Confirmar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
               <Button
                 variant="ghost"
                 size="sm"
@@ -472,7 +536,7 @@ export default function Suggestions() {
       utils.suggestions.list.invalidate();
       utils.suggestions.history.invalidate();
       if (vars.status === "applied") {
-        toast.success("Marcado como Aplicado. Monitoraremos os resultados por 7 dias.");
+        toast.success(`Marcado como Aplicado. Monitoraremos os resultados por ${vars.monitorDays ?? 7} dias.`);
       } else if (vars.status === "rejected") {
         toast.success("Marcado como Não Aplicado. O feedback será usado para melhorar futuras sugestões.");
       } else {
@@ -482,8 +546,8 @@ export default function Suggestions() {
     onError: () => toast.error("Erro ao atualizar status."),
   });
 
-  const handleStatusChange = (id: number, status: "applied" | "rejected" | "pending", reason?: string) => {
-    updateStatus.mutate({ suggestionId: id, status, rejectionReason: reason });
+  const handleStatusChange = (id: number, status: "applied" | "rejected" | "pending", reason?: string, monitorDays?: number) => {
+    updateStatus.mutate({ suggestionId: id, status, rejectionReason: reason, monitorDays });
   };
 
   const handleFilterClick = (key: string) => setActiveFilter((prev) => (prev === key ? null : key));

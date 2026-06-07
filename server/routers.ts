@@ -1430,14 +1430,16 @@ export const appRouter = router({
         suggestionId: z.number(),
         status: z.enum(["applied", "rejected", "pending"]),
         rejectionReason: z.string().optional(),
+        monitorDays: z.number().optional(),
       }))
       .mutation(async ({ input }) => {
         const metricsSnapshot = input.status === "applied" ? { snapshotAt: Date.now() } : undefined;
         await updateSuggestionStatus(input.suggestionId, input.status, {
           rejectionReason: input.rejectionReason,
           metricsSnapshot,
+          monitorDays: input.monitorDays,
         });
-        return { success: true };
+        return { success: true, monitorDays: input.monitorDays };
       }),
     dismiss: protectedProcedure
       .input(z.object({ suggestionId: z.number() }))
