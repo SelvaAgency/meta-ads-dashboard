@@ -790,6 +790,20 @@ export async function updateSuggestionStatus(
     })
     .where(eq(aiSuggestions.id, id));
 
+  // Quando rejeitada com motivo: salvar como aprendizado permanente da conta
+  if (status === "rejected" && opts?.rejectionReason?.trim()) {
+    try {
+      const rows = await db.select({ accountId: aiSuggestions.accountId, category: aiSuggestions.category, title: aiSuggestions.title }).from(aiSuggestions).where(eq(aiSuggestions.id, id)).limit(1);
+      const s = rows[0];
+      if (s?.accountId) {
+        const note = `Sugestão rejeitada [${s.category ?? "?"}]: "${s.title?.slice(0, 80)}" — Motivo: ${opts.rejectionReason.trim()}`;
+        await appendAccountLearning(s.accountId, note, "rejection");
+      }
+    } catch (err) {
+      console.warn("[updateSuggestionStatus] Failed to save rejection learning:", err);
+    }
+  }
+
   // Quando aplicada: criar action_outcome para fechar o loop de aprendizado
   if (status === "applied") {
     try {
