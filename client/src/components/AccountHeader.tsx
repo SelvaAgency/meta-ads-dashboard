@@ -275,6 +275,27 @@ export function AccountHeader({
           </span>
         </div>
 
+        {/* Last sync info */}
+        {(activeAccount as any)?.lastSyncAt && (() => {
+          const syncDate = new Date((activeAccount as any).lastSyncAt);
+          const now = new Date();
+          const diffMs = now.getTime() - syncDate.getTime();
+          const diffMin = Math.floor(diffMs / 60000);
+          const diffH = Math.floor(diffMs / 3600000);
+          const diffD = Math.floor(diffMs / 86400000);
+          const label = diffMin < 60
+            ? `sync há ${diffMin}min`
+            : diffH < 24
+              ? `sync há ${diffH}h`
+              : `sync ${syncDate.getDate().toString().padStart(2,"0")}/${(syncDate.getMonth()+1).toString().padStart(2,"0")}`;
+          const isStale = diffH >= 25;
+          return (
+            <p style={{ fontSize: 10, color: isStale ? "#EF9F27" : "rgba(0,0,0,0.3)", marginBottom: 4, display: "flex", alignItems: "center", gap: 3 }}>
+              <span style={{ width: 5, height: 5, borderRadius: "50%", background: isStale ? "#EF9F27" : "#1D9E75", display: "inline-block", flexShrink: 0 }} />
+              {label}
+            </p>
+          );
+        })()}
         {/* Goal badge */}
         {goalLabel && (
           <div style={{ marginBottom: 6 }}>
