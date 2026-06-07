@@ -182,9 +182,49 @@ function SuggestionCard({ s, onStatusChange }: {
   );
 }
 
-function ChatMessages({ messages, isPending }: { messages: Array<{ role: string; content: string }>; isPending: boolean }) {
+function ChatMessages({ messages, isPending, accountId }: { messages: Array<{ role: string; content: string }>; isPending: boolean; accountId: number | null }) {
+  const [actionModal, setActionModal] = useState<{ text: string } | null>(null);
+  const [monitorDays, setMonitorDays] = useState(7);
+  const [creating, setCreating] = useState(false);
+  const utils = trpc.useUtils();
+
+  const createAction = trpc.context.createActionFromChat.useMutation({
+    onSuccess: () => {
+      toast.success("Ação adicionada ao Plano de Ação!");
+      setActionModal(null);
+      setCreating(false);
+      utils.suggestions.list.invalidate();
+    },
+    onError: () => { toast.error("Erro ao criar ação"); setCreating(false); },
+  });
+
   return (
     <>
+      {actionModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ background: "white", borderRadius: 14, padding: "24px 28px", width: 400 }}>
+            <p style={{ fontSize: 14, fontWeight: 600, color: "#111", marginBottom: 8 }}>Adicionar ao Plano de Ação</p>
+            <p style={{ fontSize: 12, color: "rgba(0,0,0,0.5)", marginBottom: 14, lineHeight: 1.5 }}>{actionModal.text}</p>
+            <p style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", marginBottom: 8 }}>Período de monitoramento:</p>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              {[3, 5, 7, 14].map(d => (
+                <button key={d} onClick={() => setMonitorDays(d)} style={{ flex: 1, padding: "7px 0", borderRadius: 8, fontSize: 12, fontWeight: 600, border: monitorDays === d ? "2px solid #E85BA8" : "1px solid rgba(0,0,0,0.12)", background: monitorDays === d ? "rgba(232,91,168,0.08)" : "white", color: monitorDays === d ? "#E85BA8" : "rgba(0,0,0,0.5)", cursor: "pointer" }}>{d}d</button>
+              ))}
+            </div>
+            <p style={{ fontSize: 10, color: "rgba(0,0,0,0.3)", marginBottom: 16, lineHeight: 1.5 }}>A ação entra direto em monitoramento. Após {monitorDays} dias, a IA registra um aprendizado automático.</p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setActionModal(null)} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}>Cancelar</button>
+              <button
+                onClick={() => { if (!accountId) return; setCreating(true); createAction.mutate({ accountId, title: actionModal.text, monitorDays }); }}
+                disabled={creating}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", fontSize: 12, fontWeight: 600, cursor: creating ? "not-allowed" : "pointer", opacity: creating ? 0.75 : 1 }}
+              >
+                {creating ? "Criando..." : "Adicionar ao Plano"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {messages.length === 0 && (
         <div style={{ margin: "auto", textAlign: "center", padding: "20px 0" }}>
           <Brain style={{ width: 24, height: 24, color: "rgba(232,91,168,0.3)", margin: "0 auto 8px" }} />
@@ -218,9 +258,10 @@ function ChatMessages({ messages, isPending }: { messages: Array<{ role: string;
                   <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Ações sugeridas</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {actions.map((action, j) => (
-                      <div key={j} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "6px 10px", borderRadius: 8, background: "white", border: "0.5px solid rgba(0,0,0,0.1)" }}>
+                      <div key={j} onClick={() => { setActionModal({ text: action }); setMonitorDays(7); }} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "6px 10px", borderRadius: 8, background: "white", border: "0.5px solid rgba(0,0,0,0.1)", cursor: "pointer", transition: "border-color 0.15s" }} onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.4)"} onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.1)"}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: "#E85BA8", flexShrink: 0, minWidth: 16 }}>{j + 1}</span>
-                        <p style={{ fontSize: 11, color: "#111", lineHeight: 1.5, margin: 0 }}>{action}</p>
+                        <p style={{ fontSize: 11, color: "#111", lineHeight: 1.5, margin: 0, flex: 1 }}>{action}</p>
+                        <span style={{ fontSize: 10, color: "rgba(232,91,168,0.6)", flexShrink: 0, whiteSpace: "nowrap" }}>+ Plano</span>
                       </div>
                     ))}
                   </div>
@@ -285,7 +326,7 @@ function ChatPanel({ accountId }: { accountId: number | null }) {
               </button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-              <ChatMessages messages={messages} isPending={chat.isPending} />
+              <ChatMessages messages={messages} isPending={chat.isPending} accountId={accountId} />
             </div>
             {inputArea(true)}
           </div>
@@ -300,7 +341,7 @@ function ChatPanel({ accountId }: { accountId: number | null }) {
           </button>
         </div>
         <div style={{ minHeight: 180, maxHeight: 400, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: 8 }}>
-          <ChatMessages messages={messages} isPending={chat.isPending} />
+          <ChatMessages messages={messages} isPending={chat.isPending} accountId={accountId} />
         </div>
         {inputArea(false)}
       </div>

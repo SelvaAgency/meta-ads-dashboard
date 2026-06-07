@@ -62,6 +62,7 @@ import {
   upsertNotificationSettings,
   getAccountContext,
   upsertAccountContext,
+  createAiSuggestion,
   getAgencyContext,
   upsertAgencyContext,
   getActionOutcome,
@@ -285,6 +286,30 @@ const contextRouter = router({
       await updateActionOutcome(input.suggestionId, {
         manualCorrection: input.manualCorrection,
         closedBy: (ctx.user as any)?.name ?? "user",
+      });
+      return { ok: true };
+    }),
+
+  createActionFromChat: protectedProcedure
+    .input(z.object({
+      accountId: z.number(),
+      title: z.string(),
+      monitorDays: z.number().default(7),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date();
+      const monitorUntil = new Date(now.getTime() + input.monitorDays * 24 * 60 * 60 * 1000);
+      await createAiSuggestion({
+        accountId: input.accountId,
+        category: "GENERAL",
+        priority: "MEDIUM",
+        title: input.title,
+        description: "Ação criada a partir do Chat IA.",
+        status: "applied",
+        appliedAt: now,
+        monitorUntil,
+        isApplied: true,
+        isDismissed: false,
       });
       return { ok: true };
     }),
