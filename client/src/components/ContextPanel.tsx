@@ -48,6 +48,7 @@ export function ContextPanel({ accountId, onClose }: { accountId: number; onClos
   const [newEvent, setNewEvent] = useState({ date: "", type: "Lançamento", description: "" });
   const [showEventForm, setShowEventForm] = useState(false);
   const [freeInput, setFreeInput] = useState("");
+  const [focusMoment, setFocusMoment] = useState("");
   const [saving, setSaving] = useState(false);
 
   const { data: ctx, refetch } = trpc.context.getAccount.useQuery(
@@ -65,6 +66,7 @@ export function ContextPanel({ accountId, onClose }: { accountId: number; onClos
       setRestrictions((ctx.restrictions as string[]) ?? []);
       setEvents((ctx.events as any[]) ?? []);
       setFreeInput(ctx.freeInput ?? "");
+      setFocusMoment(ctx.focusMoment ?? "");
     }
   }, [ctx]);
 
@@ -75,7 +77,7 @@ export function ContextPanel({ accountId, onClose }: { accountId: number; onClos
 
   function save() {
     setSaving(true);
-    upsert.mutate({ accountId, businessType, ticketRange, audienceAge, audienceGender, audienceGeo, restrictions, events, freeInput });
+    upsert.mutate({ accountId, businessType, ticketRange, audienceAge, audienceGender, audienceGeo, restrictions, events, freeInput, focusMoment });
   }
 
   function addRestriction() {

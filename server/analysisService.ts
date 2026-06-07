@@ -487,6 +487,7 @@ ${accountCtx!.audienceGender ? `- Gênero predominante: ${accountCtx!.audienceGe
 ${accountCtx!.audienceGeo ? `- Geografia: ${accountCtx!.audienceGeo}` : ""}
 ${accountCtx!.restrictions?.length ? `- Restrições operacionais (RESPEITE SEMPRE):\n${accountCtx!.restrictions.map(r => `  • ${r}`).join("\n")}` : ""}
 ${accountCtx!.events?.length ? `- Eventos e sazonalidades:\n${accountCtx!.events.map(e => `  • ${e.date} [${e.type}] ${e.description}`).join("\n")}` : ""}
+${accountCtx!.focusMoment ? `- FOCO DO MOMENTO (prioridade máxima — todas as análises devem considerar isso):\n${accountCtx!.focusMoment}` : ""}
 ${accountCtx!.freeInput ? `- Contexto adicional:\n${accountCtx!.freeInput}` : ""}
 ${accountCtx!.learnings ? `### Aprendizados históricos (gerados automaticamente):\n${accountCtx!.learnings}` : ""}
 ---` : "";

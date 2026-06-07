@@ -243,6 +243,7 @@ const contextRouter = router({
       restrictions: z.array(z.string()).optional(),
       events: z.array(z.object({ date: z.string(), type: z.string(), description: z.string() })).optional(),
       freeInput: z.string().optional(),
+      focusMoment: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { accountId, ...values } = input;

@@ -437,6 +437,7 @@ export const accountContext = mysqlTable("account_context", {
   restrictions: json("restrictions").$type<string[]>(),
   events: json("events").$type<Array<{ date: string; type: string; description: string }>>(),
   freeInput: text("freeInput"),
+  focusMoment: text("focusMoment"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   updatedBy: varchar("updatedBy", { length: 255 }),
 });
