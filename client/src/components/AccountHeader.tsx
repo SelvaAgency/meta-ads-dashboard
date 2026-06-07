@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { ContextPanel } from "@/components/ContextPanel";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
 import { RefreshCw, ChevronDown, ChevronUp, Check, Brain, Save, X } from "lucide-react";
@@ -523,110 +524,11 @@ export function AccountHeader({
       </div>
 
       {/* ══ Painel de Contexto (inline, expande abaixo) ══════════════════ */}
-      {contextOpen && (
-        <div style={{
-          gridColumn: "1 / -1",
-          borderTop: "1px solid rgba(0,0,0,0.08)",
-          padding: "16px 20px",
-          background: "white",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Brain style={{ width: 13, height: 13, color: "#E85BA8" }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#111" }}>Contexto da Conta para IA</span>
-              <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>— alimenta todas as análises desta conta</span>
-            </div>
-            <button onClick={() => setContextOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.3)", padding: 2 }}>
-              <X style={{ width: 13, height: 13 }} />
-            </button>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
-            <div>
-              <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 5 }}>
-                Perfil do cliente
-              </p>
-              <textarea
-                value={ctxProfile}
-                onChange={e => setCtxProfile(e.target.value)}
-                placeholder="Quem é o cliente, tom de voz, restrições de comunicação..."
-                rows={4}
-                style={{
-                  width: "100%", fontSize: 11, lineHeight: 1.5,
-                  padding: "8px 10px", borderRadius: 8,
-                  border: "0.5px solid rgba(0,0,0,0.15)",
-                  background: "white", resize: "vertical",
-                  fontFamily: "inherit", outline: "none",
-                  color: "#111",
-                }}
-                onFocus={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.5)"}
-                onBlur={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.15)"}
-              />
-            </div>
-            <div>
-              <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 5 }}>
-                Regras operacionais
-              </p>
-              <textarea
-                value={ctxRules}
-                onChange={e => setCtxRules(e.target.value)}
-                placeholder="Não pausar durante campanhas X, sazonalidades, restrições de orçamento..."
-                rows={4}
-                style={{
-                  width: "100%", fontSize: 11, lineHeight: 1.5,
-                  padding: "8px 10px", borderRadius: 8,
-                  border: "0.5px solid rgba(0,0,0,0.15)",
-                  background: "white", resize: "vertical",
-                  fontFamily: "inherit", outline: "none",
-                  color: "#111",
-                }}
-                onFocus={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.5)"}
-                onBlur={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.15)"}
-              />
-            </div>
-            <div>
-              <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 5 }}>
-                Aprendizados históricos
-              </p>
-              <textarea
-                value={ctxLearnings}
-                onChange={e => setCtxLearnings(e.target.value)}
-                placeholder="Gerado automaticamente pela IA após cada ação. Você pode editar ou complementar..."
-                rows={4}
-                style={{
-                  width: "100%", fontSize: 11, lineHeight: 1.5,
-                  padding: "8px 10px", borderRadius: 8,
-                  border: "0.5px solid rgba(0,0,0,0.15)",
-                  background: "rgba(248,248,248,0.8)", resize: "vertical",
-                  fontFamily: "inherit", outline: "none",
-                  color: "#111",
-                }}
-                onFocus={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.5)"}
-                onBlur={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.15)"}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
-            <button
-              onClick={saveContext}
-              disabled={ctxSaving}
-              style={{
-                display: "flex", alignItems: "center", gap: 6,
-                background: "#E85BA8", color: "white",
-                border: "none", borderRadius: 8,
-                padding: "7px 16px", fontSize: 12, fontWeight: 600,
-                cursor: ctxSaving ? "not-allowed" : "pointer",
-                opacity: ctxSaving ? 0.75 : 1,
-              }}
-            >
-              <Save style={{ width: 12, height: 12 }} />
-              {ctxSaving ? "Salvando..." : "Salvar contexto"}
-            </button>
-          </div>
+      {contextOpen && selectedAccountId && (
+        <div style={{ gridColumn: "1 / -1" }}>
+          <ContextPanel accountId={selectedAccountId} onClose={() => setContextOpen(false)} />
         </div>
       )}
-
     </div>
   );
 }

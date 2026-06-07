@@ -235,6 +235,14 @@ const contextRouter = router({
       clientProfile: z.string().optional(),
       operationalRules: z.string().optional(),
       learnings: z.string().optional(),
+      businessType: z.string().optional(),
+      ticketRange: z.string().optional(),
+      audienceAge: z.string().optional(),
+      audienceGender: z.string().optional(),
+      audienceGeo: z.string().optional(),
+      restrictions: z.array(z.string()).optional(),
+      events: z.array(z.object({ date: z.string(), type: z.string(), description: z.string() })).optional(),
+      freeInput: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { accountId, ...values } = input;

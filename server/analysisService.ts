@@ -474,13 +474,22 @@ ${agencyCtx.institutionalKnowledge ? `### Conhecimento institucional:\n${agencyC
 ---`
     : "";
 
-  const accountContextBlock = (accountCtx?.clientProfile || accountCtx?.operationalRules || accountCtx?.learnings)
-    ? `## CONTEXTO DESTA CONTA
-${accountCtx.clientProfile ? `### Perfil do cliente:\n${accountCtx.clientProfile}` : ""}
-${accountCtx.operationalRules ? `### Regras operacionais (respeite sempre):\n${accountCtx.operationalRules}` : ""}
-${accountCtx.learnings ? `### Aprendizados históricos desta conta:\n${accountCtx.learnings}` : ""}
----`
-    : "";
+  const hasStructuredCtx = accountCtx && (
+    accountCtx.businessType || accountCtx.audienceAge || accountCtx.restrictions?.length ||
+    accountCtx.events?.length || accountCtx.freeInput || accountCtx.clientProfile || accountCtx.learnings
+  );
+
+  const accountContextBlock = hasStructuredCtx ? `## CONTEXTO DESTA CONTA
+${accountCtx!.businessType ? `- Tipo de negócio: ${accountCtx!.businessType}` : ""}
+${accountCtx!.ticketRange ? `- Ticket médio: ${accountCtx!.ticketRange}` : ""}
+${accountCtx!.audienceAge ? `- Faixa etária principal: ${accountCtx!.audienceAge}` : ""}
+${accountCtx!.audienceGender ? `- Gênero predominante: ${accountCtx!.audienceGender}` : ""}
+${accountCtx!.audienceGeo ? `- Geografia: ${accountCtx!.audienceGeo}` : ""}
+${accountCtx!.restrictions?.length ? `- Restrições operacionais (RESPEITE SEMPRE):\n${accountCtx!.restrictions.map(r => `  • ${r}`).join("\n")}` : ""}
+${accountCtx!.events?.length ? `- Eventos e sazonalidades:\n${accountCtx!.events.map(e => `  • ${e.date} [${e.type}] ${e.description}`).join("\n")}` : ""}
+${accountCtx!.freeInput ? `- Contexto adicional:\n${accountCtx!.freeInput}` : ""}
+${accountCtx!.learnings ? `### Aprendizados históricos (gerados automaticamente):\n${accountCtx!.learnings}` : ""}
+---` : "";
 
   const prompt = `${agencyContextBlock}${accountContextBlock}Você é um estrategista sênior de Meta Ads com mais de 10 anos de experiência. Você é uma CONSELHEIRA, não uma máquina de sugestões automáticas.
 

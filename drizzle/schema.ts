@@ -424,9 +424,19 @@ export type InsertNotificationSettings = typeof notificationSettings.$inferInser
 export const accountContext = mysqlTable("account_context", {
   id: int("id").autoincrement().primaryKey(),
   accountId: int("accountId").notNull().unique(),
+  // Legacy text fields (mantidos para compatibilidade)
   clientProfile: text("clientProfile"),
   operationalRules: text("operationalRules"),
   learnings: text("learnings"),
+  // Structured fields
+  businessType: varchar("businessType", { length: 50 }),
+  ticketRange: varchar("ticketRange", { length: 50 }),
+  audienceAge: varchar("audienceAge", { length: 50 }),
+  audienceGender: varchar("audienceGender", { length: 50 }),
+  audienceGeo: varchar("audienceGeo", { length: 50 }),
+  restrictions: json("restrictions").$type<string[]>(),
+  events: json("events").$type<Array<{ date: string; type: string; description: string }>>(),
+  freeInput: text("freeInput"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   updatedBy: varchar("updatedBy", { length: 255 }),
 });
