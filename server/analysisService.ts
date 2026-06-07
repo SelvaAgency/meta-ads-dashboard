@@ -459,7 +459,30 @@ export async function generateAiSuggestions(
   const avgCpa = campaignsWithData.reduce((s, c) => s + c.avgCpa, 0) / Math.max(1, campaignsWithData.filter(c => c.avgCpa > 0).length || 1);
   const totalConversions = campaignsWithData.reduce((s, c) => s + c.totalConversions, 0);
 
-  const prompt = `Você é um estrategista sênior de Meta Ads com mais de 10 anos de experiência. Você é uma CONSELHEIRA, não uma máquina de sugestões automáticas.
+  // ─── Carregar contextos de memória ───────────────────────────────────────
+  const { getAccountContext, getAgencyContext } = await import("./db");
+  const [accountCtx, agencyCtx] = await Promise.all([
+    getAccountContext(accountId),
+    getAgencyContext(userId),
+  ]);
+
+  const agencyContextBlock = (agencyCtx?.benchmarks || agencyCtx?.patterns || agencyCtx?.institutionalKnowledge)
+    ? `## CONTEXTO DA AGÊNCIA (SELVA Agency — conhecimento institucional)
+${agencyCtx.benchmarks ? `### Benchmarks internos do portfólio:\n${agencyCtx.benchmarks}` : ""}
+${agencyCtx.patterns ? `### Padrões identificados nas contas:\n${agencyCtx.patterns}` : ""}
+${agencyCtx.institutionalKnowledge ? `### Conhecimento institucional:\n${agencyCtx.institutionalKnowledge}` : ""}
+---`
+    : "";
+
+  const accountContextBlock = (accountCtx?.clientProfile || accountCtx?.operationalRules || accountCtx?.learnings)
+    ? `## CONTEXTO DESTA CONTA
+${accountCtx.clientProfile ? `### Perfil do cliente:\n${accountCtx.clientProfile}` : ""}
+${accountCtx.operationalRules ? `### Regras operacionais (respeite sempre):\n${accountCtx.operationalRules}` : ""}
+${accountCtx.learnings ? `### Aprendizados históricos desta conta:\n${accountCtx.learnings}` : ""}
+---`
+    : "";
+
+  const prompt = `${agencyContextBlock}${accountContextBlock}Você é um estrategista sênior de Meta Ads com mais de 10 anos de experiência. Você é uma CONSELHEIRA, não uma máquina de sugestões automáticas.
 
 Gerar sugestões desnecessárias é TÃO PREJUDICIAL quanto não alertar sobre problemas reais. Sugestões sem fundamento levam o gestor a mexer em campanhas que estavam funcionando, quebrando performance por intervenção excessiva.
 

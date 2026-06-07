@@ -60,6 +60,12 @@ import {
   upsertAccountThresholds,
   getNotificationSettings,
   upsertNotificationSettings,
+  getAccountContext,
+  upsertAccountContext,
+  getAgencyContext,
+  upsertAgencyContext,
+  getActionOutcome,
+  updateActionOutcome,
 } from "./db";
 import {
   validateToken,
@@ -214,6 +220,66 @@ async function resolveMetaCampaignId(accountId: number, inputId: string): Promis
 type MetaCampaignStatus = "ACTIVE" | "PAUSED" | "ARCHIVED" | "DELETED";
 
 // ─── Routers ──────────────────────────────────────────────────────────────────
+
+// ─── Context Router ───────────────────────────────────────────────────────────
+const contextRouter = router({
+  getAccount: protectedProcedure
+    .input(z.object({ accountId: z.number() }))
+    .query(async ({ input }) => {
+      return await getAccountContext(input.accountId);
+    }),
+
+  upsertAccount: protectedProcedure
+    .input(z.object({
+      accountId: z.number(),
+      clientProfile: z.string().optional(),
+      operationalRules: z.string().optional(),
+      learnings: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { accountId, ...values } = input;
+      await upsertAccountContext(accountId, {
+        ...values,
+        updatedBy: (ctx.user as any)?.name ?? "user",
+      });
+      return { ok: true };
+    }),
+
+  getAgency: protectedProcedure
+    .query(async ({ ctx }) => {
+      return await getAgencyContext((ctx.user as any).id);
+    }),
+
+  upsertAgency: protectedProcedure
+    .input(z.object({
+      benchmarks: z.string().optional(),
+      patterns: z.string().optional(),
+      institutionalKnowledge: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await upsertAgencyContext((ctx.user as any).id, input);
+      return { ok: true };
+    }),
+
+  getOutcome: protectedProcedure
+    .input(z.object({ suggestionId: z.number() }))
+    .query(async ({ input }) => {
+      return await getActionOutcome(input.suggestionId);
+    }),
+
+  addManualCorrection: protectedProcedure
+    .input(z.object({
+      suggestionId: z.number(),
+      manualCorrection: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await updateActionOutcome(input.suggestionId, {
+        manualCorrection: input.manualCorrection,
+        closedBy: (ctx.user as any)?.name ?? "user",
+      });
+      return { ok: true };
+    }),
+});
 
 export const appRouter = router({
   system: systemRouter,
@@ -3196,7 +3262,7 @@ Responda APENAS com JSON válido, sem markdown, no formato exato:
         return { value: extractTextContent(response) };
       }),
   }),
-
+  context: contextRouter,
 });
 export type AppRouter = typeof appRouter;
 

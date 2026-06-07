@@ -43,6 +43,10 @@ import {
   getExperimentCampaignMetrics,
   markCheckpointDone,
   markSyncErrorAlertsRead,
+  getPendingOutcomeClosures,
+  updateActionOutcome,
+  appendAccountLearning,
+  getAccountContext,
 } from "./db";
 import { invokeLLM, extractTextContent } from "./_core/llm";
 import {
@@ -813,6 +817,99 @@ async function runExperimentCheckpoints() {
   }
 }
 
+
+// ─── Action Outcome Closures (fechamento do loop de aprendizado) ──────────────
+
+async function runActionOutcomeClosures() {
+  logger.info("[OutcomeClosures] Checking for pending action outcome closures...");
+  try {
+    const pending = await getPendingOutcomeClosures();
+    if (pending.length === 0) return;
+
+    logger.info(`[OutcomeClosures] ${pending.length} outcome(s) to close`);
+
+    for (const outcome of pending) {
+      try {
+        // Snapshot de métricas atuais da conta
+        const { startDate, endDate } = getDateRange(7);
+        const metricsRows = await getCampaignPerformanceSummary(outcome.accountId, startDate, endDate);
+        const agg = aggregateCampaignRows(metricsRows);
+        const snapshot = {
+          roas: parseFloat(agg.roas.toFixed(2)),
+          cpa: parseFloat(agg.cpa.toFixed(2)),
+          ctr: parseFloat(agg.ctr.toFixed(2)),
+          spend: parseFloat(agg.spend.toFixed(2)),
+          conversions: agg.conversions,
+        };
+
+        // Buscar sugestão original para contexto
+        const { getDb } = await import("./db");
+        const { aiSuggestions } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        const suggRows = db ? await db.select().from(aiSuggestions).where(eq(aiSuggestions.id, outcome.suggestionId)).limit(1) : [];
+        const suggestion = suggRows[0];
+
+        if (!suggestion) continue;
+
+        // Gerar aprendizado via IA
+        const learningPrompt = `Você é um analista de performance de Meta Ads. Uma ação foi aplicada e seu período de monitoramento encerrou.
+
+AÇÃO APLICADA:
+Título: ${suggestion.title}
+Descrição: ${suggestion.description}
+Tipo: ${suggestion.category}
+Prioridade: ${suggestion.priority}
+Impacto esperado: ${suggestion.expectedImpact ?? "não especificado"}
+Aplicada em: ${outcome.appliedAt.toLocaleDateString("pt-BR")}
+
+SNAPSHOT DE MÉTRICAS (7 dias pós-aplicação):
+- ROAS: ${snapshot.roas}x
+- CPA: R$${snapshot.cpa}
+- CTR: ${snapshot.ctr}%
+- Investimento: R$${snapshot.spend}
+- Conversões: ${snapshot.conversions}
+
+${outcome.manualCorrection ? `CORREÇÃO MANUAL DA EQUIPE: ${outcome.manualCorrection}` : ""}
+
+Gere um aprendizado conciso (máx 3 linhas) no formato:
+"[Tipo de ação]: O que foi feito → resultado observado → o que isso indica para futuras decisões nesta conta."
+
+Seja objetivo. Não invente dados. Se os resultados são inconclusivos, diga isso.`;
+
+        const aiResponse = await invokeLLM({
+          messages: [{ role: "user", content: learningPrompt }],
+          thinking: false,
+        });
+
+        const learningNote = extractTextContent(aiResponse).trim();
+
+        // Salvar resultado e marcar como fechado
+        const now = new Date();
+        await updateActionOutcome(outcome.suggestionId, {
+          observedAt: now,
+          metricsSnapshot: snapshot,
+          aiLearningNote: learningNote,
+          closedAt: now,
+          closedBy: "auto",
+        });
+
+        // Append no contexto da conta
+        await appendAccountLearning(outcome.accountId, learningNote, "auto");
+
+        logger.info(`[OutcomeClosures] ✓ Outcome closed for suggestion ${outcome.suggestionId}`);
+
+        // Throttle para não sobrecarregar a API
+        await new Promise(r => setTimeout(r, 3000));
+      } catch (err) {
+        console.error(`[OutcomeClosures] Error closing outcome for suggestion ${outcome.suggestionId}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error("[OutcomeClosures] Error running outcome closures:", err);
+  }
+}
+
 export async function startAutoSync() {
   logger.info("[AutoSync] Initializing auto-sync service...");
 
@@ -845,6 +942,9 @@ export async function startAutoSync() {
 
   // Daily experiment checkpoint snapshots at 09:10 UTC
   cron.schedule("0 10 9 * * *", runExperimentCheckpoints);
+
+  // Daily action outcome closures at 09:15 UTC (06:15 BRT)
+  cron.schedule("0 15 9 * * *", runActionOutcomeClosures);
 
   // Run initial sync after a short delay to let the server warm up
   setTimeout(async () => {

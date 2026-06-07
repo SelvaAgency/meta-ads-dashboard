@@ -31,6 +31,11 @@ import {
   type InsertExperimentKpi,
   type InsertExperimentCheckpoint,
   type InsertExperimentDecision,
+  accountContext,
+  agencyContext,
+  actionOutcomes,
+  type InsertAccountContext,
+  type InsertAgencyContext,
 } from "../drizzle/schema";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -765,12 +770,13 @@ export async function applySuggestion(id: number) {
 export async function updateSuggestionStatus(
   id: number,
   status: "applied" | "rejected" | "pending",
-  opts?: { rejectionReason?: string; metricsSnapshot?: Record<string, number> }
+  opts?: { rejectionReason?: string; metricsSnapshot?: Record<string, number>; monitorDays?: number }
 ) {
   const db = await getDb();
   if (!db) return;
   const now = new Date();
-  const monitorUntil = status === "applied" ? new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) : null;
+  const monitorDays = opts?.monitorDays ?? 7;
+  const monitorUntil = status === "applied" ? new Date(now.getTime() + monitorDays * 24 * 60 * 60 * 1000) : null;
   await db
     .update(aiSuggestions)
     .set({
@@ -783,6 +789,25 @@ export async function updateSuggestionStatus(
       isDismissed: status === "rejected",
     })
     .where(eq(aiSuggestions.id, id));
+
+  // Quando aplicada: criar action_outcome para fechar o loop de aprendizado
+  if (status === "applied") {
+    try {
+      // Buscar accountId da sugestão
+      const rows = await db.select({ accountId: aiSuggestions.accountId }).from(aiSuggestions).where(eq(aiSuggestions.id, id)).limit(1);
+      const accountId = rows[0]?.accountId;
+      if (accountId) {
+        await createActionOutcome({
+          suggestionId: id,
+          accountId,
+          appliedAt: now,
+        });
+      }
+    } catch (err) {
+      // Não bloquear o fluxo principal se falhar
+      console.warn("[updateSuggestionStatus] Failed to create action outcome:", err);
+    }
+  }
 }
 
 // Save monitoring result after 7 days
@@ -1383,6 +1408,115 @@ export async function markSyncErrorAlertsRead(userId: number, accountId: number)
         eq(alerts.accountId, accountId),
         eq(alerts.type, "SYNC_ERROR" as any),
         eq(alerts.isRead, false)
+      )
+    );
+}
+
+// ─── Account Context ──────────────────────────────────────────────────────────
+export async function getAccountContext(accountId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(accountContext)
+    .where(eq(accountContext.accountId, accountId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertAccountContext(
+  accountId: number,
+  values: Partial<Omit<typeof accountContext.$inferInsert, "id" | "accountId" | "updatedAt">>,
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(accountContext)
+    .values({ accountId, ...values })
+    .onDuplicateKeyUpdate({ set: { ...values } });
+}
+
+export async function appendAccountLearning(accountId: number, note: string, updatedBy: string) {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await getAccountContext(accountId);
+  const current = existing?.learnings ?? "";
+  const timestamp = new Date().toLocaleDateString("pt-BR");
+  const updated = current
+    ? `${current}
+
+[${timestamp}] ${note}`
+    : `[${timestamp}] ${note}`;
+  await upsertAccountContext(accountId, { learnings: updated, updatedBy });
+}
+
+// ─── Agency Context ───────────────────────────────────────────────────────────
+export async function getAgencyContext(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(agencyContext)
+    .where(eq(agencyContext.userId, userId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertAgencyContext(
+  userId: number,
+  values: Partial<Omit<typeof agencyContext.$inferInsert, "id" | "userId" | "updatedAt">>,
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(agencyContext)
+    .values({ userId, ...values })
+    .onDuplicateKeyUpdate({ set: { ...values } });
+}
+
+// ─── Action Outcomes ──────────────────────────────────────────────────────────
+export async function createActionOutcome(
+  values: Omit<typeof actionOutcomes.$inferInsert, "id">,
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(actionOutcomes).values(values);
+}
+
+export async function getActionOutcome(suggestionId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(actionOutcomes)
+    .where(eq(actionOutcomes.suggestionId, suggestionId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function updateActionOutcome(
+  suggestionId: number,
+  values: Partial<Omit<typeof actionOutcomes.$inferInsert, "id" | "suggestionId">>,
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(actionOutcomes)
+    .set(values)
+    .where(eq(actionOutcomes.suggestionId, suggestionId));
+}
+
+export async function getPendingOutcomeClosures() {
+  const db = await getDb();
+  if (!db) return [];
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  return await db
+    .select()
+    .from(actionOutcomes)
+    .where(
+      and(
+        lte(actionOutcomes.appliedAt, sevenDaysAgo),
+        sql`${actionOutcomes.observedAt} IS NULL`
       )
     );
 }
