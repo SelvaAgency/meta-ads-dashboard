@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
-import { RefreshCw, ChevronDown, ChevronUp, Check } from "lucide-react";
+import { RefreshCw, ChevronDown, ChevronUp, Check, Brain, Save, X } from "lucide-react";
 import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
 import { toast } from "sonner";
 import { KPI_CONFIGS, getDayStatus, type GoalType } from "@/lib/kpiConfig";
@@ -160,6 +160,42 @@ export function AccountHeader({
   const summaryRef = useRef<HTMLParagraphElement>(null);
   const [summaryOverflows, setSummaryOverflows] = useState(false);
   const [expanded, setExpanded] = useState(false);
+
+  // ─── Context panel state ────────────────────────────────────────────────
+  const [contextOpen, setContextOpen] = useState(false);
+  const [ctxProfile, setCtxProfile] = useState("");
+  const [ctxRules, setCtxRules] = useState("");
+  const [ctxLearnings, setCtxLearnings] = useState("");
+  const [ctxSaving, setCtxSaving] = useState(false);
+
+  const { data: accountCtx } = trpc.context.getAccount.useQuery(
+    { accountId: selectedAccountId! },
+    { enabled: !!selectedAccountId, staleTime: 30_000 }
+  );
+
+  useEffect(() => {
+    if (accountCtx) {
+      setCtxProfile(accountCtx.clientProfile ?? "");
+      setCtxRules(accountCtx.operationalRules ?? "");
+      setCtxLearnings(accountCtx.learnings ?? "");
+    }
+  }, [accountCtx]);
+
+  const upsertContext = trpc.context.upsertAccount.useMutation({
+    onSuccess: () => { toast.success("Contexto salvo"); setCtxSaving(false); },
+    onError: () => { toast.error("Erro ao salvar contexto"); setCtxSaving(false); },
+  });
+
+  function saveContext() {
+    if (!selectedAccountId) return;
+    setCtxSaving(true);
+    upsertContext.mutate({
+      accountId: selectedAccountId,
+      clientProfile: ctxProfile,
+      operationalRules: ctxRules,
+      learnings: ctxLearnings,
+    });
+  }
 
   const rawAiSummary = (activeAccount as any)?.aiStatusSummary as string | null | undefined;
 
@@ -399,9 +435,27 @@ export function AccountHeader({
         )}
       </div>
 
-      {/* ══ Block 4 — Notas (tags) ══════════════════════════════════════════ */}
+      {/* ══ Block 4 — Notas (tags) + Contexto IA ══════════════════════════ */}
       <div style={{ padding: "12px 16px" }}>
-        {blockLabel("Notas")}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          {blockLabel("Notas")}
+          <button
+            onClick={() => setContextOpen(v => !v)}
+            title="Contexto da conta para IA"
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              fontSize: 10, fontWeight: 500,
+              padding: "2px 8px", borderRadius: 99,
+              background: contextOpen ? "rgba(232,91,168,0.12)" : "rgba(0,0,0,0.04)",
+              border: contextOpen ? "1px solid rgba(232,91,168,0.35)" : "0.5px solid rgba(0,0,0,0.15)",
+              color: contextOpen ? "#E85BA8" : "rgba(0,0,0,0.4)",
+              cursor: "pointer", marginBottom: 6,
+            }}
+          >
+            <Brain style={{ width: 10, height: 10 }} />
+            Contexto IA
+          </button>
+        </div>
 
         {/* Tag pills */}
         {tags.length > 0 && (
@@ -466,6 +520,111 @@ export function AccountHeader({
           }}
         />
       </div>
+
+      {/* ══ Painel de Contexto IA (inline, expande abaixo) ══════════════════ */}
+      {contextOpen && (
+        <div style={{
+          gridColumn: "1 / -1",
+          borderTop: "1px solid rgba(0,0,0,0.06)",
+          padding: "16px 20px",
+          background: "rgba(232,91,168,0.02)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Brain style={{ width: 13, height: 13, color: "#E85BA8" }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#111" }}>Contexto da Conta para IA</span>
+              <span style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>— alimenta todas as análises desta conta</span>
+            </div>
+            <button onClick={() => setContextOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.3)", padding: 2 }}>
+              <X style={{ width: 13, height: 13 }} />
+            </button>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+            <div>
+              <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 5 }}>
+                Perfil do cliente
+              </p>
+              <textarea
+                value={ctxProfile}
+                onChange={e => setCtxProfile(e.target.value)}
+                placeholder="Quem é o cliente, tom de voz, restrições de comunicação..."
+                rows={4}
+                style={{
+                  width: "100%", fontSize: 11, lineHeight: 1.5,
+                  padding: "8px 10px", borderRadius: 8,
+                  border: "0.5px solid rgba(0,0,0,0.15)",
+                  background: "white", resize: "vertical",
+                  fontFamily: "inherit", outline: "none",
+                  color: "#111",
+                }}
+                onFocus={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.5)"}
+                onBlur={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.15)"}
+              />
+            </div>
+            <div>
+              <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 5 }}>
+                Regras operacionais
+              </p>
+              <textarea
+                value={ctxRules}
+                onChange={e => setCtxRules(e.target.value)}
+                placeholder="Não pausar durante campanhas X, sazonalidades, restrições de orçamento..."
+                rows={4}
+                style={{
+                  width: "100%", fontSize: 11, lineHeight: 1.5,
+                  padding: "8px 10px", borderRadius: 8,
+                  border: "0.5px solid rgba(0,0,0,0.15)",
+                  background: "white", resize: "vertical",
+                  fontFamily: "inherit", outline: "none",
+                  color: "#111",
+                }}
+                onFocus={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.5)"}
+                onBlur={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.15)"}
+              />
+            </div>
+            <div>
+              <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 5 }}>
+                Aprendizados históricos
+              </p>
+              <textarea
+                value={ctxLearnings}
+                onChange={e => setCtxLearnings(e.target.value)}
+                placeholder="Gerado automaticamente pela IA após cada ação. Você pode editar ou complementar..."
+                rows={4}
+                style={{
+                  width: "100%", fontSize: 11, lineHeight: 1.5,
+                  padding: "8px 10px", borderRadius: 8,
+                  border: "0.5px solid rgba(0,0,0,0.15)",
+                  background: "rgba(248,248,248,0.8)", resize: "vertical",
+                  fontFamily: "inherit", outline: "none",
+                  color: "#111",
+                }}
+                onFocus={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.5)"}
+                onBlur={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.15)"}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button
+              onClick={saveContext}
+              disabled={ctxSaving}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                background: "#E85BA8", color: "white",
+                border: "none", borderRadius: 8,
+                padding: "7px 16px", fontSize: 12, fontWeight: 600,
+                cursor: ctxSaving ? "not-allowed" : "pointer",
+                opacity: ctxSaving ? 0.75 : 1,
+              }}
+            >
+              <Save style={{ width: 12, height: 12 }} />
+              {ctxSaving ? "Salvando..." : "Salvar contexto"}
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );
