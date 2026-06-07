@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   Info,
   BarChart2,
+  Send,
 } from "lucide-react";
 import { useState } from "react";
 import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
@@ -486,6 +487,116 @@ function SuggestionCard({ s, onStatusChange }: {
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Chat Tab ─────────────────────────────────────────────────────────────────
+function ChatTab({ accountId }: { accountId: number | null }) {
+  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useState<HTMLDivElement | null>(null);
+  const { accounts } = useSelectedAccount();
+  const { data: accountCtx } = trpc.context.getAccount.useQuery(
+    { accountId: accountId! },
+    { enabled: !!accountId, staleTime: 30_000 }
+  );
+  const { data: agencyCtx } = trpc.context.getAgency.useQuery(undefined, { staleTime: 60_000 });
+  const account = accounts?.find((a: any) => a.id === accountId);
+
+  async function sendMessage() {
+    if (!input.trim() || loading) return;
+    const userMsg = input.trim();
+    setInput("");
+    setMessages(prev => [...prev, { role: "user", content: userMsg }]);
+    setLoading(true);
+    try {
+      const contextBlocks = [
+        agencyCtx?.benchmarks ? `BENCHMARKS DA AGÊNCIA:\n${agencyCtx.benchmarks}` : "",
+        agencyCtx?.institutionalKnowledge ? `CONHECIMENTO INSTITUCIONAL:\n${agencyCtx.institutionalKnowledge}` : "",
+        accountCtx?.clientProfile ? `PERFIL DO CLIENTE:\n${accountCtx.clientProfile}` : "",
+        accountCtx?.operationalRules ? `REGRAS OPERACIONAIS:\n${accountCtx.operationalRules}` : "",
+        accountCtx?.learnings ? `APRENDIZADOS HISTÓRICOS:\n${accountCtx.learnings}` : "",
+      ].filter(Boolean).join("\n\n");
+
+      const systemPrompt = `Você é um estrategista sênior de Meta Ads da SELVA Agency — uma boutique de branding e performance digital em São Paulo. Você tem acesso ao contexto completo desta conta e deve responder de forma direta, prática e acionável.${contextBlocks ? `\n\n${contextBlocks}` : ""}\n\nConta atual: ${account?.accountName ?? "não identificada"}`;
+
+      const history = messages.map(m => ({ role: m.role, content: m.content }));
+
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: systemPrompt,
+          messages: [...history, { role: "user", content: userMsg }],
+        }),
+      });
+      const data = await response.json();
+      const text = data.content?.find((c: any) => c.type === "text")?.text ?? "Erro ao processar resposta.";
+      setMessages(prev => [...prev, { role: "assistant", content: text }]);
+    } catch {
+      setMessages(prev => [...prev, { role: "assistant", content: "Erro ao conectar com a IA. Tente novamente." }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0, border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, overflow: "hidden", background: "white" }}>
+      {/* Messages */}
+      <div style={{ flex: 1, minHeight: 320, maxHeight: 480, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {messages.length === 0 && (
+          <div style={{ margin: "auto", textAlign: "center", padding: "32px 0" }}>
+            <Brain style={{ width: 32, height: 32, color: "#E85BA8", margin: "0 auto 12px" }} />
+            <p style={{ fontSize: 13, fontWeight: 500, color: "#111", marginBottom: 6 }}>Chat com a IA — {account?.accountName ?? "conta"}</p>
+            <p style={{ fontSize: 12, color: "rgba(0,0,0,0.4)", maxWidth: 320, lineHeight: 1.5 }}>
+              Pergunte sobre a conta, peça análises, explore hipóteses ou descreva uma demanda nova. A IA já conhece o contexto desta conta.
+            </p>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+            <div style={{
+              maxWidth: "80%", padding: "10px 14px", borderRadius: m.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
+              background: m.role === "user" ? "#E85BA8" : "rgba(0,0,0,0.04)",
+              color: m.role === "user" ? "white" : "#111",
+              fontSize: 13, lineHeight: 1.6,
+            }}>
+              {m.content}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div style={{ display: "flex", justifyContent: "flex-start" }}>
+            <div style={{ padding: "10px 14px", borderRadius: "12px 12px 12px 2px", background: "rgba(0,0,0,0.04)", fontSize: 13, color: "rgba(0,0,0,0.4)" }}>
+              Pensando...
+            </div>
+          </div>
+        )}
+      </div>
+      {/* Input */}
+      <div style={{ borderTop: "1px solid rgba(0,0,0,0.08)", padding: "12px 16px", display: "flex", gap: 8, alignItems: "flex-end", background: "rgba(0,0,0,0.01)" }}>
+        <textarea
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+          placeholder="Pergunte, peça uma análise ou descreva uma demanda nova... (Enter para enviar)"
+          rows={2}
+          style={{ flex: 1, fontSize: 13, lineHeight: 1.5, padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", resize: "none", fontFamily: "inherit", outline: "none", color: "#111" }}
+          onFocus={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.5)"}
+          onBlur={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"}
+        />
+        <button
+          onClick={sendMessage}
+          disabled={loading || !input.trim()}
+          style={{ padding: "10px 14px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", cursor: loading || !input.trim() ? "not-allowed" : "pointer", opacity: loading || !input.trim() ? 0.6 : 1, flexShrink: 0 }}
+        >
+          <Send style={{ width: 16, height: 16 }} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Suggestions() {
   const [, navigate] = useLocation();
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
@@ -494,6 +605,7 @@ export default function Suggestions() {
   const utils = trpc.useUtils();
 
   const [lastAnalysis, setLastAnalysis] = useState<AccountStateResult | null>(null);
+  const [activeTab, setActiveTab] = useState<"actions" | "experiments" | "chat" | "history">("actions");
 
   const { data: suggestions, isLoading } = trpc.suggestions.list.useQuery(
     { accountId: selectedAccountId! },
@@ -554,7 +666,7 @@ export default function Suggestions() {
 
   if (!accounts || accounts.length === 0) {
     return (
-      <MetaDashboardLayout title="Sugestões IA">
+      <MetaDashboardLayout title="Plano de Ação">
         <div className="flex flex-col items-center justify-center h-64 text-center">
           <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
             <Link2 className="w-7 h-7 text-primary" />
@@ -632,12 +744,12 @@ export default function Suggestions() {
   const monitoring = allItems.filter((s) => s.status === "applied" && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult);
 
   return (
-    <MetaDashboardLayout title="Sugestões IA">
+    <MetaDashboardLayout title="Plano de Ação">
       <div className="space-y-5">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-foreground">Sugestões de Melhoria</h1>
+            <h1 className="text-xl font-bold text-foreground">Plano de Ação</h1>
             <p className="text-sm text-muted-foreground">
               A IA diagnostica a conta antes de gerar sugestões — intervenções apenas quando necessário
             </p>
@@ -659,6 +771,43 @@ export default function Suggestions() {
           </Button>
         </div>
 
+        {/* Abas */}
+        <div style={{ display: "flex", gap: 4, borderBottom: "1px solid rgba(0,0,0,0.08)", marginBottom: -4 }}>
+          {[
+            { key: "actions", label: "Ações", count: pending.length },
+            { key: "experiments", label: "Experimentos", count: null },
+            { key: "chat", label: "Chat IA", count: null },
+            { key: "history", label: "Histórico", count: historyDeduped.length || null },
+          ].map(({ key, label, count }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key as any)}
+              style={{
+                padding: "8px 14px", fontSize: 13, fontWeight: 500,
+                border: "none", borderBottom: activeTab === key ? "2px solid #E85BA8" : "2px solid transparent",
+                background: "none", cursor: "pointer",
+                color: activeTab === key ? "#E85BA8" : "rgba(0,0,0,0.45)",
+                marginBottom: -1,
+                display: "flex", alignItems: "center", gap: 6,
+              }}
+            >
+              {label}
+              {count != null && count > 0 && (
+                <span style={{
+                  fontSize: 10, fontWeight: 600,
+                  padding: "1px 6px", borderRadius: 10,
+                  background: activeTab === key ? "rgba(232,91,168,0.12)" : "rgba(0,0,0,0.06)",
+                  color: activeTab === key ? "#E85BA8" : "rgba(0,0,0,0.4)",
+                }}>
+                  {count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Aba: Ações ── */}
+        {activeTab === "actions" && (<>
         {/* Account State Banner */}
         {lastAnalysis && <AccountStateBanner result={lastAnalysis} />}
 
@@ -777,6 +926,45 @@ export default function Suggestions() {
             ))}
           </div>
         )}
+        </>)}
+
+        {/* ── Aba: Experimentos ── */}
+        {activeTab === "experiments" && (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+              <Brain className="w-6 h-6 text-primary" />
+            </div>
+            <p className="text-sm font-medium text-foreground mb-2">Experimentos da conta</p>
+            <p className="text-xs text-muted-foreground mb-4 max-w-sm">
+              Acompanhe os experimentos ativos e concluídos desta conta. Para criar ou gerenciar experimentos, acesse a página dedicada.
+            </p>
+            <Button size="sm" variant="outline" className="gap-2" onClick={() => navigate("/experiments")}>
+              <Brain className="w-3.5 h-3.5" />
+              Ir para Experimentos
+            </Button>
+          </div>
+        )}
+
+        {/* ── Aba: Chat IA ── */}
+        {activeTab === "chat" && (
+          <ChatTab accountId={selectedAccountId} />
+        )}
+
+        {/* ── Aba: Histórico ── */}
+        {activeTab === "history" && (
+          <div className="space-y-3">
+            {historyDeduped.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <p className="text-sm text-muted-foreground">Nenhuma ação no histórico ainda.</p>
+                </CardContent>
+              </Card>
+            ) : historyDeduped.map((s) => (
+              <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />
+            ))}
+          </div>
+        )}
+
       </div>
     </MetaDashboardLayout>
   );

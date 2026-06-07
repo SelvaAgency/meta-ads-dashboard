@@ -350,7 +350,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                         style={location === "/suggestions" ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: "rgba(255,255,255,0.4)" }}
                       >
                         <Lightbulb className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="text-xs font-medium flex-1 truncate">Sugestões IA</span>
+                        <span className="text-xs font-medium flex-1 truncate">Plano de Ação</span>
                       </div>
                     </Link>
                   )}
