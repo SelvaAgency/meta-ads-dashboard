@@ -320,7 +320,7 @@ export function AccountHeader({
           </span>
         </div>
 
-        {/* Contexto IA button */}
+        {/* Contexto button */}
         <div style={{ marginBottom: 6 }}>
           <button
             onClick={() => setContextOpen(v => !v)}
@@ -335,7 +335,7 @@ export function AccountHeader({
             }}
           >
             <Brain style={{ width: 10, height: 10 }} />
-            Contexto IA
+            Contexto
           </button>
         </div>
 
@@ -454,7 +454,7 @@ export function AccountHeader({
         )}
       </div>
 
-      {/* ══ Block 4 — Notas (tags) + Contexto IA ══════════════════════════ */}
+      {/* ══ Block 4 — Notas (tags) + Contexto ══════════════════════════ */}
       <div style={{ padding: "12px 16px" }}>
         {blockLabel("Notas")}
 
@@ -522,7 +522,7 @@ export function AccountHeader({
         />
       </div>
 
-      {/* ══ Painel de Contexto IA (inline, expande abaixo) ══════════════════ */}
+      {/* ══ Painel de Contexto (inline, expande abaixo) ══════════════════ */}
       {contextOpen && (
         <div style={{
           gridColumn: "1 / -1",

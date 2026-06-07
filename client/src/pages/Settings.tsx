@@ -191,7 +191,32 @@ function ThresholdsPanel({ account }: { account: any }) {
 // ─── Account card ─────────────────────────────────────────────────────────────
 function AccountCard({ account }: { account: any }) {
   const [expanded, setExpanded] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [ctxProfile, setCtxProfile] = useState("");
+  const [ctxRules, setCtxRules] = useState("");
+  const [ctxLearnings, setCtxLearnings] = useState("");
+  const [ctxSaving, setCtxSaving] = useState(false);
+
+  const { data: accountCtx, refetch: refetchCtx } = trpc.context.getAccount.useQuery(
+    { accountId: account.id },
+    { enabled: !!account.id, staleTime: 30_000 }
+  );
+  useEffect(() => {
+    if (accountCtx) {
+      setCtxProfile(accountCtx.clientProfile ?? "");
+      setCtxRules(accountCtx.operationalRules ?? "");
+      setCtxLearnings(accountCtx.learnings ?? "");
+    }
+  }, [accountCtx]);
+  const upsertContext = trpc.context.upsertAccount.useMutation({
+    onSuccess: () => { toast.success("Contexto salvo"); setCtxSaving(false); refetchCtx(); },
+    onError: () => { toast.error("Erro ao salvar contexto"); setCtxSaving(false); },
+  });
+  function saveContext() {
+    setCtxSaving(true);
+    upsertContext.mutate({ accountId: account.id, clientProfile: ctxProfile, operationalRules: ctxRules, learnings: ctxLearnings });
+  }
   const utils = trpc.useUtils();
 
   const updateGoalType = trpc.accounts.updateGoalType.useMutation({
@@ -251,6 +276,18 @@ function AccountCard({ account }: { account: any }) {
           }
 
           <button
+            onClick={() => setContextOpen(v => !v)}
+            className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-full border transition-colors"
+            style={{
+              background: contextOpen ? "rgba(232,91,168,0.1)" : "transparent",
+              borderColor: contextOpen ? "rgba(232,91,168,0.4)" : undefined,
+              color: contextOpen ? "#E85BA8" : undefined,
+            }}
+          >
+            <Brain className="w-3 h-3" />
+            Contexto
+          </button>
+          <button
             onClick={() => setExpanded(v => !v)}
             className="p-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground transition-colors"
             title="Thresholds"
@@ -292,6 +329,42 @@ function AccountCard({ account }: { account: any }) {
       {expanded && (
         <div className="px-4 pb-4">
           <ThresholdsPanel account={account} />
+        </div>
+      )}
+
+      {/* Contexto panel */}
+      {contextOpen && (
+        <div className="border-t border-border/40 px-4 py-4">
+          <div className="grid grid-cols-3 gap-3 mb-3">
+            {[
+              { label: "Perfil do cliente", value: ctxProfile, set: setCtxProfile, placeholder: "Quem é o cliente, tom de voz, restrições..." },
+              { label: "Regras operacionais", value: ctxRules, set: setCtxRules, placeholder: "Sazonalidades, restrições de orçamento..." },
+              { label: "Aprendizados históricos", value: ctxLearnings, set: setCtxLearnings, placeholder: "Gerado automaticamente pela IA após cada ação..." },
+            ].map(({ label, value, set, placeholder }) => (
+              <div key={label}>
+                <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>{label}</p>
+                <textarea
+                  value={value}
+                  onChange={e => set(e.target.value)}
+                  placeholder={placeholder}
+                  rows={3}
+                  style={{ width: "100%", fontSize: 11, lineHeight: 1.5, padding: "8px 10px", borderRadius: 8, border: "0.5px solid rgba(0,0,0,0.15)", background: "white", resize: "vertical", fontFamily: "inherit", outline: "none", color: "#111" }}
+                  onFocus={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.5)"}
+                  onBlur={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.15)"}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={saveContext}
+              disabled={ctxSaving}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "#E85BA8", color: "white", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: ctxSaving ? "not-allowed" : "pointer", opacity: ctxSaving ? 0.75 : 1 }}
+            >
+              <Save className="w-3 h-3" />
+              {ctxSaving ? "Salvando..." : "Salvar contexto"}
+            </button>
+          </div>
         </div>
       )}
     </div>
