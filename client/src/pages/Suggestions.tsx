@@ -277,9 +277,25 @@ function ChatMessages({ messages, isPending, accountId }: { messages: Array<{ ro
 }
 
 function ChatPanel({ accountId }: { accountId: number | null }) {
-  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const storageKey = `chat_history_${accountId}`;
+  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>(() => {
+    try {
+      const saved = sessionStorage.getItem(storageKey);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [input, setInput] = useState("");
   const [modal, setModal] = useState(false);
+
+  const saveMessages = (msgs: Array<{ role: "user" | "assistant"; content: string }>) => {
+    setMessages(msgs);
+    try { sessionStorage.setItem(storageKey, JSON.stringify(msgs)); } catch {}
+  };
+
+  const clearChat = () => {
+    saveMessages([]);
+    try { sessionStorage.removeItem(storageKey); } catch {}
+  };
 
   const chat = trpc.context.chat.useMutation({
     onError: () => setMessages(prev => [...prev, { role: "assistant", content: "Erro ao conectar com a IA. Tente novamente." }]),
@@ -290,10 +306,10 @@ function ChatPanel({ accountId }: { accountId: number | null }) {
     const userMsg = input.trim();
     setInput("");
     const newMessages = [...messages, { role: "user" as const, content: userMsg }];
-    setMessages(newMessages);
+    saveMessages(newMessages);
     chat.mutate(
       { accountId, messages: newMessages },
-      { onSuccess: (data) => setMessages(prev => [...prev, { role: "assistant", content: data.reply }]) }
+      { onSuccess: (data) => saveMessages([...newMessages, { role: "assistant", content: data.reply }]) }
     );
   }
 
@@ -321,6 +337,11 @@ function ChatPanel({ accountId }: { accountId: number | null }) {
             <div style={{ padding: "14px 18px", borderBottom: "0.5px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: 8 }}>
               <Brain style={{ width: 14, height: 14, color: "#E85BA8" }} />
               <span style={{ fontSize: 13, fontWeight: 500, color: "#111", flex: 1 }}>Chat IA</span>
+              {messages.length > 0 && (
+                <button onClick={clearChat} title="Limpar conversa" style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.35)", padding: 2, marginRight: 4, fontSize: 11 }}>
+                  Limpar
+                </button>
+              )}
               <button onClick={() => setModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.4)", padding: 2 }}>
                 <X style={{ width: 16, height: 16 }} />
               </button>
@@ -336,6 +357,11 @@ function ChatPanel({ accountId }: { accountId: number | null }) {
         <div style={{ padding: "10px 14px", borderBottom: "0.5px solid rgba(0,0,0,0.08)", display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.02)" }}>
           <Brain style={{ width: 13, height: 13, color: "#E85BA8" }} />
           <span style={{ fontSize: 12, fontWeight: 500, color: "#111", flex: 1 }}>Chat IA</span>
+          {messages.length > 0 && (
+            <button onClick={clearChat} title="Limpar conversa" style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.25)", padding: 2 }}>
+              <X style={{ width: 11, height: 11 }} />
+            </button>
+          )}
           <button onClick={() => setModal(true)} title="Expandir" style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.3)", padding: 2 }}>
             <Maximize2 style={{ width: 12, height: 12 }} />
           </button>
