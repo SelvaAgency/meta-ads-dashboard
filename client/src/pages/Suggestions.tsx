@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
 import {
   Brain, CheckCircle2, ChevronDown, ChevronUp, Clock, DollarSign,
   Lightbulb, Link2, RefreshCw, Target, Users, XCircle, Zap, Eye,
-  AlertCircle, RotateCcw, TrendingUp, Info, Send, History, Maximize2, X, ExternalLink,
+  AlertCircle, RotateCcw, TrendingUp, Info, Send, History, Maximize2, X, ExternalLink, Trash2,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -70,6 +70,10 @@ function SuggestionCard({ s, onStatusChange, accountMetaId }: {
   const [isPending, setIsPending] = useState(false);
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const utils = trpc.useUtils();
+  const dismiss = trpc.suggestions.dismiss.useMutation({
+    onSuccess: () => { utils.suggestions.list.invalidate(); utils.suggestions.history.invalidate(); },
+  });
   const [monitorDays, setMonitorDays] = useState(() => {
     const defaults: Record<string, number> = { PAUSAR_CRIATIVO: 3, PAUSAR_CONJUNTO: 5, REALOCAR_ORCAMENTO: 5, NOVO_PUBLICO: 14, NOVO_CRIATIVO: 7, NOVO_CONJUNTO: 14 };
     return defaults[s.category ?? ""] ?? 7;
@@ -149,6 +153,14 @@ function SuggestionCard({ s, onStatusChange, accountMetaId }: {
         {isApplied && (
           <button onClick={() => { setIsPending(true); onStatusChange(s.id, "pending"); setTimeout(() => setIsPending(false), 1000); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 20, border: "1px solid rgba(0,0,0,0.12)", background: "white", color: "rgba(0,0,0,0.4)", fontSize: 11, cursor: "pointer" }}>
             <RotateCcw style={{ width: 10, height: 10 }} /> Reverter
+          </button>
+        )}
+        {!isApplied && !isRejected && (
+          <button onClick={() => dismiss.mutate({ suggestionId: s.id })} title="Ignorar sugestão" style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.2)", padding: "3px 4px", display: "flex", alignItems: "center" }}
+            onMouseEnter={e => e.currentTarget.style.color = "#E24B4A"}
+            onMouseLeave={e => e.currentTarget.style.color = "rgba(0,0,0,0.2)"}
+          >
+            <Trash2 style={{ width: 12, height: 12 }} />
           </button>
         )}
         {accountMetaId && (
