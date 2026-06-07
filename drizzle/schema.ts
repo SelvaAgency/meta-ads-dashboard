@@ -418,3 +418,46 @@ export const notificationSettings = mysqlTable("notification_settings", {
 });
 export type NotificationSettings = typeof notificationSettings.$inferSelect;
 export type InsertNotificationSettings = typeof notificationSettings.$inferInsert;
+
+
+// ─── Account Context (memória por conta) ─────────────────────────────────────
+export const accountContext = mysqlTable("account_context", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull().unique(),
+  clientProfile: text("clientProfile"),
+  operationalRules: text("operationalRules"),
+  learnings: text("learnings"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedBy: varchar("updatedBy", { length: 255 }),
+});
+export type AccountContext = typeof accountContext.$inferSelect;
+export type InsertAccountContext = typeof accountContext.$inferInsert;
+
+// ─── Agency Context (memória da agência) ─────────────────────────────────────
+export const agencyContext = mysqlTable("agency_context", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  benchmarks: text("benchmarks"),
+  patterns: text("patterns"),
+  institutionalKnowledge: text("institutionalKnowledge"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AgencyContext = typeof agencyContext.$inferSelect;
+export type InsertAgencyContext = typeof agencyContext.$inferInsert;
+
+// ─── Action Outcomes (fechamento do loop) ────────────────────────────────────
+export const actionOutcomes = mysqlTable("action_outcomes", {
+  id: int("id").autoincrement().primaryKey(),
+  suggestionId: int("suggestionId").notNull().unique(),
+  accountId: int("accountId").notNull(),
+  appliedAt: timestamp("appliedAt").notNull(),
+  observedAt: timestamp("observedAt"),
+  resultSummary: text("resultSummary"),
+  metricsSnapshot: json("metricsSnapshot").$type<Record<string, number>>(),
+  aiLearningNote: text("aiLearningNote"),
+  manualCorrection: text("manualCorrection"),
+  closedBy: varchar("closedBy", { length: 255 }),
+  closedAt: timestamp("closedAt"),
+});
+export type ActionOutcome = typeof actionOutcomes.$inferSelect;
+export type InsertActionOutcome = typeof actionOutcomes.$inferInsert;
