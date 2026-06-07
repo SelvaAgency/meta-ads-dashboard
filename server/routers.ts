@@ -339,7 +339,7 @@ const contextRouter = router({
 
       const systemPrompt = `Você é um estrategista sênior de Meta Ads da SELVA Agency. Você tem acesso completo aos dados desta conta. Seja direto, preciso e acionável.
 
-FORMATAÇÃO: Responda em texto corrido, sem markdown. Sem asteriscos, sem hashtags, sem traços para listas. Parágrafos simples. Se listar, use números com ponto.
+FORMATAÇÃO: Responda em parágrafos separados por quebra de linha. Sem asteriscos, sem hashtags, sem traços. Se houver ações concretas a sugerir, coloque-as no final sob o marcador exato "AÇÕES:" seguido de uma por linha numerada. Exemplo: AÇÕES:\n1. Pausar conjunto X\n2. Aumentar orçamento de Y
 
 ${contextBlocks}`;
 

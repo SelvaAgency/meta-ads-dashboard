@@ -191,13 +191,45 @@ function ChatMessages({ messages, isPending }: { messages: Array<{ role: string;
           <p style={{ fontSize: 11, color: "rgba(0,0,0,0.35)", lineHeight: 1.5 }}>Pergunte, peça análises ou descreva uma demanda. A IA já conhece o contexto desta conta.</p>
         </div>
       )}
-      {messages.map((m, i) => (
-        <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-          <div style={{ maxWidth: "90%", padding: "8px 12px", borderRadius: m.role === "user" ? "10px 10px 2px 10px" : "10px 10px 10px 2px", background: m.role === "user" ? "#E85BA8" : "rgba(0,0,0,0.04)", color: m.role === "user" ? "white" : "#111", fontSize: 12, lineHeight: 1.6 }}>
-            {m.content}
+      {messages.map((m, i) => {
+        if (m.role === "user") {
+          return (
+            <div key={i} style={{ display: "flex", justifyContent: "flex-end" }}>
+              <div style={{ maxWidth: "90%", padding: "8px 12px", borderRadius: "10px 10px 2px 10px", background: "#E85BA8", color: "white", fontSize: 12, lineHeight: 1.6 }}>
+                {m.content}
+              </div>
+            </div>
+          );
+        }
+        // Parsear resposta da IA — detectar ações no formato "AÇÕES:" no final
+        const parts = m.content.split(/\n?AÇÕES:|\n?SUGESTÕES DE AÇÃO:/i);
+        const mainText = parts[0] ?? m.content;
+        const actionsText = parts[1] ?? "";
+        const actions = actionsText ? actionsText.split("\n").map(a => a.replace(/^\d+\.\s*/, "").trim()).filter(Boolean) : [];
+        const paragraphs = mainText.split("\n").filter(Boolean);
+        return (
+          <div key={i} style={{ display: "flex", justifyContent: "flex-start" }}>
+            <div style={{ maxWidth: "95%", padding: "10px 14px", borderRadius: "10px 10px 10px 2px", background: "rgba(0,0,0,0.04)", color: "#111", fontSize: 12, lineHeight: 1.7 }}>
+              {paragraphs.map((p, j) => (
+                <p key={j} style={{ margin: j < paragraphs.length - 1 ? "0 0 10px 0" : 0 }}>{p}</p>
+              ))}
+              {actions.length > 0 && (
+                <div style={{ marginTop: 14, borderTop: "0.5px solid rgba(0,0,0,0.1)", paddingTop: 12 }}>
+                  <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Ações sugeridas</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {actions.map((action, j) => (
+                      <div key={j} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "6px 10px", borderRadius: 8, background: "white", border: "0.5px solid rgba(0,0,0,0.1)" }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#E85BA8", flexShrink: 0, minWidth: 16 }}>{j + 1}</span>
+                        <p style={{ fontSize: 11, color: "#111", lineHeight: 1.5, margin: 0 }}>{action}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
       {isPending && <div style={{ padding: "8px 12px", borderRadius: "10px 10px 10px 2px", background: "rgba(0,0,0,0.04)", fontSize: 12, color: "rgba(0,0,0,0.4)" }}>Pensando...</div>}
     </>
   );
