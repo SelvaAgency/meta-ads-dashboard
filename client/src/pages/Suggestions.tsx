@@ -1,67 +1,38 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Brain,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  Clock,
-  DollarSign,
-  History,
-  Lightbulb,
-  Link2,
-  RefreshCw,
-  Target,
-  Users,
-  XCircle,
-  Zap,
-  Eye,
-  AlertCircle,
-  RotateCcw,
-  ShieldCheck,
-  TrendingUp,
-  AlertTriangle,
-  Info,
-  BarChart2,
-  Send,
+  Brain, CheckCircle2, ChevronDown, ChevronUp, Clock, DollarSign,
+  Lightbulb, Link2, RefreshCw, Target, Users, XCircle, Zap, Eye,
+  AlertCircle, RotateCcw, ShieldCheck, TrendingUp, AlertTriangle,
+  Info, BarChart2, Send, History, Filter,
 } from "lucide-react";
 import { useState } from "react";
 import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-const categoryConfig: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; color: string; description: string }> = {
-  PAUSAR_CRIATIVO: { label: "Pausar Criativo", icon: XCircle, color: "text-red-400", description: "Criativo com performance abaixo da média do conjunto" },
-  PAUSAR_CONJUNTO: { label: "Pausar Conjunto", icon: XCircle, color: "text-orange-400", description: "Conjunto com custo/resultado acima da média da campanha" },
-  NOVO_PUBLICO: { label: "Novo Público", icon: Users, color: "text-purple-400", description: "Oportunidade de segmentação identificada nos dados" },
-  REALOCAR_ORCAMENTO: { label: "Realocar Orçamento", icon: DollarSign, color: "text-blue-400", description: "Transferência de orçamento entre campanhas/conjuntos" },
-  NOVO_CRIATIVO: { label: "Novo Criativo", icon: Lightbulb, color: "text-yellow-400", description: "Novo formato de criativo para conjunto específico" },
-  NOVO_CONJUNTO: { label: "Novo Conjunto", icon: Target, color: "text-emerald-400", description: "Novo segmento de público dentro de campanha existente" },
-  BUDGET: { label: "Orçamento", icon: DollarSign, color: "text-blue-400", description: "Ajuste de orçamento" },
-  TARGETING: { label: "Segmentação", icon: Target, color: "text-purple-400", description: "Ajuste de segmentação" },
-  CREATIVE: { label: "Criativo", icon: Lightbulb, color: "text-yellow-400", description: "Ajuste de criativo" },
-  BIDDING: { label: "Lances", icon: DollarSign, color: "text-green-400", description: "Ajuste de lances" },
-  SCHEDULE: { label: "Agendamento", icon: RefreshCw, color: "text-orange-400", description: "Ajuste de agendamento" },
-  AUDIENCE: { label: "Público", icon: Users, color: "text-pink-400", description: "Ajuste de público" },
-  GENERAL: { label: "Geral", icon: Brain, color: "text-primary", description: "Sugestão geral" },
+// ─── Configs ──────────────────────────────────────────────────────────────────
+const categoryConfig: Record<string, { label: string; color: string; bg: string }> = {
+  PAUSAR_CRIATIVO:    { label: "Criativo",    color: "#E24B4A", bg: "rgba(226,75,74,0.08)" },
+  PAUSAR_CONJUNTO:    { label: "Conjunto",    color: "#EF9F27", bg: "rgba(239,159,39,0.08)" },
+  NOVO_PUBLICO:       { label: "Segmentação", color: "#8B5CF6", bg: "rgba(139,92,246,0.08)" },
+  REALOCAR_ORCAMENTO: { label: "Orçamento",   color: "#378ADD", bg: "rgba(55,138,221,0.08)" },
+  NOVO_CRIATIVO:      { label: "Criativo",    color: "#E85BA8", bg: "rgba(232,91,168,0.08)" },
+  NOVO_CONJUNTO:      { label: "Conjunto",    color: "#1D9E75", bg: "rgba(29,158,117,0.08)" },
+  GENERAL:            { label: "Geral",       color: "#888780", bg: "rgba(136,135,128,0.08)" },
 };
 
-const priorityConfig: Record<string, { label: string; badge: string; color: string; bgColor: string }> = {
-  P1: { label: "P1 — Urgente", badge: "P1", color: "text-red-400 border-red-400/30", bgColor: "bg-red-400/5 border-red-400/20" },
-  P2: { label: "P2 — Alto Impacto", badge: "P2", color: "text-orange-400 border-orange-400/30", bgColor: "bg-orange-400/5 border-orange-400/20" },
-  P3: { label: "P3 — Oportunidade", badge: "P3", color: "text-blue-400 border-blue-400/30", bgColor: "bg-blue-400/5 border-blue-400/20" },
-  HIGH: { label: "P1 — Urgente", badge: "P1", color: "text-red-400 border-red-400/30", bgColor: "bg-red-400/5 border-red-400/20" },
-  CRITICAL: { label: "P1 — Urgente", badge: "P1", color: "text-red-400 border-red-400/30", bgColor: "bg-red-400/5 border-red-400/20" },
-  MEDIUM: { label: "P2 — Alto Impacto", badge: "P2", color: "text-orange-400 border-orange-400/30", bgColor: "bg-orange-400/5 border-orange-400/20" },
-  LOW: { label: "P3 — Oportunidade", badge: "P3", color: "text-blue-400 border-blue-400/30", bgColor: "bg-blue-400/5 border-blue-400/20" },
+const priorityConfig: Record<string, { label: string; color: string; border: string }> = {
+  P1: { label: "P1", color: "#E24B4A", border: "#E24B4A" },
+  P2: { label: "P2", color: "#EF9F27", border: "#EF9F27" },
+  P3: { label: "P3", color: "#378ADD", border: "#378ADD" },
+  HIGH: { label: "P1", color: "#E24B4A", border: "#E24B4A" },
+  CRITICAL: { label: "P1", color: "#E24B4A", border: "#E24B4A" },
+  MEDIUM: { label: "P2", color: "#EF9F27", border: "#EF9F27" },
+  LOW: { label: "P3", color: "#378ADD", border: "#378ADD" },
 };
 
-// ─── Account State Banner ─────────────────────────────────────────────────────
 interface AccountStateResult {
   accountState?: string;
   healthSummary?: string;
@@ -70,167 +41,50 @@ interface AccountStateResult {
   skippedReason?: string;
 }
 
-function AccountStateBanner({ result }: { result: AccountStateResult }) {
-  const [showBenchmarks, setShowBenchmarks] = useState(false);
-  const state = result.accountState;
-  if (!state) return null;
-
-  const stateConfig = {
-    ESTADO_A: {
-      icon: ShieldCheck,
-      color: "text-emerald-400",
-      bgColor: "bg-emerald-400/5 border-emerald-400/20",
-      badgeColor: "text-emerald-400 border-emerald-400/30 bg-emerald-400/10",
-      label: "Conta Saudável",
-      sublabel: "Nenhuma intervenção necessária no momento",
-    },
-    ESTADO_B: {
-      icon: TrendingUp,
-      color: "text-blue-400",
-      bgColor: "bg-blue-400/5 border-blue-400/20",
-      badgeColor: "text-blue-400 border-blue-400/30 bg-blue-400/10",
-      label: "Oportunidades Pontuais",
-      sublabel: "Performance geral positiva com pontos de melhoria identificados",
-    },
-    ESTADO_C: {
-      icon: AlertTriangle,
-      color: "text-orange-400",
-      bgColor: "bg-orange-400/5 border-orange-400/20",
-      badgeColor: "text-orange-400 border-orange-400/30 bg-orange-400/10",
-      label: "Problemas Identificados",
-      sublabel: "Ação recomendada para evitar desperdício de orçamento",
-    },
-  };
-
-  const cfg = stateConfig[state as keyof typeof stateConfig];
-  if (!cfg) return null;
-  const Icon = cfg.icon;
-
-  return (
-    <div className={`rounded-xl border p-4 ${cfg.bgColor}`}>
-      <div className="flex items-start gap-3">
-        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${cfg.bgColor}`}>
-          <Icon className={`w-5 h-5 ${cfg.color}`} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <Badge variant="outline" className={`text-xs font-bold ${cfg.badgeColor}`}>
-              {(typeof state === "string" ? state : "").replace("_", " ")}
-            </Badge>
-            <span className={`text-sm font-semibold ${cfg.color}`}>{cfg.label}</span>
-          </div>
-          <p className="text-xs text-muted-foreground mb-1">{cfg.sublabel}</p>
-          {result.healthSummary && (
-            <p className="text-xs text-foreground/80 leading-relaxed mt-2 p-2 rounded-lg bg-background/50">
-              {typeof result.healthSummary === "string" ? result.healthSummary : JSON.stringify(result.healthSummary)}
-            </p>
-          )}
-          {result.benchmarksUsed && (
-            <div className="mt-2">
-              <button
-                className={`text-xs flex items-center gap-1 ${cfg.color} hover:opacity-80 transition-opacity`}
-                onClick={() => setShowBenchmarks(!showBenchmarks)}
-              >
-                <BarChart2 className="w-3 h-3" />
-                {showBenchmarks ? "Ocultar benchmarks" : "Ver benchmarks utilizados"}
-                {showBenchmarks ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-              </button>
-              {showBenchmarks && (
-                <div className="mt-2 grid grid-cols-3 gap-2">
-                  {[
-                    { label: "CTR", value: String(result.benchmarksUsed.ctrBenchmark ?? "") },
-                    { label: "ROAS", value: String(result.benchmarksUsed.roasBenchmark ?? "") },
-                    { label: "Frequência", value: String(result.benchmarksUsed.frequencyBenchmark ?? "") },
-                  ].map((b) => (
-                    <div key={b.label} className="p-2 rounded-lg bg-background/50 text-center">
-                      <p className="text-xs text-muted-foreground">{b.label}</p>
-                      <p className={`text-xs font-semibold ${cfg.color}`}>{b.value}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function formatDate(d: Date | string | null | undefined) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  if (!d) return "";
+  return new Date(d).toLocaleDateString("pt-BR");
 }
 
 function daysLeft(d: Date | string | null | undefined) {
   if (!d) return null;
-  const diff = Math.ceil((new Date(d).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-  return diff > 0 ? diff : 0;
+  const diff = new Date(d).getTime() - Date.now();
+  return Math.max(0, Math.ceil(diff / 86400000));
 }
 
-// ─── Rejection Dialog (inline) ───────────────────────────────────────────────
-function RejectionForm({
-  onConfirm,
-  onCancel,
-  isPending,
-}: {
-  onConfirm: (reason: string) => void;
-  onCancel: () => void;
-  isPending: boolean;
-}) {
+// ─── Rejection Form ───────────────────────────────────────────────────────────
+function RejectionForm({ onConfirm, onCancel }: { onConfirm: (r: string) => void; onCancel: () => void }) {
   const [reason, setReason] = useState("");
   return (
-    <div className="mt-3 p-3 rounded-lg bg-destructive/5 border border-destructive/20 space-y-2">
-      <p className="text-xs font-medium text-destructive">Marcar como Não Aplicado</p>
-      <Textarea
-        placeholder="Motivo (opcional) — ex: já testamos isso, não se aplica ao nosso público..."
-        className="text-xs min-h-[60px] resize-none"
+    <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 10, background: "rgba(226,75,74,0.04)", border: "1px solid rgba(226,75,74,0.15)" }}>
+      <p style={{ fontSize: 12, fontWeight: 600, color: "#E24B4A", marginBottom: 8 }}>Marcar como Não Aplicado</p>
+      <textarea
         value={reason}
-        onChange={(e) => setReason(e.target.value)}
+        onChange={e => setReason(e.target.value)}
+        placeholder="Motivo (opcional) — ex: já testamos isso, não se aplica ao nosso público..."
+        rows={2}
+        style={{ width: "100%", fontSize: 12, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", resize: "none", fontFamily: "inherit", outline: "none", marginBottom: 10 }}
       />
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          variant="destructive"
-          className="h-7 text-xs gap-1"
-          onClick={() => onConfirm(reason)}
-          disabled={isPending}
-        >
-          <XCircle className="w-3 h-3" />
-          Confirmar
-        </Button>
-        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onCancel}>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => onConfirm(reason)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 8, border: "none", background: "#E24B4A", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+          <XCircle style={{ width: 12, height: 12 }} /> Confirmar
+        </button>
+        <button onClick={onCancel} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}>
           Cancelar
-        </Button>
+        </button>
       </div>
     </div>
   );
 }
 
-// ─── Unified Suggestion Card ─────────────────────────────────────────────────
+// ─── Suggestion Card ──────────────────────────────────────────────────────────
 function SuggestionCard({ s, onStatusChange }: {
   s: any;
   onStatusChange: (id: number, status: "applied" | "rejected" | "pending", reason?: string, monitorDays?: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [showRejectForm, setShowRejectForm] = useState(false);
   const [isPending, setIsPending] = useState(false);
-
-  const cat = categoryConfig[s.category] ?? categoryConfig.GENERAL;
-  const pri = priorityConfig[s.priority] ?? priorityConfig.P3;
-  const CatIcon = cat.icon;
-  const parsedActionItems: any[] = (() => {
-    if (Array.isArray(s.actionItems)) return s.actionItems;
-    if (typeof s.actionItems === "string" && s.actionItems.trim().startsWith("[")) {
-      try { return JSON.parse(s.actionItems); } catch { return []; }
-    }
-    return [];
-  })();
-  const actionItems = parsedActionItems.map((a: any) => (typeof a === "string" ? a : JSON.stringify(a)));
-  const expectedImpact = typeof s.expectedImpact === "string" ? s.expectedImpact.trim() : "";
-  const isApplied = s.status === "applied";
-  const isRejected = s.status === "rejected";
-  const isMonitoring = isApplied && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult;
+  const [showRejectForm, setShowRejectForm] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [monitorDays, setMonitorDays] = useState(() => {
     const defaults: Record<string, number> = {
@@ -239,265 +93,181 @@ function SuggestionCard({ s, onStatusChange }: {
     };
     return defaults[s.category ?? ""] ?? 7;
   });
-  const handleApply = () => setShowApplyModal(true);
-  const confirmApply = () => {
-    setShowApplyModal(false);
-    setIsPending(true);
-    onStatusChange(s.id, "applied", undefined, monitorDays);
-    setTimeout(() => setIsPending(false), 1000);
-  };
 
-  const handleReject = (reason: string) => {
-    setIsPending(true);
-    setShowRejectForm(false);
-    onStatusChange(s.id, "rejected", reason);
-    setTimeout(() => setIsPending(false), 1000);
-  };
+  const cat = categoryConfig[s.category] ?? categoryConfig.GENERAL;
+  const pri = priorityConfig[s.priority] ?? priorityConfig.P3;
+  const isApplied = s.status === "applied";
+  const isRejected = s.status === "rejected";
+  const isMonitoring = isApplied && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult;
 
-  const handleRevert = () => {
-    setIsPending(true);
-    onStatusChange(s.id, "pending");
-    setTimeout(() => setIsPending(false), 1000);
-  };
+  const parsedActionItems: any[] = (() => {
+    if (!s.actionItems) return [];
+    try { return Array.isArray(s.actionItems) ? s.actionItems : JSON.parse(s.actionItems); } catch { return []; }
+  })();
+  const actionItems = parsedActionItems.map((a: any) => (typeof a === "string" ? a : JSON.stringify(a)));
+  const expectedImpact = typeof s.expectedImpact === "string" ? s.expectedImpact.trim() : "";
+
+  const borderColor = isApplied ? "#1D9E75" : isRejected ? "rgba(0,0,0,0.1)" : pri.border;
+  const opacity = isRejected ? 0.55 : 1;
 
   return (
-    <Card className={`border-border hover:border-primary/30 transition-all ${
-      isApplied ? "border-emerald-400/20" : isRejected ? "border-red-400/20" : pri.bgColor
-    }`}>
-      <CardContent className="p-4">
-        <div className="flex items-start gap-3">
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
-            isApplied ? "bg-emerald-400/10" : isRejected ? "bg-red-400/10" : "bg-accent/80"
-          }`}>
-            {isApplied ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            ) : isRejected ? (
-              <XCircle className="w-4 h-4 text-red-400" />
-            ) : (
-              <CatIcon className={`w-4 h-4 ${cat.color}`} />
-            )}
+    <div style={{
+      border: "1px solid rgba(0,0,0,0.08)",
+      borderLeft: `3px solid ${borderColor}`,
+      borderRadius: "0 10px 10px 0",
+      background: "white",
+      padding: "14px 16px",
+      opacity,
+      transition: "opacity 0.2s",
+    }}>
+      {/* Top row */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+        {/* Priority badge */}
+        <span style={{
+          fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+          background: `${pri.color}18`, color: pri.color, flexShrink: 0, marginTop: 1,
+        }}>{pri.label}</span>
+
+        {/* Title */}
+        <p style={{ flex: 1, fontSize: 13, fontWeight: 500, color: "#111", lineHeight: 1.45, margin: 0 }}>
+          {s.title}
+        </p>
+
+        {/* Category badge */}
+        <span style={{
+          fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4,
+          background: cat.bg, color: cat.color, flexShrink: 0,
+        }}>{cat.label}</span>
+      </div>
+
+      {/* Description */}
+      <p style={{ fontSize: 12, color: "rgba(0,0,0,0.5)", lineHeight: 1.55, margin: "8px 0 0 0" }}>
+        {s.description}
+      </p>
+
+      {/* Expanded content */}
+      {expanded && (
+        <div style={{ marginTop: 12 }}>
+          {expectedImpact && (
+            <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(29,158,117,0.05)", border: "1px solid rgba(29,158,117,0.15)", marginBottom: 12 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: "#1D9E75", marginBottom: 4 }}>Impacto Esperado</p>
+              <p style={{ fontSize: 12, color: "rgba(0,0,0,0.6)", lineHeight: 1.5, margin: 0 }}>{expectedImpact}</p>
+            </div>
+          )}
+          {actionItems.length > 0 && (
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 600, color: "#111", marginBottom: 8 }}>Ações para Aplicar Manualmente</p>
+              <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6 }}>
+                {actionItems.map((item: string, i: number) => (
+                  <li key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#E85BA8", flexShrink: 0, minWidth: 16 }}>{i + 1}</span>
+                    <p style={{ fontSize: 12, color: "rgba(0,0,0,0.65)", lineHeight: 1.5, margin: 0 }}>{item}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Monitoring progress */}
+      {isMonitoring && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ fontSize: 11, color: "#1D9E75" }}>Monitorando resultado</span>
+            <span style={{ fontSize: 11, color: "rgba(0,0,0,0.4)" }}>{daysLeft(s.monitorUntil)} dias restantes</span>
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <Badge variant="outline" className={`text-xs font-bold ${pri.color}`}>
-                {pri.badge}
-              </Badge>
-              <p className="text-sm font-semibold text-foreground">{s.title}</p>
-              <Badge variant="outline" className={`text-xs ${cat.color}`}>
-                {cat.label}
-              </Badge>
-              {isApplied && (
-                <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-400/30">
-                  Aplicado
-                </Badge>
-              )}
-              {isRejected && (
-                <Badge variant="outline" className="text-xs text-red-400 border-red-400/30">
-                  Não Aplicado
-                </Badge>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
-
-            {/* Monitoring badge */}
-            {isMonitoring && (
-              <div className="mt-2 flex items-center gap-1.5 text-xs text-blue-400">
-                <Eye className="w-3 h-3" />
-                Monitorando por {daysLeft(s.monitorUntil)} dias ainda
-              </div>
-            )}
-
-            {/* Monitor result */}
-            {s.monitorResult && (
-              <div className="mt-2 p-2 rounded-lg bg-blue-400/5 border border-blue-400/20">
-                <p className="text-xs font-medium text-blue-400 mb-1">Resultado do Monitoramento (7 dias)</p>
-                <p className="text-xs text-muted-foreground">{s.monitorResult}</p>
-              </div>
-            )}
-
-            {/* Rejection reason */}
-            {isRejected && s.rejectionReason && (
-              <div className="mt-2 p-2 rounded-lg bg-muted/50">
-                <p className="text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">Motivo: </span>
-                  {s.rejectionReason}
-                </p>
-              </div>
-            )}
-
-            {expanded && (() => {
-              console.log("[SuggestionCard] expanded id=%s expectedImpact=%o actionItems=%o", s.id, s.expectedImpact, s.actionItems);
-              return (
-                <div className="mt-3 space-y-3">
-                  {expectedImpact && (
-                    <div className="p-3 rounded-lg bg-emerald-400/5 border border-emerald-400/20">
-                      <p className="text-xs font-medium text-emerald-400 mb-1">Impacto Esperado</p>
-                      <p className="text-xs text-muted-foreground">{expectedImpact}</p>
-                    </div>
-                  )}
-                  {actionItems.length > 0 && (
-                    <div>
-                      <p className="text-xs font-medium text-foreground mb-2">Ações para Aplicar Manualmente</p>
-                      <ul className="space-y-1.5">
-                        {actionItems.map((action: string, i: number) => (
-                          <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
-                            <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
-                              {i + 1}
-                            </span>
-                            {action}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {!expectedImpact && actionItems.length === 0 && (
-                    <p className="text-xs text-muted-foreground italic">Nenhuma ação detalhada disponível para esta sugestão.</p>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Action buttons */}
-            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/30 flex-wrap">
-              {/* Applied: show as fixed/selected, not clickable */}
-              {isApplied ? (
-                <div className="h-7 gap-1.5 text-xs inline-flex items-center px-3 rounded-md bg-emerald-600/20 text-emerald-400 border border-emerald-400/30 cursor-default select-none">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Aplicado (em observação)
-                </div>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1.5 text-xs text-emerald-400 border-emerald-400/30 hover:bg-emerald-400/10 hover:border-emerald-400/60"
-                  onClick={handleApply}
-                  disabled={isPending}
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Marcar Aplicado
-                </Button>
-              )}
-
-              {/* Rejected: show as fixed/selected, not clickable */}
-              {isRejected ? (
-                <div className="h-7 gap-1.5 text-xs inline-flex items-center px-3 rounded-md bg-red-600/20 text-red-400 border border-red-400/30 cursor-default select-none">
-                  <XCircle className="w-3.5 h-3.5" />
-                  Não Aplicado
-                </div>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1.5 text-xs text-red-400 border-red-400/30 hover:bg-red-400/10 hover:border-red-400/60"
-                  onClick={() => setShowRejectForm(!showRejectForm)}
-                  disabled={isPending}
-                >
-                  <XCircle className="w-3.5 h-3.5" />
-                  Não Aplicar
-                </Button>
-              )}
-
-            {/* Modal de confirmação — monitorDays */}
-            {showApplyModal && (
-              <div style={{
-                position: "fixed", inset: 0, zIndex: 50,
-                background: "rgba(0,0,0,0.35)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <div style={{
-                  background: "white", borderRadius: 14, padding: "24px 28px",
-                  width: 360, boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
-                }}>
-                  <p style={{ fontSize: 14, fontWeight: 600, color: "#111", marginBottom: 6 }}>
-                    Confirmar ação aplicada
-                  </p>
-                  <p style={{ fontSize: 12, color: "rgba(0,0,0,0.5)", marginBottom: 18, lineHeight: 1.5 }}>
-                    Por quanto tempo a IA deve monitorar o resultado desta ação?
-                  </p>
-                  <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-                    {[3, 5, 7, 14].map(d => (
-                      <button
-                        key={d}
-                        onClick={() => setMonitorDays(d)}
-                        style={{
-                          flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12, fontWeight: 600,
-                          border: monitorDays === d ? "2px solid #E85BA8" : "1px solid rgba(0,0,0,0.12)",
-                          background: monitorDays === d ? "rgba(232,91,168,0.08)" : "white",
-                          color: monitorDays === d ? "#E85BA8" : "rgba(0,0,0,0.5)",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {d}d
-                      </button>
-                    ))}
-                  </div>
-                  <p style={{ fontSize: 11, color: "rgba(0,0,0,0.35)", marginBottom: 20, lineHeight: 1.5 }}>
-                    Após {monitorDays} dias, a IA analisa os resultados e registra um aprendizado automático para esta conta.
-                  </p>
-                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                    <button
-                      onClick={() => setShowApplyModal(false)}
-                      style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      onClick={confirmApply}
-                      style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                    >
-                      Confirmar
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 text-xs text-muted-foreground ml-auto"
-                onClick={() => setExpanded(!expanded)}
-              >
-                {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                {expanded ? "Menos" : "Ver ações"}
-              </Button>
-            </div>
-
-            {/* Date info */}
-            <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <span className="text-xs text-muted-foreground">
-                <Clock className="w-3 h-3 inline mr-1" />
-                {formatDate(s.generatedAt)}
-                {s.expiresAt && ` · expira ${formatDate(s.expiresAt)}`}
-              </span>
-            </div>
-
-            {showRejectForm && (
-              <RejectionForm
-                onConfirm={handleReject}
-                onCancel={() => setShowRejectForm(false)}
-                isPending={isPending}
-              />
-            )}
+          <div style={{ height: 3, background: "rgba(0,0,0,0.06)", borderRadius: 2 }}>
+            <div style={{ height: "100%", background: "#1D9E75", borderRadius: 2, width: "60%" }} />
           </div>
         </div>
-      </CardContent>
-    </Card>
+      )}
+
+      {/* Footer */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+        {/* Action buttons */}
+        {!isApplied && !isRejected && (
+          <>
+            <button
+              onClick={() => setShowApplyModal(true)}
+              disabled={isPending}
+              style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 20, border: "1px solid rgba(29,158,117,0.4)", background: "rgba(29,158,117,0.06)", color: "#1D9E75", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            >
+              <CheckCircle2 style={{ width: 12, height: 12 }} /> Marcar Aplicado
+            </button>
+            <button
+              onClick={() => setShowRejectForm(v => !v)}
+              disabled={isPending}
+              style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 20, border: "1px solid rgba(226,75,74,0.3)", background: "rgba(226,75,74,0.04)", color: "#E24B4A", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            >
+              <XCircle style={{ width: 12, height: 12 }} /> Não Aplicar
+            </button>
+          </>
+        )}
+        {isApplied && (
+          <button
+            onClick={() => { setIsPending(true); onStatusChange(s.id, "pending"); setTimeout(() => setIsPending(false), 1000); }}
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 20, border: "1px solid rgba(0,0,0,0.12)", background: "white", color: "rgba(0,0,0,0.4)", fontSize: 12, cursor: "pointer" }}
+          >
+            <RotateCcw style={{ width: 11, height: 11 }} /> Reverter
+          </button>
+        )}
+
+        {/* Date */}
+        <span style={{ fontSize: 11, color: "rgba(0,0,0,0.3)", marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+          <Clock style={{ width: 10, height: 10 }} />
+          {formatDate(s.generatedAt)}{s.expiresAt && ` · expira ${formatDate(s.expiresAt)}`}
+        </span>
+
+        {/* Expand toggle */}
+        <button
+          onClick={() => setExpanded(v => !v)}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.35)", fontSize: 12, display: "flex", alignItems: "center", gap: 4, padding: "2px 4px" }}
+        >
+          {expanded ? <><ChevronUp style={{ width: 13, height: 13 }} /> Menos</> : <><ChevronDown style={{ width: 13, height: 13 }} /> Ver ações</>}
+        </button>
+      </div>
+
+      {/* Rejection form */}
+      {showRejectForm && (
+        <RejectionForm
+          onConfirm={(reason) => { setShowRejectForm(false); setIsPending(true); onStatusChange(s.id, "rejected", reason); setTimeout(() => setIsPending(false), 1000); }}
+          onCancel={() => setShowRejectForm(false)}
+        />
+      )}
+
+      {/* Apply modal */}
+      {showApplyModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "white", borderRadius: 14, padding: "24px 28px", width: 360 }}>
+            <p style={{ fontSize: 14, fontWeight: 600, color: "#111", marginBottom: 6 }}>Confirmar ação aplicada</p>
+            <p style={{ fontSize: 12, color: "rgba(0,0,0,0.5)", marginBottom: 18, lineHeight: 1.5 }}>Por quanto tempo a IA deve monitorar o resultado?</p>
+            <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+              {[3, 5, 7, 14].map(d => (
+                <button key={d} onClick={() => setMonitorDays(d)} style={{ flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 12, fontWeight: 600, border: monitorDays === d ? "2px solid #E85BA8" : "1px solid rgba(0,0,0,0.12)", background: monitorDays === d ? "rgba(232,91,168,0.08)" : "white", color: monitorDays === d ? "#E85BA8" : "rgba(0,0,0,0.5)", cursor: "pointer" }}>
+                  {d}d
+                </button>
+              ))}
+            </div>
+            <p style={{ fontSize: 11, color: "rgba(0,0,0,0.35)", marginBottom: 20, lineHeight: 1.5 }}>Após {monitorDays} dias, a IA analisa os resultados e registra um aprendizado automático.</p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowApplyModal(false)} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}>Cancelar</button>
+              <button onClick={() => { setShowApplyModal(false); setIsPending(true); onStatusChange(s.id, "applied", undefined, monitorDays); setTimeout(() => setIsPending(false), 1000); }} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
 // ─── Chat Tab ─────────────────────────────────────────────────────────────────
 function ChatTab({ accountId }: { accountId: number | null }) {
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const bottomRef = useState<HTMLDivElement | null>(null);
   const { accounts } = useSelectedAccount();
-  const { data: accountCtx } = trpc.context.getAccount.useQuery(
-    { accountId: accountId! },
-    { enabled: !!accountId, staleTime: 30_000 }
-  );
+  const { data: accountCtx } = trpc.context.getAccount.useQuery({ accountId: accountId! }, { enabled: !!accountId, staleTime: 30_000 });
   const { data: agencyCtx } = trpc.context.getAgency.useQuery(undefined, { staleTime: 60_000 });
   const account = accounts?.find((a: any) => a.id === accountId);
 
@@ -515,11 +285,7 @@ function ChatTab({ accountId }: { accountId: number | null }) {
         accountCtx?.operationalRules ? `REGRAS OPERACIONAIS:\n${accountCtx.operationalRules}` : "",
         accountCtx?.learnings ? `APRENDIZADOS HISTÓRICOS:\n${accountCtx.learnings}` : "",
       ].filter(Boolean).join("\n\n");
-
-      const systemPrompt = `Você é um estrategista sênior de Meta Ads da SELVA Agency — uma boutique de branding e performance digital em São Paulo. Você tem acesso ao contexto completo desta conta e deve responder de forma direta, prática e acionável.${contextBlocks ? `\n\n${contextBlocks}` : ""}\n\nConta atual: ${account?.accountName ?? "não identificada"}`;
-
-      const history = messages.map(m => ({ role: m.role, content: m.content }));
-
+      const systemPrompt = `Você é um estrategista sênior de Meta Ads da SELVA Agency. Responda de forma direta, prática e acionável.${contextBlocks ? `\n\n${contextBlocks}` : ""}\n\nConta atual: ${account?.accountName ?? "não identificada"}`;
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -527,7 +293,7 @@ function ChatTab({ accountId }: { accountId: number | null }) {
           model: "claude-sonnet-4-20250514",
           max_tokens: 1000,
           system: systemPrompt,
-          messages: [...history, { role: "user", content: userMsg }],
+          messages: [...messages.map(m => ({ role: m.role, content: m.content })), { role: "user", content: userMsg }],
         }),
       });
       const data = await response.json();
@@ -541,39 +307,28 @@ function ChatTab({ accountId }: { accountId: number | null }) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 0, border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, overflow: "hidden", background: "white" }}>
-      {/* Messages */}
-      <div style={{ flex: 1, minHeight: 320, maxHeight: 480, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, overflow: "hidden", background: "white" }}>
+      <div style={{ minHeight: 320, maxHeight: 480, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
         {messages.length === 0 && (
           <div style={{ margin: "auto", textAlign: "center", padding: "32px 0" }}>
             <Brain style={{ width: 32, height: 32, color: "#E85BA8", margin: "0 auto 12px" }} />
             <p style={{ fontSize: 13, fontWeight: 500, color: "#111", marginBottom: 6 }}>Chat com a IA — {account?.accountName ?? "conta"}</p>
-            <p style={{ fontSize: 12, color: "rgba(0,0,0,0.4)", maxWidth: 320, lineHeight: 1.5 }}>
-              Pergunte sobre a conta, peça análises, explore hipóteses ou descreva uma demanda nova. A IA já conhece o contexto desta conta.
-            </p>
+            <p style={{ fontSize: 12, color: "rgba(0,0,0,0.4)", maxWidth: 320, lineHeight: 1.5 }}>Pergunte sobre a conta, peça análises, explore hipóteses ou descreva uma demanda nova. A IA já conhece o contexto desta conta.</p>
           </div>
         )}
         {messages.map((m, i) => (
           <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-            <div style={{
-              maxWidth: "80%", padding: "10px 14px", borderRadius: m.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-              background: m.role === "user" ? "#E85BA8" : "rgba(0,0,0,0.04)",
-              color: m.role === "user" ? "white" : "#111",
-              fontSize: 13, lineHeight: 1.6,
-            }}>
+            <div style={{ maxWidth: "80%", padding: "10px 14px", borderRadius: m.role === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px", background: m.role === "user" ? "#E85BA8" : "rgba(0,0,0,0.04)", color: m.role === "user" ? "white" : "#111", fontSize: 13, lineHeight: 1.6 }}>
               {m.content}
             </div>
           </div>
         ))}
         {loading && (
           <div style={{ display: "flex", justifyContent: "flex-start" }}>
-            <div style={{ padding: "10px 14px", borderRadius: "12px 12px 12px 2px", background: "rgba(0,0,0,0.04)", fontSize: 13, color: "rgba(0,0,0,0.4)" }}>
-              Pensando...
-            </div>
+            <div style={{ padding: "10px 14px", borderRadius: "12px 12px 12px 2px", background: "rgba(0,0,0,0.04)", fontSize: 13, color: "rgba(0,0,0,0.4)" }}>Pensando...</div>
           </div>
         )}
       </div>
-      {/* Input */}
       <div style={{ borderTop: "1px solid rgba(0,0,0,0.08)", padding: "12px 16px", display: "flex", gap: 8, alignItems: "flex-end", background: "rgba(0,0,0,0.01)" }}>
         <textarea
           value={input}
@@ -585,11 +340,7 @@ function ChatTab({ accountId }: { accountId: number | null }) {
           onFocus={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.5)"}
           onBlur={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"}
         />
-        <button
-          onClick={sendMessage}
-          disabled={loading || !input.trim()}
-          style={{ padding: "10px 14px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", cursor: loading || !input.trim() ? "not-allowed" : "pointer", opacity: loading || !input.trim() ? 0.6 : 1, flexShrink: 0 }}
-        >
+        <button onClick={sendMessage} disabled={loading || !input.trim()} style={{ padding: "10px 14px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", cursor: loading || !input.trim() ? "not-allowed" : "pointer", opacity: loading || !input.trim() ? 0.6 : 1 }}>
           <Send style={{ width: 16, height: 16 }} />
         </button>
       </div>
@@ -597,13 +348,13 @@ function ChatTab({ accountId }: { accountId: number | null }) {
   );
 }
 
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Suggestions() {
   const [, navigate] = useLocation();
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const { period, setPeriod, isInRange } = usePeriodFilter("30d");
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
-
   const [lastAnalysis, setLastAnalysis] = useState<AccountStateResult | null>(null);
   const [activeTab, setActiveTab] = useState<"actions" | "experiments" | "chat" | "history">("actions");
 
@@ -611,8 +362,7 @@ export default function Suggestions() {
     { accountId: selectedAccountId! },
     { enabled: !!selectedAccountId }
   );
-
-  const { data: history, isLoading: isLoadingHistory } = trpc.suggestions.history.useQuery(
+  const { data: hist = [], isLoading: isLoadingHistory } = trpc.suggestions.history.useQuery(
     { accountId: selectedAccountId! },
     { enabled: !!selectedAccountId }
   );
@@ -622,38 +372,26 @@ export default function Suggestions() {
       utils.suggestions.list.invalidate();
       utils.suggestions.history.invalidate();
       setLastAnalysis(data as AccountStateResult);
-
       if (data.skippedReason) {
         toast.warning(data.skippedReason, { duration: 6000 });
       } else {
         const state = (data as AccountStateResult).accountState;
-        if (state === "ESTADO_A") {
-          toast.success("Conta saudável! Nenhuma intervenção necessária no momento.", { duration: 5000 });
-        } else if (state === "ESTADO_B") {
-          toast.info(`${data.generated} oportunidade(s) pontual(is) identificada(s).`, { duration: 5000 });
-        } else if (state === "ESTADO_C") {
-          toast.warning(`${data.generated} problema(s) identificado(s) que requerem atenção.`, { duration: 5000 });
-        } else if (data.generated === 0) {
-          toast.info("Nenhuma sugestão nova foi gerada. Os dados podem não ter variações significativas no momento.");
-        } else {
-          toast.success(`${data.generated} sugestão(ões) gerada(s) com base nos dados reais das campanhas!`);
-        }
+        if (state === "ESTADO_A") toast.success("Conta saudável! Nenhuma intervenção necessária.", { duration: 5000 });
+        else if (state === "ESTADO_B") toast.info(`${data.generated} oportunidade(s) identificada(s).`, { duration: 5000 });
+        else if (state === "ESTADO_C") toast.warning(`${data.generated} problema(s) que requerem atenção.`, { duration: 5000 });
+        else toast.success(`${data.generated} sugestão(ões) gerada(s)!`);
       }
     },
-    onError: () => toast.error("Erro ao analisar campanhas. Verifique se há dados sincronizados."),
+    onError: () => toast.error("Erro ao analisar campanhas."),
   });
 
   const updateStatus = trpc.suggestions.updateStatus.useMutation({
     onSuccess: (_, vars) => {
       utils.suggestions.list.invalidate();
       utils.suggestions.history.invalidate();
-      if (vars.status === "applied") {
-        toast.success(`Marcado como Aplicado. Monitoraremos os resultados por ${vars.monitorDays ?? 7} dias.`);
-      } else if (vars.status === "rejected") {
-        toast.success("Marcado como Não Aplicado. O feedback será usado para melhorar futuras sugestões.");
-      } else {
-        toast.success("Status atualizado.");
-      }
+      if (vars.status === "applied") toast.success(`Marcado como Aplicado. Monitoraremos por ${vars.monitorDays ?? 7} dias.`);
+      else if (vars.status === "rejected") toast.success("Marcado como Não Aplicado.");
+      else toast.success("Status atualizado.");
     },
     onError: () => toast.error("Erro ao atualizar status."),
   });
@@ -662,309 +400,296 @@ export default function Suggestions() {
     updateStatus.mutate({ suggestionId: id, status, rejectionReason: reason, monitorDays });
   };
 
-  const handleFilterClick = (key: string) => setActiveFilter((prev) => (prev === key ? null : key));
-
   if (!accounts || accounts.length === 0) {
     return (
       <MetaDashboardLayout title="Plano de Ação">
-        <div className="flex flex-col items-center justify-center h-64 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
-            <Link2 className="w-7 h-7 text-primary" />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 240, textAlign: "center" }}>
+          <div style={{ width: 56, height: 56, borderRadius: 16, background: "rgba(232,91,168,0.1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+            <Link2 style={{ width: 24, height: 24, color: "#E85BA8" }} />
           </div>
-          <h2 className="text-xl font-semibold text-foreground mb-2">Nenhuma conta conectada</h2>
-          <Button onClick={() => navigate("/connect")} className="gap-2 mt-2">
-            <Zap className="w-4 h-4" />
+          <p style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Nenhuma conta conectada</p>
+          <button onClick={() => navigate("/settings")} style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 8 }}>
             Conectar conta
-          </Button>
+          </button>
         </div>
       </MetaDashboardLayout>
     );
   }
 
-  const pending = suggestions ?? [];
-  const hist = history ?? [];
-  const allItems = [...pending, ...hist].filter((s) => isInRange(s.generatedAt));
-
-  // Helper: check if an item should be in "history" based on status + time elapsed
-  // Applied: goes to history after 7 days from appliedAt
-  // Rejected: goes to history after 1 day from appliedAt (when status was changed)
+  const pending = (suggestions ?? []).filter((s: any) => s.status === "pending");
   const now = Date.now();
   const isInHistory = (s: any) => {
-    if (s.status === "applied" && s.appliedAt) {
-      const elapsed = now - new Date(s.appliedAt).getTime();
-      return elapsed > 7 * 24 * 60 * 60 * 1000; // >7 days
-    }
-    if (s.status === "rejected" && s.appliedAt) {
-      const elapsed = now - new Date(s.appliedAt).getTime();
-      return elapsed > 1 * 24 * 60 * 60 * 1000; // >1 day
-    }
+    if (s.status === "applied" && s.appliedAt) return (now - new Date(s.appliedAt).getTime()) > 7 * 86400000;
+    if (s.status === "rejected" && s.appliedAt) return (now - new Date(s.appliedAt).getTime()) > 1 * 86400000;
     return false;
   };
+  const recentApplied = (suggestions ?? []).filter((s: any) => s.status === "applied" && !isInHistory(s));
+  const recentRejected = (suggestions ?? []).filter((s: any) => s.status === "rejected" && !isInHistory(s));
+  const historyItems = [...(suggestions ?? []).filter(isInHistory), ...hist.filter((h: any) => !(suggestions ?? []).some((s: any) => s.id === h.id))];
+  const historyDeduped = Array.from(new Map(historyItems.map((s: any) => [s.id, s])).values());
+  const monitoring = (suggestions ?? []).filter((s: any) => s.status === "applied" && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult);
+  const allItems = [...pending, ...recentApplied, ...recentRejected].filter((s: any) => isInRange(s.generatedAt));
 
-  // "Recent" applied/rejected = not yet moved to history
-  const recentApplied = allItems.filter((s) => s.status === "applied" && !isInHistory(s));
-  const recentRejected = allItems.filter((s) => s.status === "rejected" && !isInHistory(s));
-  const historyItems = allItems.filter((s) => isInHistory(s) || (s.status !== "pending" && s.status !== "applied" && s.status !== "rejected"));
-  // Also include items from the backend history that are old enough
-  const fullHistory = [...historyItems, ...hist.filter((h) => !allItems.some((a) => a.id === h.id) || isInHistory(h))];
-  // Deduplicate by id
-  const historyDeduped = Array.from(new Map(fullHistory.map((s) => [s.id, s])).values());
+  const p1 = pending.filter((s: any) => ["P1","HIGH","CRITICAL"].includes(s.priority));
+  const p2 = pending.filter((s: any) => ["P2","MEDIUM"].includes(s.priority));
+  const p3 = pending.filter((s: any) => ["P3","LOW"].includes(s.priority));
 
-  // Stats for filter cards
-  const statsConfig = [
-    { key: "high", label: "Alta Prioridade", value: allItems.filter((s) => s.priority === "HIGH" && !isInHistory(s)).length, color: "text-red-400", borderActive: "border-red-400 ring-1 ring-red-400/30 bg-red-400/5" },
-    { key: "medium", label: "Média Prioridade", value: allItems.filter((s) => s.priority === "MEDIUM" && !isInHistory(s)).length, color: "text-orange-400", borderActive: "border-orange-400 ring-1 ring-orange-400/30 bg-orange-400/5" },
-    { key: "low", label: "Baixa Prioridade", value: allItems.filter((s) => s.priority === "LOW" && !isInHistory(s)).length, color: "text-blue-400", borderActive: "border-blue-400 ring-1 ring-blue-400/30 bg-blue-400/5" },
-    { key: "applied", label: "Aplicadas (Observação)", value: recentApplied.length, color: "text-emerald-400", borderActive: "border-emerald-400 ring-1 ring-emerald-400/30 bg-emerald-400/5" },
-    { key: "rejected", label: "Não Aplicadas", value: recentRejected.length, color: "text-slate-400", borderActive: "border-slate-400 ring-1 ring-slate-400/30 bg-slate-400/5" },
-    { key: "history", label: "Histórico", value: historyDeduped.length, color: "text-muted-foreground", borderActive: "border-primary ring-1 ring-primary/30 bg-primary/5" },
+  const account = accounts?.find((a: any) => a.id === selectedAccountId);
+  const aiColor = (account as any)?.aiStatusColor as "green" | "yellow" | "red" | null;
+  const stateColors = { green: { color: "#1D9E75", label: "Saudável" }, yellow: { color: "#EF9F27", label: "Atenção" }, red: { color: "#E24B4A", label: "Crítico" } };
+  const stateCfg = aiColor ? stateColors[aiColor] : null;
+
+  const TABS = [
+    { key: "actions", label: "Ações", count: pending.length },
+    { key: "experiments", label: "Experimentos", count: null },
+    { key: "chat", label: "Chat IA", count: null },
+    { key: "history", label: "Histórico", count: historyDeduped.length || null },
   ];
-
-  // Filter logic
-  const filteredItems = (() => {
-    if (!activeFilter) return pending;
-    switch (activeFilter) {
-      case "high":
-        return allItems.filter((s) => s.priority === "HIGH" && !isInHistory(s));
-      case "medium":
-        return allItems.filter((s) => s.priority === "MEDIUM" && !isInHistory(s));
-      case "low":
-        return allItems.filter((s) => s.priority === "LOW" && !isInHistory(s));
-      case "applied":
-        return recentApplied;
-      case "rejected":
-        return recentRejected;
-      case "history":
-        return historyDeduped;
-      default:
-        return pending;
-    }
-  })();
-
-  const monitoring = allItems.filter((s) => s.status === "applied" && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult);
 
   return (
     <MetaDashboardLayout title="Plano de Ação">
-      <div className="space-y-5">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-foreground">Plano de Ação</h1>
-            <p className="text-sm text-muted-foreground">
-              A IA diagnostica a conta antes de gerar sugestões — intervenções apenas quando necessário
-            </p>
-            {(() => {
-              const acct = accounts?.find((a: any) => a.id === selectedAccountId);
-              return acct?.accountName ? (
-                <p className="text-xs text-primary font-medium mt-0.5">Conta: {acct.accountName}</p>
-              ) : null;
-            })()}
-          </div>
-          <Button
-            size="sm"
-            className="gap-2"
-            onClick={() => selectedAccountId && generate.mutate({ accountId: selectedAccountId })}
-            disabled={generate.isPending || !selectedAccountId}
-          >
-            <Brain className={`w-3.5 h-3.5 ${generate.isPending ? "animate-pulse" : ""}`} />
-            {generate.isPending ? "Diagnosticando..." : "Analisar Conta"}
-          </Button>
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 220px", gap: 20, alignItems: "start" }}>
 
-        {/* Abas */}
-        <div style={{ display: "flex", gap: 4, borderBottom: "1px solid rgba(0,0,0,0.08)", marginBottom: -4 }}>
-          {[
-            { key: "actions", label: "Ações", count: pending.length },
-            { key: "experiments", label: "Experimentos", count: null },
-            { key: "chat", label: "Chat IA", count: null },
-            { key: "history", label: "Histórico", count: historyDeduped.length || null },
-          ].map(({ key, label, count }) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key as any)}
-              style={{
-                padding: "8px 14px", fontSize: 13, fontWeight: 500,
-                border: "none", borderBottom: activeTab === key ? "2px solid #E85BA8" : "2px solid transparent",
-                background: "none", cursor: "pointer",
-                color: activeTab === key ? "#E85BA8" : "rgba(0,0,0,0.45)",
-                marginBottom: -1,
-                display: "flex", alignItems: "center", gap: 6,
-              }}
-            >
-              {label}
-              {count != null && count > 0 && (
-                <span style={{
-                  fontSize: 10, fontWeight: 600,
-                  padding: "1px 6px", borderRadius: 10,
-                  background: activeTab === key ? "rgba(232,91,168,0.12)" : "rgba(0,0,0,0.06)",
-                  color: activeTab === key ? "#E85BA8" : "rgba(0,0,0,0.4)",
-                }}>
-                  {count}
-                </span>
+        {/* ── Main column ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+            <div>
+              <h1 style={{ fontSize: 20, fontWeight: 700, color: "#111", marginBottom: 4 }}>Plano de Ação</h1>
+              <p style={{ fontSize: 13, color: "rgba(0,0,0,0.45)", marginBottom: 2 }}>
+                A IA diagnostica a conta antes de gerar sugestões — intervenções apenas quando necessário
+              </p>
+              {account?.accountName && (
+                <p style={{ fontSize: 12, color: "#E85BA8", fontWeight: 500 }}>{account.accountName}</p>
               )}
+            </div>
+            <button
+              onClick={() => selectedAccountId && generate.mutate({ accountId: selectedAccountId })}
+              disabled={generate.isPending || !selectedAccountId}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", borderRadius: 10, border: "none", background: "#E85BA8", color: "white", fontSize: 13, fontWeight: 600, cursor: generate.isPending ? "not-allowed" : "pointer", opacity: generate.isPending ? 0.75 : 1, flexShrink: 0 }}
+            >
+              <Brain style={{ width: 14, height: 14, animation: generate.isPending ? "spin 1s linear infinite" : undefined }} />
+              {generate.isPending ? "Diagnosticando..." : "Analisar Conta"}
             </button>
-          ))}
-        </div>
-
-        {/* ── Aba: Ações ── */}
-        {activeTab === "actions" && (<>
-        {/* Account State Banner */}
-        {lastAnalysis && <AccountStateBanner result={lastAnalysis} />}
-
-        {/* Filtro de período */}
-        <PeriodFilter period={period} onChange={setPeriod} compact />
-
-        {/* Info box */}
-        {!lastAnalysis && pending.length === 0 && (
-          <div className="flex items-start gap-3 p-4 rounded-xl bg-muted/40 border border-border">
-            <Info className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-foreground mb-1">Como funciona o diagnóstico</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                A IA avalia o estado geral da conta antes de gerar qualquer sugestão. Se a conta estiver saudável (Estado A), nenhuma sugestão é criada — mexer em campanhas que estão funcionando pode prejudicar a performance. Sugestões são geradas apenas quando há problemas reais ou oportunidades claras identificadas nos dados.
-              </p>
-            </div>
           </div>
-        )}
 
-        {/* Stats Cards — Filter Toggle */}
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-          {statsConfig.map((stat) => (
-            <Card
-              key={stat.key}
-              className={`cursor-pointer transition-all hover:border-primary/30 ${
-                activeFilter === stat.key ? stat.borderActive : ""
-              }`}
-              onClick={() => handleFilterClick(stat.key)}
-            >
-              <CardContent className="p-4">
-                <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* Active filter indicator */}
-        {activeFilter && (
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-xs gap-1">
-              Filtro: {statsConfig.find((s) => s.key === activeFilter)?.label}
-            </Badge>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 text-xs text-muted-foreground"
-              onClick={() => setActiveFilter(null)}
-            >
-              Limpar filtro
-            </Button>
-          </div>
-        )}
-
-        {/* Monitoring alert */}
-        {monitoring.length > 0 && (
-          <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-400/5 border border-blue-400/20">
-            <Eye className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-blue-400">
-                {monitoring.length} sugestão(ões) em monitoramento
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Estamos acompanhando os resultados das modificações aplicadas. Você receberá um relatório após 7 dias.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Suggestion List */}
-        {isLoading || isLoadingHistory ? (
-          <div className="space-y-3">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-24 bg-muted rounded-xl animate-pulse" />
+          {/* Tabs */}
+          <div style={{ display: "flex", gap: 2, borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
+            {TABS.map(({ key, label, count }) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key as any)}
+                style={{
+                  padding: "9px 14px", fontSize: 13, fontWeight: 500,
+                  border: "none", borderBottom: activeTab === key ? "2px solid #E85BA8" : "2px solid transparent",
+                  background: "none", cursor: "pointer",
+                  color: activeTab === key ? "#E85BA8" : "rgba(0,0,0,0.4)",
+                  marginBottom: -1, display: "flex", alignItems: "center", gap: 6,
+                }}
+              >
+                {label}
+                {count != null && count > 0 && (
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 10, background: activeTab === key ? "rgba(232,91,168,0.12)" : "rgba(0,0,0,0.06)", color: activeTab === key ? "#E85BA8" : "rgba(0,0,0,0.4)" }}>
+                    {count}
+                  </span>
+                )}
+              </button>
             ))}
           </div>
-        ) : filteredItems.length === 0 ? (
-          <Card>
-            <CardContent className="py-16 text-center">
-              <Brain className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-              <p className="text-sm font-medium text-foreground mb-2">
-                {activeFilter ? "Nenhuma sugestão neste filtro" : "Nenhuma sugestão pendente"}
-              </p>
-              <p className="text-xs text-muted-foreground mb-6 max-w-sm mx-auto">
-                {activeFilter
-                  ? "Tente outro filtro ou limpe o filtro atual para ver todas as sugestões."
-                  : lastAnalysis?.accountState === "ESTADO_A"
-                    ? "A conta está saudável. A IA não identificou problemas que justifiquem intervenção no momento."
-                    : "Clique em \"Analisar Conta\" para que a IA examine os dados reais das suas campanhas e gere recomendações baseadas em evidências."}
-              </p>
-              {!activeFilter && !lastAnalysis && (
-                <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50 text-left max-w-sm mx-auto mb-6">
-                  <AlertCircle className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-muted-foreground">
-                    A análise só gera sugestões quando há dados reais de performance. Se a conta não tiver gasto registrado, a IA avisará que não há dados suficientes.
-                  </p>
+
+          {/* ── Tab: Ações ── */}
+          {activeTab === "actions" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+              {/* KPI row */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+                {[
+                  { label: "Críticas", value: p1.length, color: "#E24B4A" },
+                  { label: "Atenção", value: p2.length, color: "#EF9F27" },
+                  { label: "Oportunidades", value: p3.length, color: "#378ADD" },
+                  { label: "Monitorando", value: monitoring.length, color: "#1D9E75" },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{ background: "white", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "12px 14px" }}>
+                    <p style={{ fontSize: 22, fontWeight: 700, color, lineHeight: 1, marginBottom: 4 }}>{value}</p>
+                    <p style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", margin: 0 }}>{label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Period filter */}
+              <PeriodFilter period={period} onChange={setPeriod} compact />
+
+              {/* Monitoring alert */}
+              {monitoring.length > 0 && (
+                <div style={{ display: "flex", gap: 10, padding: "10px 14px", borderRadius: 10, background: "rgba(55,138,221,0.05)", border: "1px solid rgba(55,138,221,0.2)" }}>
+                  <Eye style={{ width: 14, height: 14, color: "#378ADD", flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: "#378ADD", marginBottom: 2 }}>{monitoring.length} sugestão(ões) em monitoramento</p>
+                    <p style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", margin: 0 }}>Acompanhando os resultados das modificações aplicadas.</p>
+                  </div>
                 </div>
               )}
-              {!activeFilter && (
-                <Button
-                  size="sm"
-                  onClick={() => selectedAccountId && generate.mutate({ accountId: selectedAccountId })}
-                  disabled={generate.isPending}
-                  className="gap-2"
-                >
-                  <Brain className="w-3.5 h-3.5" />
-                  {generate.isPending ? "Diagnosticando..." : "Analisar Conta"}
-                </Button>
+
+              {/* P1 section */}
+              {p1.length > 0 && (
+                <div>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: "#E24B4A", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+                    Críticas — requerem ação imediata
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {p1.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
+                  </div>
+                </div>
               )}
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {filteredItems.map((s) => (
-              <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />
-            ))}
-          </div>
-        )}
-        </>)}
 
-        {/* ── Aba: Experimentos ── */}
-        {activeTab === "experiments" && (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
-              <Brain className="w-6 h-6 text-primary" />
+              {/* P2 section */}
+              {p2.length > 0 && (
+                <div>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: "#EF9F27", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+                    Em atenção — monitorar nos próximos dias
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {p2.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
+                  </div>
+                </div>
+              )}
+
+              {/* P3 section */}
+              {p3.length > 0 && (
+                <div>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: "#378ADD", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+                    Oportunidades — crescimento
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {p3.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
+                  </div>
+                </div>
+              )}
+
+              {/* Applied */}
+              {recentApplied.length > 0 && (
+                <div>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: "#1D9E75", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+                    Aplicadas — em observação
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {recentApplied.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />)}
+                  </div>
+                </div>
+              )}
+
+              {/* Empty state */}
+              {pending.length === 0 && recentApplied.length === 0 && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 0", textAlign: "center" }}>
+                  <Brain style={{ width: 40, height: 40, color: "rgba(232,91,168,0.3)", marginBottom: 16 }} />
+                  <p style={{ fontSize: 14, fontWeight: 500, color: "#111", marginBottom: 8 }}>Nenhuma ação pendente</p>
+                  <p style={{ fontSize: 12, color: "rgba(0,0,0,0.4)", maxWidth: 340, lineHeight: 1.6, marginBottom: 20 }}>
+                    {lastAnalysis?.accountState === "ESTADO_A"
+                      ? "A conta está saudável. A IA não identificou problemas que justifiquem intervenção."
+                      : "Clique em \"Analisar Conta\" para que a IA examine os dados e gere recomendações."}
+                  </p>
+                  <button
+                    onClick={() => selectedAccountId && generate.mutate({ accountId: selectedAccountId })}
+                    disabled={generate.isPending}
+                    style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    {generate.isPending ? "Diagnosticando..." : "Analisar Conta"}
+                  </button>
+                </div>
+              )}
             </div>
-            <p className="text-sm font-medium text-foreground mb-2">Experimentos da conta</p>
-            <p className="text-xs text-muted-foreground mb-4 max-w-sm">
-              Acompanhe os experimentos ativos e concluídos desta conta. Para criar ou gerenciar experimentos, acesse a página dedicada.
-            </p>
-            <Button size="sm" variant="outline" className="gap-2" onClick={() => navigate("/experiments")}>
-              <Brain className="w-3.5 h-3.5" />
-              Ir para Experimentos
-            </Button>
-          </div>
-        )}
+          )}
 
-        {/* ── Aba: Chat IA ── */}
-        {activeTab === "chat" && (
-          <ChatTab accountId={selectedAccountId} />
-        )}
+          {/* ── Tab: Experimentos ── */}
+          {activeTab === "experiments" && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 0", textAlign: "center" }}>
+              <div style={{ width: 52, height: 52, borderRadius: 14, background: "rgba(232,91,168,0.1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+                <Brain style={{ width: 24, height: 24, color: "#E85BA8" }} />
+              </div>
+              <p style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>Experimentos da conta</p>
+              <p style={{ fontSize: 12, color: "rgba(0,0,0,0.4)", maxWidth: 320, lineHeight: 1.6, marginBottom: 20 }}>
+                Acompanhe os experimentos ativos e concluídos. Para criar ou gerenciar, acesse a página dedicada.
+              </p>
+              <button onClick={() => navigate("/experiments")} style={{ padding: "8px 20px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 13, cursor: "pointer", color: "#111" }}>
+                Ir para Experimentos
+              </button>
+            </div>
+          )}
 
-        {/* ── Aba: Histórico ── */}
-        {activeTab === "history" && (
-          <div className="space-y-3">
-            {historyDeduped.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <p className="text-sm text-muted-foreground">Nenhuma ação no histórico ainda.</p>
-                </CardContent>
-              </Card>
-            ) : historyDeduped.map((s) => (
-              <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />
+          {/* ── Tab: Chat IA ── */}
+          {activeTab === "chat" && <ChatTab accountId={selectedAccountId} />}
+
+          {/* ── Tab: Histórico ── */}
+          {activeTab === "history" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {historyDeduped.length === 0 ? (
+                <div style={{ padding: "48px 0", textAlign: "center" }}>
+                  <p style={{ fontSize: 13, color: "rgba(0,0,0,0.4)" }}>Nenhuma ação no histórico ainda.</p>
+                </div>
+              ) : historyDeduped.map((s: any) => (
+                <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} />
+              ))}
+            </div>
+          )}
+
+        </div>
+
+        {/* ── Right panel ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, position: "sticky", top: 20 }}>
+
+          {/* Inteligência da conta */}
+          {stateCfg && (
+            <div style={{ background: "white", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: "14px 16px" }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Inteligência da conta</p>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: stateCfg.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: stateCfg.color }}>{stateCfg.label}</span>
+              </div>
+              {(account as any)?.aiStatusSummary && (
+                <p style={{ fontSize: 11, color: "rgba(0,0,0,0.5)", lineHeight: 1.6, margin: 0 }}>
+                  {(account as any).aiStatusSummary.slice(0, 200)}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Resumo ações */}
+          <div style={{ background: "white", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: "14px 16px" }}>
+            <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Resumo</p>
+            {[
+              { label: "Críticas", value: p1.length, color: "#E24B4A" },
+              { label: "Atenção", value: p2.length, color: "#EF9F27" },
+              { label: "Oportunidades", value: p3.length, color: "#378ADD" },
+              { label: "Monitorando", value: monitoring.length, color: "#1D9E75" },
+              { label: "Histórico", value: historyDeduped.length, color: "rgba(0,0,0,0.3)" },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "0.5px solid rgba(0,0,0,0.05)" }}>
+                <span style={{ fontSize: 12, color: "rgba(0,0,0,0.5)" }}>{label}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color }}>{value}</span>
+              </div>
             ))}
           </div>
-        )}
 
+          {/* Período */}
+          <div style={{ background: "white", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: "14px 16px" }}>
+            <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(0,0,0,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Análise IA</p>
+            <button
+              onClick={() => selectedAccountId && generate.mutate({ accountId: selectedAccountId })}
+              disabled={generate.isPending || !selectedAccountId}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 0", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", fontSize: 12, fontWeight: 600, cursor: generate.isPending ? "not-allowed" : "pointer", opacity: generate.isPending ? 0.75 : 1 }}
+            >
+              <Brain style={{ width: 13, height: 13, animation: generate.isPending ? "spin 1s linear infinite" : undefined }} />
+              {generate.isPending ? "Analisando..." : "Analisar agora"}
+            </button>
+            {lastAnalysis?.healthSummary && (
+              <p style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", lineHeight: 1.5, marginTop: 10, margin: "10px 0 0 0" }}>
+                {lastAnalysis.healthSummary.slice(0, 150)}
+              </p>
+            )}
+          </div>
+
+        </div>
       </div>
     </MetaDashboardLayout>
   );
