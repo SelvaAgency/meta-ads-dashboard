@@ -298,10 +298,32 @@ const contextRouter = router({
       })),
     }))
     .mutation(async ({ ctx, input }) => {
-      const [accountCtx, agencyCtx] = await Promise.all([
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      const toLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+
+      const [accountCtx, agencyCtx, metrics, suggestions] = await Promise.all([
         getAccountContext(input.accountId),
         getAgencyContext((ctx.user as any).id),
+        getCampaignPerformanceSummary(input.accountId, toLocal(startDate), toLocal(endDate)),
+        getSuggestionsByAccountId(input.accountId),
       ]);
+
+      const perfLines = metrics.map((m: any) => {
+        const spend = Number(m.totalSpend ?? 0).toFixed(2);
+        const conv = Number(m.totalConversions ?? 0);
+        const cpa = Number(m.avgCpa ?? 0).toFixed(2);
+        const roas = Number(m.avgRoas ?? 0).toFixed(2);
+        const ctr = Number(m.avgCtr ?? 0).toFixed(2);
+        return `- ${m.campaignName}: R$${spend} investido, ${conv} conversões, CPA R$${cpa}, ROAS ${roas}x, CTR ${ctr}%`;
+      }).join("\n");
+
+      const pendingSuggestions = (suggestions ?? [])
+        .filter((s: any) => s.status === "pending")
+        .slice(0, 5)
+        .map((s: any) => `- [${s.priority}] ${s.title}`)
+        .join("\n");
 
       const contextBlocks = [
         agencyCtx?.benchmarks ? `BENCHMARKS DA AGÊNCIA:\n${agencyCtx.benchmarks}` : "",
@@ -311,16 +333,19 @@ const contextRouter = router({
         accountCtx?.operationalRules ? `REGRAS OPERACIONAIS:\n${accountCtx.operationalRules}` : "",
         (accountCtx as any)?.focusMoment ? `FOCO DO MOMENTO (prioridade máxima):\n${(accountCtx as any).focusMoment}` : "",
         accountCtx?.learnings ? `APRENDIZADOS HISTÓRICOS:\n${accountCtx.learnings}` : "",
+        perfLines ? `PERFORMANCE DOS ÚLTIMOS 30 DIAS:\n${perfLines}` : "",
+        pendingSuggestions ? `SUGESTÕES PENDENTES DA IA:\n${pendingSuggestions}` : "",
       ].filter(Boolean).join("\n\n");
 
-      const systemPrompt = `Você é um estrategista sênior de Meta Ads da SELVA Agency — uma boutique de branding e performance digital em São Paulo. Responda de forma direta, prática e acionável. Sem enrolação.${contextBlocks ? `\n\n${contextBlocks}` : ""}`;
+      const systemPrompt = `Você é um estrategista sênior de Meta Ads da SELVA Agency. Você tem acesso completo aos dados desta conta. Seja direto, preciso e acionável.
+
+FORMATAÇÃO: Responda em texto corrido, sem markdown. Sem asteriscos, sem hashtags, sem traços para listas. Parágrafos simples. Se listar, use números com ponto.
+
+${contextBlocks}`;
 
       const response = await invokeLLM({
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...input.messages,
-        ],
-        maxTokens: 1000,
+        messages: [{ role: "system", content: systemPrompt }, ...input.messages],
+        maxTokens: 1200,
       });
 
       return { reply: extractTextContent(response) };
