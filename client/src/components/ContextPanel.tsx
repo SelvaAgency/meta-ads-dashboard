@@ -69,7 +69,7 @@ export function ContextPanel({ accountId, onClose }: { accountId: number; onClos
   }, [ctx]);
 
   const upsert = trpc.context.upsertAccount.useMutation({
-    onSuccess: () => { toast.success("Contexto salvo"); setSaving(false); refetch(); },
+    onSuccess: () => { toast.success("Contexto salvo"); setSaving(false); refetch(); onClose?.(); },
     onError: () => { toast.error("Erro ao salvar"); setSaving(false); },
   });
 
