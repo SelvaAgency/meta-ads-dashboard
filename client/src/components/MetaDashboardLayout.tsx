@@ -281,7 +281,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                   return (
                     <DropdownMenuItem
                       key={ca.client.slug}
-                      onClick={() => { setActiveClient(ca.client.slug); navigate("/dashboard"); }}
+                      onClick={() => { setActiveClient(ca.client.slug); navigate(location); }}
                       className="flex items-center gap-2.5 cursor-pointer py-2"
                     >
                       <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 font-bold text-[10px] overflow-hidden ${isActiveCa ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
