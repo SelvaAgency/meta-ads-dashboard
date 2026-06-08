@@ -1,165 +1,121 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
-import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
-import {
-  BarChart3,
-  Bell,
-  Brain,
-  ChevronRight,
-  FileText,
-  Lightbulb,
-  Shield,
-  TrendingUp,
-  Zap,
-} from "lucide-react";
 import { useEffect } from "react";
+import {
+  Brain, BarChart3, Bell, Zap, FlaskConical, FileText, Bolt,
+} from "lucide-react";
 
 export default function Home() {
   const { isAuthenticated, loading } = useAuth();
   const [, navigate] = useLocation();
 
   useEffect(() => {
-    if (!loading && isAuthenticated) {
-      navigate("/dashboard");
-    }
+    if (!loading && isAuthenticated) navigate("/dashboard");
   }, [isAuthenticated, loading, navigate]);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--color-background-tertiary)" }}>
+        <div style={{ width: 32, height: 32, borderRadius: "50%", border: "2px solid #D4537E", borderTopColor: "transparent", animation: "spin 0.8s linear infinite" }} />
       </div>
     );
   }
 
   const features = [
-    {
-      icon: BarChart3,
-      title: "Dashboard Interativo",
-      description: "Visualize ROAS, CPA, CTR e conversões em tempo real com gráficos de tendências.",
-    },
-    {
-      icon: Bell,
-      title: "Detecção de Anomalias",
-      description: "Alertas automáticos para quedas de ROAS, picos de CPA e mudanças de entrega.",
-    },
-    {
-      icon: Brain,
-      title: "Diagnóstico com IA",
-      description: "Identifica fadiga de criativos, segmentação ruim e campanhas underperformers.",
-    },
-    {
-      icon: Lightbulb,
-      title: "Sugestões de Melhoria",
-      description: "Recomendações práticas e acionáveis geradas por IA com base nos seus dados.",
-    },
-    {
-      icon: FileText,
-      title: "Relatórios Automatizados",
-      description: "Resumos diários e semanais de performance entregues automaticamente.",
-    },
-    {
-      icon: Shield,
-      title: "Dados Seguros",
-      description: "Tokens de acesso armazenados com segurança, sem modificações em campanhas.",
-    },
+    { icon: BarChart3, title: "Dashboard por conta", desc: "ROAS, CPA, CTR e conversões em tempo real. Filtros por período e visão consolidada do portfólio." },
+    { icon: Zap, title: "Plano de ação", desc: "Sugestões P1/P2/P3 geradas pela IA com base nos dados reais. Chat com contexto completo de cada conta." },
+    { icon: Bell, title: "Anomalias e alertas", desc: "Detecção automática de quedas de ROAS, picos de CPA e tokens expirados. Notificações em tempo real." },
+    { icon: Brain, title: "Memória da IA", desc: "Contexto por conta e por agência. A IA aprende com cada ação aplicada e melhora continuamente." },
+    { icon: FlaskConical, title: "Experimentos", desc: "Crie e acompanhe testes A/B com checkpoints, hipóteses e decisões documentadas." },
+    { icon: FileText, title: "Relatórios automáticos", desc: "Briefings diários e relatórios semanais gerados pela IA e entregues por email." },
   ];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div style={{ minHeight: "100vh", background: "var(--color-background-tertiary)", fontFamily: "var(--font-sans)" }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
       {/* Header */}
-      <header className="border-b border-border px-6 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-            <Zap className="w-4 h-4 text-primary" />
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 32px", borderBottom: "0.5px solid rgba(0,0,0,0.08)", background: "var(--color-background-primary)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: "#D4537E", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Brain style={{ width: 16, height: 16, color: "white" }} />
           </div>
-          <span className="font-semibold text-foreground">Meta Ads Intelligence</span>
+          <div>
+            <p style={{ fontSize: 15, fontWeight: 500, color: "var(--color-text-primary)", lineHeight: 1.2 }}>BIT</p>
+            <p style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>Brand Intelligence Tracker</p>
+          </div>
         </div>
-        <Button size="sm" onClick={() => (window.location.href = getLoginUrl())}>
+        <button
+          onClick={() => window.location.href = getLoginUrl()}
+          style={{ padding: "7px 18px", borderRadius: 8, border: "0.5px solid rgba(0,0,0,0.15)", background: "white", fontSize: 13, cursor: "pointer", color: "var(--color-text-primary)" }}
+        >
           Entrar
-        </Button>
+        </button>
       </header>
 
       {/* Hero */}
-      <section className="max-w-5xl mx-auto px-6 pt-24 pb-16 text-center">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-8">
-          <Zap className="w-3 h-3" />
-          Powered by AI — Meta Ads Analytics
+      <section style={{ maxWidth: 640, margin: "0 auto", padding: "64px 32px 48px", textAlign: "center" }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 12px", borderRadius: 20, background: "#FBEAF0", border: "0.5px solid #ED93B1", color: "#993556", fontSize: 11, fontWeight: 500, marginBottom: 24 }}>
+          <Zap style={{ width: 11, height: 11 }} />
+          Powered by SELVA Agency
         </div>
-
-        <h1 className="text-5xl font-bold text-foreground mb-6 leading-tight">
-          Análise inteligente das suas
-          <br />
-          <span className="text-primary">campanhas Meta Ads</span>
+        <h1 style={{ fontSize: 36, fontWeight: 500, color: "var(--color-text-primary)", lineHeight: 1.2, marginBottom: 16 }}>
+          Inteligência de mídia<br />
+          <span style={{ color: "#D4537E" }}>para quem opera de verdade</span>
         </h1>
-
-        <p className="text-lg text-muted-foreground mb-10 max-w-2xl mx-auto">
-          Monitore performance, detecte anomalias e receba sugestões de melhoria geradas por IA —
-          tudo automaticamente, sem precisar navegar por múltiplos dashboards.
+        <p style={{ fontSize: 14, color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: 32, maxWidth: 480, marginLeft: "auto", marginRight: "auto" }}>
+          Dashboard interno da SELVA para monitorar, analisar e otimizar campanhas Meta Ads com IA — de todas as contas, em um só lugar.
         </p>
-
-        <div className="flex items-center justify-center gap-4">
-          <Button size="lg" onClick={() => (window.location.href = getLoginUrl())} className="gap-2">
-            Começar agora
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-          <Button size="lg" variant="outline" onClick={() => (window.location.href = getLoginUrl())}>
-            Ver demonstração
-          </Button>
-        </div>
+        <button
+          onClick={() => window.location.href = getLoginUrl()}
+          style={{ padding: "10px 28px", borderRadius: 8, border: "none", background: "#D4537E", fontSize: 14, cursor: "pointer", color: "#FBEAF0", fontWeight: 500, marginBottom: 48 }}
+        >
+          Acessar o BIT
+        </button>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-8 mt-20 max-w-2xl mx-auto">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, maxWidth: 480, margin: "0 auto 64px" }}>
           {[
-            { value: "10+", label: "Métricas monitoradas" },
-            { value: "24/7", label: "Detecção de anomalias" },
-            { value: "IA", label: "Sugestões inteligentes" },
-          ].map((stat) => (
-            <div key={stat.label} className="text-center">
-              <p className="text-3xl font-bold text-primary mb-1">{stat.value}</p>
-              <p className="text-sm text-muted-foreground">{stat.label}</p>
+            { val: "11", label: "contas ativas" },
+            { val: "IA", label: "análises em tempo real" },
+            { val: "24h", label: "monitoramento contínuo" },
+          ].map(({ val, label }) => (
+            <div key={label} style={{ background: "var(--color-background-secondary)", borderRadius: 8, padding: 16, textAlign: "center" }}>
+              <p style={{ fontSize: 24, fontWeight: 500, color: "#D4537E", marginBottom: 4 }}>{val}</p>
+              <p style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>{label}</p>
             </div>
           ))}
         </div>
       </section>
 
       {/* Features */}
-      <section className="max-w-5xl mx-auto px-6 pb-24">
-        <h2 className="text-2xl font-bold text-foreground text-center mb-12">
-          Tudo que você precisa para otimizar campanhas
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {features.map((feature) => {
-            const Icon = feature.icon;
-            return (
-              <div
-                key={feature.title}
-                className="p-6 rounded-xl bg-card border border-border hover:border-primary/30 transition-all duration-200 hover:shadow-lg hover:shadow-primary/5"
-              >
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
-                  <Icon className="w-5 h-5 text-primary" />
-                </div>
-                <h3 className="font-semibold text-foreground mb-2">{feature.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{feature.description}</p>
-              </div>
-            );
-          })}
-        </div>
+      <section style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, padding: "0 32px 48px", maxWidth: 900, margin: "0 auto" }}>
+        {features.map(({ icon: Icon, title, desc }) => (
+          <div key={title} style={{ background: "var(--color-background-primary)", border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 16 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: "#FBEAF0", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12 }}>
+              <Icon style={{ width: 16, height: 16, color: "#D4537E" }} />
+            </div>
+            <p style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)", marginBottom: 6 }}>{title}</p>
+            <p style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.6 }}>{desc}</p>
+          </div>
+        ))}
       </section>
 
       {/* CTA */}
-      <section className="border-t border-border py-16 text-center px-6">
-        <h2 className="text-2xl font-bold text-foreground mb-4">
-          Pronto para otimizar suas campanhas?
-        </h2>
-        <p className="text-muted-foreground mb-8">
-          Conecte sua conta Meta Ads e comece a receber insights em minutos.
-        </p>
-        <Button size="lg" onClick={() => (window.location.href = getLoginUrl())} className="gap-2">
-          Começar gratuitamente
-          <ChevronRight className="w-4 h-4" />
-        </Button>
+      <section style={{ borderTop: "0.5px solid rgba(0,0,0,0.08)", padding: "40px 32px", textAlign: "center", background: "var(--color-background-primary)" }}>
+        <h2 style={{ fontSize: 20, fontWeight: 500, color: "var(--color-text-primary)", marginBottom: 8 }}>Acesso restrito à equipe SELVA</h2>
+        <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 24 }}>Use suas credenciais para entrar no painel.</p>
+        <button
+          onClick={() => window.location.href = getLoginUrl()}
+          style={{ padding: "10px 28px", borderRadius: 8, border: "none", background: "#D4537E", fontSize: 14, cursor: "pointer", color: "#FBEAF0", fontWeight: 500 }}
+        >
+          Entrar no BIT
+        </button>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 20 }}>
+          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#D4537E" }} />
+          <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>SELVA Agency · São Paulo, BR</span>
+        </div>
       </section>
     </div>
   );
