@@ -466,33 +466,6 @@ export default function SuggestionsHub() {
             }}
           >
 
-            {/* Stats — 4 cards compactos */}
-            <div className="grid grid-cols-4 gap-2">
-              {statCards.map(({ label, value, color, icon: Icon, subtitle }) => (
-                <div
-                  key={label}
-                  style={{
-                    background: "var(--color-background-secondary, rgba(0,0,0,0.04))",
-                    border: `0.5px solid ${BORDER_T}`,
-                    borderRadius: 8,
-                    padding: "10px 12px",
-                  }}
-                >
-                  <div className="flex items-center gap-1.5 mb-1.5">
-                    <Icon className="w-3 h-3 flex-shrink-0" style={{ color }} />
-                    <span className="text-[10px] text-muted-foreground leading-none truncate">{label}</span>
-                  </div>
-                  <p className="text-[18px] font-bold leading-none" style={{ color }}>
-                    {value ?? "—"}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">{subtitle}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Divider */}
-            <div style={{ borderTop: `0.5px solid ${BORDER_T}`, margin: "16px 0" }} />
-
             {/* Briefing da IA */}
             <div>
               <div className="flex items-center gap-2 mb-2.5">
@@ -544,6 +517,33 @@ export default function SuggestionsHub() {
               ) : (
                 <p className="text-xs text-muted-foreground">Nenhum dado disponível para gerar o briefing.</p>
               )}
+            </div>
+
+            {/* Divider */}
+            <div style={{ borderTop: `0.5px solid ${BORDER_T}`, margin: "16px 0" }} />
+
+            {/* Stats — 4 cards compactos */}
+            <div className="grid grid-cols-4 gap-2">
+              {statCards.map(({ label, value, color, icon: Icon, subtitle }) => (
+                <div
+                  key={label}
+                  style={{
+                    background: "var(--color-background-secondary, rgba(0,0,0,0.04))",
+                    border: `0.5px solid ${BORDER_T}`,
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                  }}
+                >
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Icon className="w-3 h-3 flex-shrink-0" style={{ color }} />
+                    <span className="text-[10px] text-muted-foreground leading-none truncate">{label}</span>
+                  </div>
+                  <p className="text-[18px] font-bold leading-none" style={{ color }}>
+                    {value ?? "—"}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">{subtitle}</p>
+                </div>
+              ))}
             </div>
 
             {/* Divider */}
