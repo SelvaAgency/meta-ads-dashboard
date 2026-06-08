@@ -310,11 +310,11 @@ export default function SuggestionsHub() {
 
   // ── Stat cards ────────────────────────────────────────────────────────────
 
-  const statCards = [
-    { label: "Urgentes",         value: urgencyCount,                         color: urgencyCount > 0 ? "#ef4444" : "var(--foreground)",        icon: Flame,         subtitle: "Estado C · agir agora" },
-    { label: "Alta prioridade",  value: suggestionsLoading ? null : p1Count,  color: p1Count > 0 ? "#f59e0b" : "var(--foreground)",             icon: AlertTriangle, subtitle: "P1 · requerem ação" },
-    { label: "Média prioridade", value: suggestionsLoading ? null : p2Count,  color: "var(--foreground)",                                        icon: Bell,          subtitle: "P2 · monitorar" },
-    { label: "Alertas ativos",   value: urgentAlerts?.length ?? 0,            color: (urgentAlerts?.length ?? 0) > 0 ? "#3b82f6" : "var(--foreground)", icon: Bell, subtitle: "requerem atenção" },
+  const statCards: { label: string; value: number | null; color: string; icon: any; subtitle: string; tab: FogoTab | null }[] = [
+    { label: "Urgentes",          value: urgencyCount,                         color: urgencyCount > 0 ? "#ef4444" : "var(--foreground)",               icon: Flame,         subtitle: "Estado C · agir agora", tab: "URGENT" },
+    { label: "Alta prioridade",   value: suggestionsLoading ? null : p1Count,  color: p1Count > 0 ? "#f59e0b" : "var(--foreground)",                    icon: AlertTriangle, subtitle: "P1 · requerem ação",    tab: "P1" },
+    { label: "Média prioridade",  value: suggestionsLoading ? null : p2Count,  color: "var(--foreground)",                                               icon: Bell,          subtitle: "P2 · monitorar",        tab: "P2" },
+    { label: "Em monitoramento",  value: urgentAlerts?.length ?? 0,            color: (urgentAlerts?.length ?? 0) > 0 ? "#3b82f6" : "var(--foreground)", icon: Bell,          subtitle: "ações em andamento",    tab: "P3" },
   ];
 
   // ── Briefing split ────────────────────────────────────────────────────────
@@ -554,24 +554,7 @@ export default function SuggestionsHub() {
                 <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-red-400">
                   O que está pegando fogo
                 </span>
-                <div className="flex items-center gap-1">
-                  {fogoTabs.map((tab) => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setFogoTab(tab.id)}
-                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border transition-all ${
-                        fogoTab === tab.id
-                          ? tab.activeColor
-                          : "text-muted-foreground border-border/40 hover:border-border hover:text-foreground"
-                      }`}
-                    >
-                      {tab.label}
-                      {tab.count > 0 && (
-                        <span className="text-[9px] font-bold opacity-70">{tab.count}</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
+
               </div>
 
               {/* Tab: Urgente */}
