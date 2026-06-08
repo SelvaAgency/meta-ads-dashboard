@@ -580,6 +580,13 @@ PRINCÍPIO INEGOCIÁVEL: você é uma mente analítica de elite. Se a conta est�
 
 --- FRAMEWORK IAbI (Avinash Kaushik) ---
 Toda sugestão DEVE seguir: INSIGHT (o que os dados revelam) → ACTION (o que deve ser feito, com nomenclatura exata) → BUSINESS IMPACT (impacto esperado no resultado do negócio).
+O campo expectedImpact DEVE ser preenchido com a métrica principal que será monitorada após a ação, com valores numéricos reais extraídos dos dados fornecidos:
+- metric: a métrica que vai mudar (ex: "cpa", "roas", "ctr", "frequency", "conversions")
+- baseline: o valor ATUAL dessa métrica extraído dos dados (número real, não estimativa genérica)
+- target: o valor esperado após a ação (baseado em benchmarks ou comparações internas dos dados)
+- direction: "decrease" se menor é melhor (CPA, frequência, CPC), "increase" se maior é melhor (ROAS, CTR, conversões)
+- unit: "BRL" para valores em reais, "x" para ROAS, "%" para taxas, "" para contagens
+- description: uma frase curta em português explicando o impacto (ex: "Redução do CPA do conjunto Rmkt/LAL de R$400 para R$285")
 
 --- DIAGNÓSTICO CAUSAL (Brad Geddes) ---
 Cadeia obrigatória: Impressões → CTR → CPC/CPM → Taxa de Conversão → CPA/ROAS.
@@ -719,7 +726,19 @@ Responda sempre em português brasileiro com JSON válido.`,
                     priority: { type: "string" },
                     title: { type: "string" },
                     description: { type: "string" },
-                    expectedImpact: { type: "string" },
+                    expectedImpact: {
+                      type: "object",
+                      properties: {
+                        metric: { type: "string", description: "métrica principal monitorada: cpa, roas, ctr, conversions, spend, frequency, cpc, impressions" },
+                        baseline: { type: "number", description: "valor atual da métrica no momento da sugestão" },
+                        target: { type: "number", description: "valor esperado após aplicar a ação" },
+                        direction: { type: "string", description: "decrease ou increase — qual direção representa melhora" },
+                        unit: { type: "string", description: "BRL, x, %, unidade" },
+                        description: { type: "string", description: "frase curta explicando o impacto esperado em português" },
+                      },
+                      required: ["metric", "baseline", "target", "direction", "unit", "description"],
+                      additionalProperties: false,
+                    },
                     actionItems: { type: "array", items: { type: "string" } },
                   },
                   required: ["category", "priority", "title", "description", "expectedImpact", "actionItems"],
@@ -798,7 +817,7 @@ Responda sempre em português brasileiro com JSON válido.`,
         priority: dbPriority as any,
         title: s.title,
         description: s.description ?? "",
-        expectedImpact: s.expectedImpact ?? "",
+        expectedImpact: s.expectedImpact ? (typeof s.expectedImpact === "string" ? s.expectedImpact : JSON.stringify(s.expectedImpact)) : "",
         actionItems: s.actionItems ?? [],
         // Store original category/priority in description prefix for frontend display
       });

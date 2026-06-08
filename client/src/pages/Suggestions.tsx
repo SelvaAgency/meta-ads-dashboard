@@ -97,7 +97,31 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand }: {
     try { return Array.isArray(s.actionItems) ? s.actionItems : JSON.parse(s.actionItems); } catch { return []; }
   })();
   const actionItems = parsedActionItems.map((a: any) => typeof a === "string" ? a : JSON.stringify(a));
-  const expectedImpact = typeof s.expectedImpact === "string" ? s.expectedImpact.trim() : "";
+  const expectedImpact: any = (() => {
+    if (!s.expectedImpact) return null;
+    if (typeof s.expectedImpact === "object") return s.expectedImpact;
+    try { const p = JSON.parse(s.expectedImpact); if (p && typeof p === "object" && p.metric) return p; } catch {}
+    return { description: s.expectedImpact.trim() };
+  })();
+  const metricsSnapshot: any = (() => {
+    if (!s.metricsSnapshot) return null;
+    if (typeof s.metricsSnapshot === "object") return s.metricsSnapshot;
+    try { return JSON.parse(s.metricsSnapshot); } catch { return null; }
+  })();
+
+  function fmtMetric(val: number, unit: string): string {
+    if (unit === "BRL") return `R$${val.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    if (unit === "x") return `${val.toFixed(2)}x`;
+    if (unit === "%") return `${val.toFixed(2)}%`;
+    return val.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+  }
+
+  function getSnapshotValue(metric: string, snapshot: any): number | null {
+    if (!snapshot) return null;
+    const map: Record<string, string> = { cpa: "cpa", roas: "roas", ctr: "ctr", spend: "spend", conversions: "conversions" };
+    const key = map[metric];
+    return key && snapshot[key] != null ? Number(snapshot[key]) : null;
+  }
 
   return (
     <div ref={cardRef} style={{ border: `0.5px solid ${autoExpand ? "rgba(232,91,168,0.35)" : "rgba(0,0,0,0.08)"}`, borderLeft: `3px solid ${isApplied ? "#1D9E75" : isRejected ? "rgba(0,0,0,0.08)" : pri.border}`, borderRadius: "0 10px 10px 0", background: autoExpand ? "rgba(232,91,168,0.03)" : "white", padding: "12px 14px", opacity: isRejected ? 0.55 : 1, marginBottom: 8, transition: "border-color 0.3s, background 0.3s" }}>
@@ -110,12 +134,20 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand }: {
         <p style={{ fontSize: 12, color: "rgba(0,0,0,0.5)", lineHeight: 1.55, margin: "8px 0 0 0" }}>{s.description}</p>
       )}
 
-      {expanded && (
+      {expanded && !isMonitoring && (
         <div style={{ marginTop: 12 }}>
-          {expectedImpact && (
+          {expectedImpact?.description && (
             <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(29,158,117,0.05)", border: "1px solid rgba(29,158,117,0.15)", marginBottom: 12 }}>
               <p style={{ fontSize: 11, fontWeight: 600, color: "#1D9E75", marginBottom: 4 }}>Impacto Esperado</p>
-              <p style={{ fontSize: 12, color: "rgba(0,0,0,0.6)", lineHeight: 1.5, margin: 0 }}>{expectedImpact}</p>
+              {expectedImpact.metric && expectedImpact.baseline != null && expectedImpact.target != null ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "rgba(0,0,0,0.5)" }}>{fmtMetric(expectedImpact.baseline, expectedImpact.unit ?? "")}</span>
+                  <span style={{ fontSize: 11, color: "rgba(0,0,0,0.3)" }}>→</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#1D9E75" }}>{fmtMetric(expectedImpact.target, expectedImpact.unit ?? "")}</span>
+                  <span style={{ fontSize: 11, color: "rgba(0,0,0,0.4)" }}>({expectedImpact.metric.toUpperCase()})</span>
+                </div>
+              ) : null}
+              <p style={{ fontSize: 12, color: "rgba(0,0,0,0.6)", lineHeight: 1.5, margin: "6px 0 0 0" }}>{expectedImpact.description}</p>
             </div>
           )}
           {actionItems.length > 0 && (
@@ -134,17 +166,75 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand }: {
         </div>
       )}
 
-      {isMonitoring && (
-        <div style={{ marginTop: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-            <span style={{ fontSize: 11, color: "#1D9E75" }}>Monitorando resultado</span>
-            <span style={{ fontSize: 11, color: "rgba(0,0,0,0.4)" }}>{daysLeft(s.monitorUntil)} dias restantes</span>
+      {expanded && isMonitoring && (() => {
+        const metric = expectedImpact?.metric ?? null;
+        const baseline = expectedImpact?.baseline ?? getSnapshotValue(metric, metricsSnapshot);
+        const target = expectedImpact?.target ?? null;
+        const unit = expectedImpact?.unit ?? "";
+        const direction = expectedImpact?.direction ?? "decrease";
+        const snapshotBaseline = getSnapshotValue(metric, metricsSnapshot);
+        const totalDays = (() => {
+          if (!s.appliedAt || !s.monitorUntil) return 7;
+          return Math.max(1, Math.round((new Date(s.monitorUntil).getTime() - new Date(s.appliedAt).getTime()) / 86400000));
+        })();
+        const elapsed = totalDays - (daysLeft(s.monitorUntil) ?? 0);
+        const progressPct = Math.min(100, Math.round((elapsed / totalDays) * 100));
+
+        const improved = snapshotBaseline != null && target != null
+          ? (direction === "decrease" ? snapshotBaseline <= target : snapshotBaseline >= target)
+          : null;
+        const statusColor = improved === true ? "#1D9E75" : improved === false ? "#E24B4A" : "#EF9F27";
+        const statusLabel = improved === true ? "No caminho certo" : improved === false ? "Abaixo do esperado" : "Monitorando";
+
+        return (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ padding: "12px 14px", borderRadius: 8, background: "rgba(29,158,117,0.04)", border: "1px solid rgba(29,158,117,0.15)", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <p style={{ fontSize: 11, fontWeight: 600, color: "#1D9E75", margin: 0 }}>Resultado monitorado</p>
+                <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: `${statusColor}18`, color: statusColor }}>{statusLabel}</span>
+              </div>
+              {metric && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+                  {[
+                    { label: "Baseline (pré-ação)", value: baseline != null ? fmtMetric(baseline, unit) : "—", muted: true },
+                    { label: "Atual (pós-ação)", value: snapshotBaseline != null ? fmtMetric(snapshotBaseline, unit) : "Aguardando sync", color: statusColor },
+                    { label: "Meta", value: target != null ? fmtMetric(target, unit) : "—", muted: true },
+                  ].map(({ label, value, muted, color }) => (
+                    <div key={label} style={{ padding: "8px 10px", borderRadius: 6, background: "white", border: "0.5px solid rgba(0,0,0,0.07)", textAlign: "center" }}>
+                      <p style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{label}</p>
+                      <p style={{ fontSize: 14, fontWeight: 700, color: color ?? (muted ? "rgba(0,0,0,0.45)" : "#111"), margin: 0 }}>{value}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {expectedImpact?.description && (
+                <p style={{ fontSize: 11, color: "rgba(0,0,0,0.45)", lineHeight: 1.5, margin: 0 }}>{expectedImpact.description}</p>
+              )}
+            </div>
           </div>
-          <div style={{ height: 3, background: "rgba(0,0,0,0.06)", borderRadius: 2 }}>
-            <div style={{ height: "100%", background: "#1D9E75", borderRadius: 2, width: "60%" }} />
+        );
+      })()}
+
+      {isMonitoring && (() => {
+        const totalDays = (() => {
+          if (!s.appliedAt || !s.monitorUntil) return 7;
+          return Math.max(1, Math.round((new Date(s.monitorUntil).getTime() - new Date(s.appliedAt).getTime()) / 86400000));
+        })();
+        const remaining = daysLeft(s.monitorUntil) ?? 0;
+        const elapsed = totalDays - remaining;
+        const pct = Math.min(100, Math.round((elapsed / totalDays) * 100));
+        return (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ fontSize: 11, color: "#1D9E75" }}>Monitorando resultado</span>
+              <span style={{ fontSize: 11, color: "rgba(0,0,0,0.4)" }}>{remaining} dia{remaining !== 1 ? "s" : ""} restante{remaining !== 1 ? "s" : ""}</span>
+            </div>
+            <div style={{ height: 3, background: "rgba(0,0,0,0.06)", borderRadius: 2 }}>
+              <div style={{ height: "100%", background: "#1D9E75", borderRadius: 2, width: `${pct}%`, transition: "width 0.3s" }} />
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
         {!isApplied && !isRejected && s.description !== "Ação criada a partir do Chat IA." && (
@@ -471,7 +561,7 @@ export default function Suggestions() {
   });
 
   const handleStatusChange = (id: number, status: "applied" | "rejected" | "pending", reason?: string, monitorDays?: number) => {
-    updateStatus.mutate({ suggestionId: id, status, rejectionReason: reason, monitorDays });
+    updateStatus.mutate({ suggestionId: id, accountId: selectedAccountId ?? undefined, status, rejectionReason: reason, monitorDays });
   };
 
   if (!accounts || accounts.length === 0) {

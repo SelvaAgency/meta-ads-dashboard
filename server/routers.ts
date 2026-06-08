@@ -1524,12 +1524,40 @@ export const appRouter = router({
     updateStatus: protectedProcedure
       .input(z.object({
         suggestionId: z.number(),
+        accountId: z.number().optional(),
         status: z.enum(["applied", "rejected", "pending"]),
         rejectionReason: z.string().optional(),
         monitorDays: z.number().optional(),
       }))
       .mutation(async ({ input }) => {
-        const metricsSnapshot = input.status === "applied" ? { snapshotAt: Date.now() } : undefined;
+        let metricsSnapshot: Record<string, any> | undefined = undefined;
+        if (input.status === "applied" && input.accountId) {
+          try {
+            const now = new Date();
+            const d7 = new Date(now.getTime() - 7 * 86400000);
+            const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+            const metricRows = await getAccountMetricsSummary(input.accountId, fmt(d7), fmt(now));
+            const agg = metricRows.reduce((acc: any, r: any) => {
+              acc.spend += Number(r.totalSpend ?? 0);
+              acc.conversions += Number(r.totalConversions ?? 0);
+              acc.conversionValue += Number(r.totalConversionValue ?? 0);
+              acc.clicks += Number(r.totalClicks ?? 0);
+              acc.impressions += Number(r.totalImpressions ?? 0);
+              return acc;
+            }, { spend: 0, conversions: 0, conversionValue: 0, clicks: 0, impressions: 0 });
+            metricsSnapshot = {
+              snapshotAt: Date.now(),
+              period: "7d",
+              spend: agg.spend,
+              conversions: agg.conversions,
+              roas: agg.spend > 0 ? agg.conversionValue / agg.spend : 0,
+              cpa: agg.conversions > 0 ? agg.spend / agg.conversions : 0,
+              ctr: agg.impressions > 0 ? (agg.clicks / agg.impressions) * 100 : 0,
+            };
+          } catch (e) {
+            metricsSnapshot = { snapshotAt: Date.now() };
+          }
+        }
         await updateSuggestionStatus(input.suggestionId, input.status, {
           rejectionReason: input.rejectionReason,
           metricsSnapshot,
