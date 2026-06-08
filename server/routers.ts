@@ -1636,7 +1636,7 @@ export const appRouter = router({
         const hasData = spendNum > 0;
         return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend}${roasInfo}, Resultados ${conversions}${!hasData ? " [SEM DADOS — pode estar inativa por decisão estratégica]" : ""}. ${summary}`;
       }).join("\n");
-      const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Gere um briefing executivo conciso (4-6 frases) sobre o desempenho das contas Meta Ads nas últimas 48 horas.
+      const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Retorne um JSON com exatamente 3 campos: "positivo" (o que está indo bem — contas saudáveis, métricas positivas), "atencao" (contas que merecem monitoramento mas não são críticas), "critico" (problemas urgentes que precisam de ação imediata). Cada campo deve ser uma string de 1-2 frases em português, ou null se não houver nada relevante nessa categoria.
 REGRAS CRÍTICAS:
 - Contas com objetivo MESSAGES, TRAFFIC, ENGAGEMENT, AWARENESS: NUNCA mencione ROAS como problema — não se aplica a esses objetivos
 - Contas marcadas como [SEM DADOS NAS ÚLTIMAS 48H]: não trate como críticas — podem estar inativas por decisão estratégica do cliente
@@ -1645,8 +1645,14 @@ Dados (últimas 48h — hoje + ontem):
 ${accountLines}
 Escreva em português brasileiro, de forma direta e profissional. Destaque padrões, o que está indo bem e o que precisa de atenção imediata. Não use markdown, listas ou tópicos — escreva em prosa corrida. Se os dados de hoje estiverem zerados, baseie-se nos dados de ontem que estão consolidados.`;
 
-      const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], maxTokens: 400 });
-      const content = extractTextContent(response);
+      const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], maxTokens: 600, responseFormat: { type: "json_object" } });
+      const rawContent = extractTextContent(response);
+      let content = rawContent;
+      try {
+        const parsed = JSON.parse(rawContent);
+        // Store as JSON string for structured rendering
+        content = JSON.stringify({ positivo: parsed.positivo ?? null, atencao: parsed.atencao ?? null, critico: parsed.critico ?? null });
+      } catch { /* keep raw text as fallback */ }
       await saveDailyBriefing(ctx.user.id, today, content);
       return { content };
     }),

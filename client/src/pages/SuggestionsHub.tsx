@@ -119,11 +119,50 @@ function quickDayStatus(totals: { spend: number; conversions: number; ctr: numbe
   return getDayStatus("LEADS" as GoalType, { spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr });
 }
 
-// Split briefing text: first sentence vs remainder
-function splitBriefing(text: string): { first: string; rest: string } {
-  const idx = text.indexOf(".");
-  if (idx === -1 || idx === text.length - 1) return { first: text, rest: "" };
-  return { first: text.slice(0, idx + 1), rest: text.slice(idx + 1) };
+// Parse briefing — supports both JSON structured and legacy plain text
+function parseBriefing(text: string): { positivo: string | null; atencao: string | null; critico: string | null } | null {
+  if (!text) return null;
+  try {
+    const p = JSON.parse(text);
+    if (p.positivo !== undefined || p.atencao !== undefined || p.critico !== undefined) {
+      return { positivo: p.positivo ?? null, atencao: p.atencao ?? null, critico: p.critico ?? null };
+    }
+  } catch {}
+  // Legacy plain text fallback
+  return { positivo: null, atencao: text, critico: null };
+}
+
+function linkifyAccounts(text: string, accounts: any[], onSelect: (id: number) => void): React.ReactNode {
+  if (!text) return null;
+  const parts: React.ReactNode[] = [];
+  let remaining = text;
+  const sorted = [...accounts].sort((a, b) => (b.accountName?.length ?? 0) - (a.accountName?.length ?? 0));
+  // Simple approach: split by account names and wrap in spans
+  let result = text;
+  const matches: Array<{ name: string; id: number; index: number }> = [];
+  for (const acc of sorted) {
+    const name = acc.displayName ?? acc.accountName ?? "";
+    if (!name) continue;
+    const shortName = name.replace(/^CA\s*[-–]\s*/i, "").trim();
+    const idx = result.indexOf(shortName);
+    if (idx !== -1) matches.push({ name: shortName, id: acc.id, index: idx });
+  }
+  if (matches.length === 0) return text;
+  matches.sort((a, b) => a.index - b.index);
+  let cursor = 0;
+  for (const m of matches) {
+    if (m.index < cursor) continue;
+    if (m.index > cursor) parts.push(result.slice(cursor, m.index));
+    parts.push(
+      <span key={m.id + m.index} onClick={() => onSelect(m.id)}
+        style={{ color: "#E85BA8", cursor: "pointer", fontWeight: 500, textDecoration: "underline", textDecorationStyle: "dotted" }}>
+        {m.name}
+      </span>
+    );
+    cursor = m.index + m.name.length;
+  }
+  if (cursor < result.length) parts.push(result.slice(cursor));
+  return <>{parts}</>;
 }
 
 // Goal-aware primary result label
@@ -319,7 +358,7 @@ export default function SuggestionsHub() {
 
   // ── Briefing split ────────────────────────────────────────────────────────
 
-  const briefingSplit = briefingData?.content ? splitBriefing(briefingData.content) : null;
+  const briefingParsed = briefingData?.content ? parseBriefing(briefingData.content) : null;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -369,18 +408,20 @@ export default function SuggestionsHub() {
                   <Sparkles className="w-3 h-3 animate-pulse" style={{ color: "#E85BA8" }} />
                   Gerando resumo do dia…
                 </div>
-              ) : briefingSplit ? (
-                <div>
-                  <p ref={briefingRef} className="text-[13px] leading-relaxed"
-                    style={briefingExpanded ? {} : { overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2 } as React.CSSProperties}>
-                    <strong style={{ fontWeight: 500, color: "var(--color-text-primary, var(--foreground))" }}>{briefingSplit.first}</strong>
-                    {briefingSplit.rest && <span style={{ color: "var(--color-text-secondary, var(--muted-foreground))" }}>{briefingSplit.rest}</span>}
-                  </p>
-                  {briefingOverflows && (
-                    <button onClick={() => setBriefingExpanded(v => !v)} className="text-[11px] font-medium mt-1 hover:opacity-70" style={{ color: "#E85BA8" }}>
-                      {briefingExpanded ? "ver menos" : "ver mais"}
-                    </button>
-                  )}
+              ) : briefingParsed ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {[
+                    { key: "positivo", label: "Positivo", color: "#1D9E75", bg: "rgba(29,158,117,0.06)", text: briefingParsed.positivo },
+                    { key: "atencao",  label: "Atenção",  color: "#EF9F27", bg: "rgba(239,159,39,0.06)", text: briefingParsed.atencao },
+                    { key: "critico",  label: "Crítico",  color: "#E24B4A", bg: "rgba(226,75,74,0.06)",  text: briefingParsed.critico },
+                  ].filter(s => s.text).map(s => (
+                    <div key={s.key} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "8px 10px", borderRadius: 8, background: s.bg }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: s.color, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0, marginTop: 2, minWidth: 52 }}>{s.label}</span>
+                      <span style={{ fontSize: 13, color: "var(--color-text-secondary, var(--muted-foreground))", lineHeight: 1.55 }}>
+                        {linkifyAccounts(s.text!, accounts ?? [], handleSelectAccount)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground">Nenhum dado disponível.</p>
