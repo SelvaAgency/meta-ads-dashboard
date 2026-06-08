@@ -897,9 +897,17 @@ export async function checkRealTimeAlerts(
       effective_status: JSON.stringify(["WITH_ISSUES"]),
     });
 
+    const SUPPRESSED_ISSUES = [
+      "público personalizado indisponível",
+      "custom audience unavailable",
+      "audience unavailable",
+      "seu público personalizado",
+    ];
     for (const adset of (data.data ?? [])) {
       if (adset.effective_status === "WITH_ISSUES") {
         const issueMsg = adset.issues_info?.[0]?.error_summary ?? "Verifique os detalhes no Meta Ads Manager.";
+        const isSuppressed = SUPPRESSED_ISSUES.some(s => issueMsg.toLowerCase().includes(s));
+        if (isSuppressed) continue;
         alerts.push({
           type: "AD_ERROR",
           title: `Erro no conjunto: ${adset.name}`,
