@@ -587,6 +587,9 @@ export default function Suggestions() {
   const [manualMonitorDays, setManualMonitorDays] = useState(7);
   const [manualCreating, setManualCreating] = useState(false);
   const [manualCampaignId, setManualCampaignId] = useState<number | "">("");
+  const [manualMetaCampaignId, setManualMetaCampaignId] = useState<string>("");
+  const [manualAdsetId, setManualAdsetId] = useState<string>("");
+  const [manualAdId, setManualAdId] = useState<string>("");
   const [manualMetrics, setManualMetrics] = useState<Array<{ metric: string; baseline: string; target: string; unit: string }>>([
     { metric: "cpa", baseline: "", target: "", unit: "BRL" }
   ]);
@@ -595,6 +598,15 @@ export default function Suggestions() {
     { accountId: selectedAccountId! },
     { enabled: !!selectedAccountId && manualActionModal, staleTime: 60_000 }
   );
+  const { data: adsetList } = trpc.campaigns.adsets.useQuery(
+    { accountId: selectedAccountId!, metaCampaignId: manualMetaCampaignId },
+    { enabled: !!selectedAccountId && !!manualMetaCampaignId && manualActionModal, staleTime: 60_000 }
+  );
+  const { data: adList } = trpc.campaigns.ads.useQuery(
+    { accountId: selectedAccountId!, metaCampaignId: manualMetaCampaignId },
+    { enabled: !!selectedAccountId && !!manualMetaCampaignId && manualActionModal, staleTime: 60_000 }
+  );
+  const filteredAds = (adList ?? []).filter((a: any) => !manualAdsetId || a.adset_id === manualAdsetId);
 
   function addMetric() {
     setManualMetrics(prev => [...prev, { metric: "conversions", baseline: "", target: "", unit: "" }]);
@@ -746,12 +758,34 @@ export default function Suggestions() {
           />
           <div style={{ marginBottom: 14 }}>
             <p style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginBottom: 4 }}>Campanha (opcional)</p>
-            <select value={manualCampaignId} onChange={e => setManualCampaignId(e.target.value === "" ? "" : Number(e.target.value))} style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", background: "white", marginBottom: 12 }}>
+            <select value={manualCampaignId} onChange={e => {
+              const selected = campaignList?.find((c: any) => c.id === Number(e.target.value));
+              setManualCampaignId(e.target.value === "" ? "" : Number(e.target.value));
+              setManualMetaCampaignId(selected?.metaCampaignId ?? "");
+              setManualAdsetId("");
+              setManualAdId("");
+            }} style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", background: "white", marginBottom: 12 }}>
               <option value="">Nenhuma campanha específica</option>
               {(campaignList ?? []).map((c: any) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
+            {manualMetaCampaignId && (
+              <>
+                <select value={manualAdsetId} onChange={e => { setManualAdsetId(e.target.value); setManualAdId(""); }} style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", background: "white", marginBottom: 8 }}>
+                  <option value="">Todos os conjuntos</option>
+                  {(adsetList ?? []).map((a: any) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+                <select value={manualAdId} onChange={e => setManualAdId(e.target.value)} style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", background: "white", marginBottom: 12 }}>
+                  <option value="">Todos os criativos</option>
+                  {filteredAds.map((a: any) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+              </>
+            )}
             <p style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginBottom: 6 }}>Métricas a monitorar</p>
             {manualMetrics.map((m, idx) => (
               <div key={idx} style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr auto", gap: 6, marginBottom: 6, alignItems: "center" }}>
@@ -783,7 +817,7 @@ export default function Suggestions() {
           </div>
           <p style={{ fontSize: 10, color: "rgba(0,0,0,0.3)", marginBottom: 16, lineHeight: 1.5 }}>Após {manualMonitorDays} dias, a IA analisa os resultados e registra um aprendizado automático.</p>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button onClick={() => { setManualActionModal(false); setManualActionText(""); setManualActionTitle(""); setManualCampaignId(""); setManualMetrics([{ metric: "cpa", baseline: "", target: "", unit: "BRL" }]); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}>Cancelar</button>
+            <button onClick={() => { setManualActionModal(false); setManualActionText(""); setManualActionTitle(""); setManualCampaignId(""); setManualMetaCampaignId(""); setManualAdsetId(""); setManualAdId(""); setManualMetrics([{ metric: "cpa", baseline: "", target: "", unit: "BRL" }]); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}>Cancelar</button>
             <button
               onClick={() => { if (!selectedAccountId || !manualActionText.trim()) return; setManualCreating(true); const validMetrics = manualMetrics.filter(m => m.baseline && m.target);
             createManualAction.mutate({
