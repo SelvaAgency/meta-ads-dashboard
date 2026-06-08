@@ -429,7 +429,7 @@ export default function Suggestions() {
   const [focusInput, setFocusInput] = useState("");
   const [savingFocus, setSavingFocus] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ critical: true, attention: false, opportunities: false, applied: false });
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => ({ critical: true, attention: false, opportunities: false, applied: highlightId !== null }));
   const toggleGroup = (key: string) => setOpenGroups(prev => ({ ...prev, [key]: !prev[key] }));
 
   const { data: suggestions, isLoading } = trpc.suggestions.list.useQuery({ accountId: selectedAccountId! }, { enabled: !!selectedAccountId });
