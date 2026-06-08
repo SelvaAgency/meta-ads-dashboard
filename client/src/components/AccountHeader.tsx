@@ -4,6 +4,7 @@ import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
 import { RefreshCw, ChevronDown, ChevronUp, Check, Brain, Eye, CheckCircle2 } from "lucide-react";
 import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
+import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { KPI_CONFIGS, getDayStatus, type GoalType } from "@/lib/kpiConfig";
 
@@ -93,6 +94,7 @@ export function AccountHeader({
   goalType?: GoalType;
 }) {
   const { selectedAccountId, accounts } = useSelectedAccount();
+  const [, navigate] = useLocation();
   const utils = trpc.useUtils();
 
   const activeAccount = useMemo(
@@ -488,13 +490,18 @@ export function AccountHeader({
               const remaining = daysLeft(s.monitorUntil);
               const catColor = CATEGORY_COLORS[s.category] ?? "#E85BA8";
               return (
-                <div key={s.id} style={{
+                <div key={s.id} onClick={() => navigate(`/suggestions?highlight=${s.id}`)} style={{
                   display: "flex", alignItems: "flex-start", gap: 7,
                   padding: "7px 9px",
                   background: "rgba(0,0,0,0.02)",
                   border: "0.5px solid rgba(0,0,0,0.07)",
                   borderRadius: 8,
-                }}>
+                  cursor: "pointer",
+                  transition: "background 0.15s, border-color 0.15s",
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = "rgba(232,91,168,0.06)"; (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(232,91,168,0.25)"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = "rgba(0,0,0,0.02)"; (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(0,0,0,0.07)"; }}
+                >
                   <div style={{
                     width: 16, height: 16, borderRadius: "50%", flexShrink: 0, marginTop: 1,
                     border: "1.5px solid #1D9E75",

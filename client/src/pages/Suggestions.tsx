@@ -6,7 +6,7 @@ import {
   Lightbulb, Link2, RefreshCw, Target, Users, XCircle, Zap, Eye,
   AlertCircle, RotateCcw, TrendingUp, Info, Send, History, Maximize2, X, ExternalLink, Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -61,12 +61,19 @@ function RejectionForm({ onConfirm, onCancel }: { onConfirm: (r: string) => void
   );
 }
 
-function SuggestionCard({ s, onStatusChange, accountMetaId }: {
+function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand }: {
   s: any;
   accountMetaId?: string;
+  autoExpand?: boolean;
   onStatusChange: (id: number, status: "applied" | "rejected" | "pending", reason?: string, monitorDays?: number) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(autoExpand ?? false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (autoExpand && cardRef.current) {
+      setTimeout(() => cardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 200);
+    }
+  }, [autoExpand]);
   const [isPending, setIsPending] = useState(false);
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
@@ -93,7 +100,7 @@ function SuggestionCard({ s, onStatusChange, accountMetaId }: {
   const expectedImpact = typeof s.expectedImpact === "string" ? s.expectedImpact.trim() : "";
 
   return (
-    <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderLeft: `3px solid ${isApplied ? "#1D9E75" : isRejected ? "rgba(0,0,0,0.08)" : pri.border}`, borderRadius: "0 10px 10px 0", background: "white", padding: "12px 14px", opacity: isRejected ? 0.55 : 1, marginBottom: 8 }}>
+    <div ref={cardRef} style={{ border: `0.5px solid ${autoExpand ? "rgba(232,91,168,0.35)" : "rgba(0,0,0,0.08)"}`, borderLeft: `3px solid ${isApplied ? "#1D9E75" : isRejected ? "rgba(0,0,0,0.08)" : pri.border}`, borderRadius: "0 10px 10px 0", background: autoExpand ? "rgba(232,91,168,0.03)" : "white", padding: "12px 14px", opacity: isRejected ? 0.55 : 1, marginBottom: 8, transition: "border-color 0.3s, background 0.3s" }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
         <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: `${pri.color}18`, color: pri.color, flexShrink: 0, marginTop: 1 }}>{pri.label}</span>
         <p style={{ flex: 1, fontSize: 13, fontWeight: 500, color: "#111", lineHeight: 1.45, margin: 0 }}>{s.title}</p>
@@ -410,6 +417,11 @@ function ChatPanel({ accountId }: { accountId: number | null }) {
 
 export default function Suggestions() {
   const [, navigate] = useLocation();
+  const highlightId = (() => {
+    if (typeof window === "undefined") return null;
+    const p = new URLSearchParams(window.location.search).get("highlight");
+    return p ? parseInt(p, 10) : null;
+  })();
   const { selectedAccountId, accounts } = useSelectedAccount();
   const utils = trpc.useUtils();
   const [lastAnalysis, setLastAnalysis] = useState<AccountStateResult | null>(null);
@@ -634,28 +646,28 @@ export default function Suggestions() {
             {fp1.length > 0 && (
               <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
                 {sectionHeader("#E24B4A", "Críticas — requerem ação imediata", "critical", fp1.length)}
-                {openGroups.critical && fp1.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} />)}
+                {openGroups.critical && fp1.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} autoExpand={highlightId === s.id} />)}
               </div>
             )}
 
             {fp2.length > 0 && (
               <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
                 {sectionHeader("#EF9F27", "Em atenção — monitorar nos próximos dias", "attention", fp2.length)}
-                {openGroups.attention && fp2.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} />)}
+                {openGroups.attention && fp2.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} autoExpand={highlightId === s.id} />)}
               </div>
             )}
 
             {fp3.length > 0 && (
               <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
                 {sectionHeader("#378ADD", "Oportunidades — crescimento", "opportunities", fp3.length)}
-                {openGroups.opportunities && fp3.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} />)}
+                {openGroups.opportunities && fp3.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} autoExpand={highlightId === s.id} />)}
               </div>
             )}
 
             {recentApplied.length > 0 && !activeFilter && (
               <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
                 {sectionHeader("#1D9E75", "Aplicadas — em observação", "applied", recentApplied.length)}
-                {openGroups.applied && recentApplied.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} />)}
+                {openGroups.applied && recentApplied.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} autoExpand={highlightId === s.id} />)}
               </div>
             )}
 
@@ -687,7 +699,7 @@ export default function Suggestions() {
                   {historyDeduped.length === 0 ? (
                     <p style={{ fontSize: 12, color: "rgba(0,0,0,0.3)", textAlign: "center", padding: "16px 0" }}>Nenhuma ação no histórico ainda.</p>
                   ) : historyDeduped.map((s: any) => (
-                    <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} />
+                    <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} autoExpand={highlightId === s.id} />
                   ))}
                 </div>
               )}
