@@ -532,8 +532,8 @@ export default function SuggestionsHub() {
 
             {/* Stats — 4 cards compactos */}
             <div className="grid grid-cols-4 gap-2">
-              {statCards.map(({ label, value, color, icon: Icon, subtitle }) => (
-                <div key={label} style={{ background: "var(--color-background-secondary, rgba(0,0,0,0.04))", border: `0.5px solid ${BORDER_T}`, borderRadius: 8, padding: "10px 12px" }}>
+              {statCards.map(({ label, value, color, icon: Icon, subtitle, tab }) => (
+                <div key={label} onClick={() => tab && setFogoTab(tab)} style={{ background: fogoTab === tab ? `${color}12` : "var(--color-background-secondary, rgba(0,0,0,0.04))", border: fogoTab === tab ? `1px solid ${color}40` : `0.5px solid ${BORDER_T}`, borderRadius: 8, padding: "10px 12px", cursor: tab ? "pointer" : "default", transition: "all 0.15s" }}>
                   <div className="flex items-center gap-1.5 mb-1.5">
                     <Icon className="w-3 h-3 flex-shrink-0" style={{ color }} />
                     <span className="text-[10px] text-muted-foreground leading-none truncate">{label}</span>
