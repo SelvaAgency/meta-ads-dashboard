@@ -603,7 +603,8 @@ export async function getSuggestionsByAccountId(accountId: number, limit = 50) {
 export async function getTodayMetricsForAllAccounts(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  const today = new Date().toISOString().split("T")[0];
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
   return db
     .select({
       accountId:            campaignMetrics.accountId,
