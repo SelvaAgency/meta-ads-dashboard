@@ -1631,12 +1631,12 @@ export const appRouter = router({
         const showRoas = ROAS_GOALS.includes(goal);
         const roas = spendNum > 0 ? (convValue / spendNum).toFixed(2) : "0.00";
         const estado = a.aiStatusColor ? { green: "A (saudável)", yellow: "B (atenção)", red: "C (crítico)" }[a.aiStatusColor as "green"|"yellow"|"red"] : "sem análise";
-        const summary = a.aiStatusSummary ?? "Sem análise";
-        const roasInfo = showRoas ? `, ROAS ${roas}x` : ` (objetivo: ${goal} — ROAS não se aplica)`;
+        const summary = showRoas ? (a.aiStatusSummary ?? "Sem análise") : "";
+        const roasInfo = showRoas ? `, ROAS ${roas}x` : ` (objetivo: ${goal})`;
         const hasData = spendNum > 0;
         return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend}${roasInfo}, Resultados ${conversions}${!hasData ? " [SEM DADOS — pode estar inativa por decisão estratégica]" : ""}. ${summary}`;
       }).join("\n");
-      const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Retorne um JSON com exatamente 4 campos: "resumo" (1 frase de diagnóstico geral do portfólio — tom executivo, máx 120 caracteres), "positivo" (o que está indo bem — contas saudáveis, métricas positivas, 1-2 frases), "atencao" (contas que merecem monitoramento mas não são críticas, 1-2 frases), "critico" (problemas urgentes que precisam de ação imediata, 1-2 frases). Qualquer campo exceto "resumo" pode ser null se não houver nada relevante.
+      const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Retorne um JSON com exatamente 4 campos: "resumo" (frase executiva fluida descrevendo o estado geral do portfólio — tom direto, termina com ponto final, máx 120 caracteres, NÃO liste apenas contagens), "positivo" (o que está indo bem — contas saudáveis, métricas positivas, 1-2 frases), "atencao" (contas que merecem monitoramento mas não são críticas, 1-2 frases), "critico" (problemas urgentes que precisam de ação imediata, 1-2 frases). Qualquer campo exceto "resumo" pode ser null se não houver nada relevante.
 REGRAS CRÍTICAS:
 - Contas com objetivo MESSAGES, TRAFFIC, ENGAGEMENT, AWARENESS: NUNCA mencione ROAS como problema — não se aplica a esses objetivos
 - Contas marcadas como [SEM DADOS NAS ÚLTIMAS 48H]: não trate como críticas — podem estar inativas por decisão estratégica do cliente
