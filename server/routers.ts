@@ -1634,7 +1634,8 @@ export const appRouter = router({
         const summary = showRoas ? (a.aiStatusSummary ?? "Sem análise") : "";
         const roasInfo = showRoas ? `, ROAS ${roas}x` : ` (objetivo: ${goal})`;
         const hasData = spendNum > 0;
-        return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend}${roasInfo}, Resultados ${conversions}${!hasData ? " [SEM DADOS — pode estar inativa por decisão estratégica]" : ""}. ${summary}`;
+        const resultLabel = showRoas ? `Conversões: ${conversions}` : `Resultados (${goal}): ${conversions}`;
+        return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend}${roasInfo}, ${resultLabel}${!hasData ? " [SEM DADOS — pode estar inativa por decisão estratégica]" : ""}${summary ? ". " + summary : ""}`;
       }).join("\n");
       const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Retorne um JSON com exatamente 4 campos: "resumo" (frase executiva fluida descrevendo o estado geral do portfólio — tom direto, termina com ponto final, máx 120 caracteres, NÃO liste apenas contagens), "positivo" (o que está indo bem — contas saudáveis, métricas positivas, 1-2 frases), "atencao" (contas que merecem monitoramento mas não são críticas, 1-2 frases), "critico" (problemas urgentes que precisam de ação imediata, 1-2 frases). Qualquer campo exceto "resumo" pode ser null se não houver nada relevante.
 REGRAS CRÍTICAS:
