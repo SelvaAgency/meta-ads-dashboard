@@ -16,7 +16,6 @@ import { logger } from "./logger";
 
 import cron from "node-cron";
 import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
-import { detectAnomalies } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import {
   getAllActiveMetaAdAccounts,
@@ -368,104 +367,12 @@ function aggregateCampaignRows(rows: Awaited<ReturnType<typeof getCampaignPerfor
 }
 
 async function runAnomalyDetection() {
-  logger.info("[AutoAnomalies] Running hourly anomaly detection...");
+  logger.info("[TechnicalAlerts] Running hourly technical alerts check...");
   const accounts = await getAllActiveMetaAdAccounts();
   if (accounts.length === 0) return;
 
   for (const account of accounts) {
     try {
-      // ── Três janelas de referência para validação multi-período ──────────────
-      // Anomalia SÓ confirmada se detectada em pelo menos 2/3 janelas.
-      const daysAgo = (n: number) =>
-        new Date(Date.now() - n * 86400000).toISOString().split("T")[0]!;
-
-      const w7Start  = daysAgo(7);  const w7End  = daysAgo(1);
-      const w14Start = daysAgo(14); const w14End = daysAgo(8);
-      const w30Start = daysAgo(30); const w30End = daysAgo(15);
-
-      const [rows7, rows14, rows30] = await Promise.all([
-        getCampaignPerformanceSummary(account.id, w7Start, w7End),
-        getCampaignPerformanceSummary(account.id, w14Start, w14End),
-        getCampaignPerformanceSummary(account.id, w30Start, w30End),
-      ]);
-
-      // Only consider campaigns that had spend in the current window
-      const activeCampaignIds = new Set(
-        rows7
-          .filter((r) => Number(r.totalSpend ?? 0) > 0)
-          .map((r) => r.campaignId)
-      );
-
-      if (activeCampaignIds.size === 0) {
-        logger.info(`[AutoAnomalies] No active campaigns for account "${account.accountName ?? account.accountId}", skipping.`);
-        await runRealTimeAlerts(account);
-        continue;
-      }
-
-      const active7  = rows7.filter((r) => activeCampaignIds.has(r.campaignId));
-      const active14 = rows14.filter((r) => activeCampaignIds.has(r.campaignId));
-      const active30 = rows30.filter((r) => activeCampaignIds.has(r.campaignId));
-
-      const agg7  = aggregateCampaignRows(active7);
-      const agg14 = active14.length > 0 ? aggregateCampaignRows(active14) : agg7;
-      const agg30 = active30.length > 0 ? aggregateCampaignRows(active30) : agg14;
-      const currentAgg = agg7;
-      const currentStart = w7Start;
-      const currentEnd   = w7End;
-
-      // ── Detect metric anomalies (multi-period: 2/3 windows required) ──────
-      const detected = detectAnomalies(
-        { roas: currentAgg.roas, cpa: currentAgg.cpa, ctr: currentAgg.ctr, spend: currentAgg.spend, conversions: currentAgg.conversions, impressions: currentAgg.impressions, frequency: currentAgg.frequency },
-        { roas: agg7.roas, cpa: agg7.cpa, ctr: agg7.ctr, spend: agg7.spend, conversions: agg7.conversions, impressions: agg7.impressions },
-        { roas: agg14.roas, cpa: agg14.cpa, ctr: agg14.ctr, spend: agg14.spend, conversions: agg14.conversions, impressions: agg14.impressions },
-        { roas: agg30.roas, cpa: agg30.cpa, ctr: agg30.ctr, spend: agg30.spend, conversions: agg30.conversions, impressions: agg30.impressions },
-        { hasLimitedHistory: active14.length === 0 }
-      );
-
-      for (const anomaly of detected) {
-        // Save anomaly to DB
-        const result = await createAnomalyIfNotExists({
-          accountId: account.id,
-          type: anomaly.type as any,
-          severity: anomaly.severity,
-          title: anomaly.title,
-          description: anomaly.description,
-          metricName: anomaly.metricName,
-          currentValue: String(anomaly.currentValue),
-          previousValue: String(anomaly.previousValue),
-          changePercent: String(anomaly.changePercent),
-        });
-
-        // Get the inserted anomaly ID — result may be null if anomaly already exists
-        const insertId = result ? (result as any).insertId as number | undefined : undefined;
-
-        // Create alert for account owner — only once (emailSentAt guards against duplicates)
-        const alertResult = await createAlertIfNotExists({
-          userId: account.userId,
-          accountId: account.id,
-          title: anomaly.title,
-          message: anomaly.description,
-          type: "ANOMALY",
-          severity: "WARNING",
-        });
-        const alertId = alertResult ? (alertResult as any).insertId as number | undefined : undefined;
-
-        // Notificar o dono da conta para toda anomalia detectada (sem filtro por prioridade)
-        if (insertId) {
-          const sent = await notifyOwner({
-            title: `⚠️ Anomalia detectada: ${anomaly.title}`,
-            content: `Conta: ${account.accountName ?? account.accountId}\n\nPeríodo: ${currentStart} a ${currentEnd}\n\n${anomaly.description}`,
-          });
-          if (sent && insertId) await markAnomalyEmailSent(insertId);
-          if (sent && alertId) await markAlertEmailSent(alertId);
-        }
-      }
-
-      if (detected.length > 0) {
-        logger.info(`[AutoAnomalies] ✓ ${detected.length} anomalia(s) detectada(s) na conta "${account.accountName ?? account.accountId}"`);
-      }
-
-      // ── Real-time technical alerts ─────────────────────────────────────────
       await runRealTimeAlerts(account);
 
     } catch (err) {
