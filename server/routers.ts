@@ -295,6 +295,15 @@ const contextRouter = router({
       accountId: z.number(),
       title: z.string(),
       monitorDays: z.number().default(7),
+      description: z.string().optional(),
+      expectedImpact: z.object({
+        metric: z.string(),
+        baseline: z.number(),
+        target: z.number(),
+        direction: z.string(),
+        unit: z.string(),
+        description: z.string(),
+      }).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
@@ -304,7 +313,8 @@ const contextRouter = router({
         category: "GENERAL",
         priority: "MEDIUM",
         title: input.title,
-        description: "Ação criada a partir do Chat IA.",
+        description: input.description ?? "Ação registrada manualmente.",
+        expectedImpact: input.expectedImpact ? JSON.stringify(input.expectedImpact) : null,
         status: "applied",
         appliedAt: now,
         monitorUntil,

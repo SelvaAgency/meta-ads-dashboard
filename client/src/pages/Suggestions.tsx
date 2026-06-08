@@ -274,9 +274,17 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand, accountI
           </>
         )}
         {isApplied && (
-          <button onClick={() => { setIsPending(true); onStatusChange(s.id, "pending"); setTimeout(() => setIsPending(false), 1000); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 20, border: "1px solid rgba(0,0,0,0.12)", background: "white", color: "rgba(0,0,0,0.4)", fontSize: 11, cursor: "pointer" }}>
-            <RotateCcw style={{ width: 10, height: 10 }} /> Reverter
-          </button>
+          <>
+            <button onClick={() => { setIsPending(true); onStatusChange(s.id, "pending"); setTimeout(() => setIsPending(false), 1000); }} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 20, border: "1px solid rgba(0,0,0,0.12)", background: "white", color: "rgba(0,0,0,0.4)", fontSize: 11, cursor: "pointer" }}>
+              <RotateCcw style={{ width: 10, height: 10 }} /> Reverter
+            </button>
+            <button onClick={() => dismiss.mutate({ suggestionId: s.id })} title="Excluir ação" style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.2)", padding: "3px 4px", display: "flex", alignItems: "center" }}
+              onMouseEnter={e => e.currentTarget.style.color = "#E24B4A"}
+              onMouseLeave={e => e.currentTarget.style.color = "rgba(0,0,0,0.2)"}
+            >
+              <Trash2 style={{ width: 12, height: 12 }} />
+            </button>
+          </>
         )}
         {!isApplied && !isRejected && (
           <button onClick={() => dismiss.mutate({ suggestionId: s.id })} title="Ignorar sugestão" style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.2)", padding: "3px 4px", display: "flex", alignItems: "center" }}
@@ -551,6 +559,10 @@ export default function Suggestions() {
   const [manualActionText, setManualActionText] = useState("");
   const [manualMonitorDays, setManualMonitorDays] = useState(7);
   const [manualCreating, setManualCreating] = useState(false);
+  const [manualMetric, setManualMetric] = useState("cpa");
+  const [manualBaseline, setManualBaseline] = useState("");
+  const [manualTarget, setManualTarget] = useState("");
+  const [manualUnit, setManualUnit] = useState("BRL");
   const createManualAction = trpc.context.createActionFromChat.useMutation({
     onSuccess: () => {
       toast.success("Ação registrada e em monitoramento!");
@@ -676,6 +688,28 @@ export default function Suggestions() {
             rows={4}
             style={{ width: "100%", fontSize: 12, padding: "10px 12px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", background: "white", resize: "none", fontFamily: "inherit", outline: "none", marginBottom: 14, boxSizing: "border-box", lineHeight: 1.55 }}
           />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+            <div>
+              <p style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginBottom: 4 }}>Métrica a monitorar</p>
+              <select value={manualMetric} onChange={e => { setManualMetric(e.target.value); setManualUnit(["cpa","cpc","spend"].includes(e.target.value) ? "BRL" : e.target.value === "roas" ? "x" : e.target.value === "ctr" ? "%" : ""); }} style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", background: "white" }}>
+                <option value="cpa">CPA</option>
+                <option value="roas">ROAS</option>
+                <option value="ctr">CTR</option>
+                <option value="conversions">Conversões</option>
+                <option value="spend">Gasto</option>
+                <option value="cpc">CPC</option>
+                <option value="frequency">Frequência</option>
+              </select>
+            </div>
+            <div>
+              <p style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginBottom: 4 }}>Valor atual (baseline)</p>
+              <input type="number" value={manualBaseline} onChange={e => setManualBaseline(e.target.value)} placeholder="Ex: 280" style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <p style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginBottom: 4 }}>Meta esperada</p>
+              <input type="number" value={manualTarget} onChange={e => setManualTarget(e.target.value)} placeholder="Ex: 200" style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", boxSizing: "border-box" }} />
+            </div>
+          </div>
           <p style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", marginBottom: 8 }}>Monitorar por:</p>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
             {[3, 5, 7, 14].map(d => (
@@ -684,9 +718,22 @@ export default function Suggestions() {
           </div>
           <p style={{ fontSize: 10, color: "rgba(0,0,0,0.3)", marginBottom: 16, lineHeight: 1.5 }}>Após {manualMonitorDays} dias, a IA analisa os resultados e registra um aprendizado automático.</p>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button onClick={() => { setManualActionModal(false); setManualActionText(""); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}>Cancelar</button>
+            <button onClick={() => { setManualActionModal(false); setManualActionText(""); setManualBaseline(""); setManualTarget(""); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}>Cancelar</button>
             <button
-              onClick={() => { if (!selectedAccountId || !manualActionText.trim()) return; setManualCreating(true); createManualAction.mutate({ accountId: selectedAccountId, title: manualActionText.trim(), monitorDays: manualMonitorDays }); }}
+              onClick={() => { if (!selectedAccountId || !manualActionText.trim()) return; setManualCreating(true); createManualAction.mutate({
+              accountId: selectedAccountId,
+              title: manualActionText.trim(),
+              monitorDays: manualMonitorDays,
+              description: "Ação registrada manualmente.",
+              expectedImpact: manualBaseline && manualTarget ? {
+                metric: manualMetric,
+                baseline: parseFloat(manualBaseline),
+                target: parseFloat(manualTarget),
+                direction: ["cpa", "frequency", "cpc", "spend"].includes(manualMetric) ? "decrease" : "increase",
+                unit: manualUnit,
+                description: manualActionText.trim().slice(0, 120),
+              } : undefined,
+            }); }}
               disabled={manualCreating || !manualActionText.trim()}
               style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", fontSize: 12, fontWeight: 600, cursor: manualCreating || !manualActionText.trim() ? "not-allowed" : "pointer", opacity: manualCreating || !manualActionText.trim() ? 0.65 : 1 }}
             >
