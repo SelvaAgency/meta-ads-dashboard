@@ -418,7 +418,9 @@ export async function generateAiSuggestions(
           if (a.targeting.custom_audiences?.length) parts.push(`Públicos: ${a.targeting.custom_audiences.map((p: { name: string }) => p.name).slice(0, 2).join(", ")}`);
           return parts.length ? parts.join(" | ") : "Segmentação ampla";
         })() : "Segmentação não disponível";
-        lines.push(`  - [${a.name}] Gasto: R$${a.spend.toFixed(2)} | Orçamento: ${budget} | CTR: ${a.ctr.toFixed(2)}% | CPC: R$${a.cpc.toFixed(2)} | Freq: ${a.frequency.toFixed(2)} | Resultados: ${a.conversions} | Custo/resultado: R$${a.costPerResult.toFixed(2)} | Segmentação: ${targeting}`);
+        const adsetStatus = (a as any).effective_status ?? (a as any).status ?? "UNKNOWN";
+        const adsetStatusLabel = adsetStatus === "ACTIVE" ? "ATIVO" : adsetStatus === "PAUSED" ? "PAUSADO" : adsetStatus;
+        lines.push(`  - [${a.name}] STATUS: ${adsetStatusLabel} | Gasto: R$${a.spend.toFixed(2)} | Orçamento: ${budget} | CTR: ${a.ctr.toFixed(2)}% | CPC: R$${a.cpc.toFixed(2)} | Freq: ${a.frequency.toFixed(2)} | Resultados: ${a.conversions} | Custo/resultado: R$${a.costPerResult.toFixed(2)} | Segmentação: ${targeting}`);
       }
     });
     adsetBlock = lines.join("\n");
@@ -444,7 +446,9 @@ export async function generateAiSuggestions(
         : 0;
       lines.push(`  Médias do conjunto: CTR ${setAvgCtr.toFixed(2)}%, CPC R$${setAvgCpc.toFixed(2)}, Custo/resultado R$${setAvgCostPerResult.toFixed(2)}`);
       for (const a of ads) {
-        lines.push(`  - [${a.name}] Formato: ${a.creative_type} | Gasto: R$${a.spend.toFixed(2)} | CTR: ${a.ctr.toFixed(2)}% | CPC: R$${a.cpc.toFixed(2)} | Freq: ${a.frequency.toFixed(2)} | Resultados: ${a.conversions} | Custo/resultado: R$${a.costPerResult.toFixed(2)}`);
+        const adStatus = (a as any).effective_status ?? (a as any).status ?? "UNKNOWN";
+        const adStatusLabel = adStatus === "ACTIVE" ? "ATIVO" : adStatus === "PAUSED" ? "PAUSADO" : adStatus === "ADSET_PAUSED" ? "PAUSADO (conjunto pausado)" : adStatus;
+        lines.push(`  - [${a.name}] STATUS: ${adStatusLabel} | Formato: ${a.creative_type} | Gasto: R$${a.spend.toFixed(2)} | CTR: ${a.ctr.toFixed(2)}% | CPC: R$${a.cpc.toFixed(2)} | Freq: ${a.frequency.toFixed(2)} | Resultados: ${a.conversions} | Custo/resultado: R$${a.costPerResult.toFixed(2)}`);
       }
     });
     adBlock = lines.join("\n");
@@ -600,6 +604,7 @@ CAMADA 4 — TRACKING: eventos de conversão, janela de atribuição, discrepân
 
 --- LEITURA TEMPORAL ---
 NUNCA tire conclusão de um único período. Cruze: 7 dias (snapshot) + 14 dias (tendência) + 30 dias (baseline).
+CRÍTICO — STATUS DOS ELEMENTOS: cada conjunto e criativo tem um campo STATUS no prompt. NUNCA sugira pausar, desativar ou modificar um elemento que já está com STATUS: PAUSADO. Sugestões de pausa só fazem sentido para elementos com STATUS: ATIVO. Ignorar o status e sugerir ações sobre elementos já pausados é um erro grave que invalida toda a análise.
 
 --- FASE DE APRENDIZADO ---
 - Requer ~50 eventos de otimização por conjunto em 7 dias
