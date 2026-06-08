@@ -296,14 +296,25 @@ const contextRouter = router({
       title: z.string(),
       monitorDays: z.number().default(7),
       description: z.string().optional(),
-      expectedImpact: z.object({
-        metric: z.string(),
-        baseline: z.number(),
-        target: z.number(),
-        direction: z.string(),
-        unit: z.string(),
-        description: z.string(),
-      }).optional(),
+      campaignId: z.number().optional(),
+      expectedImpact: z.union([
+        z.object({
+          metric: z.string(),
+          baseline: z.number(),
+          target: z.number(),
+          direction: z.string(),
+          unit: z.string(),
+          description: z.string(),
+        }),
+        z.array(z.object({
+          metric: z.string(),
+          baseline: z.number(),
+          target: z.number(),
+          direction: z.string(),
+          unit: z.string(),
+          description: z.string(),
+        })),
+      ]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
@@ -314,6 +325,7 @@ const contextRouter = router({
         priority: "MEDIUM",
         title: input.title,
         description: input.description ?? "Ação registrada manualmente.",
+        campaignId: input.campaignId ?? null,
         expectedImpact: input.expectedImpact ? JSON.stringify(input.expectedImpact) : null,
         status: "applied",
         appliedAt: now,

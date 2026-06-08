@@ -560,10 +560,32 @@ export default function Suggestions() {
   const [manualActionTitle, setManualActionTitle] = useState("");
   const [manualMonitorDays, setManualMonitorDays] = useState(7);
   const [manualCreating, setManualCreating] = useState(false);
-  const [manualMetric, setManualMetric] = useState("cpa");
-  const [manualBaseline, setManualBaseline] = useState("");
-  const [manualTarget, setManualTarget] = useState("");
-  const [manualUnit, setManualUnit] = useState("BRL");
+  const [manualCampaignId, setManualCampaignId] = useState<number | "">("");
+  const [manualMetrics, setManualMetrics] = useState<Array<{ metric: string; baseline: string; target: string; unit: string }>>([
+    { metric: "cpa", baseline: "", target: "", unit: "BRL" }
+  ]);
+
+  const { data: campaignList } = trpc.campaigns.list.useQuery(
+    { accountId: selectedAccountId! },
+    { enabled: !!selectedAccountId && manualActionModal, staleTime: 60_000 }
+  );
+
+  function addMetric() {
+    setManualMetrics(prev => [...prev, { metric: "conversions", baseline: "", target: "", unit: "" }]);
+  }
+  function removeMetric(idx: number) {
+    setManualMetrics(prev => prev.filter((_, i) => i !== idx));
+  }
+  function updateMetric(idx: number, field: string, value: string) {
+    setManualMetrics(prev => prev.map((m, i) => {
+      if (i !== idx) return m;
+      const updated = { ...m, [field]: value };
+      if (field === "metric") {
+        updated.unit = ["cpa","cpc","spend"].includes(value) ? "BRL" : value === "roas" ? "x" : value === "ctr" ? "%" : "";
+      }
+      return updated;
+    }));
+  }
   const createManualAction = trpc.context.createActionFromChat.useMutation({
     onSuccess: () => {
       toast.success("Ação registrada e em monitoramento!");
@@ -696,27 +718,36 @@ export default function Suggestions() {
             rows={4}
             style={{ width: "100%", fontSize: 12, padding: "10px 12px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", background: "white", resize: "none", fontFamily: "inherit", outline: "none", marginBottom: 14, boxSizing: "border-box", lineHeight: 1.55 }}
           />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
-            <div>
-              <p style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginBottom: 4 }}>Métrica a monitorar</p>
-              <select value={manualMetric} onChange={e => { setManualMetric(e.target.value); setManualUnit(["cpa","cpc","spend"].includes(e.target.value) ? "BRL" : e.target.value === "roas" ? "x" : e.target.value === "ctr" ? "%" : ""); }} style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", background: "white" }}>
-                <option value="cpa">CPA</option>
-                <option value="roas">ROAS</option>
-                <option value="ctr">CTR</option>
-                <option value="conversions">Conversões</option>
-                <option value="spend">Gasto</option>
-                <option value="cpc">CPC</option>
-                <option value="frequency">Frequência</option>
-              </select>
-            </div>
-            <div>
-              <p style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginBottom: 4 }}>Valor atual (baseline)</p>
-              <input type="number" value={manualBaseline} onChange={e => setManualBaseline(e.target.value)} placeholder="Ex: 280" style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", boxSizing: "border-box" }} />
-            </div>
-            <div>
-              <p style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginBottom: 4 }}>Meta esperada</p>
-              <input type="number" value={manualTarget} onChange={e => setManualTarget(e.target.value)} placeholder="Ex: 200" style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", boxSizing: "border-box" }} />
-            </div>
+          <div style={{ marginBottom: 14 }}>
+            <p style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginBottom: 4 }}>Campanha (opcional)</p>
+            <select value={manualCampaignId} onChange={e => setManualCampaignId(e.target.value === "" ? "" : Number(e.target.value))} style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", background: "white", marginBottom: 12 }}>
+              <option value="">Nenhuma campanha específica</option>
+              {(campaignList ?? []).map((c: any) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <p style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", marginBottom: 6 }}>Métricas a monitorar</p>
+            {manualMetrics.map((m, idx) => (
+              <div key={idx} style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr auto", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                <select value={m.metric} onChange={e => updateMetric(idx, "metric", e.target.value)} style={{ fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", background: "white" }}>
+                  <option value="cpa">CPA</option>
+                  <option value="roas">ROAS</option>
+                  <option value="ctr">CTR</option>
+                  <option value="conversions">Conversões</option>
+                  <option value="spend">Gasto</option>
+                  <option value="cpc">CPC</option>
+                  <option value="frequency">Frequência</option>
+                </select>
+                <input type="number" value={m.baseline} onChange={e => updateMetric(idx, "baseline", e.target.value)} placeholder="Atual" style={{ fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", boxSizing: "border-box", width: "100%" }} />
+                <input type="number" value={m.target} onChange={e => updateMetric(idx, "target", e.target.value)} placeholder="Meta" style={{ fontSize: 12, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", boxSizing: "border-box", width: "100%" }} />
+                {manualMetrics.length > 1 ? (
+                  <button onClick={() => removeMetric(idx)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(0,0,0,0.3)", fontSize: 16, padding: "0 4px" }}>×</button>
+                ) : <span />}
+              </div>
+            ))}
+            <button onClick={addMetric} style={{ fontSize: 11, color: "#E85BA8", background: "none", border: "0.5px solid rgba(232,91,168,0.35)", borderRadius: 6, padding: "4px 10px", cursor: "pointer", marginTop: 2 }}>
+              + Adicionar métrica
+            </button>
           </div>
           <p style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", marginBottom: 8 }}>Monitorar por:</p>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
@@ -726,21 +757,23 @@ export default function Suggestions() {
           </div>
           <p style={{ fontSize: 10, color: "rgba(0,0,0,0.3)", marginBottom: 16, lineHeight: 1.5 }}>Após {manualMonitorDays} dias, a IA analisa os resultados e registra um aprendizado automático.</p>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button onClick={() => { setManualActionModal(false); setManualActionText(""); setManualActionTitle(""); setManualBaseline(""); setManualTarget(""); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}>Cancelar</button>
+            <button onClick={() => { setManualActionModal(false); setManualActionText(""); setManualActionTitle(""); setManualCampaignId(""); setManualMetrics([{ metric: "cpa", baseline: "", target: "", unit: "BRL" }]); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}>Cancelar</button>
             <button
-              onClick={() => { if (!selectedAccountId || !manualActionText.trim()) return; setManualCreating(true); createManualAction.mutate({
+              onClick={() => { if (!selectedAccountId || !manualActionText.trim()) return; setManualCreating(true); const validMetrics = manualMetrics.filter(m => m.baseline && m.target);
+            createManualAction.mutate({
               accountId: selectedAccountId,
               title: manualActionTitle.trim() || manualActionText.trim().slice(0, 80),
               monitorDays: manualMonitorDays,
               description: manualActionText.trim() || "Ação registrada manualmente.",
-              expectedImpact: manualBaseline && manualTarget ? {
-                metric: manualMetric,
-                baseline: parseFloat(manualBaseline),
-                target: parseFloat(manualTarget),
-                direction: ["cpa", "frequency", "cpc", "spend"].includes(manualMetric) ? "decrease" : "increase",
-                unit: manualUnit,
-                description: manualActionText.trim().slice(0, 120),
-              } : undefined,
+              campaignId: manualCampaignId ? Number(manualCampaignId) : undefined,
+              expectedImpact: validMetrics.length > 0 ? validMetrics.map(m => ({
+                metric: m.metric,
+                baseline: parseFloat(m.baseline),
+                target: parseFloat(m.target),
+                direction: ["cpa", "frequency", "cpc", "spend"].includes(m.metric) ? "decrease" : "increase",
+                unit: m.unit,
+                description: manualActionTitle.trim().slice(0, 120),
+              })) : undefined,
             }); }}
               disabled={manualCreating || !manualActionTitle.trim()}
               style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", fontSize: 12, fontWeight: 600, cursor: manualCreating || !manualActionTitle.trim() ? "not-allowed" : "pointer", opacity: manualCreating || !manualActionTitle.trim() ? 0.65 : 1 }}
