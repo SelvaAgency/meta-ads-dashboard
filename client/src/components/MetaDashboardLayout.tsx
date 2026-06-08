@@ -104,9 +104,9 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             <span className="text-xl font-semibold text-foreground">Selva Agency</span>
           </div>
           <h1 className="text-3xl font-bold text-foreground">Acesse sua plataforma</h1>
-          <p className="text-muted-foreground">Faça login para acessar o dashboard de análise e otimização de campanhas.</p>
+          <p className="text-muted-foreground">Use suas credenciais para acessar o BIT.</p>
           <Button size="lg" className="w-full" onClick={() => (window.location.href = getLoginUrl())}>
-            Entrar com Manus
+            Entrar no BIT
           </Button>
         </div>
       </div>
