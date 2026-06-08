@@ -1608,25 +1608,29 @@ export const appRouter = router({
       const accounts = await getMetaAdAccountsByUserId(ctx.user.id);
       if (!accounts.length) return { content: null };
 
-      const todayMetrics = await getTodayMetricsForAllAccounts(ctx.user.id);
-      const metricsMap = new Map(todayMetrics.map((m) => [m.accountId, m]));
-
-      const accountLines = accounts.map((a) => {
-        const m = metricsMap.get(a.id);
-        const spend = Number(m?.totalSpend ?? 0).toFixed(2);
-        const roas = Number(m?.avgRoas ?? 0).toFixed(2);
-        const conversions = Number(m?.totalConversions ?? 0).toFixed(0);
-        const estado = a.aiStatusColor ? { green: "A (saudável)", yellow: "B (atenção)", red: "C (crítico)" }[a.aiStatusColor] : "sem análise";
+      const now = new Date();
+      const d48 = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+      const fmt48 = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+      const start48 = fmt48(d48);
+      const end48 = fmt48(now);
+      const metricsRows48 = await Promise.all(
+        accounts.map(a => getAccountMetricsSummary(a.id, start48, end48))
+      );
+      const accountLines = accounts.map((a, idx) => {
+        const rows = metricsRows48[idx] ?? [];
+        const spend = rows.reduce((s, r) => s + Number(r.totalSpend ?? 0), 0).toFixed(2);
+        const conversions = rows.reduce((s, r) => s + Number(r.totalConversions ?? 0), 0).toFixed(0);
+        const convValue = rows.reduce((s, r) => s + Number(r.totalConversionValue ?? 0), 0);
+        const spendNum = parseFloat(spend);
+        const roas = spendNum > 0 ? (convValue / spendNum).toFixed(2) : "0.00";
+        const estado = a.aiStatusColor ? { green: "A (saudável)", yellow: "B (atenção)", red: "C (crítico)" }[a.aiStatusColor as "green"|"yellow"|"red"] : "sem análise";
         const summary = a.aiStatusSummary ?? "Sem análise";
         return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend}, ROAS ${roas}x, Resultados ${conversions}. ${summary}`;
       }).join("\n");
-
-      const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Gere um briefing executivo conciso (4-6 frases) sobre o desempenho das contas Meta Ads hoje.
-
-Dados:
+      const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Gere um briefing executivo conciso (4-6 frases) sobre o desempenho das contas Meta Ads nas últimas 48 horas.
+Dados (últimas 48h — hoje + ontem):
 ${accountLines}
-
-Escreva em português brasileiro, de forma direta e profissional. Destaque padrões, o que está indo bem e o que precisa de atenção imediata. Não use markdown, listas ou tópicos — escreva em prosa corrida.`;
+Escreva em português brasileiro, de forma direta e profissional. Destaque padrões, o que está indo bem e o que precisa de atenção imediata. Não use markdown, listas ou tópicos — escreva em prosa corrida. Se os dados de hoje estiverem zerados, baseie-se nos dados de ontem que estão consolidados.`;
 
       const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], maxTokens: 400 });
       const content = extractTextContent(response);
