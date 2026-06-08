@@ -311,10 +311,10 @@ export default function SuggestionsHub() {
   // ── Stat cards ────────────────────────────────────────────────────────────
 
   const statCards = [
-    { label: "Contas saudáveis", value: healthyCount,                        color: "#10b981", icon: CheckCircle2, subtitle: "Estado A" },
-    { label: "Sugestões P1",     value: suggestionsLoading ? null : p1Count, color: p1Count > 0 ? "#ef4444" : "var(--foreground)", icon: AlertTriangle, subtitle: "alta prioridade" },
-    { label: "Urgências",        value: urgencyCount,                         color: urgencyCount > 0 ? "#f59e0b" : "var(--foreground)", icon: Flame,         subtitle: "Estado C" },
-    { label: "Alertas ativos",   value: urgentAlerts?.length ?? 0,           color: (urgentAlerts?.length ?? 0) > 0 ? "#3b82f6" : "var(--foreground)", icon: Bell, subtitle: "requerem atenção" },
+    { label: "Urgentes",         value: urgencyCount,                         color: urgencyCount > 0 ? "#ef4444" : "var(--foreground)",        icon: Flame,         subtitle: "Estado C · agir agora" },
+    { label: "Alta prioridade",  value: suggestionsLoading ? null : p1Count,  color: p1Count > 0 ? "#f59e0b" : "var(--foreground)",             icon: AlertTriangle, subtitle: "P1 · requerem ação" },
+    { label: "Média prioridade", value: suggestionsLoading ? null : p2Count,  color: "var(--foreground)",                                        icon: Bell,          subtitle: "P2 · monitorar" },
+    { label: "Alertas ativos",   value: urgentAlerts?.length ?? 0,            color: (urgentAlerts?.length ?? 0) > 0 ? "#3b82f6" : "var(--foreground)", icon: Bell, subtitle: "requerem atenção" },
   ];
 
   // ── Briefing split ────────────────────────────────────────────────────────
@@ -362,7 +362,7 @@ export default function SuggestionsHub() {
             <div style={{ padding: "14px 16px", borderBottom: `0.5px solid ${BORDER_T}` }}>
               <div className="flex items-center gap-2 mb-2">
                 <Sparkles className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#E85BA8" }} />
-                <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "#E85BA8" }}>Briefing do Dia — IA</span>
+                <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "#E85BA8" }}>Resumo do Dia</span>
               </div>
               {briefingLoading ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -541,8 +541,9 @@ export default function SuggestionsHub() {
           </div>
         )}
 
-        {/* ══ 3 — Caixa unificada (stats + briefing + fogo) ════════════════ */}
+        {/* ══ 3 — Ações Sugeridas ════════════════════════════════════════ */}
         <div className="px-6 pt-4">
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">Ações Sugeridas</p>
           <div
             style={{
               background: BG_PRIMARY,
@@ -560,7 +561,7 @@ export default function SuggestionsHub() {
                   className="text-[10px] font-bold uppercase tracking-[0.12em]"
                   style={{ color: "#E85BA8" }}
                 >
-                  Briefing do Dia — IA
+                  Resumo do Dia
                 </span>
               </div>
 
