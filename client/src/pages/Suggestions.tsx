@@ -671,7 +671,7 @@ export default function Suggestions() {
         </div>
 
         {/* 3 cards topo */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
 
           {/* Inteligência + Resumo */}
           <div style={{ background: "white", border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: "14px 16px" }}>
@@ -697,6 +697,36 @@ export default function Suggestions() {
                 Limpar filtro
               </button>
             )}
+          </div>
+
+          {/* Ações em monitoramento */}
+          <div style={{ background: "white", border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: "14px 16px" }}>
+            <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Ações em monitoramento</p>
+            {monitoring.length === 0 ? (
+              <p style={{ fontSize: 11, color: "rgba(0,0,0,0.3)", fontStyle: "italic" }}>Nenhuma ação em monitoramento</p>
+            ) : monitoring.slice(0, 3).map((s: any) => {
+              const remaining = daysLeft(s.monitorUntil);
+              const totalDays = (() => {
+                if (!s.appliedAt || !s.monitorUntil) return 7;
+                return Math.max(1, Math.round((new Date(s.monitorUntil).getTime() - new Date(s.appliedAt).getTime()) / 86400000));
+              })();
+              const pct = Math.min(100, Math.round(((totalDays - (remaining ?? 0)) / totalDays) * 100));
+              return (
+                <div key={s.id} style={{ padding: "6px 0", borderBottom: "0.5px solid rgba(0,0,0,0.05)" }}>
+                  <p style={{ fontSize: 11, fontWeight: 500, color: "#111", lineHeight: 1.4, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{s.title}</p>
+                  <div style={{ height: 2, background: "rgba(0,0,0,0.06)", borderRadius: 2, marginBottom: 3 }}>
+                    <div style={{ height: "100%", background: "#1D9E75", borderRadius: 2, width: `${pct}%` }} />
+                  </div>
+                  <p style={{ fontSize: 10, color: "rgba(0,0,0,0.35)" }}>{remaining}d restantes</p>
+                </div>
+              );
+            })}
+            {monitoring.length > 3 && (
+              <p style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginTop: 6 }}>+{monitoring.length - 3} mais</p>
+            )}
+            <button onClick={() => setActiveFilter("monitoring")} style={{ marginTop: 10, width: "100%", fontSize: 11, padding: "6px", borderRadius: 6, border: "0.5px solid rgba(0,0,0,0.1)", background: "transparent", cursor: "pointer", color: "rgba(0,0,0,0.4)" }}>
+              Ver todas →
+            </button>
           </div>
 
           {/* Experimentos */}
@@ -732,7 +762,6 @@ export default function Suggestions() {
           {/* Foco do Momento */}
           <div style={{ background: "white", border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column" }}>
             <p style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.35)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Foco do momento</p>
-            <p style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginBottom: 10, lineHeight: 1.5 }}>A IA lê esse campo e prioriza análises de acordo.</p>
             <textarea
               value={focusInput || (accountCtx as any)?.focusMoment || ""}
               onChange={e => setFocusInput(e.target.value)}
