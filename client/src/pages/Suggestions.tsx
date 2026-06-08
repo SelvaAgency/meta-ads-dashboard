@@ -557,6 +557,7 @@ export default function Suggestions() {
   const toggleGroup = (key: string) => setOpenGroups(prev => ({ ...prev, [key]: !prev[key] }));
   const [manualActionModal, setManualActionModal] = useState(false);
   const [manualActionText, setManualActionText] = useState("");
+  const [manualActionTitle, setManualActionTitle] = useState("");
   const [manualMonitorDays, setManualMonitorDays] = useState(7);
   const [manualCreating, setManualCreating] = useState(false);
   const [manualMetric, setManualMetric] = useState("cpa");
@@ -681,10 +682,17 @@ export default function Suggestions() {
         <div style={{ background: "white", borderRadius: 14, padding: "24px 28px", width: 440 }}>
           <p style={{ fontSize: 14, fontWeight: 600, color: "#111", marginBottom: 4 }}>Registrar ação manual</p>
           <p style={{ fontSize: 12, color: "rgba(0,0,0,0.4)", marginBottom: 16, lineHeight: 1.5 }}>Descreva o que você fez e o resultado esperado. A IA vai monitorar e registrar um aprendizado.</p>
+          <input
+            type="text"
+            value={manualActionTitle}
+            onChange={e => setManualActionTitle(e.target.value)}
+            placeholder="Título curto da ação — ex: Pausei criativos de Namorados no conjunto 9"
+            style={{ width: "100%", fontSize: 12, padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", outline: "none", marginBottom: 8, boxSizing: "border-box" }}
+          />
           <textarea
             value={manualActionText}
             onChange={e => setManualActionText(e.target.value)}
-            placeholder="Ex: Pausei criativos de Namorados no conjunto 9 e redistribuí orçamento para os estáticos performáticos. Espero redução de CPA de R$280 para R$200."
+            placeholder="Descreva em detalhes o que foi feito, o contexto e o raciocínio por trás da decisão..."
             rows={4}
             style={{ width: "100%", fontSize: 12, padding: "10px 12px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", background: "white", resize: "none", fontFamily: "inherit", outline: "none", marginBottom: 14, boxSizing: "border-box", lineHeight: 1.55 }}
           />
@@ -718,13 +726,13 @@ export default function Suggestions() {
           </div>
           <p style={{ fontSize: 10, color: "rgba(0,0,0,0.3)", marginBottom: 16, lineHeight: 1.5 }}>Após {manualMonitorDays} dias, a IA analisa os resultados e registra um aprendizado automático.</p>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button onClick={() => { setManualActionModal(false); setManualActionText(""); setManualBaseline(""); setManualTarget(""); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}>Cancelar</button>
+            <button onClick={() => { setManualActionModal(false); setManualActionText(""); setManualActionTitle(""); setManualBaseline(""); setManualTarget(""); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}>Cancelar</button>
             <button
               onClick={() => { if (!selectedAccountId || !manualActionText.trim()) return; setManualCreating(true); createManualAction.mutate({
               accountId: selectedAccountId,
-              title: manualActionText.trim(),
+              title: manualActionTitle.trim() || manualActionText.trim().slice(0, 80),
               monitorDays: manualMonitorDays,
-              description: "Ação registrada manualmente.",
+              description: manualActionText.trim() || "Ação registrada manualmente.",
               expectedImpact: manualBaseline && manualTarget ? {
                 metric: manualMetric,
                 baseline: parseFloat(manualBaseline),
@@ -734,8 +742,8 @@ export default function Suggestions() {
                 description: manualActionText.trim().slice(0, 120),
               } : undefined,
             }); }}
-              disabled={manualCreating || !manualActionText.trim()}
-              style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", fontSize: 12, fontWeight: 600, cursor: manualCreating || !manualActionText.trim() ? "not-allowed" : "pointer", opacity: manualCreating || !manualActionText.trim() ? 0.65 : 1 }}
+              disabled={manualCreating || !manualActionTitle.trim()}
+              style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", fontSize: 12, fontWeight: 600, cursor: manualCreating || !manualActionTitle.trim() ? "not-allowed" : "pointer", opacity: manualCreating || !manualActionTitle.trim() ? 0.65 : 1 }}
             >
               {manualCreating ? "Registrando..." : "Registrar e monitorar"}
             </button>
