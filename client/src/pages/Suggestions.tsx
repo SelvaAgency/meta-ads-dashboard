@@ -125,9 +125,20 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand, accountI
   const expectedImpact: any = (() => {
     if (!s.expectedImpact) return null;
     if (typeof s.expectedImpact === "object") return s.expectedImpact;
-    try { const p = JSON.parse(s.expectedImpact); if (p && typeof p === "object" && p.metric) return p; } catch {}
+    try {
+      const p = JSON.parse(s.expectedImpact);
+      if (Array.isArray(p)) return p; // array de métricas
+      if (p && typeof p === "object" && p.metric) return p; // objeto simples legado
+    } catch {}
     return { description: s.expectedImpact.trim() };
   })();
+  // Normaliza para array sempre
+  const impactMetrics: any[] = Array.isArray(expectedImpact)
+    ? expectedImpact
+    : expectedImpact?.metric ? [expectedImpact] : [];
+  const impactDescription: string = Array.isArray(expectedImpact)
+    ? (expectedImpact[0]?.description ?? "")
+    : (expectedImpact?.description ?? "");
   const metricsSnapshot: any = (() => {
     if (!s.metricsSnapshot) return null;
     if (typeof s.metricsSnapshot === "object") return s.metricsSnapshot;
@@ -161,18 +172,18 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand, accountI
 
       {expanded && !isMonitoring && (
         <div style={{ marginTop: 12 }}>
-          {expectedImpact?.description && (
+          {(impactMetrics.length > 0 || impactDescription) && (
             <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(29,158,117,0.05)", border: "1px solid rgba(29,158,117,0.15)", marginBottom: 12 }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: "#1D9E75", marginBottom: 4 }}>Impacto Esperado</p>
-              {expectedImpact.metric && expectedImpact.baseline != null && expectedImpact.target != null ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "rgba(0,0,0,0.5)" }}>{fmtMetric(expectedImpact.baseline, expectedImpact.unit ?? "")}</span>
+              <p style={{ fontSize: 11, fontWeight: 600, color: "#1D9E75", marginBottom: 6 }}>Impacto Esperado</p>
+              {impactMetrics.map((m: any, i: number) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", minWidth: 80 }}>{m.metric.toUpperCase()}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "rgba(0,0,0,0.5)" }}>{fmtMetric(m.baseline, m.unit ?? "")}</span>
                   <span style={{ fontSize: 11, color: "rgba(0,0,0,0.3)" }}>→</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#1D9E75" }}>{fmtMetric(expectedImpact.target, expectedImpact.unit ?? "")}</span>
-                  <span style={{ fontSize: 11, color: "rgba(0,0,0,0.4)" }}>({expectedImpact.metric.toUpperCase()})</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#1D9E75" }}>{fmtMetric(m.target, m.unit ?? "")}</span>
                 </div>
-              ) : null}
-              <p style={{ fontSize: 12, color: "rgba(0,0,0,0.6)", lineHeight: 1.5, margin: "6px 0 0 0" }}>{expectedImpact.description}</p>
+              ))}
+              {impactDescription && <p style={{ fontSize: 12, color: "rgba(0,0,0,0.6)", lineHeight: 1.5, margin: "6px 0 0 0" }}>{impactDescription}</p>}
             </div>
           )}
           {actionItems.length > 0 && (
@@ -192,11 +203,12 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand, accountI
       )}
 
       {expanded && isMonitoring && (() => {
-        const metric = expectedImpact?.metric ?? null;
-        const baseline = expectedImpact?.baseline ?? getSnapshotValue(metric, metricsSnapshot);
-        const target = expectedImpact?.target ?? null;
-        const unit = expectedImpact?.unit ?? "";
-        const direction = expectedImpact?.direction ?? "decrease";
+        const primaryMetric = impactMetrics[0] ?? null;
+        const metric = primaryMetric?.metric ?? null;
+        const baseline = primaryMetric?.baseline ?? getSnapshotValue(metric, metricsSnapshot);
+        const target = primaryMetric?.target ?? null;
+        const unit = primaryMetric?.unit ?? "";
+        const direction = primaryMetric?.direction ?? "decrease";
         const snapshotBaseline = getSnapshotValue(metric, metricsSnapshot);
         const totalDays = (() => {
           if (!s.appliedAt || !s.monitorUntil) return 7;
@@ -219,22 +231,36 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand, accountI
                 <p style={{ fontSize: 11, fontWeight: 600, color: "#1D9E75", margin: 0 }}>Resultado monitorado</p>
                 <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: `${statusColor}18`, color: statusColor }}>{statusLabel}</span>
               </div>
-              {metric && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
-                  {[
-                    { label: "Baseline (pré-ação)", value: baseline != null ? fmtMetric(baseline, unit) : "—", muted: true },
-                    { label: "Atual (pós-ação)", value: (() => { const v = liveMetric(metric); return v != null ? fmtMetric(v, unit) : "Aguardando sync"; })(), color: (() => { const v = liveMetric(metric); if (v == null) return "rgba(0,0,0,0.35)"; return (direction === "decrease" ? v <= (target ?? Infinity) : v >= (target ?? -Infinity)) ? "#1D9E75" : "#E24B4A"; })() },
-                    { label: "Meta", value: target != null ? fmtMetric(target, unit) : "—", muted: true },
-                  ].map(({ label, value, muted, color }) => (
-                    <div key={label} style={{ padding: "8px 10px", borderRadius: 6, background: "white", border: "0.5px solid rgba(0,0,0,0.07)", textAlign: "center" }}>
-                      <p style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{label}</p>
-                      <p style={{ fontSize: 14, fontWeight: 700, color: color ?? (muted ? "rgba(0,0,0,0.45)" : "#111"), margin: 0 }}>{value}</p>
-                    </div>
-                  ))}
+              {impactMetrics.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+                  {impactMetrics.map((m: any, i: number) => {
+                    const live = liveMetric(m.metric);
+                    const isGood = live != null && m.target != null
+                      ? (m.direction === "decrease" ? live <= m.target : live >= m.target)
+                      : null;
+                    const liveColor = isGood === true ? "#1D9E75" : isGood === false ? "#E24B4A" : "rgba(0,0,0,0.35)";
+                    return (
+                      <div key={i} style={{ display: "grid", gridTemplateColumns: "80px 1fr 1fr 1fr", gap: 6, alignItems: "center" }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(0,0,0,0.4)", textTransform: "uppercase" }}>{m.metric}</span>
+                        <div style={{ padding: "6px 8px", borderRadius: 6, background: "white", border: "0.5px solid rgba(0,0,0,0.07)", textAlign: "center" }}>
+                          <p style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginBottom: 2 }}>Baseline</p>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: "rgba(0,0,0,0.45)", margin: 0 }}>{m.baseline != null ? fmtMetric(m.baseline, m.unit ?? "") : "—"}</p>
+                        </div>
+                        <div style={{ padding: "6px 8px", borderRadius: 6, background: "white", border: "0.5px solid rgba(0,0,0,0.07)", textAlign: "center" }}>
+                          <p style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginBottom: 2 }}>Atual</p>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: liveColor, margin: 0 }}>{live != null ? fmtMetric(live, m.unit ?? "") : "—"}</p>
+                        </div>
+                        <div style={{ padding: "6px 8px", borderRadius: 6, background: "white", border: "0.5px solid rgba(0,0,0,0.07)", textAlign: "center" }}>
+                          <p style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginBottom: 2 }}>Meta</p>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: "rgba(0,0,0,0.45)", margin: 0 }}>{m.target != null ? fmtMetric(m.target, m.unit ?? "") : "—"}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-              {expectedImpact?.description && (
-                <p style={{ fontSize: 11, color: "rgba(0,0,0,0.45)", lineHeight: 1.5, margin: 0 }}>{expectedImpact.description}</p>
+              {impactDescription && (
+                <p style={{ fontSize: 11, color: "rgba(0,0,0,0.45)", lineHeight: 1.5, margin: 0 }}>{impactDescription}</p>
               )}
             </div>
           </div>
