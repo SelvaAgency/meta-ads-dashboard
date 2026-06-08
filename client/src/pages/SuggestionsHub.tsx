@@ -552,7 +552,7 @@ export default function SuggestionsHub() {
               <div className="flex items-center gap-3 mb-3">
                 <Flame className="w-3.5 h-3.5 flex-shrink-0 text-red-400" />
                 <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-red-400">
-                  O que está pegando fogo
+                  {fogoTab === "URGENT" ? "O que está pegando fogo" : fogoTab === "P1" ? "Alta prioridade — requerem ação" : fogoTab === "P2" ? "Média prioridade — monitorar" : "Em monitoramento — ações em andamento"}
                 </span>
 
               </div>

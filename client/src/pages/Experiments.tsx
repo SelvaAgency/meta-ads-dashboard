@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import { useMemo } from "react";
-import { FlaskConical, Plus, Calendar, Banknote, CheckCircle2, CircleDashed, CirclePause, CirclePlay } from "lucide-react";
+import { FlaskConical, Plus, Calendar, Banknote, CheckCircle2, CircleDashed, CirclePause, CirclePlay, Trash2 } from "lucide-react";
 import { useState } from "react";
 import ExperimentCreateModal from "@/components/ExperimentCreateModal";
 
@@ -40,6 +40,12 @@ export default function Experiments() {
     return m;
   }, [accounts]);
 
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const utils = trpc.useUtils();
+  const deleteExp = trpc.experiments.delete.useMutation({
+    onSuccess: () => { utils.experiments.list.invalidate(); setConfirmDelete(null); },
+    onError: () => { setConfirmDelete(null); },
+  });
   const { data: experiments = [], isLoading, refetch } = trpc.experiments.list.useQuery(
     { accountId: activeAccountId ?? undefined },
     { enabled: !!activeAccountId },
@@ -138,12 +144,38 @@ export default function Experiments() {
                           <p className="text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors">{exp.title}</p>
                           <p className="text-xs text-muted-foreground mt-0.5 truncate">{displayNameById.get(exp.accountId) ?? exp.accountName ?? "—"}</p>
                         </div>
-                        <span
-                          className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
-                          style={{ background: meta.bg, color: meta.color }}
-                        >
-                          {meta.label}
-                        </span>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                            style={{ background: meta.bg, color: meta.color }}
+                          >
+                            {meta.label}
+                          </span>
+                          {confirmDelete === exp.id ? (
+                            <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                              <button
+                                onClick={() => deleteExp.mutate({ id: exp.id })}
+                                disabled={deleteExp.isPending}
+                                className="text-[10px] font-semibold px-2 py-0.5 rounded bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20"
+                              >
+                                Confirmar
+                              </button>
+                              <button
+                                onClick={() => setConfirmDelete(null)}
+                                className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={e => { e.stopPropagation(); setConfirmDelete(exp.id); }}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-4 text-xs text-muted-foreground">
