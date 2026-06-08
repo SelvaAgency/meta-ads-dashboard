@@ -61,10 +61,11 @@ function RejectionForm({ onConfirm, onCancel }: { onConfirm: (r: string) => void
   );
 }
 
-function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand }: {
+function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand, accountId }: {
   s: any;
   accountMetaId?: string;
   autoExpand?: boolean;
+  accountId?: number;
   onStatusChange: (id: number, status: "applied" | "rejected" | "pending", reason?: string, monitorDays?: number) => void;
 }) {
   const [expanded, setExpanded] = useState(autoExpand ?? false);
@@ -81,6 +82,30 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand }: {
   const dismiss = trpc.suggestions.dismiss.useMutation({
     onSuccess: () => { utils.suggestions.list.invalidate(); utils.suggestions.history.invalidate(); },
   });
+
+  const isMonitoringNow = s.status === "applied" && s.monitorUntil && (daysLeft(s.monitorUntil) ?? 0) > 0 && !s.monitorResult;
+  const appliedAtStr = s.appliedAt ? (() => {
+    const d = new Date(s.appliedAt);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  })() : null;
+  const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  })();
+  const { data: liveOverview } = trpc.dashboard.overview.useQuery(
+    { accountId: accountId!, startDate: appliedAtStr!, endDate: todayStr },
+    { enabled: !!accountId && !!appliedAtStr && isMonitoringNow && expanded, staleTime: 5 * 60 * 1000 }
+  );
+  const liveMetric = (metric: string): number | null => {
+    const t = liveOverview?.totals;
+    if (!t) return null;
+    const map: Record<string, any> = {
+      cpa: t.cpa, roas: t.roas, ctr: t.ctr,
+      spend: t.spend, conversions: t.conversions,
+      frequency: (t as any).frequency, cpc: (t as any).cpc,
+    };
+    return map[metric] != null ? Number(map[metric]) : null;
+  };
   const [monitorDays, setMonitorDays] = useState(() => {
     const defaults: Record<string, number> = { PAUSAR_CRIATIVO: 3, PAUSAR_CONJUNTO: 5, REALOCAR_ORCAMENTO: 5, NOVO_PUBLICO: 14, NOVO_CRIATIVO: 7, NOVO_CONJUNTO: 14 };
     return defaults[s.category ?? ""] ?? 7;
@@ -180,8 +205,9 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand }: {
         const elapsed = totalDays - (daysLeft(s.monitorUntil) ?? 0);
         const progressPct = Math.min(100, Math.round((elapsed / totalDays) * 100));
 
-        const improved = snapshotBaseline != null && target != null
-          ? (direction === "decrease" ? snapshotBaseline <= target : snapshotBaseline >= target)
+        const liveVal = metric ? liveMetric(metric) : null;
+        const improved = liveVal != null && target != null
+          ? (direction === "decrease" ? liveVal <= target : liveVal >= target)
           : null;
         const statusColor = improved === true ? "#1D9E75" : improved === false ? "#E24B4A" : "#EF9F27";
         const statusLabel = improved === true ? "No caminho certo" : improved === false ? "Abaixo do esperado" : "Monitorando";
@@ -197,7 +223,7 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand }: {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
                   {[
                     { label: "Baseline (pré-ação)", value: baseline != null ? fmtMetric(baseline, unit) : "—", muted: true },
-                    { label: "Atual (pós-ação)", value: snapshotBaseline != null ? fmtMetric(snapshotBaseline, unit) : "Aguardando sync", color: statusColor },
+                    { label: "Atual (pós-ação)", value: (() => { const v = liveMetric(metric); return v != null ? fmtMetric(v, unit) : "Aguardando sync"; })(), color: (() => { const v = liveMetric(metric); if (v == null) return "rgba(0,0,0,0.35)"; return (direction === "decrease" ? v <= (target ?? Infinity) : v >= (target ?? -Infinity)) ? "#1D9E75" : "#E24B4A"; })() },
                     { label: "Meta", value: target != null ? fmtMetric(target, unit) : "—", muted: true },
                   ].map(({ label, value, muted, color }) => (
                     <div key={label} style={{ padding: "8px 10px", borderRadius: 6, background: "white", border: "0.5px solid rgba(0,0,0,0.07)", textAlign: "center" }}>
@@ -736,28 +762,28 @@ export default function Suggestions() {
             {fp1.length > 0 && (
               <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
                 {sectionHeader("#E24B4A", "Críticas — requerem ação imediata", "critical", fp1.length)}
-                {openGroups.critical && fp1.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} autoExpand={highlightId === s.id} />)}
+                {openGroups.critical && fp1.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} accountId={selectedAccountId ?? undefined} autoExpand={highlightId === s.id} />)}
               </div>
             )}
 
             {fp2.length > 0 && (
               <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
                 {sectionHeader("#EF9F27", "Em atenção — monitorar nos próximos dias", "attention", fp2.length)}
-                {openGroups.attention && fp2.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} autoExpand={highlightId === s.id} />)}
+                {openGroups.attention && fp2.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} accountId={selectedAccountId ?? undefined} autoExpand={highlightId === s.id} />)}
               </div>
             )}
 
             {fp3.length > 0 && (
               <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
                 {sectionHeader("#378ADD", "Oportunidades — crescimento", "opportunities", fp3.length)}
-                {openGroups.opportunities && fp3.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} autoExpand={highlightId === s.id} />)}
+                {openGroups.opportunities && fp3.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} accountId={selectedAccountId ?? undefined} autoExpand={highlightId === s.id} />)}
               </div>
             )}
 
             {recentApplied.length > 0 && !activeFilter && (
               <div style={{ border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "8px 12px", background: "white" }}>
                 {sectionHeader("#1D9E75", "Aplicadas — em observação", "applied", recentApplied.length)}
-                {openGroups.applied && recentApplied.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} autoExpand={highlightId === s.id} />)}
+                {openGroups.applied && recentApplied.map((s: any) => <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} accountId={selectedAccountId ?? undefined} autoExpand={highlightId === s.id} />)}
               </div>
             )}
 
@@ -789,7 +815,7 @@ export default function Suggestions() {
                   {historyDeduped.length === 0 ? (
                     <p style={{ fontSize: 12, color: "rgba(0,0,0,0.3)", textAlign: "center", padding: "16px 0" }}>Nenhuma ação no histórico ainda.</p>
                   ) : historyDeduped.map((s: any) => (
-                    <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} autoExpand={highlightId === s.id} />
+                    <SuggestionCard key={s.id} s={s} onStatusChange={handleStatusChange} accountMetaId={(account as any)?.accountId} accountId={selectedAccountId ?? undefined} autoExpand={highlightId === s.id} />
                   ))}
                 </div>
               )}
