@@ -358,25 +358,187 @@ export default function SuggestionsHub() {
               </div>
             </div>
 
+            {/* Briefing da IA */}
+            <div style={{ padding: "14px 16px", borderBottom: `0.5px solid ${BORDER_T}` }}>
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#E85BA8" }} />
+                <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "#E85BA8" }}>Resumo do Dia</span>
+              </div>
+              {briefingLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Sparkles className="w-3 h-3 animate-pulse" style={{ color: "#E85BA8" }} />
+                  Gerando resumo do dia…
+                </div>
+              ) : briefingSplit ? (
+                <div>
+                  <p ref={briefingRef} className="text-[13px] leading-relaxed"
+                    style={briefingExpanded ? {} : { overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2 } as React.CSSProperties}>
+                    <strong style={{ fontWeight: 500, color: "var(--color-text-primary, var(--foreground))" }}>{briefingSplit.first}</strong>
+                    {briefingSplit.rest && <span style={{ color: "var(--color-text-secondary, var(--muted-foreground))" }}>{briefingSplit.rest}</span>}
+                  </p>
+                  {briefingOverflows && (
+                    <button onClick={() => setBriefingExpanded(v => !v)} className="text-[11px] font-medium mt-1 hover:opacity-70" style={{ color: "#E85BA8" }}>
+                      {briefingExpanded ? "ver menos" : "ver mais"}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Nenhum dado disponível.</p>
+              )}
+            </div>
+
+            {/* Status cards clicáveis */}
+            {(() => {
+              const statusCounts = {
+                green:  (accounts ?? []).filter((a: any) => a.aiStatusColor === "green").length,
+                yellow: (accounts ?? []).filter((a: any) => a.aiStatusColor === "yellow").length,
+                red:    (accounts ?? []).filter((a: any) => a.aiStatusColor === "red").length,
+                none:   (accounts ?? []).filter((a: any) => !a.aiStatusColor || (a as any).hasTokenError).length,
+              };
+              const statusDefs = [
+                { key: "green",  label: "Saudável",  sublabel: "Estado A · sem intervenção", color: "#1D9E75", bg: "rgba(29,158,117,0.06)",  activeBg: "rgba(29,158,117,0.12)",  count: statusCounts.green },
+                { key: "yellow", label: "Atenção",   sublabel: "Estado B · monitorar",       color: "#EF9F27", bg: "rgba(239,159,39,0.06)",  activeBg: "rgba(239,159,39,0.12)",  count: statusCounts.yellow },
+                { key: "red",    label: "Crítico",   sublabel: "Estado C · agir agora",      color: "#E24B4A", bg: "rgba(226,75,74,0.06)",   activeBg: "rgba(226,75,74,0.12)",   count: statusCounts.red },
+                { key: "none",   label: "Sem dados", sublabel: "token expirado",             color: "rgba(0,0,0,0.35)", bg: "rgba(0,0,0,0.02)", activeBg: "rgba(0,0,0,0.06)", count: statusCounts.none },
+              ];
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 0 }}>
+                  {statusDefs.map(({ key, label, sublabel, color, bg, activeBg, count }, i) => (
+                    <button
+                      key={key}
+                      onClick={() => setStatusFilter(statusFilter === key ? null : key)}
+                      style={{
+                        padding: "14px 16px",
+                        background: statusFilter === key ? activeBg : bg,
+                        borderTop: `0.5px solid ${BORDER_T}`,
+                        borderRight: i < 3 ? `0.5px solid ${BORDER_T}` : "none",
+                        borderBottom: statusFilter === key ? `2px solid ${color}` : "none",
+                        borderLeft: "none",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      <p style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color, marginBottom: 6 }}>{label} · 7d</p>
+                      <p style={{ fontSize: 26, fontWeight: 500, color, lineHeight: 1, marginBottom: 4 }}>{count}</p>
+                      <p style={{ fontSize: 10, color, opacity: 0.6 }}>{sublabel}</p>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+
+          </div>
+        </div>
+
+        {/* ══ 2 — Carrossel de clientes ═════════════════════════════════════ */}
+        {sortedAccounts.length > 0 && (
+          <div className="px-6 pt-4">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                {statusFilter ? `Contas — ${statusFilter === "green" ? "Saudável" : statusFilter === "yellow" ? "Atenção" : statusFilter === "red" ? "Crítico" : "Sem dados"}` : "Clientes"}
+              </p>
+              {statusFilter && (
+                <button onClick={() => setStatusFilter(null)} style={{ fontSize: 10, color: "#E85BA8", background: "none", border: "none", cursor: "pointer" }}>
+                  Limpar filtro ×
+                </button>
+              )}
+            </div>
+            <div className="flex gap-3 pb-1" style={{ overflowX: "auto", scrollbarWidth: "none" }}>
+              {sortedAccounts.filter((account: any) => {
+                if (!statusFilter) return true;
+                if (statusFilter === "none") return !account.aiStatusColor || account.hasTokenError;
+                return account.aiStatusColor === statusFilter && !account.hasTokenError;
+              }).map((account) => {
+                const m          = metricsMap.get(account.id);
+                const totals     = normalizeTotals(m);
+                const p1         = p1ByAccount[account.id] ?? 0;
+                const estado     = estadoConfig[(account as any).aiStatusColor ?? ""] ?? null;
+                const goalType   = ((account as any).goalTypeOverride as string | null) ?? "DEFAULT";
+                const dayS       = totals.spend > 0
+                  ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })
+                  : null;
+                const secMetrics = secondaryMetrics(goalType);
+
+                return (
+                  <button
+                    key={account.id}
+                    onClick={() => handleSelectAccount(account.id)}
+                    className="flex-shrink-0 rounded-xl text-left transition-all hover:shadow-md relative overflow-hidden"
+                    style={{
+                      width: 200,
+                      background: BG_PRIMARY,
+                      border: `0.5px solid ${BORDER_T}`,
+                      borderLeft: `3px solid ${estado?.border ?? BORDER_T}`,
+                      borderRadius: RADIUS_LG,
+                    }}
+                  >
+                    {p1 > 0 && (
+                      <span className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full z-10 text-white" style={{ background: "#ef4444" }}>
+                        {p1} P1
+                      </span>
+                    )}
+                    <div className="p-3 space-y-2">
+                      <div className="flex items-center gap-2 pr-8">
+                        <div className="flex-shrink-0 flex items-center justify-center font-bold overflow-hidden text-primary"
+                          style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(212,83,126,0.12)", fontSize: 11 }}>
+                          {account.pictureUrl
+                            ? <img src={account.pictureUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            : (getClientByMetaAccountId(account.accountId)?.shortName ?? initials(account.accountName))}
+                        </div>
+                        <p className="text-xs font-semibold text-foreground truncate leading-snug">
+                          {displayNameMap.get(account.id) ?? account.accountName ?? account.accountId}
+                        </p>
+                      </div>
+                      {estado ? (
+                        <Badge variant="outline" className={`text-[10px] font-bold ${estado.cls}`}>Estado {estado.badge}</Badge>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground/50">Sem análise</span>
+                      )}
+                      <div className="border-t pt-2" style={{ borderColor: BORDER_T }}>
+                        <p className="text-[10px] text-muted-foreground mb-1">Investido hoje</p>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-lg font-medium text-foreground leading-none">{fmtCurrency(totals.spend)}</span>
+                          {dayS && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+                              style={{ background: dayS.bg, color: dayS.color, border: `0.5px solid ${dayS.border}` }}>
+                              {dayS.label}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between border-t pt-1.5" style={{ borderColor: BORDER_T }}>
+                        {secMetrics.map((sm) => (
+                          <div key={sm.label} className="flex flex-col items-start gap-0.5">
+                            <span className="text-[9px] text-muted-foreground uppercase tracking-wide">{sm.label}</span>
+                            <span className="text-[11px] font-semibold text-foreground">
+                              {totals.spend > 0 ? sm.fmt(totals) : "—"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ══ 3 — Ações Sugeridas ════════════════════════════════════════ */}
+        <div className="px-6 pt-4">
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">Ações Sugeridas</p>
+          <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, padding: 16 }}>
+
             {/* Stats — 4 cards compactos */}
             <div className="grid grid-cols-4 gap-2">
               {statCards.map(({ label, value, color, icon: Icon, subtitle }) => (
-                <div
-                  key={label}
-                  style={{
-                    background: "var(--color-background-secondary, rgba(0,0,0,0.04))",
-                    border: `0.5px solid ${BORDER_T}`,
-                    borderRadius: 8,
-                    padding: "10px 12px",
-                  }}
-                >
+                <div key={label} style={{ background: "var(--color-background-secondary, rgba(0,0,0,0.04))", border: `0.5px solid ${BORDER_T}`, borderRadius: 8, padding: "10px 12px" }}>
                   <div className="flex items-center gap-1.5 mb-1.5">
                     <Icon className="w-3 h-3 flex-shrink-0" style={{ color }} />
                     <span className="text-[10px] text-muted-foreground leading-none truncate">{label}</span>
                   </div>
-                  <p className="text-[18px] font-bold leading-none" style={{ color }}>
-                    {value ?? "—"}
-                  </p>
+                  <p className="text-[18px] font-bold leading-none" style={{ color }}>{value ?? "—"}</p>
                   <p className="text-[10px] text-muted-foreground/60 mt-0.5">{subtitle}</p>
                 </div>
               ))}
