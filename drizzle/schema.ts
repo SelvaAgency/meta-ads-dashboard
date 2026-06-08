@@ -138,6 +138,7 @@ export const anomalies = mysqlTable("anomalies", {
   detectedAt: timestamp("detectedAt").defaultNow().notNull(),
   resolvedAt: timestamp("resolvedAt"),
   isRead: boolean("isRead").default(false).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   isResolved: boolean("isResolved").default(false).notNull(),
   // Controle de envio de email: null = ainda não enviado, data = já enviado (enviar apenas uma vez)
   emailSentAt: timestamp("emailSentAt"),
@@ -242,6 +243,7 @@ export const alerts = mysqlTable("alerts", {
   metricCurrent: varchar("metricCurrent", { length: 128 }),
   metricReference: varchar("metricReference", { length: 128 }),
    isRead: boolean("isRead").default(false).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   // Controle de envio de email: null = ainda não enviado, data = já enviado (enviar apenas uma vez)
   emailSentAt: timestamp("emailSentAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
