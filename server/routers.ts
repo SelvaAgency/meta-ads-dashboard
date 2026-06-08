@@ -1636,7 +1636,7 @@ export const appRouter = router({
         const hasData = spendNum > 0;
         return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend}${roasInfo}, Resultados ${conversions}${!hasData ? " [SEM DADOS — pode estar inativa por decisão estratégica]" : ""}. ${summary}`;
       }).join("\n");
-      const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Retorne um JSON com exatamente 3 campos: "positivo" (o que está indo bem — contas saudáveis, métricas positivas), "atencao" (contas que merecem monitoramento mas não são críticas), "critico" (problemas urgentes que precisam de ação imediata). Cada campo deve ser uma string de 1-2 frases em português, ou null se não houver nada relevante nessa categoria.
+      const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Retorne um JSON com exatamente 4 campos: "resumo" (1 frase de diagnóstico geral do portfólio — tom executivo, máx 120 caracteres), "positivo" (o que está indo bem — contas saudáveis, métricas positivas, 1-2 frases), "atencao" (contas que merecem monitoramento mas não são críticas, 1-2 frases), "critico" (problemas urgentes que precisam de ação imediata, 1-2 frases). Qualquer campo exceto "resumo" pode ser null se não houver nada relevante.
 REGRAS CRÍTICAS:
 - Contas com objetivo MESSAGES, TRAFFIC, ENGAGEMENT, AWARENESS: NUNCA mencione ROAS como problema — não se aplica a esses objetivos
 - Contas marcadas como [SEM DADOS NAS ÚLTIMAS 48H]: não trate como críticas — podem estar inativas por decisão estratégica do cliente
@@ -1651,7 +1651,7 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
       try {
         const parsed = JSON.parse(rawContent);
         // Store as JSON string for structured rendering
-        content = JSON.stringify({ positivo: parsed.positivo ?? null, atencao: parsed.atencao ?? null, critico: parsed.critico ?? null });
+        content = JSON.stringify({ resumo: parsed.resumo ?? null, positivo: parsed.positivo ?? null, atencao: parsed.atencao ?? null, critico: parsed.critico ?? null });
       } catch { /* keep raw text as fallback */ }
       await saveDailyBriefing(ctx.user.id, today, content);
       return { content };

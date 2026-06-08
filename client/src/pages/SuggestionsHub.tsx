@@ -120,16 +120,19 @@ function quickDayStatus(totals: { spend: number; conversions: number; ctr: numbe
 }
 
 // Parse briefing — supports both JSON structured and legacy plain text
-function parseBriefing(text: string): { positivo: string | null; atencao: string | null; critico: string | null } | null {
+function parseBriefing(text: string): { resumo: string | null; positivo: string | null; atencao: string | null; critico: string | null } | null {
   if (!text) return null;
   try {
     const p = JSON.parse(text);
-    if (p.positivo !== undefined || p.atencao !== undefined || p.critico !== undefined) {
-      return { positivo: p.positivo ?? null, atencao: p.atencao ?? null, critico: p.critico ?? null };
+    if (p.positivo !== undefined || p.atencao !== undefined || p.critico !== undefined || p.resumo !== undefined) {
+      return { resumo: p.resumo ?? null, positivo: p.positivo ?? null, atencao: p.atencao ?? null, critico: p.critico ?? null };
     }
   } catch {}
-  // Legacy plain text fallback
-  return { positivo: null, atencao: text, critico: null };
+  // Legacy plain text fallback — first sentence as resumo
+  const idx = text.indexOf(".");
+  const resumo = idx !== -1 ? text.slice(0, idx + 1) : text;
+  const rest = idx !== -1 ? text.slice(idx + 1).trim() : null;
+  return { resumo, positivo: null, atencao: rest || null, critico: null };
 }
 
 function linkifyAccounts(text: string, accounts: any[], onSelect: (id: number) => void): React.ReactNode {
@@ -155,7 +158,7 @@ function linkifyAccounts(text: string, accounts: any[], onSelect: (id: number) =
     if (m.index > cursor) parts.push(result.slice(cursor, m.index));
     parts.push(
       <span key={m.id + m.index} onClick={() => onSelect(m.id)}
-        style={{ color: "#E85BA8", cursor: "pointer", fontWeight: 500, textDecoration: "underline", textDecorationStyle: "dotted" }}>
+        style={{ color: "#E85BA8", cursor: "pointer", fontWeight: 500 }}>
         {m.name}
       </span>
     );
@@ -409,19 +412,35 @@ export default function SuggestionsHub() {
                   Gerando resumo do dia…
                 </div>
               ) : briefingParsed ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {[
-                    { key: "positivo", label: "Positivo", color: "#1D9E75", bg: "rgba(29,158,117,0.06)", text: briefingParsed.positivo },
-                    { key: "atencao",  label: "Atenção",  color: "#EF9F27", bg: "rgba(239,159,39,0.06)", text: briefingParsed.atencao },
-                    { key: "critico",  label: "Crítico",  color: "#E24B4A", bg: "rgba(226,75,74,0.06)",  text: briefingParsed.critico },
-                  ].filter(s => s.text).map(s => (
-                    <div key={s.key} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "8px 10px", borderRadius: 8, background: s.bg }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: s.color, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0, marginTop: 2, minWidth: 52 }}>{s.label}</span>
-                      <span style={{ fontSize: 13, color: "var(--color-text-secondary, var(--muted-foreground))", lineHeight: 1.55 }}>
-                        {linkifyAccounts(s.text!, accounts ?? [], handleSelectAccount)}
-                      </span>
+                <div>
+                  {/* Resumo sempre visível */}
+                  {briefingParsed.resumo && (
+                    <p style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary, var(--foreground))", lineHeight: 1.55, marginBottom: briefingExpanded ? 10 : 0 }}>
+                      {linkifyAccounts(briefingParsed.resumo, accounts ?? [], handleSelectAccount)}
+                    </p>
+                  )}
+                  {/* Seções expandidas */}
+                  {briefingExpanded && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {[
+                        { key: "positivo", label: "Positivo", color: "#1D9E75", bg: "rgba(29,158,117,0.06)", text: briefingParsed.positivo },
+                        { key: "atencao",  label: "Atenção",  color: "#EF9F27", bg: "rgba(239,159,39,0.06)", text: briefingParsed.atencao },
+                        { key: "critico",  label: "Crítico",  color: "#E24B4A", bg: "rgba(226,75,74,0.06)",  text: briefingParsed.critico },
+                      ].filter(s => s.text).map(s => (
+                        <div key={s.key} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "8px 10px", borderRadius: 8, background: s.bg }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: s.color, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0, marginTop: 2, minWidth: 52 }}>{s.label}</span>
+                          <span style={{ fontSize: 12, color: "var(--color-text-secondary, var(--muted-foreground))", lineHeight: 1.55 }}>
+                            {linkifyAccounts(s.text!, accounts ?? [], handleSelectAccount)}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+                  {(briefingParsed.positivo || briefingParsed.atencao || briefingParsed.critico) && (
+                    <button onClick={() => setBriefingExpanded(v => !v)} className="text-[11px] font-medium mt-2 hover:opacity-70" style={{ color: "#E85BA8" }}>
+                      {briefingExpanded ? "ver menos" : "ver análise completa"}
+                    </button>
+                  )}
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground">Nenhum dado disponível.</p>
