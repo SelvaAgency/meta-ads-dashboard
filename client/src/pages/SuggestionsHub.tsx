@@ -176,6 +176,7 @@ export default function SuggestionsHub() {
   const [syncingAll, setSyncingAll]               = useState(false);
   const [syncProgress, setSyncProgress]           = useState<{ done: number; total: number } | null>(null);
   const [briefingExpanded, setBriefingExpanded]   = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [briefingOverflows, setBriefingOverflows] = useState(false);
   const [panoramaOpen, setPanoramaOpen]           = useState(false);
   const briefingRef = useRef<HTMLParagraphElement>(null);
@@ -326,46 +327,131 @@ export default function SuggestionsHub() {
     <MetaDashboardLayout>
       <div className="max-w-4xl mx-auto pb-8">
 
-        {/* ══ 1 — Faixa de status ═══════════════════════════════════════════ */}
+        {/* ══ 1 — Caixa unificada: top bar + briefing + status cards ══════ */}
         <div className="px-6 pt-6">
-          <div
-            className="flex items-center gap-2 text-xs text-muted-foreground"
-            style={{ border: `0.5px solid ${BORDER_T}`, borderRadius: 8, padding: "8px 14px" }}
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-            <span className="text-foreground/80 font-medium">{statusDateLabel()}</span>
-            <span className="text-border/60 select-none">·</span>
-            <span>{accounts?.length ?? 0} contas ativas</span>
-            {lastSyncDate && (
-              <>
-                <span className="text-border/60 select-none">·</span>
-                <span>Última sync {relativeTime(lastSyncDate)}</span>
-              </>
-            )}
-            <span className="text-border/60 select-none">·</span>
-            <span className="font-medium text-foreground/70">{fmtCurrency(totalSpendToday)} investido hoje</span>
-            <div className="ml-auto flex-shrink-0">
-              <button
-                onClick={handleSyncAll}
-                disabled={syncingAll}
-                className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md transition-colors disabled:opacity-50"
-                style={{ border: "0.5px solid rgba(232,91,168,0.5)", color: "#E85BA8", background: "rgba(232,91,168,0.06)" }}
-              >
-                <RefreshCw className={`w-3 h-3 ${syncingAll ? "animate-spin" : ""}`} />
-                {syncProgress ? `Sincronizando ${syncProgress.done + 1}/${syncProgress.total}…` : "Sincronizar todas"}
-              </button>
+          <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, overflow: "hidden" }}>
+
+            {/* Top bar */}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground" style={{ padding: "10px 16px", borderBottom: `0.5px solid ${BORDER_T}` }}>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+              <span className="text-foreground/80 font-medium">{statusDateLabel()}</span>
+              <span className="text-border/60 select-none">·</span>
+              <span>{accounts?.length ?? 0} contas ativas</span>
+              {lastSyncDate && (
+                <>
+                  <span className="text-border/60 select-none">·</span>
+                  <span>Última sync {relativeTime(lastSyncDate)}</span>
+                </>
+              )}
+              <span className="text-border/60 select-none">·</span>
+              <span className="font-medium text-foreground/70">{fmtCurrency(totalSpendToday)} investido hoje</span>
+              <div className="ml-auto flex-shrink-0">
+                <button
+                  onClick={handleSyncAll}
+                  disabled={syncingAll}
+                  className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md transition-colors disabled:opacity-50"
+                  style={{ border: "0.5px solid rgba(232,91,168,0.5)", color: "#E85BA8", background: "rgba(232,91,168,0.06)" }}
+                >
+                  <RefreshCw className={`w-3 h-3 ${syncingAll ? "animate-spin" : ""}`} />
+                  {syncProgress ? `Sincronizando ${syncProgress.done + 1}/${syncProgress.total}…` : "Sincronizar todas"}
+                </button>
+              </div>
             </div>
+
+            {/* Briefing da IA */}
+            <div style={{ padding: "14px 16px", borderBottom: `0.5px solid ${BORDER_T}` }}>
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#E85BA8" }} />
+                <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "#E85BA8" }}>Briefing do Dia — IA</span>
+              </div>
+              {briefingLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Sparkles className="w-3 h-3 animate-pulse" style={{ color: "#E85BA8" }} />
+                  Gerando briefing do dia…
+                </div>
+              ) : briefingSplit ? (
+                <div>
+                  <p ref={briefingRef} className="text-[13px] leading-relaxed"
+                    style={briefingExpanded ? {} : { overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2 } as React.CSSProperties}>
+                    <strong style={{ fontWeight: 500, color: "var(--color-text-primary, var(--foreground))" }}>{briefingSplit.first}</strong>
+                    {briefingSplit.rest && <span style={{ color: "var(--color-text-secondary, var(--muted-foreground))" }}>{briefingSplit.rest}</span>}
+                  </p>
+                  {briefingOverflows && (
+                    <button onClick={() => setBriefingExpanded(v => !v)} className="text-[11px] font-medium mt-1 hover:opacity-70" style={{ color: "#E85BA8" }}>
+                      {briefingExpanded ? "ver menos" : "ver mais"}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Nenhum dado disponível para gerar o briefing.</p>
+              )}
+            </div>
+
+            {/* Status cards clicáveis */}
+            {(() => {
+              const statusCounts = {
+                green:  (accounts ?? []).filter((a: any) => a.aiStatusColor === "green").length,
+                yellow: (accounts ?? []).filter((a: any) => a.aiStatusColor === "yellow").length,
+                red:    (accounts ?? []).filter((a: any) => a.aiStatusColor === "red").length,
+                none:   (accounts ?? []).filter((a: any) => !a.aiStatusColor || (a as any).hasTokenError).length,
+              };
+              const statusDefs = [
+                { key: "green",  label: "Saudável",  sublabel: "Estado A · sem intervenção", color: "#1D9E75", bg: "rgba(29,158,117,0.06)",  activeBg: "rgba(29,158,117,0.12)",  count: statusCounts.green },
+                { key: "yellow", label: "Atenção",   sublabel: "Estado B · monitorar",       color: "#EF9F27", bg: "rgba(239,159,39,0.06)",  activeBg: "rgba(239,159,39,0.12)",  count: statusCounts.yellow },
+                { key: "red",    label: "Crítico",   sublabel: "Estado C · agir agora",      color: "#E24B4A", bg: "rgba(226,75,74,0.06)",   activeBg: "rgba(226,75,74,0.12)",   count: statusCounts.red },
+                { key: "none",   label: "Sem dados", sublabel: "token expirado",             color: "rgba(0,0,0,0.35)", bg: "rgba(0,0,0,0.02)", activeBg: "rgba(0,0,0,0.06)", count: statusCounts.none },
+              ];
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 0 }}>
+                  {statusDefs.map(({ key, label, sublabel, color, bg, activeBg, count }, i) => (
+                    <button
+                      key={key}
+                      onClick={() => setStatusFilter(statusFilter === key ? null : key)}
+                      style={{
+                        padding: "14px 16px",
+                        background: statusFilter === key ? activeBg : bg,
+                        borderTop: `0.5px solid ${BORDER_T}`,
+                        borderRight: i < 3 ? `0.5px solid ${BORDER_T}` : "none",
+                        borderBottom: statusFilter === key ? `2px solid ${color}` : "none",
+                        borderLeft: "none",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      <p style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color, marginBottom: 6 }}>
+                        {label} · 7d
+                      </p>
+                      <p style={{ fontSize: 26, fontWeight: 500, color, lineHeight: 1, marginBottom: 4 }}>{count}</p>
+                      <p style={{ fontSize: 10, color, opacity: 0.6 }}>{sublabel}</p>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+
           </div>
         </div>
 
         {/* ══ 2 — Carrossel de clientes ═════════════════════════════════════ */}
         {sortedAccounts.length > 0 && (
           <div className="px-6 pt-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">
-              Clientes
-            </p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                {statusFilter ? `Contas — ${statusFilter === "green" ? "Saudável" : statusFilter === "yellow" ? "Atenção" : statusFilter === "red" ? "Crítico" : "Sem dados"}` : "Clientes"}
+              </p>
+              {statusFilter && (
+                <button onClick={() => setStatusFilter(null)} style={{ fontSize: 10, color: "#E85BA8", background: "none", border: "none", cursor: "pointer" }}>
+                  Limpar filtro ×
+                </button>
+              )}
+            </div>
             <div className="flex gap-3 pb-1" style={{ overflowX: "auto", scrollbarWidth: "none" }}>
-              {sortedAccounts.map((account) => {
+              {sortedAccounts.filter((account: any) => {
+                if (!statusFilter) return true;
+                if (statusFilter === "none") return !account.aiStatusColor || account.hasTokenError;
+                return account.aiStatusColor === statusFilter && !account.hasTokenError;
+              }).map((account) => {
                 const m          = metricsMap.get(account.id);
                 const totals     = normalizeTotals(m);
                 const p1         = p1ByAccount[account.id] ?? 0;
