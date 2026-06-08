@@ -1616,18 +1616,27 @@ export const appRouter = router({
       const metricsRows48 = await Promise.all(
         accounts.map(a => getAccountMetricsSummary(a.id, start48, end48))
       );
+      const ROAS_GOALS = ["SALES", "VALUE"];
       const accountLines = accounts.map((a, idx) => {
         const rows = metricsRows48[idx] ?? [];
         const spend = rows.reduce((s, r) => s + Number(r.totalSpend ?? 0), 0).toFixed(2);
         const conversions = rows.reduce((s, r) => s + Number(r.totalConversions ?? 0), 0).toFixed(0);
         const convValue = rows.reduce((s, r) => s + Number(r.totalConversionValue ?? 0), 0);
         const spendNum = parseFloat(spend);
+        const goal = (a as any).goalTypeOverride ?? "DEFAULT";
+        const showRoas = ROAS_GOALS.includes(goal);
         const roas = spendNum > 0 ? (convValue / spendNum).toFixed(2) : "0.00";
         const estado = a.aiStatusColor ? { green: "A (saudável)", yellow: "B (atenção)", red: "C (crítico)" }[a.aiStatusColor as "green"|"yellow"|"red"] : "sem análise";
         const summary = a.aiStatusSummary ?? "Sem análise";
-        return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend}, ROAS ${roas}x, Resultados ${conversions}. ${summary}`;
+        const roasInfo = showRoas ? `, ROAS ${roas}x` : ` (objetivo: ${goal} — ROAS não se aplica)`;
+        const hasData = spendNum > 0;
+        return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend}${roasInfo}, Resultados ${conversions}${!hasData ? " [SEM DADOS — pode estar inativa por decisão estratégica]" : ""}. ${summary}`;
       }).join("\n");
       const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Gere um briefing executivo conciso (4-6 frases) sobre o desempenho das contas Meta Ads nas últimas 48 horas.
+REGRAS CRÍTICAS:
+- Contas com objetivo MESSAGES, TRAFFIC, ENGAGEMENT, AWARENESS: NUNCA mencione ROAS como problema — não se aplica a esses objetivos
+- Contas marcadas como [SEM DADOS NAS ÚLTIMAS 48H]: não trate como críticas — podem estar inativas por decisão estratégica do cliente
+- Foque nos padrões reais de performance, não em ausência de métricas irrelevantes para o objetivo
 Dados (últimas 48h — hoje + ontem):
 ${accountLines}
 Escreva em português brasileiro, de forma direta e profissional. Destaque padrões, o que está indo bem e o que precisa de atenção imediata. Não use markdown, listas ou tópicos — escreva em prosa corrida. Se os dados de hoje estiverem zerados, baseie-se nos dados de ontem que estão consolidados.`;
