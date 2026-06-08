@@ -144,9 +144,10 @@ function linkifyAccounts(text: string, accounts: any[], onSelect: (id: number) =
     const fullName = acc.displayName ?? acc.accountName ?? "";
     const shortName = fullName.replace(/^CA\s*[-–]\s*/i, "").trim();
     const clientName = acc.clientShortName ?? shortName;
-    // Add all variants: full name, short name, and common abbreviations
-    for (const variant of Array.from(new Set([fullName, shortName, clientName]))) {
-      if (variant && variant.length > 2) {
+    // Add all variants including first significant word (4+ chars)
+    const firstWord = shortName.split(/\s+/).find((w: string) => w.length >= 4) ?? "";
+    for (const variant of Array.from(new Set([fullName, shortName, clientName, firstWord].filter(Boolean)))) {
+      if (variant && variant.length >= 4) {
         candidates.push({ match: variant, display: shortName, id: acc.id });
       }
     }
