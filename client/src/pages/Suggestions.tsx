@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
 import {
   Brain, CheckCircle2, ChevronDown, ChevronUp, Clock, DollarSign,
   Lightbulb, Link2, RefreshCw, Target, Users, XCircle, Zap, Eye,
-  AlertCircle, RotateCcw, TrendingUp, Info, Send, History, Maximize2, X, ExternalLink, Trash2,
+  AlertCircle, RotateCcw, TrendingUp, Info, Send, History, Maximize2, X, ExternalLink, Trash2, Plus,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
@@ -547,6 +547,20 @@ export default function Suggestions() {
   const [showHistory, setShowHistory] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => ({ critical: true, attention: false, opportunities: false, applied: highlightId !== null }));
   const toggleGroup = (key: string) => setOpenGroups(prev => ({ ...prev, [key]: !prev[key] }));
+  const [manualActionModal, setManualActionModal] = useState(false);
+  const [manualActionText, setManualActionText] = useState("");
+  const [manualMonitorDays, setManualMonitorDays] = useState(7);
+  const [manualCreating, setManualCreating] = useState(false);
+  const createManualAction = trpc.context.createActionFromChat.useMutation({
+    onSuccess: () => {
+      toast.success("Ação registrada e em monitoramento!");
+      setManualActionModal(false);
+      setManualActionText("");
+      setManualCreating(false);
+      utils.suggestions.list.invalidate();
+    },
+    onError: () => { toast.error("Erro ao registrar ação"); setManualCreating(false); },
+  });
 
   const { data: suggestions, isLoading } = trpc.suggestions.list.useQuery({ accountId: selectedAccountId! }, { enabled: !!selectedAccountId });
   const { data: hist = [] } = trpc.suggestions.history.useQuery({ accountId: selectedAccountId! }, { enabled: !!selectedAccountId });
@@ -649,6 +663,39 @@ export default function Suggestions() {
   );
 
   return (
+    <>
+    {manualActionModal && (
+      <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ background: "white", borderRadius: 14, padding: "24px 28px", width: 440 }}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: "#111", marginBottom: 4 }}>Registrar ação manual</p>
+          <p style={{ fontSize: 12, color: "rgba(0,0,0,0.4)", marginBottom: 16, lineHeight: 1.5 }}>Descreva o que você fez e o resultado esperado. A IA vai monitorar e registrar um aprendizado.</p>
+          <textarea
+            value={manualActionText}
+            onChange={e => setManualActionText(e.target.value)}
+            placeholder="Ex: Pausei criativos de Namorados no conjunto 9 e redistribuí orçamento para os estáticos performáticos. Espero redução de CPA de R$280 para R$200."
+            rows={4}
+            style={{ width: "100%", fontSize: 12, padding: "10px 12px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.15)", background: "white", resize: "none", fontFamily: "inherit", outline: "none", marginBottom: 14, boxSizing: "border-box", lineHeight: 1.55 }}
+          />
+          <p style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", marginBottom: 8 }}>Monitorar por:</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+            {[3, 5, 7, 14].map(d => (
+              <button key={d} onClick={() => setManualMonitorDays(d)} style={{ padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600, border: manualMonitorDays === d ? "2px solid #E85BA8" : "1px solid rgba(0,0,0,0.12)", background: manualMonitorDays === d ? "rgba(232,91,168,0.08)" : "white", color: manualMonitorDays === d ? "#E85BA8" : "rgba(0,0,0,0.5)", cursor: "pointer" }}>{d}d</button>
+            ))}
+          </div>
+          <p style={{ fontSize: 10, color: "rgba(0,0,0,0.3)", marginBottom: 16, lineHeight: 1.5 }}>Após {manualMonitorDays} dias, a IA analisa os resultados e registra um aprendizado automático.</p>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => { setManualActionModal(false); setManualActionText(""); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "white", fontSize: 12, cursor: "pointer", color: "rgba(0,0,0,0.5)" }}>Cancelar</button>
+            <button
+              onClick={() => { if (!selectedAccountId || !manualActionText.trim()) return; setManualCreating(true); createManualAction.mutate({ accountId: selectedAccountId, title: manualActionText.trim(), monitorDays: manualMonitorDays }); }}
+              disabled={manualCreating || !manualActionText.trim()}
+              style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#E85BA8", color: "white", fontSize: 12, fontWeight: 600, cursor: manualCreating || !manualActionText.trim() ? "not-allowed" : "pointer", opacity: manualCreating || !manualActionText.trim() ? 0.65 : 1 }}
+            >
+              {manualCreating ? "Registrando..." : "Registrar e monitorar"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     <MetaDashboardLayout title="Plano de Ação">
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
@@ -724,9 +771,14 @@ export default function Suggestions() {
             {monitoring.length > 3 && (
               <p style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginTop: 6 }}>+{monitoring.length - 3} mais</p>
             )}
-            <button onClick={() => setActiveFilter("monitoring")} style={{ marginTop: 10, width: "100%", fontSize: 11, padding: "6px", borderRadius: 6, border: "0.5px solid rgba(0,0,0,0.1)", background: "transparent", cursor: "pointer", color: "rgba(0,0,0,0.4)" }}>
-              Ver todas →
-            </button>
+            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+              <button onClick={() => setActiveFilter("monitoring")} style={{ flex: 1, fontSize: 11, padding: "6px", borderRadius: 6, border: "0.5px solid rgba(0,0,0,0.1)", background: "transparent", cursor: "pointer", color: "rgba(0,0,0,0.4)" }}>
+                Ver todas →
+              </button>
+              <button onClick={() => setManualActionModal(true)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, padding: "6px 10px", borderRadius: 6, border: "0.5px solid rgba(232,91,168,0.35)", background: "rgba(232,91,168,0.05)", cursor: "pointer", color: "#E85BA8", fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
+                <Plus style={{ width: 11, height: 11 }} /> Registrar
+              </button>
+            </div>
           </div>
 
           {/* Experimentos */}
@@ -859,5 +911,6 @@ export default function Suggestions() {
 
       </div>
     </MetaDashboardLayout>
+    </>
   );
 }
