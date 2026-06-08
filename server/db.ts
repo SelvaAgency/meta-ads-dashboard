@@ -603,8 +603,11 @@ export async function getSuggestionsByAccountId(accountId: number, limit = 50) {
 export async function getTodayMetricsForAllAccounts(userId: number) {
   const db = await getDb();
   if (!db) return [];
+  // Buscar a data mais recente disponível no banco (últimas 48h para cobrir fuso UTC)
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+  const yesterday = new Date(now.getTime() - 86400000);
+  const yday = `${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,"0")}-${String(yesterday.getDate()).padStart(2,"0")}`;
   return db
     .select({
       accountId:            campaignMetrics.accountId,
@@ -624,7 +627,7 @@ export async function getTodayMetricsForAllAccounts(userId: number) {
     .innerJoin(metaAdAccounts, eq(campaignMetrics.accountId, metaAdAccounts.id))
     .where(and(
       eq(metaAdAccounts.userId, userId),
-      eq(campaignMetrics.date, today),
+      sql`${campaignMetrics.date} IN (${today}, ${yday})`,
       eq(metaAdAccounts.isActive, true)
     ))
     .groupBy(campaignMetrics.accountId);
