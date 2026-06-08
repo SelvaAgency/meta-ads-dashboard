@@ -428,12 +428,9 @@ export default function SuggestionsHub() {
               );
             })()}
 
-          </div>
-        </div>
-
         {/* ══ 2 — Carrossel de clientes ═════════════════════════════════════ */}
         {sortedAccounts.length > 0 && (
-          <div className="px-6 pt-4">
+          <div style={{ padding: "12px 16px 16px", borderTop: `0.5px solid ${BORDER_T}` }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
                 {statusFilter ? `Contas — ${statusFilter === "green" ? "Saudável" : statusFilter === "yellow" ? "Atenção" : statusFilter === "red" ? "Crítico" : "Sem dados"}` : "Clientes"}
@@ -524,6 +521,9 @@ export default function SuggestionsHub() {
             </div>
           </div>
         )}
+
+          </div>
+        </div>
 
         {/* ══ 3 — Ações Sugeridas ════════════════════════════════════════ */}
         <div className="px-6 pt-4">
