@@ -2,7 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { ContextPanel } from "@/components/ContextPanel";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
-import { RefreshCw, ChevronDown, ChevronUp, Check, Brain, Save, X } from "lucide-react";
+import { RefreshCw, ChevronDown, ChevronUp, Check, Brain, Eye, CheckCircle2 } from "lucide-react";
 import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
 import { toast } from "sonner";
 import { KPI_CONFIGS, getDayStatus, type GoalType } from "@/lib/kpiConfig";
@@ -51,6 +51,22 @@ const ACCOUNT_COLORS: Record<string, { bg: string; color: string }> = {
   teal:    { bg: "rgba(20,184,166,0.15)",   color: "#2dd4bf" },
   indigo:  { bg: "rgba(99,102,241,0.15)",   color: "#818cf8" },
   fuchsia: { bg: "rgba(232,91,168,0.15)",   color: "#E85BA8" },
+};
+
+
+function daysLeft(date: Date | string | null): number | null {
+  if (!date) return null;
+  return Math.ceil((new Date(date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+}
+
+const CATEGORY_COLORS: Record<string, string> = {
+  PAUSAR_CRIATIVO:    "#f87171",
+  PAUSAR_CONJUNTO:    "#fb923c",
+  NOVO_PUBLICO:       "#c084fc",
+  REALOCAR_ORCAMENTO: "#60a5fa",
+  NOVO_CRIATIVO:      "#facc15",
+  NOVO_CONJUNTO:      "#34d399",
+  GENERAL:            "#E85BA8",
 };
 
 const STATUS_CFG = {
@@ -104,44 +120,14 @@ export function AccountHeader({
     { enabled: !!selectedAccountId, staleTime: 60_000 }
   );
 
-  const savedNote = (activeAccount as any)?.accountNote as string | null ?? "";
+  const { data: suggestions } = trpc.suggestions.list.useQuery(
+    { accountId: selectedAccountId! },
+    { enabled: !!selectedAccountId, staleTime: 5 * 60 * 1000 }
+  );
 
-  function parseTags(raw: string | null): string[] {
-    if (!raw) return [];
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.map(String) : [];
-    } catch {
-      return raw.trim() ? [raw.trim()] : [];
-    }
-  }
-
-  const [tags, setTags] = useState<string[]>(() => parseTags(savedNote));
-  const [tagInput, setTagInput] = useState("");
-  const [hoveredTag, setHoveredTag] = useState<number | null>(null);
-  const tagInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => { setTags(parseTags(savedNote)); }, [savedNote]);
-
-  const updateNote = trpc.accounts.updateNote.useMutation({
-    onSuccess: () => { utils.accounts.list.invalidate(); },
-    onError: () => toast.error("Erro ao salvar nota"),
-  });
-
-  function commitTag() {
-    const val = tagInput.trim();
-    if (!val) return;
-    const next = [...tags, val];
-    setTags(next);
-    setTagInput("");
-    updateNote.mutate({ accountId: selectedAccountId!, note: JSON.stringify(next) });
-  }
-
-  function removeTag(idx: number) {
-    const next = tags.filter((_, i) => i !== idx);
-    setTags(next);
-    setHoveredTag(null);
-    updateNote.mutate({ accountId: selectedAccountId!, note: JSON.stringify(next) });
-  }
+  const monitoringItems = (suggestions ?? []).filter(
+    (s: any) => s.status === "applied" && s.monitorUntil && (daysLeft(s.monitorUntil) ?? 0) > 0 && !s.monitorResult
+  );
 
   const refreshStatus = trpc.accounts.refreshStatus.useMutation({
     onSuccess: () => { utils.accounts.list.invalidate(); toast.success("Status IA atualizado"); },
@@ -476,72 +462,80 @@ export function AccountHeader({
         )}
       </div>
 
-      {/* ══ Block 4 — Notas (tags) + Contexto ══════════════════════════ */}
+      {/* ══ Block 4 — Ações em andamento ══════════════════════════════ */}
       <div style={{ padding: "12px 16px" }}>
-        {blockLabel("Notas")}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+          {blockLabel("Ações em andamento")}
+          {monitoringItems.length > 0 && (
+            <span style={{
+              fontSize: 9, fontWeight: 700, lineHeight: 1,
+              padding: "2px 6px", borderRadius: 99,
+              background: "#E85BA8", color: "white",
+              marginBottom: 6,
+            }}>
+              {monitoringItems.length}
+            </span>
+          )}
+        </div>
 
-        {/* Tag pills */}
-        {tags.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
-            {tags.map((tag, idx) => (
-              <span
-                key={idx}
-                onMouseEnter={() => setHoveredTag(idx)}
-                onMouseLeave={() => setHoveredTag(null)}
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: 4,
-                  fontSize: 11, fontWeight: 500, color: "#333",
-                  padding: "2px 8px", borderRadius: 99,
-                  background: "rgba(0,0,0,0.04)",
-                  border: "0.5px solid rgba(0,0,0,0.18)",
-                  userSelect: "none",
-                }}
-              >
-                {tag}
-                {hoveredTag === idx && (
-                  <button
-                    onClick={() => removeTag(idx)}
-                    title="Concluir"
-                    style={{
-                      background: "none", border: "none", padding: 0,
-                      cursor: "pointer", color: "#1D9E75",
-                      display: "flex", alignItems: "center",
-                      marginLeft: 1,
-                    }}
-                  >
-                    <Check style={{ width: 10, height: 10 }} />
-                  </button>
-                )}
-              </span>
-            ))}
+        {monitoringItems.length === 0 ? (
+          <p style={{ fontSize: 11, color: "rgba(0,0,0,0.3)", fontStyle: "italic" }}>
+            Nenhuma ação em monitoramento.
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {monitoringItems.slice(0, 3).map((s: any) => {
+              const remaining = daysLeft(s.monitorUntil);
+              const catColor = CATEGORY_COLORS[s.category] ?? "#E85BA8";
+              return (
+                <div key={s.id} style={{
+                  display: "flex", alignItems: "flex-start", gap: 7,
+                  padding: "7px 9px",
+                  background: "rgba(0,0,0,0.02)",
+                  border: "0.5px solid rgba(0,0,0,0.07)",
+                  borderRadius: 8,
+                }}>
+                  <div style={{
+                    width: 16, height: 16, borderRadius: "50%", flexShrink: 0, marginTop: 1,
+                    border: "1.5px solid #1D9E75",
+                    background: "rgba(29,158,117,0.08)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <CheckCircle2 style={{ width: 9, height: 9, color: "#1D9E75" }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{
+                      fontSize: 11, fontWeight: 600, color: "#111",
+                      lineHeight: 1.35, marginBottom: 3,
+                      overflow: "hidden", textOverflow: "ellipsis",
+                      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                    }}>
+                      {s.title}
+                    </p>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: "#60a5fa" }}>
+                        <Eye style={{ width: 9, height: 9 }} />
+                        {remaining}d restante{remaining !== 1 ? "s" : ""}
+                      </span>
+                      <span style={{
+                        fontSize: 9, fontWeight: 600, padding: "1px 5px", borderRadius: 99,
+                        background: "rgba(0,0,0,0.04)", border: "0.5px solid rgba(0,0,0,0.12)",
+                        color: catColor,
+                      }}>
+                        {(s.category ?? "GENERAL").replace(/_/g, " ")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {monitoringItems.length > 3 && (
+              <p style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginTop: 2 }}>
+                +{monitoringItems.length - 3} mais
+              </p>
+            )}
           </div>
         )}
-
-        {/* Input */}
-        <input
-          ref={tagInputRef}
-          value={tagInput}
-          onChange={(e) => setTagInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === ",") {
-              e.preventDefault();
-              commitTag();
-            }
-          }}
-          placeholder="Adicionar nota..."
-          style={{
-            width: "100%", fontSize: 11, lineHeight: 1.4,
-            padding: "2px 0", background: "none",
-            border: "none", borderBottom: tagInput ? "1px solid rgba(232,91,168,0.35)" : "1px solid transparent",
-            outline: "none", fontFamily: "inherit", color: "#111",
-            transition: "border-color 0.15s",
-          }}
-          onFocus={(e) => (e.currentTarget.style.borderBottomColor = "rgba(232,91,168,0.35)")}
-          onBlur={(e) => {
-            e.currentTarget.style.borderBottomColor = "transparent";
-            commitTag();
-          }}
-        />
       </div>
 
       {/* ══ Painel de Contexto (inline, expande abaixo) ══════════════════ */}

@@ -38,7 +38,6 @@ import {
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
-import { ActiveOptimizations } from "@/components/ActiveOptimizations";
 import { AccountHeader } from "@/components/AccountHeader";
 import {
   type GoalType, type KpiDef,
@@ -417,7 +416,6 @@ export default function Dashboard() {
         <AccountHeader goalLabel={objInfo.label} goalEmoji={objInfo.emoji} goalType={goalType} />
 
         {/* Em andamento — sugestões aplicadas em monitoramento */}
-        <ActiveOptimizations />
 
         {/* Error state */}
         {isError && (
