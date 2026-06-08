@@ -138,33 +138,55 @@ function parseBriefing(text: string): { resumo: string | null; positivo: string 
 function linkifyAccounts(text: string, accounts: any[], onSelect: (id: number) => void): React.ReactNode {
   if (!text) return null;
   const parts: React.ReactNode[] = [];
-  let remaining = text;
-  const sorted = [...accounts].sort((a, b) => (b.accountName?.length ?? 0) - (a.accountName?.length ?? 0));
-  // Simple approach: split by account names and wrap in spans
-  let result = text;
-  const matches: Array<{ name: string; id: number; index: number }> = [];
-  for (const acc of sorted) {
-    const name = acc.displayName ?? acc.accountName ?? "";
-    if (!name) continue;
-    const shortName = name.replace(/^CA\s*[-–]\s*/i, "").trim();
-    const idx = result.indexOf(shortName);
-    if (idx !== -1) matches.push({ name: shortName, id: acc.id, index: idx });
+  // Build list of name variants to match, ordered longest first to avoid partial matches
+  const candidates: Array<{ match: string; display: string; id: number }> = [];
+  for (const acc of accounts) {
+    const fullName = acc.displayName ?? acc.accountName ?? "";
+    const shortName = fullName.replace(/^CA\s*[-–]\s*/i, "").trim();
+    const clientName = acc.clientShortName ?? shortName;
+    // Add all variants: full name, short name, and common abbreviations
+    for (const variant of Array.from(new Set([fullName, shortName, clientName]))) {
+      if (variant && variant.length > 2) {
+        candidates.push({ match: variant, display: shortName, id: acc.id });
+      }
+    }
   }
+  candidates.sort((a, b) => b.match.length - a.match.length);
+  
+  const matches: Array<{ start: number; end: number; display: string; id: number }> = [];
+  const used = new Set<number>();
+  
+  for (const c of candidates) {
+    let idx = 0;
+    while (true) {
+      const found = text.indexOf(c.match, idx);
+      if (found === -1) break;
+      const end = found + c.match.length;
+      // Check no overlap with existing matches
+      const overlaps = matches.some(m => found < m.end && end > m.start);
+      if (!overlaps) {
+        matches.push({ start: found, end, display: c.display, id: c.id });
+      }
+      idx = found + 1;
+    }
+  }
+  
   if (matches.length === 0) return text;
-  matches.sort((a, b) => a.index - b.index);
+  matches.sort((a, b) => a.start - b.start);
+  
   let cursor = 0;
   for (const m of matches) {
-    if (m.index < cursor) continue;
-    if (m.index > cursor) parts.push(result.slice(cursor, m.index));
+    if (m.start < cursor) continue;
+    if (m.start > cursor) parts.push(text.slice(cursor, m.start));
     parts.push(
-      <span key={m.id + m.index} onClick={() => onSelect(m.id)}
+      <span key={m.id + "-" + m.start} onClick={() => onSelect(m.id)}
         style={{ color: "#E85BA8", cursor: "pointer", fontWeight: 500 }}>
-        {m.name}
+        {m.display}
       </span>
     );
-    cursor = m.index + m.name.length;
+    cursor = m.end;
   }
-  if (cursor < result.length) parts.push(result.slice(cursor));
+  if (cursor < text.length) parts.push(text.slice(cursor));
   return <>{parts}</>;
 }
 
