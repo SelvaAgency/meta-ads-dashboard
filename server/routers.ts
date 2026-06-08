@@ -756,6 +756,10 @@ export const appRouter = router({
       .input(z.object({ accountId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         await getVerifiedAccount(input.accountId, ctx.user.id);
+        const accountData = await getMetaAdAccountById(input.accountId);
+        const goalType = (accountData as any)?.goalTypeOverride ?? "DEFAULT";
+        const roasGoals = ["SALES", "VALUE"];
+        const roasApplies = roasGoals.includes(goalType);
         const { startDate, endDate } = getDateRange(7);
         const metrics = await getAccountMetricsSummary(input.accountId, startDate, endDate);
 
@@ -776,7 +780,7 @@ export const appRouter = router({
         const result = await invokeLLM({
           messages: [{
             role: "user",
-            content: `Analise os dados de performance dos últimos 7 dias e retorne um JSON com dois campos: "color" (green/yellow/red) e "summary" (máx 300 caracteres em português, sem emoji). O summary deve conter: (1) status geral da conta, (2) principal métrica positiva ou problemática com valor, (3) uma ação sugerida objetiva. Verde = conta saudável, Amarelo = atenção necessária, Vermelho = problema crítico.\n\nDados:\n${JSON.stringify({ ...totals, roas: roas.toFixed(2), cpa: cpa.toFixed(2), ctr: ctr.toFixed(2) })}`,
+            content: `Analise os dados de performance dos últimos 7 dias e retorne um JSON com dois campos: "color" (green/yellow/red) e "summary" (máx 300 caracteres em português, sem emoji). O summary deve conter: (1) status geral da conta, (2) principal métrica positiva ou problemática com valor, (3) uma ação sugerida objetiva. Verde = conta saudável, Amarelo = atenção necessária, Vermelho = problema crítico.\n\nObjetivo da conta: ${goalType}${!roasApplies ? " — IMPORTANTE: esta conta NÃO é de e-commerce/vendas, portanto NUNCA mencione ROAS como problema. Avalie pelos resultados relevantes ao objetivo: mensagens iniciadas, cliques, alcance, etc." : ""}\n\nDados:\n${JSON.stringify({ ...totals, roas: roasApplies ? roas.toFixed(2) : "N/A (não aplicável)", cpa: cpa.toFixed(2), ctr: ctr.toFixed(2) })}`,
           }],
           responseFormat: { type: "json_object" },
           thinking: false,
