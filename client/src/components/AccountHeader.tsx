@@ -126,6 +126,10 @@ export function AccountHeader({
     { accountId: selectedAccountId! },
     { enabled: !!selectedAccountId, staleTime: 5 * 60 * 1000 }
   );
+  const { data: billingSummary } = trpc.accounts.billingSummary.useQuery(
+    { accountId: selectedAccountId! },
+    { enabled: !!selectedAccountId, staleTime: 30 * 60 * 1000 }
+  );
 
   const monitoringItems = (suggestions ?? []).filter(
     (s: any) => s.status === "applied" && s.monitorUntil && (daysLeft(s.monitorUntil) ?? 0) > 0 && !s.monitorResult
@@ -420,6 +424,52 @@ export function AccountHeader({
           </div>
           );
         })}
+        {/* Payment / balance status */}
+        {billingSummary && (
+          <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+            {!billingSummary.isPrePaid ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: "#16a34a" }} />
+                <span style={{ fontSize: 10, color: "#16a34a", fontWeight: 600 }}>
+                  Cartao de credito - OK
+                </span>
+              </div>
+            ) : (() => {
+              const balance = billingSummary.remainingBalance ?? 0;
+              const days = billingSummary.daysRemaining;
+              const low = days !== null && days <= 7;
+              const color = low ? "#dc2626" : "#16a34a";
+              const currency = billingSummary.currency ?? "BRL";
+              const fmtMoney = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(v);
+              return (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: color }} />
+                    <span style={{ fontSize: 10, fontWeight: 600, color }}>
+                      Saldo: {fmtMoney(balance)}
+                    </span>
+                    {low && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 600, lineHeight: 1,
+                        padding: "2px 6px", borderRadius: 99,
+                        background: "rgba(220,38,38,0.1)", color: "#dc2626",
+                        border: "1px solid rgba(220,38,38,0.3)",
+                        whiteSpace: "nowrap",
+                      }}>
+                        Recarregar
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 9, color: muted }}>
+                    {days !== null
+                      ? `Projecao: ~${Math.floor(days)} dia${Math.floor(days) === 1 ? "" : "s"} restante${Math.floor(days) === 1 ? "" : "s"} (media 30d)`
+                      : "Sem historico de gasto suficiente para projecao"}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       {/* ══ Block 3 — Resumo Geral ═══════════════════════════════════════════ */}

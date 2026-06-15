@@ -589,6 +589,28 @@ export const appRouter = router({
 
         return billing;
       }),
+    billingSummary: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const billing = await getAccountBilling(account.accountId, account.accessToken);
+        if (!billing) {
+          return { isPrePaid: false as const, fundingSourceDisplay: null, currency: null };
+        }
+        if (!billing.isPrePaid) {
+          return { isPrePaid: false as const, fundingSourceDisplay: billing.fundingSourceDisplay, currency: billing.currency };
+        }
+        const today = new Date();
+        const endDateObj = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+        const startDateObj = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 30);
+        const fmt = (d: Date) => String(d.getFullYear()) + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        const rows = await getAccountMetricsSummary(input.accountId, fmt(startDateObj), fmt(endDateObj));
+        const totalSpend = rows.reduce((acc, r) => acc + Number(r.totalSpend ?? 0), 0);
+        const avgDailySpend30d = rows.length > 0 ? totalSpend / rows.length : 0;
+        const remainingBalance = billing.remainingBalance;
+        const daysRemaining = remainingBalance !== null && avgDailySpend30d > 0 ? remainingBalance / avgDailySpend30d : null;
+        return { isPrePaid: true as const, fundingSourceDisplay: billing.fundingSourceDisplay, currency: billing.currency, remainingBalance, avgDailySpend30d, daysRemaining };
+      }),
 
     sync: protectedProcedure
       .input(z.object({ accountId: z.number(), days: z.number().min(1).max(90).default(30) }))
