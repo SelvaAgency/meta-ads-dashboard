@@ -389,6 +389,11 @@ async function runAnomalyDetection() {
 
 async function runRealTimeAlerts(account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number }) {
   try {
+    const tokenValid = await validateToken(account.accessToken);
+    if (!tokenValid) {
+      logger.info(`[RealTimeAlerts] Skipping ${account.accountName ?? account.accountId} - token expirado`);
+      return;
+    }
     const alerts = await checkRealTimeAlerts(account.accountId, account.accessToken);
     for (const alert of alerts) {
       const result = await createAlertIfNotExists({

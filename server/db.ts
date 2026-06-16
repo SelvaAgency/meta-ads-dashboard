@@ -98,7 +98,7 @@ export async function getUserByOpenId(openId: string) {
 export async function getAllActiveMetaAdAccounts() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(metaAdAccounts);
+  return db.select().from(metaAdAccounts).where(eq(metaAdAccounts.isActive, true));
 }
 export async function getMetaAdAccountsByUserId(userId: number) {
   const db = await getDb();
