@@ -1332,6 +1332,43 @@ export const appRouter = router({
       }),
 
     // ── Top adsets by CTR for the account (account-level, period-aware) ──
+    dayOfWeekStats: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(7).max(90).default(30),
+        metricKey: z.enum(["conversions", "spend", "clicks", "impressions"]).default("conversions"),
+      }))
+      .query(async ({ ctx, input }) => {
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - input.days);
+        const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}-${String(startDate.getDate()).padStart(2,'0')}`;
+        const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth()+1).padStart(2,'0')}-${String(endDate.getDate()).padStart(2,'0')}`;
+        const rows = await getAccountMetricsSummary(input.accountId, startStr, endStr);
+        // Group by day of week (0=Sun..6=Sat)
+        const byDow: Record<number, { total: number; count: number; spend: number }> = {};
+        for (let i = 0; i < 7; i++) byDow[i] = { total: 0, count: 0, spend: 0 };
+        for (const row of rows) {
+          if (!row.date) continue;
+          const d = new Date(row.date + "T12:00:00");
+          const dow = d.getDay();
+          const val = Number((row as any)[`total${input.metricKey.charAt(0).toUpperCase()}${input.metricKey.slice(1)}`] ?? row.totalConversions ?? 0);
+          byDow[dow].total += val;
+          byDow[dow].count += 1;
+          byDow[dow].spend += Number(row.totalSpend ?? 0);
+        }
+        const labels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+        return labels.map((label, i) => ({
+          label,
+          dow: i,
+          avg: byDow[i].count > 0 ? byDow[i].total / byDow[i].count : 0,
+          total: byDow[i].total,
+          count: byDow[i].count,
+          avgSpend: byDow[i].count > 0 ? byDow[i].spend / byDow[i].count : 0,
+        }));
+      }),
+
     adsetTopByCtr: protectedProcedure
       .input(z.object({
         accountId: z.number(),
