@@ -100,9 +100,6 @@ function TrendChart({ accountId, goalType, dateParams, metricLabel: metricLabelP
     if (withSpend.length === 0) return data.map(d => ({ ...d, val: 0, tier: "none" as const }));
     const sorted = [...withSpend].sort((a, b) => b - a);
     const n = sorted.length;
-    // Use value-based percentiles, not index-based, to avoid all-same-tier when values cluster
-    const p33 = sorted[Math.max(0, Math.floor(n * 0.33))];
-    const p66 = sorted[Math.max(0, Math.floor(n * 0.66))];
     const maxV = sorted[0];
     const minV = sorted[n - 1];
     const range = maxV - minV;
@@ -110,11 +107,12 @@ function TrendChart({ accountId, goalType, dateParams, metricLabel: metricLabelP
       const v = vals[i];
       if (d.spend === 0) return { ...d, val: 0, tier: "none" as const };
       let tier: "good" | "ok" | "bad";
-      if (range < 0.01) {
-        // All values nearly identical — use absolute thresholds
+      if (range < 0.001) {
         tier = "ok";
       } else {
-        tier = v >= p33 ? "good" : v >= p66 ? "ok" : "bad";
+        // Divide range into 3 equal bands: top=good, mid=ok, bottom=bad
+        const pos = (v - minV) / range; // 0=worst, 1=best
+        tier = pos >= 0.66 ? "good" : pos >= 0.33 ? "ok" : "bad";
       }
       return { ...d, val: v, tier };
     });
@@ -261,7 +259,7 @@ function TopPerformersSection({ accountId, dateParams, resultLabel }: {
   const { data: topAdsets, isLoading: adsetsLoading } = trpc.campaigns.adsetTopByCtr.useQuery(qParams, { enabled: !!accountId });
 
   return (
-    <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+    <div style={{ background: "#FFFFFF", border: "0.5px solid var(--color-border-secondary)", borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
       {/* Tab row */}
       <div style={{ display: "flex", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
         {(["creatives", "audiences"] as const).map(tab => (
@@ -634,7 +632,7 @@ export default function Campaigns() {
     background: active ? "#D4537E" : "var(--color-background-primary)", fontWeight: active ? 500 : 400,
     userSelect: "none" as const,
   });
-  const panel: React.CSSProperties = { background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-secondary)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" };
+  const panel: React.CSSProperties = { background: "#FFFFFF", border: "0.5px solid var(--color-border-secondary)", borderRadius: 12, overflow: "hidden" };
   const panelHeader: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", borderBottom: "0.5px solid var(--color-border-tertiary)" };
   const th = (left?: boolean): React.CSSProperties => ({ padding: "8px 12px", textAlign: left ? "left" as const : "right" as const, fontWeight: 500, fontSize: 11, color: "var(--color-text-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)", whiteSpace: "nowrap" as const, background: "var(--color-background-secondary)" });
 
@@ -692,7 +690,7 @@ export default function Campaigns() {
               { label: "Alcance total", val: fmtNum(kpiData.reach) },
               { label: "Frequência média", val: kpiFreq > 0 ? `${kpiFreq.toFixed(2)}x` : "—" },
             ].map((k, i, arr) => (
-              <div key={k.label} style={{ padding: "14px 16px", borderRight: i < arr.length - 1 ? "0.5px solid var(--color-border-tertiary)" : "none", background: "var(--color-background-secondary)" }}>
+              <div key={k.label} style={{ padding: "14px 16px", borderRight: i < arr.length - 1 ? "0.5px solid var(--color-border-tertiary)" : "none", background: "#FFFFFF" }}>
                 <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4 }}>{k.label}</div>
                 <div style={{ fontSize: 20, fontWeight: 500 }}>{k.val}</div>
               </div>
