@@ -1333,14 +1333,16 @@ export const appRouter = router({
 
     // ── Top adsets by CTR for the account (account-level, period-aware) ──
     trend30d: protectedProcedure
-      .input(z.object({ accountId: z.number() }))
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(90).default(30),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+      }))
       .query(async ({ ctx, input }) => {
         const account = await getVerifiedAccount(input.accountId, ctx.user.id);
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - 29);
-        const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        const rows = await getAccountMetricsSummary(input.accountId, fmt(start), fmt(end));
+        const { startDate, endDate } = resolveDateRange({ ...input, includeToday: true });
+        const rows = await getAccountMetricsSummary(input.accountId, startDate, endDate);
         return rows.map(r => ({
           date: r.date,
           spend: Number(r.totalSpend ?? 0),
@@ -1408,6 +1410,7 @@ export const appRouter = router({
           return [];
         }
 
+        const dbCampsForAdsets = await getCampaignsByAccountId(input.accountId);
         return adsets
           .filter((as) => as.spend > 0)
           .sort((a, b) => {
@@ -1416,15 +1419,19 @@ export const appRouter = router({
             return (a.spend / a.conversions) - (b.spend / b.conversions);
           })
           .slice(0, 5)
-          .map((as) => ({
-            adsetId: as.id,
-            adsetName: as.name,
-            ctr: as.ctr,
-            conversions: as.conversions,
-            spend: as.spend,
-            costPerResult: as.conversions > 0 ? as.spend / as.conversions : null,
-            campaignId: as.campaign_id,
-          }));
+          .map((as) => {
+            const dbCamp = dbCampsForAdsets.find((c: any) => c.metaCampaignId === (as as any).campaign_id);
+            return {
+              adsetId: as.id,
+              adsetName: as.name,
+              ctr: as.ctr,
+              conversions: as.conversions,
+              spend: as.spend,
+              costPerResult: as.conversions > 0 ? as.spend / as.conversions : null,
+              campaignId: (as as any).campaign_id,
+              campaignName: dbCamp?.name ?? null,
+            };
+          });
       }),
 
     // Diagnostic: raw Meta API call without error swallowing

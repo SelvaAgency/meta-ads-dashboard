@@ -83,8 +83,11 @@ function CreativeThumb({ url, type, creativeId, accountId, size = 36 }: { url?: 
 }
 
 // ─── 30-day trend chart ───────────────────────────────────────────────────────
-function TrendChart({ accountId, goalType }: { accountId: number; goalType: GoalType }) {
-  const { data, isLoading } = trpc.campaigns.trend30d.useQuery({ accountId }, { enabled: !!accountId });
+function TrendChart({ accountId, goalType, dateParams }: { accountId: number; goalType: GoalType; dateParams: { days: number; startDate?: string; endDate?: string; includeToday?: boolean } }) {
+  const { data, isLoading } = trpc.campaigns.trend30d.useQuery(
+    { accountId, days: dateParams.days || 30, ...(dateParams.startDate ? { startDate: dateParams.startDate } : {}), ...(dateParams.endDate ? { endDate: dateParams.endDate } : {}) },
+    { enabled: !!accountId }
+  );
 
   const isSales = ["SALES", "VALUE"].includes(goalType);
   const metricKey: "roas" | "conversions" | "cpa" = isSales ? "roas" : "conversions";
@@ -114,6 +117,7 @@ function TrendChart({ accountId, goalType }: { accountId: number; goalType: Goal
 
   const maxVal = useMemo(() => Math.max(...bars.map(b => b.val ?? 0), 1), [bars]);
 
+  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
   const tierColor = (tier: string) => {
     if (tier === "good") return "#1D9E75";
     if (tier === "ok") return "#BA7517";
@@ -131,14 +135,22 @@ function TrendChart({ accountId, goalType }: { accountId: number; goalType: Goal
   );
 
   return (
-    <div style={{ padding: "16px 20px" }}>
+    <div style={{ padding: "16px 20px", position: "relative" }}>
+      {hoveredBar !== null && bars[hoveredBar] && (
+        <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-secondary)", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 500, pointerEvents: "none", zIndex: 10, whiteSpace: "nowrap" }}>
+          {bars[hoveredBar].date ? new Date(bars[hoveredBar].date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : ""}
+          {" · "}
+          {isSales ? (bars[hoveredBar].val ?? 0).toFixed(2) : Math.round(bars[hoveredBar].val ?? 0)} {metricLabel}
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 64 }}>
         {bars.map((b, i) => {
           const h = Math.max(4, ((b.val ?? 0) / maxVal) * 64);
-          const dateStr = b.date ? new Date(b.date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "";
           return (
-            <div key={i} title={`${dateStr}: ${isSales ? (b.val ?? 0).toFixed(2) : Math.round(b.val ?? 0)} ${metricLabel}`}
-              style={{ flex: 1, height: h, borderRadius: "3px 3px 0 0", background: tierColor(b.tier), minWidth: 4, cursor: "default", transition: "opacity 0.15s" }} />
+            <div key={i}
+              onMouseEnter={() => setHoveredBar(i)}
+              onMouseLeave={() => setHoveredBar(null)}
+              style={{ flex: 1, height: h, borderRadius: "3px 3px 0 0", background: tierColor(b.tier), minWidth: 4, cursor: "default", opacity: hoveredBar === null || hoveredBar === i ? 1 : 0.5, transition: "opacity 0.1s" }} />
           );
         })}
       </div>
@@ -265,13 +277,11 @@ function TopPerformersSection({ accountId, dateParams, resultLabel }: {
           ) : topAds.slice(0, 5).map((ad, i) => (
             <div key={ad.adId} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: i < Math.min(topAds.length, 5) - 1 ? "0.5px solid var(--color-border-tertiary)" : "none", background: i === 0 ? "var(--color-background-secondary)" : "var(--color-background-primary)" }}>
               <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", width: 20, flexShrink: 0 }}>#{i + 1}</span>
-              <div style={{ width: 40, height: 40, borderRadius: 6, border: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
-                <Film size={16} style={{ color: "var(--color-text-secondary)", opacity: 0.4 }} />
-              </div>
+              <CreativeThumb url={(ad as any).thumbnailUrl ?? undefined} type="IMAGE" creativeId={(ad as any).creativeId ?? undefined} accountId={accountId} size={40} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ad.adName}</div>
-                <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginTop: 1 }}>
-                  {ad.campaignId ? `Camp. ${ad.campaignId}` : "—"}
+                <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {(ad as any).campaignName ?? ad.campaignId ?? "—"}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 20, flexShrink: 0 }}>
@@ -307,7 +317,9 @@ function TopPerformersSection({ accountId, dateParams, resultLabel }: {
               <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", width: 20, flexShrink: 0 }}>#{i + 1}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{as.adsetName}</div>
-                <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginTop: 1 }}>Conjunto de anúncios</div>
+                <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {(as as any).campaignName ?? (as as any).campaignId ?? "—"}
+                </div>
               </div>
               <div style={{ display: "flex", gap: 20, flexShrink: 0 }}>
                 <div style={{ textAlign: "right" }}>
@@ -670,7 +682,7 @@ export default function Campaigns() {
               { label: "Alcance total", val: fmtNum(kpiData.reach) },
               { label: "Frequência média", val: kpiFreq > 0 ? `${kpiFreq.toFixed(2)}x` : "—" },
             ].map((k, i, arr) => (
-              <div key={k.label} style={{ padding: "14px 16px", borderRight: i < arr.length - 1 ? "0.5px solid var(--color-border-tertiary)" : "none" }}>
+              <div key={k.label} style={{ padding: "14px 16px", borderRight: i < arr.length - 1 ? "0.5px solid var(--color-border-tertiary)" : "none", background: "var(--color-background-primary)" }}>
                 <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4 }}>{k.label}</div>
                 <div style={{ fontSize: 20, fontWeight: 500 }}>{k.val}</div>
               </div>
@@ -686,7 +698,7 @@ export default function Campaigns() {
               {["SALES", "VALUE"].includes(goalType) ? "ROAS diário" : `${cleanResultLabel(accountResultLabel)} por dia`}
             </div>
           </div>
-          <TrendChart accountId={selectedAccountId!} goalType={goalType} />
+          <TrendChart accountId={selectedAccountId!} goalType={goalType} dateParams={dateParams} />
         </div>
 
         {/* ── Day comparison + Top performers ── */}
