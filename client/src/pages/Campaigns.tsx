@@ -653,6 +653,7 @@ export default function Campaigns() {
   });
   const panel: React.CSSProperties = { background: "#FFFFFF", border: "0.5px solid var(--color-border-secondary)", borderRadius: 12, overflow: "hidden" };
   const panelHeader: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", borderBottom: "0.5px solid var(--color-border-tertiary)" };
+  const panelHeaderAccent: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", borderBottom: "3px solid #D4537E" };
   const th = (left?: boolean): React.CSSProperties => ({ padding: "8px 12px", textAlign: left ? "left" as const : "right" as const, fontWeight: 500, fontSize: 11, color: "var(--color-text-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)", whiteSpace: "nowrap" as const, background: "var(--color-background-secondary)" });
 
   return (
@@ -687,7 +688,7 @@ export default function Campaigns() {
 
         {/* ── KPI Section ── */}
         <div style={{ ...panel, marginBottom: 14 }}>
-          <div style={panelHeader}>
+          <div style={panelHeaderAccent}>
             <div style={{ fontSize: 12, fontWeight: 500 }}>Resultados do período</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>Visualizando:</span>
