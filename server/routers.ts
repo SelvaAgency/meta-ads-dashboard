@@ -1310,6 +1310,7 @@ export const appRouter = router({
         }
 
         console.log('[adTopByCtr] accountId:', account.accountId, 'start:', startDate, 'end:', endDate, 'total ads:', ads.length, 'with spend:', ads.filter(a => a.spend > 0).length);
+        const allDbCampaigns = await getCampaignsByAccountId(input.accountId);
 
         return ads
           .filter((ad) => ad.spend > 0)
@@ -1319,16 +1320,22 @@ export const appRouter = router({
             return (a.spend / a.conversions) - (b.spend / b.conversions);
           })
           .slice(0, 5)
-          .map((ad) => ({
-            adId: ad.id,
-            adName: ad.name,
-            ctr: ad.ctr,
-            conversions: ad.conversions,
-            spend: ad.spend,
-            costPerResult: ad.conversions > 0 ? ad.spend / ad.conversions : null,
-            campaignId: ad.campaign_id,
-            managerUrl: ad.preview_url,
-          }));
+          .map((ad) => {
+            const dbCamp = allDbCampaigns.find((c: any) => c.metaCampaignId === ad.campaign_id);
+            return {
+              adId: ad.id,
+              adName: ad.name,
+              ctr: ad.ctr,
+              conversions: ad.conversions,
+              spend: ad.spend,
+              costPerResult: ad.conversions > 0 ? ad.spend / ad.conversions : null,
+              campaignId: ad.campaign_id,
+              campaignName: dbCamp?.name ?? null,
+              thumbnailUrl: (ad as any).thumbnail_url ?? null,
+              creativeId: (ad as any).creative_id ?? null,
+              managerUrl: ad.preview_url,
+            };
+          });
       }),
 
     // ── Top adsets by CTR for the account (account-level, period-aware) ──

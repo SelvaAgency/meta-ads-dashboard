@@ -100,12 +100,22 @@ function TrendChart({ accountId, goalType, dateParams, metricLabel: metricLabelP
     if (withSpend.length === 0) return data.map(d => ({ ...d, val: 0, tier: "none" as const }));
     const sorted = [...withSpend].sort((a, b) => b - a);
     const n = sorted.length;
-    const t1 = sorted[Math.floor(n / 3)];
-    const t2 = sorted[Math.floor(2 * n / 3)];
+    // Use value-based percentiles, not index-based, to avoid all-same-tier when values cluster
+    const p33 = sorted[Math.max(0, Math.floor(n * 0.33))];
+    const p66 = sorted[Math.max(0, Math.floor(n * 0.66))];
+    const maxV = sorted[0];
+    const minV = sorted[n - 1];
+    const range = maxV - minV;
     return data.map((d, i) => {
       const v = vals[i];
       if (d.spend === 0) return { ...d, val: 0, tier: "none" as const };
-      const tier: "good" | "ok" | "bad" = v >= t1 ? "good" : v >= t2 ? "ok" : "bad";
+      let tier: "good" | "ok" | "bad";
+      if (range < 0.01) {
+        // All values nearly identical — use absolute thresholds
+        tier = "ok";
+      } else {
+        tier = v >= p33 ? "good" : v >= p66 ? "ok" : "bad";
+      }
       return { ...d, val: v, tier };
     });
   }, [data, metricKey]);
@@ -624,7 +634,7 @@ export default function Campaigns() {
     background: active ? "#D4537E" : "var(--color-background-primary)", fontWeight: active ? 500 : 400,
     userSelect: "none" as const,
   });
-  const panel: React.CSSProperties = { background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, overflow: "hidden" };
+  const panel: React.CSSProperties = { background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-secondary)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" };
   const panelHeader: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", borderBottom: "0.5px solid var(--color-border-tertiary)" };
   const th = (left?: boolean): React.CSSProperties => ({ padding: "8px 12px", textAlign: left ? "left" as const : "right" as const, fontWeight: 500, fontSize: 11, color: "var(--color-text-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)", whiteSpace: "nowrap" as const, background: "var(--color-background-secondary)" });
 
