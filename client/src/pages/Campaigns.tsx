@@ -83,37 +83,32 @@ function CreativeThumb({ url, type, creativeId, accountId, size = 36 }: { url?: 
 }
 
 // ─── 30-day trend chart ───────────────────────────────────────────────────────
-function TrendChart({ accountId, goalType, dateParams }: { accountId: number; goalType: GoalType; dateParams: { days: number; startDate?: string; endDate?: string; includeToday?: boolean } }) {
-  const { data, isLoading } = trpc.campaigns.trend30d.useQuery(
+function TrendChart({ accountId, goalType, dateParams, metricLabel: metricLabelProp, selectedMetaCampaignId }: { accountId: number; goalType: GoalType; dateParams: { days: number; startDate?: string; endDate?: string; includeToday?: boolean }; metricLabel: string; selectedMetaCampaignId: string | null }) {
+  const { data: allData, isLoading } = trpc.campaigns.trend30d.useQuery(
     { accountId, days: dateParams.days || 30, ...(dateParams.startDate ? { startDate: dateParams.startDate } : {}), ...(dateParams.endDate ? { endDate: dateParams.endDate } : {}) },
     { enabled: !!accountId }
   );
-
   const isSales = ["SALES", "VALUE"].includes(goalType);
   const metricKey: "roas" | "conversions" | "cpa" = isSales ? "roas" : "conversions";
-  const metricLabel = isSales ? "ROAS" : cleanResultLabel(GOAL_LABELS[goalType]?.label ?? "Resultado");
+  const metricLabel = metricLabelProp;
+  const data = allData;
 
   const bars = useMemo(() => {
     if (!data || data.length === 0) return [];
     const vals = data.map(d => Number(d[metricKey] ?? 0));
     const withSpend = vals.filter((_, i) => data[i].spend > 0);
     if (withSpend.length === 0) return data.map(d => ({ ...d, val: 0, tier: "none" as const }));
-    withSpend.sort((a, b) => isSales ? b - a : a - b);
-    const t1 = withSpend[Math.floor(withSpend.length / 3)];
-    const t2 = withSpend[Math.floor(2 * withSpend.length / 3)];
+    const sorted = [...withSpend].sort((a, b) => b - a);
+    const n = sorted.length;
+    const t1 = sorted[Math.floor(n / 3)];
+    const t2 = sorted[Math.floor(2 * n / 3)];
     return data.map((d, i) => {
       const v = vals[i];
-      if (d.spend === 0) return { ...d, val: v, tier: "none" as const };
-      let tier: "good" | "ok" | "bad";
-      if (isSales) {
-        tier = v >= t1 ? "good" : v >= t2 ? "ok" : "bad";
-      } else {
-        // for conversions: more = better; for cpa: less = better
-        tier = v >= t1 ? "good" : v >= t2 ? "ok" : "bad";
-      }
+      if (d.spend === 0) return { ...d, val: 0, tier: "none" as const };
+      const tier: "good" | "ok" | "bad" = v >= t1 ? "good" : v >= t2 ? "ok" : "bad";
       return { ...d, val: v, tier };
     });
-  }, [data, metricKey, isSales]);
+  }, [data, metricKey]);
 
   const maxVal = useMemo(() => Math.max(...bars.map(b => b.val ?? 0), 1), [bars]);
 
@@ -135,14 +130,7 @@ function TrendChart({ accountId, goalType, dateParams }: { accountId: number; go
   );
 
   return (
-    <div style={{ padding: "16px 20px", position: "relative" }}>
-      {hoveredBar !== null && bars[hoveredBar] && (
-        <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-secondary)", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 500, pointerEvents: "none", zIndex: 10, whiteSpace: "nowrap" }}>
-          {bars[hoveredBar].date ? new Date(bars[hoveredBar].date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : ""}
-          {" · "}
-          {isSales ? (bars[hoveredBar].val ?? 0).toFixed(2) : Math.round(bars[hoveredBar].val ?? 0)} {metricLabel}
-        </div>
-      )}
+    <div style={{ padding: "16px 20px" }}>
       <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 64 }}>
         {bars.map((b, i) => {
           const h = Math.max(4, ((b.val ?? 0) / maxVal) * 64);
@@ -154,7 +142,16 @@ function TrendChart({ accountId, goalType, dateParams }: { accountId: number; go
           );
         })}
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 10, color: "var(--color-text-secondary)" }}>
+      <div style={{ height: 22, marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {hoveredBar !== null && bars[hoveredBar] ? (
+          <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-primary)", background: "var(--color-background-secondary)", padding: "2px 10px", borderRadius: 6, border: "0.5px solid var(--color-border-tertiary)" }}>
+            {bars[hoveredBar].date ? new Date(bars[hoveredBar].date + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" }) : ""}
+            {" — "}
+            {isSales ? (bars[hoveredBar].val ?? 0).toFixed(2) : Math.round(bars[hoveredBar].val ?? 0)} {metricLabel}
+          </span>
+        ) : <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>passe o mouse sobre o gráfico</span>}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 10, color: "var(--color-text-secondary)" }}>
         {bars.length > 0 && (
           <>
             <span>{bars[0]?.date ? new Date(bars[0].date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : ""}</span>
@@ -559,7 +556,10 @@ export default function Campaigns() {
 
   const filtered = useMemo(() => {
     if (!mergedCampaigns) return [];
-    return mergedCampaigns.filter((c: any) => (c.campaignName ?? "").toLowerCase().includes(search.toLowerCase()));
+    return mergedCampaigns.filter((c: any) =>
+      Number(c.totalSpend ?? 0) > 0 &&
+      (c.campaignName ?? "").toLowerCase().includes(search.toLowerCase())
+    );
   }, [mergedCampaigns, search]);
 
   const kpiData = useMemo(() => {
@@ -682,7 +682,7 @@ export default function Campaigns() {
               { label: "Alcance total", val: fmtNum(kpiData.reach) },
               { label: "Frequência média", val: kpiFreq > 0 ? `${kpiFreq.toFixed(2)}x` : "—" },
             ].map((k, i, arr) => (
-              <div key={k.label} style={{ padding: "14px 16px", borderRight: i < arr.length - 1 ? "0.5px solid var(--color-border-tertiary)" : "none", background: "var(--color-background-primary)" }}>
+              <div key={k.label} style={{ padding: "14px 16px", borderRight: i < arr.length - 1 ? "0.5px solid var(--color-border-tertiary)" : "none", background: "var(--color-background-secondary)" }}>
                 <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4 }}>{k.label}</div>
                 <div style={{ fontSize: 20, fontWeight: 500 }}>{k.val}</div>
               </div>
@@ -698,7 +698,7 @@ export default function Campaigns() {
               {["SALES", "VALUE"].includes(goalType) ? "ROAS diário" : `${cleanResultLabel(accountResultLabel)} por dia`}
             </div>
           </div>
-          <TrendChart accountId={selectedAccountId!} goalType={goalType} dateParams={dateParams} />
+          <TrendChart accountId={selectedAccountId!} goalType={goalType} dateParams={dateParams} metricLabel={cleanResultLabel(accountResultLabel)} selectedMetaCampaignId={selectedMetaCampaignId} />
         </div>
 
         {/* ── Day comparison + Top performers ── */}
