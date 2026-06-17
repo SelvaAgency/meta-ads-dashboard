@@ -139,9 +139,9 @@ function TrendChart({ accountId, goalType, dateParams, metricLabel: metricLabelP
 
   return (
     <div style={{ padding: "16px 20px" }}>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 64 }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 120 }}>
         {bars.map((b, i) => {
-          const h = Math.max(4, ((b.val ?? 0) / maxVal) * 64);
+          const h = Math.max(4, ((b.val ?? 0) / maxVal) * 120);
           return (
             <div key={i}
               onMouseEnter={() => setHoveredBar(i)}
@@ -150,12 +150,13 @@ function TrendChart({ accountId, goalType, dateParams, metricLabel: metricLabelP
           );
         })}
       </div>
-      <div style={{ height: 22, marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ height: 24, marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
         {hoveredBar !== null && bars[hoveredBar] ? (
-          <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-primary)", background: "var(--color-background-secondary)", padding: "2px 10px", borderRadius: 6, border: "0.5px solid var(--color-border-tertiary)" }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-primary)", background: "var(--color-background-secondary)", padding: "2px 12px", borderRadius: 6, border: "0.5px solid var(--color-border-tertiary)" }}>
             {bars[hoveredBar].date ? new Date(bars[hoveredBar].date + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" }) : ""}
             {" — "}
             {isSales ? (bars[hoveredBar].val ?? 0).toFixed(2) : Math.round(bars[hoveredBar].val ?? 0)} {metricLabel}
+            {bars[hoveredBar].spend > 0 ? ` · R$ ${bars[hoveredBar].spend.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} investidos` : ""}
           </span>
         ) : <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>passe o mouse sobre o gráfico</span>}
       </div>
@@ -251,6 +252,7 @@ function TopPerformersSection({ accountId, dateParams, resultLabel }: {
   resultLabel?: string;
 }) {
   const [activeTab, setActiveTab] = useState<"creatives" | "audiences">("creatives");
+  const [showAll, setShowAll] = useState(false);
   const metricLabel = cleanResultLabel(resultLabel);
 
   const qParams = { accountId, days: dateParams.days || 7, ...(dateParams.startDate ? { startDate: dateParams.startDate } : {}), ...(dateParams.endDate ? { endDate: dateParams.endDate } : {}) };
@@ -261,13 +263,16 @@ function TopPerformersSection({ accountId, dateParams, resultLabel }: {
   return (
     <div style={{ background: "#FFFFFF", border: "0.5px solid var(--color-border-secondary)", borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
       {/* Tab row */}
-      <div style={{ display: "flex", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+      <div style={{ display: "flex", borderBottom: "0.5px solid var(--color-border-tertiary)", alignItems: "center" }}>
         {(["creatives", "audiences"] as const).map(tab => (
-          <div key={tab} onClick={() => setActiveTab(tab)}
+          <div key={tab} onClick={() => { setActiveTab(tab); setShowAll(false); }}
             style={{ padding: "10px 16px", fontSize: 12, cursor: "pointer", borderBottom: activeTab === tab ? "2px solid #D4537E" : "2px solid transparent", color: activeTab === tab ? "#D4537E" : "var(--color-text-secondary)", fontWeight: activeTab === tab ? 500 : 400, userSelect: "none" as const }}>
             {tab === "creatives" ? "Melhores criativos" : "Melhores públicos"}
           </div>
         ))}
+        <div onClick={() => setShowAll(v => !v)} style={{ marginLeft: "auto", padding: "6px 14px", fontSize: 11, color: "#D4537E", cursor: "pointer", userSelect: "none" as const }}>
+          {showAll ? "ver menos ↑" : "ver todos ↓"}
+        </div>
       </div>
 
       {/* Creatives tab */}
@@ -279,7 +284,7 @@ function TopPerformersSection({ accountId, dateParams, resultLabel }: {
             </div>
           ) : !topAds || topAds.length === 0 ? (
             <div style={{ padding: 20, fontSize: 12, color: "var(--color-text-secondary)" }}>Nenhum criativo com dados no período.</div>
-          ) : topAds.slice(0, 5).map((ad, i) => (
+          ) : (showAll ? topAds : topAds.slice(0, 5)).map((ad, i) => (
             <div key={ad.adId} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: i < Math.min(topAds.length, 5) - 1 ? "0.5px solid var(--color-border-tertiary)" : "none", background: i === 0 ? "var(--color-background-secondary)" : "var(--color-background-primary)" }}>
               <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", width: 20, flexShrink: 0 }}>#{i + 1}</span>
               <CreativeThumb url={(ad as any).thumbnailUrl ?? undefined} type="IMAGE" creativeId={(ad as any).creativeId ?? undefined} accountId={accountId} size={40} />
@@ -317,7 +322,7 @@ function TopPerformersSection({ accountId, dateParams, resultLabel }: {
             </div>
           ) : !topAdsets || topAdsets.length === 0 ? (
             <div style={{ padding: 20, fontSize: 12, color: "var(--color-text-secondary)" }}>Nenhum conjunto com dados no período.</div>
-          ) : topAdsets.slice(0, 5).map((as: any, i: number) => (
+          ) : (showAll ? topAdsets : topAdsets.slice(0, 5)).map((as: any, i: number) => (
             <div key={as.adsetId} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: i < Math.min(topAdsets.length, 5) - 1 ? "0.5px solid var(--color-border-tertiary)" : "none", background: i === 0 ? "var(--color-background-secondary)" : "var(--color-background-primary)" }}>
               <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-secondary)", width: 20, flexShrink: 0 }}>#{i + 1}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -484,11 +489,16 @@ function CampaignRow({ c, metaId, isExpanded, onToggle, selectedAccountId, dateP
         <td style={td}>{fmtNum(reach)}</td>
         <td style={td}>{fmtCurrency(cpm)}</td>
         <td style={td}>{fmtFreq(frequency)}</td>
-        <td style={{ ...td, borderRight: "none" }}>{fmtPct(ctr)}</td>
+        <td style={td}>{fmtPct(ctr)}</td>
+        <td style={{ ...td, borderRight: "none" }}>
+          {spend > 0 && results > 0 ? (
+            <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>—</span>
+          ) : <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>—</span>}
+        </td>
       </tr>
       {isExpanded && (
         <tr>
-          <td colSpan={9} style={{ padding: 0 }}>
+          <td colSpan={10} style={{ padding: 0 }}>
             <CampaignDetailPanel metaId={metaId} selectedAccountId={selectedAccountId} dateParams={dateParams} resultLabel={resultLabel} />
           </td>
         </tr>
@@ -506,6 +516,13 @@ export default function Campaigns() {
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [selectedMetaCampaignId, setSelectedMetaCampaignId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<"spend" | "conversions" | "cpa" | "ctr" | "reach">("spend");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const handleSort = (key: typeof sortKey) => {
+    if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortKey(key); setSortDir("desc"); }
+  };
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
 
@@ -564,11 +581,17 @@ export default function Campaigns() {
 
   const filtered = useMemo(() => {
     if (!mergedCampaigns) return [];
-    return mergedCampaigns.filter((c: any) =>
+    const f = mergedCampaigns.filter((c: any) =>
       Number(c.totalSpend ?? 0) > 0 &&
       (c.campaignName ?? "").toLowerCase().includes(search.toLowerCase())
     );
-  }, [mergedCampaigns, search]);
+    return [...f].sort((a: any, b: any) => {
+      const map: Record<string, string> = { spend: "totalSpend", conversions: "totalConversions", cpa: "avgCpa", ctr: "avgCtr", reach: "totalReach" };
+      const k = map[sortKey];
+      const av = Number(a[k] ?? 0), bv = Number(b[k] ?? 0);
+      return sortDir === "desc" ? bv - av : av - bv;
+    });
+  }, [mergedCampaigns, search, sortKey, sortDir]);
 
   const kpiData = useMemo(() => {
     const source = selectedMetaCampaignId ? filtered.filter((c: any) => String(c.metaCampaignId) === selectedMetaCampaignId) : filtered;
@@ -737,26 +760,27 @@ export default function Campaigns() {
                 <tr>
                   <th style={{ ...th(true), paddingLeft: 16, minWidth: 220 }}>Campanha</th>
                   <th style={{ ...th(), textAlign: "center" }}>Status</th>
-                  <th style={th()}>Investimento</th>
-                  <th style={th()}>Resultado</th>
-                  <th style={th()}>Custo/Result.</th>
-                  <th style={th()}>Alcance</th>
+                  <th style={{ ...th(), cursor: "pointer" }} onClick={() => handleSort("spend")}>Investimento {sortKey === "spend" ? (sortDir === "desc" ? "↓" : "↑") : ""}</th>
+                  <th style={{ ...th(), cursor: "pointer" }} onClick={() => handleSort("conversions")}>Resultado {sortKey === "conversions" ? (sortDir === "desc" ? "↓" : "↑") : ""}</th>
+                  <th style={{ ...th(), cursor: "pointer" }} onClick={() => handleSort("cpa")}>Custo/Result. {sortKey === "cpa" ? (sortDir === "desc" ? "↓" : "↑") : ""}</th>
+                  <th style={{ ...th(), cursor: "pointer" }} onClick={() => handleSort("reach")}>Alcance {sortKey === "reach" ? (sortDir === "desc" ? "↓" : "↑") : ""}</th>
                   <th style={th()}>CPM</th>
                   <th style={th()}>Freq.</th>
-                  <th style={{ ...th(), borderRight: "none" }}>CTR</th>
+                  <th style={{ ...th(), cursor: "pointer" }} onClick={() => handleSort("ctr")}>CTR {sortKey === "ctr" ? (sortDir === "desc" ? "↓" : "↑") : ""}</th>
+                  <th style={{ ...th(), borderRight: "none" }}>vs anterior</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   [...Array(4)].map((_, i) => (
                     <tr key={i} style={{ borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
-                      <td colSpan={9} style={{ padding: "10px 16px" }}>
+                      <td colSpan={10} style={{ padding: "10px 16px" }}>
                         <div style={{ height: 14, background: "var(--color-background-secondary)", borderRadius: 4 }} />
                       </td>
                     </tr>
                   ))
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={9} style={{ padding: "48px 16px", textAlign: "center", color: "var(--color-text-secondary)", fontSize: 12 }}>Nenhuma campanha encontrada. Sincronize sua conta.</td></tr>
+                  <tr><td colSpan={10} style={{ padding: "48px 16px", textAlign: "center", color: "var(--color-text-secondary)", fontSize: 12 }}>Nenhuma campanha encontrada. Sincronize sua conta.</td></tr>
                 ) : (
                   filtered
                     .filter((c: any) => !selectedMetaCampaignId || String(c.metaCampaignId) === selectedMetaCampaignId)
