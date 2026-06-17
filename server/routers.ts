@@ -1332,6 +1332,26 @@ export const appRouter = router({
       }),
 
     // ── Top adsets by CTR for the account (account-level, period-aware) ──
+    trend30d: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - 29);
+        const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        const rows = await getAccountMetricsSummary(input.accountId, fmt(start), fmt(end));
+        return rows.map(r => ({
+          date: r.date,
+          spend: Number(r.totalSpend ?? 0),
+          conversions: Number(r.totalConversions ?? 0),
+          roas: Number(r.avgRoas ?? 0),
+          cpa: Number(r.avgCpa ?? 0),
+          ctr: Number(r.avgCtr ?? 0),
+          reach: Number(r.totalReach ?? 0),
+        }));
+      }),
+
     dayOfWeekStats: protectedProcedure
       .input(z.object({
         accountId: z.number(),
