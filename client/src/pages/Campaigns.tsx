@@ -157,6 +157,7 @@ function TrendChart({ accountId, goalType, dateParams, metricLabel: metricLabelP
             {" — "}
             {isSales ? (bars[hoveredBar].val ?? 0).toFixed(2) : Math.round(bars[hoveredBar].val ?? 0)} {metricLabel}
             {bars[hoveredBar].spend > 0 ? ` · R$ ${bars[hoveredBar].spend.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} investidos` : ""}
+            {!isSales && bars[hoveredBar].roas > 0 ? ` · ROAS ${Number(bars[hoveredBar].roas).toFixed(2)}x` : ""}
           </span>
         ) : <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>passe o mouse sobre o gráfico</span>}
       </div>
@@ -471,7 +472,7 @@ function CampaignRow({ c, metaId, isExpanded, onToggle, selectedAccountId, dateP
             {isExpanded ? <ChevronDown size={14} style={{ color: "var(--color-text-secondary)", flexShrink: 0 }} /> : <ChevronRight size={14} style={{ color: "var(--color-text-secondary)", flexShrink: 0 }} />}
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 12, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200 }}>{c.campaignName ?? "—"}</div>
-              <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginTop: 1 }}>{cleanResultLabel(c.campaignOptimizationGoal ?? c.campaignResultLabel)} · {c.metaCampaignId ?? "—"}</div>
+              <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginTop: 1 }}>{cleanResultLabel(c.campaignOptimizationGoal ?? c.campaignResultLabel)}</div>
             </div>
           </div>
         </td>
@@ -489,16 +490,11 @@ function CampaignRow({ c, metaId, isExpanded, onToggle, selectedAccountId, dateP
         <td style={td}>{fmtNum(reach)}</td>
         <td style={td}>{fmtCurrency(cpm)}</td>
         <td style={td}>{fmtFreq(frequency)}</td>
-        <td style={td}>{fmtPct(ctr)}</td>
-        <td style={{ ...td, borderRight: "none" }}>
-          {spend > 0 && results > 0 ? (
-            <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>—</span>
-          ) : <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>—</span>}
-        </td>
+        <td style={{ ...td, borderRight: "none" }}>{fmtPct(ctr)}</td>
       </tr>
       {isExpanded && (
         <tr>
-          <td colSpan={10} style={{ padding: 0 }}>
+          <td colSpan={9} style={{ padding: 0 }}>
             <CampaignDetailPanel metaId={metaId} selectedAccountId={selectedAccountId} dateParams={dateParams} resultLabel={resultLabel} />
           </td>
         </tr>
@@ -766,21 +762,20 @@ export default function Campaigns() {
                   <th style={{ ...th(), cursor: "pointer" }} onClick={() => handleSort("reach")}>Alcance {sortKey === "reach" ? (sortDir === "desc" ? "↓" : "↑") : ""}</th>
                   <th style={th()}>CPM</th>
                   <th style={th()}>Freq.</th>
-                  <th style={{ ...th(), cursor: "pointer" }} onClick={() => handleSort("ctr")}>CTR {sortKey === "ctr" ? (sortDir === "desc" ? "↓" : "↑") : ""}</th>
-                  <th style={{ ...th(), borderRight: "none" }}>vs anterior</th>
+                  <th style={{ ...th(), cursor: "pointer", borderRight: "none" }} onClick={() => handleSort("ctr")}>CTR {sortKey === "ctr" ? (sortDir === "desc" ? "↓" : "↑") : ""}</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   [...Array(4)].map((_, i) => (
                     <tr key={i} style={{ borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
-                      <td colSpan={10} style={{ padding: "10px 16px" }}>
+                      <td colSpan={9} style={{ padding: "10px 16px" }}>
                         <div style={{ height: 14, background: "var(--color-background-secondary)", borderRadius: 4 }} />
                       </td>
                     </tr>
                   ))
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={10} style={{ padding: "48px 16px", textAlign: "center", color: "var(--color-text-secondary)", fontSize: 12 }}>Nenhuma campanha encontrada. Sincronize sua conta.</td></tr>
+                  <tr><td colSpan={9} style={{ padding: "48px 16px", textAlign: "center", color: "var(--color-text-secondary)", fontSize: 12 }}>Nenhuma campanha encontrada. Sincronize sua conta.</td></tr>
                 ) : (
                   filtered
                     .filter((c: any) => !selectedMetaCampaignId || String(c.metaCampaignId) === selectedMetaCampaignId)
