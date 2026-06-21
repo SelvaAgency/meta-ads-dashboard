@@ -233,6 +233,8 @@ export const alerts = mysqlTable("alerts", {
     "INSTAGRAM_UNLINKED",
     "PIXEL_ERROR",
     "ADSET_NO_DELIVERY",
+    "SUGGESTION_APPLIED",
+    "EXPERIMENT_UPDATE",
   ]).notNull(),
   severity: mysqlEnum("severity", ["INFO", "WARNING", "CRITICAL"]).notNull(),
   // Prioridade do alerta: CRITICAL=imediato, HIGH=até 30min, MEDIUM=consolidado a cada 2h

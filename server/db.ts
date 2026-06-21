@@ -792,6 +792,29 @@ export async function updateSuggestionStatus(
       isDismissed: status === "rejected",
     })
     .where(eq(aiSuggestions.id, id));
+  // Create informational notification when applied
+  if (status === "applied") {
+    try {
+      const rows2 = await db.select({ accountId: aiSuggestions.accountId, title: aiSuggestions.title, description: aiSuggestions.description }).from(aiSuggestions).where(eq(aiSuggestions.id, id)).limit(1);
+      const s2 = rows2[0];
+      if (s2) {
+        const acctRows = await db.select({ userId: metaAdAccounts.userId }).from(metaAdAccounts).where(eq(metaAdAccounts.id, s2.accountId)).limit(1);
+        const userId = acctRows[0]?.userId;
+        if (userId) {
+          await createAlertIfNotExists({
+            userId,
+            accountId: s2.accountId,
+            title: `Ação aplicada: ${s2.title}`,
+            message: s2.description ?? "Sugestão marcada como aplicada.",
+            type: "SUGGESTION_APPLIED" as any,
+            severity: "INFO" as any,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[updateSuggestionStatus] Failed to create notification:", err);
+    }
+  }
 
   // Quando rejeitada com motivo: salvar como aprendizado permanente da conta
   if (status === "rejected" && opts?.rejectionReason?.trim()) {
