@@ -33,6 +33,7 @@ import {
   getSuggestionsByAccountId,
   getTodayMetricsForAllAccounts,
   getUrgentAlertsForUser,
+  getAllAlertsForUser,
   getAllSuggestionsForUser,
   getSuggestionsHistory,
   updateSuggestionStatus,
@@ -1764,6 +1765,10 @@ Escreva em portuguÃªs brasileiro, de forma direta e profissional. Destaque padrÃ
 
     listUrgent: protectedProcedure.query(async ({ ctx }) => {
       return getUrgentAlertsForUser(ctx.user.id);
+    }),
+
+    listAll: protectedProcedure.query(async ({ ctx }) => {
+      return getAllAlertsForUser(ctx.user.id);
     }),
 
     // unreadCount filtered by account for sidebar badge

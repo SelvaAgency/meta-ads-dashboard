@@ -916,6 +916,30 @@ export async function getAlertsByUserId(userId: number, limit = 50) {
     .limit(limit);
 }
 
+export async function getAllAlertsForUser(userId: number, limit = 200) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id:          alerts.id,
+      title:       alerts.title,
+      message:     alerts.message,
+      severity:    alerts.severity,
+      type:        alerts.type,
+      priority:    alerts.priority,
+      suggestedAction: alerts.suggestedAction,
+      isRead:      alerts.isRead,
+      createdAt:   alerts.createdAt,
+      accountId:   alerts.accountId,
+      accountName: metaAdAccounts.accountName,
+      metaAccountId: metaAdAccounts.accountId,
+    })
+    .from(alerts)
+    .innerJoin(metaAdAccounts, eq(alerts.accountId, metaAdAccounts.id))
+    .where(eq(alerts.userId, userId))
+    .orderBy(desc(alerts.createdAt))
+    .limit(limit);
+}
 export async function getAlertsByAccountId(userId: number, accountId: number, limit = 50) {
   const db = await getDb();
   if (!db) return [];
