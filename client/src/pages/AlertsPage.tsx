@@ -166,16 +166,8 @@ export default function AlertsPage() {
     return { accounts: accountSet.size, tokenIssues, budgetIssues };
   }, [criticalAlerts]);
 
-  const groupedByAccount = useMemo(() => {
-    const map = new Map<number, { accountName: string | null; items: any[] }>();
-    for (const a of criticalAlerts) {
-      if (!map.has(a.accountId)) map.set(a.accountId, { accountName: a.accountName, items: [] });
-      map.get(a.accountId)!.items.push(a);
-    }
-    return Array.from(map.entries()).map(([accountId, v]) => ({ accountId, ...v }));
-  }, [criticalAlerts]);
-
-  const groupedByType = useMemo(() => {
+  // Versao sempre completa (nao filtrada) — alimenta os 4 cards de resumo no topo
+  const allGroupedByType = useMemo(() => {
     const map = new Map<string, any[]>();
     for (const a of criticalAlerts) {
       if (!map.has(a.type)) map.set(a.type, []);
@@ -183,6 +175,30 @@ export default function AlertsPage() {
     }
     return Array.from(map.entries()).map(([type, items]) => ({ type, items }));
   }, [criticalAlerts]);
+
+  // Versao filtrada pelo card selecionado — alimenta a lista de baixo
+  const filteredCriticalAlerts = useMemo(() => {
+    if (!activeTypeFilter) return criticalAlerts;
+    return criticalAlerts.filter((a: any) => a.type === activeTypeFilter);
+  }, [criticalAlerts, activeTypeFilter]);
+
+  const groupedByAccount = useMemo(() => {
+    const map = new Map<number, { accountName: string | null; items: any[] }>();
+    for (const a of filteredCriticalAlerts) {
+      if (!map.has(a.accountId)) map.set(a.accountId, { accountName: a.accountName, items: [] });
+      map.get(a.accountId)!.items.push(a);
+    }
+    return Array.from(map.entries()).map(([accountId, v]) => ({ accountId, ...v }));
+  }, [filteredCriticalAlerts]);
+
+  const groupedByType = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const a of filteredCriticalAlerts) {
+      if (!map.has(a.type)) map.set(a.type, []);
+      map.get(a.type)!.push(a);
+    }
+    return Array.from(map.entries()).map(([type, items]) => ({ type, items }));
+  }, [filteredCriticalAlerts]);
 
   const panel: React.CSSProperties = { background: "#FFFFFF", border: "0.5px solid var(--color-border-secondary)", borderRadius: 12, overflow: "hidden" };
 
@@ -218,7 +234,7 @@ export default function AlertsPage() {
           <>
             {/* Summary strip — clicável, filtra por tipo */}
             {(() => {
-              const cards = groupedByType.slice(0, 4);
+              const cards = allGroupedByType.slice(0, 4);
               return (
                 <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(cards.length, 1)}, 1fr)`, gap: 12, marginBottom: 20 }}>
                   {cards.map((group) => {
@@ -254,12 +270,16 @@ export default function AlertsPage() {
             )}
 
             {/* Groups */}
-            {criticalAlerts.length === 0 ? (
+            {filteredCriticalAlerts.length === 0 ? (
               <div style={panel}>
                 <div style={{ padding: "48px 18px", textAlign: "center" }}>
                   <BellOff size={32} style={{ color: "var(--color-text-secondary)", opacity: 0.3, marginBottom: 10 }} />
-                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Nenhum alerta crítico</div>
-                  <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Todas as contas estão operando normalmente.</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                    {activeTypeFilter ? "Nenhum alerta deste tipo" : "Nenhum alerta crítico"}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+                    {activeTypeFilter ? "Clique novamente no card para limpar o filtro." : "Todas as contas estão operando normalmente."}
+                  </div>
                 </div>
               </div>
             ) : groupMode === "account" ? (
