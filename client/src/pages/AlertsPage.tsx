@@ -129,7 +129,16 @@ function NotificationRow({ notif, isLast }: { notif: any; isLast: boolean }) {
 export default function AlertsPage() {
   const [activeTab, setActiveTab] = useState<"critical" | "notifications">("critical");
   const [groupMode, setGroupMode] = useState<"account" | "type">("account");
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const utils = trpc.useUtils();
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   const { data: allAlerts, isLoading } = trpc.alerts.listAll.useQuery();
 
@@ -246,41 +255,57 @@ export default function AlertsPage() {
                 </div>
               </div>
             ) : groupMode === "account" ? (
-              groupedByAccount.map((group) => (
-                <div key={group.accountId} style={{ ...panel, borderLeft: "4px solid #D4537E", marginBottom: 16 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
-                    <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#FBEAF0", color: "#993556", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 500, flexShrink: 0 }}>
-                      {initials(group.accountName)}
+              groupedByAccount.map((group) => {
+                const key = `acct-${group.accountId}`;
+                const isOpen = expandedGroups.has(key);
+                return (
+                  <div key={group.accountId} style={{ ...panel, borderLeft: "4px solid #D4537E", marginBottom: 12 }}>
+                    <div onClick={() => toggleGroup(key)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", cursor: "pointer", userSelect: "none" }}>
+                      <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#FBEAF0", color: "#993556", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 500, flexShrink: 0 }}>
+                        {initials(group.accountName)}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{group.accountName}</div>
+                      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{group.items.length} alerta{group.items.length !== 1 ? "s" : ""}</span>
+                        <span style={{ fontSize: 12, color: "var(--color-text-secondary)", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>▼</span>
+                      </div>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{group.accountName}</div>
-                    <div style={{ marginLeft: "auto", fontSize: 11, color: "var(--color-text-secondary)" }}>{group.items.length} alerta{group.items.length !== 1 ? "s" : ""}</div>
+                    {isOpen && (
+                      <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+                        {group.items.map((alert: any, i: number) => (
+                          <AlertBlock key={alert.id} alert={alert} onDismiss={handleDismiss} isLast={i === group.items.length - 1} />
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  {group.items.map((alert: any, i: number) => (
-                    <AlertBlock key={alert.id} alert={alert} onDismiss={handleDismiss} isLast={i === group.items.length - 1} />
-                  ))}
-                </div>
-              ))
+                );
+              })
             ) : (
               groupedByType.map((group) => {
                 const cfg = typeConfig[group.type] ?? { icon: AlertTriangle, label: group.type };
                 const Icon = cfg.icon;
+                const key = `type-${group.type}`;
+                const isOpen = expandedGroups.has(key);
                 return (
-                  <div key={group.type} style={{ ...panel, borderLeft: "4px solid #D4537E", marginBottom: 16 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+                  <div key={group.type} style={{ ...panel, borderLeft: "4px solid #D4537E", marginBottom: 12 }}>
+                    <div onClick={() => toggleGroup(key)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", cursor: "pointer", userSelect: "none" as const }}>
                       <Icon size={16} style={{ color: "#A32D2D" }} />
                       <div style={{ fontSize: 13, fontWeight: 500 }}>{cfg.label}</div>
-                      <div style={{ marginLeft: "auto", fontSize: 11, color: "var(--color-text-secondary)" }}>{group.items.length} ocorrência{group.items.length !== 1 ? "s" : ""}</div>
-                    </div>
-                    {group.items.map((alert: any, i: number) => (
-                      <div key={alert.id} style={{ display: "flex" }}>
-                        <div style={{ padding: "16px 0 16px 18px", flexShrink: 0 }}>
-                          <span style={{ fontSize: 11, color: "#D4537E", fontWeight: 500, whiteSpace: "nowrap" }}>{alert.accountName}</span>
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <AlertBlock alert={alert} onDismiss={handleDismiss} isLast={i === group.items.length - 1} />
-                        </div>
+                      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{group.items.length} ocorrência{group.items.length !== 1 ? "s" : ""}</span>
+                        <span style={{ fontSize: 12, color: "var(--color-text-secondary)", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>▼</span>
                       </div>
-                    ))}
+                    </div>
+                    {isOpen && (
+                      <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+                        {group.items.map((alert: any, i: number) => (
+                          <div key={alert.id} style={{ borderBottom: i < group.items.length - 1 ? "0.5px solid var(--color-border-tertiary)" : "none", padding: "4px 0" }}>
+                            <div style={{ padding: "4px 18px 0", fontSize: 11, color: "#D4537E", fontWeight: 500 }}>{alert.accountName}</div>
+                            <AlertBlock alert={alert} onDismiss={handleDismiss} isLast={true} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })

@@ -844,7 +844,7 @@ export async function checkRealTimeAlerts(
     console.error("[RealTimeAlerts] Campaign status check failed:", err);
   }
 
-  // 3. Check ads for rejected creatives and errors
+  // 3. Check ads for rejected creatives and errors — grouped to avoid alert spam
   try {
     const data = await metaFetch<{ data: Array<{
       id: string;
@@ -859,25 +859,34 @@ export async function checkRealTimeAlerts(
       effective_status: JSON.stringify(["DISAPPROVED", "WITH_ISSUES"]),
     });
 
-    for (const ad of (data.data ?? [])) {
-      if (ad.effective_status === "DISAPPROVED") {
-        const feedbackEntries = Object.entries(ad.review_feedback ?? {});
-        const reason = feedbackEntries.length > 0
-          ? feedbackEntries.map(([, v]) => v).join("; ")
-          : "Verifique o motivo no Meta Ads Manager.";
-        alerts.push({
-          type: "AD_REJECTED",
-          title: `Criativo rejeitado: ${ad.name}`,
-          message: `O anúncio "${ad.name}" foi reprovado pela Meta. Motivo: ${reason}`,
-        });
-      } else if (ad.effective_status === "WITH_ISSUES") {
-        const issueMsg = ad.issues_info?.[0]?.error_summary ?? "Verifique os detalhes no Meta Ads Manager.";
-        alerts.push({
-          type: "AD_ERROR",
-          title: `Erro no anúncio: ${ad.name}`,
-          message: `O anúncio "${ad.name}" está com problemas. ${issueMsg}`,
-        });
-      }
+    const disapprovedAds = (data.data ?? []).filter(ad => ad.effective_status === "DISAPPROVED");
+    const withIssuesAds = (data.data ?? []).filter(ad => ad.effective_status === "WITH_ISSUES");
+
+    if (disapprovedAds.length > 0) {
+      const names = disapprovedAds.slice(0, 3).map(ad => ad.name).join(", ");
+      const extra = disapprovedAds.length > 3 ? ` e mais ${disapprovedAds.length - 3}` : "";
+      alerts.push({
+        type: "AD_REJECTED",
+        severity: "CRITICAL",
+        priority: "HIGH",
+        title: `${disapprovedAds.length} criativo${disapprovedAds.length !== 1 ? "s" : ""} rejeitado${disapprovedAds.length !== 1 ? "s" : ""}`,
+        message: `Anúncios reprovados pela Meta: ${names}${extra}. Verifique e corrija no Gerenciador de Anúncios.`,
+        suggestedAction: "Acesse o Gerenciador de Anúncios e revise os criativos reprovados.",
+      });
+    }
+
+    if (withIssuesAds.length > 0) {
+      const names = withIssuesAds.slice(0, 3).map(ad => ad.name).join(", ");
+      const extra = withIssuesAds.length > 3 ? ` e mais ${withIssuesAds.length - 3}` : "";
+      const issueMsg = withIssuesAds[0].issues_info?.[0]?.error_summary ?? "Verifique os detalhes no Gerenciador.";
+      alerts.push({
+        type: "AD_ERROR",
+        severity: "WARNING",
+        priority: "MEDIUM",
+        title: `${withIssuesAds.length} anúncio${withIssuesAds.length !== 1 ? "s" : ""} com problema${withIssuesAds.length !== 1 ? "s" : ""}`,
+        message: `Anúncios com problemas de entrega: ${names}${extra}. Erro: ${issueMsg}`,
+        suggestedAction: "Acesse o Gerenciador e verifique os anúncios afetados.",
+      });
     }
   } catch (err) {
     console.error("[RealTimeAlerts] Ad status check failed:", err);
@@ -903,17 +912,28 @@ export async function checkRealTimeAlerts(
       "audience unavailable",
       "seu público personalizado",
     ];
+    const adsetWithIssues = (data.data ?? []).filter(adset => {
+      if (adset.effective_status !== "WITH_ISSUES") return false;
+      const issueMsg = adset.issues_info?.[0]?.error_summary ?? "";
+      return !SUPPRESSED_ISSUES.some(s => issueMsg.toLowerCase().includes(s));
+    });
+
+    if (adsetWithIssues.length > 0) {
+      const names = adsetWithIssues.slice(0, 3).map(a => a.name).join(", ");
+      const extra = adsetWithIssues.length > 3 ? ` e mais ${adsetWithIssues.length - 3}` : "";
+      const issueMsg = adsetWithIssues[0].issues_info?.[0]?.error_summary ?? "Verifique os detalhes no Gerenciador.";
+      alerts.push({
+        type: "AD_ERROR",
+        severity: "WARNING",
+        priority: "MEDIUM",
+        title: `${adsetWithIssues.length} conjunto${adsetWithIssues.length !== 1 ? "s" : ""} com problema${adsetWithIssues.length !== 1 ? "s" : ""}`,
+        message: `Conjuntos com problemas: ${names}${extra}. Erro: ${issueMsg}`,
+        suggestedAction: "Verifique os conjuntos afetados no Gerenciador de Anúncios.",
+      });
+    }
+
     for (const adset of (data.data ?? [])) {
-      if (adset.effective_status === "WITH_ISSUES") {
-        const issueMsg = adset.issues_info?.[0]?.error_summary ?? "Verifique os detalhes no Meta Ads Manager.";
-        const isSuppressed = SUPPRESSED_ISSUES.some(s => issueMsg.toLowerCase().includes(s));
-        if (isSuppressed) continue;
-        alerts.push({
-          type: "AD_ERROR",
-          title: `Erro no conjunto: ${adset.name}`,
-          message: `O conjunto "${adset.name}" está com problemas. ${issueMsg}`,
-        });
-      } else if (adset.effective_status === "PAUSED_BY_SYSTEM") {
+      if (adset.effective_status === "PAUSED_BY_SYSTEM") {
         alerts.push({
           type: "ADSET_NO_DELIVERY",
           title: `Conjunto pausado pelo sistema: ${adset.name}`,
