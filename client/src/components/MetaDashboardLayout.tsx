@@ -18,8 +18,13 @@ import {
   Lightbulb,
   TrendingUp,
   Settings,
+  AlertTriangle,
+  Info,
+  Loader2,
+  Sparkles,
+  Wallet,
 } from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -68,6 +73,49 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { accountId: activeAccountId ?? undefined },
     { enabled: isAuthenticated, refetchInterval: 30000 }
   );
+
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  const { data: recentAlerts, isLoading: notifLoading } = trpc.alerts.listAll.useQuery(undefined, {
+    enabled: isAuthenticated && notifOpen,
+    refetchInterval: notifOpen ? 15000 : false,
+  });
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [notifOpen]);
+
+  const NOTIF_CRITICAL_TYPES = new Set(["SYNC_ERROR", "PAYMENT_FAILED", "AD_REJECTED", "PIXEL_ERROR", "PAGE_UNLINKED", "CAMPAIGN_PAUSED"]);
+  const NOTIF_WARNING_TYPES = new Set(["AD_ERROR", "BUDGET_WARNING", "INSTAGRAM_UNLINKED", "ADSET_NO_DELIVERY"]);
+
+  function notifIcon(type: string) {
+    if (type === "SYNC_ERROR") return Link2;
+    if (type === "BUDGET_WARNING") return Wallet;
+    if (type === "SUGGESTION_APPLIED") return Sparkles;
+    if (NOTIF_CRITICAL_TYPES.has(type) || NOTIF_WARNING_TYPES.has(type)) return AlertTriangle;
+    return Info;
+  }
+
+  function notifTimeAgo(date: string | Date): string {
+    const d = new Date(date);
+    const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+    if (mins < 1) return "agora";
+    if (mins < 60) return `${mins}min`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    return `${days}d`;
+  }
+
+  const recentItems = (recentAlerts ?? []).slice(0, 8);
 
   const hasClient = !!activeClient;
 
@@ -443,14 +491,78 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           </div>
 
           <div className="flex items-center gap-2">
-            <Link href="/alerts">
-              <button className="relative p-2 rounded-lg hover:bg-primary/10 transition-all text-muted-foreground hover:text-primary hover:shadow-sm">
+            <div className="relative" ref={notifRef}>
+              <button
+                onClick={() => setNotifOpen((o) => !o)}
+                className="relative p-2 rounded-lg hover:bg-primary/10 transition-all text-muted-foreground hover:text-primary hover:shadow-sm"
+              >
                 <Bell className="w-4 h-4" />
                 {unreadCount != null && unreadCount > 0 && (
                   <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse shadow-lg shadow-primary/50" />
                 )}
               </button>
-            </Link>
+
+              {notifOpen && (
+                <div className="absolute right-0 top-full mt-2 w-96 bg-card border border-border rounded-xl shadow-lg z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                    <span className="text-sm font-medium">Notificações</span>
+                    <Link href="/alerts">
+                      <span
+                        onClick={() => setNotifOpen(false)}
+                        className="text-xs text-primary cursor-pointer hover:underline"
+                      >
+                        Ver tudo
+                      </span>
+                    </Link>
+                  </div>
+
+                  <div className="max-h-96 overflow-y-auto">
+                    {notifLoading ? (
+                      <div className="flex items-center gap-2 px-4 py-6 text-xs text-muted-foreground">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando...
+                      </div>
+                    ) : recentItems.length === 0 ? (
+                      <div className="px-4 py-8 text-center">
+                        <Bell className="w-6 h-6 text-muted-foreground/30 mx-auto mb-2" />
+                        <div className="text-xs text-muted-foreground">Nenhuma notificação por aqui</div>
+                      </div>
+                    ) : (
+                      recentItems.map((alert: any) => {
+                        const Icon = notifIcon(alert.type);
+                        const isCrit = NOTIF_CRITICAL_TYPES.has(alert.type);
+                        const isWarn = NOTIF_WARNING_TYPES.has(alert.type);
+                        const iconColor = isCrit ? "text-red-500" : isWarn ? "text-amber-500" : "text-blue-500";
+                        const iconBg = isCrit ? "bg-red-500/10" : isWarn ? "bg-amber-500/10" : "bg-blue-500/10";
+                        return (
+                          <Link key={alert.id} href="/alerts">
+                            <div
+                              onClick={() => setNotifOpen(false)}
+                              className={`flex items-start gap-3 px-4 py-3 border-b border-border/50 last:border-b-0 cursor-pointer hover:bg-accent/30 transition-colors ${!alert.isRead ? "bg-primary/[0.03]" : ""}`}
+                            >
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${iconBg} ${iconColor}`}>
+                                <Icon className="w-3.5 h-3.5" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs font-medium leading-snug">{alert.title}</div>
+                                <div className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{alert.message}</div>
+                                <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1.5">
+                                  <span className="text-primary font-medium">{alert.accountName}</span>
+                                  <span>·</span>
+                                  <span>{notifTimeAgo(alert.createdAt)}</span>
+                                </div>
+                              </div>
+                              {!alert.isRead && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-1" />
+                              )}
+                            </div>
+                          </Link>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
