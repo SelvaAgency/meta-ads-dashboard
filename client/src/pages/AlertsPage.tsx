@@ -128,7 +128,7 @@ function NotificationRow({ notif, isLast }: { notif: any; isLast: boolean }) {
 // ─── Main page ────────────────────────────────────────────────────────────
 export default function AlertsPage() {
   const [activeTab, setActiveTab] = useState<"critical" | "notifications">("critical");
-  const [groupMode, setGroupMode] = useState<"account" | "type">("account");
+  const [groupMode, setGroupMode] = useState<"account" | "type">("type");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const utils = trpc.useUtils();
 
@@ -215,27 +215,36 @@ export default function AlertsPage() {
           </div>
         ) : activeTab === "critical" ? (
           <>
-            {/* Summary strip */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
-              <div style={panel}>
-                <div style={{ padding: "16px 18px" }}>
-                  <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 6 }}>Contas afetadas</div>
-                  <div style={{ fontSize: 24, fontWeight: 500 }}>{summaryStats.accounts}</div>
+            {/* Summary strip — clicável, filtra por tipo */}
+            {(() => {
+              const typeGroups = groupedByType;
+              const cards = typeGroups.slice(0, 4);
+              const [activeTypeFilter, setActiveTypeFilter] = React.useState<string | null>(null);
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(cards.length, 1)}, 1fr)`, gap: 12, marginBottom: 20 }}>
+                  {cards.map((group) => {
+                    const cfg = typeConfig[group.type] ?? { icon: AlertTriangle, label: group.type };
+                    const Icon = cfg.icon;
+                    const isSelected = activeTypeFilter === group.type;
+                    const isCrit = CRITICAL_TYPES.has(group.type);
+                    return (
+                      <div key={group.type} onClick={() => setActiveTypeFilter(isSelected ? null : group.type)}
+                        style={{ ...panel, cursor: "pointer", borderLeft: isSelected ? "4px solid #D4537E" : "0.5px solid var(--color-border-secondary)", transition: "all 0.15s" }}>
+                        <div style={{ padding: "16px 18px", display: "flex", alignItems: "center", gap: 12 }}>
+                          <div style={{ width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", background: isCrit ? "#FCEBEB" : "#FAEEDA", color: isCrit ? "#A32D2D" : "#854F0B", flexShrink: 0 }}>
+                            <Icon size={17} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4 }}>{cfg.label}</div>
+                            <div style={{ fontSize: 22, fontWeight: 500, color: isCrit ? "#A32D2D" : "#854F0B" }}>{group.items.length}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-              <div style={panel}>
-                <div style={{ padding: "16px 18px" }}>
-                  <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 6 }}>Tokens expirados</div>
-                  <div style={{ fontSize: 24, fontWeight: 500, color: summaryStats.tokenIssues > 0 ? "#A32D2D" : "var(--color-text-primary)" }}>{summaryStats.tokenIssues}</div>
-                </div>
-              </div>
-              <div style={panel}>
-                <div style={{ padding: "16px 18px" }}>
-                  <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 6 }}>Saldo baixo</div>
-                  <div style={{ fontSize: 24, fontWeight: 500, color: summaryStats.budgetIssues > 0 ? "#854F0B" : "var(--color-text-primary)" }}>{summaryStats.budgetIssues}</div>
-                </div>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Toggle */}
             {criticalAlerts.length > 0 && (
