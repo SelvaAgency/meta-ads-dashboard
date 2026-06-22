@@ -30,6 +30,7 @@ import {
   createAlert,
   createAlertIfNotExists,
   getAccountThresholds,
+  getActiveCampaignMetaIdsWithRecentSpend,
   purgeDuplicateAlerts,
   purgeDuplicateAnomalies,
   markAnomalyEmailSent,
@@ -397,7 +398,8 @@ async function runRealTimeAlerts(account: { id: number; accountId: string; acces
     }
     const thresholds = await getAccountThresholds(account.id);
     const lowBalanceThreshold = thresholds?.lowBalanceThreshold ? Number(thresholds.lowBalanceThreshold) : 200;
-    const alerts = await checkRealTimeAlerts(account.accountId, account.accessToken, lowBalanceThreshold);
+    const activeCampaignIds = await getActiveCampaignMetaIdsWithRecentSpend(account.id, 3);
+    const alerts = await checkRealTimeAlerts(account.accountId, account.accessToken, lowBalanceThreshold, activeCampaignIds);
     for (const alert of alerts) {
       const result = await createAlertIfNotExists({
         userId: account.userId,

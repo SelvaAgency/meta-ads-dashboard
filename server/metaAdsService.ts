@@ -768,7 +768,8 @@ export interface RealTimeAlert {
 export async function checkRealTimeAlerts(
   accountId: string,
   accessToken: string,
-  lowBalanceThreshold: number = 200
+  lowBalanceThreshold: number = 200,
+  activeCampaignIds: Set<string> | null = null
 ): Promise<RealTimeAlert[]> {
   const alerts: RealTimeAlert[] = [];
   // 1. Check account billing for low balance — apenas contas pre-pagas (sem cartao de credito)
@@ -836,18 +837,24 @@ export async function checkRealTimeAlerts(
     const data = await metaFetch<{ data: Array<{
       id: string;
       name: string;
+      campaign_id?: string;
       effective_status: string;
       review_feedback?: Record<string, string>;
       issues_info?: Array<{ error_code: number; error_message: string; level: string; error_summary: string }>;
     }> }>(`act_${accountId}/ads`, {
       access_token: accessToken,
-      fields: "id,name,effective_status,review_feedback,issues_info",
+      fields: "id,name,campaign_id,effective_status,review_feedback,issues_info",
       limit: "500",
       effective_status: JSON.stringify(["DISAPPROVED", "WITH_ISSUES"]),
     });
 
-    const disapprovedAds = (data.data ?? []).filter(ad => ad.effective_status === "DISAPPROVED");
-    const withIssuesAds = (data.data ?? []).filter(ad => ad.effective_status === "WITH_ISSUES");
+    // So considerar anuncios cuja campanha esta ATIVA e consumindo orcamento recentemente
+    // (evita falsos positivos de campanhas antigas/pausadas que nao impactam o cliente)
+    const isAdInActiveCampaign = (ad: { campaign_id?: string }) =>
+      activeCampaignIds === null || (ad.campaign_id != null && activeCampaignIds.has(ad.campaign_id));
+
+    const disapprovedAds = (data.data ?? []).filter(ad => ad.effective_status === "DISAPPROVED" && isAdInActiveCampaign(ad));
+    const withIssuesAds = (data.data ?? []).filter(ad => ad.effective_status === "WITH_ISSUES" && isAdInActiveCampaign(ad));
 
     if (disapprovedAds.length > 0) {
       const names = disapprovedAds.slice(0, 3).map(ad => ad.name).join(", ");
@@ -884,11 +891,12 @@ export async function checkRealTimeAlerts(
     const data = await metaFetch<{ data: Array<{
       id: string;
       name: string;
+      campaign_id?: string;
       effective_status: string;
       issues_info?: Array<{ error_code: number; error_message: string; level: string; error_summary: string }>;
     }> }>(`act_${accountId}/adsets`, {
       access_token: accessToken,
-      fields: "id,name,effective_status,issues_info",
+      fields: "id,name,campaign_id,effective_status,issues_info",
       limit: "500",
       effective_status: JSON.stringify(["WITH_ISSUES"]),
     });
@@ -901,6 +909,8 @@ export async function checkRealTimeAlerts(
     ];
     const adsetWithIssues = (data.data ?? []).filter(adset => {
       if (adset.effective_status !== "WITH_ISSUES") return false;
+      const isInActiveCampaign = activeCampaignIds === null || (adset.campaign_id != null && activeCampaignIds.has(adset.campaign_id));
+      if (!isInActiveCampaign) return false;
       const issueMsg = adset.issues_info?.[0]?.error_summary ?? "";
       return !SUPPRESSED_ISSUES.some(s => issueMsg.toLowerCase().includes(s));
     });

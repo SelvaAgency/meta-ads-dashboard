@@ -217,6 +217,41 @@ export async function deleteMetaAdAccount(id: number, userId: number) {
 
 // ─── Campaigns ────────────────────────────────────────────────────────────────
 
+// Retorna o conjunto de metaCampaignId que estao ATIVAS e tiveram gasto
+// nos ultimos `days` dias (default 3) — usado para filtrar falsos positivos
+// de alertas tecnicos (criativo rejeitado / erro em anuncio) em campanhas
+// antigas ou pausadas que nao estao mais consumindo orcamento.
+export async function getActiveCampaignMetaIdsWithRecentSpend(accountId: number, days: number = 3): Promise<Set<string>> {
+  const db = await getDb();
+  if (!db) return new Set();
+
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+  const rows = await db
+    .select({
+      metaCampaignId: campaigns.metaCampaignId,
+      totalSpend: sql<number>`SUM(${campaignMetrics.spend})`,
+    })
+    .from(campaigns)
+    .innerJoin(campaignMetrics, eq(campaignMetrics.campaignId, campaigns.id))
+    .where(and(
+      eq(campaigns.accountId, accountId),
+      eq(campaigns.status, "ACTIVE"),
+      gte(campaignMetrics.date, fmt(start)),
+      lte(campaignMetrics.date, fmt(end)),
+    ))
+    .groupBy(campaigns.metaCampaignId);
+
+  const result = new Set<string>();
+  for (const row of rows) {
+    if (Number(row.totalSpend ?? 0) > 0) result.add(row.metaCampaignId);
+  }
+  return result;
+}
+
 export async function getCampaignsByAccountId(accountId: number) {
   const db = await getDb();
   if (!db) return [];

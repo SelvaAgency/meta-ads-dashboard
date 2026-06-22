@@ -99,6 +99,7 @@ function ThresholdsPanel({ account }: { account: any }) {
   const utils = trpc.useUtils();
 
   const { data: saved } = trpc.accounts.getThresholds.useQuery({ accountId: account.id });
+  const { data: billing } = trpc.accounts.billing.useQuery({ accountId: account.id });
   const upsert = trpc.accounts.upsertThresholds.useMutation({
     onSuccess: () => {
       utils.accounts.getThresholds.invalidate({ accountId: account.id });
@@ -128,6 +129,15 @@ function ThresholdsPanel({ account }: { account: any }) {
     const dbKey = keyMap[key]?.[level];
     if (!dbKey) return;
     setVals(prev => ({ ...prev, [dbKey]: v }));
+  }
+
+  function getBalanceVal(): string {
+    if (vals["lowBalanceThreshold"] !== undefined) return vals["lowBalanceThreshold"];
+    return (saved as any)?.lowBalanceThreshold ?? "200.00";
+  }
+
+  function setBalanceVal(v: string) {
+    setVals(prev => ({ ...prev, lowBalanceThreshold: v }));
   }
 
   function handleSave() {
@@ -178,6 +188,26 @@ function ThresholdsPanel({ account }: { account: any }) {
           </div>
         ))}
       </div>
+
+      {billing?.isPrePaid && (
+        <div className="border-t border-border/50 pt-3 mb-3">
+          <p className="text-xs font-medium text-muted-foreground mb-1.5">
+            Alerta de saldo baixo <span className="text-muted-foreground/50">(R$ — apenas contas pré-pagas)</span>
+          </p>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Avisar quando saldo {"<"}</span>
+            <span className="text-xs text-muted-foreground">R$</span>
+            <input
+              type="number"
+              step="0.01"
+              className="w-20 text-xs border border-border rounded px-1.5 py-1 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary text-center"
+              value={getBalanceVal()}
+              onChange={e => setBalanceVal(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
+
       <button
         onClick={handleSave}
         disabled={upsert.isPending || Object.keys(vals).length === 0}
