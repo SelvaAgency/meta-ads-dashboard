@@ -764,44 +764,31 @@ export interface RealTimeAlert {
  * Metric anomalies (ROAS drop, CPA spike, CTR drop, etc.) are handled
  * separately by the anomaly detection engine in analysisService.ts.
  */
+
 export async function checkRealTimeAlerts(
   accountId: string,
-  accessToken: string
+  accessToken: string,
+  lowBalanceThreshold: number = 200
 ): Promise<RealTimeAlert[]> {
   const alerts: RealTimeAlert[] = [];
-
-  // 1. Check account billing for low balance — threshold-based alerts
+  // 1. Check account billing for low balance — apenas contas pre-pagas (sem cartao de credito)
   try {
     const billing = await getAccountBilling(accountId, accessToken);
-    if (billing && billing.remainingBalance !== null) {
+    if (billing && billing.isPrePaid && billing.remainingBalance !== null) {
       const balance = billing.remainingBalance;
-
-      // Thresholds: alertar apenas quando cruzar cada nível
-      // O título inclui o threshold para garantir dedup correto via createAlertIfNotExists
-      // Alertas de saldo apenas para situações CRÍTICAS (evitar ruído)
-      const thresholds = [
-        { limit: 50, severity: "CRITICAL" as const, priority: "CRITICAL" as const, label: "abaixo de R$50 — risco de pausa" },
-      ];
-
-      // Encontrar o threshold mais crítico atingido
-      const activeThreshold = thresholds
-        .filter(t => balance < t.limit)
-        .sort((a, b) => a.limit - b.limit)[0]; // menor threshold = mais crítico
-
-      if (activeThreshold) {
+      if (balance < lowBalanceThreshold) {
         alerts.push({
           type: "BUDGET_WARNING",
-          severity: activeThreshold.severity,
-          priority: activeThreshold.priority,
-          title: `Saldo ${activeThreshold.label}`,
-          message: `Saldo disponível: R$${balance.toFixed(2)}. Recarregue para evitar interrupção das campanhas.`,
-          suggestedAction: "Acesse o Gerenciador de Anúncios e adicione saldo ou atualize o método de pagamento.",
+          severity: "CRITICAL",
+          priority: "CRITICAL",
+          title: `Saldo abaixo de R$${lowBalanceThreshold.toFixed(2)} — risco de pausa`,
+          message: `Saldo disponivel: R$${balance.toFixed(2)}. Recarregue para evitar interrupcao das campanhas.`,
+          suggestedAction: "Acesse o Gerenciador de Anuncios e adicione saldo ou atualize o metodo de pagamento.",
           metricCurrent: `R$${balance.toFixed(2)}`,
-          metricReference: `R$${activeThreshold.limit},00`,
+          metricReference: `R$${lowBalanceThreshold.toFixed(2)}`,
         });
       }
     }
-
     // Manter o check de forma de pagamento ausente (sem mudança)
     if (billing && billing.fundingSourceType === null && billing.fundingSourceDisplay === null) {
       alerts.push({

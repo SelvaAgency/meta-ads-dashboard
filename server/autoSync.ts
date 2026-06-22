@@ -29,6 +29,7 @@ import {
   createAnomalyIfNotExists,
   createAlert,
   createAlertIfNotExists,
+  getAccountThresholds,
   purgeDuplicateAlerts,
   purgeDuplicateAnomalies,
   markAnomalyEmailSent,
@@ -394,7 +395,9 @@ async function runRealTimeAlerts(account: { id: number; accountId: string; acces
       logger.info(`[RealTimeAlerts] Skipping ${account.accountName ?? account.accountId} - token expirado`);
       return;
     }
-    const alerts = await checkRealTimeAlerts(account.accountId, account.accessToken);
+    const thresholds = await getAccountThresholds(account.id);
+    const lowBalanceThreshold = thresholds?.lowBalanceThreshold ? Number(thresholds.lowBalanceThreshold) : 200;
+    const alerts = await checkRealTimeAlerts(account.accountId, account.accessToken, lowBalanceThreshold);
     for (const alert of alerts) {
       const result = await createAlertIfNotExists({
         userId: account.userId,
@@ -834,8 +837,8 @@ export async function startAutoSync() {
   // Daily development progress report at 23:00 UTC (20:00 BRT)
   cron.schedule("0 0 23 * * *", runDailyProgress);
 
-  // Hourly anomaly detection + real-time alerts
-  cron.schedule("0 0 * * * *", runAnomalyDetection);
+  // Daily technical alerts check at 08:55 UTC (05:55 BRT) — runs 5min before the main sync
+  cron.schedule("0 55 8 * * *", runAnomalyDetection);
 
   // Daily cleanup of old read anomalies (09:05 UTC)
   cron.schedule("0 5 9 * * *", async () => {

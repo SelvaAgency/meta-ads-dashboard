@@ -397,6 +397,8 @@ export const accountThresholds = mysqlTable("account_thresholds", {
   // CPM
   cpmGood: decimal("cpmGood", { precision: 10, scale: 2 }),
   cpmRegular: decimal("cpmRegular", { precision: 10, scale: 2 }),
+  // Saldo baixo (apenas contas pré-pagas) — valor em R$ abaixo do qual o alerta dispara
+  lowBalanceThreshold: decimal("lowBalanceThreshold", { precision: 10, scale: 2 }).default("200.00"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

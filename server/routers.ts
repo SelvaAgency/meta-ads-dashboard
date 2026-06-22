@@ -548,6 +548,7 @@ export const appRouter = router({
         cplRegular:  z.string().optional().nullable(),
         cpmGood:     z.string().optional().nullable(),
         cpmRegular:  z.string().optional().nullable(),
+        lowBalanceThreshold: z.string().optional().nullable(),
       }))
       .mutation(async ({ ctx, input }) => {
         await getVerifiedAccount(input.accountId, ctx.user.id);
@@ -570,22 +571,28 @@ export const appRouter = router({
         const account = await getVerifiedAccount(input.accountId, ctx.user.id);
         const billing = await getAccountBilling(account.accountId, account.accessToken);
 
-        // Fire low-balance alert if pre-paid and remaining < R$200
-        if (billing?.isPrePaid && billing.remainingBalance !== null && billing.remainingBalance < 200) {
-          // Create an alert in the DB
-          await createAlertIfNotExists({
-            userId: ctx.user.id,
-            accountId: input.accountId,
-            type: "BUDGET_WARNING",
-            severity: "WARNING",
-            title: "Saldo baixo na conta de anúncios",
-            message: `Saldo remanescente: ${billing.currency} ${billing.remainingBalance.toFixed(2)}. Recomendamos recarregar antes que as campanhas sejam pausadas automaticamente.`,
-          });
-          // Notify owner
-          await notifyOwner({
-            title: `⚠️ Saldo baixo — ${account.accountName ?? account.accountId}`,
-            content: `Saldo remanescente: ${billing.currency} ${billing.remainingBalance.toFixed(2)}. Recarregue para evitar interrupção das campanhas.`,
-          });
+        // Fire low-balance alert if pre-paid and below the account's configured threshold
+        // Usa o mesmo formato de titulo do cron (checkRealTimeAlerts) para garantir dedup correto
+        if (billing?.isPrePaid && billing.remainingBalance !== null) {
+          const thresholdRow = await getAccountThresholds(input.accountId);
+          const lowBalanceThreshold = thresholdRow?.lowBalanceThreshold ? Number(thresholdRow.lowBalanceThreshold) : 200;
+          if (billing.remainingBalance < lowBalanceThreshold) {
+            const title = `Saldo abaixo de R$${lowBalanceThreshold.toFixed(2)} — risco de pausa`;
+            const result = await createAlertIfNotExists({
+              userId: ctx.user.id,
+              accountId: input.accountId,
+              type: "BUDGET_WARNING",
+              severity: "CRITICAL",
+              title,
+              message: `Saldo disponível: R$${billing.remainingBalance.toFixed(2)}. Recarregue para evitar interrupção das campanhas.`,
+            });
+            if (result) {
+              await notifyOwner({
+                title: `⚠️ Saldo baixo — ${account.accountName ?? account.accountId}`,
+                content: `Saldo remanescente: ${billing.currency} ${billing.remainingBalance.toFixed(2)}. Recarregue para evitar interrupção das campanhas.`,
+              });
+            }
+          }
         }
 
         return billing;
