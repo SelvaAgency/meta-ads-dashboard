@@ -234,9 +234,9 @@ export default function AlertsPage() {
           <>
             {/* Summary strip — clicável, filtra por tipo */}
             {(() => {
-              const cards = allGroupedByType.slice(0, 4);
+              const cards = allGroupedByType;
               return (
-                <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(cards.length, 1)}, 1fr)`, gap: 12, marginBottom: 20 }}>
+                <div className="flex gap-3" style={{ overflowX: "auto", scrollbarWidth: "none", marginBottom: 20, paddingBottom: 2 }}>
                   {cards.map((group) => {
                     const cfg = typeConfig[group.type] ?? { icon: AlertTriangle, label: group.type };
                     const Icon = cfg.icon;
@@ -244,13 +244,14 @@ export default function AlertsPage() {
                     const isCrit = CRITICAL_TYPES.has(group.type);
                     return (
                       <div key={group.type} onClick={() => setActiveTypeFilter(isSelected ? null : group.type)}
-                        style={{ ...panel, cursor: "pointer", borderLeft: isSelected ? "4px solid #D4537E" : "0.5px solid var(--color-border-secondary)", transition: "all 0.15s" }}>
+                        className="flex-shrink-0"
+                        style={{ ...panel, width: 190, cursor: "pointer", borderLeft: isSelected ? "4px solid #D4537E" : "0.5px solid var(--color-border-secondary)", transition: "all 0.15s" }}>
                         <div style={{ padding: "16px 18px", display: "flex", alignItems: "center", gap: 12 }}>
                           <div style={{ width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", background: isCrit ? "#FCEBEB" : "#FAEEDA", color: isCrit ? "#A32D2D" : "#854F0B", flexShrink: 0 }}>
                             <Icon size={17} />
                           </div>
-                          <div>
-                            <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4 }}>{cfg.label}</div>
+                          <div className="min-w-0">
+                            <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4 }} className="truncate">{cfg.label}</div>
                             <div style={{ fontSize: 22, fontWeight: 500, color: isCrit ? "#A32D2D" : "#854F0B" }}>{group.items.length}</div>
                           </div>
                         </div>

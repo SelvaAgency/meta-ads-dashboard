@@ -208,8 +208,20 @@ export default function Dashboard() {
   });
   const [creativeTab, setCreativeTab] = useState<"creatives" | "audiences">("creatives");
   const [cardsExpanded, setCardsExpanded] = useState(false);
+  const [alertsStripExpanded, setAlertsStripExpanded] = useState(false);
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
+
+  const { data: accountAlertsRaw } = trpc.alerts.list.useQuery(
+    { accountId: selectedAccountId! },
+    { enabled: !!selectedAccountId, refetchInterval: 60000 }
+  );
+
+  const criticalAccountAlerts = useMemo(() => {
+    const criticalTypes = new Set(["SYNC_ERROR", "PAYMENT_FAILED", "AD_REJECTED", "PIXEL_ERROR", "PAGE_UNLINKED", "CAMPAIGN_PAUSED"]);
+    const warningTypes = new Set(["AD_ERROR", "BUDGET_WARNING", "INSTAGRAM_UNLINKED", "ADSET_NO_DELIVERY"]);
+    return (accountAlertsRaw ?? []).filter((a) => criticalTypes.has(a.type) || warningTypes.has(a.type));
+  }, [accountAlertsRaw]);
 
   // Reset period to default when account changes
   const prevAccountRef = useMemo(() => ({ current: selectedAccountId }), []);
@@ -414,6 +426,45 @@ export default function Dashboard() {
 
         {/* Account summary header — identity, integrations, daily snapshot, AI status */}
         <AccountHeader goalLabel={objInfo.label} goalEmoji={objInfo.emoji} goalType={goalType} />
+
+        {/* Faixa de alertas críticos da conta — recolhida por padrão */}
+        {criticalAccountAlerts.length > 0 && (
+          <Card>
+            <div
+              className="flex items-center justify-between px-6 py-3 cursor-pointer select-none"
+              onClick={() => setAlertsStripExpanded((v) => !v)}
+            >
+              <div className="text-sm font-semibold flex items-center gap-2 text-red-400">
+                <AlertTriangle className="w-4 h-4" />
+                {criticalAccountAlerts.length} alerta{criticalAccountAlerts.length !== 1 ? "s" : ""} crítico{criticalAccountAlerts.length !== 1 ? "s" : ""} nesta conta
+              </div>
+              {alertsStripExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+            </div>
+            {alertsStripExpanded && (
+              <CardContent className="px-6 pb-4 pt-0">
+                <div className="space-y-2">
+                  {criticalAccountAlerts.slice(0, 5).map((alert: any) => (
+                    <div key={alert.id} className="flex items-start gap-2.5 px-3 py-2 rounded-lg bg-red-500/5 border border-red-500/10">
+                      <AlertTriangle className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-medium">{alert.title}</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{alert.message}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-3 w-full text-xs"
+                  onClick={() => navigate("/alerts")}
+                >
+                  Ver todos os alertas
+                </Button>
+              </CardContent>
+            )}
+          </Card>
+        )}
 
         {/* Em andamento — sugestões aplicadas em monitoramento */}
 
