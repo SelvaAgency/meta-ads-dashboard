@@ -74,6 +74,11 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { enabled: isAuthenticated, refetchInterval: 30000 }
   );
 
+  const { data: globalUnreadCount } = trpc.alerts.unreadCount.useQuery(
+    {},
+    { enabled: isAuthenticated, refetchInterval: 30000 }
+  );
+
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
 
@@ -123,7 +128,6 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   const accountNavItems = [
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
-    { path: "/alerts", label: "Alertas", icon: Bell, badge: unreadCount ?? 0 },
     { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
   ];
@@ -226,6 +230,31 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 >
                   <Settings className="w-4 h-4 flex-shrink-0" />
                   {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Configurações</span>}
+                </div>
+              </Link>
+            );
+          })()}
+
+          {/* Alertas — always accessible, badge shows total across all accounts */}
+          {(() => {
+            const isActive = location === "/alerts";
+            return (
+              <Link href="/alerts">
+                <div
+                  className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
+                  style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
+                >
+                  <Bell className="w-4 h-4 flex-shrink-0" />
+                  {sidebarOpen && (
+                    <>
+                      <span className="text-sm font-medium flex-1 truncate">Alertas</span>
+                      {globalUnreadCount != null && globalUnreadCount > 0 && (
+                        <Badge variant="destructive" className="h-5 min-w-5 px-1.5 text-xs flex items-center justify-center font-bold shadow-sm">
+                          {globalUnreadCount > 99 ? "99+" : globalUnreadCount}
+                        </Badge>
+                      )}
+                    </>
+                  )}
                 </div>
               </Link>
             );
@@ -379,14 +408,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                     >
                       <Icon className="w-4 h-4 flex-shrink-0" />
                       {sidebarOpen && (
-                        <>
-                          <span className="text-sm font-medium flex-1 truncate">{item.label}</span>
-                          {item.badge != null && item.badge > 0 && (
-                            <Badge variant="destructive" className="h-5 min-w-5 px-1.5 text-xs flex items-center justify-center font-bold shadow-sm">
-                              {item.badge > 99 ? "99+" : item.badge}
-                            </Badge>
-                          )}
-                        </>
+                        <span className="text-sm font-medium flex-1 truncate">{item.label}</span>
                       )}
                     </div>
                   </Link>
