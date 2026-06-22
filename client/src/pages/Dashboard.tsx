@@ -39,7 +39,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
 import { AccountHeader } from "@/components/AccountHeader";
-import { AlertBlock } from "@/components/AlertBlock";
+import { AlertBlock, typeConfig as alertTypeConfig, CRITICAL_TYPES as alertCriticalTypes, initials as alertInitials } from "@/components/AlertBlock";
 import {
   type GoalType, type KpiDef,
   KPI_CONFIGS, GOAL_LABELS, mapGoalToType,
@@ -432,18 +432,33 @@ export default function Dashboard() {
         {/* Account summary header — identity, integrations, daily snapshot, AI status */}
         <AccountHeader goalLabel={objInfo.label} goalEmoji={objInfo.emoji} goalType={goalType} />
 
-        {/* Faixa de alertas críticos da conta — recolhida por padrão */}
+        {/* Faixa de alertas críticos da conta — mesmo padrão visual do card "Por conta" da página de Alertas */}
         {criticalAccountAlerts.length > 0 && (
-          <Card>
+          <div style={{ background: "#FFFFFF", border: "0.5px solid var(--color-border-secondary)", borderLeft: "4px solid #D4537E", borderRadius: 12, overflow: "hidden" }}>
             <div
-              className="flex items-center justify-between px-6 py-3 cursor-pointer select-none"
               onClick={() => setAlertsStripExpanded((v) => !v)}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", cursor: "pointer", userSelect: "none" as const }}
             >
-              <div className="text-sm font-semibold flex items-center gap-2 text-red-400">
-                <AlertTriangle className="w-4 h-4" />
-                {criticalAccountAlerts.length} alerta{criticalAccountAlerts.length !== 1 ? "s" : ""} crítico{criticalAccountAlerts.length !== 1 ? "s" : ""} nesta conta
+              <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#FBEAF0", color: "#993556", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 500, flexShrink: 0 }}>
+                {alertInitials(activeAccount?.accountName)}
               </div>
-              {alertsStripExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+              <div style={{ fontSize: 13, fontWeight: 500 }}>{activeAccount?.accountName ?? "Conta"}</div>
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  {Array.from(new Set(criticalAccountAlerts.map((a: any) => a.type))).slice(0, 6).map((type: string) => {
+                    const cfg = alertTypeConfig[type] ?? { icon: AlertTriangle };
+                    const Icon = cfg.icon;
+                    const isCrit = alertCriticalTypes.has(type);
+                    return (
+                      <div key={type} style={{ width: 20, height: 20, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", background: isCrit ? "#FCEBEB" : "#FAEEDA", color: isCrit ? "#A32D2D" : "#854F0B", flexShrink: 0 }}>
+                        <Icon size={11} />
+                      </div>
+                    );
+                  })}
+                </div>
+                <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{criticalAccountAlerts.length} alerta{criticalAccountAlerts.length !== 1 ? "s" : ""}</span>
+                <span style={{ fontSize: 12, color: "var(--color-text-secondary)", transform: alertsStripExpanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>▼</span>
+              </div>
             </div>
             {alertsStripExpanded && (
               <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }}>
@@ -467,7 +482,7 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
-          </Card>
+          </div>
         )}
 
         {/* Em andamento — sugestões aplicadas em monitoramento */}
