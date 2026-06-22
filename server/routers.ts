@@ -144,7 +144,7 @@ import {
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
-import { startAutoSync, syncAccount } from "./autoSync";
+import { startAutoSync, syncAccount, syncAlertsForUser } from "./autoSync";
 
 // ─── Helper: computeNextRun ─────────────────────────────────────────────────
 /** Calcula o próximo disparo de um agendamento de relatório. */
@@ -1806,6 +1806,12 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
         }
         return { success: true };
       }),
+
+    // Busca manual de alertas técnicos, além da checagem diária automática
+    sync: protectedProcedure.mutation(async ({ ctx }) => {
+      await syncAlertsForUser(ctx.user.id);
+      return { success: true };
+    }),
   }),// ─── Scheduled Reports ─────────────────────────────────────────────────────
   reports: router({
     list: protectedProcedure.query(async ({ ctx }) => {

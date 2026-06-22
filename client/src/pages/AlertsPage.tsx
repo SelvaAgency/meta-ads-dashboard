@@ -1,7 +1,7 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
 import {
-  AlertTriangle, Bell, BellOff, Info, Loader2,
+  AlertTriangle, Bell, BellOff, Info, Loader2, RefreshCw,
 } from "lucide-react";
 import React, { useState, useMemo } from "react";
 import {
@@ -59,6 +59,10 @@ export default function AlertsPage() {
   const { data: allAlerts, isLoading } = trpc.alerts.listAll.useQuery();
 
   const markRead = trpc.alerts.markRead.useMutation({
+    onSuccess: () => { utils.alerts.listAll.invalidate(); utils.alerts.unreadCount.invalidate(); },
+  });
+
+  const syncAlerts = trpc.alerts.sync.useMutation({
     onSuccess: () => { utils.alerts.listAll.invalidate(); utils.alerts.unreadCount.invalidate(); },
   });
 
@@ -122,9 +126,26 @@ export default function AlertsPage() {
       <div style={{ padding: "24px 28px" }}>
 
         {/* Topbar */}
-        <div style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 18, fontWeight: 500 }}>Alertas</div>
-          <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>Problemas técnicos e eventos das suas contas</div>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 500 }}>Alertas</div>
+            <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>Problemas técnicos e eventos das suas contas</div>
+          </div>
+          <button
+            onClick={() => syncAlerts.mutate()}
+            disabled={syncAlerts.isPending}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "7px 14px", borderRadius: 8,
+              border: "0.5px solid var(--color-border-secondary)",
+              background: "#fff", fontSize: 12, fontWeight: 500,
+              color: "var(--color-text-secondary)", cursor: syncAlerts.isPending ? "default" : "pointer",
+              opacity: syncAlerts.isPending ? 0.7 : 1,
+            }}
+          >
+            <RefreshCw size={13} style={{ animation: syncAlerts.isPending ? "spin 1s linear infinite" : undefined }} />
+            {syncAlerts.isPending ? "Sincronizando..." : "Sincronizar"}
+          </button>
         </div>
 
         {/* Tabs */}

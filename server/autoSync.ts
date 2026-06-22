@@ -429,6 +429,14 @@ async function runRealTimeAlerts(account: { id: number; accountId: string; acces
   }
 }
 
+// Permite disparo manual (botão "Sincronizar" na aba de Avisos) além da checagem diária automática.
+export async function syncAlertsForUser(userId: number) {
+  const accounts = await getMetaAdAccountsByUserId(userId);
+  for (const account of accounts) {
+    await runRealTimeAlerts(account);
+  }
+}
+
 // ─── Scheduled Reports ────────────────────────────────────────────────────────
 
 // Map of accountId → cron job (for dynamic per-account scheduling)
