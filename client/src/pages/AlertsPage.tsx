@@ -130,6 +130,7 @@ export default function AlertsPage() {
   const [activeTab, setActiveTab] = useState<"critical" | "notifications">("critical");
   const [groupMode, setGroupMode] = useState<"account" | "type">("type");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [activeTypeFilter, setActiveTypeFilter] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
   const toggleGroup = (key: string) => {
@@ -217,9 +218,7 @@ export default function AlertsPage() {
           <>
             {/* Summary strip — clicável, filtra por tipo */}
             {(() => {
-              const typeGroups = groupedByType;
-              const cards = typeGroups.slice(0, 4);
-              const [activeTypeFilter, setActiveTypeFilter] = React.useState<string | null>(null);
+              const cards = groupedByType.slice(0, 4);
               return (
                 <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(cards.length, 1)}, 1fr)`, gap: 12, marginBottom: 20 }}>
                   {cards.map((group) => {
