@@ -39,6 +39,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
 import { AccountHeader } from "@/components/AccountHeader";
+import { AlertBlock } from "@/components/AlertBlock";
 import {
   type GoalType, type KpiDef,
   KPI_CONFIGS, GOAL_LABELS, mapGoalToType,
@@ -216,6 +217,10 @@ export default function Dashboard() {
     { accountId: selectedAccountId! },
     { enabled: !!selectedAccountId, refetchInterval: 60000 }
   );
+  const utilsForAlerts = trpc.useUtils();
+  const dismissAlert = trpc.alerts.markRead.useMutation({
+    onSuccess: () => { utilsForAlerts.alerts.list.invalidate(); utilsForAlerts.alerts.unreadCount.invalidate(); },
+  });
 
   const criticalAccountAlerts = useMemo(() => {
     const criticalTypes = new Set(["SYNC_ERROR", "PAYMENT_FAILED", "AD_REJECTED", "PIXEL_ERROR", "PAGE_UNLINKED", "CAMPAIGN_PAUSED"]);
@@ -441,27 +446,26 @@ export default function Dashboard() {
               {alertsStripExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
             </div>
             {alertsStripExpanded && (
-              <CardContent className="px-6 pb-4 pt-0">
-                <div className="space-y-2">
-                  {criticalAccountAlerts.slice(0, 5).map((alert: any) => (
-                    <div key={alert.id} className="flex items-start gap-2.5 px-3 py-2 rounded-lg bg-red-500/5 border border-red-500/10">
-                      <AlertTriangle className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-medium">{alert.title}</div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{alert.message}</div>
-                      </div>
-                    </div>
-                  ))}
+              <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+                {criticalAccountAlerts.slice(0, 5).map((alert: any, i: number) => (
+                  <AlertBlock
+                    key={alert.id}
+                    alert={alert}
+                    onDismiss={() => dismissAlert.mutate({ alertId: alert.id })}
+                    isLast={i === Math.min(criticalAccountAlerts.length, 5) - 1}
+                  />
+                ))}
+                <div style={{ padding: "12px 18px", borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full text-xs"
+                    onClick={() => navigate("/alerts")}
+                  >
+                    Ver todos os alertas
+                  </Button>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-3 w-full text-xs"
-                  onClick={() => navigate("/alerts")}
-                >
-                  Ver todos os alertas
-                </Button>
-              </CardContent>
+              </div>
             )}
           </Card>
         )}
