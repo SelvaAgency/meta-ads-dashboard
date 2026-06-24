@@ -1,5 +1,5 @@
 import { logger } from "./logger";
-import { and, desc, eq, gte, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -1103,6 +1103,18 @@ export async function markAllAlertsReadByAccount(userId: number, accountId: numb
   await db.delete(alerts).where(and(eq(alerts.userId, userId), eq(alerts.accountId, accountId)));
 }
 
+// Limpa apenas as notificacoes informativas (sugestao aplicada, sync, experimento, relatorio)
+// — nao afeta alertas criticos/tecnicos
+export async function clearAllNotifications(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  const notificationTypes = ["SUGGESTION_APPLIED", "EXPERIMENT_UPDATE", "REPORT", "SYNC_COMPLETE"] as const;
+  await db.delete(alerts).where(and(
+    eq(alerts.userId, userId),
+    inArray(alerts.type, notificationTypes as any)
+  ));
+}
+
 /**
  * Remove anomalias duplicadas não resolvidas, mantendo apenas a mais recente
  * de cada combinação accountId + type + metricName.
@@ -1278,6 +1290,18 @@ export async function getExperimentsByUserId(userId: number, accountId?: number)
     .innerJoin(metaAdAccounts, eq(experiments.accountId, metaAdAccounts.id))
     .where(whereClause)
     .orderBy(desc(experiments.createdAt));
+}
+
+// Versao interna sem checagem de userId — uso exclusivo de jobs de sistema (cron)
+export async function getExperimentBasicInfo(id: number): Promise<{ id: number; userId: number; accountId: number; title: string } | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select({ id: experiments.id, userId: experiments.userId, accountId: experiments.accountId, title: experiments.title })
+    .from(experiments)
+    .where(eq(experiments.id, id))
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 export async function getExperimentById(id: number, userId: number) {

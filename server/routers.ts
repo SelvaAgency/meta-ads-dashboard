@@ -34,6 +34,7 @@ import {
   getTodayMetricsForAllAccounts,
   getUrgentAlertsForUser,
   getAllAlertsForUser,
+  clearAllNotifications,
   getAllSuggestionsForUser,
   getSuggestionsHistory,
   updateSuggestionStatus,
@@ -1810,6 +1811,11 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
     // Busca manual de alertas técnicos, além da checagem diária automática
     sync: protectedProcedure.mutation(async ({ ctx }) => {
       await syncAlertsForUser(ctx.user.id);
+      return { success: true };
+    }),
+
+    clearNotifications: protectedProcedure.mutation(async ({ ctx }) => {
+      await clearAllNotifications(ctx.user.id);
       return { success: true };
     }),
   }),// ─── Scheduled Reports ─────────────────────────────────────────────────────

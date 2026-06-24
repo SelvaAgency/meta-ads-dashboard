@@ -235,6 +235,7 @@ export const alerts = mysqlTable("alerts", {
     "ADSET_NO_DELIVERY",
     "SUGGESTION_APPLIED",
     "EXPERIMENT_UPDATE",
+    "SYNC_COMPLETE",
   ]).notNull(),
   severity: mysqlEnum("severity", ["INFO", "WARNING", "CRITICAL"]).notNull(),
   // Prioridade do alerta: CRITICAL=imediato, HIGH=até 30min, MEDIUM=consolidado a cada 2h

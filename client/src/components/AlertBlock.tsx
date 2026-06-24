@@ -1,13 +1,13 @@
 import {
   AlertTriangle, Bell, CreditCard, ExternalLink, FileX,
-  Image, Info, Instagram, Key, Link2Off, Pause, Wallet, Sparkles, Check,
+  Image, Info, Instagram, Key, Link2Off, Pause, Wallet, Sparkles, Check, RefreshCw,
 } from "lucide-react";
 import React from "react";
 import { useLocation } from "wouter";
 
 export const CRITICAL_TYPES = new Set(["SYNC_ERROR", "PAYMENT_FAILED", "AD_REJECTED", "PIXEL_ERROR", "PAGE_UNLINKED", "CAMPAIGN_PAUSED"]);
 export const WARNING_TYPES = new Set(["AD_ERROR", "BUDGET_WARNING", "INSTAGRAM_UNLINKED", "ADSET_NO_DELIVERY"]);
-export const NOTIFICATION_TYPES = new Set(["SUGGESTION_APPLIED", "EXPERIMENT_UPDATE", "REPORT"]);
+export const NOTIFICATION_TYPES = new Set(["SUGGESTION_APPLIED", "EXPERIMENT_UPDATE", "REPORT", "SYNC_COMPLETE"]);
 
 export const typeConfig: Record<string, { icon: React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>; label: string; isTokenIssue?: boolean }> = {
   SYNC_ERROR:      { icon: Key,          label: "Token expirado", isTokenIssue: true },
@@ -23,6 +23,7 @@ export const typeConfig: Record<string, { icon: React.ComponentType<{ size?: num
   SUGGESTION_APPLIED: { icon: Sparkles,  label: "Ação aplicada" },
   EXPERIMENT_UPDATE: { icon: Info,       label: "Experimento" },
   REPORT:          { icon: Bell,         label: "Relatório" },
+  SYNC_COMPLETE:   { icon: RefreshCw,    label: "Sincronização" },
 };
 
 export function timeAgo(date: string | Date): string {

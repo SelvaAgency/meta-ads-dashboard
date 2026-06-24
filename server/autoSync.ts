@@ -31,6 +31,7 @@ import {
   createAlertIfNotExists,
   getAccountThresholds,
   getActiveCampaignMetaIdsWithRecentSpend,
+  getExperimentBasicInfo,
   purgeDuplicateAlerts,
   purgeDuplicateAnomalies,
   markAnomalyEmailSent,
@@ -232,6 +233,21 @@ export async function syncAccount(account: { id: number; accountId: string; acce
     try {
       await markSyncErrorAlertsRead(account.userId, account.id);
     } catch (_) { /* non-blocking */ }
+
+    // Notificacao informativa de sync concluido (1x/dia por conta — titulo fixo com a data
+    // garante dedup via createAlertIfNotExists mesmo se o sync rodar de novo manualmente)
+    try {
+      const todayStr = new Date().toISOString().split("T")[0];
+      await createAlertIfNotExists({
+        userId: account.userId,
+        accountId: account.id,
+        type: "SYNC_COMPLETE" as any,
+        severity: "INFO" as any,
+        title: `Sincronização concluída — ${todayStr}`,
+        message: `${label}: ${metaCampaigns.length} campanhas e ${insights.length} registros de métricas sincronizados com sucesso.`,
+      });
+    } catch (_) { /* non-blocking */ }
+
     logger.info(`[AutoSync] ✓ Account "${label}" synced — ${metaCampaigns.length} campaigns, ${insights.length} insight rows`);
 
     // Refresh AI status summary (non-blocking — failure must not abort sync)
@@ -611,6 +627,19 @@ async function runScheduledReports() {
         });
 
         logger.info(`[ScheduledReports] ✓ Report generated for account ${account.accountId}`);
+
+        // Notificacao informativa de relatorio agendado enviado
+        try {
+          const todayStr = new Date().toISOString().split("T")[0];
+          await createAlertIfNotExists({
+            userId: account.userId,
+            accountId: account.id,
+            type: "REPORT" as any,
+            severity: "INFO" as any,
+            title: `Relatório ${report.frequency === "WEEKLY" ? "semanal" : "diário"} enviado — ${todayStr}`,
+            message: `O relatório agendado de ${account.accountName ?? account.accountId} foi gerado e enviado com sucesso.`,
+          });
+        } catch (_) { /* non-blocking */ }
       } catch (err) {
         console.error(`[ScheduledReports] Error generating report ${report.id}:`, err);
       }
@@ -733,6 +762,21 @@ async function runExperimentCheckpoints() {
         }
         await markCheckpointDone(cp.id, snapshot);
         logger.info(`[Experiments] Checkpoint ${cp.id} (${cp.title}) snapshot done`);
+
+        // Notificacao informativa de mudanca de fase do experimento
+        try {
+          const exp = await getExperimentBasicInfo((cp as any).experimentId);
+          if (exp) {
+            await createAlertIfNotExists({
+              userId: exp.userId,
+              accountId: exp.accountId,
+              type: "EXPERIMENT_UPDATE" as any,
+              severity: "INFO" as any,
+              title: `Experimento avançou: ${exp.title} — ${cp.title}`,
+              message: `O checkpoint "${cp.title}" do experimento "${exp.title}" foi concluído.`,
+            });
+          }
+        } catch (_) { /* non-blocking */ }
       } catch (err) {
         console.error(`[Experiments] Error snapshotting checkpoint ${cp.id}:`, err);
       }

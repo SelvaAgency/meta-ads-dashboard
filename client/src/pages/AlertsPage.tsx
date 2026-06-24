@@ -78,6 +78,25 @@ export default function AlertsPage() {
     return allAlerts.filter((a: any) => NOTIFICATION_TYPES.has(a.type)).slice(0, 50);
   }, [allAlerts]);
 
+  // Notificacoes divididas por conta (sem agrupar/agregar eventos do mesmo tipo)
+  const groupedNotifications = useMemo(() => {
+    const map = new Map<number, { accountName: string | null; items: any[]; lastDate: number }>();
+    for (const n of notifications) {
+      const ts = new Date(n.createdAt).getTime();
+      if (!map.has(n.accountId)) map.set(n.accountId, { accountName: n.accountName, items: [], lastDate: ts });
+      const group = map.get(n.accountId)!;
+      group.items.push(n);
+      if (ts > group.lastDate) group.lastDate = ts;
+    }
+    return Array.from(map.entries())
+      .map(([accountId, v]) => ({ accountId, ...v }))
+      .sort((a, b) => b.lastDate - a.lastDate);
+  }, [notifications]);
+
+  const clearNotifications = trpc.alerts.clearNotifications.useMutation({
+    onSuccess: () => { utils.alerts.listAll.invalidate(); },
+  });
+
   const summaryStats = useMemo(() => {
     const accountSet = new Set(criticalAlerts.map((a: any) => a.accountId));
     const tokenIssues = criticalAlerts.filter((a: any) => a.type === "SYNC_ERROR").length;
@@ -282,19 +301,38 @@ export default function AlertsPage() {
             )}
           </>
         ) : (
-          <div style={panel}>
+          <>
+            {notifications.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+                <div
+                  onClick={() => { if (confirm("Limpar todas as notificações? Esta ação não pode ser desfeita.")) clearNotifications.mutate(); }}
+                  style={{ fontSize: 11, color: "var(--color-text-secondary)", cursor: "pointer", padding: "4px 10px", borderRadius: 8, border: "0.5px solid var(--color-border-secondary)" }}
+                >
+                  Limpar notificações
+                </div>
+              </div>
+            )}
             {notifications.length === 0 ? (
-              <div style={{ padding: "48px 18px", textAlign: "center" }}>
-                <Bell size={32} style={{ color: "var(--color-text-secondary)", opacity: 0.3, marginBottom: 10 }} />
-                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Nenhuma notificação ainda</div>
-                <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Eventos como ações aplicadas e atualizações de experimentos aparecem aqui.</div>
+              <div style={panel}>
+                <div style={{ padding: "48px 18px", textAlign: "center" }}>
+                  <Bell size={32} style={{ color: "var(--color-text-secondary)", opacity: 0.3, marginBottom: 10 }} />
+                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Nenhuma notificação ainda</div>
+                  <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Eventos como ações aplicadas e atualizações de experimentos aparecem aqui.</div>
+                </div>
               </div>
             ) : (
-              notifications.map((notif: any, i: number) => (
-                <NotificationRow key={notif.id} notif={notif} isLast={i === notifications.length - 1} />
+              groupedNotifications.map((group) => (
+                <div key={group.accountId} style={{ ...panel, marginBottom: 12 }}>
+                  <div style={{ padding: "10px 18px", borderBottom: "0.5px solid var(--color-border-tertiary)", fontSize: 12, fontWeight: 500, color: "var(--color-text-secondary)" }}>
+                    {group.accountName}
+                  </div>
+                  {group.items.map((notif: any, i: number) => (
+                    <NotificationRow key={notif.id} notif={notif} isLast={i === group.items.length - 1} />
+                  ))}
+                </div>
               ))
             )}
-          </div>
+          </>
         )}
 
       </div>
