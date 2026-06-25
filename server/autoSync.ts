@@ -111,7 +111,7 @@ const objectiveToGoalFallback: Record<string, string> = {
   OUTCOME_APP_PROMOTION: "APP_INSTALLS",
 };
 
-export async function syncAccount(account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number }) {
+export async function syncAccount(account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number }, opts: { isManual?: boolean } = {}) {
   const { startDate, endDate } = getDateRange(SYNC_DAYS);
   const label = account.accountName ?? account.accountId;
   logger.info(`[AutoSync] Syncing account "${label}" (${account.accountId}) — ${startDate} to ${endDate}`);
@@ -234,16 +234,21 @@ export async function syncAccount(account: { id: number; accountId: string; acce
       await markSyncErrorAlertsRead(account.userId, account.id);
     } catch (_) { /* non-blocking */ }
 
-    // Notificacao informativa de sync concluido (1x/dia por conta — titulo fixo com a data
-    // garante dedup via createAlertIfNotExists mesmo se o sync rodar de novo manualmente)
+    // Notificacao informativa de sync concluido.
+    // Cron automatico: titulo so com data, garante dedup (1x/dia por conta) via createAlertIfNotExists.
+    // Sync manual: titulo com data+hora, sempre cria nova notificacao para dar feedback imediato ao usuario.
     try {
-      const todayStr = new Date().toISOString().split("T")[0];
+      const now = new Date();
+      const todayStr = now.toISOString().split("T")[0];
+      const title = opts.isManual
+        ? `Sincronização concluída — ${todayStr} ${now.toTimeString().slice(0, 5)}`
+        : `Sincronização concluída — ${todayStr}`;
       await createAlertIfNotExists({
         userId: account.userId,
         accountId: account.id,
         type: "SYNC_COMPLETE" as any,
         severity: "INFO" as any,
-        title: `Sincronização concluída — ${todayStr}`,
+        title,
         message: `${label}: ${metaCampaigns.length} campanhas e ${insights.length} registros de métricas sincronizados com sucesso.`,
       });
     } catch (_) { /* non-blocking */ }
@@ -461,7 +466,7 @@ export async function syncAllForUser(userId: number) {
   const accounts = await getMetaAdAccountsByUserId(userId);
   for (const account of accounts) {
     try {
-      await syncAccount(account);
+      await syncAccount(account, { isManual: true });
     } catch (err) {
       console.error(`[ManualSync] Erro ao sincronizar dados da conta ${account.accountId}:`, err);
     }
