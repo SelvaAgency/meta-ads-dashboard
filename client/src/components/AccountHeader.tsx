@@ -144,6 +144,7 @@ export function AccountHeader({
     onSuccess: () => {
       utils.dashboard.overview.invalidate();
       utils.campaigns.performance.invalidate();
+      utils.accounts.list.invalidate(); // atualiza o "sync há Xmin" do AccountHeader
       toast.success("Sincronização concluída");
     },
     onError: () => toast.error("Erro ao sincronizar"),
