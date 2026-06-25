@@ -75,7 +75,8 @@ export function serveStatic(app: Express) {
     try {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       res.setHeader("Pragma", "no-cache");
-      const html = fs.readFileSync(indexPath, "utf-8");
+      let html = fs.readFileSync(indexPath, "utf-8");
+      html = html.replace("</head>", `<script>if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister()));}</script></head>`);
       res.status(200).set({
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
