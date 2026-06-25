@@ -145,7 +145,7 @@ import {
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
-import { startAutoSync, syncAccount, syncAlertsForUser } from "./autoSync";
+import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
 
 // ─── Helper: computeNextRun ─────────────────────────────────────────────────
 /** Calcula o próximo disparo de um agendamento de relatório. */
@@ -1810,7 +1810,7 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
 
     // Busca manual de alertas técnicos, além da checagem diária automática
     sync: protectedProcedure.mutation(async ({ ctx }) => {
-      await syncAlertsForUser(ctx.user.id);
+      await syncAllForUser(ctx.user.id);
       return { success: true };
     }),
 

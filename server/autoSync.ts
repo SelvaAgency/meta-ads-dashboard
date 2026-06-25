@@ -453,6 +453,26 @@ export async function syncAlertsForUser(userId: number) {
   }
 }
 
+// Sincronizacao completa manual: dados (campanhas/metricas) + alertas tecnicos,
+// para todas as contas do usuario. Usado pelo botao "Sincronizar" da pagina de Alertas,
+// que precisa cobrir tanto a aba Critico quanto a aba Notificacoes (sync gera a
+// notificacao SYNC_COMPLETE; runRealTimeAlerts gera os alertas criticos).
+export async function syncAllForUser(userId: number) {
+  const accounts = await getMetaAdAccountsByUserId(userId);
+  for (const account of accounts) {
+    try {
+      await syncAccount(account);
+    } catch (err) {
+      console.error(`[ManualSync] Erro ao sincronizar dados da conta ${account.accountId}:`, err);
+    }
+    try {
+      await runRealTimeAlerts(account);
+    } catch (err) {
+      console.error(`[ManualSync] Erro ao checar alertas da conta ${account.accountId}:`, err);
+    }
+  }
+}
+
 // ─── Scheduled Reports ────────────────────────────────────────────────────────
 
 // Map of accountId → cron job (for dynamic per-account scheduling)
