@@ -73,6 +73,8 @@ export function serveStatic(app: Express) {
   // Read from disk every time to ensure latest build is served
   app.use("*", (_req, res) => {
     try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
       const html = fs.readFileSync(indexPath, "utf-8");
       res.status(200).set({
         "Content-Type": "text/html; charset=utf-8",
