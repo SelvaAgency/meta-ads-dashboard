@@ -189,13 +189,13 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
           {/* Logo */}
           <div className={`flex items-center gap-3 mb-3 min-h-[32px] ${sidebarOpen ? "px-1" : "justify-center"}`}>
-            <SelvaLogo size={40} />
+            <SelvaLogo size={52} />
             {sidebarOpen && (
               <div className="overflow-hidden min-w-0">
                 <p className="text-xs font-semibold truncate" style={{ letterSpacing: "0.04em", color: "#FDFFED" }}>
-                  Brand Tracker
+                  Performance Tracker
                 </p>
-                <p className="text-[10px] truncate" style={{ color: TEXT_DIM }}>by SELVA Space</p>
+                <p className="text-[10px] truncate" style={{ color: TEXT_DIM }}>Powered by SELVA Agency</p>
               </div>
             )}
           </div>
