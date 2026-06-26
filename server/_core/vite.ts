@@ -66,9 +66,14 @@ export function serveStatic(app: Express) {
     }
   }));
 
-  // Redirect root to /login
-  app.get("/", (_req, res) => {
-    res.redirect(302, "/login");
+  // Redirect root: /login se não autenticado, /dashboard se autenticado
+  app.get("/", (req, res) => {
+    const session = req.cookies?.app_session_id;
+    if (session) {
+      res.redirect(302, "/dashboard");
+    } else {
+      res.redirect(302, "/login");
+    }
   });
 
   // Serve index.html dynamically for all other routes (SPA fallback)
