@@ -46,7 +46,7 @@ interface MetaDashboardLayoutProps {
 
 // ─── Colour tokens ────────────────────────────────────────────────────────────
 const ACTIVE_BG   = "rgba(212,83,126,0.15)";
-const ACTIVE_CLR  = "#D4537E";
+const ACTIVE_CLR  = "#EF701B";
 const HOVER_CLS   = "hover:bg-white/[0.06]";
 const TEXT_NORMAL = "rgba(255,255,255,0.55)";
 const TEXT_DIM    = "rgba(255,255,255,0.35)";
@@ -445,7 +445,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             <DropdownMenuTrigger asChild>
               <button className={`w-full flex items-center ${sidebarOpen ? "gap-2.5 px-2" : "justify-center"} py-2 rounded-lg transition-all ${HOVER_CLS}`}>
                 <Avatar className="w-7 h-7 flex-shrink-0">
-                  <AvatarFallback className="text-xs font-bold" style={{ background: "rgba(212,83,126,0.3)", color: ACTIVE_CLR }}>
+                  <AvatarFallback className="text-xs font-bold" style={{ background: "rgba(239,112,27,0.2)", color: ACTIVE_CLR }}>
                     {user?.name?.[0]?.toUpperCase() ?? "U"}
                   </AvatarFallback>
                 </Avatar>
