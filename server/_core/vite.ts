@@ -68,8 +68,9 @@ export function serveStatic(app: Express) {
 
   // Redirect root: /login se não autenticado, /dashboard se autenticado
   app.get("/", (req, res) => {
-    const session = req.cookies?.app_session_id;
-    if (session) {
+    const cookieHeader = req.headers.cookie || "";
+    const hasSession = cookieHeader.includes("app_session_id=");
+    if (hasSession) {
       res.redirect(302, "/dashboard");
     } else {
       res.redirect(302, "/login");
