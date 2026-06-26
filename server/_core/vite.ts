@@ -66,6 +66,11 @@ export function serveStatic(app: Express) {
     }
   }));
 
+  // Redirect root to /login
+  app.get("/", (_req, res) => {
+    res.redirect(302, "/login");
+  });
+
   // Serve index.html dynamically for all other routes (SPA fallback)
   // Read from disk every time to ensure latest build is served
   app.use("*", (_req, res) => {
