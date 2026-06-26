@@ -60,12 +60,9 @@ export function serveStatic(app: Express) {
 
   // Serve static assets (JS, CSS, images) with long cache (they have content hashes)
   app.use(express.static(distPath, {
-    index: false, // Don't serve index.html via express.static
-    setHeaders: (res, filePath) => {
-      // Assets with hashes in filename can be cached forever
-      if (filePath.match(/\.(js|css)$/) && filePath.includes('/assets/')) {
-        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-      }
+    index: false,
+    setHeaders: (res, _filePath) => {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     }
   }));
 
