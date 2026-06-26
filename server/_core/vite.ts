@@ -66,15 +66,20 @@ export function serveStatic(app: Express) {
     }
   }));
 
-  // Redirect root: /login se não autenticado, /dashboard se autenticado
-  app.get("/", (req, res) => {
+  // Redirecionar rotas protegidas para /login se não autenticado
+  app.use((req, res, next) => {
+    const publicPaths = ["/login", "/api/", "/assets/", "/favicon"];
+    const isPublic = publicPaths.some(p => req.path.startsWith(p));
+    if (isPublic) return next();
     const cookieHeader = req.headers.cookie || "";
     const hasSession = cookieHeader.includes("app_session_id=");
-    if (hasSession) {
-      res.redirect(302, "/dashboard");
-    } else {
-      res.redirect(302, "/login");
+    if (!hasSession) {
+      return res.redirect(302, "/login");
     }
+    if (req.path === "/") {
+      return res.redirect(302, "/dashboard");
+    }
+    next();
   });
 
   // Serve index.html dynamically for all other routes (SPA fallback)
