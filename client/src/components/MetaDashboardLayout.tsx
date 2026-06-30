@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  FileSignature,
   FlaskConical,
   Home,
   LayoutDashboard,
@@ -130,6 +131,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
     { path: "/reports", label: "Relatórios", icon: FileText },
+    { path: "/contracts", label: "Contratos", icon: FileSignature },
     { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
   ];
 
