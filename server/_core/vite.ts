@@ -68,7 +68,7 @@ export function serveStatic(app: Express) {
 
   // Redirecionar rotas protegidas para /login se não autenticado
   app.use((req, res, next) => {
-    const publicPaths = ["/login", "/api/", "/assets/", "/favicon"];
+    const publicPaths = ["/login", "/api/", "/assets/", "/favicon", "/r/"];
     const isPublic = publicPaths.some(p => req.path.startsWith(p));
     if (isPublic) return next();
     const cookieHeader = req.headers.cookie || "";
