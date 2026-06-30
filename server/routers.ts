@@ -1831,7 +1831,10 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
             generatedByUserId: ctx.user.id,
           });
         } catch (err: any) {
-          console.error("[reports.generate] INSERT FAILED — code:", err?.code, "errno:", err?.errno, "sqlMessage:", err?.sqlMessage, "sqlState:", err?.sqlState);
+          console.error("[reports.generate] INSERT FAILED — keys:", Object.keys(err ?? {}));
+          console.error("[reports.generate] err.message:", err?.message);
+          console.error("[reports.generate] err.cause:", err?.cause);
+          console.error("[reports.generate] err.cause?.code:", err?.cause?.code, "errno:", err?.cause?.errno, "sqlMessage:", err?.cause?.sqlMessage);
           throw err;
         }
         return { publicToken };
