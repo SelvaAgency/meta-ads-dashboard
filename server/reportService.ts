@@ -129,9 +129,12 @@ export async function assembleReportData(accountId: number, periodStart: string,
   const ads = await getAdsWithInsights(account.accountId, account.accessToken, periodStart, periodEnd, adsetGoalMap);
   const creatives = classifyStatus(rankTopAdsByCost(ads, dbCampaigns, 5));
 
+  const resultLabel = (currentCampaigns[0] as any)?.campaignResultLabel ?? "Resultados";
+
   return {
     account: { id: account.id, name: account.accountName },
     period: { start: periodStart, end: periodEnd },
+    resultLabel,
     metrics,
     weeklyTrend,
     creatives,
@@ -153,11 +156,11 @@ export async function generateReportNarrative(
     .map((a) => `- ${a.adsetName} (${a.status}): custo/resultado ${fmtBRL(a.costPerResult)}, ${a.conversions} resultados`)
     .join("\n");
 
-  const prompt = `Você é um analista sênior de mídia paga da agência SELVA, escrevendo um relatório quinzenal para o cliente "${data.account.name}" (período ${data.period.start} a ${data.period.end}).
+  const prompt = `Você é um analista sênior de mídia paga da agência SELVA, escrevendo um relatório quinzenal para o cliente "${data.account.name}" (período ${data.period.start} a ${data.period.end}). O resultado principal dessa conta se chama "${data.resultLabel}" — use sempre esse termo, nunca "conversões" genericamente.
 
 Retorne um JSON com exatamente 5 campos:
-- "headline": frase de efeito resumindo o achado principal do período, no estilo "Duas semanas, um padrão claro: X converte mais que Y" — máx 110 caracteres
-- "resumo": 1-2 frases conectando investimento e resultado, tom direto e específico (cite números)
+- "headline": frase curta e direta resumindo o achado principal do período — pode ser uma comparação (formato A vs B), uma tendência (queda de custo, crescimento) ou um destaque isolado. Não force uma comparação se os dados não tiverem essa forma. Máx 110 caracteres
+- "resumo": 1-2 frases conectando investimento e resultado, tom direto. Para variações percentuais e tendência, use linguagem relativa ("caiu quase pela metade", "dobrou") em vez de recalcular números com casas decimais — os valores exatos já aparecem nos cards ao lado, não precisam ser repetidos com precisão na prosa
 - "positivo": 1-2 frases sobre o que funcionou bem, citando o criativo/público específico
 - "atencao": 1-2 frases sobre o que precisa de atenção, citando o criativo/público específico — pode ser null se nada precisar de atenção
 - "proximosPassos": array de até 3 strings, ações concretas e específicas (citar nome de criativo/conjunto quando aplicável)
@@ -165,13 +168,13 @@ Retorne um JSON com exatamente 5 campos:
 REGRAS:
 - Português brasileiro, tom direto e profissional, sem floreio
 - NÃO use markdown
-- Cite números reais dos dados abaixo, nunca invente
+- Se for citar um valor monetário exato (não uma variação), copie exatamente como aparece nos dados abaixo — nunca arredonde ou digite de memória
 - "positivo" e "atencao" devem se basear no status (good/warn) dos itens abaixo, não reclassifique por conta própria
 
 DADOS DO PERÍODO:
 - Investimento: ${fmtBRL(data.metrics.investment.current)} (anterior: ${fmtBRL(data.metrics.investment.previous)}, variação ${pctChange(data.metrics.investment.current!, data.metrics.investment.previous!)}%)
 - Alcance: ${data.metrics.reach.current} (anterior: ${data.metrics.reach.previous})
-- Conversões: ${data.metrics.conversions.current} (anterior: ${data.metrics.conversions.previous})
+- ${data.resultLabel}: ${data.metrics.conversions.current} (anterior: ${data.metrics.conversions.previous})
 - Custo por conversão: ${fmtBRL(data.metrics.costPerConversion.current)} (anterior: ${fmtBRL(data.metrics.costPerConversion.previous)})
 
 CRIATIVOS (ordenados por custo/resultado; "good" = performando bem, "warn" = precisa atenção):
