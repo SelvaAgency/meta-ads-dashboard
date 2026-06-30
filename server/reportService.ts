@@ -146,7 +146,7 @@ export async function generateReportNarrative(
   data: Awaited<ReturnType<typeof assembleReportData>>,
   contextNotes?: string
 ) {
-  const fmtBRL = (n: number | null) => (n === null ? "N/D" : `R$${n.toFixed(2)}`);
+  const fmtBRL = (n: number | null) => (n === null ? "N/D" : `R$${n.toFixed(2).replace(".", ",")}`);
   const pctChange = (curr: number, prev: number) => (prev > 0 ? (((curr - prev) / prev) * 100).toFixed(0) : "N/D");
 
   const creativesLines = data.creatives
