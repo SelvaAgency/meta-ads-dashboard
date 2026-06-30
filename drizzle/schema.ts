@@ -1,5 +1,6 @@
 import {
   bigint,
+  date,
   decimal,
   int,
   json,
@@ -450,6 +451,24 @@ export const accountContext = mysqlTable("account_context", {
 });
 export type AccountContext = typeof accountContext.$inferSelect;
 export type InsertAccountContext = typeof accountContext.$inferInsert;
+
+// ─── Report Snapshots (relatórios gerados para clientes) ─────────────────────
+export const reportSnapshots = mysqlTable("report_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  tier: mysqlEnum("tier", ["CURTO", "MEDIO", "COMPLETO"]).notNull(),
+  publicToken: varchar("publicToken", { length: 64 }).notNull().unique(),
+  periodStart: date("periodStart").notNull(),
+  periodEnd: date("periodEnd").notNull(),
+  contextNotes: text("contextNotes"),
+  dataSnapshot: text("dataSnapshot"),
+  narrative: text("narrative"),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  generatedByUserId: int("generatedByUserId"),
+  isActive: boolean("isActive").default(true).notNull(),
+});
+export type ReportSnapshot = typeof reportSnapshots.$inferSelect;
+export type InsertReportSnapshot = typeof reportSnapshots.$inferInsert;
 
 // ─── Agency Context (memória da agência) ─────────────────────────────────────
 export const agencyContext = mysqlTable("agency_context", {
