@@ -1818,17 +1818,22 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
         const data = await assembleReportData(input.accountId, input.periodStart, input.periodEnd);
         const narrative = await generateReportNarrative(data, input.contextNotes);
         const publicToken = nanoid(24);
-        await createReportSnapshot({
-          accountId: input.accountId,
-          tier: input.tier,
-          publicToken,
-          periodStart: input.periodStart,
-          periodEnd: input.periodEnd,
-          contextNotes: input.contextNotes ?? null,
-          dataSnapshot: JSON.stringify(data),
-          narrative: JSON.stringify(narrative),
-          generatedByUserId: ctx.user.id,
-        });
+        try {
+          await createReportSnapshot({
+            accountId: input.accountId,
+            tier: input.tier,
+            publicToken,
+            periodStart: input.periodStart,
+            periodEnd: input.periodEnd,
+            contextNotes: input.contextNotes ?? null,
+            dataSnapshot: JSON.stringify(data),
+            narrative: JSON.stringify(narrative),
+            generatedByUserId: ctx.user.id,
+          });
+        } catch (err: any) {
+          console.error("[reports.generate] INSERT FAILED — code:", err?.code, "errno:", err?.errno, "sqlMessage:", err?.sqlMessage, "sqlState:", err?.sqlState);
+          throw err;
+        }
         return { publicToken };
       }),
 
