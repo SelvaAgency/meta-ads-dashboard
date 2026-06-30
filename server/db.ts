@@ -34,8 +34,10 @@ import {
   accountContext,
   agencyContext,
   actionOutcomes,
+  reportSnapshots,
   type InsertAccountContext,
   type InsertAgencyContext,
+  type InsertReportSnapshot,
 } from "../drizzle/schema";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -908,6 +910,19 @@ export async function createScheduledReport(data: InsertScheduledReport) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   await db.insert(scheduledReports).values(data);
+}
+
+export async function createReportSnapshot(data: InsertReportSnapshot) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.insert(reportSnapshots).values(data);
+}
+
+export async function getReportSnapshotByToken(token: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(reportSnapshots).where(eq(reportSnapshots.publicToken, token)).limit(1);
+  return result[0];
 }
 
 export async function updateScheduledReport(
