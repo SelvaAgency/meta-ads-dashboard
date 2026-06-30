@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Route, Switch, useRoute } from "wouter";
 import Settings from "./pages/Settings";
 import { useEffect } from "react";
 import { useLocation } from "wouter";
@@ -32,7 +32,6 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={SuggestionsHub} />
-      <Route path="/r/:token" component={ReportView} />
       
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/campaigns" component={Campaigns} />
@@ -54,6 +53,16 @@ function Router() {
 }
 
 function App() {
+  const [isReportRoute] = useRoute("/r/:token");
+
+  if (isReportRoute) {
+    return (
+      <ErrorBoundary>
+        <ReportView />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
