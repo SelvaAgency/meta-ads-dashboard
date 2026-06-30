@@ -1163,6 +1163,37 @@ export async function getAdSetsWithInsights(
 /**
  * Fetch ads/creatives with full insights for 3-level AI analysis.
  */
+export function rankTopAdsByCost(
+  ads: Awaited<ReturnType<typeof getAdsWithInsights>>,
+  dbCampaigns: Array<{ metaCampaignId: string | null; name?: string | null }>,
+  limit = 5
+) {
+  return ads
+    .filter((ad) => ad.spend > 0)
+    .sort((a, b) => {
+      if (!a.conversions) return 1;
+      if (!b.conversions) return -1;
+      return (a.spend / a.conversions) - (b.spend / b.conversions);
+    })
+    .slice(0, limit)
+    .map((ad) => {
+      const dbCamp = dbCampaigns.find((c: any) => c.metaCampaignId === ad.campaign_id);
+      return {
+        adId: ad.id,
+        adName: ad.name,
+        ctr: ad.ctr,
+        conversions: ad.conversions,
+        spend: ad.spend,
+        costPerResult: ad.conversions > 0 ? ad.spend / ad.conversions : null,
+        campaignId: ad.campaign_id,
+        campaignName: dbCamp?.name ?? null,
+        thumbnailUrl: (ad as any).thumbnail_url ?? null,
+        creativeId: (ad as any).creative_id ?? null,
+        managerUrl: ad.preview_url,
+      };
+    });
+}
+
 export async function getAdsWithInsights(
   accountId: string,
   accessToken: string,
