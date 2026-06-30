@@ -13,6 +13,7 @@ import Campaigns from "./pages/Campaigns";
 import Suggestions from "./pages/Suggestions";
 import SuggestionsHub from "./pages/SuggestionsHub";
 import Reports from "./pages/Reports";
+import ReportView from "./pages/ReportView";
 
 import AlertsPage from "./pages/AlertsPage";
 import GoogleAds from "./pages/GoogleAds";
@@ -31,6 +32,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={SuggestionsHub} />
+      <Route path="/r/:token" component={ReportView} />
       
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/campaigns" component={Campaigns} />
