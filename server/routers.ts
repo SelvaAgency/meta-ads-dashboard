@@ -101,7 +101,7 @@ import {
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
-import { assembleReportData } from "./reportService";
+import { assembleReportData, generateReportNarrative } from "./reportService";
 import { invokeLLM, extractTextContent } from "./_core/llm";
 import {
   getGoogleAdsConfig,
@@ -1787,10 +1787,19 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
     // TEMPORÁRIO — só pra validar o dado bruto visualmente. Remover quando
     // o fluxo de geração de verdade (reportService -> snapshot -> token público) existir.
     previewData: protectedProcedure
-      .input(z.object({ accountId: z.number(), periodStart: z.string(), periodEnd: z.string() }))
+      .input(z.object({
+        accountId: z.number(),
+        periodStart: z.string(),
+        periodEnd: z.string(),
+        contextNotes: z.string().optional(),
+        withNarrative: z.boolean().optional(),
+      }))
       .query(async ({ ctx, input }) => {
         await getVerifiedAccount(input.accountId, ctx.user.id);
-        return assembleReportData(input.accountId, input.periodStart, input.periodEnd);
+        const data = await assembleReportData(input.accountId, input.periodStart, input.periodEnd);
+        if (!input.withNarrative) return { data, narrative: null };
+        const narrative = await generateReportNarrative(data, input.contextNotes);
+        return { data, narrative };
       }),
 
      create: protectedProcedure
