@@ -92,6 +92,7 @@ import {
   calculateRoas,
   calculateCpa,
   getAdSetsWithInsights,
+  rankTopAdsetsByCost,
   getAdsWithInsights,
   getDemographicsInsights,
   getDailyAccountInsights,
@@ -1427,27 +1428,7 @@ export const appRouter = router({
         }
 
         const dbCampsForAdsets = await getCampaignsByAccountId(input.accountId);
-        return adsets
-          .filter((as) => as.spend > 0)
-          .sort((a, b) => {
-            if (!a.conversions) return 1;
-            if (!b.conversions) return -1;
-            return (a.spend / a.conversions) - (b.spend / b.conversions);
-          })
-          .slice(0, 5)
-          .map((as) => {
-            const dbCamp = dbCampsForAdsets.find((c: any) => c.metaCampaignId === (as as any).campaign_id);
-            return {
-              adsetId: as.id,
-              adsetName: as.name,
-              ctr: as.ctr,
-              conversions: as.conversions,
-              spend: as.spend,
-              costPerResult: as.conversions > 0 ? as.spend / as.conversions : null,
-              campaignId: (as as any).campaign_id,
-              campaignName: dbCamp?.name ?? null,
-            };
-          });
+        return rankTopAdsetsByCost(adsets, dbCampsForAdsets, 5);
       }),
 
     // Diagnostic: raw Meta API call without error swallowing

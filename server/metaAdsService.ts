@@ -1044,6 +1044,34 @@ export interface AdWithInsights {
  * Fetch adsets with full insights for 3-level AI analysis.
  * Returns adsets with targeting info + performance metrics.
  */
+export function rankTopAdsetsByCost(
+  adsets: Awaited<ReturnType<typeof getAdSetsWithInsights>>,
+  dbCampaigns: Array<{ metaCampaignId: string | null; name?: string | null }>,
+  limit = 5
+) {
+  return adsets
+    .filter((as) => as.spend > 0)
+    .sort((a, b) => {
+      if (!a.conversions) return 1;
+      if (!b.conversions) return -1;
+      return (a.spend / a.conversions) - (b.spend / b.conversions);
+    })
+    .slice(0, limit)
+    .map((as) => {
+      const dbCamp = dbCampaigns.find((c: any) => c.metaCampaignId === (as as any).campaign_id);
+      return {
+        adsetId: as.id,
+        adsetName: as.name,
+        ctr: as.ctr,
+        conversions: as.conversions,
+        spend: as.spend,
+        costPerResult: as.conversions > 0 ? as.spend / as.conversions : null,
+        campaignId: (as as any).campaign_id,
+        campaignName: dbCamp?.name ?? null,
+      };
+    });
+}
+
 export async function getAdSetsWithInsights(
   accountId: string,
   accessToken: string,
