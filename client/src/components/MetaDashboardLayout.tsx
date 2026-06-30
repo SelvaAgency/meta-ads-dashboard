@@ -131,7 +131,6 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
     { path: "/reports", label: "Relatórios", icon: FileText },
-    { path: "/contracts", label: "Contratos", icon: FileSignature },
     { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
   ];
 
@@ -233,6 +232,26 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             );
           })()}
 
+          {/* ADMINISTRATIVO section */}
+          {sidebarOpen && (
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em] mt-2 mb-1 px-1" style={{ color: "rgba(255,255,255,0.28)" }}>
+              Administrativo
+            </p>
+          )}
+          {(() => {
+            const isActive = location === "/contracts";
+            return (
+              <Link href="/contracts">
+                <div
+                  className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
+                  style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
+                >
+                  <FileSignature className="w-4 h-4 flex-shrink-0" />
+                  {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Contratos</span>}
+                </div>
+              </Link>
+            );
+          })()}
           {/* Alertas — always accessible, badge shows total across all accounts */}
           {(() => {
             const isActive = location === "/alerts";
