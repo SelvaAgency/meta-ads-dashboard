@@ -101,6 +101,7 @@ import {
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
+import { assembleReportData } from "./reportService";
 import { invokeLLM, extractTextContent } from "./_core/llm";
 import {
   getGoogleAdsConfig,
@@ -1782,6 +1783,15 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
     list: protectedProcedure.query(async ({ ctx }) => {
       return getScheduledReportsByUserId(ctx.user.id);
     }),
+
+    // TEMPORÁRIO — só pra validar o dado bruto visualmente. Remover quando
+    // o fluxo de geração de verdade (reportService -> snapshot -> token público) existir.
+    previewData: protectedProcedure
+      .input(z.object({ accountId: z.number(), periodStart: z.string(), periodEnd: z.string() }))
+      .query(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id);
+        return assembleReportData(input.accountId, input.periodStart, input.periodEnd);
+      }),
 
      create: protectedProcedure
       .input(
