@@ -69,6 +69,8 @@ import {
   upsertAgencyContext,
   getActionOutcome,
   updateActionOutcome,
+  createReportSnapshot,
+  getReportSnapshotByToken,
 } from "./db";
 import {
   validateToken,
@@ -102,6 +104,7 @@ import {
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
 import { assembleReportData, generateReportNarrative } from "./reportService";
+import { nanoid } from "nanoid";
 import { invokeLLM, extractTextContent } from "./_core/llm";
 import {
   getGoogleAdsConfig,
@@ -1800,6 +1803,48 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
         if (!input.withNarrative) return { data, narrative: null };
         const narrative = await generateReportNarrative(data, input.contextNotes);
         return { data, narrative };
+      }),
+
+    generate: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        periodStart: z.string(),
+        periodEnd: z.string(),
+        tier: z.enum(["CURTO", "MEDIO", "COMPLETO"]).default("CURTO"),
+        contextNotes: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id);
+        const data = await assembleReportData(input.accountId, input.periodStart, input.periodEnd);
+        const narrative = await generateReportNarrative(data, input.contextNotes);
+        const publicToken = nanoid(24);
+        await createReportSnapshot({
+          accountId: input.accountId,
+          tier: input.tier,
+          publicToken,
+          periodStart: new Date(input.periodStart + "T12:00:00"),
+          periodEnd: new Date(input.periodEnd + "T12:00:00"),
+          contextNotes: input.contextNotes ?? null,
+          dataSnapshot: JSON.stringify(data),
+          narrative: JSON.stringify(narrative),
+          generatedByUserId: ctx.user.id,
+        });
+        return { publicToken };
+      }),
+
+    getPublic: publicProcedure
+      .input(z.object({ token: z.string() }))
+      .query(async ({ input }) => {
+        const snapshot = await getReportSnapshotByToken(input.token);
+        if (!snapshot || !snapshot.isActive) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Relatório não encontrado" });
+        }
+        return {
+          tier: snapshot.tier,
+          period: { start: snapshot.periodStart, end: snapshot.periodEnd },
+          data: JSON.parse(snapshot.dataSnapshot ?? "{}"),
+          narrative: JSON.parse(snapshot.narrative ?? "null"),
+        };
       }),
 
      create: protectedProcedure
