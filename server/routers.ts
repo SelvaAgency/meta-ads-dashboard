@@ -3591,6 +3591,60 @@ Responda APENAS com JSON válido, sem markdown, no formato exato:
         return { value: extractTextContent(response) };
       }),
   }),
+  contracts: router({
+    extractFields: protectedProcedure
+      .input(z.object({
+        text: z.string().optional(),
+        fileBase64: z.string().optional(),
+        fileMime: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const prompt = 'Extraia os dados contratuais deste colaborador PJ. Retorne SOMENTE um JSON válido sem markdown com os campos: '
+          + 'razaoSocial, tipo (MEI/EI/LTDA), cnpj, enderecosede, nomeRepresentante, genero (F para feminino ou M para masculino), '
+          + 'estadoCivil, rg, rgOrgao, cpf, enderecoResidencial (string vazia se igual à sede), '
+          + 'objeto (texto para cláusula 1.1, ex: "gestão, planejamento e execução do composto de trabalhos relacionados a X"), '
+          + 'valor (ex: "R$ 3.200,00"), valorRevisao (string vazia se não mencionado).';
+
+        if (input.fileBase64 && input.fileMime) {
+          if (input.fileMime.startsWith('image/')) {
+            const dataUrl = `data:${input.fileMime};base64,${input.fileBase64}`;
+            const response = await invokeLLM({
+              messages: [{ role: 'user' as const, content: [
+                { type: 'image_url' as const, image_url: { url: dataUrl } },
+                { type: 'text' as const, text: prompt },
+              ]}],
+              maxTokens: 1000,
+            });
+            const text = extractTextContent(response);
+            return JSON.parse(text.replace(/```json|```/g, '').trim());
+          }
+          const apiKey = process.env.ANTHROPIC_API_KEY;
+          if (!apiKey) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'API key not configured' });
+          const resp = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-6', max_tokens: 1000,
+              messages: [{ role: 'user', content: [
+                { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: input.fileBase64 } },
+                { type: 'text', text: prompt },
+              ]}],
+            }),
+          });
+          if (!resp.ok) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'PDF extraction failed' });
+          const data = await resp.json() as { content: Array<{ type: string; text?: string }> };
+          const text = (data.content ?? []).filter((b: { type: string }) => b.type === 'text').map((b: { text?: string }) => b.text ?? '').join('');
+          return JSON.parse(text.replace(/```json|```/g, '').trim());
+        }
+
+        const response = await invokeLLM({
+          messages: [{ role: 'user' as const, content: 'Dados brutos do colaborador:\n' + (input.text ?? '') + '\n\n' + prompt }],
+          maxTokens: 1000,
+        });
+        const text = extractTextContent(response);
+        return JSON.parse(text.replace(/```json|```/g, '').trim());
+      }),
+  }),
   context: contextRouter,
 });
 export type AppRouter = typeof appRouter;
