@@ -925,6 +925,18 @@ export async function getReportSnapshotByToken(token: string) {
   return result[0];
 }
 
+export async function getReportSnapshotsByAccountId(accountId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(reportSnapshots)
+    .where(eq(reportSnapshots.accountId, accountId))
+    .orderBy(desc(reportSnapshots.generatedAt))
+    .limit(20);
+}
+
+
 export async function updateScheduledReport(
   id: number,
   data: Partial<{ isActive: boolean; frequency: "DAILY" | "WEEKLY"; lastRunAt: Date; nextRunAt: Date; lastReportContent: string }>

@@ -71,6 +71,7 @@ import {
   updateActionOutcome,
   createReportSnapshot,
   getReportSnapshotByToken,
+  getReportSnapshotsByAccountId,
 } from "./db";
 import {
   validateToken,
@@ -1845,6 +1846,22 @@ Escreva em portuguÃªs brasileiro, de forma direta e profissional. Destaque padrÃ
           data: JSON.parse(snapshot.dataSnapshot ?? "{}"),
           narrative: JSON.parse(snapshot.narrative ?? "null"),
         };
+      }),
+
+    listSnapshots: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id);
+        const rows = await getReportSnapshotsByAccountId(input.accountId);
+        return rows.map((r) => ({
+          id: r.id,
+          tier: r.tier,
+          publicToken: r.publicToken,
+          periodStart: r.periodStart,
+          periodEnd: r.periodEnd,
+          generatedAt: r.generatedAt,
+          isActive: r.isActive,
+        }));
       }),
 
      create: protectedProcedure
