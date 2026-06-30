@@ -16,6 +16,11 @@ function shiftPeriod(startDate: string, endDate: string) {
   return { prevStart: fmtDate(prevStart), prevEnd: fmtDate(prevEnd) };
 }
 
+function round2(n: number | null): number | null {
+  if (n === null) return null;
+  return Math.round(n * 100) / 100;
+}
+
 function sumPeriod(rows: Array<{ totalSpend?: any; totalReach?: any; totalConversions?: any }>) {
   return rows.reduce(
     (acc, c) => {
@@ -34,10 +39,10 @@ function withComparison(
 ) {
   const cpc = (t: typeof current) => (t.conversions > 0 ? t.spend / t.conversions : null);
   return {
-    investment: { current: current.spend, previous: previous.spend },
+    investment: { current: round2(current.spend), previous: round2(previous.spend) },
     reach: { current: current.reach, previous: previous.reach },
     conversions: { current: current.conversions, previous: previous.conversions },
-    costPerConversion: { current: cpc(current), previous: cpc(previous) },
+    costPerConversion: { current: round2(cpc(current)), previous: round2(cpc(previous)) },
   };
 }
 
@@ -45,26 +50,32 @@ function bucketWeeklyTrend(
   dailyRows: Array<{ date: string; totalSpend?: any; totalReach?: any; totalConversions?: any }>,
   weeks = 8
 ) {
-  const buckets: Record<string, { spend: number; reach: number; conversions: number }> = {};
+  const buckets: Record<string, { spend: number; reach: number; conversions: number; days: number }> = {};
   for (const row of dailyRows) {
     if (!row.date) continue;
     const d = new Date(row.date + "T12:00:00");
     const weekStart = new Date(d);
     weekStart.setDate(d.getDate() - d.getDay());
     const key = fmtDate(weekStart);
-    if (!buckets[key]) buckets[key] = { spend: 0, reach: 0, conversions: 0 };
+    if (!buckets[key]) buckets[key] = { spend: 0, reach: 0, conversions: 0, days: 0 };
     buckets[key].spend += Number(row.totalSpend ?? 0);
     buckets[key].reach += Number(row.totalReach ?? 0);
     buckets[key].conversions += Number(row.totalConversions ?? 0);
+    buckets[key].days += 1;
   }
+  // Descarta a última semana se ela não tiver os 7 dias completos —
+  // evita o gráfico mostrar uma "queda" que é só a semana ainda não ter terminado.
+  const allKeysSorted = Object.keys(buckets).sort();
+  const lastKey = allKeysSorted[allKeysSorted.length - 1];
+  if (lastKey && buckets[lastKey].days < 7) delete buckets[lastKey];
   const sortedKeys = Object.keys(buckets).sort().slice(-weeks);
   return {
-    investment: sortedKeys.map((k) => ({ week: k, value: buckets[k].spend })),
+    investment: sortedKeys.map((k) => ({ week: k, value: round2(buckets[k].spend) })),
     reach: sortedKeys.map((k) => ({ week: k, value: buckets[k].reach })),
     conversions: sortedKeys.map((k) => ({ week: k, value: buckets[k].conversions })),
     costPerConversion: sortedKeys.map((k) => ({
       week: k,
-      value: buckets[k].conversions > 0 ? buckets[k].spend / buckets[k].conversions : null,
+      value: round2(buckets[k].conversions > 0 ? buckets[k].spend / buckets[k].conversions : null),
     })),
   };
 }
