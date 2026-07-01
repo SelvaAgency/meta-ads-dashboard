@@ -14,6 +14,7 @@ import Suggestions from "./pages/Suggestions";
 import SuggestionsHub from "./pages/SuggestionsHub";
 import Reports from "./pages/Reports";
 import Contracts from "./pages/Contracts";
+import Admin from "./pages/Admin";
 import ReportView from "./pages/ReportView";
 
 import AlertsPage from "./pages/AlertsPage";
@@ -41,6 +42,7 @@ function Router() {
       <Route path="/suggestions-hub" component={() => <RedirectTo to="/" />} />
       <Route path="/reports" component={Reports} />
       <Route path="/contracts" component={Contracts} />
+      <Route path="/admin" component={Admin} />
       <Route path="/google-ads" component={GoogleAds} />
       <Route path="/social-networks" component={SocialNetworks} />
       <Route path="/settings" component={Settings} />
