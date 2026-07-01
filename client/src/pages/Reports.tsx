@@ -36,7 +36,7 @@ function fmtDateBR(s: string | null | undefined) {
 }
 
 export default function Reports() {
-  const { activeAccountId, accounts } = useSelectedAccount();
+  const { selectedAccountId: activeAccountId, accounts } = useSelectedAccount();
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const accountId = selectedAccountId ?? activeAccountId ?? null;
 
