@@ -110,9 +110,9 @@ export function AgendaCard() {
   const softError = q.isError && connected;
 
   return (
-    <Card className="gap-4 py-5">
+    <Card className="gap-4 py-5 h-full">
       {/* Header: título + sincronizar */}
-      <div className="px-5 flex items-center gap-2.5">
+      <div className="px-5 flex items-center gap-2.5 flex-shrink-0">
         <span className="w-7 h-7 rounded-lg bg-primary/20 text-accent flex items-center justify-center flex-shrink-0">
           <CalendarCheck className="w-4 h-4" />
         </span>
@@ -130,17 +130,17 @@ export function AgendaCard() {
         )}
       </div>
 
-      {/* Corpo */}
-      <div className="px-5">
+      {/* Corpo — ocupa o espaço do meio */}
+      <div className="px-5 flex-1">
         {body}
         {softError && (
           <p className="mt-2 text-[11px] text-muted-foreground">Não foi possível atualizar agora.</p>
         )}
       </div>
 
-      {/* Rodapé: última atualização + abrir Google Calendar */}
+      {/* Rodapé — fixado na base do card (mt-auto) */}
       {connected && (
-        <div className="px-5 flex items-center justify-between gap-3">
+        <div className="px-5 mt-auto flex-shrink-0 flex items-center justify-between gap-3">
           <span className="text-[11px] text-muted-foreground">
             {updatedAt ? formatUpdated(updatedAt) : ""}
           </span>
