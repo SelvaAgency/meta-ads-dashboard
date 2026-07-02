@@ -48,6 +48,7 @@ import {
   getActiveCampaignsForDisplay,
   getMetaAdAccountById,
   getMetaAdAccountsByUserId,
+  getAllActiveMetaAdAccountsForListing,
   getScheduledReportsByUserId,
   getAnomaliesByAccountId,
   getSuggestionsByAccountId,
@@ -625,12 +626,15 @@ export const appRouter = router({
 
   // ─── Meta Ad Accounts ──────────────────────────────────────────────────────
   accounts: router({
-    list: protectedProcedure.query(async ({ ctx }) => {
-      const accounts = await getMetaAdAccountsByUserId(ctx.user.id);
-      // Enrich with token error status from alerts
+    // Lista GLOBAL de clientes/contas: qualquer usuário logado vê todas as
+    // contas ativas (clientes não são filtrados por usuário/role). Não depende
+    // mais da conta "owner" (contato@selva.agency).
+    list: protectedProcedure.query(async () => {
+      const accounts = await getAllActiveMetaAdAccountsForListing();
+      // Enrich with token error status from alerts (do dono da conta).
       const accountsWithStatus = await Promise.all(
         accounts.map(async (acc) => {
-          const recentAlerts = await getAlertsByAccountId(ctx.user.id, acc.id);
+          const recentAlerts = await getAlertsByAccountId(acc.userId, acc.id);
           const hasTokenError = recentAlerts.some(
             (a) => a.type === "SYNC_ERROR" && !a.isRead && a.title.startsWith("Token expirado")
           );
@@ -1878,7 +1882,8 @@ export const appRouter = router({
       const cached = await getDailyBriefing(ctx.user.id, today);
       if (cached) return { content: cached };
 
-      const accounts = await getMetaAdAccountsByUserId(ctx.user.id);
+      // Clientes globais → briefing considera todas as contas ativas.
+      const accounts = await getAllActiveMetaAdAccountsForListing();
       if (!accounts.length) return { content: null };
 
       const now = new Date();

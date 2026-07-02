@@ -187,6 +187,29 @@ export async function getAllActiveMetaAdAccounts() {
   if (!db) return [];
   return db.select().from(metaAdAccounts).where(eq(metaAdAccounts.isActive, true));
 }
+
+/**
+ * Lista GLOBAL de contas ativas (deduplicadas por accountId, mantendo a mais
+ * recente). Clientes/contas são globais no Selva Spaces: qualquer usuário
+ * logado vê todos. Não filtra por userId (roles limitam funcionalidades, não
+ * clientes). Ações sensíveis continuam protegidas por role no backend.
+ */
+export async function getAllActiveMetaAdAccountsForListing() {
+  const db = await getDb();
+  if (!db) return [];
+  const accounts = await db
+    .select()
+    .from(metaAdAccounts)
+    .where(eq(metaAdAccounts.isActive, true))
+    .orderBy(desc(metaAdAccounts.createdAt));
+
+  const seen = new Set<string>();
+  return accounts.filter((acc) => {
+    if (seen.has(acc.accountId)) return false;
+    seen.add(acc.accountId);
+    return true;
+  });
+}
 export async function getMetaAdAccountsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -747,8 +770,8 @@ export async function getTodayMetricsForAllAccounts(userId: number) {
     })
     .from(campaignMetrics)
     .innerJoin(metaAdAccounts, eq(campaignMetrics.accountId, metaAdAccounts.id))
+    // Clientes são globais → métricas de TODAS as contas ativas (não por userId).
     .where(and(
-      eq(metaAdAccounts.userId, userId),
       sql`${campaignMetrics.date} IN (${today}, ${yday})`,
       eq(metaAdAccounts.isActive, true)
     ))
@@ -771,8 +794,9 @@ export async function getUrgentAlertsForUser(userId: number) {
     })
     .from(alerts)
     .innerJoin(metaAdAccounts, eq(alerts.accountId, metaAdAccounts.id))
+    // Clientes são globais → alertas urgentes de TODAS as contas ativas.
     .where(and(
-      eq(alerts.userId, userId),
+      eq(metaAdAccounts.isActive, true),
       eq(alerts.isRead, false),
       or(eq(alerts.severity, "CRITICAL"), eq(alerts.severity, "WARNING"))
     ))
@@ -803,9 +827,9 @@ export async function getAllSuggestionsForUser(userId: number) {
     })
     .from(aiSuggestions)
     .innerJoin(metaAdAccounts, eq(aiSuggestions.accountId, metaAdAccounts.id))
+    // Clientes são globais → sugestões de TODAS as contas ativas (não por userId).
     .where(
       and(
-        eq(metaAdAccounts.userId, userId),
         eq(metaAdAccounts.isActive, true),
         eq(aiSuggestions.status, "pending"),
         eq(aiSuggestions.isDismissed, false)
@@ -820,9 +844,10 @@ export async function getAllSuggestionsForUser(userId: number) {
     .select({ count: sql<number>`COUNT(*)` })
     .from(aiSuggestions)
     .innerJoin(metaAdAccounts, eq(aiSuggestions.accountId, metaAdAccounts.id))
+    // Clientes são globais → contagem de aplicadas hoje em TODAS as contas ativas.
     .where(
       and(
-        eq(metaAdAccounts.userId, userId),
+        eq(metaAdAccounts.isActive, true),
         eq(aiSuggestions.status, "applied"),
         gte(aiSuggestions.appliedAt, todayStart)
       )
