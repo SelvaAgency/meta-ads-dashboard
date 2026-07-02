@@ -55,8 +55,21 @@ const TEXT_NORMAL = "rgba(255,255,255,0.55)";
 const TEXT_DIM    = "rgba(255,255,255,0.35)";
 const DIVIDER     = "0.5px solid rgba(255,255,255,0.08)";
 
+// Quando este layout roda embutido (iframe same-origin) dentro do Selva Spaces,
+// a conta/logout ficam na sidebar principal do Spaces. Detectamos o embed pelo
+// iframe (persiste na navegação interna) — sem postMessage nem DOM cross-origin.
+function useIsEmbedded() {
+  try {
+    if (window.self !== window.top) return true;
+  } catch {
+    return true; // acesso a window.top bloqueado → estamos embutidos
+  }
+  return new URLSearchParams(window.location.search).get("embedded") === "1";
+}
+
 export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProps) {
   const { user, loading, isAuthenticated, logout } = useAuth();
+  const isEmbedded = useIsEmbedded();
   const [location, navigate] = useLocation();
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [hovering, setHovering] = useState(false);
@@ -465,6 +478,9 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
         </div>
 
         {/* ── User footer ───────────────────────────────────────────────────── */}
+        {/* Oculto quando embutido no Selva Spaces (a conta/logout ficam na
+            sidebar principal do Spaces). Visível no uso direto do dashboard. */}
+        {!isEmbedded && (
         <div style={{ borderTop: DIVIDER }} className="p-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -494,6 +510,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        )}
       </aside>
 
       {/* ═══════════════════════════ MAIN CONTENT ═════════════════════════════ */}

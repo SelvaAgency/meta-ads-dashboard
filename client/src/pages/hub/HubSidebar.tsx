@@ -36,7 +36,6 @@ import {
   FileSignature,
   ScrollText,
   ExternalLink,
-  PanelLeft,
   type LucideIcon,
 } from "lucide-react";
 import { SelvaLogo } from "@/components/SelvaLogo";
@@ -220,14 +219,14 @@ function TrackerItem({ item, open, active }: { item: Extract<NavItem, { kind: "a
 
 export function HubSidebar() {
   const [location] = useLocation();
-  const [pinned, setPinned] = useState(true);
   const [hovering, setHovering] = useState(false);
   const leaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Qualquer app integrado aberto → colapsa automaticamente. O pin do usuário é
-  // preservado e volta a valer assim que ele sai do app (Home/páginas simples).
+  // Colapso inteligente (sem botão manual):
+  //  · Home / páginas simples → expandida.
+  //  · App integrado          → colapsada automaticamente; hover expande.
   const appMode = isIntegratedAppRoute(location);
-  const open = appMode ? hovering : pinned || hovering;
+  const open = appMode ? hovering : true;
 
   const isActive = (item: NavItem) => {
     if (item.kind === "app") return location === item.href;
@@ -237,7 +236,7 @@ export function HubSidebar() {
 
   return (
     <aside
-      className={`${open ? "w-64" : "w-16"} flex-shrink-0 flex-col hidden md:flex transition-all duration-200`}
+      className={`${open ? "w-64" : "w-16"} flex-shrink-0 flex flex-col hidden md:flex transition-all duration-200`}
       style={{ background: "#0A0A0A", borderRight: "1px solid rgba(255,255,255,0.06)" }}
       onMouseEnter={() => {
         if (leaveTimeout.current) clearTimeout(leaveTimeout.current);
@@ -247,8 +246,8 @@ export function HubSidebar() {
         leaveTimeout.current = setTimeout(() => setHovering(false), 300);
       }}
     >
-      {/* Logo / nome visual */}
-      <div className={`pt-5 pb-3 ${open ? "px-3" : "px-2"}`}>
+      {/* Logo / nome visual (fixo no topo) */}
+      <div className={`flex-shrink-0 pt-5 pb-3 ${open ? "px-3" : "px-2"}`}>
         <div className={`flex items-center gap-3 mb-1 min-h-[32px] ${open ? "px-1" : "justify-center"}`}>
           <SelvaLogo size={52} />
           {open && (
@@ -264,15 +263,16 @@ export function HubSidebar() {
         </div>
       </div>
 
-      {/* Navegação global */}
-      <div className={`flex flex-col gap-0.5 ${open ? "px-3" : "px-2"}`}>
-        {NAV_GLOBAL.map((item) => (
-          <NavRow key={item.label} item={item} open={open} active={isActive(item)} />
-        ))}
-      </div>
+      {/* Navegação (rola de forma independente; perfil no rodapé nunca sai da tela) */}
+      <nav className={`flex-1 overflow-y-auto min-h-0 py-1 ${open ? "px-3" : "px-2"}`}>
+        {/* Navegação global */}
+        <div className="flex flex-col gap-0.5">
+          {NAV_GLOBAL.map((item) => (
+            <NavRow key={item.label} item={item} open={open} active={isActive(item)} />
+          ))}
+        </div>
 
-      {/* Grupos de produtos */}
-      <div className={`flex-1 overflow-y-auto py-2 ${open ? "px-3" : "px-2"}`}>
+        {/* Grupos de produtos */}
         {NAV_GROUPS.map((group) => (
           <div key={group.label} className="mt-2">
             <div style={{ borderTop: DIVIDER, margin: "8px 4px 2px" }} />
@@ -295,27 +295,10 @@ export function HubSidebar() {
             </div>
           </div>
         ))}
-      </div>
+      </nav>
 
-      {/* Pin / recolher barra */}
-      <div style={{ borderTop: DIVIDER }} className={`p-2 ${open ? "" : "flex justify-center"}`}>
-        <button
-          onClick={() => setPinned((p) => !p)}
-          className={`flex items-center ${open ? "gap-3 px-3 w-full" : "justify-center"} py-2 rounded-lg transition-all ${HOVER_CLS}`}
-          style={{ color: TEXT_NORMAL }}
-          title={pinned ? "Recolher barra" : "Fixar barra"}
-        >
-          <PanelLeft className="w-4 h-4 flex-shrink-0" />
-          {open && (
-            <span className="text-sm font-medium flex-1 text-left truncate">
-              {pinned ? "Recolher barra" : "Fixar barra"}
-            </span>
-          )}
-        </button>
-      </div>
-
-      {/* Conta logada — menu global (perfil, configurações, sair) */}
-      <div style={{ borderTop: DIVIDER }} className="p-2">
+      {/* Conta logada — menu global fixo no rodapé (perfil, configurações, sair) */}
+      <div style={{ borderTop: DIVIDER }} className="flex-shrink-0 p-2">
         <HubUserMenu open={open} />
       </div>
     </aside>

@@ -66,7 +66,8 @@ export function serveStatic(app: Express) {
     }
   }));
 
-  // Redirecionar rotas protegidas para /login se não autenticado
+  // Redirecionar rotas protegidas para /login se não autenticado.
+  // A raiz "/" é o Selva Spaces (SPA) — NÃO redirecionar para /dashboard.
   app.use((req, res, next) => {
     const publicPaths = ["/login", "/api/", "/assets/", "/favicon", "/r/"];
     const isPublic = publicPaths.some(p => req.path.startsWith(p));
@@ -75,9 +76,6 @@ export function serveStatic(app: Express) {
     const hasSession = cookieHeader.includes("app_session_id=");
     if (!hasSession) {
       return res.redirect(302, "/login");
-    }
-    if (req.path === "/") {
-      return res.redirect(302, "/dashboard");
     }
     next();
   });

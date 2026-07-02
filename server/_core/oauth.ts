@@ -38,7 +38,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Brand Tracker — SELVA SPACE</title>
+  <title>Selva Spaces</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400&display=swap" rel="stylesheet"/>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -93,13 +93,13 @@ const LOGIN_HTML = `<!DOCTYPE html>
       </svg>
     </div>
     <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
-      <div class="brand-name">Brand Tracker</div>
+      <div class="brand-name">Selva Spaces</div>
       <div class="brand-sub">Powered by <a href="https://www.selva.agency" target="_blank">SELVA Agency</a></div>
     </div>
     <hr/>
     <div style="display:flex;flex-direction:column;gap:6px;">
-      <div class="copy-title">Acesse sua plataforma</div>
-      <div class="copy-sub">Inteligência de performance digital.</div>
+      <div class="copy-title">Acesse o ambiente interno da Selva.</div>
+      <div class="copy-sub">Espaço único da equipe.</div>
     </div>
     <div class="error" id="err">{{ERROR}}</div>
     <form method="POST" action="/api/auth/login" style="width:100%;display:flex;flex-direction:column;gap:16px;">
@@ -113,7 +113,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
           <input id="password" name="password" type="password" autocomplete="current-password" required />
         </div>
       </div>
-      <button type="submit">Entrar no Brand Tracker</button>
+      <button type="submit">Entrar</button>
     </form>
     <a href="https://www.selva.agency" class="footer-link">← SELVA Agency</a>
   </div>
@@ -192,6 +192,7 @@ export function registerOAuthRoutes(app: Express) {
 
     const cookieOptions = getSessionCookieOptions(req);
     res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-    res.redirect(302, "/dashboard");
+    // Pós-login → Home do Selva Spaces (raiz).
+    res.redirect(302, "/");
   });
 }

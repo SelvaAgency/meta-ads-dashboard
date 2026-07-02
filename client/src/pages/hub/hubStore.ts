@@ -38,7 +38,8 @@ export interface ProfilePrefs {
   /** "MM-DD" — apenas dia/mês bastam para o aviso de aniversário. */
   birthDate?: string;
   jobTitle?: string;
-  avatarUrl?: string;
+  // NOTA: sem avatarUrl. Upload de foto depende de storage real (ver
+  // HubSettings → TODO(storage)); até lá o avatar é por iniciais.
 }
 
 const KEYS = {

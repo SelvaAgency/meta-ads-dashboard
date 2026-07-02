@@ -10,7 +10,7 @@
 import { useLocation } from "wouter";
 import { ChevronsUpDown, LogOut, Settings, User as UserIcon } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,7 +19,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useProfilePrefs } from "./hubStore";
 
 const ACTIVE_CLR = "#D4537E";
 const TEXT_DIM = "rgba(255,255,255,0.35)";
@@ -28,12 +27,10 @@ const HOVER_CLS = "hover:bg-white/[0.06]";
 export function HubUserMenu({ open }: { open: boolean }) {
   const { user, logout } = useAuth();
   const [, navigate] = useLocation();
-  const [prefs] = useProfilePrefs();
 
   const name = (user as any)?.name ?? "Usuário";
   const email = (user as any)?.email ?? "";
   const initial = name?.[0]?.toUpperCase() ?? "U";
-  const avatarUrl = prefs.avatarUrl;
 
   return (
     <DropdownMenu>
@@ -43,7 +40,6 @@ export function HubUserMenu({ open }: { open: boolean }) {
           title={open ? undefined : name}
         >
           <Avatar className="w-7 h-7 flex-shrink-0">
-            {avatarUrl && <AvatarImage src={avatarUrl} alt="" />}
             <AvatarFallback className="text-xs font-bold" style={{ background: "rgba(212,83,126,0.3)", color: ACTIVE_CLR }}>
               {initial}
             </AvatarFallback>

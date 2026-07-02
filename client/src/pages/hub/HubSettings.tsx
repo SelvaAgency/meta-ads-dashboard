@@ -75,6 +75,7 @@ function ProfileSection() {
   const name = (user as any)?.name ?? "";
   const email = (user as any)?.email ?? "";
   const role = (user as any)?.role ?? "user";
+  const initial = (name?.[0] ?? "U").toUpperCase();
 
   const save = () => {
     setPrefs(draft);
@@ -84,6 +85,22 @@ function ProfileSection() {
 
   return (
     <SectionCard icon={UserIcon} title="Perfil" description="Seus dados dentro do Selva Spaces.">
+      {/* Foto de perfil — por iniciais. Upload real depende de storage. */}
+      <div className="flex items-center gap-4 mb-5">
+        <div
+          className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold flex-shrink-0"
+          style={{ background: "rgba(212,83,126,0.18)", color: "#D4537E" }}
+        >
+          {initial}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          <p className="font-medium text-foreground">Foto de perfil</p>
+          {/* TODO(storage): habilitar upload de foto quando houver bucket/endpoint
+              seguro (S3/volume). Até lá, avatar por iniciais. */}
+          <p className="mt-0.5">O envio de foto será ativado quando o storage estiver configurado.</p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Nome — vem da autenticação (somente leitura) */}
         <div className="flex flex-col gap-1.5">
@@ -95,7 +112,7 @@ function ProfileSection() {
           <Label className="text-xs">E-mail</Label>
           <Input value={email} readOnly disabled />
         </div>
-        {/* Cargo/função — editável (local) */}
+        {/* Cargo/função — editável; ainda não persistido no backend */}
         <div className="flex flex-col gap-1.5">
           <Label className="text-xs">Cargo / função</Label>
           <Input
@@ -116,15 +133,6 @@ function ProfileSection() {
             }}
           />
         </div>
-        {/* Avatar por URL — editável (local); upload real depende de storage */}
-        <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <Label className="text-xs">Foto / avatar (URL)</Label>
-          <Input
-            value={draft.avatarUrl ?? ""}
-            placeholder="https://…"
-            onChange={(e) => setDraft({ ...draft, avatarUrl: e.target.value })}
-          />
-        </div>
         {/* Role — somente leitura (usuário comum não altera a própria permissão) */}
         <div className="flex flex-col gap-1.5">
           <Label className="text-xs">Permissão</Label>
@@ -134,7 +142,7 @@ function ProfileSection() {
         </div>
       </div>
 
-      <div className="mt-5 flex items-center gap-3">
+      <div className="mt-5 flex flex-wrap items-center gap-3">
         <button
           onClick={save}
           className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 hover:opacity-90 transition-opacity"
@@ -143,8 +151,9 @@ function ProfileSection() {
           {saved ? "Salvo" : "Salvar perfil"}
         </button>
         <span className="text-[11px] text-muted-foreground">
-          {/* TODO(backend): persistir perfil via tRPC (users.update). */}
-          Salvo localmente por enquanto — persistência real virá do backend.
+          {/* TODO(backend): persistir Cargo e Aniversário via tRPC (users.update)
+              + colunas na tabela users. Hoje ficam só neste navegador. */}
+          Cargo e aniversário ficam salvos apenas neste navegador até a integração com o backend.
         </span>
       </div>
     </SectionCard>
@@ -224,7 +233,7 @@ function NewsAdminSection() {
       </button>
       <p className="mt-2 text-[11px] text-muted-foreground">
         {/* TODO(backend): persistir via tRPC (news.list/upsert/delete). */}
-        Alterações ficam salvas localmente até a integração com o backend.
+        Solução intermediária: as notícias ficam salvas apenas neste navegador até a integração com o backend.
       </p>
     </SectionCard>
   );
@@ -284,13 +293,25 @@ function SelvaTVAdminSection() {
           </div>
         ))}
       </div>
-      <button onClick={add} className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:opacity-80">
-        <Plus className="w-4 h-4" /> Adicionar imagem (por URL)
-      </button>
+      <div className="mt-3 flex flex-wrap items-center gap-4">
+        <button onClick={add} className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:opacity-80">
+          <Plus className="w-4 h-4" /> Adicionar imagem por URL
+        </button>
+        {/* Estado preparado para quando houver storage — sem upload fake. */}
+        <button
+          type="button"
+          disabled
+          title="Requer storage configurado"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground/60 cursor-not-allowed"
+        >
+          <ImageIcon className="w-4 h-4" /> Enviar arquivo (em breve)
+        </button>
+      </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
-        {/* TODO(storage): não há upload de arquivo — bucket/endpoint ainda não
-            definido. Por ora, imagens são adicionadas por URL. Ver docs. */}
-        Upload de arquivo depende de storage (S3/volume) — por enquanto, use URL de imagem já hospedada.
+        {/* TODO(storage): habilitar upload de arquivo quando houver bucket/endpoint
+            seguro (S3/Railway volume). Por ora, apenas URL de imagem já hospedada. */}
+        Solução intermediária: as imagens são referenciadas por URL e ficam salvas apenas neste
+        navegador. O upload de arquivo será ativado quando o storage estiver configurado.
       </p>
     </SectionCard>
   );
