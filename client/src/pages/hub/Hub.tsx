@@ -11,15 +11,16 @@
 import { useMemo } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CalendarCheck, ClipboardCheck, Square } from "lucide-react";
+import { ClipboardCheck, Square } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card } from "@/components/ui/card";
 import { HubShell } from "./HubShell";
 import { SelvaTV } from "./SelvaTV";
 import { NewsTicker } from "./NewsTicker";
-import { getAgendaEvents, getTrelloCards, greetingForHour, firstName } from "./hubMocks";
+import { getTrelloCards, greetingForHour, firstName } from "./hubMocks";
 import type { NewsItem, SelvaTVImage } from "./hubMocks";
 import { useNewsStore, useSelvaTVStore } from "./hubStore";
+import { AgendaCard } from "./AgendaCard";
 
 export default function Hub() {
   const { user } = useAuth();
@@ -27,8 +28,7 @@ export default function Hub() {
   const [storedNews] = useNewsStore();
   const [storedTV] = useSelvaTVStore();
 
-  // Adapters mockados (Calendar/Trello) — resolvidos uma vez.
-  const agenda = useMemo(() => getAgendaEvents(), []);
+  // Trello segue mockado nesta etapa (não integrado ainda).
   const cards = useMemo(() => getTrelloCards(), []);
 
   // News/SelvaTV ativos, vindos do store (admin edita em Configurações).
@@ -59,30 +59,9 @@ export default function Hub() {
               <p className="text-sm text-muted-foreground capitalize mt-0.5">{today}</p>
             </header>
 
-            {/* Cards: Agenda + Meus cards */}
+            {/* Cards: Agenda (Google Calendar real) + Meus cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Agenda de hoje (mock Google Calendar) */}
-              <Card className="gap-4 py-5">
-                <div className="px-5 flex items-center gap-2.5">
-                  <span className="w-7 h-7 rounded-lg bg-primary/20 text-accent flex items-center justify-center flex-shrink-0">
-                    <CalendarCheck className="w-4 h-4" />
-                  </span>
-                  <h2 className="text-sm font-semibold">Agenda de hoje</h2>
-                </div>
-                <div className="px-5 flex flex-col gap-2.5">
-                  {agenda.map((ev) => (
-                    <div
-                      key={`${ev.time}-${ev.title}`}
-                      className={`flex items-center gap-3 text-sm ${ev.free ? "text-muted-foreground" : ""}`}
-                    >
-                      <span className={`min-w-[48px] font-semibold ${ev.free ? "text-muted-foreground" : "text-foreground"}`}>
-                        {ev.time}
-                      </span>
-                      <span>{ev.title}</span>
-                    </div>
-                  ))}
-                </div>
-              </Card>
+              <AgendaCard />
 
               {/* Meus cards (mock Trello) */}
               <Card className="gap-4 py-5">

@@ -9,6 +9,11 @@ export const ENV = {
   // Local admin credentials
   adminEmail: process.env.ADMIN_EMAIL ?? "",
   adminPasswordHash: process.env.ADMIN_PASSWORD_HASH ?? "",
+  // Google Calendar (integração por usuário — OAuth)
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+  googleRedirectUri: process.env.GOOGLE_REDIRECT_URI ?? "",
+  integrationsEncryptionKey: process.env.INTEGRATIONS_ENCRYPTION_KEY ?? "",
   // Google Ads API credentials
   googleAdsDeveloperToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
   googleAdsClientId: process.env.GOOGLE_ADS_CLIENT_ID ?? "",

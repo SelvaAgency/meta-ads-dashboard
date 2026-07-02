@@ -22,6 +22,9 @@ import {
   ChevronUp,
   ChevronDown,
   Check,
+  Plug,
+  Calendar,
+  Loader2,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -328,6 +331,73 @@ function SelvaTVAdminSection() {
   );
 }
 
+// ─── Integrações (Google Calendar) ───────────────────────────────────────────
+const GOOGLE_CONNECT_URL = "/api/integrations/google/start";
+
+function IntegrationsSection() {
+  const utils = trpc.useUtils();
+  const status = trpc.integrations.googleCalendar.status.useQuery(undefined, { retry: false });
+  const disconnect = trpc.integrations.googleCalendar.disconnect.useMutation({
+    onSuccess: () => utils.integrations.googleCalendar.status.invalidate(),
+  });
+
+  // Feedback do retorno do OAuth (?calendar=connected|error|unavailable).
+  const calResult = new URLSearchParams(window.location.search).get("calendar");
+
+  const s = status.data;
+  const available = s?.available ?? false;
+  const connected = s?.connected ?? false;
+
+  return (
+    <SectionCard icon={Plug} title="Integrações" description="Conecte suas contas para trazer dados reais à Home.">
+      {calResult === "connected" && <p className="mb-3 text-xs text-emerald-600">Google Calendar conectado com sucesso.</p>}
+      {calResult === "error" && <p className="mb-3 text-xs text-destructive">Não foi possível conectar o Google Calendar. Tente novamente.</p>}
+      {calResult === "unavailable" && <p className="mb-3 text-xs text-muted-foreground">Integração de calendário ainda não configurada.</p>}
+
+      <div className="rounded-lg border border-border p-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="w-9 h-9 rounded-lg bg-primary/15 text-accent flex items-center justify-center flex-shrink-0">
+            <Calendar className="w-4 h-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Google Calendar</p>
+            <p className="text-xs text-muted-foreground truncate">
+              {status.isLoading
+                ? "Verificando…"
+                : !available
+                ? "Indisponível (não configurado no servidor)"
+                : connected
+                ? `Conectado${s?.email ? ` · ${s.email}` : ""}`
+                : "Não conectado"}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex-shrink-0">
+          {status.isLoading ? (
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          ) : !available ? null : connected ? (
+            <button
+              onClick={() => disconnect.mutate()}
+              disabled={disconnect.isPending}
+              className="text-xs font-medium text-muted-foreground hover:text-destructive disabled:opacity-60"
+            >
+              {disconnect.isPending ? "Desconectando…" : "Desconectar"}
+            </button>
+          ) : (
+            <a
+              href={GOOGLE_CONNECT_URL}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium px-3 py-1.5 hover:opacity-90"
+            >
+              <Plug className="w-3.5 h-3.5" /> Conectar
+            </a>
+          )}
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
 export default function HubSettings() {
   const { user } = useAuth();
   // News/SelvaTV: admin E developer podem gerenciar conteúdo operacional.
@@ -348,6 +418,8 @@ export default function HubSettings() {
           </header>
 
           <ProfileSection />
+
+          <IntegrationsSection />
 
           {canContent && (
             <>

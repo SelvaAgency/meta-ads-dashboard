@@ -66,6 +66,27 @@ async function main() {
       console.log("[ensure-schema] ok  · role enum já aceita 'developer'");
     }
 
+    // 3) Tabela de integrações por usuário (Google Calendar etc.).
+    //    CREATE TABLE IF NOT EXISTS é idempotente por natureza.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`user_integrations\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`userId\` INT NOT NULL,
+        \`provider\` VARCHAR(64) NOT NULL,
+        \`providerAccountEmail\` VARCHAR(320) NULL,
+        \`accessTokenEncrypted\` TEXT NULL,
+        \`refreshTokenEncrypted\` TEXT NULL,
+        \`expiresAt\` TIMESTAMP NULL,
+        \`scopes\` TEXT NULL,
+        \`active\` BOOLEAN NOT NULL DEFAULT 1,
+        \`connectedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        \`disconnectedAt\` TIMESTAMP NULL,
+        UNIQUE KEY \`uq_user_provider\` (\`userId\`, \`provider\`)
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabela user_integrations garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

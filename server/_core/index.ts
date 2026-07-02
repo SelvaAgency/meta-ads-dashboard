@@ -6,6 +6,7 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerGoogleOAuthRoutes } from "../googleOAuthCallback";
+import { registerIntegrationsRoutes } from "../integrationsOAuth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -39,6 +40,7 @@ async function startServer() {
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   registerGoogleOAuthRoutes(app);
+  registerIntegrationsRoutes(app);
   // Debug endpoint - raw Meta API diagnostic
   app.get('/api/debug-ads/:id', async (req, res) => {
     try {

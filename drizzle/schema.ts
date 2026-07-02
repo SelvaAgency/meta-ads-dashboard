@@ -38,6 +38,28 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
+// ─── Integrações por usuário (OAuth) — ex.: Google Calendar ───────────────────
+// Tokens são SEMPRE guardados criptografados (AES-256-GCM). Nunca em texto.
+export const userIntegrations = mysqlTable("user_integrations", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  provider: varchar("provider", { length: 64 }).notNull(), // "google_calendar"
+  providerAccountEmail: varchar("providerAccountEmail", { length: 320 }),
+  accessTokenEncrypted: text("accessTokenEncrypted"),
+  refreshTokenEncrypted: text("refreshTokenEncrypted"),
+  expiresAt: timestamp("expiresAt"),
+  scopes: text("scopes"),
+  active: boolean("active").default(true).notNull(),
+  connectedAt: timestamp("connectedAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  disconnectedAt: timestamp("disconnectedAt"),
+}, (table) => ({
+  uqUserProvider: uniqueIndex("uq_user_provider").on(table.userId, table.provider),
+}));
+
+export type UserIntegration = typeof userIntegrations.$inferSelect;
+export type InsertUserIntegration = typeof userIntegrations.$inferInsert;
+
 // Meta Ads accounts connected by each user
 export const metaAdAccounts = mysqlTable("meta_ad_accounts", {
   id: int("id").autoincrement().primaryKey(),

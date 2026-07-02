@@ -3,6 +3,8 @@ import { and, desc, eq, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
+  userIntegrations,
+  type InsertUserIntegration,
   aiSuggestions,
   alerts,
   anomalies,
@@ -137,6 +139,45 @@ export async function setUserPassword(id: number, passwordHash: string, mustChan
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
   await db.update(users).set({ passwordHash, mustChangePassword }).where(eq(users.id, id));
+}
+
+// ─── Integrações por usuário (OAuth) ──────────────────────────────────────────
+
+export async function getUserIntegration(userId: number, provider: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(userIntegrations)
+    .where(and(eq(userIntegrations.userId, userId), eq(userIntegrations.provider, provider)))
+    .limit(1);
+  return rows.length > 0 ? rows[0] : undefined;
+}
+
+/** Cria ou atualiza a integração do usuário (upsert por userId+provider). */
+export async function upsertUserIntegration(data: InsertUserIntegration) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const existing = await getUserIntegration(data.userId, data.provider);
+  if (existing) {
+    await db.update(userIntegrations).set({ ...data, disconnectedAt: null }).where(eq(userIntegrations.id, existing.id));
+    return;
+  }
+  await db.insert(userIntegrations).values(data);
+}
+
+/** Atualiza apenas os tokens/expiração (após refresh). */
+export async function updateIntegrationTokens(id: number, fields: Partial<InsertUserIntegration>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(userIntegrations).set(fields).where(eq(userIntegrations.id, id));
+}
+
+/** Desativa a integração e apaga os tokens do banco. */
+export async function deactivateUserIntegration(userId: number, provider: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(userIntegrations)
+    .set({ active: false, accessTokenEncrypted: null, refreshTokenEncrypted: null, disconnectedAt: new Date() })
+    .where(and(eq(userIntegrations.userId, userId), eq(userIntegrations.provider, provider)));
 }
 
 // ─── Meta Ad Accounts ─────────────────────────────────────────────────────────

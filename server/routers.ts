@@ -9,6 +9,14 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, router } from "./_core/trpc";
 import { hashPassword, verifyPassword, generateTempPassword } from "./_core/oauth";
+import { encryptSecret, decryptSecret } from "./_core/integrationsCrypto";
+import {
+  GOOGLE_CALENDAR_PROVIDER,
+  isGoogleCalendarConfigured,
+  refreshAccessToken,
+  revokeToken,
+  listTodayEvents,
+} from "./googleCalendarService";
 import {
   getAllUsers,
   getUserById,
@@ -16,6 +24,9 @@ import {
   createEmployee,
   updateUserFields,
   setUserPassword,
+  getUserIntegration,
+  updateIntegrationTokens,
+  deactivateUserIntegration,
 } from "./db";
 import {
   applySuggestion,
@@ -545,6 +556,71 @@ export const appRouter = router({
         await setUserPassword(input.id, hashPassword(tempPassword), true);
         return { tempPassword };
       }),
+  }),
+
+  // ─── Integrações por usuário (OAuth) ────────────────────────────────────────
+  // Sempre pela sessão (ctx.user.id). Nenhum token é retornado ao frontend.
+  integrations: router({
+    googleCalendar: router({
+      status: protectedProcedure.query(async ({ ctx }) => {
+        if (!isGoogleCalendarConfigured()) return { available: false, connected: false };
+        const integ = await getUserIntegration(ctx.user.id, GOOGLE_CALENDAR_PROVIDER);
+        const connected = !!integ && integ.active && !!integ.refreshTokenEncrypted;
+        return {
+          available: true,
+          connected,
+          email: connected ? integ?.providerAccountEmail ?? undefined : undefined,
+        };
+      }),
+
+      disconnect: protectedProcedure.mutation(async ({ ctx }) => {
+        const integ = await getUserIntegration(ctx.user.id, GOOGLE_CALENDAR_PROVIDER);
+        if (integ?.accessTokenEncrypted) {
+          try { await revokeToken(decryptSecret(integ.accessTokenEncrypted)); } catch { /* best-effort */ }
+        }
+        await deactivateUserIntegration(ctx.user.id, GOOGLE_CALENDAR_PROVIDER);
+        return { success: true } as const;
+      }),
+
+      // Eventos de hoje. A Home nunca quebra: sempre retorna um status tratável.
+      todayEvents: protectedProcedure.query(async ({ ctx }) => {
+        if (!isGoogleCalendarConfigured()) return { status: "unavailable" as const, events: [] };
+        const integ = await getUserIntegration(ctx.user.id, GOOGLE_CALENDAR_PROVIDER);
+        if (!integ || !integ.active || !integ.refreshTokenEncrypted) {
+          return { status: "disconnected" as const, events: [] };
+        }
+
+        let accessToken = "";
+        try { accessToken = integ.accessTokenEncrypted ? decryptSecret(integ.accessTokenEncrypted) : ""; } catch { accessToken = ""; }
+        const expired = !accessToken || !integ.expiresAt || new Date(integ.expiresAt).getTime() < Date.now() + 60_000;
+
+        const doRefresh = async () => {
+          const refreshed = await refreshAccessToken(decryptSecret(integ.refreshTokenEncrypted!));
+          await updateIntegrationTokens(integ.id, {
+            accessTokenEncrypted: encryptSecret(refreshed.accessToken),
+            expiresAt: refreshed.expiresAt,
+          });
+          return refreshed.accessToken;
+        };
+
+        if (expired) {
+          try { accessToken = await doRefresh(); }
+          catch { return { status: "needs_reconnect" as const, events: [] }; }
+        }
+
+        try {
+          return { status: "ok" as const, events: await listTodayEvents(accessToken) };
+        } catch {
+          // Access token pode ter sido revogado → tenta refresh uma vez.
+          try {
+            const token = await doRefresh();
+            return { status: "ok" as const, events: await listTodayEvents(token) };
+          } catch {
+            return { status: "needs_reconnect" as const, events: [] };
+          }
+        }
+      }),
+    }),
   }),
 
   // ─── Meta Ad Accounts ──────────────────────────────────────────────────────
