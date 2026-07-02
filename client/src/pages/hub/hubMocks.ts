@@ -89,8 +89,10 @@ export function getSelvaTVImages(): SelvaTVImage[] {
 // TROCAR DEPOIS: conteúdo inserido por admin ou via RSS.
 export function getNews(): NewsItem[] {
   return [
-    { id: "n1", text: "Copa América: confira a tabela de jogos da semana" },
-    { id: "n2", text: "Novo case publicado: LACLIMA" },
+    { id: "n1", text: "Nova entrega publicada no Selva Spaces" },
+    { id: "n2", text: "Reuniões da semana atualizadas" },
+    { id: "n3", text: "SelvaTV recebeu novos destaques" },
+    { id: "n4", text: "Revise seus cards pendentes antes do fim do dia" },
   ];
 }
 

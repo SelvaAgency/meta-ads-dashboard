@@ -13,11 +13,12 @@
 import { useMemo } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CalendarCheck, ClipboardCheck, Newspaper, Square } from "lucide-react";
+import { CalendarCheck, ClipboardCheck, Square } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card } from "@/components/ui/card";
 import { HubShell } from "./HubShell";
 import { SelvaTV } from "./SelvaTV";
+import { NewsTicker } from "./NewsTicker";
 import {
   getAgendaEvents,
   getTrelloCards,
@@ -42,13 +43,8 @@ export default function Hub() {
 
   return (
     <HubShell>
-      {/* Barra de notícias (some se vazia) */}
-      {news.length > 0 && (
-          <div className="flex items-center gap-2 border-b border-border bg-secondary/60 px-6 py-2.5 text-xs text-muted-foreground overflow-hidden">
-            <Newspaper className="w-3.5 h-3.5 flex-shrink-0 text-accent" />
-            <span className="truncate">{news.map((n) => n.text).join("  ·  ")}</span>
-          </div>
-        )}
+      {/* Faixa de avisos/notícias — some sozinha se vazia */}
+      <NewsTicker items={news} />
 
         <main className="flex-1 overflow-auto p-6 md:p-8">
           <div className="max-w-5xl mx-auto flex flex-col gap-6">
