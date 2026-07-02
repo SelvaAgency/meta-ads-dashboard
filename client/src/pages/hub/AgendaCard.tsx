@@ -6,25 +6,19 @@
  *  só devolve status + eventos — nenhum token chega ao frontend. A Home nunca
  *  quebra: todo estado (carregando, sem conexão, reconectar, vazio, erro) tem
  *  um render elegante.
+ *
+ *  Ações: sincronizar (refetch da mesma query, sem recarregar a página) e
+ *  abrir o Google Calendar em nova aba.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { CalendarCheck, Loader2, Plug, RefreshCw } from "lucide-react";
+import { CalendarCheck, ExternalLink, Loader2, Plug, RefreshCw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
 
 // Rota HTTP que inicia o OAuth (valida a sessão no backend e redireciona).
 const CONNECT_URL = "/api/integrations/google/start";
-
-function Header() {
-  return (
-    <div className="px-5 flex items-center gap-2.5">
-      <span className="w-7 h-7 rounded-lg bg-primary/20 text-accent flex items-center justify-center flex-shrink-0">
-        <CalendarCheck className="w-4 h-4" />
-      </span>
-      <h2 className="text-sm font-semibold">Agenda de hoje</h2>
-    </div>
-  );
-}
+// Abrir o Google Calendar do usuário (dia atual) em nova aba.
+const CALENDAR_URL = "https://calendar.google.com/calendar/u/0/r/day";
 
 function ConnectCTA({ reconnect = false }: { reconnect?: boolean }) {
   return (
@@ -51,6 +45,13 @@ export function AgendaCard() {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
+
+  const status = q.data?.status;
+  // Sincronizar faz sentido quando há conexão (ok) ou quando houve erro (tentar de novo).
+  const showSync = !q.isLoading && (q.isError || status === "ok");
+  // Abrir o Google Calendar só quando conectado (com ou sem eventos).
+  const showOpen = status === "ok";
+  const syncing = q.isFetching;
 
   let body: React.ReactNode;
 
@@ -87,8 +88,41 @@ export function AgendaCard() {
 
   return (
     <Card className="gap-4 py-5">
-      <Header />
+      {/* Header: título + sincronizar */}
+      <div className="px-5 flex items-center gap-2.5">
+        <span className="w-7 h-7 rounded-lg bg-primary/20 text-accent flex items-center justify-center flex-shrink-0">
+          <CalendarCheck className="w-4 h-4" />
+        </span>
+        <h2 className="text-sm font-semibold flex-1">Agenda de hoje</h2>
+        {showSync && (
+          <button
+            onClick={() => q.refetch()}
+            disabled={syncing}
+            title="Sincronizar agenda"
+            aria-label="Sincronizar agenda"
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-60 disabled:pointer-events-none"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
+          </button>
+        )}
+      </div>
+
+      {/* Corpo */}
       <div className="px-5">{body}</div>
+
+      {/* Rodapé: abrir Google Calendar (ação complementar) */}
+      {showOpen && (
+        <div className="px-5">
+          <a
+            href={CALENDAR_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ExternalLink className="w-3.5 h-3.5" /> Abrir Google Calendar
+          </a>
+        </div>
+      )}
     </Card>
   );
 }
