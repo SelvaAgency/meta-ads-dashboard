@@ -7,10 +7,12 @@
  *  quebra: todo estado (carregando, sem conexão, reconectar, vazio, erro) tem
  *  um render elegante.
  *
- *  Ações: sincronizar (refetch da mesma query, sem recarregar a página) e
- *  abrir o Google Calendar em nova aba.
+ *  Ações: sincronizar (refetch da mesma query, sem recarregar a página), abrir
+ *  o Google Calendar em nova aba, e um texto discreto de "última atualização"
+ *  (baseado em dataUpdatedAt — só muda quando a busca dá certo).
  * ─────────────────────────────────────────────────────────────────────────────
  */
+import { useEffect, useState } from "react";
 import { CalendarCheck, ExternalLink, Loader2, Plug, RefreshCw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
@@ -19,6 +21,14 @@ import { Card } from "@/components/ui/card";
 const CONNECT_URL = "/api/integrations/google/start";
 // Abrir o Google Calendar do usuário (dia atual) em nova aba.
 const CALENDAR_URL = "https://calendar.google.com/calendar/u/0/r/day";
+
+function formatUpdated(ts: number): string {
+  const diffMin = Math.floor((Date.now() - ts) / 60000);
+  if (diffMin < 1) return "Atualizado agora";
+  if (diffMin < 60) return `Atualizado há ${diffMin} min`;
+  const hhmm = new Date(ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return `Atualizado às ${hhmm}`;
+}
 
 function ConnectCTA({ reconnect = false }: { reconnect?: boolean }) {
   return (
@@ -47,11 +57,20 @@ export function AgendaCard() {
   });
 
   const status = q.data?.status;
+  const connected = status === "ok"; // conectado + busca ok (com ou sem eventos)
   // Sincronizar faz sentido quando há conexão (ok) ou quando houve erro (tentar de novo).
-  const showSync = !q.isLoading && (q.isError || status === "ok");
-  // Abrir o Google Calendar só quando conectado (com ou sem eventos).
-  const showOpen = status === "ok";
+  const showSync = !q.isLoading && (q.isError || connected);
   const syncing = q.isFetching;
+  // dataUpdatedAt só muda em fetch bem-sucedido → não é sobrescrito por erro.
+  const updatedAt = q.dataUpdatedAt;
+
+  // Re-render leve a cada 60s só para o texto relativo "há N min" (NÃO busca dados).
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!connected) return;
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, [connected]);
 
   let body: React.ReactNode;
 
@@ -61,7 +80,8 @@ export function AgendaCard() {
         <Loader2 className="w-4 h-4 animate-spin" /> Carregando agenda…
       </div>
     );
-  } else if (q.isError || !q.data) {
+  } else if (!q.data) {
+    // Nunca carregou com sucesso (erro na primeira carga).
     body = <p className="text-sm text-muted-foreground">Não foi possível carregar a agenda agora.</p>;
   } else if (q.data.status === "unavailable") {
     body = <p className="text-sm text-muted-foreground">Integração de calendário indisponível.</p>;
@@ -86,6 +106,9 @@ export function AgendaCard() {
     );
   }
 
+  // Erro ao atualizar, mas ainda temos dados anteriores → nota discreta (mantém a lista).
+  const softError = q.isError && connected;
+
   return (
     <Card className="gap-4 py-5">
       {/* Header: título + sincronizar */}
@@ -108,16 +131,24 @@ export function AgendaCard() {
       </div>
 
       {/* Corpo */}
-      <div className="px-5">{body}</div>
+      <div className="px-5">
+        {body}
+        {softError && (
+          <p className="mt-2 text-[11px] text-muted-foreground">Não foi possível atualizar agora.</p>
+        )}
+      </div>
 
-      {/* Rodapé: abrir Google Calendar (ação complementar) */}
-      {showOpen && (
-        <div className="px-5">
+      {/* Rodapé: última atualização + abrir Google Calendar */}
+      {connected && (
+        <div className="px-5 flex items-center justify-between gap-3">
+          <span className="text-[11px] text-muted-foreground">
+            {updatedAt ? formatUpdated(updatedAt) : ""}
+          </span>
           <a
             href={CALENDAR_URL}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
           >
             <ExternalLink className="w-3.5 h-3.5" /> Abrir Google Calendar
           </a>
