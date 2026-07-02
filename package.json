@@ -6,11 +6,14 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
     "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-    "start": "NODE_ENV=production node dist/index.js",
+    "start": "node scripts/ensure-schema.mjs && NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "db:ensure-schema": "node scripts/ensure-schema.mjs",
+    "migrate:prod": "node scripts/ensure-schema.mjs",
+    "db:check-schema": "node scripts/check-schema.mjs",
     "seed:employees": "tsx scripts/seed-employees.ts"
   },
   "dependencies": {
