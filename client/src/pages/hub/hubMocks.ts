@@ -104,6 +104,15 @@ export function canImportSelvaTV(user: { role?: string | null } | null | undefin
   return !!user?.role && SELVATV_ROLES.has(user.role);
 }
 
+// ── Acessos (área restrita de credenciais de clientes) ────────────────────────
+// Reutiliza a role "admin" já existente no sistema (mesma usada pela área
+// Administrativo do dashboard). É apenas um gate de UX para o PLACEHOLDER —
+// não há nenhum dado sensível aqui. Quando a página real existir, a proteção
+// DEVE ser reforçada no servidor (nunca confiar só no frontend).
+export function canViewAccess(user: { role?: string | null } | null | undefined): boolean {
+  return user?.role === "admin";
+}
+
 // ─── Utils de saudação ───────────────────────────────────────────────────────
 
 export function greetingForHour(hour: number): string {

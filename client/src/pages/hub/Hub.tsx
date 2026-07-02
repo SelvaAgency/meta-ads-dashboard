@@ -16,7 +16,7 @@ import { ptBR } from "date-fns/locale";
 import { CalendarCheck, ClipboardCheck, Newspaper, Square } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card } from "@/components/ui/card";
-import { HubSidebar } from "./HubSidebar";
+import { HubShell } from "./HubShell";
 import { SelvaTV } from "./SelvaTV";
 import {
   getAgendaEvents,
@@ -41,12 +41,9 @@ export default function Hub() {
   const today = format(now, "EEEE, d 'de' MMMM", { locale: ptBR });
 
   return (
-    <div className="min-h-screen flex bg-background text-foreground">
-      <HubSidebar />
-
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Barra de notícias (some se vazia) */}
-        {news.length > 0 && (
+    <HubShell>
+      {/* Barra de notícias (some se vazia) */}
+      {news.length > 0 && (
           <div className="flex items-center gap-2 border-b border-border bg-secondary/60 px-6 py-2.5 text-xs text-muted-foreground overflow-hidden">
             <Newspaper className="w-3.5 h-3.5 flex-shrink-0 text-accent" />
             <span className="truncate">{news.map((n) => n.text).join("  ·  ")}</span>
@@ -109,7 +106,6 @@ export default function Hub() {
             <SelvaTV images={tvImages} />
           </div>
         </main>
-      </div>
-    </div>
+    </HubShell>
   );
 }

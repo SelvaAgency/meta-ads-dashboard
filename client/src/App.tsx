@@ -26,6 +26,7 @@ import ExperimentDetail from "./pages/ExperimentDetail";
 
 // Experimental — portal interno isolado (rota /hub). Ver client/src/pages/hub/.
 import Hub from "./pages/hub/Hub";
+import HubAccess from "./pages/hub/HubAccess";
 
 function RedirectTo({ to }: { to: string }) {
   const [, navigate] = useLocation();
@@ -53,6 +54,7 @@ function Router() {
       <Route path="/experiments/:id" component={ExperimentDetail} />
       {/* Experimental portal (isolado) */}
       <Route path="/hub" component={Hub} />
+      <Route path="/hub/acessos" component={HubAccess} />
       {/* Redirects for removed nav items */}
       <Route path="/anomalies" component={() => <RedirectTo to="/alerts" />} />
       <Route path="/404" component={NotFound} />
