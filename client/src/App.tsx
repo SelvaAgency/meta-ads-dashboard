@@ -24,6 +24,9 @@ import SocialNetworks from "./pages/SocialNetworks";
 import Experiments from "./pages/Experiments";
 import ExperimentDetail from "./pages/ExperimentDetail";
 
+// Experimental — portal interno isolado (rota /hub). Ver client/src/pages/hub/.
+import Hub from "./pages/hub/Hub";
+
 function RedirectTo({ to }: { to: string }) {
   const [, navigate] = useLocation();
   useEffect(() => { navigate(to, { replace: true }); }, []);
@@ -48,6 +51,8 @@ function Router() {
       <Route path="/settings" component={Settings} />
       <Route path="/experiments" component={Experiments} />
       <Route path="/experiments/:id" component={ExperimentDetail} />
+      {/* Experimental portal (isolado) */}
+      <Route path="/hub" component={Hub} />
       {/* Redirects for removed nav items */}
       <Route path="/anomalies" component={() => <RedirectTo to="/alerts" />} />
       <Route path="/404" component={NotFound} />
