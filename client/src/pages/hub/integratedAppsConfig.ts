@@ -24,14 +24,14 @@ export interface IntegratedApp {
   supportsClientFlyout?: boolean;
 }
 
-// O Tracker/Relatórios/Contratos são páginas DESTE mesmo deploy (mesma origem
-// que o Selva Spaces). Por isso usamos URLs RELATIVAS: funcionam igual em
-// spaces.selva.agency e no domínio do Railway, sem hardcode de domínio.
-// A raiz "/" agora é o Selva Spaces; a Visão Geral do Tracker mora em /overview.
+// Rotas diretas (sem prefixo /hub). São páginas DESTE mesmo deploy: a rota é
+// compartilhada e resolvida por contexto — no topo renderiza o Selva Spaces,
+// dentro do iframe (`?embedded=1`) renderiza a página crua do dashboard
+// (ver embed.ts). URLs relativas: funcionam igual em qualquer domínio.
 export const INTEGRATED_APPS: IntegratedApp[] = [
-  { id: "tracker", label: "Tracker", route: "/hub/tracker", externalUrl: "/overview", supportsClientFlyout: true },
-  { id: "reports", label: "Relatórios", route: "/hub/reports", externalUrl: "/reports" },
-  { id: "contracts", label: "Contratos", route: "/hub/contracts", externalUrl: "/contracts" },
+  { id: "tracker", label: "Tracker", route: "/tracker", externalUrl: "/tracker?embedded=1", supportsClientFlyout: true },
+  { id: "reports", label: "Relatórios", route: "/reports", externalUrl: "/reports?embedded=1" },
+  { id: "contracts", label: "Contratos", route: "/contracts", externalUrl: "/contracts?embedded=1" },
 ];
 
 /** Rota interna → app integrado (query string já vem removida pelo wouter). */

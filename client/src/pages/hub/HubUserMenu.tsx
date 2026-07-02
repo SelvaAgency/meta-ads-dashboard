@@ -8,7 +8,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useLocation } from "wouter";
-import { ChevronsUpDown, LogOut, Settings, User as UserIcon } from "lucide-react";
+import { ChevronsUpDown, LogOut, User as UserIcon } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -66,13 +66,9 @@ export function HubUserMenu({ open }: { open: boolean }) {
           {email && <span className="text-xs text-muted-foreground truncate">{email}</span>}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => navigate("/hub/settings")}>
+        <DropdownMenuItem onClick={() => navigate("/settings")}>
           <UserIcon className="w-4 h-4 mr-2" />
           Meu perfil
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => navigate("/hub/settings")}>
-          <Settings className="w-4 h-4 mr-2" />
-          Configurações
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={logout} className="text-destructive">

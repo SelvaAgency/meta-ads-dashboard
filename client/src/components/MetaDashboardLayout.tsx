@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { isEmbedded } from "@/pages/hub/embed";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
@@ -55,21 +56,10 @@ const TEXT_NORMAL = "rgba(255,255,255,0.55)";
 const TEXT_DIM    = "rgba(255,255,255,0.35)";
 const DIVIDER     = "0.5px solid rgba(255,255,255,0.08)";
 
-// Quando este layout roda embutido (iframe same-origin) dentro do Selva Spaces,
-// a conta/logout ficam na sidebar principal do Spaces. Detectamos o embed pelo
-// iframe (persiste na navegação interna) — sem postMessage nem DOM cross-origin.
-function useIsEmbedded() {
-  try {
-    if (window.self !== window.top) return true;
-  } catch {
-    return true; // acesso a window.top bloqueado → estamos embutidos
-  }
-  return new URLSearchParams(window.location.search).get("embedded") === "1";
-}
-
 export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProps) {
   const { user, loading, isAuthenticated, logout } = useAuth();
-  const isEmbedded = useIsEmbedded();
+  // Embutido no Selva Spaces (iframe) → conta/logout ficam na sidebar do Spaces.
+  const embedded = isEmbedded();
   const [location, navigate] = useLocation();
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [hovering, setHovering] = useState(false);
@@ -480,7 +470,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
         {/* ── User footer ───────────────────────────────────────────────────── */}
         {/* Oculto quando embutido no Selva Spaces (a conta/logout ficam na
             sidebar principal do Spaces). Visível no uso direto do dashboard. */}
-        {!isEmbedded && (
+        {!embedded && (
         <div style={{ borderTop: DIVIDER }} className="p-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

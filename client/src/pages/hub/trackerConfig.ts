@@ -22,9 +22,9 @@
  */
 import { CLIENTS } from "@/config/clientConfig";
 
-// Visão Geral do Tracker (mesmo deploy, origem relativa). A raiz "/" agora é o
-// Selva Spaces, então a home do Tracker fica em /overview.
-export const TRACKER_GENERAL_URL = "/overview";
+// URL embutida do Tracker (mesmo deploy, origem relativa). `?embedded=1` faz a
+// rota compartilhada /tracker renderizar a página crua do dashboard no iframe.
+export const TRACKER_GENERAL_URL = "/tracker?embedded=1";
 
 export interface TrackerClient {
   slug: string;

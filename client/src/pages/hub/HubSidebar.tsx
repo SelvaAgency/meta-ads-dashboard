@@ -68,11 +68,11 @@ interface NavGroup {
 
 // ─── Navegação global (topo) ─────────────────────────────────────────────────
 const NAV_GLOBAL: NavItem[] = [
-  { label: "Home", icon: Home, kind: "internal", href: "/hub" },
+  { label: "Home", icon: Home, kind: "internal", href: "/" },
   { label: "Tarefas", icon: CalendarCheck, kind: "placeholder" },
-  { label: "Acessos", icon: KeyRound, kind: "internal", href: "/hub/acessos" },
+  { label: "Acessos", icon: KeyRound, kind: "internal", href: "/access" },
   { label: "Notificações", icon: Bell, kind: "placeholder" },
-  { label: "Configurações", icon: Settings, kind: "internal", href: "/hub/settings" },
+  { label: "Configurações", icon: Settings, kind: "internal", href: "/settings" },
   { label: "Spaces", icon: LayoutGrid, kind: "external", href: "https://selvaagency.github.io/selva-spaces/" },
 ];
 
@@ -82,8 +82,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Performance",
     items: [
       // Apps integrados abrem via iframe dentro do Spaces (ver integratedAppsConfig).
-      { label: "Tracker", icon: Boxes, kind: "app", href: "/hub/tracker", flyout: true },
-      { label: "Relatórios", icon: FileText, kind: "app", href: "/hub/reports" },
+      { label: "Tracker", icon: Boxes, kind: "app", href: "/tracker", flyout: true },
+      { label: "Relatórios", icon: FileText, kind: "app", href: "/reports" },
     ],
   },
   {
@@ -96,7 +96,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Administrativo",
     items: [
       { label: "Financeiro", icon: DollarSign, kind: "placeholder" },
-      { label: "Contratos", icon: FileSignature, kind: "app", href: "/hub/contracts" },
+      { label: "Contratos", icon: FileSignature, kind: "app", href: "/contracts" },
       { label: "Propostas", icon: ScrollText, kind: "placeholder" },
     ],
   },

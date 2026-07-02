@@ -29,6 +29,7 @@ import Hub from "./pages/hub/Hub";
 import HubAccess from "./pages/hub/HubAccess";
 import HubApp from "./pages/hub/HubApp";
 import HubSettings from "./pages/hub/HubSettings";
+import { isEmbedded } from "./pages/hub/embed";
 
 function RedirectTo({ to }: { to: string }) {
   const [, navigate] = useLocation();
@@ -36,33 +37,45 @@ function RedirectTo({ to }: { to: string }) {
   return null;
 }
 
+// Rotas compartilhadas (mesmo deploy): no TOPO renderizam o Selva Spaces; dentro
+// do iframe do Spaces (?embedded=1) renderizam a página crua do dashboard.
+const Root = () => (isEmbedded() ? <SuggestionsHub /> : <Hub />);
+const TrackerRoute = () => (isEmbedded() ? <SuggestionsHub /> : <HubApp />);
+const ReportsRoute = () => (isEmbedded() ? <Reports /> : <HubApp />);
+const ContractsRoute = () => (isEmbedded() ? <Contracts /> : <HubApp />);
+const SettingsRoute = () => (isEmbedded() ? <Settings /> : <HubSettings />);
+
 function Router() {
   return (
     <Switch>
-      {/* Raiz = Selva Spaces Home. A Visão Geral do Tracker vive em /overview. */}
-      <Route path="/" component={Hub} />
-      <Route path="/overview" component={SuggestionsHub} />
+      {/* ── Selva Spaces — rotas diretas ─────────────────────────────────────── */}
+      <Route path="/" component={Root} />
+      <Route path="/tracker" component={TrackerRoute} />
+      <Route path="/reports" component={ReportsRoute} />
+      <Route path="/contracts" component={ContractsRoute} />
+      <Route path="/settings" component={SettingsRoute} />
+      <Route path="/access" component={HubAccess} />
 
+      {/* ── Legado /hub → rotas diretas (compatibilidade) ────────────────────── */}
+      <Route path="/hub" component={() => <RedirectTo to="/" />} />
+      <Route path="/hub/tracker" component={() => <RedirectTo to="/tracker" />} />
+      <Route path="/hub/reports" component={() => <RedirectTo to="/reports" />} />
+      <Route path="/hub/contracts" component={() => <RedirectTo to="/contracts" />} />
+      <Route path="/hub/settings" component={() => <RedirectTo to="/settings" />} />
+      <Route path="/hub/acessos" component={() => <RedirectTo to="/access" />} />
+
+      {/* ── Dashboard (Tracker) — rotas internas cruas ───────────────────────── */}
+      <Route path="/overview" component={SuggestionsHub} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/campaigns" component={Campaigns} />
       <Route path="/alerts" component={AlertsPage} />
       <Route path="/suggestions" component={Suggestions} />
       <Route path="/suggestions-hub" component={() => <RedirectTo to="/overview" />} />
-      <Route path="/reports" component={Reports} />
-      <Route path="/contracts" component={Contracts} />
       <Route path="/admin" component={Admin} />
       <Route path="/google-ads" component={GoogleAds} />
       <Route path="/social-networks" component={SocialNetworks} />
-      <Route path="/settings" component={Settings} />
       <Route path="/experiments" component={Experiments} />
       <Route path="/experiments/:id" component={ExperimentDetail} />
-      {/* Selva Spaces — /hub mantido como alias da raiz */}
-      <Route path="/hub" component={Hub} />
-      <Route path="/hub/settings" component={HubSettings} />
-      <Route path="/hub/acessos" component={HubAccess} />
-      <Route path="/hub/tracker" component={HubApp} />
-      <Route path="/hub/reports" component={HubApp} />
-      <Route path="/hub/contracts" component={HubApp} />
       {/* Redirects for removed nav items */}
       <Route path="/anomalies" component={() => <RedirectTo to="/alerts" />} />
       <Route path="/404" component={NotFound} />
