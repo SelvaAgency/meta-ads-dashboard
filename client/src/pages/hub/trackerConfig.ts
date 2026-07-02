@@ -7,12 +7,14 @@
  *  que é a única fonte confiável — não inventamos clientes.
  *
  *  ⚠️  URL por cliente — por que todos apontam para a URL geral (por enquanto):
- *  O Tracker (este mesmo app, em produção no Railway) NÃO seleciona cliente por
- *  URL. A seleção acontece em runtime via `setActiveAccountId` gravado em
- *  localStorage ("meta_active_account_id", um id numérico do banco) + navegação
- *  para /dashboard. Não existe `?client=<slug>` nem `/client/:slug`.
- *  Como o Tracker roda em OUTRA origem, não é possível deep-linkar um cliente
- *  específico daqui com segurança (localStorage é isolado por origem).
+ *  O Tracker NÃO tem entrypoint público de cliente. A seleção acontece em
+ *  runtime via `setActiveAccountId`, gravado em localStorage
+ *  ("meta_active_account_id", um id NUMÉRICO do banco) + navegação para
+ *  /dashboard. Não existe `?client=<slug>` nem `/client/:slug`, e o id numérico
+ *  nem é derivável do slug sem a lista de contas carregada em runtime.
+ *  Por isso o Selva Spaces não consegue abrir o Tracker de um cliente
+ *  específico de forma confiável — e, por decisão de escopo, não tentamos setar
+ *  o localStorage do Tracker a partir daqui nesta etapa.
  *
  *  ➜ QUANDO o Tracker ganhar um entrypoint por URL (ex.: `?client=<slug>`),
  *    troque apenas a linha `trackerUrl` abaixo. Nada mais precisa mudar.

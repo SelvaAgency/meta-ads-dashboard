@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import { SelvaLogo } from "@/components/SelvaLogo";
 import { TRACKER_CLIENTS } from "./trackerConfig";
+import { isIntegratedAppRoute } from "./integratedAppsConfig";
 
 // Tokens alinhados ao MetaDashboardLayout (mantém consistência visual)
 const ACTIVE_BG = "rgba(212,83,126,0.15)";
@@ -56,7 +57,7 @@ type NavItem = {
 } & (
   | { kind: "internal"; href: string }
   | { kind: "external"; href: string }
-  | { kind: "app"; href: string }
+  | { kind: "app"; href: string; flyout?: boolean }
   | { kind: "placeholder" }
 );
 
@@ -80,14 +81,9 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Performance",
     items: [
-      // Tracker abre como app integrado (iframe) dentro do Spaces.
-      { label: "Tracker", icon: Boxes, kind: "app", href: "/hub/tracker" },
-      {
-        label: "Relatórios",
-        icon: FileText,
-        kind: "external",
-        href: "https://meta-ads-dashboard-production-7c73.up.railway.app/reports",
-      },
+      // Apps integrados abrem via iframe dentro do Spaces (ver integratedAppsConfig).
+      { label: "Tracker", icon: Boxes, kind: "app", href: "/hub/tracker", flyout: true },
+      { label: "Relatórios", icon: FileText, kind: "app", href: "/hub/reports" },
     ],
   },
   {
@@ -100,12 +96,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Administrativo",
     items: [
       { label: "Financeiro", icon: DollarSign, kind: "placeholder" },
-      {
-        label: "Contratos",
-        icon: FileSignature,
-        kind: "external",
-        href: "https://meta-ads-dashboard-production-7c73.up.railway.app/contracts",
-      },
+      { label: "Contratos", icon: FileSignature, kind: "app", href: "/hub/contracts" },
       { label: "Propostas", icon: ScrollText, kind: "placeholder" },
     ],
   },
@@ -232,13 +223,13 @@ export function HubSidebar() {
   const [hovering, setHovering] = useState(false);
   const leaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // App integrado aberto → colapsa automaticamente. Pin do usuário é preservado
-  // e volta a valer assim que ele sai do app (Home/páginas simples).
-  const appMode = location.startsWith("/hub/tracker");
+  // Qualquer app integrado aberto → colapsa automaticamente. O pin do usuário é
+  // preservado e volta a valer assim que ele sai do app (Home/páginas simples).
+  const appMode = isIntegratedAppRoute(location);
   const open = appMode ? hovering : pinned || hovering;
 
   const isActive = (item: NavItem) => {
-    if (item.kind === "app") return location.startsWith(item.href);
+    if (item.kind === "app") return location === item.href;
     if (item.kind === "internal") return location === item.href;
     return false;
   };
@@ -294,7 +285,7 @@ export function HubSidebar() {
             )}
             <div className="flex flex-col gap-0.5">
               {group.items.map((item) =>
-                item.kind === "app" ? (
+                item.kind === "app" && item.flyout ? (
                   <TrackerItem key={item.label} item={item} open={open} active={isActive(item)} />
                 ) : (
                   <NavRow key={item.label} item={item} open={open} active={isActive(item)} />

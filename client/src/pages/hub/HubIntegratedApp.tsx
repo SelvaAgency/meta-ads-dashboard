@@ -1,29 +1,21 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Selva Spaces — TRACKER (app integrado) · rota /hub/tracker
+ *  Selva Spaces — HubIntegratedApp (container genérico de app integrado)
  * ─────────────────────────────────────────────────────────────────────────────
- *  Abre o Tracker DENTRO da área principal do Selva Spaces (iframe), com a
- *  sidebar do Spaces colapsada automaticamente (ver HubSidebar → appMode).
+ *  Casca reutilizável que abre qualquer app interno DENTRO da área principal do
+ *  Selva Spaces (iframe), com a sidebar colapsada automaticamente
+ *  (ver HubSidebar → appMode). Usado por Tracker, Relatórios e Contratos.
  *
  *  Robustez:
  *   · Sem dangerouslySetInnerHTML, sem tokens/credenciais na URL.
  *   · Spinner enquanto carrega; se não carregar (bloqueio/erro), cai num
  *     fallback elegante com botão "Abrir em nova aba".
- *   · O Tracker externo NÃO é alterado — só é embutido via iframe.
- *
- *  `?client=<slug>` seleciona qual Tracker abrir. Hoje todos resolvem para a
- *  URL geral (ver trackerConfig → TODO url-por-cliente).
+ *   · O app externo NÃO é alterado — só é embutido via iframe.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "wouter";
 import { ExternalLink, Loader2, MonitorX } from "lucide-react";
 import { HubShell } from "./HubShell";
-import {
-  TRACKER_GENERAL_URL,
-  trackerUrlForClient,
-  trackerClientBySlug,
-} from "./trackerConfig";
 
 type Status = "loading" | "loaded" | "fallback";
 
@@ -32,16 +24,20 @@ type Status = "loading" | "loaded" | "fallback";
 // confiável pelo pai; o botão "Abrir em nova aba" cobre os demais casos.)
 const LOAD_TIMEOUT_MS = 12000;
 
-export default function HubTracker() {
-  const [searchParams] = useSearchParams();
-  const clientSlug = searchParams.get("client");
-  const client = trackerClientBySlug(clientSlug);
-  const src = trackerUrlForClient(clientSlug);
+interface HubIntegratedAppProps {
+  /** Título principal na barra fina (ex.: "Tracker" ou "Tracker · LACLIMA"). */
+  title: string;
+  /** URL embutida no iframe. */
+  src: string;
+  /** URL usada nos botões "Abrir em nova aba" / fallback. */
+  externalUrl: string;
+}
 
+export function HubIntegratedApp({ title, src, externalUrl }: HubIntegratedAppProps) {
   const [status, setStatus] = useState<Status>("loading");
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reinicia o estado quando a URL/cliente muda.
+  // Reinicia o estado sempre que a URL embutida muda.
   useEffect(() => {
     setStatus("loading");
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -51,9 +47,7 @@ export default function HubTracker() {
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [src, clientSlug]);
-
-  const title = client ? `Tracker · ${client.name}` : "Tracker";
+  }, [src]);
 
   return (
     <HubShell>
@@ -67,7 +61,7 @@ export default function HubTracker() {
             </span>
           </div>
           <a
-            href={src}
+            href={externalUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
@@ -81,7 +75,7 @@ export default function HubTracker() {
         <div className="relative flex-1 min-h-0 bg-secondary/40">
           {status !== "fallback" && (
             <iframe
-              key={src + (clientSlug ?? "")}
+              key={src}
               src={src}
               title={title}
               className="absolute inset-0 w-full h-full border-0"
@@ -95,7 +89,7 @@ export default function HubTracker() {
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Carregando Tracker…
+                Carregando…
               </div>
             </div>
           )}
@@ -107,19 +101,19 @@ export default function HubTracker() {
                 <span className="w-12 h-12 rounded-xl bg-muted mx-auto mb-4 flex items-center justify-center">
                   <MonitorX className="w-6 h-6 text-muted-foreground" />
                 </span>
-                <h2 className="text-lg font-bold mb-1">Tracker</h2>
+                <h2 className="text-lg font-bold mb-1">{title}</h2>
                 <p className="text-sm text-muted-foreground mb-5">
-                  Não foi possível carregar o Tracker aqui dentro do Selva Spaces. Você pode abri-lo
+                  Não foi possível carregar este app aqui dentro do Selva Spaces. Você pode abri-lo
                   em uma nova aba.
                 </p>
                 <a
-                  href={TRACKER_GENERAL_URL}
+                  href={externalUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 hover:opacity-90 transition-opacity"
                 >
                   <ExternalLink className="w-4 h-4" />
-                  Abrir Tracker em nova aba
+                  Abrir em nova aba
                 </a>
               </div>
             </div>

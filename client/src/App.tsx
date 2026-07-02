@@ -27,7 +27,7 @@ import ExperimentDetail from "./pages/ExperimentDetail";
 // Experimental — portal interno isolado (rota /hub). Ver client/src/pages/hub/.
 import Hub from "./pages/hub/Hub";
 import HubAccess from "./pages/hub/HubAccess";
-import HubTracker from "./pages/hub/HubTracker";
+import HubApp from "./pages/hub/HubApp";
 
 function RedirectTo({ to }: { to: string }) {
   const [, navigate] = useLocation();
@@ -56,7 +56,9 @@ function Router() {
       {/* Experimental portal (isolado) */}
       <Route path="/hub" component={Hub} />
       <Route path="/hub/acessos" component={HubAccess} />
-      <Route path="/hub/tracker" component={HubTracker} />
+      <Route path="/hub/tracker" component={HubApp} />
+      <Route path="/hub/reports" component={HubApp} />
+      <Route path="/hub/contracts" component={HubApp} />
       {/* Redirects for removed nav items */}
       <Route path="/anomalies" component={() => <RedirectTo to="/alerts" />} />
       <Route path="/404" component={NotFound} />
