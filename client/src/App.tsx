@@ -24,10 +24,11 @@ import SocialNetworks from "./pages/SocialNetworks";
 import Experiments from "./pages/Experiments";
 import ExperimentDetail from "./pages/ExperimentDetail";
 
-// Experimental — portal interno isolado (rota /hub). Ver client/src/pages/hub/.
+// Selva Spaces — portal interno (raiz da aplicação). Ver client/src/pages/hub/.
 import Hub from "./pages/hub/Hub";
 import HubAccess from "./pages/hub/HubAccess";
 import HubApp from "./pages/hub/HubApp";
+import HubSettings from "./pages/hub/HubSettings";
 
 function RedirectTo({ to }: { to: string }) {
   const [, navigate] = useLocation();
@@ -38,13 +39,15 @@ function RedirectTo({ to }: { to: string }) {
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={SuggestionsHub} />
-      
+      {/* Raiz = Selva Spaces Home. A Visão Geral do Tracker vive em /overview. */}
+      <Route path="/" component={Hub} />
+      <Route path="/overview" component={SuggestionsHub} />
+
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/campaigns" component={Campaigns} />
       <Route path="/alerts" component={AlertsPage} />
       <Route path="/suggestions" component={Suggestions} />
-      <Route path="/suggestions-hub" component={() => <RedirectTo to="/" />} />
+      <Route path="/suggestions-hub" component={() => <RedirectTo to="/overview" />} />
       <Route path="/reports" component={Reports} />
       <Route path="/contracts" component={Contracts} />
       <Route path="/admin" component={Admin} />
@@ -53,8 +56,9 @@ function Router() {
       <Route path="/settings" component={Settings} />
       <Route path="/experiments" component={Experiments} />
       <Route path="/experiments/:id" component={ExperimentDetail} />
-      {/* Experimental portal (isolado) */}
+      {/* Selva Spaces — /hub mantido como alias da raiz */}
       <Route path="/hub" component={Hub} />
+      <Route path="/hub/settings" component={HubSettings} />
       <Route path="/hub/acessos" component={HubAccess} />
       <Route path="/hub/tracker" component={HubApp} />
       <Route path="/hub/reports" component={HubApp} />

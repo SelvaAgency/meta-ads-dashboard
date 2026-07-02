@@ -1,6 +1,6 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  /hub — SelvaTV  (experimental · descartável)
+ *  Selva Spaces — SelvaTV (banner/carrossel da Home)
  * ─────────────────────────────────────────────────────────────────────────────
  *  Banner de destaques. Lógica isolada e fácil de trocar por dados reais:
  *    · 0 imagens  → não renderiza nada (sem espaço morto)

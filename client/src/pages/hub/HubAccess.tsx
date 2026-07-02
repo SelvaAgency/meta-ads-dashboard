@@ -1,6 +1,6 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Selva Spaces — ACESSOS  (placeholder · rota /hub/acessos · descartável)
+ *  Selva Spaces — ACESSOS (placeholder · rota /hub/acessos)
  * ─────────────────────────────────────────────────────────────────────────────
  *  PLACEHOLDER da futura área privada de credenciais de clientes.
  *

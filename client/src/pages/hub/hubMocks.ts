@@ -1,6 +1,6 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  /hub — MOCKS & ADAPTERS  (experimental portal · descartável)
+ *  Selva Spaces — MOCKS & ADAPTERS (Agenda/Trello)
  * ─────────────────────────────────────────────────────────────────────────────
  *  Camada isolada de dados falsos. Cada função abaixo é um "adapter" simples:
  *  hoje devolve mock local, amanhã basta trocar o corpo por uma chamada real

@@ -1,13 +1,11 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  /hub — PÁGINA EXPERIMENTAL (portal interno · MVP · descartável)
+ *  Selva Spaces — Home (raiz da aplicação)
  * ─────────────────────────────────────────────────────────────────────────────
- *  Página 100% isolada. Não importa nem altera o layout/fluxo do dashboard
- *  atual. Reutiliza apenas primitivos de UI já existentes (Card, Avatar,
- *  Carousel), tokens de estilo, ícones lucide e o hook useAuth (só para o nome).
- *
- *  Todos os dados vêm da camada de mocks isolada (./hubMocks). Trocar por APIs
- *  reais depois = editar apenas os adapters, sem tocar nesta view.
+ *  Reutiliza primitivos de UI existentes (Card, Carousel), tokens, ícones
+ *  lucide e useAuth. News e SelvaTV vêm do store local (editável em
+ *  Configurações); Agenda e Meus cards vêm de adapters mockados isolados
+ *  (hubMocks) — prontos para trocar por Calendar/Trello reais depois.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useMemo } from "react";
@@ -19,32 +17,40 @@ import { Card } from "@/components/ui/card";
 import { HubShell } from "./HubShell";
 import { SelvaTV } from "./SelvaTV";
 import { NewsTicker } from "./NewsTicker";
-import {
-  getAgendaEvents,
-  getTrelloCards,
-  getSelvaTVImages,
-  getNews,
-  greetingForHour,
-  firstName,
-} from "./hubMocks";
+import { getAgendaEvents, getTrelloCards, greetingForHour, firstName } from "./hubMocks";
+import type { NewsItem, SelvaTVImage } from "./hubMocks";
+import { useNewsStore, useSelvaTVStore, useProfilePrefs } from "./hubStore";
 
 export default function Hub() {
   const { user } = useAuth();
+  const [storedNews] = useNewsStore();
+  const [storedTV] = useSelvaTVStore();
+  const [prefs] = useProfilePrefs();
 
-  // Dados (mock) — resolvidos uma vez.
+  // Adapters mockados (Calendar/Trello) — resolvidos uma vez.
   const agenda = useMemo(() => getAgendaEvents(), []);
   const cards = useMemo(() => getTrelloCards(), []);
-  const tvImages = useMemo(() => getSelvaTVImages(), []);
-  const news = useMemo(() => getNews(), []);
+
+  // News/SelvaTV ativos, vindos do store (admin edita em Configurações).
+  const news: NewsItem[] = storedNews.filter((n) => n.enabled && n.text.trim()).map((n) => ({ id: n.id, text: n.text }));
+  const tvImages: SelvaTVImage[] = storedTV
+    .filter((im) => im.enabled && im.src.trim())
+    .map((im) => ({ id: im.id, src: im.src, alt: im.alt, eyebrow: im.eyebrow, title: im.title, subtitle: im.subtitle }));
 
   const now = new Date();
-  const greeting = `${greetingForHour(now.getHours())}, ${firstName((user as any)?.name)}`;
+  const name = (user as any)?.name as string | undefined;
+  const greeting = `${greetingForHour(now.getHours())}, ${firstName(name)}`;
   const today = format(now, "EEEE, d 'de' MMMM", { locale: ptBR });
+
+  // Aviso de aniversário: se hoje = birthDate (MM-DD) do perfil, mensagem fixa.
+  const todayMMDD = format(now, "MM-dd");
+  const isBirthday = !!prefs.birthDate && prefs.birthDate === todayMMDD;
+  const celebration = isBirthday ? `Feliz aniversário, ${firstName(name)}!` : undefined;
 
   return (
     <HubShell>
-      {/* Faixa de avisos/notícias — some sozinha se vazia */}
-      <NewsTicker items={news} />
+      {/* Faixa de avisos/notícias — some sozinha se vazia; aniversário tem prioridade */}
+      <NewsTicker items={news} celebration={celebration} />
 
         <main className="flex-1 overflow-auto p-6 md:p-8">
           <div className="max-w-5xl mx-auto flex flex-col gap-6">

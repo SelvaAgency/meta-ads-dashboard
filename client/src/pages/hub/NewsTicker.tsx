@@ -17,7 +17,21 @@
 import { Newspaper } from "lucide-react";
 import type { NewsItem } from "./hubMocks";
 
-export function NewsTicker({ items }: { items: NewsItem[] }) {
+export function NewsTicker({ items, celebration }: { items: NewsItem[]; celebration?: string }) {
+  // Mensagem fixa (ex.: aniversário) tem prioridade e aparece sozinha, estática.
+  if (celebration) {
+    return (
+      <div className="selva-ticker selva-ticker--pinned" role="status">
+        <style>{TICKER_CSS}</style>
+        <div className="selva-ticker__label">
+          <Newspaper className="w-3.5 h-3.5" />
+          <span>Selva News</span>
+        </div>
+        <div className="selva-ticker__pinned-msg">🎉 {celebration}</div>
+      </div>
+    );
+  }
+
   // Sem notícias → some por completo (sem espaço morto).
   if (!items || items.length === 0) return null;
 
@@ -88,6 +102,7 @@ const TICKER_CSS = `
 .selva-ticker__group{ display:inline-flex; flex-shrink:0; }
 .selva-ticker__item{ display:inline-flex; align-items:center; padding:8px 0; font-size:12px; font-weight:600; }
 .selva-ticker__sep{ margin:0 22px; opacity:.45; }
+.selva-ticker__pinned-msg{ flex:1; padding:8px 22px; font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 @keyframes selva-ticker-scroll{ from{ transform:translateX(0); } to{ transform:translateX(-50%); } }
 @media (prefers-reduced-motion: reduce){
   .selva-ticker__track{ animation:none; transform:none; }

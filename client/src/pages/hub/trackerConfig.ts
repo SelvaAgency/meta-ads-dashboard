@@ -22,7 +22,9 @@
  */
 import { CLIENTS } from "@/config/clientConfig";
 
-export const TRACKER_GENERAL_URL = "https://meta-ads-dashboard-production-7c73.up.railway.app/";
+// Visão Geral do Tracker (mesmo deploy, origem relativa). A raiz "/" agora é o
+// Selva Spaces, então a home do Tracker fica em /overview.
+export const TRACKER_GENERAL_URL = "/overview";
 
 export interface TrackerClient {
   slug: string;

@@ -13,10 +13,6 @@
  *  ⚠️  Não colocar tokens/credenciais nas URLs. São apenas URLs públicas de app.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { TRACKER_GENERAL_URL } from "./trackerConfig";
-
-const TRACKER_BASE = "https://meta-ads-dashboard-production-7c73.up.railway.app";
-
 export interface IntegratedApp {
   id: string;
   label: string;
@@ -28,26 +24,14 @@ export interface IntegratedApp {
   supportsClientFlyout?: boolean;
 }
 
+// O Tracker/Relatórios/Contratos são páginas DESTE mesmo deploy (mesma origem
+// que o Selva Spaces). Por isso usamos URLs RELATIVAS: funcionam igual em
+// spaces.selva.agency e no domínio do Railway, sem hardcode de domínio.
+// A raiz "/" agora é o Selva Spaces; a Visão Geral do Tracker mora em /overview.
 export const INTEGRATED_APPS: IntegratedApp[] = [
-  {
-    id: "tracker",
-    label: "Tracker",
-    route: "/hub/tracker",
-    externalUrl: TRACKER_GENERAL_URL,
-    supportsClientFlyout: true,
-  },
-  {
-    id: "reports",
-    label: "Relatórios",
-    route: "/hub/reports",
-    externalUrl: `${TRACKER_BASE}/reports`,
-  },
-  {
-    id: "contracts",
-    label: "Contratos",
-    route: "/hub/contracts",
-    externalUrl: `${TRACKER_BASE}/contracts`,
-  },
+  { id: "tracker", label: "Tracker", route: "/hub/tracker", externalUrl: "/overview", supportsClientFlyout: true },
+  { id: "reports", label: "Relatórios", route: "/hub/reports", externalUrl: "/reports" },
+  { id: "contracts", label: "Contratos", route: "/hub/contracts", externalUrl: "/contracts" },
 ];
 
 /** Rota interna → app integrado (query string já vem removida pelo wouter). */

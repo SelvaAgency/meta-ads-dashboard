@@ -1,6 +1,6 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Selva Spaces — SIDEBAR  (experimental · rota /hub · descartável)
+ *  Selva Spaces — SIDEBAR (global)
  * ─────────────────────────────────────────────────────────────────────────────
  *  Sidebar escura seguindo o wireframe, usando os MESMOS tokens do dashboard
  *  atual (fundo #0A0A0A, acento pink #D4537E) e a mesma lib de ícones
@@ -42,6 +42,7 @@ import {
 import { SelvaLogo } from "@/components/SelvaLogo";
 import { TRACKER_CLIENTS } from "./trackerConfig";
 import { isIntegratedAppRoute } from "./integratedAppsConfig";
+import { HubUserMenu } from "./HubUserMenu";
 
 // Tokens alinhados ao MetaDashboardLayout (mantém consistência visual)
 const ACTIVE_BG = "rgba(212,83,126,0.15)";
@@ -72,7 +73,7 @@ const NAV_GLOBAL: NavItem[] = [
   { label: "Tarefas", icon: CalendarCheck, kind: "placeholder" },
   { label: "Acessos", icon: KeyRound, kind: "internal", href: "/hub/acessos" },
   { label: "Notificações", icon: Bell, kind: "placeholder" },
-  { label: "Configurações", icon: Settings, kind: "placeholder" },
+  { label: "Configurações", icon: Settings, kind: "internal", href: "/hub/settings" },
   { label: "Spaces", icon: LayoutGrid, kind: "external", href: "https://selvaagency.github.io/selva-spaces/" },
 ];
 
@@ -311,6 +312,11 @@ export function HubSidebar() {
             </span>
           )}
         </button>
+      </div>
+
+      {/* Conta logada — menu global (perfil, configurações, sair) */}
+      <div style={{ borderTop: DIVIDER }} className="p-2">
+        <HubUserMenu open={open} />
       </div>
     </aside>
   );
