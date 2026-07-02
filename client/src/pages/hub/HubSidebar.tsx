@@ -4,15 +4,20 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *  Sidebar escura seguindo o wireframe, usando os MESMOS tokens do dashboard
  *  atual (fundo #0A0A0A, acento pink #D4537E) e a mesma lib de ícones
- *  (lucide-react). Usada apenas dentro de /hub — não altera o
- *  MetaDashboardLayout existente.
+ *  (lucide-react). Usada apenas dentro de /hub.
  *
- *  Navegação por config (NAV_*). Três tipos de item:
+ *  Tipos de item (config-driven, NAV_*):
  *    · internal    → rota interna (wouter Link), com estado ativo
- *    · external    → link externo, abre em NOVA ABA (mantém o Spaces aberto)
+ *    · external    → link externo, abre em NOVA ABA
+ *    · app         → app integrado (iframe) dentro do Spaces (ex.: Tracker).
+ *                    Ao abrir, a sidebar colapsa automaticamente (appMode).
+ *                    Tem flyout de clientes no hover.
  *    · placeholder → visual, ainda sem destino ("em breve")
  *
- *  Estados colapsado (w-16, só ícones) / expandido (w-64) via hover + pin.
+ *  Estados colapsado (w-16) / expandido (w-64):
+ *    · Páginas simples → estado escolhido pelo usuário (pin) + hover.
+ *    · App integrado   → colapsa automaticamente; hover expande temporariamente.
+ *      Ao sair do app, o pin do usuário é restaurado (nada é perdido).
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useRef, useState } from "react";
@@ -35,6 +40,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { SelvaLogo } from "@/components/SelvaLogo";
+import { TRACKER_CLIENTS } from "./trackerConfig";
 
 // Tokens alinhados ao MetaDashboardLayout (mantém consistência visual)
 const ACTIVE_BG = "rgba(212,83,126,0.15)";
@@ -44,21 +50,13 @@ const TEXT_DIM = "rgba(255,255,255,0.35)";
 const DIVIDER = "0.5px solid rgba(255,255,255,0.08)";
 const HOVER_CLS = "hover:bg-white/[0.06]";
 
-// Subitem por cliente (ex.: Tracker de um cliente específico). Estrutura pronta
-// para o futuro hover/flyout — hoje `children` fica vazio, nada é renderizado.
-interface NavSubItem {
-  label: string;
-  href: string; // link externo por cliente
-}
-
 type NavItem = {
   label: string;
   icon: LucideIcon;
-  /** Subitens por cliente — preparado para o futuro flyout do Tracker. */
-  children?: NavSubItem[];
 } & (
   | { kind: "internal"; href: string }
   | { kind: "external"; href: string }
+  | { kind: "app"; href: string }
   | { kind: "placeholder" }
 );
 
@@ -82,15 +80,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Performance",
     items: [
-      {
-        label: "Tracker",
-        icon: Boxes,
-        kind: "external",
-        href: "https://meta-ads-dashboard-production-7c73.up.railway.app/",
-        // FUTURO: preencher com o Tracker de cada cliente para exibir no
-        // hover/flyout. Ex.: [{ label: "LACLIMA", href: ".../?client=laclima" }]
-        children: [],
-      },
+      // Tracker abre como app integrado (iframe) dentro do Spaces.
+      { label: "Tracker", icon: Boxes, kind: "app", href: "/hub/tracker" },
       {
         label: "Relatórios",
         icon: FileText,
@@ -120,62 +111,117 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-function NavRow({ item, open, active }: { item: NavItem; open: boolean; active: boolean }) {
+function RowInner({ item, open }: { item: NavItem; open: boolean }) {
   const Icon = item.icon;
-  const isPlaceholder = item.kind === "placeholder";
-
-  const rowClass = `flex items-center ${open ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg transition-all duration-150 ${
-    active || isPlaceholder ? "" : `cursor-pointer ${HOVER_CLS}`
-  } ${isPlaceholder ? "cursor-default" : ""}`;
-
-  const rowStyle = active
-    ? { background: ACTIVE_BG, color: ACTIVE_CLR }
-    : { color: isPlaceholder ? TEXT_DIM : TEXT_NORMAL };
-
-  const inner = (
+  return (
     <>
       <Icon className="w-4 h-4 flex-shrink-0" />
       {open && <span className="text-sm font-medium flex-1 truncate">{item.label}</span>}
       {open && item.kind === "external" && (
         <ExternalLink className="w-3 h-3 flex-shrink-0" style={{ color: TEXT_DIM }} />
       )}
-      {open && isPlaceholder && (
+      {open && item.kind === "placeholder" && (
         <span className="text-[9px] uppercase tracking-wide" style={{ color: TEXT_DIM }}>
           em breve
         </span>
       )}
     </>
   );
+}
 
-  if (item.kind === "internal") {
+function rowClass(open: boolean, active: boolean, placeholder: boolean) {
+  return `flex items-center ${open ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg transition-all duration-150 ${
+    active || placeholder ? "" : `cursor-pointer ${HOVER_CLS}`
+  } ${placeholder ? "cursor-default" : ""}`;
+}
+
+function rowStyle(active: boolean, placeholder: boolean) {
+  return active
+    ? { background: ACTIVE_BG, color: ACTIVE_CLR }
+    : { color: placeholder ? TEXT_DIM : TEXT_NORMAL };
+}
+
+function NavRow({ item, open, active }: { item: NavItem; open: boolean; active: boolean }) {
+  const placeholder = item.kind === "placeholder";
+  const cls = rowClass(open, active, placeholder);
+  const style = rowStyle(active, placeholder);
+  const title = open ? undefined : item.label;
+
+  if (item.kind === "internal" || item.kind === "app") {
     return (
       <Link href={item.href}>
-        <div className={rowClass} style={rowStyle} title={open ? undefined : item.label}>
-          {inner}
+        <div className={cls} style={style} title={title}>
+          <RowInner item={item} open={open} />
         </div>
       </Link>
     );
   }
-
   if (item.kind === "external") {
     return (
-      <a
-        href={item.href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={rowClass}
-        style={rowStyle}
-        title={open ? undefined : item.label}
-      >
-        {inner}
+      <a href={item.href} target="_blank" rel="noopener noreferrer" className={cls} style={style} title={title}>
+        <RowInner item={item} open={open} />
       </a>
     );
   }
-
-  // placeholder
   return (
-    <div className={rowClass} style={rowStyle} title="Em breve">
-      {inner}
+    <div className={cls} style={style} title="Em breve">
+      <RowInner item={item} open={open} />
+    </div>
+  );
+}
+
+// ─── Item Tracker: row + flyout de clientes no hover ─────────────────────────
+function TrackerItem({ item, open, active }: { item: Extract<NavItem, { kind: "app" }>; open: boolean; active: boolean }) {
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  const openFlyout = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    const rect = rowRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    // Fixed → não é cortado por overflow da sidebar. Clamp vertical na viewport.
+    const top = Math.max(12, Math.min(rect.top, window.innerHeight - 380));
+    setPos({ top, left: rect.right + 6 });
+  };
+  const scheduleClose = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => setPos(null), 180);
+  };
+
+  return (
+    <div ref={rowRef} onMouseEnter={openFlyout} onMouseLeave={scheduleClose}>
+      <NavRow item={item} open={open} active={active} />
+
+      {pos && (
+        <div
+          className="fixed z-50 w-56 rounded-xl border border-border bg-popover p-2 shadow-lg"
+          style={{ top: pos.top, left: pos.left }}
+          onMouseEnter={() => closeTimer.current && clearTimeout(closeTimer.current)}
+          onMouseLeave={scheduleClose}
+        >
+          <p className="px-2 pb-1.5 pt-1 text-[11px] text-muted-foreground">Clientes · Tracker</p>
+          <div className="max-h-80 overflow-y-auto flex flex-col">
+            {TRACKER_CLIENTS.filter((c) => c.enabled).map((c) => (
+              <Link key={c.slug} href={`${item.href}?client=${c.slug}`}>
+                <div
+                  className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 cursor-pointer hover:bg-accent/40 transition-colors"
+                  onClick={() => setPos(null)}
+                >
+                  <span className="w-6 h-6 rounded-md bg-primary/15 text-accent flex items-center justify-center flex-shrink-0 text-[10px] font-bold overflow-hidden">
+                    {c.logoUrl ? (
+                      <img src={c.logoUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      c.initials
+                    )}
+                  </span>
+                  <span className="text-sm truncate">{c.name}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -185,9 +231,17 @@ export function HubSidebar() {
   const [pinned, setPinned] = useState(true);
   const [hovering, setHovering] = useState(false);
   const leaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const open = pinned || hovering;
 
-  const isActive = (item: NavItem) => item.kind === "internal" && location === item.href;
+  // App integrado aberto → colapsa automaticamente. Pin do usuário é preservado
+  // e volta a valer assim que ele sai do app (Home/páginas simples).
+  const appMode = location.startsWith("/hub/tracker");
+  const open = appMode ? hovering : pinned || hovering;
+
+  const isActive = (item: NavItem) => {
+    if (item.kind === "app") return location.startsWith(item.href);
+    if (item.kind === "internal") return location === item.href;
+    return false;
+  };
 
   return (
     <aside
@@ -239,30 +293,13 @@ export function HubSidebar() {
               </p>
             )}
             <div className="flex flex-col gap-0.5">
-              {group.items.map((item) => (
-                <div key={item.label}>
-                  <NavRow item={item} open={open} active={isActive(item)} />
-                  {/* Subitens por cliente (Tracker) — renderiza só quando houver.
-                      Hoje `children` é vazio, então nada aparece. */}
-                  {open && item.children && item.children.length > 0 && (
-                    <div className="flex flex-col gap-0.5 mt-0.5">
-                      {item.children.map((sub) => (
-                        <a
-                          key={sub.label}
-                          href={sub.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg cursor-pointer transition-all duration-150 ${HOVER_CLS}`}
-                          style={{ color: "rgba(255,255,255,0.4)" }}
-                        >
-                          <span className="text-xs font-medium flex-1 truncate">{sub.label}</span>
-                          <ExternalLink className="w-3 h-3 flex-shrink-0" style={{ color: TEXT_DIM }} />
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+              {group.items.map((item) =>
+                item.kind === "app" ? (
+                  <TrackerItem key={item.label} item={item} open={open} active={isActive(item)} />
+                ) : (
+                  <NavRow key={item.label} item={item} open={open} active={isActive(item)} />
+                )
+              )}
             </div>
           </div>
         ))}
@@ -277,7 +314,11 @@ export function HubSidebar() {
           title={pinned ? "Recolher barra" : "Fixar barra"}
         >
           <PanelLeft className="w-4 h-4 flex-shrink-0" />
-          {open && <span className="text-sm font-medium flex-1 text-left truncate">{pinned ? "Recolher barra" : "Fixar barra"}</span>}
+          {open && (
+            <span className="text-sm font-medium flex-1 text-left truncate">
+              {pinned ? "Recolher barra" : "Fixar barra"}
+            </span>
+          )}
         </button>
       </div>
     </aside>
