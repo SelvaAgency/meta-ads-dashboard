@@ -24,14 +24,15 @@ import {
   Check,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { HubShell } from "./HubShell";
+import { canManageContent, ROLE_LABELS, type Role } from "@shared/permissions";
 import {
-  useProfilePrefs,
   useNewsStore,
   useSelvaTVStore,
   type StoredNews,
@@ -67,21 +68,36 @@ function SectionCard({
 
 // ─── Perfil ──────────────────────────────────────────────────────────────────
 function ProfileSection() {
-  const { user } = useAuth();
-  const [prefs, setPrefs] = useProfilePrefs();
-  const [draft, setDraft] = useState(prefs);
+  const { user, refresh } = useAuth();
+  const u = user as { name?: string; email?: string; role?: string; jobTitle?: string | null; birthdayDay?: number | null; birthdayMonth?: number | null } | null;
+  const utils = trpc.useUtils();
   const [saved, setSaved] = useState(false);
+  const [draft, setDraft] = useState({
+    jobTitle: u?.jobTitle ?? "",
+    day: u?.birthdayDay?.toString() ?? "",
+    month: u?.birthdayMonth?.toString() ?? "",
+  });
 
-  const name = (user as any)?.name ?? "";
-  const email = (user as any)?.email ?? "";
-  const role = (user as any)?.role ?? "user";
+  const name = u?.name ?? "";
+  const email = u?.email ?? "";
+  const role = u?.role ?? "user";
   const initial = (name?.[0] ?? "U").toUpperCase();
 
-  const save = () => {
-    setPrefs(draft);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
+  const mutation = trpc.auth.updateOwnProfile.useMutation({
+    onSuccess: async () => {
+      await utils.auth.me.invalidate();
+      await refresh();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    },
+  });
+
+  const save = () =>
+    mutation.mutate({
+      jobTitle: draft.jobTitle.trim() || null,
+      birthdayDay: draft.day ? Number(draft.day) : null,
+      birthdayMonth: draft.month ? Number(draft.month) : null,
+    });
 
   return (
     <SectionCard icon={UserIcon} title="Perfil" description="Seus dados dentro do Selva Spaces.">
@@ -112,32 +128,31 @@ function ProfileSection() {
           <Label className="text-xs">E-mail</Label>
           <Input value={email} readOnly disabled />
         </div>
-        {/* Cargo/função — editável; ainda não persistido no backend */}
+        {/* Cargo/função — editável (persistido no backend) */}
         <div className="flex flex-col gap-1.5">
           <Label className="text-xs">Cargo / função</Label>
           <Input
-            value={draft.jobTitle ?? ""}
+            value={draft.jobTitle}
             placeholder="Ex.: Gestor de Tráfego"
             onChange={(e) => setDraft({ ...draft, jobTitle: e.target.value })}
           />
         </div>
         {/* Aniversário — dia/mês (usado no aviso da news bar) */}
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Aniversário (dia/mês)</Label>
-          <Input
-            type="date"
-            value={draft.birthDate ? `2000-${draft.birthDate}` : ""}
-            onChange={(e) => {
-              const v = e.target.value; // YYYY-MM-DD
-              setDraft({ ...draft, birthDate: v ? v.slice(5) : undefined }); // guarda só MM-DD
-            }}
-          />
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs">Aniversário — dia</Label>
+            <Input type="number" min={1} max={31} value={draft.day} onChange={(e) => setDraft({ ...draft, day: e.target.value })} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-xs">Mês</Label>
+            <Input type="number" min={1} max={12} value={draft.month} onChange={(e) => setDraft({ ...draft, month: e.target.value })} />
+          </div>
         </div>
         {/* Role — somente leitura (usuário comum não altera a própria permissão) */}
         <div className="flex flex-col gap-1.5">
           <Label className="text-xs">Permissão</Label>
           <div>
-            <Badge variant={role === "admin" ? "default" : "secondary"}>{role}</Badge>
+            <Badge variant={role === "admin" ? "default" : "secondary"}>{ROLE_LABELS[(role as Role)] ?? role}</Badge>
           </div>
         </div>
       </div>
@@ -145,16 +160,12 @@ function ProfileSection() {
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <button
           onClick={save}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 hover:opacity-90 transition-opacity"
+          disabled={mutation.isPending}
+          className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 hover:opacity-90 transition-opacity disabled:opacity-60"
         >
           {saved ? <Check className="w-4 h-4" /> : null}
           {saved ? "Salvo" : "Salvar perfil"}
         </button>
-        <span className="text-[11px] text-muted-foreground">
-          {/* TODO(backend): persistir Cargo e Aniversário via tRPC (users.update)
-              + colunas na tabela users. Hoje ficam só neste navegador. */}
-          Cargo e aniversário ficam salvos apenas neste navegador até a integração com o backend.
-        </span>
       </div>
     </SectionCard>
   );
@@ -319,7 +330,8 @@ function SelvaTVAdminSection() {
 
 export default function HubSettings() {
   const { user } = useAuth();
-  const isAdmin = (user as any)?.role === "admin";
+  // News/SelvaTV: admin E developer podem gerenciar conteúdo operacional.
+  const canContent = canManageContent((user as { role?: string } | null)?.role);
 
   return (
     <HubShell>
@@ -331,18 +343,18 @@ export default function HubSettings() {
             </span>
             <div>
               <h1 className="text-2xl font-bold">Configurações</h1>
-              <p className="text-sm text-muted-foreground">Perfil{isAdmin ? " e administração" : ""}</p>
+              <p className="text-sm text-muted-foreground">Perfil{canContent ? " e conteúdo" : ""}</p>
             </div>
           </header>
 
           <ProfileSection />
 
-          {isAdmin && (
+          {canContent && (
             <>
               <div className="flex items-center gap-2 pt-2">
                 <ShieldCheck className="w-4 h-4 text-accent" />
                 <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                  Administração
+                  Conteúdo
                 </span>
               </div>
               <NewsAdminSection />

@@ -36,9 +36,12 @@ import {
   FileSignature,
   ScrollText,
   ExternalLink,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { SelvaLogo } from "@/components/SelvaLogo";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canAccessAdmin } from "@shared/permissions";
 import { TRACKER_CLIENTS } from "./trackerConfig";
 import { isIntegratedAppRoute } from "./integratedAppsConfig";
 import { HubUserMenu } from "./HubUserMenu";
@@ -64,6 +67,8 @@ type NavItem = {
 interface NavGroup {
   label: string;
   items: NavItem[];
+  /** Grupo Administrativo → visível apenas para admin. */
+  adminOnly?: boolean;
 }
 
 // ─── Navegação global (topo) ─────────────────────────────────────────────────
@@ -94,10 +99,12 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Administrativo",
+    adminOnly: true,
     items: [
       { label: "Financeiro", icon: DollarSign, kind: "placeholder" },
       { label: "Contratos", icon: FileSignature, kind: "app", href: "/contracts" },
       { label: "Propostas", icon: ScrollText, kind: "placeholder" },
+      { label: "Colaboradores", icon: Users, kind: "internal", href: "/people" },
     ],
   },
 ];
@@ -219,6 +226,9 @@ function TrackerItem({ item, open, active }: { item: Extract<NavItem, { kind: "a
 
 export function HubSidebar() {
   const [location] = useLocation();
+  const { user } = useAuth();
+  const isAdmin = canAccessAdmin((user as { role?: string } | null)?.role);
+  const groups = NAV_GROUPS.filter((g) => !g.adminOnly || isAdmin);
   const [hovering, setHovering] = useState(false);
   const leaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -273,7 +283,7 @@ export function HubSidebar() {
         </div>
 
         {/* Grupos de produtos */}
-        {NAV_GROUPS.map((group) => (
+        {groups.map((group) => (
           <div key={group.label} className="mt-2">
             <div style={{ borderTop: DIVIDER, margin: "8px 4px 2px" }} />
             {open && (

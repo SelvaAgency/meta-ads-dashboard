@@ -12,13 +12,22 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import type { ReactNode } from "react";
+import { useEffect } from "react";
+import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { HubSidebar } from "./HubSidebar";
 
 export function HubShell({ children }: { children: ReactNode }) {
-  const { loading, isAuthenticated } = useAuth({ redirectOnUnauthenticated: true });
+  const { user, loading, isAuthenticated } = useAuth({ redirectOnUnauthenticated: true });
+  const [, navigate] = useLocation();
+  const mustChange = !!(user as { mustChangePassword?: boolean } | null)?.mustChangePassword;
 
-  if (loading || !isAuthenticated) {
+  // Primeiro acesso: trava tudo até trocar a senha.
+  useEffect(() => {
+    if (isAuthenticated && mustChange) navigate("/change-password", { replace: true });
+  }, [isAuthenticated, mustChange, navigate]);
+
+  if (loading || !isAuthenticated || mustChange) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />

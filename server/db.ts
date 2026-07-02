@@ -95,6 +95,50 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+// ─── Colaboradores (People management) ────────────────────────────────────────
+
+/** Todos os colaboradores (sem passwordHash exposto pelo caller). */
+export async function getAllUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(users).orderBy(users.name);
+}
+
+export async function getUserById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function createEmployee(data: InsertUser) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.insert(users).values(data);
+  return getUserByOpenId(data.openId);
+}
+
+/** Atualiza campos de perfil/role/status. Nunca toca em passwordHash. */
+export async function updateUserFields(
+  id: number,
+  patch: Partial<Pick<
+    typeof users.$inferInsert,
+    "name" | "email" | "role" | "jobTitle" | "birthdayDay" | "birthdayMonth" | "active"
+  >>,
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(users).set(patch).where(eq(users.id, id));
+  return getUserById(id);
+}
+
+/** Define nova senha (hash) e marca mustChangePassword conforme necessário. */
+export async function setUserPassword(id: number, passwordHash: string, mustChangePassword: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(users).set({ passwordHash, mustChangePassword }).where(eq(users.id, id));
+}
+
 // ─── Meta Ad Accounts ─────────────────────────────────────────────────────────
 
 export async function getAllActiveMetaAdAccounts() {

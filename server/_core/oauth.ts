@@ -1,6 +1,6 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
-import { scryptSync, timingSafeEqual, randomBytes } from "node:crypto";
+import { scryptSync, timingSafeEqual, randomBytes, randomInt } from "node:crypto";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
@@ -19,7 +19,7 @@ export function hashPassword(password: string): string {
   return `${salt}:${hash}`;
 }
 
-function verifyPassword(password: string, stored: string): boolean {
+export function verifyPassword(password: string, stored: string): boolean {
   try {
     const [salt, hash] = stored.split(":");
     if (!salt || !hash) return false;
@@ -29,6 +29,21 @@ function verifyPassword(password: string, stored: string): boolean {
   } catch {
     return false;
   }
+}
+
+// ─── Senha temporária legível (fruta + número + especial + "Perene") ──────────
+// Não usa nome/sobrenome/e-mail. Ex.: Manga47@Perene
+const TEMP_FRUITS = [
+  "Manga", "Kiwi", "Caju", "Pitaya", "Cedro", "Amora", "Goiaba", "Lichia",
+  "Jabuti", "Pequi", "Umbu", "Graviola", "Physalis", "Nespera", "Carambola", "Bacuri",
+];
+const TEMP_SPECIALS = ["@", "#", "!", "&"];
+
+export function generateTempPassword(): string {
+  const fruit = TEMP_FRUITS[randomInt(TEMP_FRUITS.length)];
+  const num = randomInt(10, 100); // 2 dígitos
+  const special = TEMP_SPECIALS[randomInt(TEMP_SPECIALS.length)];
+  return `${fruit}${num}${special}Perene`;
 }
 
 // ─── Login page HTML ──────────────────────────────────────────────────────────

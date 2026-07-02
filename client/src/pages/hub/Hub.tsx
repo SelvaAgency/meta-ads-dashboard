@@ -19,13 +19,13 @@ import { SelvaTV } from "./SelvaTV";
 import { NewsTicker } from "./NewsTicker";
 import { getAgendaEvents, getTrelloCards, greetingForHour, firstName } from "./hubMocks";
 import type { NewsItem, SelvaTVImage } from "./hubMocks";
-import { useNewsStore, useSelvaTVStore, useProfilePrefs } from "./hubStore";
+import { useNewsStore, useSelvaTVStore } from "./hubStore";
 
 export default function Hub() {
   const { user } = useAuth();
+  const u = user as { name?: string; birthdayDay?: number | null; birthdayMonth?: number | null } | null;
   const [storedNews] = useNewsStore();
   const [storedTV] = useSelvaTVStore();
-  const [prefs] = useProfilePrefs();
 
   // Adapters mockados (Calendar/Trello) — resolvidos uma vez.
   const agenda = useMemo(() => getAgendaEvents(), []);
@@ -38,13 +38,12 @@ export default function Hub() {
     .map((im) => ({ id: im.id, src: im.src, alt: im.alt, eyebrow: im.eyebrow, title: im.title, subtitle: im.subtitle }));
 
   const now = new Date();
-  const name = (user as any)?.name as string | undefined;
+  const name = u?.name;
   const greeting = `${greetingForHour(now.getHours())}, ${firstName(name)}`;
   const today = format(now, "EEEE, d 'de' MMMM", { locale: ptBR });
 
-  // Aviso de aniversário: se hoje = birthDate (MM-DD) do perfil, mensagem fixa.
-  const todayMMDD = format(now, "MM-dd");
-  const isBirthday = !!prefs.birthDate && prefs.birthDate === todayMMDD;
+  // Aviso de aniversário: se hoje = dia/mês do perfil (banco), mensagem fixa.
+  const isBirthday = u?.birthdayDay === now.getDate() && u?.birthdayMonth === now.getMonth() + 1;
   const celebration = isBirthday ? `Feliz aniversário, ${firstName(name)}!` : undefined;
 
   return (

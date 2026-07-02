@@ -29,6 +29,9 @@ import Hub from "./pages/hub/Hub";
 import HubAccess from "./pages/hub/HubAccess";
 import HubApp from "./pages/hub/HubApp";
 import HubSettings from "./pages/hub/HubSettings";
+import PeoplePage from "./pages/hub/PeoplePage";
+import ChangePassword from "./pages/hub/ChangePassword";
+import { AdminOnly } from "./pages/hub/AdminOnly";
 import { isEmbedded } from "./pages/hub/embed";
 
 function RedirectTo({ to }: { to: string }) {
@@ -42,7 +45,8 @@ function RedirectTo({ to }: { to: string }) {
 const Root = () => (isEmbedded() ? <SuggestionsHub /> : <Hub />);
 const TrackerRoute = () => (isEmbedded() ? <SuggestionsHub /> : <HubApp />);
 const ReportsRoute = () => (isEmbedded() ? <Reports /> : <HubApp />);
-const ContractsRoute = () => (isEmbedded() ? <Contracts /> : <HubApp />);
+// Contratos = área Administrativa → admin only fora do iframe.
+const ContractsRoute = () => (isEmbedded() ? <Contracts /> : <AdminOnly><HubApp /></AdminOnly>);
 const SettingsRoute = () => (isEmbedded() ? <Settings /> : <HubSettings />);
 
 function Router() {
@@ -55,6 +59,8 @@ function Router() {
       <Route path="/contracts" component={ContractsRoute} />
       <Route path="/settings" component={SettingsRoute} />
       <Route path="/access" component={HubAccess} />
+      <Route path="/people" component={() => <AdminOnly><PeoplePage /></AdminOnly>} />
+      <Route path="/change-password" component={ChangePassword} />
 
       {/* ── Legado /hub → rotas diretas (compatibilidade) ────────────────────── */}
       <Route path="/hub" component={() => <RedirectTo to="/" />} />

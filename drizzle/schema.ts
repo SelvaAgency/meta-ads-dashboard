@@ -21,7 +21,15 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   passwordHash: varchar("passwordHash", { length: 255 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  // Roles: admin (Administrativo) · developer (Desenvolvedor) · user (Colaborador)
+  role: mysqlEnum("role", ["user", "admin", "developer"]).default("user").notNull(),
+  // Perfil de colaborador
+  jobTitle: varchar("jobTitle", { length: 255 }),
+  birthdayDay: int("birthdayDay"),     // 1–31
+  birthdayMonth: int("birthdayMonth"), // 1–12
+  // Primeiro acesso / segurança
+  mustChangePassword: boolean("mustChangePassword").default(false).notNull(),
+  active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

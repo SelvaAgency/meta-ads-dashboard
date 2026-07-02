@@ -7,7 +7,16 @@ import { getPageIdsForAdAccount } from "@shared/pageMapping";
 import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, router } from "./_core/trpc";
+import { hashPassword, verifyPassword, generateTempPassword } from "./_core/oauth";
+import {
+  getAllUsers,
+  getUserById,
+  getUserByOpenId,
+  createEmployee,
+  updateUserFields,
+  setUserPassword,
+} from "./db";
 import {
   applySuggestion,
   createAlert,
@@ -412,12 +421,130 @@ export const appRouter = router({
   system: systemRouter,
 
   auth: router({
-    me: publicProcedure.query((opts) => opts.ctx.user),
+    me: publicProcedure.query((opts) => {
+      if (!opts.ctx.user) return null;
+      // Nunca expõe o hash da senha ao cliente.
+      const { passwordHash: _omit, ...safe } = opts.ctx.user;
+      return safe;
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+
+    // Troca de senha no primeiro acesso (ou voluntária). Usa authedProcedure
+    // porque protectedProcedure bloqueia quem tem mustChangePassword = true.
+    changePassword: authedProcedure
+      .input(z.object({
+        currentPassword: z.string().min(1),
+        newPassword: z.string().min(8, "A nova senha deve ter pelo menos 8 caracteres."),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const dbUser = await getUserById(ctx.user.id);
+        if (!dbUser?.passwordHash || !verifyPassword(input.currentPassword, dbUser.passwordHash)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Senha atual incorreta." });
+        }
+        if (verifyPassword(input.newPassword, dbUser.passwordHash)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A nova senha deve ser diferente da atual." });
+        }
+        await setUserPassword(ctx.user.id, hashPassword(input.newPassword), false);
+        return { success: true } as const;
+      }),
+
+    // Edição do PRÓPRIO perfil (campos permitidos). Nunca role/email.
+    updateOwnProfile: protectedProcedure
+      .input(z.object({
+        jobTitle: z.string().max(255).nullable().optional(),
+        birthdayDay: z.number().int().min(1).max(31).nullable().optional(),
+        birthdayMonth: z.number().int().min(1).max(12).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const updated = await updateUserFields(ctx.user.id, input);
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND" });
+        const { passwordHash: _omit, ...safe } = updated;
+        return safe;
+      }),
+  }),
+
+  // ─── Colaboradores (People management) — admin only ─────────────────────────
+  people: router({
+    list: adminProcedure.query(async () => {
+      const rows = await getAllUsers();
+      // Nunca expõe passwordHash.
+      return rows.map(({ passwordHash: _omit, ...u }) => u);
+    }),
+
+    create: adminProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        email: z.string().email(),
+        role: z.enum(["user", "admin", "developer"]),
+        jobTitle: z.string().optional(),
+        birthdayDay: z.number().int().min(1).max(31).optional(),
+        birthdayMonth: z.number().int().min(1).max(12).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const openId = input.email.toLowerCase();
+        if (await getUserByOpenId(openId)) {
+          throw new TRPCError({ code: "CONFLICT", message: "Já existe um colaborador com esse e-mail." });
+        }
+        const tempPassword = generateTempPassword();
+        await createEmployee({
+          openId,
+          email: input.email,
+          name: input.name,
+          role: input.role,
+          jobTitle: input.jobTitle ?? null,
+          birthdayDay: input.birthdayDay ?? null,
+          birthdayMonth: input.birthdayMonth ?? null,
+          passwordHash: hashPassword(tempPassword),
+          mustChangePassword: true,
+          active: true,
+          loginMethod: "email",
+        });
+        // tempPassword retornado UMA vez ao admin; nunca é armazenado em texto.
+        return { tempPassword };
+      }),
+
+    update: adminProcedure
+      .input(z.object({
+        id: z.number().int(),
+        name: z.string().min(1).optional(),
+        email: z.string().email().optional(),
+        role: z.enum(["user", "admin", "developer"]).optional(),
+        jobTitle: z.string().nullable().optional(),
+        birthdayDay: z.number().int().min(1).max(31).nullable().optional(),
+        birthdayMonth: z.number().int().min(1).max(12).nullable().optional(),
+        active: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...patch } = input;
+        // Um admin não pode se auto-rebaixar nem se desativar (evita lockout).
+        if (id === ctx.user.id && (patch.role && patch.role !== "admin" || patch.active === false)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Você não pode alterar a própria permissão/status." });
+        }
+        if (patch.email) {
+          const existing = await getUserByOpenId(patch.email.toLowerCase());
+          if (existing && existing.id !== id) {
+            throw new TRPCError({ code: "CONFLICT", message: "E-mail já usado por outro colaborador." });
+          }
+        }
+        const updated = await updateUserFields(id, patch);
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND" });
+        const { passwordHash: _omit, ...safe } = updated;
+        return safe;
+      }),
+
+    resetPassword: adminProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ input }) => {
+        const target = await getUserById(input.id);
+        if (!target) throw new TRPCError({ code: "NOT_FOUND" });
+        const tempPassword = generateTempPassword();
+        await setUserPassword(input.id, hashPassword(tempPassword), true);
+        return { tempPassword };
+      }),
   }),
 
   // ─── Meta Ad Accounts ──────────────────────────────────────────────────────
@@ -3592,7 +3719,8 @@ Responda APENAS com JSON válido, sem markdown, no formato exato:
       }),
   }),
   contracts: router({
-    extractFields: protectedProcedure
+    // Contratos é área Administrativa → admin only (backend + rota/sidebar).
+    extractFields: adminProcedure
       .input(z.object({
         text: z.string().optional(),
         fileBase64: z.string().optional(),
