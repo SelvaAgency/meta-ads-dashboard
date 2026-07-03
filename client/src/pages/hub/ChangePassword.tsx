@@ -58,7 +58,7 @@ export default function ChangePassword() {
           </span>
           <h1 className="text-xl font-bold">Crie uma nova senha</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Primeiro acesso ao Selva Spaces — defina sua senha para continuar.
+            Primeiro acesso ao SELVA Spaces — defina sua senha para continuar.
           </p>
         </div>
 

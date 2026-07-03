@@ -103,7 +103,7 @@ export function HubIntegratedApp({ title, src, externalUrl }: HubIntegratedAppPr
                 </span>
                 <h2 className="text-lg font-bold mb-1">{title}</h2>
                 <p className="text-sm text-muted-foreground mb-5">
-                  Não foi possível carregar este app aqui dentro do Selva Spaces. Você pode abri-lo
+                  Não foi possível carregar este app aqui dentro do SELVA Spaces. Você pode abri-lo
                   em uma nova aba.
                 </p>
                 <a

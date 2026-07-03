@@ -56,6 +56,7 @@ export function MyCardsCard() {
   const syncing = q.isFetching;
   const updatedAt = q.dataUpdatedAt;
 
+  const [expanded, setExpanded] = useState(false);
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!connected) return;
@@ -82,11 +83,13 @@ export function MyCardsCard() {
   } else if (q.data.status === "error") {
     body = <p className="text-sm text-muted-foreground">Não foi possível carregar seus cards agora.</p>;
   } else if (q.data.cards.length === 0) {
-    body = <p className="text-sm text-muted-foreground">Nenhum card atribuído a você.</p>;
+    body = <p className="text-sm text-muted-foreground">Nenhum card pendente atribuído a você.</p>;
   } else {
+    const cards = q.data.cards;
+    const visible = expanded ? cards : cards.slice(0, 5);
     body = (
       <div className="flex flex-col gap-2.5">
-        {q.data.cards.map((c) => (
+        {visible.map((c) => (
           <a
             key={c.id}
             href={c.url}
@@ -101,6 +104,14 @@ export function MyCardsCard() {
             </span>
           </a>
         ))}
+        {cards.length > 5 && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="self-start text-xs font-medium text-accent hover:opacity-80 mt-0.5"
+          >
+            {expanded ? "Mostrar menos" : `Ver todos (${cards.length})`}
+          </button>
+        )}
       </div>
     );
   }

@@ -53,7 +53,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Selva Spaces</title>
+  <title>SELVA Spaces</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400&display=swap" rel="stylesheet"/>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -108,7 +108,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
       </svg>
     </div>
     <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
-      <div class="brand-name">Selva Spaces</div>
+      <div class="brand-name">SELVA Spaces</div>
       <div class="brand-sub">Powered by <a href="https://www.selva.agency" target="_blank">SELVA Agency</a></div>
     </div>
     <hr/>

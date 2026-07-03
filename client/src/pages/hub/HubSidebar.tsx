@@ -263,7 +263,7 @@ export function HubSidebar() {
           {open && (
             <div className="overflow-hidden min-w-0">
               <p className="text-xs font-semibold truncate" style={{ letterSpacing: "0.04em", color: "#FDFFED" }}>
-                Selva Spaces
+                SELVA Spaces
               </p>
               <p className="text-[10px] truncate" style={{ color: TEXT_DIM }}>
                 Portal interno

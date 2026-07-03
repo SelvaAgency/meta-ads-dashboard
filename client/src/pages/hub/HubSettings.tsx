@@ -104,7 +104,7 @@ function ProfileSection() {
     });
 
   return (
-    <SectionCard icon={UserIcon} title="Perfil" description="Seus dados dentro do Selva Spaces.">
+    <SectionCard icon={UserIcon} title="Perfil" description="Seus dados dentro do SELVA Spaces.">
       {/* Foto de perfil — por iniciais. Upload real depende de storage. */}
       <div className="flex items-center gap-4 mb-5">
         <div
