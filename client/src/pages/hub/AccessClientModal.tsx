@@ -7,7 +7,7 @@
  *  (revelar/copiar senha — auditadas —, editar, excluir com confirmação).
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   X, Search, Plus, Eye, EyeOff, Copy, Pencil, Trash2, Loader2, Check, ExternalLink, ShieldAlert,
 } from "lucide-react";
@@ -36,33 +36,74 @@ const emptyForm: FormState = { platform: "", label: "", loginEmail: "", password
 
 function TagsInput({ tags, onChange }: { tags: string[]; onChange: (t: string[]) => void }) {
   const [draft, setDraft] = useState("");
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Fecha ao clicar fora.
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
   const add = (raw: string) => {
     const clean = raw.replace(/\s+/g, " ").trim().slice(0, 40);
     if (!clean || tags.length >= 10) return;
     if (tags.some((t) => t.toLowerCase() === clean.toLowerCase())) return;
     onChange([...tags, clean]);
   };
+
+  const q = draft.trim().toLowerCase();
+  const suggestions = TAG_SUGGESTIONS.filter(
+    (s) => !tags.some((t) => t.toLowerCase() === s.toLowerCase()) && (!q || s.toLowerCase().includes(q)),
+  );
+  const atLimit = tags.length >= 10;
+
   return (
-    <div className="rounded-md border border-border bg-input px-2 py-1.5 flex flex-wrap gap-1.5 items-center">
-      {tags.map((t) => (
-        <span key={t} className="inline-flex items-center gap-1 rounded bg-primary/15 text-accent text-[11px] px-1.5 py-0.5">
-          {t}
-          <button onClick={() => onChange(tags.filter((x) => x !== t))} className="hover:opacity-70"><X className="w-3 h-3" /></button>
-        </span>
-      ))}
-      <input
-        list="tag-suggestions"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if ((e.key === "Enter" || e.key === ",") && draft.trim()) { e.preventDefault(); add(draft); setDraft(""); }
-          else if (e.key === "Backspace" && !draft && tags.length) onChange(tags.slice(0, -1));
-        }}
-        onBlur={() => { if (draft.trim()) { add(draft); setDraft(""); } }}
-        placeholder={tags.length ? "" : "Adicionar tag e Enter"}
-        className="flex-1 min-w-[120px] bg-transparent outline-none text-sm py-0.5"
-      />
-      <datalist id="tag-suggestions">{TAG_SUGGESTIONS.map((t) => <option key={t} value={t} />)}</datalist>
+    <div ref={ref} className="relative">
+      {/* Caixa de chips + input */}
+      <div
+        className="rounded-md border border-border bg-input px-2 py-1.5 flex flex-wrap gap-1.5 items-center cursor-text"
+        onClick={() => !atLimit && setOpen(true)}
+      >
+        {tags.map((t) => (
+          <span key={t} className="inline-flex items-center gap-1 rounded bg-primary/15 text-accent text-[11px] px-1.5 py-0.5">
+            {t}
+            <button type="button" onClick={() => onChange(tags.filter((x) => x !== t))} className="hover:opacity-70"><X className="w-3 h-3" /></button>
+          </span>
+        ))}
+        {!atLimit && (
+          <input
+            value={draft}
+            onChange={(e) => { setDraft(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            onKeyDown={(e) => {
+              if ((e.key === "Enter" || e.key === ",") && draft.trim()) { e.preventDefault(); add(draft); setDraft(""); }
+              else if (e.key === "Escape") setOpen(false);
+              else if (e.key === "Backspace" && !draft && tags.length) onChange(tags.slice(0, -1));
+            }}
+            placeholder={tags.length ? "" : "Digite e Enter, ou escolha abaixo"}
+            className="flex-1 min-w-[140px] bg-transparent outline-none text-sm py-0.5"
+          />
+        )}
+      </div>
+
+      {/* Dropdown customizado (em fluxo — empurra o conteúdo, não cobre nada) */}
+      {open && !atLimit && suggestions.length > 0 && (
+        <div className="mt-1 rounded-md border border-border bg-popover shadow-sm max-h-[200px] overflow-y-auto py-1">
+          {suggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => { add(s); setDraft(""); setOpen(false); }}
+              className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-primary/10 hover:text-accent transition-colors"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+      {atLimit && <p className="mt-1 text-[10px] text-muted-foreground">Máximo de 10 tags.</p>}
     </div>
   );
 }
@@ -156,8 +197,8 @@ export function AccessClientModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(3px)" }} onClick={onClose}>
       <div className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-border">
+        {/* Header (fixo) */}
+        <div className="flex-shrink-0 flex items-center justify-between gap-3 px-5 py-4 border-b border-border">
           <div className="flex items-center gap-2 min-w-0">
             {renaming && !isInternal ? (
               <>
@@ -175,8 +216,8 @@ export function AccessClientModal({
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
         </div>
 
-        {/* Toolbar */}
-        <div className="px-5 py-3 border-b border-border flex flex-col gap-3">
+        {/* Toolbar (busca + filtros, fixa) */}
+        <div className="flex-shrink-0 px-5 py-3 border-b border-border flex flex-col gap-3">
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -210,9 +251,9 @@ export function AccessClientModal({
 
         {/* Body */}
         <div className="flex-1 overflow-auto px-5 py-4 flex flex-col gap-3">
-          {/* Formulário add/edit */}
+          {/* Formulário add/edit — card próprio, separado da lista abaixo */}
           {form && (
-            <div className="rounded-lg border border-accent/40 bg-primary/[0.04] p-4 flex flex-col gap-3">
+            <div className="rounded-lg border border-accent/40 bg-primary/[0.04] p-4 flex flex-col gap-3 mb-2 shadow-sm">
               <p className="text-sm font-semibold">{form.id ? "Editar acesso" : "Novo acesso"}</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
