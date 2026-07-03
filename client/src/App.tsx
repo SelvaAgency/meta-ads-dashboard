@@ -32,6 +32,7 @@ import HubSettings from "./pages/hub/HubSettings";
 import PeoplePage from "./pages/hub/PeoplePage";
 import ChangePassword from "./pages/hub/ChangePassword";
 import TrelloCallback from "./pages/hub/TrelloCallback";
+import SpacesPage from "./pages/hub/SpacesPage";
 import { AdminOnly } from "./pages/hub/AdminOnly";
 import { isEmbedded } from "./pages/hub/embed";
 
@@ -60,6 +61,7 @@ function Router() {
       <Route path="/contracts" component={ContractsRoute} />
       <Route path="/settings" component={SettingsRoute} />
       <Route path="/access" component={HubAccess} />
+      <Route path="/spaces" component={SpacesPage} />
       <Route path="/people" component={() => <AdminOnly><PeoplePage /></AdminOnly>} />
       <Route path="/change-password" component={ChangePassword} />
       <Route path="/trello/callback" component={TrelloCallback} />

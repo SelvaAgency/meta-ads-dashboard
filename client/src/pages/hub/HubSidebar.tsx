@@ -78,7 +78,7 @@ const NAV_GLOBAL: NavItem[] = [
   { label: "Acessos", icon: KeyRound, kind: "internal", href: "/access" },
   { label: "Notificações", icon: Bell, kind: "placeholder" },
   { label: "Configurações", icon: Settings, kind: "internal", href: "/settings" },
-  { label: "Spaces", icon: LayoutGrid, kind: "external", href: "https://selvaagency.github.io/selva-spaces/" },
+  { label: "Spaces", icon: LayoutGrid, kind: "internal", href: "/spaces" },
 ];
 
 // ─── Produtos agrupados por área ─────────────────────────────────────────────

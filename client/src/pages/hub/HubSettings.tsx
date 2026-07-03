@@ -334,10 +334,10 @@ function SelvaTVAdminSection({ storageConfigured }: { storageConfigured: boolean
         </button>
         {/* Orientação discreta de formato (não bloqueia upload). */}
         <p className="text-[11px] text-muted-foreground mt-2">
-          Dimensão recomendada: 1600 × 600 px · JPG, PNG, WEBP ou GIF · até 5 MB
+          Dimensão recomendada: 1600 × 600 px (proporção 8:3) · JPG, PNG, WEBP ou GIF · até 5 MB
         </p>
         <p className="text-[11px] text-muted-foreground">
-          Use imagens horizontais, na proporção 8:3, para evitar cortes no carrossel da Home.
+          Nessa proporção a imagem aparece inteira. Em outras proporções, mantenha o conteúdo importante no centro.
         </p>
         {error && <p className="text-xs text-destructive mt-1">{error}</p>}
       </div>
