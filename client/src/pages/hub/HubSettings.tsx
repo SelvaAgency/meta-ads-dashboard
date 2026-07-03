@@ -322,7 +322,7 @@ function SelvaTVAdminSection({ storageConfigured }: { storageConfigured: boolean
         </p>
       )}
       <div className="mb-3">
-        <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+        <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onPickFile(f); e.target.value = ""; }} />
         <button
           onClick={() => fileRef.current?.click()}
@@ -334,7 +334,7 @@ function SelvaTVAdminSection({ storageConfigured }: { storageConfigured: boolean
         </button>
         {/* Orientação discreta de formato (não bloqueia upload). */}
         <p className="text-[11px] text-muted-foreground mt-2">
-          Dimensão recomendada: 1600 × 600 px · JPG, PNG ou WEBP · até 5 MB
+          Dimensão recomendada: 1600 × 600 px · JPG, PNG, WEBP ou GIF · até 5 MB
         </p>
         <p className="text-[11px] text-muted-foreground">
           Use imagens horizontais, na proporção 8:3, para evitar cortes no carrossel da Home.

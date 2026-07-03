@@ -15,10 +15,14 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
 import { ENV } from "../_core/env";
 
+// MIME → extensão. SVG e vídeo NÃO são permitidos. GIF é aceito (banners
+// animados na SELVA TV); GIFs muito pesados podem impactar performance, mas o
+// limite de 5 MB é mantido.
 export const IMAGE_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
+  "image/gif": "gif",
 };
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
 
