@@ -185,6 +185,17 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabelas de Acessos garantidas");
 
+    // 7) Configurações simples (key-value) — slide "Você prefere?" etc.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`app_settings\` (
+        \`settingKey\` VARCHAR(191) PRIMARY KEY,
+        \`valueJson\` JSON NULL,
+        \`updatedByUserId\` INT NULL,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabela app_settings garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

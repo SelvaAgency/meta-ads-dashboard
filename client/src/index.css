@@ -2,6 +2,23 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* ── Fontes locais do slide "Você prefere?" (SELVA TV) ──────────────────────────
+   Arquivos em client/public/fonts/ (ver README lá). URLs absolutas /fonts/*
+   NÃO são resolvidas pelo Vite no build → não quebram se os arquivos faltarem
+   (usa fallback até você adicioná-los). Não usa Google Fonts para estas duas. */
+@font-face {
+  font-family: "Akira Expanded";
+  src: url("/fonts/AkiraExpandedDemo.otf") format("opentype");
+  font-weight: 400 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("/fonts/AtkinsonHyperlegible-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

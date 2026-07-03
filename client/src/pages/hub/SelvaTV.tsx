@@ -22,6 +22,9 @@ import {
 } from "@/components/ui/carousel";
 import type { SelvaTVImage } from "./hubMocks";
 import { DvdSlide } from "./DvdSlide";
+import { VocePrefereSlide } from "./VocePrefereSlide";
+
+export interface VocePrefereConfig { active: boolean; leftText: string; rightText: string }
 
 // Setas no estilo SELVA Spaces (escuro translúcido, borda creme/rosa, glow).
 const ARROW_CLS =
@@ -52,12 +55,17 @@ function FixedSlide() {
   return <Frame><DvdSlide /></Frame>;
 }
 
-export function SelvaTV({ images }: { images: SelvaTVImage[] }) {
+export function SelvaTV({ images, vocePrefere }: { images: SelvaTVImage[]; vocePrefere?: VocePrefereConfig }) {
   const uploads = images ?? [];
 
-  // Slide fixo sempre por último → total = uploads + 1.
-  // 0 uploads → só o slide fixo, estático (sem setas).
-  if (uploads.length === 0) {
+  // Slides "extras" (antes do slide fixo): uploads + "Você prefere?" (se ativo).
+  const extras: { key: string; node: React.ReactNode }[] = uploads.map((im) => ({ key: `u${im.id}`, node: <ImageSlide image={im} /> }));
+  if (vocePrefere?.active) {
+    extras.push({ key: "voce-prefere", node: <Frame><VocePrefereSlide leftText={vocePrefere.leftText} rightText={vocePrefere.rightText} /></Frame> });
+  }
+
+  // Sem extras → só o slide fixo institucional, estático (sem setas).
+  if (extras.length === 0) {
     return (
       <section aria-label="SELVA TV">
         <FixedSlide />
@@ -65,15 +73,13 @@ export function SelvaTV({ images }: { images: SelvaTVImage[] }) {
     );
   }
 
-  // 1+ uploads → carrossel com uploads e o slide fixo no fim.
+  // Carrossel: extras na ordem + slide fixo SEMPRE por último.
   return (
     <section aria-label="SELVA TV">
       <Carousel opts={{ loop: true }} className="w-full">
         <CarouselContent>
-          {uploads.map((image) => (
-            <CarouselItem key={image.id}>
-              <ImageSlide image={image} />
-            </CarouselItem>
+          {extras.map((s) => (
+            <CarouselItem key={s.key}>{s.node}</CarouselItem>
           ))}
           <CarouselItem key="__fixed">
             <FixedSlide />

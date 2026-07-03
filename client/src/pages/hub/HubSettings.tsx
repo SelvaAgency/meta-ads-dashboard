@@ -7,7 +7,7 @@
  *  localStorage). Uploads vão para o storage S3-compatible.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   User as UserIcon,
   ShieldCheck,
@@ -22,6 +22,7 @@ import {
   Calendar,
   Trello,
   Camera,
+  SplitSquareHorizontal,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -31,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { HubShell } from "./HubShell";
+import { VocePrefereSlide } from "./VocePrefereSlide";
 import { canManageContent, ROLE_LABELS, type Role } from "@shared/permissions";
 
 function SectionCard({
@@ -423,6 +425,55 @@ function IntegrationsSection() {
   );
 }
 
+// ─── Admin: slide "Você prefere?" (SELVA TV) ─────────────────────────────────
+function VocePrefereAdminSection() {
+  const utils = trpc.useUtils();
+  const cfgQ = trpc.selvaTV.vocePrefereGet.useQuery();
+  const [form, setForm] = useState<{ active: boolean; leftText: string; rightText: string } | null>(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { if (cfgQ.data && !form) setForm(cfgQ.data); }, [cfgQ.data, form]);
+  const update = trpc.selvaTV.vocePrefereUpdate.useMutation({
+    onSuccess: () => { utils.selvaTV.vocePrefereGet.invalidate(); setSaved(true); setTimeout(() => setSaved(false), 1500); },
+  });
+
+  return (
+    <SectionCard icon={SplitSquareHorizontal} title='Slide "Você prefere?"' description="Slide nativo da SELVA TV — entra no carrossel quando ativo.">
+      {!form ? (
+        <p className="text-xs text-muted-foreground">Carregando…</p>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 mb-4">
+            <Switch checked={form.active} onCheckedChange={(v) => setForm({ ...form, active: v })} id="vp-active" />
+            <Label htmlFor="vp-active" className="text-sm cursor-pointer">Ativo no carrossel</Label>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5"><Label className="text-xs">Opção esquerda (rosa)</Label><Input value={form.leftText} onChange={(e) => setForm({ ...form, leftText: e.target.value })} /></div>
+            <div className="flex flex-col gap-1.5"><Label className="text-xs">Opção direita (azul)</Label><Input value={form.rightText} onChange={(e) => setForm({ ...form, rightText: e.target.value })} /></div>
+          </div>
+
+          {/* Mini preview */}
+          <div className="mt-4">
+            <p className="text-[11px] text-muted-foreground mb-1.5">Prévia</p>
+            <div className="rounded-lg overflow-hidden border border-border aspect-[8/3] max-w-md">
+              <VocePrefereSlide leftText={form.leftText || "Opção esquerda"} rightText={form.rightText || "Opção direita"} />
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              onClick={() => update.mutate(form)}
+              disabled={update.isPending}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 hover:opacity-90 disabled:opacity-60"
+            >
+              {update.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {saved ? "Salvo" : "Salvar"}
+            </button>
+          </div>
+        </>
+      )}
+    </SectionCard>
+  );
+}
+
 export default function HubSettings() {
   const { user } = useAuth();
   const canContent = canManageContent((user as { role?: string } | null)?.role);
@@ -453,6 +504,7 @@ export default function HubSettings() {
               </div>
               <NewsAdminSection />
               <SelvaTVAdminSection storageConfigured={storage.data?.configured ?? false} />
+              <VocePrefereAdminSection />
             </>
           )}
         </div>

@@ -142,6 +142,15 @@ export const accessAuditLogs = mysqlTable("access_audit_logs", {
 });
 export type InsertAccessAuditLog = typeof accessAuditLogs.$inferInsert;
 
+// ─── Configurações simples (key-value) — ex.: slide "Você prefere?" da SELVA TV ─
+export const appSettings = mysqlTable("app_settings", {
+  settingKey: varchar("settingKey", { length: 191 }).primaryKey(),
+  valueJson: json("valueJson"),
+  updatedByUserId: int("updatedByUserId"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AppSettingRow = typeof appSettings.$inferSelect;
+
 // Meta Ads accounts connected by each user
 export const metaAdAccounts = mysqlTable("meta_ad_accounts", {
   id: int("id").autoincrement().primaryKey(),

@@ -25,6 +25,8 @@ import {
   updateAccessItem,
   deactivateAccessItemsByClient,
   createAccessAudit,
+  getAppSetting,
+  setAppSetting,
 } from "./db";
 import {
   GOOGLE_CALENDAR_PROVIDER,
@@ -477,6 +479,9 @@ ${contextBlocks}`;
     }),
 });
 
+// Chave da config do slide "Você prefere?" (app_settings).
+const VOCE_PREFERE_KEY = "selvatv_voce_prefere";
+
 // ─── Helpers do cofre de Acessos ──────────────────────────────────────────────
 function slugify(name: string): string {
   return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "")    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 200) || "cliente";
@@ -889,6 +894,24 @@ export const appRouter = router({
       .input(z.object({ orderedIds: z.array(z.number().int()) }))
       .mutation(async ({ input }) => {
         await setSelvatvOrder(input.orderedIds);
+        return { success: true } as const;
+      }),
+
+    // Slide nativo "Você prefere?" — config única (ativo + textos das opções).
+    vocePrefereGet: protectedProcedure.query(async () => {
+      const cfg = await getAppSetting<{ active: boolean; leftText: string; rightText: string }>(VOCE_PREFERE_KEY);
+      return {
+        active: cfg?.active ?? false,
+        leftText: cfg?.leftText ?? "Falar com animais",
+        rightText: cfg?.rightText ?? "Falar todas as línguas do mundo",
+      };
+    }),
+    vocePrefereUpdate: contentProcedure
+      .input(z.object({ active: z.boolean(), leftText: z.string().max(120), rightText: z.string().max(120) }))
+      .mutation(async ({ ctx, input }) => {
+        await setAppSetting(VOCE_PREFERE_KEY, {
+          active: input.active, leftText: input.leftText.trim(), rightText: input.rightText.trim(),
+        }, ctx.user.id);
         return { success: true } as const;
       }),
   }),

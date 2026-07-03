@@ -27,6 +27,7 @@ export default function Hub() {
   // News/SelvaTV ATIVOS vêm do backend (globais para todos os usuários).
   const newsQ = trpc.news.listActive.useQuery(undefined, { refetchOnWindowFocus: false });
   const tvQ = trpc.selvaTV.listActive.useQuery(undefined, { refetchOnWindowFocus: false });
+  const vpQ = trpc.selvaTV.vocePrefereGet.useQuery(undefined, { refetchOnWindowFocus: false });
 
   const news: NewsItem[] = (newsQ.data ?? []).map((n) => ({ id: String(n.id), text: n.text }));
   const tvImages: SelvaTVImage[] = (tvQ.data ?? []).map((im) => ({
@@ -64,8 +65,8 @@ export default function Hub() {
               <MyCardsCard />
             </div>
 
-            {/* SelvaTV — some sozinho se não houver imagens */}
-            <SelvaTV images={tvImages} />
+            {/* SELVA TV — carrossel (uploads + "Você prefere?" + slide fixo) */}
+            <SelvaTV images={tvImages} vocePrefere={vpQ.data} />
           </div>
         </main>
     </HubShell>

@@ -15,6 +15,7 @@ import {
   type InsertAccessItem,
   accessAuditLogs,
   type InsertAccessAuditLog,
+  appSettings,
   aiSuggestions,
   alerts,
   anomalies,
@@ -316,6 +317,21 @@ export async function createAccessAudit(data: InsertAccessAuditLog) {
   const db = await getDb();
   if (!db) return;
   await db.insert(accessAuditLogs).values(data);
+}
+
+// ─── Configurações key-value ──────────────────────────────────────────────────
+export async function getAppSetting<T = unknown>(key: string): Promise<T | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(appSettings).where(eq(appSettings.settingKey, key)).limit(1);
+  return rows.length ? (rows[0].valueJson as T) : null;
+}
+export async function setAppSetting(key: string, value: unknown, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.insert(appSettings)
+    .values({ settingKey: key, valueJson: value as any, updatedByUserId: userId })
+    .onDuplicateKeyUpdate({ set: { valueJson: value as any, updatedByUserId: userId } });
 }
 
 // ─── Integrações por usuário (OAuth) ──────────────────────────────────────────
