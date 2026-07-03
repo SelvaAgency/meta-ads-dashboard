@@ -222,11 +222,17 @@ function resolveDateRange(input: { startDate?: string; endDate?: string; days: n
     : getDateRange(input.days, input.includeToday ?? false);
 }
 
-/** Fetch and verify account ownership — throws FORBIDDEN if invalid. */
-async function getVerifiedAccount(accountId: number, userId: number) {
+/**
+ * Busca a conta pelo id interno do banco. Clientes/contas são GLOBAIS: qualquer
+ * usuário logado acessa qualquer conta (roles limitam funcionalidades, não
+ * clientes). Por isso NÃO checamos dono (userId) — só existência real.
+ * "Conta não encontrada" só quando o id não existe no banco.
+ * (`_userId` mantido na assinatura por compatibilidade com os ~31 callers.)
+ */
+async function getVerifiedAccount(accountId: number, _userId: number) {
   const account = await getMetaAdAccountById(accountId);
-  if (!account || account.userId !== userId) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Conta não encontrada." });
+  if (!account) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada." });
   }
   return account;
 }
