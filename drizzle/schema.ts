@@ -27,6 +27,8 @@ export const users = mysqlTable("users", {
   jobTitle: varchar("jobTitle", { length: 255 }),
   birthdayDay: int("birthdayDay"),     // 1–31
   birthdayMonth: int("birthdayMonth"), // 1–12
+  // Foto de perfil (key do objeto no storage; URL resolvida no backend)
+  avatarKey: varchar("avatarKey", { length: 512 }),
   // Primeiro acesso / segurança
   mustChangePassword: boolean("mustChangePassword").default(false).notNull(),
   active: boolean("active").default(true).notNull(),
@@ -61,6 +63,36 @@ export const userIntegrations = mysqlTable("user_integrations", {
 
 export type UserIntegration = typeof userIntegrations.$inferSelect;
 export type InsertUserIntegration = typeof userIntegrations.$inferInsert;
+
+// ─── News bar (persistente) ───────────────────────────────────────────────────
+export const newsItems = mysqlTable("news_items", {
+  id: int("id").autoincrement().primaryKey(),
+  text: varchar("text", { length: 500 }).notNull(),
+  active: boolean("active").default(true).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdByUserId: int("createdByUserId"),
+  updatedByUserId: int("updatedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type NewsItemRow = typeof newsItems.$inferSelect;
+export type InsertNewsItem = typeof newsItems.$inferInsert;
+
+// ─── SelvaTV (persistente + storage de imagem) ────────────────────────────────
+export const selvatvItems = mysqlTable("selvatv_items", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }),
+  imageKey: varchar("imageKey", { length: 512 }).notNull(), // key no storage
+  storageProvider: varchar("storageProvider", { length: 32 }),
+  active: boolean("active").default(true).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdByUserId: int("createdByUserId"),
+  updatedByUserId: int("updatedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type SelvatvItemRow = typeof selvatvItems.$inferSelect;
+export type InsertSelvatvItem = typeof selvatvItems.$inferInsert;
 
 // Meta Ads accounts connected by each user
 export const metaAdAccounts = mysqlTable("meta_ad_accounts", {

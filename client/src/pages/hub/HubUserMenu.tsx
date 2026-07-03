@@ -10,7 +10,7 @@
 import { useLocation } from "wouter";
 import { ChevronsUpDown, LogOut, User as UserIcon } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +31,7 @@ export function HubUserMenu({ open }: { open: boolean }) {
   const name = (user as any)?.name ?? "Usuário";
   const email = (user as any)?.email ?? "";
   const initial = name?.[0]?.toUpperCase() ?? "U";
+  const avatarUrl = (user as any)?.avatarUrl as string | undefined;
 
   return (
     <DropdownMenu>
@@ -40,6 +41,7 @@ export function HubUserMenu({ open }: { open: boolean }) {
           title={open ? undefined : name}
         >
           <Avatar className="w-7 h-7 flex-shrink-0">
+            {avatarUrl && <AvatarImage src={avatarUrl} alt="" />}
             <AvatarFallback className="text-xs font-bold" style={{ background: "rgba(212,83,126,0.3)", color: ACTIVE_CLR }}>
               {initial}
             </AvatarFallback>

@@ -16,6 +16,15 @@ export const ENV = {
   integrationsEncryptionKey: process.env.INTEGRATIONS_ENCRYPTION_KEY ?? "",
   // Trello (integração por usuário — cards da Home)
   trelloApiKey: process.env.TRELLO_API_KEY ?? "",
+  // Storage S3-compatible (avatares + SelvaTV)
+  storageProvider: process.env.STORAGE_PROVIDER ?? "",
+  s3Endpoint: process.env.S3_ENDPOINT ?? "",
+  s3Region: process.env.S3_REGION ?? "auto",
+  s3Bucket: process.env.S3_BUCKET ?? "",
+  s3AccessKeyId: process.env.S3_ACCESS_KEY_ID ?? "",
+  s3SecretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? "",
+  s3PublicBaseUrl: process.env.S3_PUBLIC_BASE_URL ?? "",
+  s3ForcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
   // Google Ads API credentials
   googleAdsDeveloperToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
   googleAdsClientId: process.env.GOOGLE_ADS_CLIENT_ID ?? "",

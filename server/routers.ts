@@ -7,7 +7,8 @@ import { getPageIdsForAdAccount } from "@shared/pageMapping";
 import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, contentProcedure, router } from "./_core/trpc";
+import { isStorageConfigured, getReadUrl, deleteObject } from "./storage/storageService";
 import { hashPassword, verifyPassword, generateTempPassword } from "./_core/oauth";
 import { encryptSecret, decryptSecret } from "./_core/integrationsCrypto";
 import {
@@ -38,6 +39,21 @@ import {
   upsertUserIntegration,
   updateIntegrationTokens,
   deactivateUserIntegration,
+  listActiveNews,
+  listAllNews,
+  createNewsItem,
+  updateNewsItem,
+  deleteNewsItem,
+  setNewsOrder,
+  nextNewsSortOrder,
+  listActiveSelvatv,
+  listAllSelvatv,
+  getSelvatvById,
+  createSelvatvItem,
+  updateSelvatvItem,
+  deleteSelvatvItem,
+  setSelvatvOrder,
+  nextSelvatvSortOrder,
 } from "./db";
 import {
   applySuggestion,
@@ -450,11 +466,16 @@ export const appRouter = router({
   system: systemRouter,
 
   auth: router({
-    me: publicProcedure.query((opts) => {
+    me: publicProcedure.query(async (opts) => {
       if (!opts.ctx.user) return null;
       // Nunca expõe o hash da senha ao cliente.
       const { passwordHash: _omit, ...safe } = opts.ctx.user;
-      return safe;
+      // Resolve a URL do avatar (key → URL pública/assinada).
+      let avatarUrl: string | undefined;
+      if (opts.ctx.user.avatarKey) {
+        try { avatarUrl = await getReadUrl(opts.ctx.user.avatarKey); } catch { /* storage off */ }
+      }
+      return { ...safe, avatarUrl };
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -708,6 +729,112 @@ export const appRouter = router({
         }
       }),
     }),
+  }),
+
+  // ─── Storage ────────────────────────────────────────────────────────────────
+  storage: router({
+    status: protectedProcedure.query(() => ({ configured: isStorageConfigured() })),
+  }),
+
+  // ─── News bar (persistente) ─────────────────────────────────────────────────
+  news: router({
+    // Qualquer usuário logado vê as notícias ATIVAS (globais).
+    listActive: protectedProcedure.query(async () => {
+      const rows = await listActiveNews();
+      return rows.map((r) => ({ id: r.id, text: r.text }));
+    }),
+    // Gestão: admin + developer.
+    adminList: contentProcedure.query(() => listAllNews()),
+    create: contentProcedure
+      .input(z.object({ text: z.string().min(1).max(500) }))
+      .mutation(async ({ ctx, input }) => {
+        await createNewsItem({
+          text: input.text.trim(),
+          active: true,
+          sortOrder: await nextNewsSortOrder(),
+          createdByUserId: ctx.user.id,
+          updatedByUserId: ctx.user.id,
+        });
+        return { success: true } as const;
+      }),
+    update: contentProcedure
+      .input(z.object({ id: z.number().int(), text: z.string().max(500).optional(), active: z.boolean().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...patch } = input;
+        await updateNewsItem(id, { ...patch, updatedByUserId: ctx.user.id });
+        return { success: true } as const;
+      }),
+    delete: contentProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ input }) => {
+        await deleteNewsItem(input.id);
+        return { success: true } as const;
+      }),
+    reorder: contentProcedure
+      .input(z.object({ orderedIds: z.array(z.number().int()) }))
+      .mutation(async ({ input }) => {
+        await setNewsOrder(input.orderedIds);
+        return { success: true } as const;
+      }),
+  }),
+
+  // ─── SelvaTV (persistente + storage) ────────────────────────────────────────
+  selvaTV: router({
+    // Imagens ATIVAS (globais), com URL resolvida do storage.
+    listActive: protectedProcedure.query(async () => {
+      const rows = await listActiveSelvatv();
+      return Promise.all(rows.map(async (r) => ({
+        id: r.id,
+        title: r.title ?? undefined,
+        imageUrl: await getReadUrl(r.imageKey),
+      })));
+    }),
+    adminList: contentProcedure.query(async () => {
+      const rows = await listAllSelvatv();
+      return Promise.all(rows.map(async (r) => ({
+        id: r.id,
+        title: r.title ?? "",
+        active: r.active,
+        imageUrl: await getReadUrl(r.imageKey),
+      })));
+    }),
+    // A imagem é enviada por POST /api/uploads/selvatv (retorna imageKey);
+    // aqui só persistimos o metadado.
+    create: contentProcedure
+      .input(z.object({ imageKey: z.string().min(1), title: z.string().max(255).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        await createSelvatvItem({
+          imageKey: input.imageKey,
+          title: input.title?.trim() || null,
+          storageProvider: "s3",
+          active: true,
+          sortOrder: await nextSelvatvSortOrder(),
+          createdByUserId: ctx.user.id,
+          updatedByUserId: ctx.user.id,
+        });
+        return { success: true } as const;
+      }),
+    update: contentProcedure
+      .input(z.object({ id: z.number().int(), title: z.string().max(255).nullable().optional(), active: z.boolean().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...patch } = input;
+        await updateSelvatvItem(id, { ...patch, updatedByUserId: ctx.user.id });
+        return { success: true } as const;
+      }),
+    delete: contentProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ input }) => {
+        const item = await getSelvatvById(input.id);
+        await deleteSelvatvItem(input.id);
+        if (item?.imageKey) deleteObject(item.imageKey); // limpeza best-effort no storage
+        return { success: true } as const;
+      }),
+    reorder: contentProcedure
+      .input(z.object({ orderedIds: z.array(z.number().int()) }))
+      .mutation(async ({ input }) => {
+        await setSelvatvOrder(input.orderedIds);
+        return { success: true } as const;
+      }),
   }),
 
   // ─── Meta Ad Accounts ──────────────────────────────────────────────────────

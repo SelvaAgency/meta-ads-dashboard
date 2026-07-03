@@ -1,17 +1,13 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Selva Spaces — Configurações / Perfil
+ *  SELVA Spaces — Configurações / Perfil
  * ─────────────────────────────────────────────────────────────────────────────
- *  Área de perfil do usuário + administração de News e SelvaTV (só admin).
- *
- *  Persistência: enquanto não há backend para perfil/news/SelvaTV, os dados
- *  ficam num store local isolado (hubStore) — fase intermediária, com
- *  TODO(backend) claro. Campos que vêm da autenticação (e-mail, role) são
- *  somente leitura. Usuário comum NÃO pode alterar a própria role.
+ *  Perfil do usuário (com upload de avatar), Integrações e — para admin/
+ *  developer — gestão de News e SelvaTV. Tudo persistido no backend (nada de
+ *  localStorage). Uploads vão para o storage S3-compatible.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useState } from "react";
-import { nanoid } from "nanoid";
+import { useRef, useState } from "react";
 import {
   User as UserIcon,
   ShieldCheck,
@@ -21,11 +17,11 @@ import {
   Trash2,
   ChevronUp,
   ChevronDown,
-  Check,
+  Loader2,
   Plug,
   Calendar,
   Trello,
-  Loader2,
+  Camera,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -36,12 +32,6 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { HubShell } from "./HubShell";
 import { canManageContent, ROLE_LABELS, type Role } from "@shared/permissions";
-import {
-  useNewsStore,
-  useSelvaTVStore,
-  type StoredNews,
-  type StoredTVImage,
-} from "./hubStore";
 
 function SectionCard({
   icon: Icon,
@@ -70,12 +60,27 @@ function SectionCard({
   );
 }
 
-// ─── Perfil ──────────────────────────────────────────────────────────────────
+// ── reorder helper: novos ids após mover um item ──────────────────────────────
+function reordered(ids: number[], index: number, dir: -1 | 1): number[] {
+  const next = [...ids];
+  const t = index + dir;
+  if (t < 0 || t >= next.length) return next;
+  [next[index], next[t]] = [next[t], next[index]];
+  return next;
+}
+
+// ─── Perfil (com upload de avatar) ────────────────────────────────────────────
 function ProfileSection() {
   const { user, refresh } = useAuth();
-  const u = user as { name?: string; email?: string; role?: string; jobTitle?: string | null; birthdayDay?: number | null; birthdayMonth?: number | null } | null;
+  const u = user as {
+    name?: string; email?: string; role?: string; jobTitle?: string | null;
+    birthdayDay?: number | null; birthdayMonth?: number | null; avatarUrl?: string;
+  } | null;
   const utils = trpc.useUtils();
+  const fileRef = useRef<HTMLInputElement>(null);
   const [saved, setSaved] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     jobTitle: u?.jobTitle ?? "",
     day: u?.birthdayDay?.toString() ?? "",
@@ -103,45 +108,68 @@ function ProfileSection() {
       birthdayMonth: draft.month ? Number(draft.month) : null,
     });
 
+  const onPickFile = async (file: File) => {
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const resp = await fetch("/api/uploads/avatar", { method: "POST", body: fd, credentials: "include" });
+      if (!resp.ok) {
+        const j = await resp.json().catch(() => ({}));
+        throw new Error(j.error ?? "Falha no upload.");
+      }
+      await utils.auth.me.invalidate();
+      await refresh();
+    } catch (e: any) {
+      setUploadError(e?.message ?? "Falha no upload.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <SectionCard icon={UserIcon} title="Perfil" description="Seus dados dentro do SELVA Spaces.">
-      {/* Foto de perfil — por iniciais. Upload real depende de storage. */}
+      {/* Foto de perfil (upload real; fallback por iniciais) */}
       <div className="flex items-center gap-4 mb-5">
-        <div
-          className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold flex-shrink-0"
-          style={{ background: "rgba(212,83,126,0.18)", color: "#D4537E" }}
-        >
-          {initial}
+        <div className="w-16 h-16 rounded-full overflow-hidden flex items-center justify-center text-xl font-bold flex-shrink-0"
+          style={{ background: "rgba(212,83,126,0.18)", color: "#D4537E" }}>
+          {u?.avatarUrl ? <img src={u.avatarUrl} alt="" className="w-full h-full object-cover" /> : initial}
         </div>
-        <div className="text-xs text-muted-foreground">
-          <p className="font-medium text-foreground">Foto de perfil</p>
-          {/* TODO(storage): habilitar upload de foto quando houver bucket/endpoint
-              seguro (S3/volume). Até lá, avatar por iniciais. */}
-          <p className="mt-0.5">O envio de foto será ativado quando o storage estiver configurado.</p>
+        <div className="text-xs">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) onPickFile(f); e.target.value = ""; }}
+          />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary/60 disabled:opacity-60"
+          >
+            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+            {uploading ? "Enviando…" : "Alterar foto"}
+          </button>
+          <p className="text-muted-foreground mt-1">JPG, PNG ou WEBP · até 5 MB</p>
+          {uploadError && <p className="text-destructive mt-1">{uploadError}</p>}
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Nome — vem da autenticação (somente leitura) */}
         <div className="flex flex-col gap-1.5">
           <Label className="text-xs">Nome</Label>
           <Input value={name} readOnly disabled />
         </div>
-        {/* E-mail — somente leitura */}
         <div className="flex flex-col gap-1.5">
           <Label className="text-xs">E-mail</Label>
           <Input value={email} readOnly disabled />
         </div>
-        {/* Cargo/função — editável (persistido no backend) */}
         <div className="flex flex-col gap-1.5">
           <Label className="text-xs">Cargo / função</Label>
-          <Input
-            value={draft.jobTitle}
-            placeholder="Ex.: Gestor de Tráfego"
-            onChange={(e) => setDraft({ ...draft, jobTitle: e.target.value })}
-          />
+          <Input value={draft.jobTitle} placeholder="Ex.: Gestor de Tráfego" onChange={(e) => setDraft({ ...draft, jobTitle: e.target.value })} />
         </div>
-        {/* Aniversário — dia/mês (usado no aviso da news bar) */}
         <div className="grid grid-cols-2 gap-2">
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs">Aniversário — dia</Label>
@@ -152,22 +180,18 @@ function ProfileSection() {
             <Input type="number" min={1} max={12} value={draft.month} onChange={(e) => setDraft({ ...draft, month: e.target.value })} />
           </div>
         </div>
-        {/* Role — somente leitura (usuário comum não altera a própria permissão) */}
         <div className="flex flex-col gap-1.5">
           <Label className="text-xs">Permissão</Label>
-          <div>
-            <Badge variant={role === "admin" ? "default" : "secondary"}>{ROLE_LABELS[(role as Role)] ?? role}</Badge>
-          </div>
+          <div><Badge variant={role === "admin" ? "default" : "secondary"}>{ROLE_LABELS[role as Role] ?? role}</Badge></div>
         </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-3">
+      <div className="mt-5">
         <button
           onClick={save}
           disabled={mutation.isPending}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 hover:opacity-90 transition-opacity disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 hover:opacity-90 disabled:opacity-60"
         >
-          {saved ? <Check className="w-4 h-4" /> : null}
           {saved ? "Salvo" : "Salvar perfil"}
         </button>
       </div>
@@ -175,159 +199,148 @@ function ProfileSection() {
   );
 }
 
-// ─── Reorder helper ──────────────────────────────────────────────────────────
-function move<T>(list: T[], index: number, dir: -1 | 1): T[] {
-  const next = [...list];
-  const target = index + dir;
-  if (target < 0 || target >= next.length) return next;
-  [next[index], next[target]] = [next[target], next[index]];
-  return next;
-}
-
-// ─── Admin: News ─────────────────────────────────────────────────────────────
-function NewsAdminSection() {
-  const [news, setNews] = useNewsStore();
-
-  const update = (id: string, patch: Partial<StoredNews>) =>
-    setNews(news.map((n) => (n.id === id ? { ...n, ...patch } : n)));
-  const remove = (id: string) => setNews(news.filter((n) => n.id !== id));
-  const add = () => setNews([...news, { id: nanoid(6), text: "", enabled: true }]);
+// ─── Admin: News (backend) ────────────────────────────────────────────────────
+function NewsRow({ item, index, ids }: { item: { id: number; text: string; active: boolean }; index: number; ids: number[] }) {
+  const utils = trpc.useUtils();
+  const invalidate = () => utils.news.adminList.invalidate();
+  const update = trpc.news.update.useMutation({ onSuccess: invalidate });
+  const del = trpc.news.delete.useMutation({ onSuccess: invalidate });
+  const reorder = trpc.news.reorder.useMutation({ onSuccess: invalidate });
+  const [text, setText] = useState(item.text);
 
   return (
-    <SectionCard
-      icon={Newspaper}
-      title="News bar"
-      description="Gerencie as mensagens que passam na faixa da Home."
-    >
+    <div className="flex items-center gap-2 rounded-lg border border-border p-2">
+      <div className="flex flex-col">
+        <button className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30" disabled={index === 0}
+          onClick={() => reorder.mutate({ orderedIds: reordered(ids, index, -1) })} aria-label="Subir"><ChevronUp className="w-3.5 h-3.5" /></button>
+        <button className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30" disabled={index === ids.length - 1}
+          onClick={() => reorder.mutate({ orderedIds: reordered(ids, index, 1) })} aria-label="Descer"><ChevronDown className="w-3.5 h-3.5" /></button>
+      </div>
+      <Input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => { if (text.trim() && text !== item.text) update.mutate({ id: item.id, text: text.trim() }); }}
+        className="flex-1"
+      />
+      <Switch checked={item.active} onCheckedChange={(v) => update.mutate({ id: item.id, active: v })} />
+      <button className="p-1.5 text-muted-foreground hover:text-destructive" onClick={() => del.mutate({ id: item.id })} aria-label="Remover"><Trash2 className="w-4 h-4" /></button>
+    </div>
+  );
+}
+
+function NewsAdminSection() {
+  const utils = trpc.useUtils();
+  const list = trpc.news.adminList.useQuery();
+  const create = trpc.news.create.useMutation({ onSuccess: () => utils.news.adminList.invalidate() });
+  const [text, setText] = useState("");
+  const ids = (list.data ?? []).map((n) => n.id);
+
+  return (
+    <SectionCard icon={Newspaper} title="News bar" description="Mensagens que passam na faixa da Home (visíveis a todos).">
+      <div className="flex items-center gap-2 mb-3">
+        <Input value={text} placeholder="Nova notícia" onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && text.trim()) { create.mutate({ text: text.trim() }); setText(""); } }} />
+        <button
+          onClick={() => { if (text.trim()) { create.mutate({ text: text.trim() }); setText(""); } }}
+          disabled={create.isPending || !text.trim()}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-3 py-2 hover:opacity-90 disabled:opacity-60"
+        >
+          <Plus className="w-4 h-4" /> Adicionar
+        </button>
+      </div>
       <div className="flex flex-col gap-2">
-        {news.length === 0 && (
-          <p className="text-xs text-muted-foreground">Nenhuma notícia. Adicione a primeira.</p>
-        )}
-        {news.map((n, i) => (
-          <div key={n.id} className="flex items-center gap-2 rounded-lg border border-border p-2">
-            <div className="flex flex-col">
-              <button
-                className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                onClick={() => setNews(move(news, i, -1))}
-                disabled={i === 0}
-                aria-label="Mover para cima"
-              >
-                <ChevronUp className="w-3.5 h-3.5" />
-              </button>
-              <button
-                className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                onClick={() => setNews(move(news, i, 1))}
-                disabled={i === news.length - 1}
-                aria-label="Mover para baixo"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <Input
-              value={n.text}
-              placeholder="Texto da notícia"
-              onChange={(e) => update(n.id, { text: e.target.value })}
-              className="flex-1"
-            />
-            <Switch checked={n.enabled} onCheckedChange={(v) => update(n.id, { enabled: v })} />
-            <button
-              className="p-1.5 text-muted-foreground hover:text-destructive"
-              onClick={() => remove(n.id)}
-              aria-label="Remover"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
+        {list.isLoading && <p className="text-xs text-muted-foreground">Carregando…</p>}
+        {list.data?.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma notícia cadastrada.</p>}
+        {list.data?.map((n, i) => (
+          <NewsRow key={n.id} item={n} index={i} ids={ids} />
         ))}
       </div>
-      <button
-        onClick={add}
-        className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:opacity-80"
-      >
-        <Plus className="w-4 h-4" /> Adicionar notícia
-      </button>
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        {/* TODO(backend): persistir via tRPC (news.list/upsert/delete). */}
-        Solução intermediária: as notícias ficam salvas apenas neste navegador até a integração com o backend.
-      </p>
     </SectionCard>
   );
 }
 
-// ─── Admin: SelvaTV ──────────────────────────────────────────────────────────
-function SelvaTVAdminSection() {
-  const [images, setImages] = useSelvaTVStore();
-
-  const update = (id: string, patch: Partial<StoredTVImage>) =>
-    setImages(images.map((im) => (im.id === id ? { ...im, ...patch } : im)));
-  const remove = (id: string) => setImages(images.filter((im) => im.id !== id));
-  const add = () =>
-    setImages([...images, { id: nanoid(6), src: "", alt: "", title: "", enabled: true }]);
+// ─── Admin: SelvaTV (backend + storage) ───────────────────────────────────────
+function TVRow({ item, index, ids }: { item: { id: number; title: string; active: boolean; imageUrl: string }; index: number; ids: number[] }) {
+  const utils = trpc.useUtils();
+  const invalidate = () => utils.selvaTV.adminList.invalidate();
+  const update = trpc.selvaTV.update.useMutation({ onSuccess: invalidate });
+  const del = trpc.selvaTV.delete.useMutation({ onSuccess: invalidate });
+  const reorder = trpc.selvaTV.reorder.useMutation({ onSuccess: invalidate });
+  const [title, setTitle] = useState(item.title);
 
   return (
-    <SectionCard
-      icon={ImageIcon}
-      title="SelvaTV"
-      description="Imagens do banner da Home (0 esconde a seção · 1 estático · 2+ carrossel)."
-    >
-      <div className="flex flex-col gap-3">
-        {images.length === 0 && (
-          <p className="text-xs text-muted-foreground">Nenhuma imagem. A seção SelvaTV fica oculta na Home.</p>
-        )}
-        {images.map((im, i) => (
-          <div key={im.id} className="flex items-start gap-2 rounded-lg border border-border p-2">
-            <div className="flex flex-col pt-1">
-              <button
-                className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                onClick={() => setImages(move(images, i, -1))}
-                disabled={i === 0}
-                aria-label="Mover para cima"
-              >
-                <ChevronUp className="w-3.5 h-3.5" />
-              </button>
-              <button
-                className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                onClick={() => setImages(move(images, i, 1))}
-                disabled={i === images.length - 1}
-                aria-label="Mover para baixo"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <Input value={im.src} placeholder="URL da imagem (https://…)" onChange={(e) => update(im.id, { src: e.target.value })} />
-              <Input value={im.title ?? ""} placeholder="Título (opcional)" onChange={(e) => update(im.id, { title: e.target.value })} />
-              <Input value={im.alt} placeholder="Descrição / alt" onChange={(e) => update(im.id, { alt: e.target.value })} className="sm:col-span-2" />
-            </div>
-            <div className="flex flex-col items-center gap-2 pt-1">
-              <Switch checked={im.enabled} onCheckedChange={(v) => update(im.id, { enabled: v })} />
-              <button className="p-1 text-muted-foreground hover:text-destructive" onClick={() => remove(im.id)} aria-label="Remover">
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
+    <div className="flex items-center gap-2 rounded-lg border border-border p-2">
+      <div className="flex flex-col">
+        <button className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30" disabled={index === 0}
+          onClick={() => reorder.mutate({ orderedIds: reordered(ids, index, -1) })} aria-label="Subir"><ChevronUp className="w-3.5 h-3.5" /></button>
+        <button className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30" disabled={index === ids.length - 1}
+          onClick={() => reorder.mutate({ orderedIds: reordered(ids, index, 1) })} aria-label="Descer"><ChevronDown className="w-3.5 h-3.5" /></button>
+      </div>
+      <img src={item.imageUrl} alt="" className="w-14 h-9 object-cover rounded border border-border flex-shrink-0" />
+      <Input value={title} placeholder="Título (opcional)" onChange={(e) => setTitle(e.target.value)}
+        onBlur={() => { if (title !== item.title) update.mutate({ id: item.id, title: title.trim() || null }); }} className="flex-1" />
+      <Switch checked={item.active} onCheckedChange={(v) => update.mutate({ id: item.id, active: v })} />
+      <button className="p-1.5 text-muted-foreground hover:text-destructive" onClick={() => del.mutate({ id: item.id })} aria-label="Remover"><Trash2 className="w-4 h-4" /></button>
+    </div>
+  );
+}
+
+function SelvaTVAdminSection({ storageConfigured }: { storageConfigured: boolean }) {
+  const utils = trpc.useUtils();
+  const list = trpc.selvaTV.adminList.useQuery();
+  const create = trpc.selvaTV.create.useMutation({ onSuccess: () => utils.selvaTV.adminList.invalidate() });
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ids = (list.data ?? []).map((i) => i.id);
+
+  const onPickFile = async (file: File) => {
+    setError(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const resp = await fetch("/api/uploads/selvatv", { method: "POST", body: fd, credentials: "include" });
+      if (!resp.ok) {
+        const j = await resp.json().catch(() => ({}));
+        throw new Error(j.error ?? "Falha no upload.");
+      }
+      const { imageKey } = await resp.json();
+      await create.mutateAsync({ imageKey });
+    } catch (e: any) {
+      setError(e?.message ?? "Falha no upload.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <SectionCard icon={ImageIcon} title="SelvaTV" description="Imagens do banner da Home (0 esconde · 1 estático · 2+ carrossel).">
+      {!storageConfigured && (
+        <p className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700">
+          Upload indisponível: storage não configurado.
+        </p>
+      )}
+      <div className="mb-3">
+        <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) onPickFile(f); e.target.value = ""; }} />
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={!storageConfigured || uploading}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-3 py-2 hover:opacity-90 disabled:opacity-60"
+        >
+          {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+          {uploading ? "Enviando…" : "Adicionar imagem"}
+        </button>
+        {error && <p className="text-xs text-destructive mt-1">{error}</p>}
+      </div>
+      <div className="flex flex-col gap-2">
+        {list.isLoading && <p className="text-xs text-muted-foreground">Carregando…</p>}
+        {list.data?.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma imagem. A seção SelvaTV fica oculta na Home.</p>}
+        {list.data?.map((im, i) => (
+          <TVRow key={im.id} item={im} index={i} ids={ids} />
         ))}
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-4">
-        <button onClick={add} className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:opacity-80">
-          <Plus className="w-4 h-4" /> Adicionar imagem por URL
-        </button>
-        {/* Estado preparado para quando houver storage — sem upload fake. */}
-        <button
-          type="button"
-          disabled
-          title="Requer storage configurado"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground/60 cursor-not-allowed"
-        >
-          <ImageIcon className="w-4 h-4" /> Enviar arquivo (em breve)
-        </button>
-      </div>
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        {/* TODO(storage): habilitar upload de arquivo quando houver bucket/endpoint
-            seguro (S3/Railway volume). Por ora, apenas URL de imagem já hospedada. */}
-        Solução intermediária: as imagens são referenciadas por URL e ficam salvas apenas neste
-        navegador. O upload de arquivo será ativado quando o storage estiver configurado.
-      </p>
     </SectionCard>
   );
 }
@@ -336,27 +349,11 @@ function SelvaTVAdminSection() {
 const GOOGLE_CONNECT_URL = "/api/integrations/google/start";
 const TRELLO_CONNECT_URL = "/api/integrations/trello/start";
 
-/** Linha genérica de integração (status + conectar/desconectar). */
 function IntegrationRow({
-  icon: Icon,
-  name,
-  connectUrl,
-  loading,
-  available,
-  connected,
-  identity,
-  onDisconnect,
-  disconnecting,
+  icon: Icon, name, connectUrl, loading, available, connected, identity, onDisconnect, disconnecting,
 }: {
-  icon: typeof Calendar;
-  name: string;
-  connectUrl: string;
-  loading: boolean;
-  available: boolean;
-  connected: boolean;
-  identity?: string;
-  onDisconnect: () => void;
-  disconnecting: boolean;
+  icon: typeof Calendar; name: string; connectUrl: string; loading: boolean; available: boolean;
+  connected: boolean; identity?: string; onDisconnect: () => void; disconnecting: boolean;
 }) {
   return (
     <div className="rounded-lg border border-border p-4 flex items-center justify-between gap-3">
@@ -367,35 +364,23 @@ function IntegrationRow({
         <div className="min-w-0">
           <p className="text-sm font-medium">{name}</p>
           <p className="text-xs text-muted-foreground truncate">
-            {loading
-              ? "Verificando…"
-              : !available
-              ? "Indisponível (não configurado no servidor)"
-              : connected
-              ? `Conectado${identity ? ` · ${identity}` : ""}`
-              : "Não conectado"}
+            {loading ? "Verificando…" : !available ? "Indisponível (não configurado no servidor)"
+              : connected ? `Conectado${identity ? ` · ${identity}` : ""}` : "Não conectado"}
           </p>
         </div>
       </div>
       <div className="flex-shrink-0">
-        {loading ? (
-          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-        ) : !available ? null : connected ? (
-          <button
-            onClick={onDisconnect}
-            disabled={disconnecting}
-            className="text-xs font-medium text-muted-foreground hover:text-destructive disabled:opacity-60"
-          >
-            {disconnecting ? "Desconectando…" : "Desconectar"}
-          </button>
-        ) : (
-          <a
-            href={connectUrl}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium px-3 py-1.5 hover:opacity-90"
-          >
-            <Plug className="w-3.5 h-3.5" /> Conectar
-          </a>
-        )}
+        {loading ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          : !available ? null
+          : connected ? (
+            <button onClick={onDisconnect} disabled={disconnecting} className="text-xs font-medium text-muted-foreground hover:text-destructive disabled:opacity-60">
+              {disconnecting ? "Desconectando…" : "Desconectar"}
+            </button>
+          ) : (
+            <a href={connectUrl} className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium px-3 py-1.5 hover:opacity-90">
+              <Plug className="w-3.5 h-3.5" /> Conectar
+            </a>
+          )}
       </div>
     </div>
   );
@@ -403,18 +388,11 @@ function IntegrationRow({
 
 function IntegrationsSection() {
   const utils = trpc.useUtils();
-
   const gcal = trpc.integrations.googleCalendar.status.useQuery(undefined, { retry: false });
-  const gcalDisconnect = trpc.integrations.googleCalendar.disconnect.useMutation({
-    onSuccess: () => utils.integrations.googleCalendar.status.invalidate(),
-  });
-
+  const gcalDisconnect = trpc.integrations.googleCalendar.disconnect.useMutation({ onSuccess: () => utils.integrations.googleCalendar.status.invalidate() });
   const trello = trpc.integrations.trello.status.useQuery(undefined, { retry: false });
-  const trelloDisconnect = trpc.integrations.trello.disconnect.useMutation({
-    onSuccess: () => utils.integrations.trello.status.invalidate(),
-  });
+  const trelloDisconnect = trpc.integrations.trello.disconnect.useMutation({ onSuccess: () => utils.integrations.trello.status.invalidate() });
 
-  // Feedback do retorno das autorizações (?calendar=… / ?trello=…).
   const params = new URLSearchParams(window.location.search);
   const calResult = params.get("calendar");
   const trelloResult = params.get("trello");
@@ -423,34 +401,16 @@ function IntegrationsSection() {
     <SectionCard icon={Plug} title="Integrações" description="Conecte suas contas para trazer dados reais à Home.">
       {calResult === "connected" && <p className="mb-3 text-xs text-emerald-600">Google Calendar conectado com sucesso.</p>}
       {calResult === "error" && <p className="mb-3 text-xs text-destructive">Não foi possível conectar o Google Calendar. Tente novamente.</p>}
-      {calResult === "unavailable" && <p className="mb-3 text-xs text-muted-foreground">Integração de calendário ainda não configurada.</p>}
       {trelloResult === "connected" && <p className="mb-3 text-xs text-emerald-600">Trello conectado com sucesso.</p>}
       {trelloResult === "error" && <p className="mb-3 text-xs text-destructive">Não foi possível conectar o Trello. Tente novamente.</p>}
-      {trelloResult === "unavailable" && <p className="mb-3 text-xs text-muted-foreground">Integração do Trello ainda não configurada.</p>}
 
       <div className="flex flex-col gap-3">
-        <IntegrationRow
-          icon={Calendar}
-          name="Google Calendar"
-          connectUrl={GOOGLE_CONNECT_URL}
-          loading={gcal.isLoading}
-          available={gcal.data?.available ?? false}
-          connected={gcal.data?.connected ?? false}
-          identity={gcal.data?.email ?? undefined}
-          onDisconnect={() => gcalDisconnect.mutate()}
-          disconnecting={gcalDisconnect.isPending}
-        />
-        <IntegrationRow
-          icon={Trello}
-          name="Trello"
-          connectUrl={TRELLO_CONNECT_URL}
-          loading={trello.isLoading}
-          available={trello.data?.available ?? false}
-          connected={trello.data?.connected ?? false}
-          identity={trello.data?.username ?? undefined}
-          onDisconnect={() => trelloDisconnect.mutate()}
-          disconnecting={trelloDisconnect.isPending}
-        />
+        <IntegrationRow icon={Calendar} name="Google Calendar" connectUrl={GOOGLE_CONNECT_URL}
+          loading={gcal.isLoading} available={gcal.data?.available ?? false} connected={gcal.data?.connected ?? false}
+          identity={gcal.data?.email ?? undefined} onDisconnect={() => gcalDisconnect.mutate()} disconnecting={gcalDisconnect.isPending} />
+        <IntegrationRow icon={Trello} name="Trello" connectUrl={TRELLO_CONNECT_URL}
+          loading={trello.isLoading} available={trello.data?.available ?? false} connected={trello.data?.connected ?? false}
+          identity={trello.data?.username ?? undefined} onDisconnect={() => trelloDisconnect.mutate()} disconnecting={trelloDisconnect.isPending} />
       </div>
     </SectionCard>
   );
@@ -458,8 +418,8 @@ function IntegrationsSection() {
 
 export default function HubSettings() {
   const { user } = useAuth();
-  // News/SelvaTV: admin E developer podem gerenciar conteúdo operacional.
   const canContent = canManageContent((user as { role?: string } | null)?.role);
+  const storage = trpc.storage.status.useQuery(undefined, { enabled: canContent, retry: false });
 
   return (
     <HubShell>
@@ -476,19 +436,16 @@ export default function HubSettings() {
           </header>
 
           <ProfileSection />
-
           <IntegrationsSection />
 
           {canContent && (
             <>
               <div className="flex items-center gap-2 pt-2">
                 <ShieldCheck className="w-4 h-4 text-accent" />
-                <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                  Conteúdo
-                </span>
+                <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Conteúdo</span>
               </div>
               <NewsAdminSection />
-              <SelvaTVAdminSection />
+              <SelvaTVAdminSection storageConfigured={storage.data?.configured ?? false} />
             </>
           )}
         </div>

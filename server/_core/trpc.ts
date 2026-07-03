@@ -51,3 +51,19 @@ export const adminProcedure = t.procedure.use(
     return next({ ctx: { ...ctx, user: ctx.user } });
   }),
 );
+
+// Gestão de conteúdo operacional (News bar, SelvaTV): admin OU developer.
+export const contentProcedure = t.procedure.use(
+  t.middleware(async ({ ctx, next }) => {
+    if (!ctx.user) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+    if (ctx.user.mustChangePassword) {
+      throw new TRPCError({ code: "FORBIDDEN", message: PASSWORD_CHANGE_REQUIRED });
+    }
+    if (ctx.user.role !== "admin" && ctx.user.role !== "developer") {
+      throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
+    }
+    return next({ ctx: { ...ctx, user: ctx.user } });
+  }),
+);

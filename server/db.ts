@@ -5,6 +5,10 @@ import {
   InsertUser,
   userIntegrations,
   type InsertUserIntegration,
+  newsItems,
+  type InsertNewsItem,
+  selvatvItems,
+  type InsertSelvatvItem,
   aiSuggestions,
   alerts,
   anomalies,
@@ -139,6 +143,94 @@ export async function setUserPassword(id: number, passwordHash: string, mustChan
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
   await db.update(users).set({ passwordHash, mustChangePassword }).where(eq(users.id, id));
+}
+
+export async function updateUserAvatar(id: number, avatarKey: string | null) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(users).set({ avatarKey }).where(eq(users.id, id));
+}
+
+// ─── News bar (persistente) ───────────────────────────────────────────────────
+
+export async function listActiveNews() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(newsItems).where(eq(newsItems.active, true))
+    .orderBy(newsItems.sortOrder, newsItems.id);
+}
+export async function listAllNews() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(newsItems).orderBy(newsItems.sortOrder, newsItems.id);
+}
+export async function createNewsItem(data: InsertNewsItem) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.insert(newsItems).values(data);
+}
+export async function updateNewsItem(id: number, patch: Partial<InsertNewsItem>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(newsItems).set(patch).where(eq(newsItems.id, id));
+}
+export async function deleteNewsItem(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.delete(newsItems).where(eq(newsItems.id, id));
+}
+export async function setNewsOrder(orderedIds: number[]) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await Promise.all(orderedIds.map((id, i) => db.update(newsItems).set({ sortOrder: i }).where(eq(newsItems.id, id))));
+}
+export async function nextNewsSortOrder(): Promise<number> {
+  const rows = await listAllNews();
+  return rows.length ? Math.max(...rows.map((r) => r.sortOrder)) + 1 : 0;
+}
+
+// ─── SelvaTV (persistente) ────────────────────────────────────────────────────
+
+export async function listActiveSelvatv() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(selvatvItems).where(eq(selvatvItems.active, true))
+    .orderBy(selvatvItems.sortOrder, selvatvItems.id);
+}
+export async function listAllSelvatv() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(selvatvItems).orderBy(selvatvItems.sortOrder, selvatvItems.id);
+}
+export async function getSelvatvById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(selvatvItems).where(eq(selvatvItems.id, id)).limit(1);
+  return rows[0];
+}
+export async function createSelvatvItem(data: InsertSelvatvItem) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.insert(selvatvItems).values(data);
+}
+export async function updateSelvatvItem(id: number, patch: Partial<InsertSelvatvItem>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(selvatvItems).set(patch).where(eq(selvatvItems.id, id));
+}
+export async function deleteSelvatvItem(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.delete(selvatvItems).where(eq(selvatvItems.id, id));
+}
+export async function setSelvatvOrder(orderedIds: number[]) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await Promise.all(orderedIds.map((id, i) => db.update(selvatvItems).set({ sortOrder: i }).where(eq(selvatvItems.id, id))));
+}
+export async function nextSelvatvSortOrder(): Promise<number> {
+  const rows = await listAllSelvatv();
+  return rows.length ? Math.max(...rows.map((r) => r.sortOrder)) + 1 : 0;
 }
 
 // ─── Integrações por usuário (OAuth) ──────────────────────────────────────────

@@ -28,6 +28,7 @@ const COLUMNS = [
   { name: "birthdayMonth",      ddl: "ADD COLUMN `birthdayMonth` INT NULL" },
   { name: "mustChangePassword", ddl: "ADD COLUMN `mustChangePassword` BOOLEAN NOT NULL DEFAULT 0" },
   { name: "active",             ddl: "ADD COLUMN `active` BOOLEAN NOT NULL DEFAULT 1" },
+  { name: "avatarKey",          ddl: "ADD COLUMN `avatarKey` VARCHAR(512) NULL" },
 ];
 
 async function columnExists(conn, table, column) {
@@ -102,6 +103,38 @@ async function main() {
       await conn.query(`ALTER TABLE \`user_integrations\` ${col.ddl}`);
       console.log(`[ensure-schema] +   · user_integrations.${col.name} adicionada`);
     }
+
+    // 4) News bar persistente.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`news_items\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`text\` VARCHAR(500) NOT NULL,
+        \`active\` BOOLEAN NOT NULL DEFAULT 1,
+        \`sortOrder\` INT NOT NULL DEFAULT 0,
+        \`createdByUserId\` INT NULL,
+        \`updatedByUserId\` INT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabela news_items garantida");
+
+    // 5) SelvaTV persistente (imagens no storage).
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`selvatv_items\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`title\` VARCHAR(255) NULL,
+        \`imageKey\` VARCHAR(512) NOT NULL,
+        \`storageProvider\` VARCHAR(32) NULL,
+        \`active\` BOOLEAN NOT NULL DEFAULT 1,
+        \`sortOrder\` INT NOT NULL DEFAULT 0,
+        \`createdByUserId\` INT NULL,
+        \`updatedByUserId\` INT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabela selvatv_items garantida");
 
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {

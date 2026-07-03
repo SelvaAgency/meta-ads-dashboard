@@ -11,26 +11,30 @@
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
 import { HubShell } from "./HubShell";
 import { SelvaTV } from "./SelvaTV";
 import { NewsTicker } from "./NewsTicker";
 import { greetingForHour, firstName } from "./hubMocks";
 import type { NewsItem, SelvaTVImage } from "./hubMocks";
-import { useNewsStore, useSelvaTVStore } from "./hubStore";
 import { AgendaCard } from "./AgendaCard";
 import { MyCardsCard } from "./MyCardsCard";
 
 export default function Hub() {
   const { user } = useAuth();
   const u = user as { name?: string; birthdayDay?: number | null; birthdayMonth?: number | null } | null;
-  const [storedNews] = useNewsStore();
-  const [storedTV] = useSelvaTVStore();
 
-  // News/SelvaTV ativos, vindos do store (admin edita em Configurações).
-  const news: NewsItem[] = storedNews.filter((n) => n.enabled && n.text.trim()).map((n) => ({ id: n.id, text: n.text }));
-  const tvImages: SelvaTVImage[] = storedTV
-    .filter((im) => im.enabled && im.src.trim())
-    .map((im) => ({ id: im.id, src: im.src, alt: im.alt, eyebrow: im.eyebrow, title: im.title, subtitle: im.subtitle }));
+  // News/SelvaTV ATIVOS vêm do backend (globais para todos os usuários).
+  const newsQ = trpc.news.listActive.useQuery(undefined, { refetchOnWindowFocus: false });
+  const tvQ = trpc.selvaTV.listActive.useQuery(undefined, { refetchOnWindowFocus: false });
+
+  const news: NewsItem[] = (newsQ.data ?? []).map((n) => ({ id: String(n.id), text: n.text }));
+  const tvImages: SelvaTVImage[] = (tvQ.data ?? []).map((im) => ({
+    id: String(im.id),
+    src: im.imageUrl,
+    alt: im.title ?? "",
+    title: im.title,
+  }));
 
   const now = new Date();
   const name = u?.name;
