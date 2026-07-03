@@ -3,20 +3,23 @@
  *  SELVA TV — slide nativo "Você prefere?" (interativo)
  * ─────────────────────────────────────────────────────────────────────────────
  *  Fundo preto, título fixo (Akira), duas caixas (rosa/azul) que são BOTÕES de
- *  voto, e o rosto ao centro com FLIP horizontal DIRETO (sem rotação/suavização
- *  — olha um lado, pausa, troca instantânea). Respeita prefers-reduced-motion.
+ *  voto e o rosto ao centro. O rosto faz FLIP horizontal DIRETO (sem rotação):
+ *  segue o hover das caixas (mobile: cai no voto atual, senão neutro).
  *
- *  Voto: 1 por usuário, persistido no backend (selvaTV.vocePrefereVote). Cada
- *  caixa mostra os avatares de quem votou nela (foto do perfil ou iniciais),
- *  com "+N" quando há muitos. Proporções relativas ao container (aspect 8:3).
+ *  Votantes: cabeças PNG recortadas (auto-associadas pelo slug do nome do
+ *  usuário → /selvatv/voters/<slug>.png), com contorno na cor da opção
+ *  (rosa/azul). Sem PNG → iniciais (também com a cor da opção). Até 5 + "+N".
  *
- *  Assets (client/public/): /selvatv/giulia-motta.png · fontes em /fonts/.
+ *  Assets (client/public/): /selvatv/giulia-motta.png · /selvatv/voters/*.png
+ *  · fontes em /fonts/.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 
 const FACE_SRC = "/selvatv/giulia-motta.png";
+const PINK = "#F7A8CC";
+const BLUE = "#3B54E6";
 
 type Voter = { name: string; avatarUrl?: string };
 
@@ -24,18 +27,46 @@ function initials(name: string): string {
   return (name?.trim()?.[0] ?? "?").toUpperCase();
 }
 
-function Avatars({ voters, count }: { voters: Voter[]; count: number }) {
+// Slug do nome → arquivo do PNG. Ex.: "Giulia Motta" → "giulia-motta".
+function toSlug(name: string): string {
+  return (name || "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+// Contorno colorido que segue a silhueta do PNG (borda dinâmica por opção).
+function outline(c: string): string {
+  return [
+    `drop-shadow(1.5px 0 0 ${c})`, `drop-shadow(-1.5px 0 0 ${c})`,
+    `drop-shadow(0 1.5px 0 ${c})`, `drop-shadow(0 -1.5px 0 ${c})`,
+    `drop-shadow(1.1px 1.1px 0 ${c})`, `drop-shadow(-1.1px 1.1px 0 ${c})`,
+    `drop-shadow(1.1px -1.1px 0 ${c})`, `drop-shadow(-1.1px -1.1px 0 ${c})`,
+  ].join(" ");
+}
+
+function Head({ name, side }: { name: string; side: "left" | "right" }) {
+  const [broken, setBroken] = useState(false);
+  const color = side === "left" ? PINK : BLUE;
+  if (broken || !name) {
+    return <span className="vp-head-fallback" style={{ borderColor: color }} title={name}>{initials(name)}</span>;
+  }
+  return (
+    <img
+      className="vp-head" src={`/selvatv/voters/${toSlug(name)}.png`} alt="" title={name} draggable={false}
+      onError={() => setBroken(true)} style={{ filter: outline(color) }}
+    />
+  );
+}
+
+function VoterHeads({ voters, count, side }: { voters: Voter[]; count: number; side: "left" | "right" }) {
   if (!count) return null;
   const shown = voters.slice(0, 5);
   const extra = count - shown.length;
   return (
-    <div className="vp-avatars">
-      {shown.map((v, i) => (
-        <span className="vp-av" key={i} style={{ marginLeft: i ? "-30%" : 0 }} title={v.name}>
-          {v.avatarUrl ? <img src={v.avatarUrl} alt="" /> : initials(v.name)}
-        </span>
-      ))}
-      {extra > 0 && <span className="vp-av vp-av-more" style={{ marginLeft: "-30%" }}>+{extra}</span>}
+    <div className={`vp-heads vp-heads-${side}`}>
+      {shown.map((v, i) => <Head key={i} name={v.name} side={side} />)}
+      {extra > 0 && <span className="vp-head-more" style={{ borderColor: side === "left" ? PINK : BLUE }}>+{extra}</span>}
     </div>
   );
 }
@@ -53,19 +84,16 @@ export function VocePrefereSlide({
   const myVote = data?.myVote ?? null;
   const clickable = !preview;
 
-  // Estado de olhar da Giulia:
-  //  · desktop → segue o hover das caixas (flip instantâneo);
-  //  · mobile/touch (sem hover) → cai no voto atual; senão neutro (esquerda).
+  // Olhar da Giulia: hover das caixas (desktop) → voto atual (mobile) → neutro.
   const [hover, setHover] = useState<"left" | "right" | null>(null);
   const gaze: "left" | "right" = hover ?? myVote ?? "left";
 
   const boxClass = (opt: "left" | "right") =>
     `vp-box vp-${opt}${clickable ? " vp-click" : ""}${myVote === opt ? " vp-selected" : ""}`;
-
   const onVote = (opt: "left" | "right") => { if (clickable) vote.mutate({ option: opt }); };
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-black">
+    <div className="relative w-full h-full overflow-hidden bg-black" style={{ containerType: "size" } as React.CSSProperties}>
       <style>{VP_CSS}</style>
       <div className="vp-title">VOCÊ PREFERE?</div>
 
@@ -73,20 +101,21 @@ export function VocePrefereSlide({
         type="button" className={boxClass("left")} onClick={() => onVote("left")} disabled={!clickable}
         onMouseEnter={() => setHover("left")} onMouseLeave={() => setHover(null)}
       >
-        {data && <Avatars voters={data.left.voters} count={data.left.count} />}
         <span className="vp-opt">{leftText}</span>
       </button>
-
       <button
         type="button" className={boxClass("right")} onClick={() => onVote("right")} disabled={!clickable}
         onMouseEnter={() => setHover("right")} onMouseLeave={() => setHover(null)}
       >
-        {data && <Avatars voters={data.right.voters} count={data.right.count} />}
         <span className="vp-opt vp-opt-light">{rightText}</span>
       </button>
 
+      {/* Cabeças dos votantes (decorativas — cliques passam para as caixas). */}
+      {data && <VoterHeads voters={data.left.voters} count={data.left.count} side="left" />}
+      {data && <VoterHeads voters={data.right.voters} count={data.right.count} side="right" />}
+
       <div className="vp-face-wrap">
-        {/* Flip horizontal DIRETO (sem transição → troca instantânea). */}
+        {/* Flip horizontal DIRETO (sem transição). */}
         <img className="vp-face" src={FACE_SRC} alt="" draggable={false}
           style={{ transform: gaze === "right" ? "scaleX(-1)" : "scaleX(1)" }} />
       </div>
@@ -103,8 +132,7 @@ const VP_CSS = `
 }
 .vp-box{
   position:absolute; top:23%; height:64%; width:23%; border-radius:6px;
-  z-index:2; border:none; padding:0; text-align:left; appearance:none;
-  overflow:visible;
+  z-index:2; border:none; padding:0; text-align:left; appearance:none; overflow:visible;
 }
 .vp-left{ left:8%; background:#F7A8CC; }
 .vp-right{ right:8%; background:#3B54E6; }
@@ -112,23 +140,25 @@ const VP_CSS = `
 .vp-click:hover{ filter:brightness(1.06); transform:translateY(-2px); }
 .vp-selected{ box-shadow:0 0 0 3px rgba(253,255,237,0.9); }
 .vp-opt{
-  position:absolute; left:9%; right:9%; bottom:10%;
+  position:absolute; left:9%; right:9%; bottom:9%;
   font-family:"Atkinson Hyperlegible","DM Sans",sans-serif; color:#0A0A0A;
   font-size:clamp(10px,1.7vw,20px); line-height:1.15;
 }
 .vp-opt-light{ color:#FDFFED; }
 
-.vp-avatars{ position:absolute; top:0; left:50%; transform:translate(-50%,-60%); display:flex; align-items:center; z-index:6; pointer-events:none; }
-.vp-av{
-  width:clamp(15px,2.3vw,26px); height:clamp(15px,2.3vw,26px); border-radius:50%;
-  overflow:hidden; border:2px solid #060810; background:#3a3a3a; color:#FDFFED;
-  display:flex; align-items:center; justify-content:center;
-  font-size:clamp(7px,1vw,11px); font-weight:700; flex-shrink:0;
+/* Cabeças dos votantes — sobre a borda superior de cada caixa. */
+.vp-heads{ position:absolute; top:23%; height:16cqh; transform:translate(-50%,-50%); display:flex; align-items:flex-end; z-index:6; pointer-events:none; }
+.vp-heads-left{ left:19.5%; }
+.vp-heads-right{ left:80.5%; }
+.vp-heads > * + *{ margin-left:-2.4cqw; }
+.vp-head{ height:100%; width:auto; display:block; }
+.vp-head-fallback, .vp-head-more{
+  height:100%; aspect-ratio:1; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  background:#1a1a1a; color:#FDFFED; font-weight:700; font-size:6cqh; border:0.5cqh solid; flex-shrink:0; box-sizing:border-box;
 }
-.vp-av img{ width:100%; height:100%; object-fit:cover; display:block; }
-.vp-av-more{ background:#0A0A0A; }
+.vp-head-more{ background:#0A0A0A; border-color:rgba(253,255,237,0.4)!important; }
 
-.vp-face-wrap{ position:absolute; left:50%; bottom:5%; height:52%; transform:translateX(-50%); z-index:4; pointer-events:none; }
-/* Sem transição → o flip é instantâneo (troca direta, nunca "gira"). */
+.vp-face-wrap{ position:absolute; left:50%; bottom:5%; height:56%; transform:translateX(-50%); z-index:4; pointer-events:none; }
 .vp-face{ height:100%; width:auto; display:block; transform-origin:center; transition:none; }
+@media (prefers-reduced-motion: reduce){ .vp-face{ transition:none; } }
 `;
