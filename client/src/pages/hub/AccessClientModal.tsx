@@ -34,6 +34,43 @@ type FormState = {
 
 const emptyForm: FormState = { platform: "", label: "", loginEmail: "", password: "", url: "", requiresCode: false, codeType: "", notes: "", tags: [] };
 
+// Estilo compartilhado dos dropdowns custom (Plataforma, Tags, Tipo de código).
+const DROPDOWN_CLS = "mt-1 rounded-md border border-border bg-popover shadow-sm max-h-[200px] overflow-y-auto py-1";
+const OPTION_CLS = "w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-primary/10 hover:text-accent transition-colors";
+
+/** Input com dropdown custom de sugestões (permite valor livre). Em fluxo, não cobre nada. */
+function ComboInput({ value, onChange, options, placeholder }: {
+  value: string; onChange: (v: string) => void; options: string[]; placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+  const q = value.trim().toLowerCase();
+  const filtered = options.filter((o) => !q || o.toLowerCase().includes(q));
+  return (
+    <div ref={ref} className="relative">
+      <Input
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setOpen(false); } else if (e.key === "Escape") setOpen(false); }}
+      />
+      {open && filtered.length > 0 && (
+        <div className={DROPDOWN_CLS}>
+          {filtered.map((o) => (
+            <button key={o} type="button" onClick={() => { onChange(o); setOpen(false); }} className={OPTION_CLS}>{o}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TagsInput({ tags, onChange }: { tags: string[]; onChange: (t: string[]) => void }) {
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
@@ -90,14 +127,9 @@ function TagsInput({ tags, onChange }: { tags: string[]; onChange: (t: string[])
 
       {/* Dropdown customizado (em fluxo — empurra o conteúdo, não cobre nada) */}
       {open && !atLimit && suggestions.length > 0 && (
-        <div className="mt-1 rounded-md border border-border bg-popover shadow-sm max-h-[200px] overflow-y-auto py-1">
+        <div className={DROPDOWN_CLS}>
           {suggestions.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => { add(s); setDraft(""); setOpen(false); }}
-              className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-primary/10 hover:text-accent transition-colors"
-            >
+            <button key={s} type="button" onClick={() => { add(s); setDraft(""); setOpen(false); }} className={OPTION_CLS}>
               {s}
             </button>
           ))}
@@ -196,7 +228,7 @@ export function AccessClientModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(3px)" }} onClick={onClose}>
-      <div className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-xl border border-border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         {/* Header (fixo) */}
         <div className="flex-shrink-0 flex items-center justify-between gap-3 px-5 py-4 border-b border-border">
           <div className="flex items-center gap-2 min-w-0">
@@ -253,13 +285,12 @@ export function AccessClientModal({
         <div className="flex-1 overflow-auto px-5 py-4 flex flex-col gap-3">
           {/* Formulário add/edit — card próprio, separado da lista abaixo */}
           {form && (
-            <div className="rounded-lg border border-accent/40 bg-primary/[0.04] p-4 flex flex-col gap-3 mb-2 shadow-sm">
+            <div className="rounded-lg border border-accent/40 bg-primary/[0.05] p-5 flex flex-col gap-4 mb-4 shadow-sm">
               <p className="text-sm font-semibold">{form.id ? "Editar acesso" : "Novo acesso"}</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1">
                   <Label className="text-xs">Plataforma *</Label>
-                  <Input list="platform-suggestions" value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })} placeholder="Ex.: Wix" />
-                  <datalist id="platform-suggestions">{PLATFORMS.map((p) => <option key={p} value={p} />)}</datalist>
+                  <ComboInput value={form.platform} onChange={(v) => setForm({ ...form, platform: v })} options={PLATFORMS} placeholder="Ex.: Wix" />
                 </div>
                 <div className="flex flex-col gap-1"><Label className="text-xs">Nome do acesso</Label><Input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="Opcional" /></div>
                 <div className="flex flex-col gap-1"><Label className="text-xs">E-mail / login</Label><Input value={form.loginEmail} onChange={(e) => setForm({ ...form, loginEmail: e.target.value })} /></div>
@@ -275,10 +306,7 @@ export function AccessClientModal({
                 {form.requiresCode && (
                   <div className="flex flex-col gap-1">
                     <Label className="text-xs">Tipo de código</Label>
-                    <select className="h-9 rounded-md border border-border bg-input px-2 text-sm" value={form.codeType} onChange={(e) => setForm({ ...form, codeType: e.target.value })}>
-                      <option value="">—</option>
-                      {CODE_TYPES.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
+                    <ComboInput value={form.codeType} onChange={(v) => setForm({ ...form, codeType: v })} options={CODE_TYPES} placeholder="Selecione ou digite" />
                   </div>
                 )}
                 <div className="flex flex-col gap-1 sm:col-span-2"><Label className="text-xs">Tags</Label><TagsInput tags={form.tags} onChange={(t) => setForm({ ...form, tags: t })} /></div>
