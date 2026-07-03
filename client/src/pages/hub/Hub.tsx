@@ -4,32 +4,27 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *  Reutiliza primitivos de UI existentes (Card, Carousel), tokens, ícones
  *  lucide e useAuth. News e SelvaTV vêm do store local (editável em
- *  Configurações); Agenda e Meus cards vêm de adapters mockados isolados
- *  (hubMocks) — prontos para trocar por Calendar/Trello reais depois.
+ *  Configurações). Agenda (Google Calendar) e Meus cards (Trello) são reais,
+ *  por usuário, tratados no backend.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useMemo } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ClipboardCheck, Square } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Card } from "@/components/ui/card";
 import { HubShell } from "./HubShell";
 import { SelvaTV } from "./SelvaTV";
 import { NewsTicker } from "./NewsTicker";
-import { getTrelloCards, greetingForHour, firstName } from "./hubMocks";
+import { greetingForHour, firstName } from "./hubMocks";
 import type { NewsItem, SelvaTVImage } from "./hubMocks";
 import { useNewsStore, useSelvaTVStore } from "./hubStore";
 import { AgendaCard } from "./AgendaCard";
+import { MyCardsCard } from "./MyCardsCard";
 
 export default function Hub() {
   const { user } = useAuth();
   const u = user as { name?: string; birthdayDay?: number | null; birthdayMonth?: number | null } | null;
   const [storedNews] = useNewsStore();
   const [storedTV] = useSelvaTVStore();
-
-  // Trello segue mockado nesta etapa (não integrado ainda).
-  const cards = useMemo(() => getTrelloCards(), []);
 
   // News/SelvaTV ativos, vindos do store (admin edita em Configurações).
   const news: NewsItem[] = storedNews.filter((n) => n.enabled && n.text.trim()).map((n) => ({ id: n.id, text: n.text }));
@@ -59,27 +54,10 @@ export default function Hub() {
               <p className="text-sm text-muted-foreground capitalize mt-0.5">{today}</p>
             </header>
 
-            {/* Cards: Agenda (Google Calendar real) + Meus cards */}
+            {/* Cards: Agenda (Google Calendar) + Meus cards (Trello) — reais */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <AgendaCard />
-
-              {/* Meus cards (mock Trello) */}
-              <Card className="gap-4 py-5">
-                <div className="px-5 flex items-center gap-2.5">
-                  <span className="w-7 h-7 rounded-lg bg-accent/15 text-accent flex items-center justify-center flex-shrink-0">
-                    <ClipboardCheck className="w-4 h-4" />
-                  </span>
-                  <h2 className="text-sm font-semibold">Meus cards</h2>
-                </div>
-                <div className="px-5 flex flex-col gap-2.5">
-                  {cards.map((c) => (
-                    <div key={c.id} className="flex items-center gap-2.5 text-sm text-muted-foreground">
-                      <Square className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground/60" />
-                      <span>{c.title}</span>
-                    </div>
-                  ))}
-                </div>
-              </Card>
+              <MyCardsCard />
             </div>
 
             {/* SelvaTV — some sozinho se não houver imagens */}

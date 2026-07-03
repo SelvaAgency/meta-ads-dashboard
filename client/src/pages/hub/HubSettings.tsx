@@ -24,6 +24,7 @@ import {
   Check,
   Plug,
   Calendar,
+  Trello,
   Loader2,
 } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -331,68 +332,125 @@ function SelvaTVAdminSection() {
   );
 }
 
-// ─── Integrações (Google Calendar) ───────────────────────────────────────────
+// ─── Integrações (Google Calendar + Trello) ──────────────────────────────────
 const GOOGLE_CONNECT_URL = "/api/integrations/google/start";
+const TRELLO_CONNECT_URL = "/api/integrations/trello/start";
+
+/** Linha genérica de integração (status + conectar/desconectar). */
+function IntegrationRow({
+  icon: Icon,
+  name,
+  connectUrl,
+  loading,
+  available,
+  connected,
+  identity,
+  onDisconnect,
+  disconnecting,
+}: {
+  icon: typeof Calendar;
+  name: string;
+  connectUrl: string;
+  loading: boolean;
+  available: boolean;
+  connected: boolean;
+  identity?: string;
+  onDisconnect: () => void;
+  disconnecting: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-border p-4 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="w-9 h-9 rounded-lg bg-primary/15 text-accent flex items-center justify-center flex-shrink-0">
+          <Icon className="w-4 h-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium">{name}</p>
+          <p className="text-xs text-muted-foreground truncate">
+            {loading
+              ? "Verificando…"
+              : !available
+              ? "Indisponível (não configurado no servidor)"
+              : connected
+              ? `Conectado${identity ? ` · ${identity}` : ""}`
+              : "Não conectado"}
+          </p>
+        </div>
+      </div>
+      <div className="flex-shrink-0">
+        {loading ? (
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        ) : !available ? null : connected ? (
+          <button
+            onClick={onDisconnect}
+            disabled={disconnecting}
+            className="text-xs font-medium text-muted-foreground hover:text-destructive disabled:opacity-60"
+          >
+            {disconnecting ? "Desconectando…" : "Desconectar"}
+          </button>
+        ) : (
+          <a
+            href={connectUrl}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium px-3 py-1.5 hover:opacity-90"
+          >
+            <Plug className="w-3.5 h-3.5" /> Conectar
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function IntegrationsSection() {
   const utils = trpc.useUtils();
-  const status = trpc.integrations.googleCalendar.status.useQuery(undefined, { retry: false });
-  const disconnect = trpc.integrations.googleCalendar.disconnect.useMutation({
+
+  const gcal = trpc.integrations.googleCalendar.status.useQuery(undefined, { retry: false });
+  const gcalDisconnect = trpc.integrations.googleCalendar.disconnect.useMutation({
     onSuccess: () => utils.integrations.googleCalendar.status.invalidate(),
   });
 
-  // Feedback do retorno do OAuth (?calendar=connected|error|unavailable).
-  const calResult = new URLSearchParams(window.location.search).get("calendar");
+  const trello = trpc.integrations.trello.status.useQuery(undefined, { retry: false });
+  const trelloDisconnect = trpc.integrations.trello.disconnect.useMutation({
+    onSuccess: () => utils.integrations.trello.status.invalidate(),
+  });
 
-  const s = status.data;
-  const available = s?.available ?? false;
-  const connected = s?.connected ?? false;
+  // Feedback do retorno das autorizações (?calendar=… / ?trello=…).
+  const params = new URLSearchParams(window.location.search);
+  const calResult = params.get("calendar");
+  const trelloResult = params.get("trello");
 
   return (
     <SectionCard icon={Plug} title="Integrações" description="Conecte suas contas para trazer dados reais à Home.">
       {calResult === "connected" && <p className="mb-3 text-xs text-emerald-600">Google Calendar conectado com sucesso.</p>}
       {calResult === "error" && <p className="mb-3 text-xs text-destructive">Não foi possível conectar o Google Calendar. Tente novamente.</p>}
       {calResult === "unavailable" && <p className="mb-3 text-xs text-muted-foreground">Integração de calendário ainda não configurada.</p>}
+      {trelloResult === "connected" && <p className="mb-3 text-xs text-emerald-600">Trello conectado com sucesso.</p>}
+      {trelloResult === "error" && <p className="mb-3 text-xs text-destructive">Não foi possível conectar o Trello. Tente novamente.</p>}
+      {trelloResult === "unavailable" && <p className="mb-3 text-xs text-muted-foreground">Integração do Trello ainda não configurada.</p>}
 
-      <div className="rounded-lg border border-border p-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="w-9 h-9 rounded-lg bg-primary/15 text-accent flex items-center justify-center flex-shrink-0">
-            <Calendar className="w-4 h-4" />
-          </span>
-          <div className="min-w-0">
-            <p className="text-sm font-medium">Google Calendar</p>
-            <p className="text-xs text-muted-foreground truncate">
-              {status.isLoading
-                ? "Verificando…"
-                : !available
-                ? "Indisponível (não configurado no servidor)"
-                : connected
-                ? `Conectado${s?.email ? ` · ${s.email}` : ""}`
-                : "Não conectado"}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex-shrink-0">
-          {status.isLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-          ) : !available ? null : connected ? (
-            <button
-              onClick={() => disconnect.mutate()}
-              disabled={disconnect.isPending}
-              className="text-xs font-medium text-muted-foreground hover:text-destructive disabled:opacity-60"
-            >
-              {disconnect.isPending ? "Desconectando…" : "Desconectar"}
-            </button>
-          ) : (
-            <a
-              href={GOOGLE_CONNECT_URL}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium px-3 py-1.5 hover:opacity-90"
-            >
-              <Plug className="w-3.5 h-3.5" /> Conectar
-            </a>
-          )}
-        </div>
+      <div className="flex flex-col gap-3">
+        <IntegrationRow
+          icon={Calendar}
+          name="Google Calendar"
+          connectUrl={GOOGLE_CONNECT_URL}
+          loading={gcal.isLoading}
+          available={gcal.data?.available ?? false}
+          connected={gcal.data?.connected ?? false}
+          identity={gcal.data?.email ?? undefined}
+          onDisconnect={() => gcalDisconnect.mutate()}
+          disconnecting={gcalDisconnect.isPending}
+        />
+        <IntegrationRow
+          icon={Trello}
+          name="Trello"
+          connectUrl={TRELLO_CONNECT_URL}
+          loading={trello.isLoading}
+          available={trello.data?.available ?? false}
+          connected={trello.data?.connected ?? false}
+          identity={trello.data?.username ?? undefined}
+          onDisconnect={() => trelloDisconnect.mutate()}
+          disconnecting={trelloDisconnect.isPending}
+        />
       </div>
     </SectionCard>
   );

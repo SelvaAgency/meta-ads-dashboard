@@ -14,6 +14,8 @@ export const ENV = {
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
   googleRedirectUri: process.env.GOOGLE_REDIRECT_URI ?? "",
   integrationsEncryptionKey: process.env.INTEGRATIONS_ENCRYPTION_KEY ?? "",
+  // Trello (integração por usuário — cards da Home)
+  trelloApiKey: process.env.TRELLO_API_KEY ?? "",
   // Google Ads API credentials
   googleAdsDeveloperToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
   googleAdsClientId: process.env.GOOGLE_ADS_CLIENT_ID ?? "",

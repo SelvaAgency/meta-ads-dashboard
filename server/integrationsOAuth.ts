@@ -27,6 +27,8 @@ import {
   isGoogleCalendarConfigured,
 } from "./googleCalendarService";
 import { getUserIntegration, upsertUserIntegration } from "./db";
+import { signIntegrationState } from "./_core/integrationsState";
+import { buildAuthorizeUrl as buildTrelloAuthorizeUrl, trelloReturnUrl, isTrelloConfigured } from "./trelloService";
 
 const stateSecret = () => new TextEncoder().encode(ENV.cookieSecret || "selva-spaces-state");
 const SETTINGS = "/settings";
@@ -113,5 +115,22 @@ export function registerIntegrationsRoutes(app: Express) {
     } catch {
       return res.redirect(302, `${SETTINGS}?calendar=error`);
     }
+  });
+
+  // ── Trello — iniciar conexão (token flow) ────────────────────────────────────
+  // O token do Trello volta no FRAGMENTO da URL para /trello/callback (página
+  // intermediária no frontend), que o envia ao backend via tRPC completeToken.
+  app.get("/api/integrations/trello/start", async (req: Request, res: Response) => {
+    let user;
+    try {
+      user = await sdk.authenticateRequest(req);
+    } catch {
+      return res.redirect(302, "/login");
+    }
+    if (!isTrelloConfigured()) {
+      return res.redirect(302, `${SETTINGS}?trello=unavailable`);
+    }
+    const state = await signIntegrationState(user.id);
+    return res.redirect(302, buildTrelloAuthorizeUrl(trelloReturnUrl(state)));
   });
 }

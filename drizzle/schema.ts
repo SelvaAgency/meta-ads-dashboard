@@ -43,7 +43,9 @@ export type InsertUser = typeof users.$inferInsert;
 export const userIntegrations = mysqlTable("user_integrations", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
-  provider: varchar("provider", { length: 64 }).notNull(), // "google_calendar"
+  provider: varchar("provider", { length: 64 }).notNull(), // "google_calendar" | "trello"
+  providerAccountId: varchar("providerAccountId", { length: 64 }),   // ex.: Trello member id
+  providerUsername: varchar("providerUsername", { length: 255 }),    // ex.: Trello username
   providerAccountEmail: varchar("providerAccountEmail", { length: 320 }),
   accessTokenEncrypted: text("accessTokenEncrypted"),
   refreshTokenEncrypted: text("refreshTokenEncrypted"),

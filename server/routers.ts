@@ -18,6 +18,16 @@ import {
   listTodayEvents,
 } from "./googleCalendarService";
 import {
+  TRELLO_PROVIDER,
+  TRELLO_SCOPE,
+  TrelloAuthError,
+  isTrelloConfigured,
+  getMember as getTrelloMember,
+  listMyCards as listTrelloCards,
+  revokeToken as revokeTrelloToken,
+} from "./trelloService";
+import { verifyIntegrationState } from "./_core/integrationsState";
+import {
   getAllUsers,
   getUserById,
   getUserByOpenId,
@@ -25,6 +35,7 @@ import {
   updateUserFields,
   setUserPassword,
   getUserIntegration,
+  upsertUserIntegration,
   updateIntegrationTokens,
   deactivateUserIntegration,
 } from "./db";
@@ -625,6 +636,75 @@ export const appRouter = router({
           } catch {
             return { status: "needs_reconnect" as const, events: [] };
           }
+        }
+      }),
+    }),
+
+    // ── Trello (cards atribuídos ao usuário logado) ──────────────────────────
+    trello: router({
+      status: protectedProcedure.query(async ({ ctx }) => {
+        if (!isTrelloConfigured()) return { available: false, connected: false };
+        const integ = await getUserIntegration(ctx.user.id, TRELLO_PROVIDER);
+        const connected = !!integ && integ.active && !!integ.accessTokenEncrypted;
+        return {
+          available: true,
+          connected,
+          username: connected ? integ?.providerUsername ?? undefined : undefined,
+        };
+      }),
+
+      // Recebe o token capturado pela página /trello/callback (fragmento da URL).
+      // Valida o state (CSRF) e confere que a sessão é do mesmo usuário.
+      completeToken: protectedProcedure
+        .input(z.object({ state: z.string().min(1), token: z.string().min(10) }))
+        .mutation(async ({ ctx, input }) => {
+          const uid = await verifyIntegrationState(input.state);
+          if (uid === null || uid !== ctx.user.id) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Autorização inválida." });
+          }
+          let member;
+          try {
+            member = await getTrelloMember(input.token);
+          } catch {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Token do Trello inválido." });
+          }
+          await upsertUserIntegration({
+            userId: ctx.user.id,
+            provider: TRELLO_PROVIDER,
+            providerAccountId: member.id,
+            providerUsername: member.username,
+            providerAccountEmail: member.email ?? null,
+            accessTokenEncrypted: encryptSecret(input.token),
+            scopes: TRELLO_SCOPE,
+            active: true,
+          });
+          return { success: true } as const;
+        }),
+
+      disconnect: protectedProcedure.mutation(async ({ ctx }) => {
+        const integ = await getUserIntegration(ctx.user.id, TRELLO_PROVIDER);
+        if (integ?.accessTokenEncrypted) {
+          try { await revokeTrelloToken(decryptSecret(integ.accessTokenEncrypted)); } catch { /* best-effort */ }
+        }
+        await deactivateUserIntegration(ctx.user.id, TRELLO_PROVIDER);
+        return { success: true } as const;
+      }),
+
+      // Cards de hoje/abertos atribuídos ao usuário. Home nunca quebra.
+      myCards: protectedProcedure.query(async ({ ctx }) => {
+        if (!isTrelloConfigured()) return { status: "unavailable" as const, cards: [] };
+        const integ = await getUserIntegration(ctx.user.id, TRELLO_PROVIDER);
+        if (!integ || !integ.active || !integ.accessTokenEncrypted) {
+          return { status: "disconnected" as const, cards: [] };
+        }
+        let token = "";
+        try { token = decryptSecret(integ.accessTokenEncrypted); } catch { token = ""; }
+        if (!token) return { status: "needs_reconnect" as const, cards: [] };
+        try {
+          return { status: "ok" as const, cards: await listTrelloCards(token) };
+        } catch (e) {
+          if (e instanceof TrelloAuthError) return { status: "needs_reconnect" as const, cards: [] };
+          return { status: "error" as const, cards: [] };
         }
       }),
     }),

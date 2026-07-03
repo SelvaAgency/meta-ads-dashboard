@@ -73,6 +73,8 @@ async function main() {
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
         \`userId\` INT NOT NULL,
         \`provider\` VARCHAR(64) NOT NULL,
+        \`providerAccountId\` VARCHAR(64) NULL,
+        \`providerUsername\` VARCHAR(255) NULL,
         \`providerAccountEmail\` VARCHAR(320) NULL,
         \`accessTokenEncrypted\` TEXT NULL,
         \`refreshTokenEncrypted\` TEXT NULL,
@@ -86,6 +88,20 @@ async function main() {
       )
     `);
     console.log("[ensure-schema] ok  · tabela user_integrations garantida");
+
+    // Colunas novas em user_integrations (Trello) — para bancos que já tinham a
+    // tabela criada antes (só do Google Calendar).
+    for (const col of [
+      { name: "providerAccountId", ddl: "ADD COLUMN `providerAccountId` VARCHAR(64) NULL" },
+      { name: "providerUsername", ddl: "ADD COLUMN `providerUsername` VARCHAR(255) NULL" },
+    ]) {
+      if (await columnExists(conn, "user_integrations", col.name)) {
+        console.log(`[ensure-schema] ok  · user_integrations.${col.name} já existe`);
+        continue;
+      }
+      await conn.query(`ALTER TABLE \`user_integrations\` ${col.ddl}`);
+      console.log(`[ensure-schema] +   · user_integrations.${col.name} adicionada`);
+    }
 
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {

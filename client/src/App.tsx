@@ -31,6 +31,7 @@ import HubApp from "./pages/hub/HubApp";
 import HubSettings from "./pages/hub/HubSettings";
 import PeoplePage from "./pages/hub/PeoplePage";
 import ChangePassword from "./pages/hub/ChangePassword";
+import TrelloCallback from "./pages/hub/TrelloCallback";
 import { AdminOnly } from "./pages/hub/AdminOnly";
 import { isEmbedded } from "./pages/hub/embed";
 
@@ -61,6 +62,7 @@ function Router() {
       <Route path="/access" component={HubAccess} />
       <Route path="/people" component={() => <AdminOnly><PeoplePage /></AdminOnly>} />
       <Route path="/change-password" component={ChangePassword} />
+      <Route path="/trello/callback" component={TrelloCallback} />
 
       {/* ── Legado /hub → rotas diretas (compatibilidade) ────────────────────── */}
       <Route path="/hub" component={() => <RedirectTo to="/" />} />
