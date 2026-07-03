@@ -13,6 +13,7 @@
  *  Assets (client/public/): /selvatv/giulia-motta.png · fontes em /fonts/.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 
 const FACE_SRC = "/selvatv/giulia-motta.png";
@@ -52,6 +53,12 @@ export function VocePrefereSlide({
   const myVote = data?.myVote ?? null;
   const clickable = !preview;
 
+  // Estado de olhar da Giulia:
+  //  · desktop → segue o hover das caixas (flip instantâneo);
+  //  · mobile/touch (sem hover) → cai no voto atual; senão neutro (esquerda).
+  const [hover, setHover] = useState<"left" | "right" | null>(null);
+  const gaze: "left" | "right" = hover ?? myVote ?? "left";
+
   const boxClass = (opt: "left" | "right") =>
     `vp-box vp-${opt}${clickable ? " vp-click" : ""}${myVote === opt ? " vp-selected" : ""}`;
 
@@ -62,18 +69,26 @@ export function VocePrefereSlide({
       <style>{VP_CSS}</style>
       <div className="vp-title">VOCÊ PREFERE?</div>
 
-      <button type="button" className={boxClass("left")} onClick={() => onVote("left")} disabled={!clickable}>
+      <button
+        type="button" className={boxClass("left")} onClick={() => onVote("left")} disabled={!clickable}
+        onMouseEnter={() => setHover("left")} onMouseLeave={() => setHover(null)}
+      >
         {data && <Avatars voters={data.left.voters} count={data.left.count} />}
         <span className="vp-opt">{leftText}</span>
       </button>
 
-      <button type="button" className={boxClass("right")} onClick={() => onVote("right")} disabled={!clickable}>
+      <button
+        type="button" className={boxClass("right")} onClick={() => onVote("right")} disabled={!clickable}
+        onMouseEnter={() => setHover("right")} onMouseLeave={() => setHover(null)}
+      >
         {data && <Avatars voters={data.right.voters} count={data.right.count} />}
         <span className="vp-opt vp-opt-light">{rightText}</span>
       </button>
 
       <div className="vp-face-wrap">
-        <img className="vp-face" src={FACE_SRC} alt="" draggable={false} />
+        {/* Flip horizontal DIRETO (sem transição → troca instantânea). */}
+        <img className="vp-face" src={FACE_SRC} alt="" draggable={false}
+          style={{ transform: gaze === "right" ? "scaleX(-1)" : "scaleX(1)" }} />
       </div>
     </div>
   );
@@ -87,7 +102,7 @@ const VP_CSS = `
   font-size:clamp(12px,3.1vw,38px); padding:0 6%;
 }
 .vp-box{
-  position:absolute; top:36%; height:44%; width:29%; border-radius:5px;
+  position:absolute; top:23%; height:64%; width:23%; border-radius:6px;
   z-index:2; border:none; padding:0; text-align:left; appearance:none;
   overflow:visible;
 }
@@ -113,11 +128,7 @@ const VP_CSS = `
 .vp-av img{ width:100%; height:100%; object-fit:cover; display:block; }
 .vp-av-more{ background:#0A0A0A; }
 
-.vp-face-wrap{ position:absolute; left:50%; bottom:6%; height:50%; transform:translateX(-50%); z-index:4; pointer-events:none; }
-.vp-face{ height:100%; width:auto; display:block; transform-origin:center; animation:vp-flip 2.6s linear infinite; will-change:transform; }
-@keyframes vp-flip{
-  0%,49.9%  { transform:scaleX(1); }
-  50%,100%  { transform:scaleX(-1); }
-}
-@media (prefers-reduced-motion: reduce){ .vp-face{ animation:none; } }
+.vp-face-wrap{ position:absolute; left:50%; bottom:5%; height:52%; transform:translateX(-50%); z-index:4; pointer-events:none; }
+/* Sem transição → o flip é instantâneo (troca direta, nunca "gira"). */
+.vp-face{ height:100%; width:auto; display:block; transform-origin:center; transition:none; }
 `;

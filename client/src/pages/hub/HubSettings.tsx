@@ -434,7 +434,11 @@ function VocePrefereAdminSection() {
   const [saved, setSaved] = useState(false);
   useEffect(() => { if (cfgQ.data && !form) setForm(cfgQ.data); }, [cfgQ.data, form]);
   const update = trpc.selvaTV.vocePrefereUpdate.useMutation({
-    onSuccess: () => { utils.selvaTV.vocePrefereGet.invalidate(); setSaved(true); setTimeout(() => setSaved(false), 1500); },
+    onSuccess: () => {
+      utils.selvaTV.vocePrefereGet.invalidate();
+      utils.selvaTV.vocePrefereVotes.invalidate(); // votos podem ter sido resetados
+      setSaved(true); setTimeout(() => setSaved(false), 1500);
+    },
   });
 
   return (

@@ -29,6 +29,7 @@ import {
   setAppSetting,
   getPollVotesWithUsers,
   upsertPollVote,
+  clearPollVotes,
 } from "./db";
 import {
   GOOGLE_CALENDAR_PROVIDER,
@@ -911,10 +912,14 @@ export const appRouter = router({
     vocePrefereUpdate: contentProcedure
       .input(z.object({ active: z.boolean(), leftText: z.string().max(120), rightText: z.string().max(120) }))
       .mutation(async ({ ctx, input }) => {
-        await setAppSetting(VOCE_PREFERE_KEY, {
-          active: input.active, leftText: input.leftText.trim(), rightText: input.rightText.trim(),
-        }, ctx.user.id);
-        return { success: true } as const;
+        const prev = await getAppSetting<{ leftText: string; rightText: string }>(VOCE_PREFERE_KEY);
+        const leftText = input.leftText.trim();
+        const rightText = input.rightText.trim();
+        // Se qualquer opção mudou, os votos antigos perdem sentido → resetar.
+        const optionsChanged = !prev || prev.leftText !== leftText || prev.rightText !== rightText;
+        await setAppSetting(VOCE_PREFERE_KEY, { active: input.active, leftText, rightText }, ctx.user.id);
+        if (optionsChanged) await clearPollVotes();
+        return { success: true, votesReset: optionsChanged } as const;
       }),
 
     // Votos do slide "Você prefere?" — qualquer usuário logado vota (1 voto).

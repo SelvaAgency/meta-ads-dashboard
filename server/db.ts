@@ -351,6 +351,12 @@ export async function upsertPollVote(userId: number, optionKey: "left" | "right"
     .values({ userId, optionKey })
     .onDuplicateKeyUpdate({ set: { optionKey } });
 }
+/** Zera todos os votos da enquete (usado quando a pergunta/opções mudam). */
+export async function clearPollVotes() {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(selvatvPollVotes);
+}
 
 // ─── Integrações por usuário (OAuth) ──────────────────────────────────────────
 
