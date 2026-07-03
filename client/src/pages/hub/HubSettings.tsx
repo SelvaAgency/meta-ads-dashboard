@@ -315,7 +315,7 @@ function SelvaTVAdminSection({ storageConfigured }: { storageConfigured: boolean
   };
 
   return (
-    <SectionCard icon={ImageIcon} title="SelvaTV" description="Imagens do banner da Home (0 esconde · 1 estático · 2+ carrossel).">
+    <SectionCard icon={ImageIcon} title="SELVA TV" description="Imagens do banner da Home (0 esconde · 1 estático · 2+ carrossel).">
       {!storageConfigured && (
         <p className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700">
           Upload indisponível: storage não configurado.
@@ -332,6 +332,13 @@ function SelvaTVAdminSection({ storageConfigured }: { storageConfigured: boolean
           {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
           {uploading ? "Enviando…" : "Adicionar imagem"}
         </button>
+        {/* Orientação discreta de formato (não bloqueia upload). */}
+        <p className="text-[11px] text-muted-foreground mt-2">
+          Dimensão recomendada: 1600 × 600 px · JPG, PNG ou WEBP · até 5 MB
+        </p>
+        <p className="text-[11px] text-muted-foreground">
+          Use imagens horizontais, na proporção 8:3, para evitar cortes no carrossel da Home.
+        </p>
         {error && <p className="text-xs text-destructive mt-1">{error}</p>}
       </div>
       <div className="flex flex-col gap-2">
