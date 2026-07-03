@@ -14,6 +14,8 @@ export const ENV = {
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
   googleRedirectUri: process.env.GOOGLE_REDIRECT_URI ?? "",
   integrationsEncryptionKey: process.env.INTEGRATIONS_ENCRYPTION_KEY ?? "",
+  // Acessos (cofre de credenciais) — chave SEPARADA das integrações.
+  accessSecretsEncryptionKey: process.env.ACCESS_SECRETS_ENCRYPTION_KEY ?? "",
   // Trello (integração por usuário — cards da Home)
   trelloApiKey: process.env.TRELLO_API_KEY ?? "",
   // Storage S3-compatible (avatares + SelvaTV)

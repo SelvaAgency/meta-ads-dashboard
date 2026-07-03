@@ -9,6 +9,12 @@ import {
   type InsertNewsItem,
   selvatvItems,
   type InsertSelvatvItem,
+  accessClients,
+  type InsertAccessClient,
+  accessItems,
+  type InsertAccessItem,
+  accessAuditLogs,
+  type InsertAccessAuditLog,
   aiSuggestions,
   alerts,
   anomalies,
@@ -231,6 +237,85 @@ export async function setSelvatvOrder(orderedIds: number[]) {
 export async function nextSelvatvSortOrder(): Promise<number> {
   const rows = await listAllSelvatv();
   return rows.length ? Math.max(...rows.map((r) => r.sortOrder)) + 1 : 0;
+}
+
+// ─── Acessos (cofre de credenciais) ───────────────────────────────────────────
+
+export async function getActiveAccessClients() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(accessClients).where(eq(accessClients.active, true))
+    .orderBy(desc(accessClients.isInternal), accessClients.sortOrder, accessClients.name);
+}
+export async function getAccessClientById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(accessClients).where(eq(accessClients.id, id)).limit(1);
+  return rows[0];
+}
+export async function getAccessClientBySlug(slug: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(accessClients).where(eq(accessClients.slug, slug)).limit(1);
+  return rows[0];
+}
+export async function createAccessClient(data: InsertAccessClient): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const [row] = await db.insert(accessClients).values(data).$returningId();
+  return row.id;
+}
+export async function updateAccessClient(id: number, patch: Partial<InsertAccessClient>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(accessClients).set(patch).where(eq(accessClients.id, id));
+}
+
+export async function getAllActiveAccessItems() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(accessItems).where(eq(accessItems.active, true));
+}
+export async function getActiveAccessItemsByClient(clientId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(accessItems)
+    .where(and(eq(accessItems.clientId, clientId), eq(accessItems.active, true)))
+    .orderBy(desc(accessItems.updatedAt));
+}
+export async function getAccessItemById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(accessItems).where(eq(accessItems.id, id)).limit(1);
+  return rows[0];
+}
+export async function createAccessItem(data: InsertAccessItem): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const [row] = await db.insert(accessItems).values(data).$returningId();
+  return row.id;
+}
+export async function updateAccessItem(id: number, patch: Partial<InsertAccessItem>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(accessItems).set(patch).where(eq(accessItems.id, id));
+}
+/** Soft delete: desativa todos os itens de um cliente. Retorna a contagem. */
+export async function deactivateAccessItemsByClient(clientId: number, userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const items = await getActiveAccessItemsByClient(clientId);
+  if (items.length) {
+    await db.update(accessItems).set({ active: false, updatedByUserId: userId })
+      .where(and(eq(accessItems.clientId, clientId), eq(accessItems.active, true)));
+  }
+  return items.length;
+}
+
+export async function createAccessAudit(data: InsertAccessAuditLog) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(accessAuditLogs).values(data);
 }
 
 // ─── Integrações por usuário (OAuth) ──────────────────────────────────────────

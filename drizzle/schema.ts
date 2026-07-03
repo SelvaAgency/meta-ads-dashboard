@@ -94,6 +94,54 @@ export const selvatvItems = mysqlTable("selvatv_items", {
 export type SelvatvItemRow = typeof selvatvItems.$inferSelect;
 export type InsertSelvatvItem = typeof selvatvItems.$inferInsert;
 
+// ─── Acessos (cofre de credenciais por cliente) ───────────────────────────────
+export const accessClients = mysqlTable("access_clients", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 255 }).notNull().unique(),
+  isInternal: boolean("isInternal").default(false).notNull(),
+  active: boolean("active").default(true).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdByUserId: int("createdByUserId"),
+  updatedByUserId: int("updatedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AccessClientRow = typeof accessClients.$inferSelect;
+export type InsertAccessClient = typeof accessClients.$inferInsert;
+
+export const accessItems = mysqlTable("access_items", {
+  id: int("id").autoincrement().primaryKey(),
+  clientId: int("clientId").notNull(),
+  platform: varchar("platform", { length: 120 }).notNull(),
+  label: varchar("label", { length: 255 }),
+  loginEmail: varchar("loginEmail", { length: 320 }),
+  passwordEncrypted: text("passwordEncrypted").notNull(), // AES-256-GCM (iv.tag.cipher)
+  url: varchar("url", { length: 1024 }),
+  requiresCode: boolean("requiresCode").default(false).notNull(),
+  codeType: varchar("codeType", { length: 32 }),
+  notes: text("notes"),
+  tagsJson: json("tagsJson"),
+  active: boolean("active").default(true).notNull(),
+  createdByUserId: int("createdByUserId"),
+  updatedByUserId: int("updatedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AccessItemRow = typeof accessItems.$inferSelect;
+export type InsertAccessItem = typeof accessItems.$inferInsert;
+
+export const accessAuditLogs = mysqlTable("access_audit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  accessItemId: int("accessItemId"),
+  clientId: int("clientId"),
+  userId: int("userId").notNull(),
+  action: varchar("action", { length: 40 }).notNull(),
+  metadataJson: json("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type InsertAccessAuditLog = typeof accessAuditLogs.$inferInsert;
+
 // Meta Ads accounts connected by each user
 export const metaAdAccounts = mysqlTable("meta_ad_accounts", {
   id: int("id").autoincrement().primaryKey(),

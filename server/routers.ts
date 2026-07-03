@@ -11,6 +11,21 @@ import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, c
 import { isStorageConfigured, getReadUrl, deleteObject } from "./storage/storageService";
 import { hashPassword, verifyPassword, generateTempPassword } from "./_core/oauth";
 import { encryptSecret, decryptSecret } from "./_core/integrationsCrypto";
+import { isAccessCryptoConfigured, encryptAccessSecret, decryptAccessSecret } from "./_core/accessCrypto";
+import {
+  getActiveAccessClients,
+  getAccessClientById,
+  getAccessClientBySlug,
+  createAccessClient,
+  updateAccessClient,
+  getAllActiveAccessItems,
+  getActiveAccessItemsByClient,
+  getAccessItemById,
+  createAccessItem,
+  updateAccessItem,
+  deactivateAccessItemsByClient,
+  createAccessAudit,
+} from "./db";
 import {
   GOOGLE_CALENDAR_PROVIDER,
   isGoogleCalendarConfigured,
@@ -462,6 +477,47 @@ ${contextBlocks}`;
     }),
 });
 
+// ─── Helpers do cofre de Acessos ──────────────────────────────────────────────
+function slugify(name: string): string {
+  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "")    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 200) || "cliente";
+}
+async function uniqueClientSlug(name: string): Promise<string> {
+  const base = slugify(name);
+  let slug = base;
+  let n = 1;
+  while (await getAccessClientBySlug(slug)) slug = `${base}-${++n}`;
+  return slug;
+}
+/** Sanitiza tags: trim, remove vazias/duplicadas (case-insensitive), máx 40 chars, máx 10. */
+function sanitizeTags(tags?: string[]): string[] {
+  if (!Array.isArray(tags)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of tags) {
+    const clean = String(t).replace(/\s+/g, " ").trim().slice(0, 40);
+    if (!clean) continue;
+    const k = clean.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(clean);
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+function parseTags(json: unknown): string[] {
+  if (Array.isArray(json)) return json.filter((t): t is string => typeof t === "string");
+  return [];
+}
+/** Garante o cliente interno SELVA Agency (vazio) — idempotente. */
+async function ensureSelvaInternalClient(userId: number): Promise<void> {
+  const existing = await getAccessClientBySlug("selva-agency");
+  if (existing) return;
+  await createAccessClient({
+    name: "SELVA Agency", slug: "selva-agency", isInternal: true, active: true,
+    sortOrder: -1, createdByUserId: userId, updatedByUserId: userId,
+  });
+}
+
 export const appRouter = router({
   system: systemRouter,
 
@@ -834,6 +890,185 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         await setSelvatvOrder(input.orderedIds);
         return { success: true } as const;
+      }),
+  }),
+
+  // ─── Acessos (cofre de credenciais) — todos os usuários logados ─────────────
+  // Senhas: cifradas (AES-256-GCM), NUNCA retornadas em listagens; só via
+  // reveal (com auditoria). Sessão validada; nunca aceita userId do frontend.
+  access: router({
+    status: protectedProcedure.query(() => ({ encryptionReady: isAccessCryptoConfigured() })),
+
+    clientsList: protectedProcedure.query(async ({ ctx }) => {
+      await ensureSelvaInternalClient(ctx.user.id);
+      const clients = await getActiveAccessClients();
+      const items = await getAllActiveAccessItems();
+      return clients.map((c) => {
+        const its = items.filter((i) => i.clientId === c.id);
+        const platforms = Array.from(new Set(its.map((i) => i.platform).filter(Boolean)));
+        const tags = its.flatMap((i) => parseTags(i.tagsJson));
+        // Blob de busca: NÃO inclui senha (nem cifrada).
+        const searchBlob = [
+          c.name,
+          ...platforms,
+          ...its.map((i) => i.label ?? ""),
+          ...its.map((i) => i.loginEmail ?? ""),
+          ...its.map((i) => i.url ?? ""),
+          ...its.map((i) => i.notes ?? ""),
+          ...tags,
+        ].filter(Boolean).join(" ").toLowerCase();
+        const lastUpdated = its.reduce<Date>((acc, i) => (i.updatedAt > acc ? i.updatedAt : acc), c.updatedAt);
+        return {
+          id: c.id, name: c.name, slug: c.slug, isInternal: c.isInternal,
+          itemCount: its.length, platforms: platforms.slice(0, 4), lastUpdated, searchBlob,
+        };
+      });
+    }),
+
+    createClient: protectedProcedure
+      .input(z.object({ name: z.string().min(1).max(255) }))
+      .mutation(async ({ ctx, input }) => {
+        const name = input.name.trim();
+        const slug = await uniqueClientSlug(name);
+        const id = await createAccessClient({
+          name, slug, isInternal: false, active: true,
+          createdByUserId: ctx.user.id, updatedByUserId: ctx.user.id,
+        });
+        await createAccessAudit({ clientId: id, userId: ctx.user.id, action: "create_client", metadataJson: { name } });
+        return { id };
+      }),
+
+    updateClient: protectedProcedure
+      .input(z.object({ id: z.number().int(), name: z.string().min(1).max(255) }))
+      .mutation(async ({ ctx, input }) => {
+        await updateAccessClient(input.id, { name: input.name.trim(), updatedByUserId: ctx.user.id });
+        await createAccessAudit({ clientId: input.id, userId: ctx.user.id, action: "update_client" });
+        return { success: true } as const;
+      }),
+
+    deactivateClient: protectedProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ ctx, input }) => {
+        const client = await getAccessClientById(input.id);
+        if (!client) throw new TRPCError({ code: "NOT_FOUND" });
+        if (client.isInternal) throw new TRPCError({ code: "BAD_REQUEST", message: "O cliente interno não pode ser removido." });
+        const count = await deactivateAccessItemsByClient(input.id, ctx.user.id);
+        await updateAccessClient(input.id, { active: false, updatedByUserId: ctx.user.id });
+        await createAccessAudit({ clientId: input.id, userId: ctx.user.id, action: "delete_client", metadataJson: { deactivatedItems: count } });
+        return { deactivatedItems: count };
+      }),
+
+    // Itens de um cliente — SEM senha (só metadados).
+    itemsByClient: protectedProcedure
+      .input(z.object({ clientId: z.number().int() }))
+      .query(async ({ input }) => {
+        const rows = await getActiveAccessItemsByClient(input.clientId);
+        return rows.map((r) => ({
+          id: r.id, clientId: r.clientId, platform: r.platform, label: r.label ?? "",
+          loginEmail: r.loginEmail ?? "", url: r.url ?? "", requiresCode: r.requiresCode,
+          codeType: r.codeType ?? "", notes: r.notes ?? "", tags: parseTags(r.tagsJson),
+          updatedAt: r.updatedAt,
+        }));
+      }),
+
+    createItem: protectedProcedure
+      .input(z.object({
+        clientId: z.number().int(),
+        platform: z.string().min(1).max(120),
+        label: z.string().max(255).optional(),
+        loginEmail: z.string().max(320).optional(),
+        password: z.string().min(1),
+        url: z.string().max(1024).optional(),
+        requiresCode: z.boolean().optional(),
+        codeType: z.string().max(32).optional(),
+        notes: z.string().max(5000).optional(),
+        tags: z.array(z.string()).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (!isAccessCryptoConfigured()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Criptografia de acessos não configurada." });
+        const id = await createAccessItem({
+          clientId: input.clientId,
+          platform: input.platform.trim(),
+          label: input.label?.trim() || null,
+          loginEmail: input.loginEmail?.trim() || null,
+          passwordEncrypted: encryptAccessSecret(input.password),
+          url: input.url?.trim() || null,
+          requiresCode: !!input.requiresCode,
+          codeType: input.requiresCode ? (input.codeType?.trim() || null) : null,
+          notes: input.notes?.trim() || null,
+          tagsJson: sanitizeTags(input.tags),
+          active: true,
+          createdByUserId: ctx.user.id,
+          updatedByUserId: ctx.user.id,
+        });
+        await createAccessAudit({ accessItemId: id, clientId: input.clientId, userId: ctx.user.id, action: "create_access", metadataJson: { platform: input.platform } });
+        return { id };
+      }),
+
+    updateItem: protectedProcedure
+      .input(z.object({
+        id: z.number().int(),
+        platform: z.string().min(1).max(120),
+        label: z.string().max(255).optional(),
+        loginEmail: z.string().max(320).optional(),
+        password: z.string().min(1).optional(), // só quando alterada (com confirmação no front)
+        url: z.string().max(1024).optional(),
+        requiresCode: z.boolean().optional(),
+        codeType: z.string().max(32).optional(),
+        notes: z.string().max(5000).optional(),
+        tags: z.array(z.string()).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const item = await getAccessItemById(input.id);
+        if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+        const patch: Record<string, unknown> = {
+          platform: input.platform.trim(),
+          label: input.label?.trim() || null,
+          loginEmail: input.loginEmail?.trim() || null,
+          url: input.url?.trim() || null,
+          requiresCode: !!input.requiresCode,
+          codeType: input.requiresCode ? (input.codeType?.trim() || null) : null,
+          notes: input.notes?.trim() || null,
+          tagsJson: sanitizeTags(input.tags),
+          updatedByUserId: ctx.user.id,
+        };
+        if (input.password) {
+          if (!isAccessCryptoConfigured()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Criptografia de acessos não configurada." });
+          patch.passwordEncrypted = encryptAccessSecret(input.password);
+        }
+        await updateAccessItem(input.id, patch);
+        await createAccessAudit({ accessItemId: input.id, clientId: item.clientId, userId: ctx.user.id, action: "update_access", metadataJson: { passwordChanged: !!input.password } });
+        return { success: true } as const;
+      }),
+
+    deactivateItem: protectedProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ ctx, input }) => {
+        const item = await getAccessItemById(input.id);
+        if (!item) throw new TRPCError({ code: "NOT_FOUND" });
+        await updateAccessItem(input.id, { active: false, updatedByUserId: ctx.user.id });
+        await createAccessAudit({ accessItemId: input.id, clientId: item.clientId, userId: ctx.user.id, action: "delete_access" });
+        return { success: true } as const;
+      }),
+
+    // Revela/copia a senha (descriptografa no servidor) + AUDITORIA.
+    revealPassword: protectedProcedure
+      .input(z.object({ itemId: z.number().int(), action: z.enum(["reveal", "copy"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (!isAccessCryptoConfigured()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Criptografia de acessos não configurada." });
+        const item = await getAccessItemById(input.itemId);
+        if (!item || !item.active) throw new TRPCError({ code: "NOT_FOUND" });
+        let password: string;
+        try {
+          password = decryptAccessSecret(item.passwordEncrypted);
+        } catch {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível descriptografar." });
+        }
+        await createAccessAudit({
+          accessItemId: item.id, clientId: item.clientId, userId: ctx.user.id,
+          action: input.action === "copy" ? "copy_password" : "reveal_password",
+        });
+        return { password };
       }),
   }),
 

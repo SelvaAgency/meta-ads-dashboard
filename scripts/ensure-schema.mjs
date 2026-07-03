@@ -136,6 +136,55 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela selvatv_items garantida");
 
+    // 6) Cofre de Acessos (clientes + itens + auditoria).
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`access_clients\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`name\` VARCHAR(255) NOT NULL,
+        \`slug\` VARCHAR(255) NOT NULL UNIQUE,
+        \`isInternal\` BOOLEAN NOT NULL DEFAULT 0,
+        \`active\` BOOLEAN NOT NULL DEFAULT 1,
+        \`sortOrder\` INT NOT NULL DEFAULT 0,
+        \`createdByUserId\` INT NULL,
+        \`updatedByUserId\` INT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`access_items\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`clientId\` INT NOT NULL,
+        \`platform\` VARCHAR(120) NOT NULL,
+        \`label\` VARCHAR(255) NULL,
+        \`loginEmail\` VARCHAR(320) NULL,
+        \`passwordEncrypted\` TEXT NOT NULL,
+        \`url\` VARCHAR(1024) NULL,
+        \`requiresCode\` BOOLEAN NOT NULL DEFAULT 0,
+        \`codeType\` VARCHAR(32) NULL,
+        \`notes\` TEXT NULL,
+        \`tagsJson\` JSON NULL,
+        \`active\` BOOLEAN NOT NULL DEFAULT 1,
+        \`createdByUserId\` INT NULL,
+        \`updatedByUserId\` INT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX \`idx_access_items_client\` (\`clientId\`)
+      )
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`access_audit_logs\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`accessItemId\` INT NULL,
+        \`clientId\` INT NULL,
+        \`userId\` INT NOT NULL,
+        \`action\` VARCHAR(40) NOT NULL,
+        \`metadataJson\` JSON NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabelas de Acessos garantidas");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();
