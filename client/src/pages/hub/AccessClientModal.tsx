@@ -141,9 +141,9 @@ function TagsInput({ tags, onChange }: { tags: string[]; onChange: (t: string[])
 }
 
 export function AccessClientModal({
-  clientId, clientName, isInternal, encryptionReady, onClose,
+  clientId, clientName, isInternal, encryptionReady, canEdit, onClose,
 }: {
-  clientId: number; clientName: string; isInternal: boolean; encryptionReady: boolean; onClose: () => void;
+  clientId: number; clientName: string; isInternal: boolean; encryptionReady: boolean; canEdit: boolean; onClose: () => void;
 }) {
   const utils = trpc.useUtils();
   const itemsQ = trpc.access.itemsByClient.useQuery({ clientId });
@@ -241,7 +241,7 @@ export function AccessClientModal({
               <>
                 <h2 className="text-lg font-bold truncate">{nameDraft}</h2>
                 {isInternal && <Badge className="bg-primary/20 text-accent border-0">Interno</Badge>}
-                {!isInternal && <button onClick={() => setRenaming(true)} className="text-muted-foreground hover:text-foreground" title="Editar cliente"><Pencil className="w-3.5 h-3.5" /></button>}
+                {canEdit && !isInternal && <button onClick={() => setRenaming(true)} className="text-muted-foreground hover:text-foreground" title="Editar cliente"><Pencil className="w-3.5 h-3.5" /></button>}
               </>
             )}
           </div>
@@ -255,14 +255,16 @@ export function AccessClientModal({
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar acesso, login, URL, tag…" className="pl-9 h-9" />
             </div>
-            <button
-              onClick={() => { setFormError(null); setForm({ ...emptyForm }); }}
-              disabled={!encryptionReady}
-              title={encryptionReady ? "" : "Criptografia não configurada"}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-3 py-2 hover:opacity-90 disabled:opacity-60 flex-shrink-0"
-            >
-              <Plus className="w-4 h-4" /> Acesso
-            </button>
+            {canEdit && (
+              <button
+                onClick={() => { setFormError(null); setForm({ ...emptyForm }); }}
+                disabled={!encryptionReady}
+                title={encryptionReady ? "" : "Criptografia não configurada"}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-3 py-2 hover:opacity-90 disabled:opacity-60 flex-shrink-0"
+              >
+                <Plus className="w-4 h-4" /> Acesso
+              </button>
+            )}
           </div>
           {(allPlatforms.length > 0 || allTags.length > 0) && (
             <div className="flex flex-wrap gap-1.5">
@@ -354,8 +356,8 @@ export function AccessClientModal({
                   <button onClick={() => doCopy(i.id)} disabled={!encryptionReady} className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-40" title="Copiar senha">
                     {copiedId === i.id ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
                   </button>
-                  <button onClick={() => openEdit(i)} className="p-1.5 text-muted-foreground hover:text-foreground" title="Editar"><Pencil className="w-4 h-4" /></button>
-                  <button onClick={() => askDelete(i)} className="p-1.5 text-muted-foreground hover:text-destructive" title="Excluir"><Trash2 className="w-4 h-4" /></button>
+                  {canEdit && <button onClick={() => openEdit(i)} className="p-1.5 text-muted-foreground hover:text-foreground" title="Editar"><Pencil className="w-4 h-4" /></button>}
+                  {canEdit && <button onClick={() => askDelete(i)} className="p-1.5 text-muted-foreground hover:text-destructive" title="Excluir"><Trash2 className="w-4 h-4" /></button>}
                 </div>
               </div>
             </div>

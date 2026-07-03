@@ -948,7 +948,7 @@ export const appRouter = router({
       });
     }),
 
-    createClient: protectedProcedure
+    createClient: contentProcedure
       .input(z.object({ name: z.string().min(1).max(255) }))
       .mutation(async ({ ctx, input }) => {
         const name = input.name.trim();
@@ -961,7 +961,7 @@ export const appRouter = router({
         return { id };
       }),
 
-    updateClient: protectedProcedure
+    updateClient: contentProcedure
       .input(z.object({ id: z.number().int(), name: z.string().min(1).max(255) }))
       .mutation(async ({ ctx, input }) => {
         await updateAccessClient(input.id, { name: input.name.trim(), updatedByUserId: ctx.user.id });
@@ -969,7 +969,7 @@ export const appRouter = router({
         return { success: true } as const;
       }),
 
-    deactivateClient: protectedProcedure
+    deactivateClient: contentProcedure
       .input(z.object({ id: z.number().int() }))
       .mutation(async ({ ctx, input }) => {
         const client = await getAccessClientById(input.id);
@@ -994,7 +994,7 @@ export const appRouter = router({
         }));
       }),
 
-    createItem: protectedProcedure
+    createItem: contentProcedure
       .input(z.object({
         clientId: z.number().int(),
         platform: z.string().min(1).max(120),
@@ -1028,7 +1028,7 @@ export const appRouter = router({
         return { id };
       }),
 
-    updateItem: protectedProcedure
+    updateItem: contentProcedure
       .input(z.object({
         id: z.number().int(),
         platform: z.string().min(1).max(120),
@@ -1064,7 +1064,7 @@ export const appRouter = router({
         return { success: true } as const;
       }),
 
-    deactivateItem: protectedProcedure
+    deactivateItem: contentProcedure
       .input(z.object({ id: z.number().int() }))
       .mutation(async ({ ctx, input }) => {
         const item = await getAccessItemById(input.id);

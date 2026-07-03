@@ -11,6 +11,8 @@
 import { useState } from "react";
 import { KeyRound, Search, Plus, Building2, Star, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canManageContent } from "@shared/permissions";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +58,9 @@ function ClientCardView({ c, onOpen, highlight = false }: { c: ClientCard; onOpe
 }
 
 export default function HubAccess() {
+  const { user } = useAuth();
+  // Só admin/developer criam/editam/excluem. Colaborador (user) só visualiza.
+  const canEdit = canManageContent((user as { role?: string } | null)?.role);
   const utils = trpc.useUtils();
   const status = trpc.access.status.useQuery(undefined, { retry: false });
   const clientsQ = trpc.access.clientsList.useQuery(undefined, { retry: false });
@@ -103,7 +108,7 @@ export default function HubAccess() {
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar cliente, plataforma, login, URL, tag…" className="pl-9" />
             </div>
-            {adding ? (
+            {canEdit && (adding ? (
               <div className="flex items-center gap-2">
                 <Input autoFocus value={newName} placeholder="Nome do cliente" onChange={(e) => setNewName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) createClient.mutate({ name: newName.trim() }); }} className="w-48" />
@@ -115,7 +120,7 @@ export default function HubAccess() {
               <button onClick={() => setAdding(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 hover:opacity-90 flex-shrink-0">
                 <Plus className="w-4 h-4" /> Adicionar cliente
               </button>
-            )}
+            ))}
           </div>
 
           {clientsQ.isLoading && (
@@ -149,6 +154,7 @@ export default function HubAccess() {
           clientName={open.name}
           isInternal={open.isInternal}
           encryptionReady={encReady}
+          canEdit={canEdit}
           onClose={() => setOpen(null)}
         />
       )}
