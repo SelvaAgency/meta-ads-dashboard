@@ -27,6 +27,8 @@ import {
   createAccessAudit,
   getAppSetting,
   setAppSetting,
+  getPollVotesWithUsers,
+  upsertPollVote,
 } from "./db";
 import {
   GOOGLE_CALENDAR_PROVIDER,
@@ -912,6 +914,31 @@ export const appRouter = router({
         await setAppSetting(VOCE_PREFERE_KEY, {
           active: input.active, leftText: input.leftText.trim(), rightText: input.rightText.trim(),
         }, ctx.user.id);
+        return { success: true } as const;
+      }),
+
+    // Votos do slide "Você prefere?" — qualquer usuário logado vota (1 voto).
+    vocePrefereVotes: protectedProcedure.query(async ({ ctx }) => {
+      const rows = await getPollVotesWithUsers();
+      const build = async (opt: "left" | "right") => {
+        const voters = rows.filter((r) => r.optionKey === opt);
+        const shown = await Promise.all(voters.slice(0, 8).map(async (v) => {
+          let avatarUrl: string | undefined;
+          if (v.avatarKey) { try { avatarUrl = await getReadUrl(v.avatarKey); } catch { /* storage off */ } }
+          return { name: v.name ?? "", avatarUrl };
+        }));
+        return { count: voters.length, voters: shown };
+      };
+      return {
+        left: await build("left"),
+        right: await build("right"),
+        myVote: (rows.find((r) => r.userId === ctx.user.id)?.optionKey ?? null) as "left" | "right" | null,
+      };
+    }),
+    vocePrefereVote: protectedProcedure
+      .input(z.object({ option: z.enum(["left", "right"]) }))
+      .mutation(async ({ ctx, input }) => {
+        await upsertPollVote(ctx.user.id, input.option);
         return { success: true } as const;
       }),
   }),

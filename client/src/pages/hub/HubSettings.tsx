@@ -429,6 +429,7 @@ function IntegrationsSection() {
 function VocePrefereAdminSection() {
   const utils = trpc.useUtils();
   const cfgQ = trpc.selvaTV.vocePrefereGet.useQuery();
+  const votesQ = trpc.selvaTV.vocePrefereVotes.useQuery();
   const [form, setForm] = useState<{ active: boolean; leftText: string; rightText: string } | null>(null);
   const [saved, setSaved] = useState(false);
   useEffect(() => { if (cfgQ.data && !form) setForm(cfgQ.data); }, [cfgQ.data, form]);
@@ -451,11 +452,17 @@ function VocePrefereAdminSection() {
             <div className="flex flex-col gap-1.5"><Label className="text-xs">Opção direita (azul)</Label><Input value={form.rightText} onChange={(e) => setForm({ ...form, rightText: e.target.value })} /></div>
           </div>
 
-          {/* Mini preview */}
-          <div className="mt-4">
+          {/* Contagem de votos (secundário) */}
+          <p className="mt-4 text-xs text-muted-foreground">
+            Votos — esquerda: <strong className="text-foreground">{votesQ.data?.left.count ?? 0}</strong> · direita:{" "}
+            <strong className="text-foreground">{votesQ.data?.right.count ?? 0}</strong>
+          </p>
+
+          {/* Mini preview (não interativo) */}
+          <div className="mt-3">
             <p className="text-[11px] text-muted-foreground mb-1.5">Prévia</p>
             <div className="rounded-lg overflow-hidden border border-border aspect-[8/3] max-w-md">
-              <VocePrefereSlide leftText={form.leftText || "Opção esquerda"} rightText={form.rightText || "Opção direita"} />
+              <VocePrefereSlide leftText={form.leftText || "Opção esquerda"} rightText={form.rightText || "Opção direita"} preview />
             </div>
           </div>
 

@@ -16,6 +16,7 @@ import {
   accessAuditLogs,
   type InsertAccessAuditLog,
   appSettings,
+  selvatvPollVotes,
   aiSuggestions,
   alerts,
   anomalies,
@@ -332,6 +333,23 @@ export async function setAppSetting(key: string, value: unknown, userId: number)
   await db.insert(appSettings)
     .values({ settingKey: key, valueJson: value as any, updatedByUserId: userId })
     .onDuplicateKeyUpdate({ set: { valueJson: value as any, updatedByUserId: userId } });
+}
+
+// ─── Votos do slide "Você prefere?" ───────────────────────────────────────────
+export async function getPollVotesWithUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ userId: selvatvPollVotes.userId, optionKey: selvatvPollVotes.optionKey, name: users.name, avatarKey: users.avatarKey })
+    .from(selvatvPollVotes)
+    .innerJoin(users, eq(selvatvPollVotes.userId, users.id));
+}
+export async function upsertPollVote(userId: number, optionKey: "left" | "right") {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.insert(selvatvPollVotes)
+    .values({ userId, optionKey })
+    .onDuplicateKeyUpdate({ set: { optionKey } });
 }
 
 // ─── Integrações por usuário (OAuth) ──────────────────────────────────────────

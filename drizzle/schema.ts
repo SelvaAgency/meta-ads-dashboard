@@ -151,6 +151,15 @@ export const appSettings = mysqlTable("app_settings", {
 });
 export type AppSettingRow = typeof appSettings.$inferSelect;
 
+// ─── Votos do slide "Você prefere?" (SELVA TV) — 1 voto por usuário ───────────
+export const selvatvPollVotes = mysqlTable("selvatv_poll_votes", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  optionKey: mysqlEnum("optionKey", ["left", "right"]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 // Meta Ads accounts connected by each user
 export const metaAdAccounts = mysqlTable("meta_ad_accounts", {
   id: int("id").autoincrement().primaryKey(),

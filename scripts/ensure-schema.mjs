@@ -196,6 +196,18 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela app_settings garantida");
 
+    // 8) Votos do slide "Você prefere?" (1 voto por usuário).
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`selvatv_poll_votes\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`userId\` INT NOT NULL UNIQUE,
+        \`optionKey\` ENUM('left','right') NOT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabela selvatv_poll_votes garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();
