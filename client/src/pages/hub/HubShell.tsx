@@ -12,6 +12,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import type { ReactNode } from "react";
+import { GravityField } from "./GravityField";
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -40,7 +41,7 @@ export function HubShell({ children }: { children: ReactNode }) {
     // altura da viewport; o conteúdo rola por dentro do <main> de cada página.
     <div className="h-screen overflow-hidden flex bg-background text-foreground">
       <HubSidebar />
-      <div className="flex-1 flex flex-col min-w-0 min-h-0">{children}</div>
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">{children}<GravityField /></div>
     </div>
   );
 }
