@@ -15,6 +15,7 @@ import { trpc } from "@/lib/trpc";
 import { HubShell } from "./HubShell";
 import { SelvaTV } from "./SelvaTV";
 import { NewsTicker } from "./NewsTicker";
+import { GravityField } from "./GravityField";
 import { greetingForHour, firstName } from "./hubMocks";
 import type { NewsItem, SelvaTVImage } from "./hubMocks";
 import { AgendaCard } from "./AgendaCard";
@@ -50,6 +51,7 @@ export default function Hub() {
     <HubShell>
       {/* Faixa de avisos/notícias — some sozinha se vazia; aniversário tem prioridade */}
       <NewsTicker items={news} celebration={celebration} />
+      <GravityField />
 
         <main className="flex-1 overflow-auto p-6 md:p-8">
           <div className="max-w-5xl mx-auto flex flex-col gap-6">
