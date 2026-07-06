@@ -9,39 +9,42 @@
  *  há dois slides institucionais SEMPRE no fim — a piscina "GravityField" e o
  *  slide fixo SELVA Spaces (DVD), este por ÚLTIMO.
  *
- *  PERFORMANCE DA TROCA: o embla monta todos os slides de uma vez (sem remount
- *  ao trocar). O travamento vinha de INICIAR a animação pesada do slide de
- *  destino no MESMO frame do clique/transição. Solução:
- *   · durante a transição (entre `select` e `settle`) NADA anima — `transitioning`
- *     desativa todos os slides;
- *   · o slide de destino só recebe `active` DEPOIS que o embla assenta (`settle`),
- *     ou seja, a animação começa após a transição, não durante;
- *   · lista de slides memoizada; componentes pesados em React.memo;
- *   · imagens do ativo/anterior/próximo carregam eager (vizinhos pré-aquecidos).
- *  Nenhuma lógica visual/navegação do carrossel foi alterada.
+ *  TRANSIÇÃO (mascara o custo dos slides pesados): as setas não trocam o slide
+ *  na hora. Elas disparam uma CORTINA de barras (SlideCurtain) que:
+ *   1. cobre o slide atual (covering);
+ *   2. com a tela coberta, o embla PULA para o destino (instantâneo) e o slide de
+ *      destino recebe `active` → inicializa escondido (covered);
+ *   3. as barras saem revelando o novo slide já rodando (revealing).
+ *  Assim a sensação é "fechou, trocou, abriu" — não "cliquei, travou, carregou".
+ *  Cliques repetidos durante a transição são ignorados. Embla não anima à mostra.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import {
   Carousel,
   CarouselContent,
   CarouselItem,
-  CarouselPrevious,
-  CarouselNext,
   type CarouselApi,
 } from "@/components/ui/carousel";
 import type { SelvaTVImage } from "./hubMocks";
 import { DvdSlide } from "./DvdSlide";
 import { VocePrefereSlide } from "./VocePrefereSlide";
 import { GravityField } from "./GravityField";
+import { SlideCurtain, type CurtainPhase } from "./SlideCurtain";
 
 export interface VocePrefereConfig { active: boolean; leftText: string; rightText: string }
 
 // Setas no estilo SELVA Spaces (escuro translúcido, borda creme/rosa, glow).
 const ARROW_CLS =
-  "size-9 rounded-full border border-[rgba(245,173,204,0.4)] bg-black/45 backdrop-blur-sm " +
-  "text-[#FDFFED] shadow-[0_0_14px_rgba(245,173,204,0.18)] transition-colors " +
-  "hover:bg-black/65 hover:text-accent hover:border-accent disabled:opacity-30";
+  "absolute top-1/2 -translate-y-1/2 z-30 flex size-9 items-center justify-center rounded-full " +
+  "border border-[rgba(245,173,204,0.4)] bg-black/45 backdrop-blur-sm text-[#FDFFED] " +
+  "shadow-[0_0_14px_rgba(245,173,204,0.18)] transition-colors hover:bg-black/65 hover:text-accent hover:border-accent";
+
+// Tempos da cortina (ms). cover deve ser ≥ tempo de cobertura total das barras
+// (última barra: 4·28ms delay + 220ms ≈ 332ms) para trocar já 100% coberto.
+const TIMING = { cover: 350, hold: 170, reveal: 430 };
+const TIMING_REDUCE = { cover: 150, hold: 110, reveal: 200 };
 
 // Moldura com proporção fixa 8:3 (recomendada). object-cover + proporção igual = sem corte.
 function Frame({ children }: { children: React.ReactNode }) {
@@ -54,11 +57,7 @@ function ImageSlide({ image, eager }: { image: SelvaTVImage; eager?: boolean }) 
   const [loaded, setLoaded] = useState(false);
   return (
     <Frame>
-      {!loaded && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#0b0b0f]">
-          <span className="text-xs tracking-wide text-white/40">Carregando SELVA TV…</span>
-        </div>
-      )}
+      {!loaded && <div className="absolute inset-0 bg-[#0b0b0f]" />}
       <img
         src={image.src}
         alt={image.alt}
@@ -101,6 +100,19 @@ function useSectionLive(ref: React.RefObject<HTMLElement | null>) {
   return live;
 }
 
+function useReducedMotion() {
+  const [reduce, setReduce] = useState(false);
+  useEffect(() => {
+    const m = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!m) return;
+    setReduce(m.matches);
+    const h = () => setReduce(m.matches);
+    m.addEventListener?.("change", h);
+    return () => m.removeEventListener?.("change", h);
+  }, []);
+  return reduce;
+}
+
 type Slide =
   | { key: string; kind: "image"; image: SelvaTVImage }
   | { key: string; kind: "vp" }
@@ -110,25 +122,29 @@ type Slide =
 export function SelvaTV({ images, vocePrefere }: { images: SelvaTVImage[]; vocePrefere?: VocePrefereConfig }) {
   const [api, setApi] = useState<CarouselApi>();
   const [selected, setSelected] = useState(0);
-  const [transitioning, setTransitioning] = useState(false);
+  const [phase, setPhase] = useState<CurtainPhase>("idle");
   const sectionRef = useRef<HTMLElement>(null);
   const live = useSectionLive(sectionRef);
+  const reduce = useReducedMotion();
 
-  // `select` dispara no INÍCIO da troca → marca transição (pausa tudo).
-  // `settle` dispara quando o slide ASSENTA → libera e ativa só o destino.
+  // Guard síncrono contra cliques repetidos + limpeza de timers da cortina.
+  const phaseRef = useRef<CurtainPhase>("idle");
+  phaseRef.current = phase;
+  const timers = useRef<number[]>([]);
+  const clearTimers = () => { timers.current.forEach((t) => clearTimeout(t)); timers.current = []; };
+  useEffect(() => () => clearTimers(), []);
+
+  // Mantém `selected` em sincronia com o embla (também após o pulo instantâneo).
   useEffect(() => {
     if (!api) return;
-    const onSelect = () => { setSelected(api.selectedScrollSnap()); setTransitioning(true); };
-    const onSettle = () => { setSelected(api.selectedScrollSnap()); setTransitioning(false); };
-    onSettle(); // estado inicial: assentado no slide atual
+    const onSelect = () => setSelected(api.selectedScrollSnap());
+    onSelect();
     api.on("select", onSelect);
-    api.on("settle", onSettle);
-    api.on("reInit", onSettle);
-    return () => { api.off("select", onSelect); api.off("settle", onSettle); api.off("reInit", onSettle); };
+    api.on("reInit", onSelect);
+    return () => { api.off("select", onSelect); api.off("reInit", onSelect); };
   }, [api]);
 
   // Ordem aprovada: uploads → "Você prefere?" (se ativo) → GravityField → DVD (último).
-  // Memoizada → o clique na seta não recria a lista de slides.
   const slides = useMemo<Slide[]>(() => [
     ...(images ?? []).map((im) => ({ key: `u${im.id}`, kind: "image" as const, image: im })),
     ...(vocePrefere?.active ? [{ key: "voce-prefere", kind: "vp" as const }] : []),
@@ -137,11 +153,35 @@ export function SelvaTV({ images, vocePrefere }: { images: SelvaTVImage[]; voceP
   ], [images, vocePrefere?.active]);
 
   const n = slides.length;
+
+  // Troca de slide via cortina. Ignora se já há transição em andamento.
+  const go = (dir: 1 | -1) => {
+    if (!api || phaseRef.current !== "idle") return;
+    clearTimers();
+    const count = api.scrollSnapList().length || n;
+    const T = reduce ? TIMING_REDUCE : TIMING;
+
+    setPhase("covering"); // 1) barras cobrem o slide atual
+    timers.current.push(window.setTimeout(() => {
+      // 2) tela coberta: pula para o destino (instantâneo) e ativa-o escondido
+      const cur = api.selectedScrollSnap();
+      api.scrollTo((cur + dir + count) % count, true);
+      setPhase("covered");
+      timers.current.push(window.setTimeout(() => {
+        setPhase("revealing"); // 3) barras saem revelando o novo slide já pronto
+        timers.current.push(window.setTimeout(() => setPhase("idle"), T.reveal));
+      }, T.hold));
+    }, T.cover));
+  };
+
+  // Durante "covering" nada anima (libera a main-thread p/ cobrir + iniciar o
+  // destino). Em "covered"/"revealing"/"idle" o slide selecionado está ativo →
+  // slides pesados inicializam ESCONDIDOS pela cortina.
+  const activeIndex = phase === "covering" ? -1 : selected;
   const isNeighbor = (i: number) => i === selected || i === (selected + 1) % n || i === (selected - 1 + n) % n;
 
   const renderSlide = (s: Slide, i: number) => {
-    // Anima só o slide de destino, e só DEPOIS da transição assentar.
-    const active = live && !transitioning && selected === i;
+    const active = live && activeIndex === i;
     switch (s.kind) {
       case "image":
         return <ImageSlide image={s.image} eager={isNeighbor(i)} />;
@@ -154,18 +194,26 @@ export function SelvaTV({ images, vocePrefere }: { images: SelvaTVImage[]; voceP
     }
   };
 
-  // Carrossel: mesma estrutura visual/navegação; só passamos `active` aos slides.
   return (
-    <section ref={sectionRef} aria-label="SELVA TV">
+    <section ref={sectionRef} aria-label="SELVA TV" className="relative">
       <Carousel opts={{ loop: true }} className="w-full" setApi={setApi}>
         <CarouselContent>
           {slides.map((s, i) => (
             <CarouselItem key={s.key}>{renderSlide(s, i)}</CarouselItem>
           ))}
         </CarouselContent>
-        <CarouselPrevious className={`left-2 sm:left-3 ${ARROW_CLS}`} />
-        <CarouselNext className={`right-2 sm:right-3 ${ARROW_CLS}`} />
       </Carousel>
+
+      {/* Cortina de transição (barras SELVA) por cima do carrossel. */}
+      <SlideCurtain phase={phase} reduce={reduce} />
+
+      {/* Setas próprias: disparam a cortina em vez de deslizar o embla à mostra. */}
+      <button type="button" aria-label="Slide anterior" onClick={() => go(-1)} className={`left-2 sm:left-3 ${ARROW_CLS}`}>
+        <ArrowLeft className="size-4" />
+      </button>
+      <button type="button" aria-label="Próximo slide" onClick={() => go(1)} className={`right-2 sm:right-3 ${ARROW_CLS}`}>
+        <ArrowRight className="size-4" />
+      </button>
     </section>
   );
 }
