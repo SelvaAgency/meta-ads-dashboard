@@ -35,7 +35,9 @@ type FormState = {
 const emptyForm: FormState = { platform: "", label: "", loginEmail: "", password: "", url: "", requiresCode: false, codeType: "", notes: "", tags: [] };
 
 // Estilo compartilhado dos dropdowns custom (Plataforma, Tags, Tipo de código).
-const DROPDOWN_CLS = "mt-1 rounded-md border border-border bg-popover shadow-sm max-h-[200px] overflow-y-auto py-1";
+// ABSOLUTO (top-full) → flutua por cima do formulário sem alterar a altura da
+// caixa nem empurrar/reflow os campos. z alto para ficar acima do form.
+const DROPDOWN_CLS = "absolute left-0 right-0 top-full z-30 mt-1 rounded-md border border-border bg-popover shadow-md max-h-[200px] overflow-y-auto py-1";
 const OPTION_CLS = "w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-primary/10 hover:text-accent transition-colors";
 
 /** Input com dropdown custom de sugestões (permite valor livre). Em fluxo, não cobre nada. */
@@ -304,11 +306,14 @@ export function AccessClientModal({
           )}
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-auto px-5 py-4 flex flex-col gap-3">
-          {/* Formulário add/edit — card próprio, separado da lista abaixo */}
+        {/* Body — ÚNICO elemento com scroll (min-h-0 garante que o overflow
+            funcione dentro do flex; sem isso o conteúdo vaza do modal). */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 flex flex-col gap-3">
+          {/* Formulário add/edit — caixa própria em fluxo normal: empurra a lista
+              para baixo (mb-6) e nunca a sobrepõe. z-10 mantém seus dropdowns
+              acima dos cards de acesso. */}
           {form && (
-            <div className="rounded-lg border border-accent/40 bg-primary/[0.05] p-5 flex flex-col gap-4 mb-4 shadow-sm">
+            <div className="relative z-10 w-full rounded-lg border border-accent/40 bg-primary/[0.05] p-5 flex flex-col gap-4 mb-6 shadow-sm">
               <p className="text-sm font-semibold">{form.id ? "Editar acesso" : "Novo acesso"}</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1">
