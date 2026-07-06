@@ -36,7 +36,8 @@ import {
   isGoogleCalendarConfigured,
   refreshAccessToken,
   revokeToken,
-  listTodayEvents,
+  listDayEvents,
+  resolveAgendaYmd,
 } from "./googleCalendarService";
 import {
   TRELLO_PROVIDER,
@@ -484,6 +485,10 @@ ${contextBlocks}`;
 
 // Chave da config do slide "Você prefere?" (app_settings).
 const VOCE_PREFERE_KEY = "selvatv_voce_prefere";
+// Config dos slides fixos institucionais da SELVA TV (ligar/desligar sem excluir).
+// Default: ambos DESLIGADOS (só "Você prefere?" ativo por padrão nesta etapa).
+const SELVATV_FIXED_KEY = "selvatv_fixed_slides";
+type FixedSlidesCfg = { gravity: boolean; dvd: boolean };
 
 // ─── Helpers do cofre de Acessos ──────────────────────────────────────────────
 function slugify(name: string): string {
@@ -685,8 +690,12 @@ export const appRouter = router({
         return { success: true } as const;
       }),
 
-      // Eventos de hoje. A Home nunca quebra: sempre retorna um status tratável.
-      todayEvents: protectedProcedure.query(async ({ ctx }) => {
+      // Eventos de um dia (hoje por padrão; date limitada a hoje ± 1 no backend).
+      // A Home nunca quebra: sempre retorna um status tratável.
+      todayEvents: protectedProcedure
+        .input(z.object({ date: z.string().optional() }).optional())
+        .query(async ({ ctx, input }) => {
+        const ymd = resolveAgendaYmd(input?.date); // valida/limita a hoje ± 1
         if (!isGoogleCalendarConfigured()) return { status: "unavailable" as const, events: [] };
         const integ = await getUserIntegration(ctx.user.id, GOOGLE_CALENDAR_PROVIDER);
         if (!integ || !integ.active || !integ.refreshTokenEncrypted) {
@@ -712,12 +721,12 @@ export const appRouter = router({
         }
 
         try {
-          return { status: "ok" as const, events: await listTodayEvents(accessToken) };
+          return { status: "ok" as const, events: await listDayEvents(accessToken, ymd) };
         } catch {
           // Access token pode ter sido revogado → tenta refresh uma vez.
           try {
             const token = await doRefresh();
-            return { status: "ok" as const, events: await listTodayEvents(token) };
+            return { status: "ok" as const, events: await listDayEvents(token, ymd) };
           } catch {
             return { status: "needs_reconnect" as const, events: [] };
           }
@@ -944,6 +953,19 @@ export const appRouter = router({
       .input(z.object({ option: z.enum(["left", "right"]) }))
       .mutation(async ({ ctx, input }) => {
         await upsertPollVote(ctx.user.id, input.option);
+        return { success: true } as const;
+      }),
+
+    // Slides fixos institucionais (piscina "GravityField" e slide DVD SELVA
+    // Spaces): ligáveis/desligáveis sem excluir do código. Default: ambos OFF.
+    fixedSlidesGet: protectedProcedure.query(async () => {
+      const cfg = await getAppSetting<FixedSlidesCfg>(SELVATV_FIXED_KEY);
+      return { gravity: cfg?.gravity ?? false, dvd: cfg?.dvd ?? false };
+    }),
+    fixedSlidesUpdate: contentProcedure
+      .input(z.object({ gravity: z.boolean(), dvd: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        await setAppSetting(SELVATV_FIXED_KEY, { gravity: input.gravity, dvd: input.dvd }, ctx.user.id);
         return { success: true } as const;
       }),
   }),

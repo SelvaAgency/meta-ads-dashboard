@@ -28,6 +28,7 @@ export default function Hub() {
   const newsQ = trpc.news.listActive.useQuery(undefined, { refetchOnWindowFocus: false });
   const tvQ = trpc.selvaTV.listActive.useQuery(undefined, { refetchOnWindowFocus: false });
   const vpQ = trpc.selvaTV.vocePrefereGet.useQuery(undefined, { refetchOnWindowFocus: false });
+  const fsQ = trpc.selvaTV.fixedSlidesGet.useQuery(undefined, { refetchOnWindowFocus: false });
 
   const news: NewsItem[] = (newsQ.data ?? []).map((n) => ({ id: String(n.id), text: n.text }));
   const tvImages: SelvaTVImage[] = (tvQ.data ?? []).map((im) => ({
@@ -66,7 +67,7 @@ export default function Hub() {
             </div>
 
             {/* SELVA TV — carrossel (uploads + "Você prefere?" + slide fixo) */}
-            <SelvaTV images={tvImages} vocePrefere={vpQ.data} />
+            <SelvaTV images={tvImages} vocePrefere={vpQ.data} fixedSlides={fsQ.data} />
           </div>
         </main>
     </HubShell>

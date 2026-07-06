@@ -485,6 +485,46 @@ function VocePrefereAdminSection() {
   );
 }
 
+// ─── Admin: slides fixos institucionais da SELVA TV (ligar/desligar) ─────────
+function FixedSlidesAdminSection() {
+  const utils = trpc.useUtils();
+  const cfgQ = trpc.selvaTV.fixedSlidesGet.useQuery();
+  const update = trpc.selvaTV.fixedSlidesUpdate.useMutation({
+    onSuccess: () => utils.selvaTV.fixedSlidesGet.invalidate(),
+  });
+  const cfg = cfgQ.data;
+  const save = (patch: { gravity?: boolean; dvd?: boolean }) => {
+    if (!cfg) return;
+    update.mutate({ gravity: cfg.gravity, dvd: cfg.dvd, ...patch });
+  };
+
+  return (
+    <SectionCard icon={ImageIcon} title="Slides fixos da SELVA TV" description="Liga/desliga os slides institucionais no carrossel. Desligados continuam no código, só não aparecem.">
+      {!cfg ? (
+        <p className="text-xs text-muted-foreground">Carregando…</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Slide institucional (piscina)</p>
+              <p className="text-xs text-muted-foreground">Campo gravitacional com a logo SELVA.SPACES.</p>
+            </div>
+            <Switch checked={cfg.gravity} onCheckedChange={(v) => save({ gravity: v })} disabled={update.isPending} />
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Slide SELVA Spaces (DVD)</p>
+              <p className="text-xs text-muted-foreground">Protetor de tela com os atalhos do Spaces.</p>
+            </div>
+            <Switch checked={cfg.dvd} onCheckedChange={(v) => save({ dvd: v })} disabled={update.isPending} />
+          </div>
+          <p className="text-[11px] text-muted-foreground">Com ambos desligados, a SELVA TV mostra só os uploads e o “Você prefere?”.</p>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
 export default function HubSettings() {
   const { user } = useAuth();
   const canContent = canManageContent((user as { role?: string } | null)?.role);
@@ -516,6 +556,7 @@ export default function HubSettings() {
               <NewsAdminSection />
               <SelvaTVAdminSection storageConfigured={storage.data?.configured ?? false} />
               <VocePrefereAdminSection />
+              <FixedSlidesAdminSection />
             </>
           )}
         </div>

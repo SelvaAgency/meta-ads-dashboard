@@ -154,6 +154,10 @@ export function AccessClientModal({
   const deactivateItem = trpc.access.deactivateItem.useMutation({ onSuccess: invalidate });
   const reveal = trpc.access.revealPassword.useMutation();
   const updateClient = trpc.access.updateClient.useMutation({ onSuccess: () => utils.access.clientsList.invalidate() });
+  // Soft delete do cliente (admin/dev). Desativa junto os acessos vinculados.
+  const deactivateClient = trpc.access.deactivateClient.useMutation({
+    onSuccess: () => { utils.access.clientsList.invalidate(); onClose(); },
+  });
 
   const [search, setSearch] = useState("");
   const [platformFilter, setPlatformFilter] = useState<string | null>(null);
@@ -224,6 +228,15 @@ export function AccessClientModal({
       onOk: () => { deactivateItem.mutate({ id: i.id }); setConfirm(null); },
     });
 
+  const askDeleteClient = () =>
+    setConfirm({
+      text: items.length > 0
+        ? `Este cliente possui ${items.length} acesso${items.length === 1 ? "" : "s"} cadastrado${items.length === 1 ? "" : "s"}. Ao confirmar, o cliente e seus acessos serão desativados.`
+        : "Tem certeza que deseja excluir este cliente? Os acessos vinculados a ele deixarão de aparecer para a equipe.",
+      label: "Excluir cliente",
+      onOk: () => { deactivateClient.mutate({ id: clientId }); setConfirm(null); },
+    });
+
   const saving = createItem.isPending || updateItem.isPending;
 
   return (
@@ -245,7 +258,15 @@ export function AccessClientModal({
               </>
             )}
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {/* Excluir/desativar cliente — só admin/dev, nunca o cliente interno. */}
+            {canEdit && !isInternal && (
+              <button onClick={askDeleteClient} className="p-1 text-muted-foreground hover:text-destructive" title="Excluir cliente" aria-label="Excluir cliente">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+          </div>
         </div>
 
         {/* Toolbar (busca + filtros, fixa) */}

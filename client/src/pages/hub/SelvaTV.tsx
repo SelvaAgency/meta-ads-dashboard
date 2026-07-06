@@ -34,6 +34,7 @@ import { GravityField } from "./GravityField";
 import { SlideCurtain, type CurtainPhase } from "./SlideCurtain";
 
 export interface VocePrefereConfig { active: boolean; leftText: string; rightText: string }
+export interface FixedSlidesConfig { gravity: boolean; dvd: boolean }
 
 // Setas no estilo SELVA Spaces (escuro translúcido, borda creme/rosa, glow).
 const ARROW_CLS =
@@ -119,7 +120,7 @@ type Slide =
   | { key: string; kind: "gravity" }
   | { key: string; kind: "fixed" };
 
-export function SelvaTV({ images, vocePrefere }: { images: SelvaTVImage[]; vocePrefere?: VocePrefereConfig }) {
+export function SelvaTV({ images, vocePrefere, fixedSlides }: { images: SelvaTVImage[]; vocePrefere?: VocePrefereConfig; fixedSlides?: FixedSlidesConfig }) {
   const [api, setApi] = useState<CarouselApi>();
   const [selected, setSelected] = useState(0);
   const [phase, setPhase] = useState<CurtainPhase>("idle");
@@ -144,13 +145,19 @@ export function SelvaTV({ images, vocePrefere }: { images: SelvaTVImage[]; voceP
     return () => { api.off("select", onSelect); api.off("reInit", onSelect); };
   }, [api]);
 
-  // Ordem aprovada: uploads → "Você prefere?" (se ativo) → GravityField → DVD (último).
-  const slides = useMemo<Slide[]>(() => [
-    ...(images ?? []).map((im) => ({ key: `u${im.id}`, kind: "image" as const, image: im })),
-    ...(vocePrefere?.active ? [{ key: "voce-prefere", kind: "vp" as const }] : []),
-    { key: "__gravity", kind: "gravity" as const },
-    { key: "__fixed", kind: "fixed" as const },
-  ], [images, vocePrefere?.active]);
+  // Ordem aprovada: uploads → "Você prefere?" (se ativo) → GravityField → DVD.
+  // Os dois slides fixos institucionais só entram se ligados nas Configurações
+  // (default OFF) — ficam no código, apenas desativados. Nunca fica vazia.
+  const slides = useMemo<Slide[]>(() => {
+    const list: Slide[] = [
+      ...(images ?? []).map((im) => ({ key: `u${im.id}`, kind: "image" as const, image: im })),
+      ...(vocePrefere?.active ? [{ key: "voce-prefere", kind: "vp" as const }] : []),
+      ...(fixedSlides?.gravity ? [{ key: "__gravity", kind: "gravity" as const }] : []),
+      ...(fixedSlides?.dvd ? [{ key: "__fixed", kind: "fixed" as const }] : []),
+    ];
+    if (list.length === 0) list.push({ key: "__fixed", kind: "fixed" as const });
+    return list;
+  }, [images, vocePrefere?.active, fixedSlides?.gravity, fixedSlides?.dvd]);
 
   const n = slides.length;
 
@@ -207,13 +214,18 @@ export function SelvaTV({ images, vocePrefere }: { images: SelvaTVImage[]; voceP
       {/* Cortina de transição (barras SELVA) por cima do carrossel. */}
       <SlideCurtain phase={phase} reduce={reduce} />
 
-      {/* Setas próprias: disparam a cortina em vez de deslizar o embla à mostra. */}
-      <button type="button" aria-label="Slide anterior" onClick={() => go(-1)} className={`left-2 sm:left-3 ${ARROW_CLS}`}>
-        <ArrowLeft className="size-4" />
-      </button>
-      <button type="button" aria-label="Próximo slide" onClick={() => go(1)} className={`right-2 sm:right-3 ${ARROW_CLS}`}>
-        <ArrowRight className="size-4" />
-      </button>
+      {/* Setas próprias: disparam a cortina em vez de deslizar o embla à mostra.
+          Escondidas quando há um único slide (nada para navegar). */}
+      {n > 1 && (
+        <>
+          <button type="button" aria-label="Slide anterior" onClick={() => go(-1)} className={`left-2 sm:left-3 ${ARROW_CLS}`}>
+            <ArrowLeft className="size-4" />
+          </button>
+          <button type="button" aria-label="Próximo slide" onClick={() => go(1)} className={`right-2 sm:right-3 ${ARROW_CLS}`}>
+            <ArrowRight className="size-4" />
+          </button>
+        </>
+      )}
     </section>
   );
 }

@@ -139,12 +139,40 @@ export interface AgendaEvent {
   status?: string;
 }
 
-/** Eventos de HOJE (fuso da agência) do calendário primário do usuário. */
-export async function listTodayEvents(accessToken: string): Promise<AgendaEvent[]> {
-  const ymd = new Intl.DateTimeFormat("en-CA", {
+/** YYYY-MM-DD de hoje no fuso da agência. */
+function agencyTodayYmd(): string {
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: AGENCY_TZ, year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date()); // "2026-07-08"
+  }).format(new Date());
+}
 
+/** Soma dias a um YYYY-MM-DD (via UTC, sem bug de fuso/horário de verão). */
+function addDaysYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const base = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1));
+  base.setUTCDate(base.getUTCDate() + days);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${base.getUTCFullYear()}-${p(base.getUTCMonth() + 1)}-${p(base.getUTCDate())}`;
+}
+
+/**
+ * Valida e LIMITA a data da agenda a hoje ± 1 dia (fuso da agência). Formato
+ * inválido ou fora da janela → cai em hoje. Nesta etapa não há intervalo livre.
+ */
+export function resolveAgendaYmd(input?: string): string {
+  const today = agencyTodayYmd();
+  if (!input || !/^\d{4}-\d{2}-\d{2}$/.test(input)) return today;
+  const allowed = new Set([addDaysYmd(today, -1), today, addDaysYmd(today, 1)]);
+  return allowed.has(input) ? input : today;
+}
+
+/** Eventos de HOJE (fuso da agência) — atalho de listDayEvents. */
+export async function listTodayEvents(accessToken: string): Promise<AgendaEvent[]> {
+  return listDayEvents(accessToken, agencyTodayYmd());
+}
+
+/** Eventos de um DIA (YYYY-MM-DD, fuso da agência) do calendário primário. */
+export async function listDayEvents(accessToken: string, ymd: string): Promise<AgendaEvent[]> {
   const params = new URLSearchParams({
     timeMin: `${ymd}T00:00:00${AGENCY_TZ_OFFSET}`,
     timeMax: `${ymd}T23:59:59${AGENCY_TZ_OFFSET}`,

@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   FileSignature,
   Upload,
@@ -257,6 +258,272 @@ function generateContractHTML(form: ContractForm): string {
     "</body></html>"
   );
 }
+// ─── Termo Aditivo ───────────────────────────────────────────────────────────
+interface AditivoForm {
+  razaoSocial: string;
+  tipo: string;
+  cnpj: string;
+  enderecosede: string;
+  nomeRepresentante: string;
+  genero: string;
+  estadoCivil: string;
+  rg: string;
+  rgOrgao: string;
+  cpf: string;
+  enderecoResidencial: string;
+  dataContratoOriginal: string; // referência ao contrato original
+  novoObjeto: string;           // cláusula 1.1
+  novoValor: string;            // cláusula 2.1
+  novaData: string;             // cláusula 3.1 (nova data de início/vigência)
+  dataAditivo: string;          // local/data da assinatura do aditivo
+}
+
+const DEFAULT_ADITIVO: AditivoForm = {
+  razaoSocial: "", tipo: "MEI", cnpj: "", enderecosede: "", nomeRepresentante: "",
+  genero: "F", estadoCivil: "", rg: "", rgOrgao: "", cpf: "", enderecoResidencial: "",
+  dataContratoOriginal: "", novoObjeto: "", novoValor: "", novaData: todayLocal(),
+  dataAditivo: todayLocal(),
+};
+
+function generateAditivoHTML(form: AditivoForm): string {
+  const gn = form.genero;
+  const tipoDesc = form.tipo === "MEI" ? "MEI" : form.tipo === "EI" ? "empresária individual" : form.tipo;
+  const reprVerb = g(gn, "representada", "representado");
+  const reprPron = g(gn, "por sua administradora, Sra.", "pelo seu administrador, Sr.");
+  const nation = g(gn, "brasileira", "brasileiro");
+  const portador = g(gn, "portadora", "portador");
+  const inscrito = g(gn, "inscrita", "inscrito");
+  const resDom = g(gn, "residente e domiciliada", "residente e domiciliado");
+  const empresa = g(gn, "empresária", "empresário");
+  const endRes = form.enderecoResidencial || form.enderecosede;
+  const dataCidade = "São Paulo, " + fmtData(form.dataAditivo);
+
+  const P = (t: string) => '<p style="margin:0 0 10pt;text-align:justify;">' + t + "</p>";
+  const C = (t: string) => '<p style="margin:14pt 0 4pt;font-weight:bold;">' + t + "</p>";
+
+  const cb =
+    form.razaoSocial + ", " + tipoDesc + ", com sede na " + form.enderecosede +
+    ", inscrita no CNPJ sob o n° " + form.cnpj + ", neste ato " + reprVerb + " " + reprPron + " " +
+    form.nomeRepresentante + ", " + nation + ", " + form.estadoCivil + ", " + empresa + ", " +
+    portador + " da cédula de identidade RG n° " + form.rg + ", expedida pel" + g(gn, "a", "o") + " " +
+    form.rgOrgao + ", " + inscrito + " no CPF sob o n° " + form.cpf + ", " + resDom + " na " + endRes +
+    ', doravante denominada simplesmente "CONTRATADA";';
+
+  const parts: string[] = [
+    P("Pelo presente instrumento particular, as partes abaixo qualificadas:"),
+    P("De um lado,"),
+    P('SELVA AGENCY LTDA., sociedade empresária limitada, com sede na Cidade de São Paulo, Estado de São Paulo, na Avenida Nove de Julho, nº 3.228, conjunto 1811, Jardim Paulista, CEP 01.406-000, inscrita no CNPJ sob o n° 45.240.503/0001-72, neste ato representada pelo seu administrador, Sr. Guilherme Teruchkin Felberg, brasileiro, solteiro, empresário, portador da cédula de identidade RG nº 36.169.549-4, expedida pela SSP/SP, inscrito no CPF sob o n° 424.018.358-81, doravante denominada simplesmente "CONTRATANTE";'),
+    P("E, do outro lado,"),
+    P(cb),
+    P('Sendo CONTRATANTE e CONTRATADA em conjunto referidas como "Partes";'),
+    P("CONSIDERANDO que as Partes celebraram o Contrato de Prestação de Serviços em " + fmtData(form.dataContratoOriginal) + ' ("Contrato Original"); e que desejam alterá-lo nos termos abaixo, RESOLVEM celebrar o presente TERMO ADITIVO, mediante as cláusulas e condições seguintes:'),
+
+    C("Cláusula Primeira - Da Alteração do Objeto (Cláusula 1.1)"),
+    P('1.1. A Cláusula 1.1 do Contrato Original passa a vigorar com a seguinte redação: "O objeto do presente Contrato é a prestação de serviços de ' + form.novoObjeto + '."'),
+
+    C("Cláusula Segunda - Da Alteração do Valor (Cláusula 2.1)"),
+    P("2.1. A Cláusula 2.1 do Contrato Original passa a vigorar com o novo valor fixo mensal de " + form.novoValor + ", mantidas as demais condições de pagamento previstas no Contrato Original."),
+
+    C("Cláusula Terceira - Da Alteração da Vigência (Cláusula 3.1)"),
+    P("3.1. A Cláusula 3.1 do Contrato Original passa a vigorar com nova data de início/vigência a partir de " + fmtData(form.novaData) + "."),
+
+    C("Cláusula Quarta - Da Ratificação das Demais Cláusulas"),
+    P("4.1. Permanecem inalteradas e em pleno vigor todas as demais cláusulas e condições do Contrato Original que não tenham sido expressamente modificadas por este Termo Aditivo, o qual passa a integrá-lo para todos os fins de direito."),
+
+    P("E, por estarem assim justas e contratadas, as Partes assinam o presente Termo Aditivo em duas vias de igual teor e forma."),
+    '<p style="margin:24pt 0 4pt;">' + dataCidade + "</p>",
+    '<p style="margin:36pt 0 4pt;font-weight:bold;">Contratante:</p>',
+    '<p style="margin:0 0 4pt;">_____________________________</p>',
+    '<p style="margin:0 0 2pt;font-weight:bold;">SELVA AGENCY LTDA.</p>',
+    '<p style="margin:0 0 32pt;">Por: Guilherme Teruchkin Felberg</p>',
+    '<p style="margin:0 0 4pt;font-weight:bold;">Contratada:</p>',
+    '<p style="margin:0 0 4pt;">________________________________________</p>',
+    '<p style="margin:0 0 2pt;font-weight:bold;">' + form.razaoSocial + "</p>",
+    "<p>Por: " + form.nomeRepresentante + "</p>",
+  ];
+
+  return (
+    "<!DOCTYPE html>" +
+    "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
+    "xmlns:w='urn:schemas-microsoft-com:office:word' " +
+    "xmlns='http://www.w3.org/TR/REC-html40'>" +
+    "<head><meta charset='utf-8'>" +
+    "<style>@page{size:A4;margin:2.5cm}" +
+    "body{font-family:Calibri,sans-serif;font-size:11pt;line-height:1.5}</style></head><body>" +
+    '<p style="text-align:center;font-weight:bold;font-size:11pt;margin:0 0 24pt;">TERMO ADITIVO AO CONTRATO DE PRESTAÇÃO DE SERVIÇOS</p>' +
+    parts.join("\n") +
+    "</body></html>"
+  );
+}
+
+function TermoAditivoTab() {
+  const [form, setForm] = useState<AditivoForm>(DEFAULT_ADITIVO);
+  const [inputMode, setInputMode] = useState<"text" | "file">("file");
+  const [rawText, setRawText] = useState("");
+  const [fileData, setFileData] = useState<{ base64: string; mime: string } | null>(null);
+  const [fileName, setFileName] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const extractMutation = trpc.contracts.extractFields.useMutation({
+    onSuccess: (data) => {
+      const d = data as Partial<ContractForm>;
+      // Pré-popula a qualificação da contratada + objeto/valor atuais como ponto de partida.
+      setForm((prev) => ({
+        ...prev,
+        razaoSocial: d.razaoSocial ?? prev.razaoSocial,
+        tipo: d.tipo ?? prev.tipo,
+        cnpj: d.cnpj ?? prev.cnpj,
+        enderecosede: d.enderecosede ?? prev.enderecosede,
+        nomeRepresentante: d.nomeRepresentante ?? prev.nomeRepresentante,
+        genero: d.genero ?? prev.genero,
+        estadoCivil: d.estadoCivil ?? prev.estadoCivil,
+        rg: d.rg ?? prev.rg,
+        rgOrgao: d.rgOrgao ?? prev.rgOrgao,
+        cpf: d.cpf ?? prev.cpf,
+        enderecoResidencial: d.enderecoResidencial ?? prev.enderecoResidencial,
+        novoObjeto: d.objeto ?? prev.novoObjeto,
+        novoValor: d.valor ?? prev.novoValor,
+      }));
+      toast.success("Dados extraídos. Ajuste as alterações do aditivo.");
+    },
+    onError: (err) => toast.error("Erro ao extrair: " + err.message),
+  });
+
+  function set<K extends keyof AditivoForm>(field: K, value: AditivoForm[K]) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const ab = ev.target?.result as ArrayBuffer;
+      const bytes = new Uint8Array(ab);
+      let b = "";
+      for (let i = 0; i < bytes.length; i++) b += String.fromCharCode(bytes[i]);
+      setFileData({ base64: btoa(b), mime: file.type || "application/pdf" });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function handleExtract() {
+    if (inputMode === "text" && !rawText.trim()) return toast.error("Cole algum texto primeiro.");
+    if (inputMode === "file" && !fileData) return toast.error("Selecione o contrato original primeiro.");
+    extractMutation.mutate({
+      text: inputMode === "text" ? rawText : undefined,
+      fileBase64: inputMode === "file" ? fileData?.base64 : undefined,
+      fileMime: inputMode === "file" ? fileData?.mime : undefined,
+    });
+  }
+
+  function handleGenerate() {
+    const required: (keyof AditivoForm)[] = [
+      "razaoSocial", "cnpj", "nomeRepresentante", "dataContratoOriginal",
+      "novoObjeto", "novoValor", "novaData", "dataAditivo",
+    ];
+    for (const f of required) {
+      if (!form[f]) return toast.error("Preencha todos os campos obrigatórios.");
+    }
+    const html = generateAditivoHTML(form);
+    const blob = new Blob(["﻿" + html], { type: "application/msword;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const d = new Date(form.dataAditivo + "T12:00:00");
+    const firstName = form.nomeRepresentante.split(" ")[0] ?? "Aditivo";
+    const mes = MESES[d.getMonth()] ?? "";
+    a.download = "Aditivo_" + firstName + "_" + mes.charAt(0).toUpperCase() + mes.slice(1) + d.getFullYear() + ".doc";
+    a.href = url;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("Termo aditivo gerado.");
+  }
+
+  const inp = "h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm w-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+  const lbl = "text-xs text-muted-foreground mb-1 block";
+
+  return (
+    <div className="space-y-6">
+      {/* Upload do contrato original + extração por IA */}
+      <Card>
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-amber-500" /> Contrato original (extrair dados)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 px-4 pb-4">
+          <div className="flex gap-2">
+            {(["file", "text"] as const).map((m) => (
+              <button key={m} onClick={() => setInputMode(m)}
+                className={"text-xs px-3 py-1.5 rounded border transition-colors " + (inputMode === m ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-muted")}>
+                {m === "file" ? "Upload PDF / imagem" : "Colar texto"}
+              </button>
+            ))}
+          </div>
+          {inputMode === "file" ? (
+            <div>
+              <div className="border-2 border-dashed border-border rounded-md p-6 text-center cursor-pointer hover:border-muted-foreground transition-colors" onClick={() => fileRef.current?.click()}>
+                <Upload className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">{fileName || "Clique para selecionar o contrato original (PDF ou imagem)"}</p>
+              </div>
+              <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden" onChange={handleFileChange} />
+            </div>
+          ) : (
+            <Textarea value={rawText} onChange={(e) => setRawText(e.target.value)} placeholder="Cole aqui o texto do contrato original..." rows={6} className="text-sm resize-y" />
+          )}
+          <Button onClick={handleExtract} disabled={extractMutation.isPending} size="sm" className="w-full">
+            {extractMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Extraindo...</> : <><Sparkles className="w-4 h-4 mr-2" />Extrair dados do contrato</>}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Qualificação da contratada (pré-populada, editável) */}
+      <Card>
+        <CardHeader className="pb-2 pt-4 px-4"><CardTitle className="text-sm">Contratada (do contrato original)</CardTitle></CardHeader>
+        <CardContent className="space-y-3 px-4 pb-4">
+          <div><label className={lbl}>Razão social *</label><input className={inp} value={form.razaoSocial} onChange={(e) => set("razaoSocial", e.target.value)} /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className={lbl}>Tipo</label><Select value={form.tipo} onValueChange={(v) => set("tipo", v)}><SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="MEI">MEI</SelectItem><SelectItem value="EI">Empresária individual</SelectItem><SelectItem value="LTDA">LTDA</SelectItem></SelectContent></Select></div>
+            <div><label className={lbl}>CNPJ *</label><input className={inp} value={form.cnpj} onChange={(e) => set("cnpj", e.target.value)} /></div>
+          </div>
+          <div><label className={lbl}>Endereço da sede</label><input className={inp} value={form.enderecosede} onChange={(e) => set("enderecosede", e.target.value)} /></div>
+          <div><label className={lbl}>Nome do representante *</label><input className={inp} value={form.nomeRepresentante} onChange={(e) => set("nomeRepresentante", e.target.value)} /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className={lbl}>Gênero</label><Select value={form.genero} onValueChange={(v) => set("genero", v)}><SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="F">Feminino</SelectItem><SelectItem value="M">Masculino</SelectItem></SelectContent></Select></div>
+            <div><label className={lbl}>Estado civil</label><input className={inp} value={form.estadoCivil} onChange={(e) => set("estadoCivil", e.target.value)} /></div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div><label className={lbl}>RG</label><input className={inp} value={form.rg} onChange={(e) => set("rg", e.target.value)} /></div>
+            <div><label className={lbl}>Órgão</label><input className={inp} value={form.rgOrgao} onChange={(e) => set("rgOrgao", e.target.value)} /></div>
+            <div><label className={lbl}>CPF</label><input className={inp} value={form.cpf} onChange={(e) => set("cpf", e.target.value)} /></div>
+          </div>
+          <div><label className={lbl}>Data do contrato original *</label><input type="date" className={inp} value={form.dataContratoOriginal} onChange={(e) => set("dataContratoOriginal", e.target.value)} /></div>
+        </CardContent>
+      </Card>
+
+      {/* Alterações do aditivo (os 3 campos editáveis) */}
+      <Card>
+        <CardHeader className="pb-2 pt-4 px-4"><CardTitle className="text-sm">Alterações do aditivo</CardTitle></CardHeader>
+        <CardContent className="space-y-3 px-4 pb-4">
+          <div><label className={lbl}>1. Objeto atualizado — cláusula 1.1 *</label><Textarea value={form.novoObjeto} onChange={(e) => set("novoObjeto", e.target.value)} rows={2} className="text-sm" placeholder="nova função / cargo / escopo de serviços..." /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className={lbl}>2. Novo valor mensal — cláusula 2.1 *</label><input className={inp} value={form.novoValor} onChange={(e) => set("novoValor", e.target.value)} placeholder="R$ 0,00" /></div>
+            <div><label className={lbl}>3. Nova data de início — cláusula 3.1 *</label><input type="date" className={inp} value={form.novaData} onChange={(e) => set("novaData", e.target.value)} /></div>
+          </div>
+          <div><label className={lbl}>Data de assinatura do aditivo *</label><input type="date" className={inp} value={form.dataAditivo} onChange={(e) => set("dataAditivo", e.target.value)} /></div>
+        </CardContent>
+      </Card>
+
+      <Button onClick={handleGenerate} className="w-full" size="lg">
+        <Download className="w-4 h-4 mr-2" /> Gerar termo aditivo .doc
+      </Button>
+    </div>
+  );
+}
+
 export default function Contracts() {
   const [form, setForm] = useState<ContractForm>(DEFAULT_FORM);
   const [showExtract, setShowExtract] = useState(false);
@@ -370,9 +637,15 @@ export default function Contracts() {
             <FileSignature className="w-5 h-5" /> Contratos PJ
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Gere contratos de prestação de serviços para colaboradores da SELVA.
+            Gere contratos de prestação de serviços e termos aditivos para colaboradores da SELVA.
           </p>
         </div>
+        <Tabs defaultValue="contrato">
+          <TabsList>
+            <TabsTrigger value="contrato">Novo Contrato</TabsTrigger>
+            <TabsTrigger value="aditivo">Termo Aditivo</TabsTrigger>
+          </TabsList>
+          <TabsContent value="contrato" className="space-y-6 mt-6">
         <Card>
           <CardHeader className="pb-2 pt-4 px-4">
             <button className="flex items-center justify-between w-full" onClick={() => setShowExtract((v) => !v)}>
@@ -449,6 +722,12 @@ export default function Contracts() {
         <Button onClick={handleGenerate} className="w-full" size="lg">
           <Download className="w-4 h-4 mr-2" /> Gerar contrato .doc
         </Button>
+          </TabsContent>
+
+          <TabsContent value="aditivo" className="mt-6">
+            <TermoAditivoTab />
+          </TabsContent>
+        </Tabs>
       </div>
     </MetaDashboardLayout>
   );
