@@ -21,7 +21,7 @@ interface Ripple {
   alpha:number;col:number[];speed:number;lw:number;delay?:number;
 }
 
-export function GravityField() {
+export function GravityField({ fill = false }: { fill?: boolean } = {}) {
   const cvRef = useRef<HTMLCanvasElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -252,11 +252,12 @@ export function GravityField() {
     <div
       ref={rootRef}
       style={{ background:'#060810', cursor:'none', userSelect:'none',
-               position:'relative', overflow:'hidden', flexShrink:0 }}
+               position:'relative', overflow:'hidden', flexShrink:0,
+               ...(fill ? { width:'100%', height:'100%' } : {}) }}
     >
       <canvas
         ref={cvRef}
-        style={{ display:'block', width:'100%', height:130, touchAction:'none' }}
+        style={{ display:'block', width:'100%', height: fill ? '100%' : 130, touchAction:'none' }}
       />
     </div>
   );

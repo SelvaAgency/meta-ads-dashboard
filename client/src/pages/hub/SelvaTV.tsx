@@ -23,6 +23,7 @@ import {
 import type { SelvaTVImage } from "./hubMocks";
 import { DvdSlide } from "./DvdSlide";
 import { VocePrefereSlide } from "./VocePrefereSlide";
+import { GravityField } from "./GravityField";
 
 export interface VocePrefereConfig { active: boolean; leftText: string; rightText: string }
 
@@ -55,6 +56,12 @@ function FixedSlide() {
   return <Frame><DvdSlide /></Frame>;
 }
 
+// Slide institucional nativo: a "piscina gravitacional" (antigo rodapé global),
+// agora dentro da moldura 8:3 preenchendo o slide. Fixo no código, sem upload.
+function GravityFieldSlide() {
+  return <Frame><GravityField fill /></Frame>;
+}
+
 export function SelvaTV({ images, vocePrefere }: { images: SelvaTVImage[]; vocePrefere?: VocePrefereConfig }) {
   const uploads = images ?? [];
 
@@ -64,16 +71,9 @@ export function SelvaTV({ images, vocePrefere }: { images: SelvaTVImage[]; voceP
     extras.push({ key: "voce-prefere", node: <Frame><VocePrefereSlide leftText={vocePrefere.leftText} rightText={vocePrefere.rightText} /></Frame> });
   }
 
-  // Sem extras → só o slide fixo institucional, estático (sem setas).
-  if (extras.length === 0) {
-    return (
-      <section aria-label="SELVA TV">
-        <FixedSlide />
-      </section>
-    );
-  }
-
-  // Carrossel: extras na ordem + slide fixo SEMPRE por último.
+  // Carrossel: extras na ordem → slide institucional "GravityField" (perto do
+  // final) → slide fixo SELVA Spaces (DVD) SEMPRE por último. Como há sempre ≥2
+  // slides institucionais, o carrossel é sempre exibido.
   return (
     <section aria-label="SELVA TV">
       <Carousel opts={{ loop: true }} className="w-full">
@@ -81,6 +81,9 @@ export function SelvaTV({ images, vocePrefere }: { images: SelvaTVImage[]; voceP
           {extras.map((s) => (
             <CarouselItem key={s.key}>{s.node}</CarouselItem>
           ))}
+          <CarouselItem key="__gravity">
+            <GravityFieldSlide />
+          </CarouselItem>
           <CarouselItem key="__fixed">
             <FixedSlide />
           </CarouselItem>
