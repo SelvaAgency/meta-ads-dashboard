@@ -35,6 +35,28 @@ function toSlug(name: string): string {
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+// Aliases MANUAIS: só para nomes que não batem 1:1 com o arquivo. A regra
+// automática por slug continua valendo para todos os demais. Chave = slug do
+// nome no sistema; valor = slug do arquivo em /selvatv/voters/<valor>.png.
+const ASSET_ALIASES: Record<string, string> = {
+  // Beth: no sistema pode estar como "Elizabeth"/"Beth"; o arquivo é elizabeth-andrade.png.
+  elizabeth: "elizabeth-andrade",
+  beth: "elizabeth-andrade",
+};
+function assetSlug(name: string): string {
+  const s = toSlug(name);
+  return ASSET_ALIASES[s] ?? s;
+}
+
+// Ajuste fino POR PESSOA/ASSET (não por gênero): compensa o recorte do PNG.
+// Cabelo mais longo → escala maior. offsetX/offsetY (cqw/cqh) para encaixe.
+// Chave = slug do ARQUIVO. Ausente = escala padrão (1, sem deslocamento).
+const HEAD_TUNING: Record<string, { scale?: number; offsetX?: number; offsetY?: number }> = {
+  "elizabeth-andrade": { scale: 1.32 }, // Beth — cabelo bem longo
+  "natalia-ritzmann": { scale: 1.32 },  // Nat  — cabelo bem longo
+  "giulia-motta": { scale: 1.14 },      // Giu  — médio/longo (menos que Beth/Nat)
+};
+
 // Contorno FINO que segue a silhueta do PNG (borda dinâmica por opção) + glow
 // mínimo. Offsets em cqw → espessura acompanha o tamanho do slide.
 function outline(c: string): string {
@@ -54,11 +76,16 @@ const Head = memo(function Head({ name, side }: { name: string; side: "left" | "
   if (broken || !name) {
     return <span className="vp-head-fallback" style={{ borderColor: color }} title={name}>{initials(name)}</span>;
   }
+  const slug = assetSlug(name);
+  const t = HEAD_TUNING[slug];
+  // scale/offset por pessoa via transform → só efeito visual, NÃO altera o box de
+  // layout (não mexe na distribuição dos slots). Uniforme = sem distorção.
+  const transform = `translate(${t?.offsetX ?? 0}cqw, ${t?.offsetY ?? 0}cqh) scale(${t?.scale ?? 1})`;
   return (
     <img
-      className="vp-head" src={`/selvatv/voters/${toSlug(name)}.png`} alt="" title={name} draggable={false}
+      className="vp-head" src={`/selvatv/voters/${slug}.png`} alt="" title={name} draggable={false}
       loading="lazy" decoding="async"
-      onError={() => setBroken(true)} style={{ filter: outline(color) }}
+      onError={() => setBroken(true)} style={{ filter: outline(color), transform }}
     />
   );
 });
