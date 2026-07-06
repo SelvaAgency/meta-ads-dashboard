@@ -1,146 +1,22 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  SELVA Spaces — Modal de Acessos de um cliente
+ *  SELVA Spaces — Modal de Acessos de um cliente (lista)
  * ─────────────────────────────────────────────────────────────────────────────
  *  Lista os acessos do cliente (SEM senha), com busca interna, filtros por
- *  plataforma/tag, formulário de adicionar/editar e ações por acesso
- *  (revelar/copiar senha — auditadas —, editar, excluir com confirmação).
+ *  plataforma/tag e ações por acesso (revelar/copiar senha — auditadas —, editar,
+ *  excluir com confirmação). O formulário de criar/editar acesso NÃO vive aqui:
+ *  ele abre em um segundo modal (AccessFormModal) por cima, então a lista nunca é
+ *  sobreposta por formulário.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  X, Search, Plus, Eye, EyeOff, Copy, Pencil, Trash2, Loader2, Check, ExternalLink, ShieldAlert,
+  X, Search, Plus, Eye, EyeOff, Copy, Pencil, Trash2, Check, ExternalLink, ShieldAlert, Loader2,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from "@/components/ui/textarea";
-
-const PLATFORMS = ["WordPress", "Wix", "Meta", "Google", "Registro.br", "GoDaddy", "Cloudflare", "Supabase", "Railway", "Trello", "Outros"];
-const CODE_TYPES = ["E-mail", "SMS", "App autenticador", "WhatsApp", "Outro"];
-const TAG_SUGGESTIONS = ["Ads", "Analytics", "Tag Manager", "Search Console", "Instagram", "Business Manager", "Pixel", "Catálogo", "Domínio", "Hospedagem", "Financeiro", "Nota Fiscal", "Banco de imagens", "E-mail", "Admin", "Produção"];
-
-type Item = {
-  id: number; platform: string; label: string; loginEmail: string; url: string;
-  requiresCode: boolean; codeType: string; notes: string; tags: string[];
-};
-
-type FormState = {
-  id?: number; platform: string; label: string; loginEmail: string; password: string;
-  url: string; requiresCode: boolean; codeType: string; notes: string; tags: string[];
-};
-
-const emptyForm: FormState = { platform: "", label: "", loginEmail: "", password: "", url: "", requiresCode: false, codeType: "", notes: "", tags: [] };
-
-// Estilo compartilhado dos dropdowns custom (Plataforma, Tags, Tipo de código).
-// ABSOLUTO (top-full) → flutua por cima do formulário sem alterar a altura da
-// caixa nem empurrar/reflow os campos. z alto para ficar acima do form.
-const DROPDOWN_CLS = "absolute left-0 right-0 top-full z-30 mt-1 rounded-md border border-border bg-popover shadow-md max-h-[200px] overflow-y-auto py-1";
-const OPTION_CLS = "w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-primary/10 hover:text-accent transition-colors";
-
-/** Input com dropdown custom de sugestões (permite valor livre). Em fluxo, não cobre nada. */
-function ComboInput({ value, onChange, options, placeholder }: {
-  value: string; onChange: (v: string) => void; options: string[]; placeholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, []);
-  const q = value.trim().toLowerCase();
-  const filtered = options.filter((o) => !q || o.toLowerCase().includes(q));
-  return (
-    <div ref={ref} className="relative">
-      <Input
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setOpen(false); } else if (e.key === "Escape") setOpen(false); }}
-      />
-      {open && filtered.length > 0 && (
-        <div className={DROPDOWN_CLS}>
-          {filtered.map((o) => (
-            <button key={o} type="button" onClick={() => { onChange(o); setOpen(false); }} className={OPTION_CLS}>{o}</button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TagsInput({ tags, onChange }: { tags: string[]; onChange: (t: string[]) => void }) {
-  const [draft, setDraft] = useState("");
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Fecha ao clicar fora.
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, []);
-
-  const add = (raw: string) => {
-    const clean = raw.replace(/\s+/g, " ").trim().slice(0, 40);
-    if (!clean || tags.length >= 10) return;
-    if (tags.some((t) => t.toLowerCase() === clean.toLowerCase())) return;
-    onChange([...tags, clean]);
-  };
-
-  const q = draft.trim().toLowerCase();
-  const suggestions = TAG_SUGGESTIONS.filter(
-    (s) => !tags.some((t) => t.toLowerCase() === s.toLowerCase()) && (!q || s.toLowerCase().includes(q)),
-  );
-  const atLimit = tags.length >= 10;
-
-  return (
-    <div ref={ref} className="relative">
-      {/* Caixa de chips + input */}
-      <div
-        className="rounded-md border border-border bg-input px-2 py-1.5 flex flex-wrap gap-1.5 items-center cursor-text"
-        onClick={() => !atLimit && setOpen(true)}
-      >
-        {tags.map((t) => (
-          <span key={t} className="inline-flex items-center gap-1 rounded bg-primary/15 text-accent text-[11px] px-1.5 py-0.5">
-            {t}
-            <button type="button" onClick={() => onChange(tags.filter((x) => x !== t))} className="hover:opacity-70"><X className="w-3 h-3" /></button>
-          </span>
-        ))}
-        {!atLimit && (
-          <input
-            value={draft}
-            onChange={(e) => { setDraft(e.target.value); setOpen(true); }}
-            onFocus={() => setOpen(true)}
-            onKeyDown={(e) => {
-              if ((e.key === "Enter" || e.key === ",") && draft.trim()) { e.preventDefault(); add(draft); setDraft(""); }
-              else if (e.key === "Escape") setOpen(false);
-              else if (e.key === "Backspace" && !draft && tags.length) onChange(tags.slice(0, -1));
-            }}
-            placeholder={tags.length ? "" : "Digite e Enter, ou escolha abaixo"}
-            className="flex-1 min-w-[140px] bg-transparent outline-none text-sm py-0.5"
-          />
-        )}
-      </div>
-
-      {/* Dropdown customizado (em fluxo — empurra o conteúdo, não cobre nada) */}
-      {open && !atLimit && suggestions.length > 0 && (
-        <div className={DROPDOWN_CLS}>
-          {suggestions.map((s) => (
-            <button key={s} type="button" onClick={() => { add(s); setDraft(""); setOpen(false); }} className={OPTION_CLS}>
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
-      {atLimit && <p className="mt-1 text-[10px] text-muted-foreground">Máximo de 10 tags.</p>}
-    </div>
-  );
-}
+import { AccessFormModal, type AccessItem } from "./AccessFormModal";
 
 export function AccessClientModal({
   clientId, clientName, isInternal, encryptionReady, canEdit, onClose,
@@ -151,8 +27,6 @@ export function AccessClientModal({
   const itemsQ = trpc.access.itemsByClient.useQuery({ clientId });
   const invalidate = () => { utils.access.itemsByClient.invalidate({ clientId }); utils.access.clientsList.invalidate(); };
 
-  const createItem = trpc.access.createItem.useMutation({ onSuccess: () => { invalidate(); setForm(null); } });
-  const updateItem = trpc.access.updateItem.useMutation({ onSuccess: () => { invalidate(); setForm(null); } });
   const deactivateItem = trpc.access.deactivateItem.useMutation({ onSuccess: invalidate });
   const reveal = trpc.access.revealPassword.useMutation();
   const updateClient = trpc.access.updateClient.useMutation({ onSuccess: () => utils.access.clientsList.invalidate() });
@@ -164,15 +38,16 @@ export function AccessClientModal({
   const [search, setSearch] = useState("");
   const [platformFilter, setPlatformFilter] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState | null>(null);
   const [revealed, setRevealed] = useState<Record<number, string>>({});
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<{ text: string; label: string; onOk: () => void } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(clientName);
-  const [formError, setFormError] = useState<string | null>(null);
+  // Formulário criar/editar em um SEGUNDO modal. null = fechado; { item:null } =
+  // criar; { item } = editar.
+  const [formOpen, setFormOpen] = useState<{ item: AccessItem | null } | null>(null);
 
-  const items = (itemsQ.data ?? []) as Item[];
+  const items = (itemsQ.data ?? []) as AccessItem[];
   const allPlatforms = useMemo(() => Array.from(new Set(items.map((i) => i.platform).filter(Boolean))), [items]);
   const allTags = useMemo(() => Array.from(new Set(items.flatMap((i) => i.tags))), [items]);
 
@@ -198,32 +73,7 @@ export function AccessClientModal({
     setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1500);
   };
 
-  const openEdit = (i: Item) => {
-    setFormError(null);
-    setForm({ id: i.id, platform: i.platform, label: i.label, loginEmail: i.loginEmail, password: "", url: i.url, requiresCode: i.requiresCode, codeType: i.codeType, notes: i.notes, tags: i.tags });
-  };
-
-  const submitForm = () => {
-    if (!form) return;
-    setFormError(null);
-    if (!form.platform.trim()) return setFormError("Informe a plataforma.");
-    if (!form.id && !form.password) return setFormError("Informe a senha.");
-    const payload = {
-      platform: form.platform, label: form.label || undefined, loginEmail: form.loginEmail || undefined,
-      url: form.url || undefined, requiresCode: form.requiresCode, codeType: form.codeType || undefined,
-      notes: form.notes || undefined, tags: form.tags,
-    };
-    if (form.id) {
-      const run = () => updateItem.mutate({ id: form.id!, ...payload, password: form.password || undefined });
-      if (form.password) {
-        setConfirm({ text: "Você está alterando a senha deste acesso. Confirma a alteração?", label: "Confirmar alteração", onOk: () => { run(); setConfirm(null); } });
-      } else run();
-    } else {
-      createItem.mutate({ clientId, ...payload, password: form.password });
-    }
-  };
-
-  const askDelete = (i: Item) =>
+  const askDelete = (i: AccessItem) =>
     setConfirm({
       text: "Tem certeza que deseja excluir este acesso? Esta ação pode afetar a equipe.",
       label: "Excluir acesso",
@@ -238,8 +88,6 @@ export function AccessClientModal({
       label: "Excluir cliente",
       onOk: () => { deactivateClient.mutate({ id: clientId }); setConfirm(null); },
     });
-
-  const saving = createItem.isPending || updateItem.isPending;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(3px)" }} onClick={onClose}>
@@ -271,7 +119,7 @@ export function AccessClientModal({
           </div>
         </div>
 
-        {/* Toolbar (busca + filtros, fixa) */}
+        {/* Toolbar (busca + filtros + "+ Acesso", fixa) */}
         <div className="flex-shrink-0 px-5 py-3 border-b border-border flex flex-col gap-3">
           <div className="flex gap-2">
             <div className="relative flex-1">
@@ -280,7 +128,7 @@ export function AccessClientModal({
             </div>
             {canEdit && (
               <button
-                onClick={() => { setFormError(null); setForm({ ...emptyForm }); }}
+                onClick={() => setFormOpen({ item: null })}
                 disabled={!encryptionReady}
                 title={encryptionReady ? "" : "Criptografia não configurada"}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-3 py-2 hover:opacity-90 disabled:opacity-60 flex-shrink-0"
@@ -306,51 +154,8 @@ export function AccessClientModal({
           )}
         </div>
 
-        {/* Body — ÚNICO elemento com scroll (min-h-0 garante que o overflow
-            funcione dentro do flex; sem isso o conteúdo vaza do modal). */}
+        {/* Lista de acessos (corpo rolável — sem formulário embutido) */}
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 flex flex-col gap-3">
-          {/* Formulário add/edit — caixa própria em fluxo normal: empurra a lista
-              para baixo (mb-6) e nunca a sobrepõe. z-10 mantém seus dropdowns
-              acima dos cards de acesso. */}
-          {form && (
-            <div className="relative z-10 w-full rounded-lg border border-accent/40 bg-primary/[0.05] p-5 flex flex-col gap-4 mb-6 shadow-sm">
-              <p className="text-sm font-semibold">{form.id ? "Editar acesso" : "Novo acesso"}</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1">
-                  <Label className="text-xs">Plataforma *</Label>
-                  <ComboInput value={form.platform} onChange={(v) => setForm({ ...form, platform: v })} options={PLATFORMS} placeholder="Ex.: Wix" />
-                </div>
-                <div className="flex flex-col gap-1"><Label className="text-xs">Nome do acesso</Label><Input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="Opcional" /></div>
-                <div className="flex flex-col gap-1"><Label className="text-xs">E-mail / login</Label><Input value={form.loginEmail} onChange={(e) => setForm({ ...form, loginEmail: e.target.value })} /></div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-xs">Senha {form.id && <span className="text-muted-foreground">(deixe vazio p/ manter)</span>}</Label>
-                  <Input type="text" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={form.id ? "•••••• (inalterada)" : ""} />
-                </div>
-                <div className="flex flex-col gap-1 sm:col-span-2"><Label className="text-xs">Link / URL</Label><Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://…" /></div>
-                <div className="flex items-center gap-2 pt-1">
-                  <Checkbox checked={form.requiresCode} onCheckedChange={(v) => setForm({ ...form, requiresCode: !!v })} id="reqcode" />
-                  <Label htmlFor="reqcode" className="text-xs cursor-pointer">Requer código (2FA)</Label>
-                </div>
-                {form.requiresCode && (
-                  <div className="flex flex-col gap-1">
-                    <Label className="text-xs">Tipo de código</Label>
-                    <ComboInput value={form.codeType} onChange={(v) => setForm({ ...form, codeType: v })} options={CODE_TYPES} placeholder="Selecione ou digite" />
-                  </div>
-                )}
-                <div className="flex flex-col gap-1 sm:col-span-2"><Label className="text-xs">Tags</Label><TagsInput tags={form.tags} onChange={(t) => setForm({ ...form, tags: t })} /></div>
-                <div className="flex flex-col gap-1 sm:col-span-2"><Label className="text-xs">Observações</Label><Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} /></div>
-              </div>
-              {formError && <p className="text-xs text-destructive">{formError}</p>}
-              <div className="flex items-center gap-3">
-                <button onClick={submitForm} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 hover:opacity-90 disabled:opacity-60">
-                  {saving && <Loader2 className="w-4 h-4 animate-spin" />} Salvar
-                </button>
-                <button onClick={() => setForm(null)} className="text-sm text-muted-foreground hover:text-foreground">Cancelar</button>
-              </div>
-            </div>
-          )}
-
-          {/* Lista de acessos */}
           {itemsQ.isLoading && <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Carregando…</p>}
           {!itemsQ.isLoading && filtered.length === 0 && <p className="text-sm text-muted-foreground">Nenhum acesso {items.length ? "com esse filtro" : "cadastrado"}.</p>}
           {filtered.map((i) => (
@@ -382,7 +187,7 @@ export function AccessClientModal({
                   <button onClick={() => doCopy(i.id)} disabled={!encryptionReady} className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-40" title="Copiar senha">
                     {copiedId === i.id ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
                   </button>
-                  {canEdit && <button onClick={() => openEdit(i)} className="p-1.5 text-muted-foreground hover:text-foreground" title="Editar"><Pencil className="w-4 h-4" /></button>}
+                  {canEdit && <button onClick={() => setFormOpen({ item: i })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Editar"><Pencil className="w-4 h-4" /></button>}
                   {canEdit && <button onClick={() => askDelete(i)} className="p-1.5 text-muted-foreground hover:text-destructive" title="Excluir"><Trash2 className="w-4 h-4" /></button>}
                 </div>
               </div>
@@ -391,9 +196,19 @@ export function AccessClientModal({
         </div>
       </div>
 
-      {/* Confirmação (exclusão / troca de senha) */}
+      {/* Segundo modal: formulário de criar/editar acesso (por cima da lista) */}
+      {formOpen && (
+        <AccessFormModal
+          clientId={clientId}
+          item={formOpen.item}
+          encryptionReady={encryptionReady}
+          onClose={() => setFormOpen(null)}
+        />
+      )}
+
+      {/* Confirmação (exclusão de acesso / de cliente) */}
       {confirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.55)" }} onClick={(e) => { e.stopPropagation(); setConfirm(null); }}>
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.55)" }} onClick={(e) => { e.stopPropagation(); setConfirm(null); }}>
           <div className="w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2 mb-2"><ShieldAlert className="w-5 h-5 text-amber-500" /><p className="text-sm font-semibold">Confirmação</p></div>
             <p className="text-sm text-muted-foreground mb-5">{confirm.text}</p>
