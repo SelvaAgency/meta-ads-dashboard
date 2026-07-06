@@ -14,7 +14,7 @@
  *  · fontes em /fonts/.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useState } from "react";
+import { memo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 
 const FACE_SRC = "/selvatv/giulia-motta.png";
@@ -48,7 +48,7 @@ function outline(c: string): string {
   ].join(" ");
 }
 
-function Head({ name, side }: { name: string; side: "left" | "right" }) {
+const Head = memo(function Head({ name, side }: { name: string; side: "left" | "right" }) {
   const [broken, setBroken] = useState(false);
   const color = side === "left" ? PINK : BLUE;
   if (broken || !name) {
@@ -57,10 +57,11 @@ function Head({ name, side }: { name: string; side: "left" | "right" }) {
   return (
     <img
       className="vp-head" src={`/selvatv/voters/${toSlug(name)}.png`} alt="" title={name} draggable={false}
+      loading="lazy" decoding="async"
       onError={() => setBroken(true)} style={{ filter: outline(color) }}
     />
   );
-}
+});
 
 const MAX_HEADS = 4;
 // Slots de composição (x,y em % da ÁREA de composição da caixa — ver .vp-heads).
@@ -71,7 +72,9 @@ const HEAD_SLOTS: Array<[number, number]> = [
   [28, 30], [72, 26], [50, 62], [16, 68], [84, 60],
 ];
 
-function VoterHeads({ voters, count, side }: { voters: Voter[]; count: number; side: "left" | "right" }) {
+// memo → não re-renderiza as cabeças quando o slide re-renderiza só por hover
+// da Giu; só muda quando os votos (voters/count) realmente mudam.
+const VoterHeads = memo(function VoterHeads({ voters, count, side }: { voters: Voter[]; count: number; side: "left" | "right" }) {
   if (!count) return null;
   const color = side === "left" ? PINK : BLUE;
   const shown = voters.slice(0, MAX_HEADS);
@@ -97,14 +100,16 @@ function VoterHeads({ voters, count, side }: { voters: Voter[]; count: number; s
       })}
     </div>
   );
-}
+});
 
 export function VocePrefereSlide({
-  leftText, rightText, preview = false,
+  leftText, rightText, preview = false, active = false,
 }: {
-  leftText: string; rightText: string; preview?: boolean;
+  leftText: string; rightText: string; preview?: boolean; active?: boolean;
 }) {
-  const votesQ = trpc.selvaTV.vocePrefereVotes.useQuery(undefined, { enabled: !preview, refetchOnWindowFocus: false });
+  // Só busca votos (e, portanto, só monta as cabeças/PNGs dos votantes) quando o
+  // slide está ativo/visível — evita carregar imagens de votantes fora de tela.
+  const votesQ = trpc.selvaTV.vocePrefereVotes.useQuery(undefined, { enabled: !preview && active, refetchOnWindowFocus: false });
   const utils = trpc.useUtils();
   const vote = trpc.selvaTV.vocePrefereVote.useMutation({ onSuccess: () => utils.selvaTV.vocePrefereVotes.invalidate() });
 
@@ -144,7 +149,7 @@ export function VocePrefereSlide({
 
       <div className="vp-face-wrap">
         {/* Flip horizontal DIRETO (sem transição). */}
-        <img className="vp-face" src={FACE_SRC} alt="" draggable={false}
+        <img className="vp-face" src={FACE_SRC} alt="" draggable={false} loading="lazy" decoding="async"
           style={{ transform: gaze === "right" ? "scaleX(-1)" : "scaleX(1)" }} />
       </div>
     </div>

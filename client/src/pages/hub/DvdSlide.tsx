@@ -48,7 +48,7 @@ const SHORTCUTS: Shortcut[] = [
   },
 ];
 
-export function DvdSlide() {
+export function DvdSlide({ active = true }: { active?: boolean } = {}) {
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const isAdmin = canAccessAdmin((user as { role?: string } | null)?.role);
@@ -59,6 +59,9 @@ export function DvdSlide() {
   const pausedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    // Slide invisível (não é o slide ativo do carrossel / fora da tela): não
+    // roda a animação nem o requestAnimationFrame. Reinicia ao voltar a ativo.
+    if (!active) return;
     const root = rootRef.current;
     if (!root) return;
     const els = Array.from(root.querySelectorAll<HTMLElement>("[data-ball]"));
@@ -105,7 +108,7 @@ export function DvdSlide() {
     rafRef.current = requestAnimationFrame(step);
 
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [shortcuts.length]);
+  }, [shortcuts.length, active]);
 
   const ballProps = (s: Shortcut) => ({
     "data-ball": true,

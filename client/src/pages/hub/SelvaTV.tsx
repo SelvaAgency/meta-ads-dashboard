@@ -5,20 +5,25 @@
  *  Container com aspect ratio FIXO 8:3 (igual à dimensão recomendada 1600×600),
  *  então uma imagem nessa proporção aparece INTEIRA (object-cover sem corte).
  *
- *  A SELVA TV nunca fica vazia: existe sempre um slide fixo institucional
- *  (estilo DVD) que aparece SEMPRE como o ÚLTIMO slide. Ele é gerado pelo app,
- *  não vem de upload e não pode ser removido pelo admin.
- *    · 0 uploads  → só o slide fixo (estático)
- *    · 1 upload   → upload + slide fixo (carrossel)
- *    · N uploads  → N uploads + slide fixo no final (carrossel)
+ *  A SELVA TV nunca fica vazia: além dos uploads e do "Você prefere?" (se ativo),
+ *  há dois slides institucionais SEMPRE no fim — a piscina "GravityField" e o
+ *  slide fixo SELVA Spaces (DVD), este por ÚLTIMO.
+ *
+ *  PERFORMANCE: o embla monta todos os slides ao mesmo tempo. Para não deixar as
+ *  animações pesadas (canvas do GravityField e o rAF do DVD) rodando em slides
+ *  invisíveis, cada slide pesado recebe `active` = (é o slide selecionado E a
+ *  seção está visível na tela E a aba está em foco). Slide inativo pausa/desmonta
+ *  sua animação. Nenhuma lógica visual do carrossel foi alterada.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+import { useEffect, useRef, useState } from "react";
 import {
   Carousel,
   CarouselContent,
   CarouselItem,
   CarouselPrevious,
   CarouselNext,
+  type CarouselApi,
 } from "@/components/ui/carousel";
 import type { SelvaTVImage } from "./hubMocks";
 import { DvdSlide } from "./DvdSlide";
@@ -38,10 +43,26 @@ function Frame({ children }: { children: React.ReactNode }) {
   return <div className="relative w-full aspect-[8/3] overflow-hidden rounded-xl bg-secondary">{children}</div>;
 }
 
-function ImageSlide({ image }: { image: SelvaTVImage }) {
+function ImageSlide({ image, eager }: { image: SelvaTVImage; eager?: boolean }) {
+  // Skeleton escuro discreto até a imagem decodificar (sem flash branco). O
+  // primeiro slide carrega eager; os demais lazy (só quando entram em tela).
+  const [loaded, setLoaded] = useState(false);
   return (
     <Frame>
-      <img src={image.src} alt={image.alt} className="absolute inset-0 h-full w-full object-cover" />
+      {!loaded && (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#0b0b0f]">
+          <span className="text-xs tracking-wide text-white/40">Carregando SELVA TV…</span>
+        </div>
+      )}
+      <img
+        src={image.src}
+        alt={image.alt}
+        loading={eager ? "eager" : "lazy"}
+        decoding="async"
+        onLoad={() => setLoaded(true)}
+        className="absolute inset-0 h-full w-full object-cover transition-opacity duration-500"
+        style={{ opacity: loaded ? 1 : 0 }}
+      />
       {image.title && (
         <div className="absolute inset-0 flex flex-col justify-end gap-1 bg-gradient-to-t from-black/60 to-transparent p-5">
           <span className="text-base font-semibold text-white">{image.title}</span>
@@ -52,41 +73,82 @@ function ImageSlide({ image }: { image: SelvaTVImage }) {
   );
 }
 
-function FixedSlide() {
-  return <Frame><DvdSlide /></Frame>;
+// A seção está "viva" quando visível na tela E a aba está em foco. Fora disso,
+// todas as animações da SELVA TV podem pausar.
+function useSectionLive(ref: React.RefObject<HTMLElement | null>) {
+  const [live, setLive] = useState(true);
+  useEffect(() => {
+    const el = ref.current;
+    let onScreen = true;
+    let tabVisible = typeof document !== "undefined" ? !document.hidden : true;
+    const update = () => setLive(onScreen && tabVisible);
+
+    const io = el
+      ? new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; update(); }, { threshold: 0.01 })
+      : null;
+    if (el && io) io.observe(el);
+
+    const onVis = () => { tabVisible = !document.hidden; update(); };
+    document.addEventListener("visibilitychange", onVis);
+    update();
+    return () => { io?.disconnect(); document.removeEventListener("visibilitychange", onVis); };
+  }, [ref]);
+  return live;
 }
 
-// Slide institucional nativo: a "piscina gravitacional" (antigo rodapé global),
-// agora dentro da moldura 8:3 preenchendo o slide. Fixo no código, sem upload.
-function GravityFieldSlide() {
-  return <Frame><GravityField fill /></Frame>;
-}
+type Slide =
+  | { key: string; kind: "image"; image: SelvaTVImage }
+  | { key: string; kind: "vp" }
+  | { key: string; kind: "gravity" }
+  | { key: string; kind: "fixed" };
 
 export function SelvaTV({ images, vocePrefere }: { images: SelvaTVImage[]; vocePrefere?: VocePrefereConfig }) {
   const uploads = images ?? [];
+  const [api, setApi] = useState<CarouselApi>();
+  const [selected, setSelected] = useState(0);
+  const sectionRef = useRef<HTMLElement>(null);
+  const live = useSectionLive(sectionRef);
 
-  // Slides "extras" (antes do slide fixo): uploads + "Você prefere?" (se ativo).
-  const extras: { key: string; node: React.ReactNode }[] = uploads.map((im) => ({ key: `u${im.id}`, node: <ImageSlide image={im} /> }));
-  if (vocePrefere?.active) {
-    extras.push({ key: "voce-prefere", node: <Frame><VocePrefereSlide leftText={vocePrefere.leftText} rightText={vocePrefere.rightText} /></Frame> });
-  }
+  // Índice do slide ativo, direto do embla (sem re-render dos outros slides).
+  useEffect(() => {
+    if (!api) return;
+    const onSelect = () => setSelected(api.selectedScrollSnap());
+    onSelect();
+    api.on("select", onSelect);
+    api.on("reInit", onSelect);
+    return () => { api.off("select", onSelect); api.off("reInit", onSelect); };
+  }, [api]);
 
-  // Carrossel: extras na ordem → slide institucional "GravityField" (perto do
-  // final) → slide fixo SELVA Spaces (DVD) SEMPRE por último. Como há sempre ≥2
-  // slides institucionais, o carrossel é sempre exibido.
+  // Ordem aprovada: uploads → "Você prefere?" (se ativo) → GravityField → DVD (último).
+  const slides: Slide[] = [
+    ...uploads.map((im) => ({ key: `u${im.id}`, kind: "image" as const, image: im })),
+    ...(vocePrefere?.active ? [{ key: "voce-prefere", kind: "vp" as const }] : []),
+    { key: "__gravity", kind: "gravity" as const },
+    { key: "__fixed", kind: "fixed" as const },
+  ];
+
+  const renderSlide = (s: Slide, i: number) => {
+    const active = live && selected === i;
+    switch (s.kind) {
+      case "image":
+        return <ImageSlide image={s.image} eager={i === 0} />;
+      case "vp":
+        return <Frame><VocePrefereSlide leftText={vocePrefere!.leftText} rightText={vocePrefere!.rightText} active={active} /></Frame>;
+      case "gravity":
+        return <Frame><GravityField fill active={active} /></Frame>;
+      case "fixed":
+        return <Frame><DvdSlide active={active} /></Frame>;
+    }
+  };
+
+  // Carrossel: mesma estrutura visual/navegação; só passamos `active` aos slides.
   return (
-    <section aria-label="SELVA TV">
-      <Carousel opts={{ loop: true }} className="w-full">
+    <section ref={sectionRef} aria-label="SELVA TV">
+      <Carousel opts={{ loop: true }} className="w-full" setApi={setApi}>
         <CarouselContent>
-          {extras.map((s) => (
-            <CarouselItem key={s.key}>{s.node}</CarouselItem>
+          {slides.map((s, i) => (
+            <CarouselItem key={s.key}>{renderSlide(s, i)}</CarouselItem>
           ))}
-          <CarouselItem key="__gravity">
-            <GravityFieldSlide />
-          </CarouselItem>
-          <CarouselItem key="__fixed">
-            <FixedSlide />
-          </CarouselItem>
         </CarouselContent>
         <CarouselPrevious className={`left-2 sm:left-3 ${ARROW_CLS}`} />
         <CarouselNext className={`right-2 sm:right-3 ${ARROW_CLS}`} />

@@ -21,11 +21,14 @@ interface Ripple {
   alpha:number;col:number[];speed:number;lw:number;delay?:number;
 }
 
-export function GravityField({ fill = false }: { fill?: boolean } = {}) {
+export function GravityField({ fill = false, active = true }: { fill?: boolean; active?: boolean } = {}) {
   const cvRef = useRef<HTMLCanvasElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Só monta a simulação (balls, listeners, requestAnimationFrame) quando o
+    // slide está ativo/visível. Inativo → zero trabalho, zero rAF.
+    if (!active) return;
     const cv = cvRef.current;
     const root = rootRef.current;
     if (!cv || !root) return;
@@ -246,7 +249,7 @@ export function GravityField({ fill = false }: { fill?: boolean } = {}) {
       cv2.removeEventListener('touchmove',  onMove as EventListener);
       cv2.removeEventListener('touchend', onUp);
     };
-  }, []);
+  }, [active]);
 
   return (
     <div
