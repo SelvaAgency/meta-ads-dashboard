@@ -9,14 +9,19 @@
  *  há dois slides institucionais SEMPRE no fim — a piscina "GravityField" e o
  *  slide fixo SELVA Spaces (DVD), este por ÚLTIMO.
  *
- *  PERFORMANCE: o embla monta todos os slides ao mesmo tempo. Para não deixar as
- *  animações pesadas (canvas do GravityField e o rAF do DVD) rodando em slides
- *  invisíveis, cada slide pesado recebe `active` = (é o slide selecionado E a
- *  seção está visível na tela E a aba está em foco). Slide inativo pausa/desmonta
- *  sua animação. Nenhuma lógica visual do carrossel foi alterada.
+ *  PERFORMANCE DA TROCA: o embla monta todos os slides de uma vez (sem remount
+ *  ao trocar). O travamento vinha de INICIAR a animação pesada do slide de
+ *  destino no MESMO frame do clique/transição. Solução:
+ *   · durante a transição (entre `select` e `settle`) NADA anima — `transitioning`
+ *     desativa todos os slides;
+ *   · o slide de destino só recebe `active` DEPOIS que o embla assenta (`settle`),
+ *     ou seja, a animação começa após a transição, não durante;
+ *   · lista de slides memoizada; componentes pesados em React.memo;
+ *   · imagens do ativo/anterior/próximo carregam eager (vizinhos pré-aquecidos).
+ *  Nenhuma lógica visual/navegação do carrossel foi alterada.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Carousel,
   CarouselContent,
@@ -44,8 +49,8 @@ function Frame({ children }: { children: React.ReactNode }) {
 }
 
 function ImageSlide({ image, eager }: { image: SelvaTVImage; eager?: boolean }) {
-  // Skeleton escuro discreto até a imagem decodificar (sem flash branco). O
-  // primeiro slide carrega eager; os demais lazy (só quando entram em tela).
+  // Skeleton escuro discreto até a imagem decodificar (sem flash branco). Ativo +
+  // vizinhos carregam eager (pré-aquecidos p/ a transição); demais lazy.
   const [loaded, setLoaded] = useState(false);
   return (
     <Frame>
@@ -103,35 +108,43 @@ type Slide =
   | { key: string; kind: "fixed" };
 
 export function SelvaTV({ images, vocePrefere }: { images: SelvaTVImage[]; vocePrefere?: VocePrefereConfig }) {
-  const uploads = images ?? [];
   const [api, setApi] = useState<CarouselApi>();
   const [selected, setSelected] = useState(0);
+  const [transitioning, setTransitioning] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
   const live = useSectionLive(sectionRef);
 
-  // Índice do slide ativo, direto do embla (sem re-render dos outros slides).
+  // `select` dispara no INÍCIO da troca → marca transição (pausa tudo).
+  // `settle` dispara quando o slide ASSENTA → libera e ativa só o destino.
   useEffect(() => {
     if (!api) return;
-    const onSelect = () => setSelected(api.selectedScrollSnap());
-    onSelect();
+    const onSelect = () => { setSelected(api.selectedScrollSnap()); setTransitioning(true); };
+    const onSettle = () => { setSelected(api.selectedScrollSnap()); setTransitioning(false); };
+    onSettle(); // estado inicial: assentado no slide atual
     api.on("select", onSelect);
-    api.on("reInit", onSelect);
-    return () => { api.off("select", onSelect); api.off("reInit", onSelect); };
+    api.on("settle", onSettle);
+    api.on("reInit", onSettle);
+    return () => { api.off("select", onSelect); api.off("settle", onSettle); api.off("reInit", onSettle); };
   }, [api]);
 
   // Ordem aprovada: uploads → "Você prefere?" (se ativo) → GravityField → DVD (último).
-  const slides: Slide[] = [
-    ...uploads.map((im) => ({ key: `u${im.id}`, kind: "image" as const, image: im })),
+  // Memoizada → o clique na seta não recria a lista de slides.
+  const slides = useMemo<Slide[]>(() => [
+    ...(images ?? []).map((im) => ({ key: `u${im.id}`, kind: "image" as const, image: im })),
     ...(vocePrefere?.active ? [{ key: "voce-prefere", kind: "vp" as const }] : []),
     { key: "__gravity", kind: "gravity" as const },
     { key: "__fixed", kind: "fixed" as const },
-  ];
+  ], [images, vocePrefere?.active]);
+
+  const n = slides.length;
+  const isNeighbor = (i: number) => i === selected || i === (selected + 1) % n || i === (selected - 1 + n) % n;
 
   const renderSlide = (s: Slide, i: number) => {
-    const active = live && selected === i;
+    // Anima só o slide de destino, e só DEPOIS da transição assentar.
+    const active = live && !transitioning && selected === i;
     switch (s.kind) {
       case "image":
-        return <ImageSlide image={s.image} eager={i === 0} />;
+        return <ImageSlide image={s.image} eager={isNeighbor(i)} />;
       case "vp":
         return <Frame><VocePrefereSlide leftText={vocePrefere!.leftText} rightText={vocePrefere!.rightText} active={active} /></Frame>;
       case "gravity":

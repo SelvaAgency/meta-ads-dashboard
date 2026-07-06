@@ -102,7 +102,7 @@ const VoterHeads = memo(function VoterHeads({ voters, count, side }: { voters: V
   );
 });
 
-export function VocePrefereSlide({
+export const VocePrefereSlide = memo(function VocePrefereSlide({
   leftText, rightText, preview = false, active = false,
 }: {
   leftText: string; rightText: string; preview?: boolean; active?: boolean;
@@ -154,7 +154,7 @@ export function VocePrefereSlide({
       </div>
     </div>
   );
-}
+});
 
 const VP_CSS = `
 .vp-title{

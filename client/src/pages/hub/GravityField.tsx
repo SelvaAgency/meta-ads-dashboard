@@ -3,7 +3,7 @@
  * Piscina de bolinhas com física real (gravidade, colisões, z-layers)
  * Logo SELVA.SPACES no meio — brilha onde não há bolinha por cima
  */
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 
 const C=[253,255,237],O=[239,112,27],P=[245,173,204];
 const POOL=[C,C,C,O,O,P,P,P,C,O,P,C,O,P,C,P,O,C,P,O];
@@ -21,7 +21,7 @@ interface Ripple {
   alpha:number;col:number[];speed:number;lw:number;delay?:number;
 }
 
-export function GravityField({ fill = false, active = true }: { fill?: boolean; active?: boolean } = {}) {
+export const GravityField = memo(function GravityField({ fill = false, active = true }: { fill?: boolean; active?: boolean } = {}) {
   const cvRef = useRef<HTMLCanvasElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -60,7 +60,10 @@ export function GravityField({ fill = false, active = true }: { fill?: boolean; 
 
     function initBalls() {
       balls.length = 0;
-      for (let i = 0; i < 82; i++) {
+      // Menos bolinhas em telas estreitas (mobile) → transição/animação mais leve
+      // sem alterar o visual aprovado no desktop.
+      const COUNT = W < 560 ? 42 : 82;
+      for (let i = 0; i < COUNT; i++) {
         const layer: 'back'|'front' = Math.random() < .42 ? 'back' : 'front';
         balls.push({
           x: BR + Math.random() * (W - BR * 2),
@@ -264,4 +267,4 @@ export function GravityField({ fill = false, active = true }: { fill?: boolean; 
       />
     </div>
   );
-}
+});

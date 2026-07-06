@@ -13,7 +13,7 @@
  *  · Não usa órbitas (isso é do /spaces).
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useEffect, useRef, type ReactNode } from "react";
+import { memo, useEffect, useRef, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canAccessAdmin } from "@shared/permissions";
@@ -48,7 +48,7 @@ const SHORTCUTS: Shortcut[] = [
   },
 ];
 
-export function DvdSlide({ active = true }: { active?: boolean } = {}) {
+export const DvdSlide = memo(function DvdSlide({ active = true }: { active?: boolean } = {}) {
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const isAdmin = canAccessAdmin((user as { role?: string } | null)?.role);
@@ -162,4 +162,4 @@ export function DvdSlide({ active = true }: { active?: boolean } = {}) {
       )}
     </div>
   );
-}
+});
