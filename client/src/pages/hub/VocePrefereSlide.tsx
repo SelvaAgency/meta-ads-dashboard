@@ -52,9 +52,11 @@ function assetSlug(name: string): string {
 // Cabelo mais longo → escala maior. offsetX/offsetY (cqw/cqh) para encaixe.
 // Chave = slug do ARQUIVO. Ausente = escala padrão (1, sem deslocamento).
 const HEAD_TUNING: Record<string, { scale?: number; offsetX?: number; offsetY?: number }> = {
-  "elizabeth-andrade": { scale: 1.32 }, // Beth — cabelo bem longo
-  "natalia-ritzmann": { scale: 1.32 },  // Nat  — cabelo bem longo
-  "giulia-motta": { scale: 1.14 },      // Giu  — médio/longo (menos que Beth/Nat)
+  // offsetY negativo (cqh) sobe o recorte → o cabelo longo cresce p/ cima em vez
+  // de descer em direção ao texto ao aumentar a escala.
+  "elizabeth-andrade": { scale: 1.55, offsetY: -1.2 }, // Beth — cabelo bem longo
+  "natalia-ritzmann": { scale: 1.55, offsetY: -1.2 },  // Nat  — cabelo bem longo
+  "giulia-motta": { scale: 1.18 },                      // Giu  — médio/longo (menos que Beth/Nat)
 };
 
 // Contorno FINO que segue a silhueta do PNG (borda dinâmica por opção) + glow
