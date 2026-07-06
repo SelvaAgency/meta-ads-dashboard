@@ -36,15 +36,15 @@ function toSlug(name: string): string {
 }
 
 // Contorno FINO que segue a silhueta do PNG (borda dinâmica por opção) + glow
-// bem sutil. Offsets em cqw → espessura acompanha o tamanho do slide.
+// mínimo. Offsets em cqw → espessura acompanha o tamanho do slide.
 function outline(c: string): string {
-  const s = "0.18cqw", d = "0.13cqw";
+  const s = "0.16cqw", d = "0.12cqw";
   return [
     `drop-shadow(${s} 0 0 ${c})`, `drop-shadow(-${s} 0 0 ${c})`,
     `drop-shadow(0 ${s} 0 ${c})`, `drop-shadow(0 -${s} 0 ${c})`,
     `drop-shadow(${d} ${d} 0 ${c})`, `drop-shadow(-${d} ${d} 0 ${c})`,
     `drop-shadow(${d} -${d} 0 ${c})`, `drop-shadow(-${d} -${d} 0 ${c})`,
-    `drop-shadow(0 0 0.5cqw ${c}55)`,
+    `drop-shadow(0 0 0.3cqw ${c}40)`,
   ].join(" ");
 }
 
@@ -62,8 +62,9 @@ function Head({ name, side }: { name: string; side: "left" | "right" }) {
   );
 }
 
-// Variação de altura por posição (cqh, para cima) — dá o ar "solto"/orgânico.
-const HEAD_JITTER = [1.7, 0, 2.6, 0.7, 1.3];
+// Pequeno offset vertical por posição (cqh; negativo = mais alto) — dá o ar
+// orgânico de adesivos colados, sem virar linha reta nem pilha.
+const HEAD_JITTER = [-0.8, 0.5, -1.6, 0, -1.0];
 const MAX_HEADS = 4;
 
 function VoterHeads({ voters, count, side }: { voters: Voter[]; count: number; side: "left" | "right" }) {
@@ -71,28 +72,26 @@ function VoterHeads({ voters, count, side }: { voters: Voter[]; count: number; s
   const color = side === "left" ? PINK : BLUE;
   const shown = voters.slice(0, MAX_HEADS);
   const extra = count - shown.length;
-  // Cabeças + (eventual) chip "+N" tratados como itens a distribuir em slots.
+  // Cabeças + (eventual) chip "+N" como um grupo compacto (flex), centrado
+  // sobre a caixa, com leve sobreposição lateral entre os itens.
   const items = [
     ...shown.map((v) => ({ name: v.name, more: 0 })),
     ...(extra > 0 ? [{ name: "", more: extra }] : []),
   ];
-  const n = items.length;
 
   return (
     <div className={`vp-heads vp-heads-${side}`}>
-      {items.map((it, i) => {
-        // Slot distribuído ao longo da largura útil da caixa (12%–88%).
-        const t = n === 1 ? 0.5 : i / (n - 1);
-        const x = 12 + t * 76;
-        const y = HEAD_JITTER[i % HEAD_JITTER.length];
-        return (
-          <span key={i} className="vp-head-slot" style={{ left: `${x}%`, bottom: `${y}cqh` }}>
-            {it.more > 0
-              ? <span className="vp-head-more" style={{ borderColor: color }}>+{it.more}</span>
-              : <Head name={it.name} side={side} />}
-          </span>
-        );
-      })}
+      {items.map((it, i) => (
+        <span
+          key={i}
+          className="vp-head-slot"
+          style={{ transform: `translateY(${HEAD_JITTER[i % HEAD_JITTER.length]}cqh)`, zIndex: 10 - i }}
+        >
+          {it.more > 0
+            ? <span className="vp-head-more" style={{ borderColor: color }}>+{it.more}</span>
+            : <Head name={it.name} side={side} />}
+        </span>
+      ))}
     </div>
   );
 }
@@ -172,19 +171,20 @@ const VP_CSS = `
 }
 .vp-opt-light{ color:#FDFFED; }
 
-/* Cabeças dos votantes — distribuídas ao longo do topo da caixa (não empilhadas).
-   A faixa cobre exatamente a largura da caixa; cada cabeça tem seu próprio slot
-   em X e um leve offset em Y. A base encosta na borda superior da caixa (top da
-   faixa em 8%, altura 15cqh → base ~23% = topo das caixas), a maior parte fica
-   para fora, dando o efeito de "surgir da caixa". */
-.vp-heads{ position:absolute; top:8%; height:15cqh; z-index:6; pointer-events:none; }
+/* Cabeças dos votantes — grupo COMPACTO de "adesivos" centrado sobre a caixa.
+   Linha flex (align-items:flex-end) com leve sobreposição lateral (margin
+   negativo). A base encosta na borda superior da caixa: a faixa vai até ~25%
+   (box top = 23%), sobrepondo ~2%, então a maior parte fica para fora. */
+.vp-heads{ position:absolute; top:11%; height:14cqh; display:flex; align-items:flex-end; justify-content:center; z-index:6; pointer-events:none; }
 .vp-heads-left{ left:8%; width:23%; }
 .vp-heads-right{ left:69%; width:23%; }
-.vp-head-slot{ position:absolute; bottom:0; transform:translateX(-50%); display:flex; align-items:flex-end; }
-.vp-head{ height:12cqh; width:auto; display:block; }
+.vp-head-slot{ display:flex; align-items:flex-end; flex:0 0 auto; }
+.vp-head-slot + .vp-head-slot{ margin-left:-1.4cqw; }
+/* height fixo + width:auto → preserva o aspect ratio original de cada PNG. */
+.vp-head{ height:14cqh; width:auto; display:block; flex-shrink:0; }
 .vp-head-fallback, .vp-head-more{
-  height:12cqh; aspect-ratio:1; border-radius:50%; display:flex; align-items:center; justify-content:center;
-  background:#1a1a1a; color:#FDFFED; font-weight:700; font-size:5.4cqh; border:0.3cqh solid; flex-shrink:0; box-sizing:border-box;
+  height:14cqh; aspect-ratio:1; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  background:#1a1a1a; color:#FDFFED; font-weight:700; font-size:6cqh; border:0.28cqh solid; flex-shrink:0; box-sizing:border-box;
 }
 .vp-head-more{ background:#0A0A0A; border-color:rgba(253,255,237,0.4)!important; }
 
