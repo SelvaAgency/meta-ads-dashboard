@@ -35,15 +35,16 @@ function toSlug(name: string): string {
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
-// Contorno colorido que segue a silhueta do PNG (borda dinâmica por opção).
-// Offsets em cqw → a espessura acompanha o tamanho do slide (carrossel e prévia).
+// Contorno FINO que segue a silhueta do PNG (borda dinâmica por opção) + glow
+// bem sutil. Offsets em cqw → espessura acompanha o tamanho do slide.
 function outline(c: string): string {
-  const s = "0.55cqw", d = "0.4cqw";
+  const s = "0.18cqw", d = "0.13cqw";
   return [
     `drop-shadow(${s} 0 0 ${c})`, `drop-shadow(-${s} 0 0 ${c})`,
     `drop-shadow(0 ${s} 0 ${c})`, `drop-shadow(0 -${s} 0 ${c})`,
     `drop-shadow(${d} ${d} 0 ${c})`, `drop-shadow(-${d} ${d} 0 ${c})`,
     `drop-shadow(${d} -${d} 0 ${c})`, `drop-shadow(-${d} -${d} 0 ${c})`,
+    `drop-shadow(0 0 0.5cqw ${c}55)`,
   ].join(" ");
 }
 
@@ -61,14 +62,37 @@ function Head({ name, side }: { name: string; side: "left" | "right" }) {
   );
 }
 
+// Variação de altura por posição (cqh, para cima) — dá o ar "solto"/orgânico.
+const HEAD_JITTER = [1.7, 0, 2.6, 0.7, 1.3];
+const MAX_HEADS = 4;
+
 function VoterHeads({ voters, count, side }: { voters: Voter[]; count: number; side: "left" | "right" }) {
   if (!count) return null;
-  const shown = voters.slice(0, 5);
+  const color = side === "left" ? PINK : BLUE;
+  const shown = voters.slice(0, MAX_HEADS);
   const extra = count - shown.length;
+  // Cabeças + (eventual) chip "+N" tratados como itens a distribuir em slots.
+  const items = [
+    ...shown.map((v) => ({ name: v.name, more: 0 })),
+    ...(extra > 0 ? [{ name: "", more: extra }] : []),
+  ];
+  const n = items.length;
+
   return (
     <div className={`vp-heads vp-heads-${side}`}>
-      {shown.map((v, i) => <Head key={i} name={v.name} side={side} />)}
-      {extra > 0 && <span className="vp-head-more" style={{ borderColor: side === "left" ? PINK : BLUE }}>+{extra}</span>}
+      {items.map((it, i) => {
+        // Slot distribuído ao longo da largura útil da caixa (12%–88%).
+        const t = n === 1 ? 0.5 : i / (n - 1);
+        const x = 12 + t * 76;
+        const y = HEAD_JITTER[i % HEAD_JITTER.length];
+        return (
+          <span key={i} className="vp-head-slot" style={{ left: `${x}%`, bottom: `${y}cqh` }}>
+            {it.more > 0
+              ? <span className="vp-head-more" style={{ borderColor: color }}>+{it.more}</span>
+              : <Head name={it.name} side={side} />}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -148,15 +172,19 @@ const VP_CSS = `
 }
 .vp-opt-light{ color:#FDFFED; }
 
-/* Cabeças dos votantes — sobre a borda superior de cada caixa. */
-.vp-heads{ position:absolute; top:23%; height:16cqh; transform:translate(-50%,-50%); display:flex; align-items:flex-end; z-index:6; pointer-events:none; }
-.vp-heads-left{ left:19.5%; }
-.vp-heads-right{ left:80.5%; }
-.vp-heads > * + *{ margin-left:-2.4cqw; }
-.vp-head{ height:100%; width:auto; display:block; }
+/* Cabeças dos votantes — distribuídas ao longo do topo da caixa (não empilhadas).
+   A faixa cobre exatamente a largura da caixa; cada cabeça tem seu próprio slot
+   em X e um leve offset em Y. A base encosta na borda superior da caixa (top da
+   faixa em 8%, altura 15cqh → base ~23% = topo das caixas), a maior parte fica
+   para fora, dando o efeito de "surgir da caixa". */
+.vp-heads{ position:absolute; top:8%; height:15cqh; z-index:6; pointer-events:none; }
+.vp-heads-left{ left:8%; width:23%; }
+.vp-heads-right{ left:69%; width:23%; }
+.vp-head-slot{ position:absolute; bottom:0; transform:translateX(-50%); display:flex; align-items:flex-end; }
+.vp-head{ height:12cqh; width:auto; display:block; }
 .vp-head-fallback, .vp-head-more{
-  height:100%; aspect-ratio:1; border-radius:50%; display:flex; align-items:center; justify-content:center;
-  background:#1a1a1a; color:#FDFFED; font-weight:700; font-size:6cqh; border:1cqh solid; flex-shrink:0; box-sizing:border-box;
+  height:12cqh; aspect-ratio:1; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  background:#1a1a1a; color:#FDFFED; font-weight:700; font-size:5.4cqh; border:0.3cqh solid; flex-shrink:0; box-sizing:border-box;
 }
 .vp-head-more{ background:#0A0A0A; border-color:rgba(253,255,237,0.4)!important; }
 
