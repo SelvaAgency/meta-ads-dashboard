@@ -36,12 +36,14 @@ function toSlug(name: string): string {
 }
 
 // Contorno colorido que segue a silhueta do PNG (borda dinâmica por opção).
+// Offsets em cqw → a espessura acompanha o tamanho do slide (carrossel e prévia).
 function outline(c: string): string {
+  const s = "0.55cqw", d = "0.4cqw";
   return [
-    `drop-shadow(1.5px 0 0 ${c})`, `drop-shadow(-1.5px 0 0 ${c})`,
-    `drop-shadow(0 1.5px 0 ${c})`, `drop-shadow(0 -1.5px 0 ${c})`,
-    `drop-shadow(1.1px 1.1px 0 ${c})`, `drop-shadow(-1.1px 1.1px 0 ${c})`,
-    `drop-shadow(1.1px -1.1px 0 ${c})`, `drop-shadow(-1.1px -1.1px 0 ${c})`,
+    `drop-shadow(${s} 0 0 ${c})`, `drop-shadow(-${s} 0 0 ${c})`,
+    `drop-shadow(0 ${s} 0 ${c})`, `drop-shadow(0 -${s} 0 ${c})`,
+    `drop-shadow(${d} ${d} 0 ${c})`, `drop-shadow(-${d} ${d} 0 ${c})`,
+    `drop-shadow(${d} -${d} 0 ${c})`, `drop-shadow(-${d} -${d} 0 ${c})`,
   ].join(" ");
 }
 
@@ -154,7 +156,7 @@ const VP_CSS = `
 .vp-head{ height:100%; width:auto; display:block; }
 .vp-head-fallback, .vp-head-more{
   height:100%; aspect-ratio:1; border-radius:50%; display:flex; align-items:center; justify-content:center;
-  background:#1a1a1a; color:#FDFFED; font-weight:700; font-size:6cqh; border:0.5cqh solid; flex-shrink:0; box-sizing:border-box;
+  background:#1a1a1a; color:#FDFFED; font-weight:700; font-size:6cqh; border:1cqh solid; flex-shrink:0; box-sizing:border-box;
 }
 .vp-head-more{ background:#0A0A0A; border-color:rgba(253,255,237,0.4)!important; }
 

@@ -10,10 +10,15 @@ Exemplos (Nome do sistema → arquivo):
   Wictor Melo         → wictor-melo.png
   Nathan Yoles        → nathan-yoles.png
   Guilherme Felberg   → guilherme-felberg.png
-  Bruna Orsi          → bruna-orsi.png
+  Bruna Anurb         → bruna-anurb.png
+  Elizabeth Andrade   → elizabeth-andrade.png
   Felipe Machado      → felipe-machado.png
   Rafael Affonso      → rafael-affonso.png
   Natalia Ritzmann    → natalia-ritzmann.png
+
+IMPORTANTE: o arquivo casa com o NOME COMPLETO cadastrado em Colaboradores.
+Se um head não aparecer, confira se o nome no sistema gera exatamente o slug
+do arquivo (ex.: o head "bruna-anurb.png" exige o nome "Bruna Anurb").
 
 Servidos de client/public/, ficam em: /selvatv/voters/<slug>.png
 
