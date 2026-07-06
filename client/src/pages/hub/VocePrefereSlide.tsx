@@ -38,13 +38,13 @@ function toSlug(name: string): string {
 // Contorno FINO que segue a silhueta do PNG (borda dinâmica por opção) + glow
 // mínimo. Offsets em cqw → espessura acompanha o tamanho do slide.
 function outline(c: string): string {
-  const s = "0.16cqw", d = "0.12cqw";
+  const s = "0.11cqw", d = "0.08cqw";
   return [
     `drop-shadow(${s} 0 0 ${c})`, `drop-shadow(-${s} 0 0 ${c})`,
     `drop-shadow(0 ${s} 0 ${c})`, `drop-shadow(0 -${s} 0 ${c})`,
     `drop-shadow(${d} ${d} 0 ${c})`, `drop-shadow(-${d} ${d} 0 ${c})`,
     `drop-shadow(${d} -${d} 0 ${c})`, `drop-shadow(-${d} -${d} 0 ${c})`,
-    `drop-shadow(0 0 0.3cqw ${c}40)`,
+    `drop-shadow(0 0 0.25cqw ${c}33)`,
   ].join(" ");
 }
 
@@ -62,36 +62,39 @@ function Head({ name, side }: { name: string; side: "left" | "right" }) {
   );
 }
 
-// Pequeno offset vertical por posição (cqh; negativo = mais alto) — dá o ar
-// orgânico de adesivos colados, sem virar linha reta nem pilha.
-const HEAD_JITTER = [-0.8, 0.5, -1.6, 0, -1.0];
 const MAX_HEADS = 4;
+// Slots de composição (x,y em % da ÁREA de composição da caixa — ver .vp-heads).
+// Espalham os rostos pela área ÚTIL (acima da safe zone do texto), sem pilha:
+// dois mais acima, dois mais abaixo, com leve overlap só de borda. O 5º slot
+// é usado pelo chip "+N". Voto único → rosto centralizado.
+const HEAD_SLOTS: Array<[number, number]> = [
+  [28, 30], [72, 26], [50, 62], [16, 68], [84, 60],
+];
 
 function VoterHeads({ voters, count, side }: { voters: Voter[]; count: number; side: "left" | "right" }) {
   if (!count) return null;
   const color = side === "left" ? PINK : BLUE;
   const shown = voters.slice(0, MAX_HEADS);
   const extra = count - shown.length;
-  // Cabeças + (eventual) chip "+N" como um grupo compacto (flex), centrado
-  // sobre a caixa, com leve sobreposição lateral entre os itens.
   const items = [
     ...shown.map((v) => ({ name: v.name, more: 0 })),
     ...(extra > 0 ? [{ name: "", more: extra }] : []),
   ];
+  const single = items.length === 1;
 
   return (
     <div className={`vp-heads vp-heads-${side}`}>
-      {items.map((it, i) => (
-        <span
-          key={i}
-          className="vp-head-slot"
-          style={{ transform: `translateY(${HEAD_JITTER[i % HEAD_JITTER.length]}cqh)`, zIndex: 10 - i }}
-        >
-          {it.more > 0
-            ? <span className="vp-head-more" style={{ borderColor: color }}>+{it.more}</span>
-            : <Head name={it.name} side={side} />}
-        </span>
-      ))}
+      {items.map((it, i) => {
+        const [x, y] = single ? [50, 46] : (HEAD_SLOTS[i] ?? HEAD_SLOTS[HEAD_SLOTS.length - 1]);
+        // Slots mais baixos (y maior) vêm à frente → profundidade natural.
+        return (
+          <span key={i} className="vp-head-slot" style={{ left: `${x}%`, top: `${y}%`, zIndex: Math.round(y) }}>
+            {it.more > 0
+              ? <span className="vp-head-more" style={{ borderColor: color }}>+{it.more}</span>
+              : <Head name={it.name} side={side} />}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -171,24 +174,27 @@ const VP_CSS = `
 }
 .vp-opt-light{ color:#FDFFED; }
 
-/* Cabeças dos votantes — grupo COMPACTO de "adesivos" centrado sobre a caixa.
-   Linha flex (align-items:flex-end) com leve sobreposição lateral (margin
-   negativo). A base encosta na borda superior da caixa: a faixa vai até ~25%
-   (box top = 23%), sobrepondo ~2%, então a maior parte fica para fora. */
-.vp-heads{ position:absolute; top:11%; height:14cqh; display:flex; align-items:flex-end; justify-content:center; z-index:6; pointer-events:none; }
-.vp-heads-left{ left:8%; width:23%; }
-.vp-heads-right{ left:69%; width:23%; }
-.vp-head-slot{ display:flex; align-items:flex-end; flex:0 0 auto; }
-.vp-head-slot + .vp-head-slot{ margin-left:-1.4cqw; }
+/* Cabeças dos votantes — ÁREA de composição dentro de cada caixa.
+   A área cobre o topo/meio da caixa; o terço inferior (safe zone do texto)
+   fica de fora, então nenhum rosto cobre a opção. Caixas: left 8–31% /
+   right 69–92%, vertical 23–87%. Área = miolo horizontal + de ~20% a ~62%
+   (deixa livre ~62–87%, onde está o texto). Rostos são posicionados por slots
+   absolutos (left/top) dentro dessa área, espalhados e sem empilhar. */
+.vp-heads{ position:absolute; top:20%; height:42%; z-index:6; pointer-events:none; }
+.vp-heads-left{ left:9%; width:21%; }
+.vp-heads-right{ left:70%; width:21%; }
+.vp-head-slot{ position:absolute; transform:translate(-50%,-50%); display:flex; align-items:flex-end; }
 /* height fixo + width:auto → preserva o aspect ratio original de cada PNG. */
-.vp-head{ height:14cqh; width:auto; display:block; flex-shrink:0; }
+.vp-head{ height:18cqh; width:auto; display:block; }
 .vp-head-fallback, .vp-head-more{
-  height:14cqh; aspect-ratio:1; border-radius:50%; display:flex; align-items:center; justify-content:center;
-  background:#1a1a1a; color:#FDFFED; font-weight:700; font-size:6cqh; border:0.28cqh solid; flex-shrink:0; box-sizing:border-box;
+  height:18cqh; aspect-ratio:1; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  background:#1a1a1a; color:#FDFFED; font-weight:700; font-size:7.5cqh; border:0.22cqh solid; flex-shrink:0; box-sizing:border-box;
 }
 .vp-head-more{ background:#0A0A0A; border-color:rgba(253,255,237,0.4)!important; }
 
-.vp-face-wrap{ position:absolute; left:50%; bottom:5%; height:56%; transform:translateX(-50%); z-index:4; pointer-events:none; }
+/* Giu centralizada no eixo vertical das caixas: caixas 23%→87% (centro 55%);
+   altura 56% → bottom 17% deixa o centro da Giu em 55%. */
+.vp-face-wrap{ position:absolute; left:50%; bottom:17%; height:56%; transform:translateX(-50%); z-index:4; pointer-events:none; }
 .vp-face{ height:100%; width:auto; display:block; transform-origin:center; transition:none; }
 @media (prefers-reduced-motion: reduce){ .vp-face{ transition:none; } }
 `;
