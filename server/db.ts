@@ -2234,3 +2234,227 @@ export async function financeReconciliacaoAcumulado() {
   const totalRetiradas = retirs.reduce((s, r) => s + r.v, 0);
   return { totalDespesasCents: totalDespesas, totalRetiradasCents: totalRetiradas, diferencaCents: totalDespesas - totalRetiradas };
 }
+
+// ─── Financeiro v3: analytics (cálculo/leitura; sem schema novo) ──────────────
+function addMonthsSrv(ymd: string, delta: number): string {
+  const [y, m] = ymd.split("-").map(Number);
+  const idx = y * 12 + (m - 1) + delta;
+  return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, "0")}`;
+}
+function monthsBetween(a: string, b: string): number {
+  const [ay, am] = a.split("-").map(Number);
+  const [by, bm] = b.split("-").map(Number);
+  return (by * 12 + bm) - (ay * 12 + am);
+}
+// Mês corrente no fuso da agência (Brasil) — sem toISOString.
+function agencyCurrentMonth(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit" }).format(new Date());
+}
+const RECEITA_TIPOS = or(eq(financePnlEntries.tipo, "RECEITA_RECORRENTE"), eq(financePnlEntries.tipo, "RECEITA_PONTUAL"));
+const DESPESA_TIPOS = or(eq(financePnlEntries.tipo, "DESPESA_RECORRENTE"), eq(financePnlEntries.tipo, "DESPESA_IMPOSTO"), eq(financePnlEntries.tipo, "DESPESA_PONTUAL"));
+
+/** Resumo agregado de um PERÍODO (soma dos meses [from,to]). */
+export async function financePeriodoResumo(mesFrom: string, mesTo: string) {
+  const db = await getDb();
+  const empty = { receitaTotalCents: 0, despesaTotalCents: 0, resultadoFinalCents: 0, aporteCents: 0, totalPendenteCents: 0, receitaRecorrenteCents: 0, receitaPontualCents: 0 };
+  if (!db) return empty;
+  const rows = await db.select().from(financePnlEntries).where(and(gte(financePnlEntries.mes, mesFrom), lte(financePnlEntries.mes, mesTo)));
+  let receita = 0, despesa = 0, aporte = 0, pendente = 0, rec = 0, pon = 0;
+  for (const r of rows) {
+    if (r.tipo === "RECEITA_RECORRENTE") { receita += r.valorCents; rec += r.valorCents; }
+    else if (r.tipo === "RECEITA_PONTUAL") { receita += r.valorCents; pon += r.valorCents; }
+    else if (r.tipo === "DESPESA_RECORRENTE" || r.tipo === "DESPESA_IMPOSTO" || r.tipo === "DESPESA_PONTUAL") despesa += r.valorCents;
+    else if (r.tipo === "APORTE") aporte += r.valorCents;
+    if (r.status === "pendente") pendente += r.valorCents;
+  }
+  return { receitaTotalCents: receita, despesaTotalCents: despesa, resultadoFinalCents: receita - despesa, aporteCents: aporte, totalPendenteCents: pendente, receitaRecorrenteCents: rec, receitaPontualCents: pon };
+}
+
+/** MRR do mês de referência + movimento (novos/expansão/contração/churn) + série 12m. */
+export async function financeMrr(mesRef: string) {
+  const db = await getDb();
+  if (!db) return { mesRef, mrrCents: 0, mrrPrevCents: 0, deltaCents: 0, novosCents: 0, expansaoCents: 0, contracaoCents: 0, churnCents: 0, serie: [] as { mes: string; mrrCents: number }[] };
+  const rows = await db.select().from(financePnlEntries).where(eq(financePnlEntries.tipo, "RECEITA_RECORRENTE"));
+  const monthTotal = new Map<string, number>();
+  const monthCliente = new Map<string, Map<string | number, number>>();
+  for (const r of rows) {
+    monthTotal.set(r.mes, (monthTotal.get(r.mes) ?? 0) + r.valorCents);
+    if (!monthCliente.has(r.mes)) monthCliente.set(r.mes, new Map());
+    const key: string | number = r.clienteId ?? "sem";
+    const m = monthCliente.get(r.mes)!;
+    m.set(key, (m.get(key) ?? 0) + r.valorCents);
+  }
+  const prev = addMonthsSrv(mesRef, -1);
+  const cur = monthCliente.get(mesRef) ?? new Map<string | number, number>();
+  const pre = monthCliente.get(prev) ?? new Map<string | number, number>();
+  let novos = 0, churn = 0, expansao = 0, contracao = 0;
+  const keys = new Set<string | number>();
+  cur.forEach((_v, k) => keys.add(k));
+  pre.forEach((_v, k) => keys.add(k));
+  keys.forEach((k) => {
+    const a = pre.get(k) ?? 0, b = cur.get(k) ?? 0;
+    if (a === 0 && b > 0) novos += b;
+    else if (a > 0 && b === 0) churn += a;
+    else if (b > a) expansao += b - a;
+    else if (b < a) contracao += a - b;
+  });
+  const serie: { mes: string; mrrCents: number }[] = [];
+  for (let i = 11; i >= 0; i--) { const mm = addMonthsSrv(mesRef, -i); serie.push({ mes: mm, mrrCents: monthTotal.get(mm) ?? 0 }); }
+  const mrr = monthTotal.get(mesRef) ?? 0, mrrPrev = monthTotal.get(prev) ?? 0;
+  return { mesRef, mrrCents: mrr, mrrPrevCents: mrrPrev, deltaCents: mrr - mrrPrev, novosCents: novos, expansaoCents: expansao, contracaoCents: contracao, churnCents: churn, serie };
+}
+
+/** Churn / retenção de clientes (recorrente). Ref = último mês com receita. */
+export async function financeChurn(f: { mesFrom?: string; mesTo?: string; limitMonths?: number } = {}) {
+  const db = await getDb();
+  const empty = { mesReferencia: "", ativos: 0, churnedCount: 0, mrrPerdidoLifetimeCents: 0, periodoPerdidoCents: 0, taxa: 0, mesIncompleto: false, serie: [] as { mes: string; mrrPerdidoCents: number }[], churned: [] as { clienteId: number | null; nome: string; cor: string | null; ultimoMes: string; valorMensalCents: number; mesesDesde: number }[] };
+  if (!db) return empty;
+  const [recRows, clientes] = await Promise.all([
+    db.select().from(financePnlEntries).where(RECEITA_TIPOS),
+    db.select().from(financeClientes),
+  ]);
+  if (recRows.length === 0) return empty;
+  const cmap = new Map(clientes.map((c) => [c.id, c]));
+  const refMonth = recRows.reduce((mx, r) => (r.mes > mx ? r.mes : mx), "0000-00");
+  const recorrente = recRows.filter((r) => r.tipo === "RECEITA_RECORRENTE");
+  const byCliente = new Map<string | number, { months: Set<string>; valorByMonth: Map<string, number> }>();
+  const recCountByMonth = new Map<string, number>();
+  const monthClienteValue = new Map<string, Map<string | number, number>>(); // mes -> (cliente -> valor recorrente)
+  for (const r of recorrente) {
+    recCountByMonth.set(r.mes, (recCountByMonth.get(r.mes) ?? 0) + 1);
+    const key: string | number = r.clienteId ?? "sem";
+    if (!byCliente.has(key)) byCliente.set(key, { months: new Set(), valorByMonth: new Map() });
+    const e = byCliente.get(key)!;
+    e.months.add(r.mes);
+    e.valorByMonth.set(r.mes, (e.valorByMonth.get(r.mes) ?? 0) + r.valorCents);
+    if (!monthClienteValue.has(r.mes)) monthClienteValue.set(r.mes, new Map());
+    const mv = monthClienteValue.get(r.mes)!;
+    mv.set(key, (mv.get(key) ?? 0) + r.valorCents);
+  }
+  let ativos = 0;
+  const churned: typeof empty.churned = [];
+  byCliente.forEach((e, key) => {
+    if (e.months.has(refMonth)) { ativos++; return; }
+    const last = Array.from(e.months).sort().pop()!;
+    const nome = typeof key === "number" ? (cmap.get(key)?.nome ?? `Cliente #${key}`) : "Sem cliente";
+    const cor = typeof key === "number" ? (cmap.get(key)?.cor ?? null) : null;
+    churned.push({ clienteId: typeof key === "number" ? key : null, nome, cor, ultimoMes: last, valorMensalCents: e.valorByMonth.get(last) ?? 0, mesesDesde: monthsBetween(last, refMonth) });
+  });
+  churned.sort((a, b) => b.valorMensalCents - a.valorMensalCents);
+  const mrrPerdidoLifetime = churned.reduce((s, c) => s + c.valorMensalCents, 0);
+  const total = ativos + churned.length;
+  // Churn POR MÊS: cliente presente em (m-1) e ausente em m → perdeu o valor de (m-1) no mês m.
+  const churnByMonth = new Map<string, number>();
+  monthClienteValue.forEach((baseP, prev) => {
+    const m = addMonthsSrv(prev, 1);
+    const baseM = monthClienteValue.get(m) ?? new Map<string | number, number>();
+    let lost = 0;
+    baseP.forEach((v, k) => { if (!((baseM.get(k) ?? 0) > 0)) lost += v; });
+    if (lost > 0) churnByMonth.set(m, (churnByMonth.get(m) ?? 0) + lost);
+  });
+  const N = f.limitMonths ?? 12;
+  const serie: { mes: string; mrrPerdidoCents: number }[] = [];
+  for (let i = N - 1; i >= 0; i--) { const mm = addMonthsSrv(refMonth, -i); serie.push({ mes: mm, mrrPerdidoCents: churnByMonth.get(mm) ?? 0 }); }
+  let periodoPerdido = 0;
+  if (f.mesFrom && f.mesTo) churnByMonth.forEach((v, m) => { if (m >= f.mesFrom! && m <= f.mesTo!) periodoPerdido += v; });
+  else periodoPerdido = serie.reduce((s, x) => s + x.mrrPerdidoCents, 0);
+  // Mês possivelmente incompleto: nº de recorrentes no ref < 60% da média dos anteriores.
+  const counts = Array.from(recCountByMonth.entries()).filter(([m]) => m < refMonth).map(([, n]) => n);
+  const avg = counts.length ? counts.reduce((s, n) => s + n, 0) / counts.length : 0;
+  const mesIncompleto = avg > 0 && (recCountByMonth.get(refMonth) ?? 0) < avg * 0.6;
+  return { mesReferencia: refMonth, ativos, churnedCount: churned.length, mrrPerdidoLifetimeCents: mrrPerdidoLifetime, periodoPerdidoCents: periodoPerdido, taxa: total > 0 ? churned.length / total : 0, mesIncompleto, serie, churned };
+}
+
+/** Qualidade por cliente: tempo de casa + rendimento + status (ativo/churned/pontual). */
+export async function financeQualidadeClientes(f: { mesFrom?: string; mesTo?: string } = {}) {
+  const db = await getDb();
+  const empty = { refMonth: "", summary: { ativos: 0, churned: 0, pontual: 0 }, rows: [] as { clienteId: number | null; nome: string; cor: string | null; mesesAtivos: number; totalCents: number; mediaCents: number; primeiroMes: string; ultimoMes: string; status: "ativo" | "churned" | "pontual" }[] };
+  if (!db) return empty;
+  const [receita, clientes] = await Promise.all([
+    db.select().from(financePnlEntries).where(RECEITA_TIPOS),
+    db.select().from(financeClientes),
+  ]);
+  if (receita.length === 0) return empty;
+  const cmap = new Map(clientes.map((c) => [c.id, c]));
+  const refMonth = receita.reduce((mx, r) => (r.mes > mx ? r.mes : mx), "0000-00");
+  // Histórico GLOBAL de recorrente (para status, independe do período).
+  const recorrenteMonths = new Map<string | number, Set<string>>();
+  for (const r of receita) if (r.tipo === "RECEITA_RECORRENTE") { const k: string | number = r.clienteId ?? "sem"; if (!recorrenteMonths.has(k)) recorrenteMonths.set(k, new Set()); recorrenteMonths.get(k)!.add(r.mes); }
+  const statusOf = (k: string | number): "ativo" | "churned" | "pontual" => {
+    const rm = recorrenteMonths.get(k);
+    if (!rm || rm.size === 0) return "pontual";
+    return rm.has(refMonth) ? "ativo" : "churned";
+  };
+  // Métricas (respeitam o filtro de período, se houver).
+  const inRange = (m: string) => (!f.mesFrom || m >= f.mesFrom) && (!f.mesTo || m <= f.mesTo);
+  const metrics = new Map<string | number, { months: Set<string>; total: number; primeiro: string; ultimo: string }>();
+  for (const r of receita) {
+    if (!inRange(r.mes)) continue;
+    const k: string | number = r.clienteId ?? "sem";
+    if (!metrics.has(k)) metrics.set(k, { months: new Set(), total: 0, primeiro: r.mes, ultimo: r.mes });
+    const e = metrics.get(k)!;
+    e.months.add(r.mes); e.total += r.valorCents;
+    if (r.mes < e.primeiro) e.primeiro = r.mes;
+    if (r.mes > e.ultimo) e.ultimo = r.mes;
+  }
+  const rows = Array.from(metrics.entries()).map(([k, e]) => {
+    const c = typeof k === "number" ? cmap.get(k) : undefined;
+    const meses = e.months.size;
+    return { clienteId: typeof k === "number" ? k : null, nome: c?.nome ?? "Sem cliente", cor: c?.cor ?? null, mesesAtivos: meses, totalCents: e.total, mediaCents: Math.round(e.total / Math.max(1, meses)), primeiroMes: e.primeiro, ultimoMes: e.ultimo, status: statusOf(k) };
+  }).sort((a, b) => b.mediaCents - a.mediaCents);
+  return { refMonth, summary: { ativos: rows.filter((r) => r.status === "ativo").length, churned: rows.filter((r) => r.status === "churned").length, pontual: rows.filter((r) => r.status === "pontual").length }, rows };
+}
+
+/** Contas a receber / aging: RECEITA pendente por idade (vs mês corrente real). */
+export async function financeAReceber() {
+  const db = await getDb();
+  const mesCorrente = agencyCurrentMonth();
+  const empty = { mesCorrente, totalPendenteCents: 0, totalVencidoCents: 0, buckets: { corrente: 0, m1: 0, m2: 0, m3plus: 0 }, itens: [] as { clienteNome: string; cor: string | null; descricao: string; mes: string; valorCents: number; idade: number }[] };
+  if (!db) return empty;
+  const [rows, clientes] = await Promise.all([
+    db.select().from(financePnlEntries).where(and(RECEITA_TIPOS, eq(financePnlEntries.status, "pendente"))),
+    db.select().from(financeClientes),
+  ]);
+  const cmap = new Map(clientes.map((c) => [c.id, c]));
+  const buckets = { corrente: 0, m1: 0, m2: 0, m3plus: 0 };
+  const itens = rows.map((r) => {
+    const idade = monthsBetween(r.mes, mesCorrente);
+    if (idade <= 0) buckets.corrente += r.valorCents;
+    else if (idade === 1) buckets.m1 += r.valorCents;
+    else if (idade === 2) buckets.m2 += r.valorCents;
+    else buckets.m3plus += r.valorCents;
+    const c = r.clienteId ? cmap.get(r.clienteId) : undefined;
+    return { clienteNome: c?.nome ?? "—", cor: c?.cor ?? null, descricao: r.descricao, mes: r.mes, valorCents: r.valorCents, idade };
+  }).sort((a, b) => b.idade - a.idade || b.valorCents - a.valorCents);
+  const totalPendente = rows.reduce((s, r) => s + r.valorCents, 0);
+  return { mesCorrente, totalPendenteCents: totalPendente, totalVencidoCents: buckets.m1 + buckets.m2 + buckets.m3plus, buckets, itens };
+}
+
+/** Despesa por categoria: série (últimos N meses) + totais do período. */
+export async function financeDespesaCategoria(f: { mesFrom?: string; mesTo?: string; limitMonths?: number } = {}) {
+  const db = await getDb();
+  if (!db) return { serie: [] as { mes: string; recorrenteCents: number; impostoCents: number; pontualCents: number }[], periodo: null as null | { recorrenteCents: number; impostoCents: number; pontualCents: number; totalCents: number } };
+  const rows = await db.select().from(financePnlEntries).where(DESPESA_TIPOS);
+  const months = Array.from(new Set(rows.map((r) => r.mes))).sort().slice(-(f.limitMonths ?? 12));
+  const byMes = new Map<string, { mes: string; recorrenteCents: number; impostoCents: number; pontualCents: number }>();
+  for (const m of months) byMes.set(m, { mes: m, recorrenteCents: 0, impostoCents: 0, pontualCents: 0 });
+  for (const r of rows) {
+    const b = byMes.get(r.mes);
+    if (!b) continue;
+    if (r.tipo === "DESPESA_RECORRENTE") b.recorrenteCents += r.valorCents;
+    else if (r.tipo === "DESPESA_IMPOSTO") b.impostoCents += r.valorCents;
+    else b.pontualCents += r.valorCents;
+  }
+  let periodo = null as null | { recorrenteCents: number; impostoCents: number; pontualCents: number; totalCents: number };
+  if (f.mesFrom && f.mesTo) {
+    let rec = 0, imp = 0, pon = 0;
+    for (const r of rows) {
+      if (r.mes < f.mesFrom || r.mes > f.mesTo) continue;
+      if (r.tipo === "DESPESA_RECORRENTE") rec += r.valorCents;
+      else if (r.tipo === "DESPESA_IMPOSTO") imp += r.valorCents;
+      else pon += r.valorCents;
+    }
+    periodo = { recorrenteCents: rec, impostoCents: imp, pontualCents: pon, totalCents: rec + imp + pon };
+  }
+  return { serie: months.map((m) => byMes.get(m)!), periodo };
+}

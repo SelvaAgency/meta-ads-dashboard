@@ -240,6 +240,12 @@ import {
   financePnlTrend,
   financeReceitaPorCliente,
   financeReconciliacaoAcumulado,
+  financePeriodoResumo,
+  financeMrr,
+  financeChurn,
+  financeQualidadeClientes,
+  financeAReceber,
+  financeDespesaCategoria,
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
@@ -615,6 +621,16 @@ const financeRouter = router({
   reconciliacao: router({
     get: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => financeReconciliacao(input.mes)),
     acumulado: adminProcedure.query(() => financeReconciliacaoAcumulado()),
+  }),
+
+  // Analytics v3 (só leitura/cálculo sobre as tabelas existentes).
+  analytics: router({
+    periodoResumo: adminProcedure.input(z.object({ mesFrom: MES, mesTo: MES })).query(({ input }) => financePeriodoResumo(input.mesFrom, input.mesTo)),
+    mrr: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => financeMrr(input.mes)),
+    churn: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional(), limitMonths: z.number().int().min(1).max(36).optional() }).optional()).query(({ input }) => financeChurn(input ?? {})),
+    qualidadeClientes: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional() }).optional()).query(({ input }) => financeQualidadeClientes(input ?? {})),
+    aReceber: adminProcedure.query(() => financeAReceber()),
+    despesaPorCategoria: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional(), limitMonths: z.number().int().min(1).max(36).optional() }).optional()).query(({ input }) => financeDespesaCategoria(input ?? {})),
   }),
 });
 

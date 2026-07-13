@@ -22,6 +22,9 @@ async function expectBlocked(label: string, role: "user" | "developer" | null): 
   for (const [name, call] of [
     ["finance.pnl.list", () => caller.finance.pnl.list(undefined)],
     ["finance.clientes.list", () => caller.finance.clientes.list()],
+    ["finance.analytics.churn", () => caller.finance.analytics.churn()],
+    ["finance.analytics.aReceber", () => caller.finance.analytics.aReceber()],
+    ["finance.analytics.qualidadeClientes", () => caller.finance.analytics.qualidadeClientes(undefined)],
   ] as const) {
     try {
       await call();
