@@ -15,6 +15,8 @@ import {
   type InsertAccessItem,
   accessAuditLogs,
   type InsertAccessAuditLog,
+  userAuditLogs,
+  type InsertUserAuditLog,
   appSettings,
   selvatvPollVotes,
   aiSuggestions,
@@ -70,36 +72,53 @@ export async function getDb() {
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) throw new Error("User openId is required for upsert");
+// ⚠️ NÃO reintroduzir um upsert genérico de usuários. Login/seed/migração NUNCA
+// podem sobrescrever role/perfil de usuário existente — a tabela `users` é a
+// fonte da verdade. Use createUserFromOAuth (criar) e touchExistingUserLogin
+// (login de existente = só lastSignedIn). Alteração de perfil só via people.update.
+
+/** PRIMEIRO acesso (OAuth/login): cria com campos MÍNIMOS + role inicial seguro. */
+export async function createUserFromOAuth(data: {
+  openId: string; email?: string | null; name?: string | null;
+  role?: "user" | "admin" | "developer"; loginMethod?: string;
+}): Promise<void> {
+  if (!data.openId) throw new Error("openId é obrigatório");
   const db = await getDb();
   if (!db) return;
+  await db.insert(users).values({
+    openId: data.openId,
+    email: data.email ?? null,
+    name: data.name ?? null,
+    role: data.role ?? "user",
+    loginMethod: data.loginMethod ?? "email",
+    lastSignedIn: new Date(),
+  });
+}
 
-  const values: InsertUser = { openId: user.openId };
-  const updateSet: Record<string, unknown> = {};
+/**
+ * Login de usuário JÁ existente. Não sobrescrever role ou perfil de usuário
+ * existente no login. A tabela users é a fonte da verdade — só toca lastSignedIn.
+ */
+export async function touchExistingUserLogin(openId: string): Promise<void> {
+  if (!openId) return;
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.openId, openId));
+}
 
-  const textFields = ["name", "email", "loginMethod"] as const;
-  for (const field of textFields) {
-    const value = user[field];
-    if (value === undefined) continue;
-    const normalized = value ?? null;
-    values[field] = normalized;
-    updateSet[field] = normalized;
-  }
+/** Nº de admins ATIVOS — usado para proteger o último administrador. */
+export async function countActiveAdmins(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db.select({ id: users.id }).from(users).where(and(eq(users.role, "admin"), eq(users.active, true)));
+  return rows.length;
+}
 
-  if (user.lastSignedIn !== undefined) {
-    values.lastSignedIn = user.lastSignedIn;
-    updateSet.lastSignedIn = user.lastSignedIn;
-  }
-  if (user.role !== undefined) {
-    values.role = user.role;
-    updateSet.role = user.role;
-  }
-
-  if (!values.lastSignedIn) values.lastSignedIn = new Date();
-  if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
-
-  await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
+/** Auditoria de usuário (role/status/perfil). Nunca guarda senha/segredos. */
+export async function createUserAudit(data: InsertUserAuditLog): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(userAuditLogs).values(data);
 }
 
 export async function getUserByOpenId(openId: string) {

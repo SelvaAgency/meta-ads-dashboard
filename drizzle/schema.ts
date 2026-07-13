@@ -142,6 +142,21 @@ export const accessAuditLogs = mysqlTable("access_audit_logs", {
 });
 export type InsertAccessAuditLog = typeof accessAuditLogs.$inferInsert;
 
+// ─── Auditoria de USUÁRIOS (role/status/perfil) ───────────────────────────────
+// Fonte de verdade para "quem mudou o quê" em colaboradores. NUNCA guarda senha,
+// hash, tokens ou segredos — só nomes de campo e valores não sensíveis.
+export const userAuditLogs = mysqlTable("user_audit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  actorUserId: int("actorUserId").notNull(),   // quem fez a alteração
+  targetUserId: int("targetUserId").notNull(), // usuário afetado
+  action: varchar("action", { length: 40 }).notNull(), // role_changed | user_deactivated | user_reactivated | profile_updated
+  previousValue: varchar("previousValue", { length: 255 }),
+  newValue: varchar("newValue", { length: 255 }),
+  metadataJson: json("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type InsertUserAuditLog = typeof userAuditLogs.$inferInsert;
+
 // ─── Configurações simples (key-value) — ex.: slide "Você prefere?" da SELVA TV ─
 export const appSettings = mysqlTable("app_settings", {
   settingKey: varchar("settingKey", { length: 191 }).primaryKey(),

@@ -208,6 +208,22 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela selvatv_poll_votes garantida");
 
+    // 9) Auditoria de usuários (role/status/perfil). Só cria a tabela — NUNCA
+    //    lê/altera dados de usuários existentes.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`user_audit_logs\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`actorUserId\` INT NOT NULL,
+        \`targetUserId\` INT NOT NULL,
+        \`action\` VARCHAR(40) NOT NULL,
+        \`previousValue\` VARCHAR(255) NULL,
+        \`newValue\` VARCHAR(255) NULL,
+        \`metadataJson\` JSON NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabela user_audit_logs garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

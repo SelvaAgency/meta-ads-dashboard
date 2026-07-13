@@ -84,7 +84,8 @@ class SDKServer {
       throw ForbiddenError("User not found");
     }
 
-    await db.upsertUser({ openId: user.openId, lastSignedIn: new Date() });
+    // Sessão válida → só registra o último acesso; NUNCA toca role/perfil.
+    await db.touchExistingUserLogin(user.openId);
     return user;
   }
 }

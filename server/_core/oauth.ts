@@ -194,15 +194,14 @@ export function registerOAuthRoutes(app: Express) {
       name = existing.name ?? name;
     }
 
-    // Só popular name/role no PRIMEIRO acesso (create). Para usuário JÁ existente,
-    // o login apenas bumpa lastSignedIn — nunca sobrescreve role/nome/email, então
-    // mudanças feitas em Colaboradores permanecem após logout/login e deploy.
-    await db.upsertUser({
-      openId,
-      loginMethod: "email",
-      lastSignedIn: new Date(),
-      ...(existing ? {} : { email, name, role }),
-    });
+    // Não sobrescrever role ou perfil de usuário existente no login. A tabela
+    // users é a fonte da verdade: existente → só bumpa lastSignedIn; novo → cria
+    // com dados mínimos + role inicial seguro.
+    if (existing) {
+      await db.touchExistingUserLogin(openId);
+    } else {
+      await db.createUserFromOAuth({ openId, email, name, role, loginMethod: "email" });
+    }
 
     const sessionToken = await sdk.createSessionToken(openId, {
       name,

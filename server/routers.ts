@@ -53,6 +53,8 @@ import {
   getAllUsers,
   getUserById,
   getUserByOpenId,
+  countActiveAdmins,
+  createUserAudit,
   createEmployee,
   updateUserFields,
   setUserPassword,
@@ -639,23 +641,44 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const { id, ...patch } = input;
+
+        // Fonte da verdade + base para guardas e auditoria.
+        const before = await getUserById(id);
+        if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+
         // Um admin não pode se auto-rebaixar nem se desativar (evita lockout).
-        if (id === ctx.user.id && (patch.role && patch.role !== "admin" || patch.active === false)) {
+        if (id === ctx.user.id && ((patch.role && patch.role !== "admin") || patch.active === false)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Você não pode alterar a própria permissão/status." });
         }
+
+        // Proteção do ÚLTIMO admin: não permitir rebaixar ou desativar o último
+        // administrador ativo do sistema.
+        const removesAdmin =
+          before.role === "admin" && before.active !== false &&
+          ((patch.role !== undefined && patch.role !== "admin") || patch.active === false);
+        if (removesAdmin && (await countActiveAdmins()) <= 1) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Não é possível remover o último administrador ativo." });
+        }
+
         if (patch.email) {
-          const existing = await getUserByOpenId(patch.email.toLowerCase());
-          if (existing && existing.id !== id) {
+          const existingEmail = await getUserByOpenId(patch.email.toLowerCase());
+          if (existingEmail && existingEmail.id !== id) {
             throw new TRPCError({ code: "CONFLICT", message: "E-mail já usado por outro colaborador." });
           }
         }
-        // Auditoria de mudança de role (quem alterou, alvo, antes → depois).
-        const before = patch.role ? await getUserById(id) : undefined;
+
         const updated = await updateUserFields(id, patch);
         if (!updated) throw new TRPCError({ code: "NOT_FOUND" });
-        if (patch.role && before && before.role !== patch.role) {
-          console.log(`[audit][role] user#${id} (${updated.email ?? "?"}) ${before.role} → ${patch.role} por user#${ctx.user.id} (${ctx.user.email ?? "?"}) em ${new Date().toISOString()}`);
-        }
+
+        // Auditoria PERSISTENTE (user_audit_logs) — nunca senha/hash/segredos.
+        const audit = (action: string, previousValue?: string | null, newValue?: string | null, metadataJson?: unknown) =>
+          createUserAudit({ actorUserId: ctx.user.id, targetUserId: id, action, previousValue: previousValue ?? null, newValue: newValue ?? null, metadataJson: metadataJson ?? null });
+        if (patch.role && before.role !== patch.role) await audit("role_changed", before.role, patch.role);
+        if (patch.active === false && before.active !== false) await audit("user_deactivated", "active", "inactive");
+        else if (patch.active === true && before.active === false) await audit("user_reactivated", "inactive", "active");
+        const profileFields = (["name", "email", "jobTitle", "birthdayDay", "birthdayMonth"] as const).filter((f) => patch[f] !== undefined);
+        if (profileFields.length > 0) await audit("profile_updated", null, null, { fields: profileFields });
+
         const { passwordHash: _omit, ...safe } = updated;
         return safe;
       }),

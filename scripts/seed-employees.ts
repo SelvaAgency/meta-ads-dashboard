@@ -8,11 +8,17 @@
  *
  *  Uso:
  *    npm run seed:employees
- *        Cria quem não existe; imprime senha só dos novos. NÃO reseta senhas.
+ *        Cria quem não existe; imprime senha só dos novos. NÃO altera existentes.
+ *    npm run seed:employees -- --force-profile
+ *        Reaplica nome/role/aniversário da lista em usuários EXISTENTES. Faz
+ *        backup antes. Em produção, exige CONFIRM_PRODUCTION_PROFILE_OVERWRITE=YES.
  *    npm run seed:employees -- --reset-passwords
  *        Reseta a senha temporária de TODOS e imprime a tabela nova.
  *    npm run seed:employees -- --reset-password=email@selva.agency
  *        Reseta apenas um colaborador.
+ *
+ *  SEGURANÇA: por padrão o seed NUNCA altera usuário existente (users é a fonte
+ *  da verdade). NÃO roda no deploy (o start só executa ensure-schema).
  *
  *  Regras: não commitar senhas, não salvar output em arquivo, sem endpoint de
  *  consulta de senha. Se perder uma senha, use --reset-password.
@@ -23,6 +29,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { eq } from "drizzle-orm";
 import { scryptSync, randomBytes, randomInt } from "node:crypto";
 import { users } from "../drizzle/schema";
+import { exportUsers } from "./export-users";
 
 type Role = "user" | "admin" | "developer";
 
@@ -64,10 +71,31 @@ async function main() {
   // existentes (a tabela users é a fonte da verdade; roles são geridos no admin).
   // Só reaplica o perfil da lista com a flag explícita --force-profile.
   const forceProfile = args.includes("--force-profile") || process.env.FORCE_EMPLOYEE_SEED === "true";
+  const isProd = process.env.NODE_ENV === "production";
+
+  console.log(`\nSeed de colaboradores — produção: ${isProd ? "SIM" : "não"} · force-profile: ${forceProfile ? "ATIVO" : "não"}`);
+
+  // Em produção, sobrescrever perfil exige confirmação extra e explícita.
+  if (forceProfile && isProd && process.env.CONFIRM_PRODUCTION_PROFILE_OVERWRITE !== "YES") {
+    console.error("Refusing to overwrite existing production users without CONFIRM_PRODUCTION_PROFILE_OVERWRITE=YES.");
+    process.exit(1);
+  }
 
   const db = drizzle(process.env.DATABASE_URL);
+
+  // Backup OBRIGATÓRIO antes de qualquer sobrescrita de perfil. Se falhar, aborta.
+  if (forceProfile) {
+    try {
+      const file = await exportUsers(db);
+      console.log(`Backup criado antes do force-profile: ${file}`);
+    } catch (e) {
+      console.error("Backup de usuários falhou — abortando para não arriscar perda de dados.", e);
+      process.exit(1);
+    }
+  }
+
   const printed: { name: string; email: string; role: Role; senha: string }[] = [];
-  let created = 0, updated = 0, skipped = 0;
+  let created = 0, updated = 0, profileSkipped = 0, skipped = 0;
 
   for (const emp of EMPLOYEES) {
     const openId = emp.email.toLowerCase();
@@ -92,8 +120,8 @@ async function main() {
       continue;
     }
 
-    // Já existe → por PADRÃO não sobrescreve role/nome/aniversário (não reverte
-    // mudanças feitas no admin). Só reaplica o perfil com --force-profile.
+    // Já existe → por PADRÃO NÃO sobrescreve nada (role/nome/aniversário/etc.).
+    // A tabela users é a fonte da verdade. Só reaplica o perfil com --force-profile.
     if (forceProfile) {
       await db.update(users).set({
         name: emp.name,
@@ -102,6 +130,9 @@ async function main() {
         birthdayMonth: emp.month,
       }).where(eq(users.id, existing.id));
       updated++;
+    } else {
+      console.log(`SKIP existing user: ${emp.email}`);
+      profileSkipped++;
     }
 
     const shouldReset = resetAll || resetOne === openId;
@@ -115,7 +146,7 @@ async function main() {
   }
 
   // ── Saída ──────────────────────────────────────────────────────────────────
-  console.log(`\nColaboradores — criados: ${created} · atualizados: ${updated} · senha inalterada: ${skipped}\n`);
+  console.log(`\nColaboradores — criados: ${created} · perfil atualizado (force): ${updated} · existentes preservados: ${profileSkipped} · senha inalterada: ${skipped}\n`);
   if (printed.length > 0) {
     const rows = [["Nome", "E-mail", "Role", "Senha temporária"], ...printed.map((p) => [p.name, p.email, p.role, p.senha])];
     const widths = rows[0].map((_, c) => Math.max(...rows.map((r) => r[c].length)));

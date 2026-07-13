@@ -14,7 +14,9 @@
     "db:ensure-schema": "node scripts/ensure-schema.mjs",
     "migrate:prod": "node scripts/ensure-schema.mjs",
     "db:check-schema": "node scripts/check-schema.mjs",
-    "seed:employees": "tsx scripts/seed-employees.ts"
+    "seed:employees": "tsx scripts/seed-employees.ts",
+    "users:export": "tsx scripts/export-users.ts",
+    "users:audit": "tsx scripts/users-audit.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
