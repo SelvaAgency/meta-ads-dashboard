@@ -269,6 +269,28 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabelas finance_* garantidas");
 
+    // 11) Financeiro v2: clientes (tags de receita) + coluna clienteId no P&L.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`finance_clientes\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`nome\` VARCHAR(120) NOT NULL UNIQUE,
+        \`cor\` VARCHAR(9) NULL,
+        \`ativo\` BOOLEAN NOT NULL DEFAULT TRUE,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    // CREATE TABLE IF NOT EXISTS não adiciona coluna → checa e faz ALTER se faltar.
+    if (!(await columnExists(conn, "finance_pnl_entries", "clienteId"))) {
+      await conn.query(
+        "ALTER TABLE `finance_pnl_entries` ADD COLUMN `clienteId` INT NULL, ADD INDEX `idx_pnl_cliente` (`clienteId`)",
+      );
+      console.log("[ensure-schema] ok  · finance_pnl_entries.clienteId adicionada");
+    } else {
+      console.log("[ensure-schema] ok  · finance_pnl_entries.clienteId já existe");
+    }
+    console.log("[ensure-schema] ok  · finance_clientes garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

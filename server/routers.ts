@@ -235,6 +235,11 @@ import {
   updateFinanceRetirada,
   deleteFinanceRetirada,
   financeReconciliacao,
+  listFinanceClientes,
+  createFinanceCliente,
+  financePnlTrend,
+  financeReceitaPorCliente,
+  financeReconciliacaoAcumulado,
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
@@ -564,17 +569,26 @@ const financeRouter = router({
 
   pnl: router({
     list: adminProcedure
-      .input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional(), tipo: PNL_TIPO.optional(), status: PNL_STATUS.optional() }).optional())
+      .input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional(), tipo: PNL_TIPO.optional(), status: PNL_STATUS.optional(), clienteId: z.number().int().optional() }).optional())
       .query(({ input }) => listFinancePnl(input ?? {})),
     resumo: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => financePnlResumo(input.mes)),
+    trend: adminProcedure.input(z.object({ limitMonths: z.number().int().min(1).max(36).optional() }).optional()).query(({ input }) => financePnlTrend(input?.limitMonths ?? 12)),
+    receitaPorCliente: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional() }).optional()).query(({ input }) => financeReceitaPorCliente(input ?? {})),
     create: adminProcedure
-      .input(z.object({ mes: MES, tipo: PNL_TIPO, descricao: z.string().min(1).max(255), valorCents: CENTS, status: PNL_STATUS.default("pendente") }))
+      .input(z.object({ mes: MES, tipo: PNL_TIPO, descricao: z.string().min(1).max(255), valorCents: CENTS, status: PNL_STATUS.default("pendente"), clienteId: z.number().int().nullable().optional() }))
       .mutation(async ({ input }) => ({ id: await createFinancePnl(input) })),
     update: adminProcedure
-      .input(z.object({ id: z.number().int(), mes: MES.optional(), tipo: PNL_TIPO.optional(), descricao: z.string().min(1).max(255).optional(), valorCents: CENTS.optional(), status: PNL_STATUS.optional() }))
+      .input(z.object({ id: z.number().int(), mes: MES.optional(), tipo: PNL_TIPO.optional(), descricao: z.string().min(1).max(255).optional(), valorCents: CENTS.optional(), status: PNL_STATUS.optional(), clienteId: z.number().int().nullable().optional() }))
       .mutation(async ({ input }) => { const { id, ...patch } = input; await updateFinancePnl(id, patch); return { success: true } as const; }),
     delete: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => { await deleteFinancePnl(input.id); return { success: true } as const; }),
     setStatus: adminProcedure.input(z.object({ id: z.number().int(), status: PNL_STATUS })).mutation(async ({ input }) => { await updateFinancePnl(input.id, { status: input.status }); return { success: true } as const; }),
+  }),
+
+  clientes: router({
+    list: adminProcedure.query(() => listFinanceClientes()),
+    create: adminProcedure
+      .input(z.object({ nome: z.string().min(1).max(120), cor: z.string().max(9).optional() }))
+      .mutation(({ input }) => createFinanceCliente(input)),
   }),
 
   reembolsos: router({
@@ -600,6 +614,7 @@ const financeRouter = router({
 
   reconciliacao: router({
     get: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => financeReconciliacao(input.mes)),
+    acumulado: adminProcedure.query(() => financeReconciliacaoAcumulado()),
   }),
 });
 

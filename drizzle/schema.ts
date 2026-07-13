@@ -659,13 +659,28 @@ export const financePnlEntries = mysqlTable("finance_pnl_entries", {
   descricao: varchar("descricao", { length: 255 }).notNull(),
   valorCents: int("valorCents").notNull(),
   status: mysqlEnum("status", ["pago", "pendente"]).default("pendente").notNull(),
+  // Cliente (FK lógica → finance_clientes.id). Só receita usa; despesa/aporte NULL.
+  clienteId: int("clienteId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   idxMes: index("idx_pnl_mes").on(table.mes),
   idxTipo: index("idx_pnl_tipo").on(table.tipo),
   idxStatus: index("idx_pnl_status").on(table.status),
+  idxCliente: index("idx_pnl_cliente").on(table.clienteId),
 }));
+
+// Clientes do Financeiro (tags de receita). nome único; cor hex para o chip.
+export const financeClientes = mysqlTable("finance_clientes", {
+  id: int("id").autoincrement().primaryKey(),
+  nome: varchar("nome", { length: 120 }).notNull().unique(),
+  cor: varchar("cor", { length: 9 }),
+  ativo: boolean("ativo").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type FinanceCliente = typeof financeClientes.$inferSelect;
+export type InsertFinanceCliente = typeof financeClientes.$inferInsert;
 export type FinancePnlEntry = typeof financePnlEntries.$inferSelect;
 export type InsertFinancePnlEntry = typeof financePnlEntries.$inferInsert;
 

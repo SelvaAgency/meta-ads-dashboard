@@ -18,16 +18,23 @@ function ctxWith(role: "user" | "developer" | "admin" | null): TrpcContext {
 
 async function expectBlocked(label: string, role: "user" | "developer" | null): Promise<boolean> {
   const caller = appRouter.createCaller(ctxWith(role));
-  try {
-    await caller.finance.pnl.list(undefined);
-    console.log(`  ✗ ${label}: NÃO bloqueou (retornou dados) — FALHA`);
-    return false;
-  } catch (e: any) {
-    const code = e?.code ?? e?.name ?? "ERR";
-    const ok = code === "FORBIDDEN" || code === "UNAUTHORIZED";
-    console.log(`  ${ok ? "✓" : "✗"} ${label}: bloqueado (${code}${e?.message ? ` — ${e.message}` : ""})${ok ? "" : " — FALHA"}`);
-    return ok;
+  let ok = true;
+  for (const [name, call] of [
+    ["finance.pnl.list", () => caller.finance.pnl.list(undefined)],
+    ["finance.clientes.list", () => caller.finance.clientes.list()],
+  ] as const) {
+    try {
+      await call();
+      console.log(`  ✗ ${label} · ${name}: NÃO bloqueou — FALHA`);
+      ok = false;
+    } catch (e: any) {
+      const code = e?.code ?? e?.name ?? "ERR";
+      const good = code === "FORBIDDEN" || code === "UNAUTHORIZED";
+      if (!good) ok = false;
+      console.log(`  ${good ? "✓" : "✗"} ${label} · ${name}: bloqueado (${code})`);
+    }
   }
+  return ok;
 }
 
 async function expectAllowed(label: string): Promise<boolean> {

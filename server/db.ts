@@ -23,6 +23,7 @@ import {
   type InsertFinanceReembolso,
   financeRetiradas,
   type InsertFinanceRetirada,
+  financeClientes,
   appSettings,
   selvatvPollVotes,
   aiSuggestions,
@@ -2031,7 +2032,7 @@ type PnlStatus = NonNullable<InsertFinancePnlEntry["status"]>;
 type ReembCategoria = InsertFinanceReembolso["categoria"];
 
 // P&L
-export async function listFinancePnl(f: { mesFrom?: string; mesTo?: string; tipo?: PnlTipo; status?: PnlStatus } = {}) {
+export async function listFinancePnl(f: { mesFrom?: string; mesTo?: string; tipo?: PnlTipo; status?: PnlStatus; clienteId?: number } = {}) {
   const db = await getDb();
   if (!db) return [];
   const conds = [];
@@ -2039,6 +2040,7 @@ export async function listFinancePnl(f: { mesFrom?: string; mesTo?: string; tipo
   if (f.mesTo) conds.push(lte(financePnlEntries.mes, f.mesTo));
   if (f.tipo) conds.push(eq(financePnlEntries.tipo, f.tipo));
   if (f.status) conds.push(eq(financePnlEntries.status, f.status));
+  if (f.clienteId != null) conds.push(eq(financePnlEntries.clienteId, f.clienteId));
   return db.select().from(financePnlEntries)
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(financePnlEntries.mes), desc(financePnlEntries.id));
@@ -2155,4 +2157,80 @@ export async function financeMonths(): Promise<string[]> {
   ]);
   const set = new Set<string>([...a, ...b, ...c].map((r) => r.mes));
   return Array.from(set).sort().reverse();
+}
+
+// ─── Financeiro v2: clientes / tendência / receita por cliente / acumulado ────
+export async function listFinanceClientes() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(financeClientes).orderBy(financeClientes.nome);
+}
+export async function createFinanceCliente(data: { nome: string; cor?: string | null }): Promise<{ id: number; nome: string; cor: string | null }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const nome = data.nome.trim();
+  const existing = await db.select().from(financeClientes).where(eq(financeClientes.nome, nome)).limit(1);
+  if (existing[0]) return { id: existing[0].id, nome: existing[0].nome, cor: existing[0].cor };
+  const [row] = await db.insert(financeClientes).values({ nome, cor: data.cor ?? null }).$returningId();
+  return { id: row.id, nome, cor: data.cor ?? null };
+}
+
+/** Tendência dos últimos N meses: receita/despesa/resultado + recorrente/pontual. */
+export async function financePnlTrend(limitMonths = 12) {
+  const db = await getDb();
+  if (!db) return [];
+  const monthsRows = await db.selectDistinct({ mes: financePnlEntries.mes }).from(financePnlEntries);
+  const months = monthsRows.map((r) => r.mes).sort().slice(-limitMonths);
+  if (!months.length) return [];
+  const rows = await db.select().from(financePnlEntries).where(inArray(financePnlEntries.mes, months));
+  const byMes = new Map<string, { mes: string; receitaCents: number; despesaCents: number; receitaRecorrenteCents: number; receitaPontualCents: number }>();
+  for (const m of months) byMes.set(m, { mes: m, receitaCents: 0, despesaCents: 0, receitaRecorrenteCents: 0, receitaPontualCents: 0 });
+  for (const r of rows) {
+    const b = byMes.get(r.mes);
+    if (!b) continue;
+    if (r.tipo === "RECEITA_RECORRENTE") { b.receitaCents += r.valorCents; b.receitaRecorrenteCents += r.valorCents; }
+    else if (r.tipo === "RECEITA_PONTUAL") { b.receitaCents += r.valorCents; b.receitaPontualCents += r.valorCents; }
+    else if (r.tipo === "DESPESA_RECORRENTE" || r.tipo === "DESPESA_IMPOSTO" || r.tipo === "DESPESA_PONTUAL") b.despesaCents += r.valorCents;
+  }
+  return months.map((m) => { const b = byMes.get(m)!; return { ...b, resultadoCents: b.receitaCents - b.despesaCents }; });
+}
+
+/** Ranking de receita por cliente (filtro de período opcional). */
+export async function financeReceitaPorCliente(f: { mesFrom?: string; mesTo?: string } = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  const conds = [or(eq(financePnlEntries.tipo, "RECEITA_RECORRENTE"), eq(financePnlEntries.tipo, "RECEITA_PONTUAL"))];
+  if (f.mesFrom) conds.push(gte(financePnlEntries.mes, f.mesFrom));
+  if (f.mesTo) conds.push(lte(financePnlEntries.mes, f.mesTo));
+  const [rows, clientes] = await Promise.all([
+    db.select().from(financePnlEntries).where(and(...conds)),
+    db.select().from(financeClientes),
+  ]);
+  const cmap = new Map(clientes.map((c) => [c.id, c]));
+  const agg = new Map<number | string, { clienteId: number | null; nome: string; cor: string | null; totalCents: number; count: number }>();
+  for (const r of rows) {
+    const key: number | string = r.clienteId ?? "sem";
+    if (!agg.has(key)) {
+      const c = r.clienteId ? cmap.get(r.clienteId) : null;
+      agg.set(key, { clienteId: r.clienteId ?? null, nome: c?.nome ?? "Sem cliente", cor: c?.cor ?? null, totalCents: 0, count: 0 });
+    }
+    const a = agg.get(key)!;
+    a.totalCents += r.valorCents;
+    a.count += 1;
+  }
+  return Array.from(agg.values()).sort((a, b) => b.totalCents - a.totalCents);
+}
+
+/** Falta receber ACUMULADO = Σ(despesas − retiradas) de todos os meses. */
+export async function financeReconciliacaoAcumulado() {
+  const db = await getDb();
+  const empty = { totalDespesasCents: 0, totalRetiradasCents: 0, diferencaCents: 0 };
+  if (!db) return empty;
+  const [reembs, retirs] = await Promise.all([
+    db.select({ v: financeReembolsos.valorCents }).from(financeReembolsos),
+    db.select({ v: financeRetiradas.valorCents }).from(financeRetiradas),
+  ]);
+  const totalDespesas = reembs.reduce((s, r) => s + r.v, 0);
+  const totalRetiradas = retirs.reduce((s, r) => s + r.v, 0);
+  return { totalDespesasCents: totalDespesas, totalRetiradasCents: totalRetiradas, diferencaCents: totalDespesas - totalRetiradas };
 }
