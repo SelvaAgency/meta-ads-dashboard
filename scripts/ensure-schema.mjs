@@ -224,6 +224,51 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela user_audit_logs garantida");
 
+    // 10) Controle Financeiro (área admin). Apenas CRIA as 3 tabelas — nunca
+    //     altera/dropa nada. Valores em centavos (int). `mes` = 'YYYY-MM'.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`finance_pnl_entries\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`mes\` VARCHAR(7) NOT NULL,
+        \`tipo\` ENUM('RECEITA_RECORRENTE','RECEITA_PONTUAL','DESPESA_RECORRENTE','DESPESA_IMPOSTO','DESPESA_PONTUAL','APORTE') NOT NULL,
+        \`descricao\` VARCHAR(255) NOT NULL,
+        \`valorCents\` INT NOT NULL,
+        \`status\` ENUM('pago','pendente') NOT NULL DEFAULT 'pendente',
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX \`idx_pnl_mes\` (\`mes\`),
+        INDEX \`idx_pnl_tipo\` (\`tipo\`),
+        INDEX \`idx_pnl_status\` (\`status\`)
+      )
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`finance_reembolsos\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`mes\` VARCHAR(7) NOT NULL,
+        \`categoria\` ENUM('PLATAFORMA_ANUNCIOS','OFFICE','EXTRAS') NOT NULL,
+        \`descricao\` VARCHAR(255) NOT NULL,
+        \`valorCents\` INT NOT NULL,
+        \`quemPagou\` VARCHAR(120) NULL,
+        \`reembolsado\` BOOLEAN NOT NULL DEFAULT FALSE,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX \`idx_reemb_mes\` (\`mes\`),
+        INDEX \`idx_reemb_categoria\` (\`categoria\`)
+      )
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`finance_retiradas\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`mes\` VARCHAR(7) NOT NULL,
+        \`descricao\` VARCHAR(120) NOT NULL,
+        \`valorCents\` INT NOT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX \`idx_retir_mes\` (\`mes\`)
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabelas finance_* garantidas");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

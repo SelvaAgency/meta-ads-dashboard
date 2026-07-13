@@ -17,6 +17,12 @@ import {
   type InsertAccessAuditLog,
   userAuditLogs,
   type InsertUserAuditLog,
+  financePnlEntries,
+  type InsertFinancePnlEntry,
+  financeReembolsos,
+  type InsertFinanceReembolso,
+  financeRetiradas,
+  type InsertFinanceRetirada,
   appSettings,
   selvatvPollVotes,
   aiSuggestions,
@@ -2015,4 +2021,138 @@ export async function getPendingOutcomeClosures() {
         sql`${actionOutcomes.observedAt} IS NULL`
       )
     );
+}
+
+// ─── Controle Financeiro (área admin) ─────────────────────────────────────────
+// Valores sempre em centavos (int). `mes` = 'YYYY-MM'. Diferença/resultado são
+// SEMPRE calculados, nunca armazenados.
+type PnlTipo = InsertFinancePnlEntry["tipo"];
+type PnlStatus = NonNullable<InsertFinancePnlEntry["status"]>;
+type ReembCategoria = InsertFinanceReembolso["categoria"];
+
+// P&L
+export async function listFinancePnl(f: { mesFrom?: string; mesTo?: string; tipo?: PnlTipo; status?: PnlStatus } = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  const conds = [];
+  if (f.mesFrom) conds.push(gte(financePnlEntries.mes, f.mesFrom));
+  if (f.mesTo) conds.push(lte(financePnlEntries.mes, f.mesTo));
+  if (f.tipo) conds.push(eq(financePnlEntries.tipo, f.tipo));
+  if (f.status) conds.push(eq(financePnlEntries.status, f.status));
+  return db.select().from(financePnlEntries)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(desc(financePnlEntries.mes), desc(financePnlEntries.id));
+}
+export async function createFinancePnl(data: InsertFinancePnlEntry): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const [row] = await db.insert(financePnlEntries).values(data).$returningId();
+  return row.id;
+}
+export async function updateFinancePnl(id: number, patch: Partial<InsertFinancePnlEntry>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(financePnlEntries).set(patch).where(eq(financePnlEntries.id, id));
+}
+export async function deleteFinancePnl(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.delete(financePnlEntries).where(eq(financePnlEntries.id, id));
+}
+/** Resumo do P&L por mês (tudo calculado). */
+export async function financePnlResumo(mes: string) {
+  const db = await getDb();
+  const empty = { mes, receitaTotalCents: 0, despesaTotalCents: 0, aporteCents: 0, resultadoFinalCents: 0, totalPendenteCents: 0 };
+  if (!db) return empty;
+  const rows = await db.select().from(financePnlEntries).where(eq(financePnlEntries.mes, mes));
+  let receita = 0, despesa = 0, aporte = 0, pendente = 0;
+  for (const r of rows) {
+    if (r.tipo === "RECEITA_RECORRENTE" || r.tipo === "RECEITA_PONTUAL") receita += r.valorCents;
+    else if (r.tipo === "DESPESA_RECORRENTE" || r.tipo === "DESPESA_IMPOSTO" || r.tipo === "DESPESA_PONTUAL") despesa += r.valorCents;
+    else if (r.tipo === "APORTE") aporte += r.valorCents;
+    if (r.status === "pendente") pendente += r.valorCents;
+  }
+  return { mes, receitaTotalCents: receita, despesaTotalCents: despesa, aporteCents: aporte, resultadoFinalCents: receita - despesa, totalPendenteCents: pendente };
+}
+
+// Reembolsos
+export async function listFinanceReembolsos(f: { mes?: string; categoria?: ReembCategoria } = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  const conds = [];
+  if (f.mes) conds.push(eq(financeReembolsos.mes, f.mes));
+  if (f.categoria) conds.push(eq(financeReembolsos.categoria, f.categoria));
+  return db.select().from(financeReembolsos)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(desc(financeReembolsos.mes), desc(financeReembolsos.id));
+}
+export async function createFinanceReembolso(data: InsertFinanceReembolso): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const [row] = await db.insert(financeReembolsos).values(data).$returningId();
+  return row.id;
+}
+export async function updateFinanceReembolso(id: number, patch: Partial<InsertFinanceReembolso>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(financeReembolsos).set(patch).where(eq(financeReembolsos.id, id));
+}
+export async function deleteFinanceReembolso(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.delete(financeReembolsos).where(eq(financeReembolsos.id, id));
+}
+
+// Retiradas (Gui & SELVA)
+export async function listFinanceRetiradas(f: { mes?: string } = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  const conds = [];
+  if (f.mes) conds.push(eq(financeRetiradas.mes, f.mes));
+  return db.select().from(financeRetiradas)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(desc(financeRetiradas.mes), desc(financeRetiradas.id));
+}
+export async function createFinanceRetirada(data: InsertFinanceRetirada): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const [row] = await db.insert(financeRetiradas).values(data).$returningId();
+  return row.id;
+}
+export async function updateFinanceRetirada(id: number, patch: Partial<InsertFinanceRetirada>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(financeRetiradas).set(patch).where(eq(financeRetiradas.id, id));
+}
+export async function deleteFinanceRetirada(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.delete(financeRetiradas).where(eq(financeRetiradas.id, id));
+}
+/** Reconciliação Gui & SELVA por mês: despesas (reembolsos) vs. retiradas.
+ *  Convenção (igual à planilha): diferenca = despesas − retiradas.
+ *  → POSITIVO = falta receber (gastou mais do que retirou). Sempre calculado. */
+export async function financeReconciliacao(mes: string) {
+  const db = await getDb();
+  const empty = { mes, totalDespesasCents: 0, totalRetiradasCents: 0, diferencaCents: 0 };
+  if (!db) return empty;
+  const [reembs, retirs] = await Promise.all([
+    db.select().from(financeReembolsos).where(eq(financeReembolsos.mes, mes)),
+    db.select().from(financeRetiradas).where(eq(financeRetiradas.mes, mes)),
+  ]);
+  const totalDespesas = reembs.reduce((s, r) => s + r.valorCents, 0);
+  const totalRetiradas = retirs.reduce((s, r) => s + r.valorCents, 0);
+  return { mes, totalDespesasCents: totalDespesas, totalRetiradasCents: totalRetiradas, diferencaCents: totalDespesas - totalRetiradas };
+}
+/** Meses distintos (union das 3 tabelas) — popula seletores de mês no front. */
+export async function financeMonths(): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const [a, b, c] = await Promise.all([
+    db.selectDistinct({ mes: financePnlEntries.mes }).from(financePnlEntries),
+    db.selectDistinct({ mes: financeReembolsos.mes }).from(financeReembolsos),
+    db.selectDistinct({ mes: financeRetiradas.mes }).from(financeRetiradas),
+  ]);
+  const set = new Set<string>([...a, ...b, ...c].map((r) => r.mes));
+  return Array.from(set).sort().reverse();
 }

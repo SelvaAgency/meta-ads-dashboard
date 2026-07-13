@@ -14,6 +14,7 @@ import Suggestions from "./pages/Suggestions";
 import SuggestionsHub from "./pages/SuggestionsHub";
 import Reports from "./pages/Reports";
 import Contracts from "./pages/Contracts";
+import Finance from "./pages/Finance";
 import Admin from "./pages/Admin";
 import ReportView from "./pages/ReportView";
 
@@ -49,6 +50,8 @@ const TrackerRoute = () => (isEmbedded() ? <SuggestionsHub /> : <HubApp />);
 const ReportsRoute = () => (isEmbedded() ? <Reports /> : <HubApp />);
 // Contratos = área Administrativa → admin only fora do iframe.
 const ContractsRoute = () => (isEmbedded() ? <Contracts /> : <AdminOnly><HubApp /></AdminOnly>);
+// Financeiro = área Administrativa → admin only fora do iframe.
+const FinanceRoute = () => (isEmbedded() ? <Finance /> : <AdminOnly><HubApp /></AdminOnly>);
 const SettingsRoute = () => (isEmbedded() ? <Settings /> : <HubSettings />);
 
 function Router() {
@@ -59,6 +62,7 @@ function Router() {
       <Route path="/tracker" component={TrackerRoute} />
       <Route path="/reports" component={ReportsRoute} />
       <Route path="/contracts" component={ContractsRoute} />
+      <Route path="/finance" component={FinanceRoute} />
       <Route path="/settings" component={SettingsRoute} />
       <Route path="/access" component={HubAccess} />
       <Route path="/spaces" component={SpacesPage} />

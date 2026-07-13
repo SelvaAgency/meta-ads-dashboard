@@ -220,6 +220,21 @@ import {
   updateCheckpointNote,
   deleteExperiment,
   getExperimentCampaignMetrics,
+  financeMonths,
+  listFinancePnl,
+  financePnlResumo,
+  createFinancePnl,
+  updateFinancePnl,
+  deleteFinancePnl,
+  listFinanceReembolsos,
+  createFinanceReembolso,
+  updateFinanceReembolso,
+  deleteFinanceReembolso,
+  listFinanceRetiradas,
+  createFinanceRetirada,
+  updateFinanceRetirada,
+  deleteFinanceRetirada,
+  financeReconciliacao,
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
@@ -532,6 +547,61 @@ async function ensureSelvaInternalClient(userId: number): Promise<void> {
     sortOrder: -1, createdByUserId: userId, updatedByUserId: userId,
   });
 }
+
+// ─── Controle Financeiro (namespace finance.*) ────────────────────────────────
+// TODAS as procedures são adminProcedure → rejeitadas para não-admin mesmo em
+// chamada direta (não basta esconder o menu). Dinheiro em centavos (int).
+const MES = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "mês deve ser YYYY-MM");
+const PNL_TIPO = z.enum(["RECEITA_RECORRENTE", "RECEITA_PONTUAL", "DESPESA_RECORRENTE", "DESPESA_IMPOSTO", "DESPESA_PONTUAL", "APORTE"]);
+const PNL_STATUS = z.enum(["pago", "pendente"]);
+const REEMB_CAT = z.enum(["PLATAFORMA_ANUNCIOS", "OFFICE", "EXTRAS"]);
+const CENTS = z.number().int().min(0); // P&L/reembolsos: positivo; sinal vem do tipo
+const CENTS_SIGNED = z.number().int();  // retiradas: pode ser negativo (estorno)
+
+const financeRouter = router({
+  // Meses distintos para popular seletores no front.
+  months: adminProcedure.query(() => financeMonths()),
+
+  pnl: router({
+    list: adminProcedure
+      .input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional(), tipo: PNL_TIPO.optional(), status: PNL_STATUS.optional() }).optional())
+      .query(({ input }) => listFinancePnl(input ?? {})),
+    resumo: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => financePnlResumo(input.mes)),
+    create: adminProcedure
+      .input(z.object({ mes: MES, tipo: PNL_TIPO, descricao: z.string().min(1).max(255), valorCents: CENTS, status: PNL_STATUS.default("pendente") }))
+      .mutation(async ({ input }) => ({ id: await createFinancePnl(input) })),
+    update: adminProcedure
+      .input(z.object({ id: z.number().int(), mes: MES.optional(), tipo: PNL_TIPO.optional(), descricao: z.string().min(1).max(255).optional(), valorCents: CENTS.optional(), status: PNL_STATUS.optional() }))
+      .mutation(async ({ input }) => { const { id, ...patch } = input; await updateFinancePnl(id, patch); return { success: true } as const; }),
+    delete: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => { await deleteFinancePnl(input.id); return { success: true } as const; }),
+    setStatus: adminProcedure.input(z.object({ id: z.number().int(), status: PNL_STATUS })).mutation(async ({ input }) => { await updateFinancePnl(input.id, { status: input.status }); return { success: true } as const; }),
+  }),
+
+  reembolsos: router({
+    list: adminProcedure
+      .input(z.object({ mes: MES.optional(), categoria: REEMB_CAT.optional() }).optional())
+      .query(({ input }) => listFinanceReembolsos(input ?? {})),
+    create: adminProcedure
+      .input(z.object({ mes: MES, categoria: REEMB_CAT, descricao: z.string().min(1).max(255), valorCents: CENTS, quemPagou: z.string().max(120).optional(), reembolsado: z.boolean().default(false) }))
+      .mutation(async ({ input }) => ({ id: await createFinanceReembolso(input) })),
+    update: adminProcedure
+      .input(z.object({ id: z.number().int(), mes: MES.optional(), categoria: REEMB_CAT.optional(), descricao: z.string().min(1).max(255).optional(), valorCents: CENTS.optional(), quemPagou: z.string().max(120).nullable().optional(), reembolsado: z.boolean().optional() }))
+      .mutation(async ({ input }) => { const { id, ...patch } = input; await updateFinanceReembolso(id, patch); return { success: true } as const; }),
+    delete: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => { await deleteFinanceReembolso(input.id); return { success: true } as const; }),
+    setReembolsado: adminProcedure.input(z.object({ id: z.number().int(), reembolsado: z.boolean() })).mutation(async ({ input }) => { await updateFinanceReembolso(input.id, { reembolsado: input.reembolsado }); return { success: true } as const; }),
+  }),
+
+  retiradas: router({
+    list: adminProcedure.input(z.object({ mes: MES.optional() }).optional()).query(({ input }) => listFinanceRetiradas(input ?? {})),
+    create: adminProcedure.input(z.object({ mes: MES, descricao: z.string().min(1).max(120), valorCents: CENTS_SIGNED })).mutation(async ({ input }) => ({ id: await createFinanceRetirada(input) })),
+    update: adminProcedure.input(z.object({ id: z.number().int(), mes: MES.optional(), descricao: z.string().min(1).max(120).optional(), valorCents: CENTS_SIGNED.optional() })).mutation(async ({ input }) => { const { id, ...patch } = input; await updateFinanceRetirada(id, patch); return { success: true } as const; }),
+    delete: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => { await deleteFinanceRetirada(input.id); return { success: true } as const; }),
+  }),
+
+  reconciliacao: router({
+    get: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => financeReconciliacao(input.mes)),
+  }),
+});
 
 export const appRouter = router({
   system: systemRouter,
@@ -4407,6 +4477,7 @@ Responda APENAS com JSON válido, sem markdown, no formato exato:
         return JSON.parse(text.replace(/```json|```/g, '').trim());
       }),
   }),
+  finance: financeRouter,
   context: contextRouter,
 });
 export type AppRouter = typeof appRouter;

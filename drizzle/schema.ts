@@ -12,6 +12,7 @@ import {
   boolean,
   float,
   uniqueIndex,
+  index,
 } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
@@ -643,3 +644,57 @@ export const actionOutcomes = mysqlTable("action_outcomes", {
 });
 export type ActionOutcome = typeof actionOutcomes.$inferSelect;
 export type InsertActionOutcome = typeof actionOutcomes.$inferInsert;
+
+// ─── Controle Financeiro (área admin) ─────────────────────────────────────────
+// Dinheiro SEMPRE em centavos (int), nunca float. `mes` = string 'YYYY-MM'.
+// O sinal (receita vs. despesa) vem do `tipo`; valorCents é sempre positivo.
+export const financePnlEntries = mysqlTable("finance_pnl_entries", {
+  id: int("id").autoincrement().primaryKey(),
+  mes: varchar("mes", { length: 7 }).notNull(),
+  tipo: mysqlEnum("tipo", [
+    "RECEITA_RECORRENTE", "RECEITA_PONTUAL",
+    "DESPESA_RECORRENTE", "DESPESA_IMPOSTO", "DESPESA_PONTUAL",
+    "APORTE",
+  ]).notNull(),
+  descricao: varchar("descricao", { length: 255 }).notNull(),
+  valorCents: int("valorCents").notNull(),
+  status: mysqlEnum("status", ["pago", "pendente"]).default("pendente").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxMes: index("idx_pnl_mes").on(table.mes),
+  idxTipo: index("idx_pnl_tipo").on(table.tipo),
+  idxStatus: index("idx_pnl_status").on(table.status),
+}));
+export type FinancePnlEntry = typeof financePnlEntries.$inferSelect;
+export type InsertFinancePnlEntry = typeof financePnlEntries.$inferInsert;
+
+export const financeReembolsos = mysqlTable("finance_reembolsos", {
+  id: int("id").autoincrement().primaryKey(),
+  mes: varchar("mes", { length: 7 }).notNull(),
+  categoria: mysqlEnum("categoria", ["PLATAFORMA_ANUNCIOS", "OFFICE", "EXTRAS"]).notNull(),
+  descricao: varchar("descricao", { length: 255 }).notNull(),
+  valorCents: int("valorCents").notNull(),
+  quemPagou: varchar("quemPagou", { length: 120 }),
+  reembolsado: boolean("reembolsado").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxMes: index("idx_reemb_mes").on(table.mes),
+  idxCategoria: index("idx_reemb_categoria").on(table.categoria),
+}));
+export type FinanceReembolso = typeof financeReembolsos.$inferSelect;
+export type InsertFinanceReembolso = typeof financeReembolsos.$inferInsert;
+
+export const financeRetiradas = mysqlTable("finance_retiradas", {
+  id: int("id").autoincrement().primaryKey(),
+  mes: varchar("mes", { length: 7 }).notNull(),
+  descricao: varchar("descricao", { length: 120 }).notNull(),
+  valorCents: int("valorCents").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxMes: index("idx_retir_mes").on(table.mes),
+}));
+export type FinanceRetirada = typeof financeRetiradas.$inferSelect;
+export type InsertFinanceRetirada = typeof financeRetiradas.$inferInsert;
