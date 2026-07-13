@@ -649,8 +649,13 @@ export const appRouter = router({
             throw new TRPCError({ code: "CONFLICT", message: "E-mail já usado por outro colaborador." });
           }
         }
+        // Auditoria de mudança de role (quem alterou, alvo, antes → depois).
+        const before = patch.role ? await getUserById(id) : undefined;
         const updated = await updateUserFields(id, patch);
         if (!updated) throw new TRPCError({ code: "NOT_FOUND" });
+        if (patch.role && before && before.role !== patch.role) {
+          console.log(`[audit][role] user#${id} (${updated.email ?? "?"}) ${before.role} → ${patch.role} por user#${ctx.user.id} (${ctx.user.email ?? "?"}) em ${new Date().toISOString()}`);
+        }
         const { passwordHash: _omit, ...safe } = updated;
         return safe;
       }),

@@ -174,30 +174,34 @@ export function registerOAuthRoutes(app: Express) {
       email.toLowerCase() === ENV.adminEmail.toLowerCase() &&
       verifyPassword(password, ENV.adminPasswordHash);
 
-    let openId = email.toLowerCase();
+    const openId = email.toLowerCase();
     let name = email.split("@")[0] ?? email;
-    let role: "admin" | "user" = "user";
+    let role: "admin" | "developer" | "user" = "user";
+
+    // A tabela users é a FONTE DA VERDADE do role/nome. Buscamos o usuário atual
+    // para validar credenciais e para decidir create vs. update sem sobrescrever.
+    const existing = await db.getUserByOpenId(openId);
 
     if (isEnvAdmin) {
+      // Admin de ambiente: role "admin" só serve para o BOOTSTRAP (primeiro
+      // acesso). Se o usuário já existe, respeitamos o role definido no admin.
       role = "admin";
     } else {
-      // Fallback: check users table for other registered users
-      const dbUser = await db.getUserByOpenId(openId);
-      if (!dbUser || !dbUser.passwordHash || !verifyPassword(password, dbUser.passwordHash)) {
+      if (!existing || !existing.passwordHash || !verifyPassword(password, existing.passwordHash)) {
         return fail("E-mail ou senha incorretos.");
       }
-      role = (dbUser.role as "admin" | "user") ?? "user";
-      name = dbUser.name ?? name;
+      role = (existing.role as "admin" | "developer" | "user") ?? "user";
+      name = existing.name ?? name;
     }
 
-    // Upsert user in DB (creates on first login, updates lastSignedIn)
+    // Só popular name/role no PRIMEIRO acesso (create). Para usuário JÁ existente,
+    // o login apenas bumpa lastSignedIn — nunca sobrescreve role/nome/email, então
+    // mudanças feitas em Colaboradores permanecem após logout/login e deploy.
     await db.upsertUser({
       openId,
-      email,
-      name,
       loginMethod: "email",
-      role,
       lastSignedIn: new Date(),
+      ...(existing ? {} : { email, name, role }),
     });
 
     const sessionToken = await sdk.createSessionToken(openId, {

@@ -60,6 +60,10 @@ async function main() {
   const args = process.argv.slice(2);
   const resetAll = args.includes("--reset-passwords");
   const resetOne = args.find((a) => a.startsWith("--reset-password="))?.split("=")[1]?.toLowerCase();
+  // Por padrão o seed NÃO sobrescreve role/nome/aniversário de usuários já
+  // existentes (a tabela users é a fonte da verdade; roles são geridos no admin).
+  // Só reaplica o perfil da lista com a flag explícita --force-profile.
+  const forceProfile = args.includes("--force-profile") || process.env.FORCE_EMPLOYEE_SEED === "true";
 
   const db = drizzle(process.env.DATABASE_URL);
   const printed: { name: string; email: string; role: Role; senha: string }[] = [];
@@ -88,14 +92,17 @@ async function main() {
       continue;
     }
 
-    // Já existe → atualiza perfil/role/aniversário (nunca duplica).
-    await db.update(users).set({
-      name: emp.name,
-      role: emp.role,
-      birthdayDay: emp.day,
-      birthdayMonth: emp.month,
-    }).where(eq(users.id, existing.id));
-    updated++;
+    // Já existe → por PADRÃO não sobrescreve role/nome/aniversário (não reverte
+    // mudanças feitas no admin). Só reaplica o perfil com --force-profile.
+    if (forceProfile) {
+      await db.update(users).set({
+        name: emp.name,
+        role: emp.role,
+        birthdayDay: emp.day,
+        birthdayMonth: emp.month,
+      }).where(eq(users.id, existing.id));
+      updated++;
+    }
 
     const shouldReset = resetAll || resetOne === openId;
     if (shouldReset) {
