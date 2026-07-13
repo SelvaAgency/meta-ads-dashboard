@@ -2497,7 +2497,11 @@ export async function listFinanceRecorrencia() {
     db.select().from(financeClientes),
   ]);
   const cmap = new Map(clientes.map((c) => [c.id, c]));
-  return recs.map((r) => ({ ...r, clienteNome: cmap.get(r.clienteId)?.nome ?? `Cliente #${r.clienteId}`, cor: cmap.get(r.clienteId)?.cor ?? null }));
+  return recs.map((r) => {
+    const c = r.clienteId ? cmap.get(r.clienteId) : undefined;
+    const clienteNome = r.natureza === "DESPESA" ? (r.descricao ?? "Despesa") : (c?.nome ?? `Cliente #${r.clienteId}`);
+    return { ...r, clienteNome, cor: c?.cor ?? null };
+  });
 }
 
 /** Próximo mês a gerar = max(mês corrente, últimoMêsRecorrente + 1). */
@@ -2528,14 +2532,44 @@ export async function gerarMesRecorrente(mesAlvo: string): Promise<{ criadas: nu
     if (has.has(r.id)) continue;
     if (mesAlvo < r.mesInicio) continue;
     const venc = r.diaVencimento ? `${mesAlvo}-${pad2s(clampDay(mesAlvo, r.diaVencimento))}` : null;
-    await db.insert(financePnlEntries).values({
-      mes: mesAlvo, tipo: "RECEITA_RECORRENTE", descricao: cmap.get(r.clienteId)?.nome ?? `Cliente #${r.clienteId}`,
-      valorCents: r.valorCents, status: "pendente", clienteId: r.clienteId, origem: "RECORRENCIA",
-      recorrenciaId: r.id, vencimento: venc, vencimentoOriginal: venc,
-    });
+    if (r.natureza === "DESPESA") {
+      await db.insert(financePnlEntries).values({
+        mes: mesAlvo, tipo: r.tipoEntry === "DESPESA_IMPOSTO" ? "DESPESA_IMPOSTO" : "DESPESA_RECORRENTE",
+        descricao: r.descricao ?? "Despesa recorrente", valorCents: r.valorCents, status: "pendente",
+        clienteId: null, origem: "RECORRENCIA", recorrenciaId: r.id, vencimento: venc, vencimentoOriginal: venc,
+      });
+    } else {
+      await db.insert(financePnlEntries).values({
+        mes: mesAlvo, tipo: "RECEITA_RECORRENTE",
+        descricao: r.clienteId ? (cmap.get(r.clienteId)?.nome ?? `Cliente #${r.clienteId}`) : (r.descricao ?? "Receita recorrente"),
+        valorCents: r.valorCents, status: "pendente", clienteId: r.clienteId, origem: "RECORRENCIA",
+        recorrenciaId: r.id, vencimento: venc, vencimentoOriginal: venc,
+      });
+    }
     criadas++;
   }
   return { criadas, mes: mesAlvo, skipped: false };
+}
+
+/** Quantas recorrências ATIVAS aplicáveis ao mês ainda não foram geradas. */
+export async function recorrenciaStatusMes(mes: string): Promise<{ faltam: number; aplicaveis: number }> {
+  const db = await getDb();
+  if (!db) return { faltam: 0, aplicaveis: 0 };
+  const recs = await db.select({ id: financeRecorrencia.id }).from(financeRecorrencia).where(and(eq(financeRecorrencia.ativo, true), lte(financeRecorrencia.mesInicio, mes)));
+  const existing = await db.select({ recorrenciaId: financePnlEntries.recorrenciaId }).from(financePnlEntries).where(and(eq(financePnlEntries.mes, mes), eq(financePnlEntries.origem, "RECORRENCIA")));
+  const has = new Set(existing.map((e) => e.recorrenciaId));
+  return { faltam: recs.filter((r) => !has.has(r.id)).length, aplicaveis: recs.length };
+}
+
+/** Cria uma recorrência de DESPESA (colaborador/imposto). */
+export async function createDespesaRecorrencia(data: { descricao: string; valorCents: number; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; estimativa: boolean; mesInicio: string; diaVencimento?: number | null }): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const [row] = await db.insert(financeRecorrencia).values({
+    natureza: "DESPESA", clienteId: null, descricao: data.descricao.trim(), valorCents: data.valorCents,
+    tipoEntry: data.tipoEntry, estimativa: data.estimativa, mesInicio: data.mesInicio, diaVencimento: data.diaVencimento ?? null, ativo: true,
+  }).$returningId();
+  return row.id;
 }
 
 /** Churn: desativa a recorrência e remove SÓ as linhas futuras pendentes dela. */
@@ -2655,6 +2689,94 @@ export async function financePnlTrendRP(limitMonths = 12) {
     else if (r.tipo === "DESPESA_RECORRENTE" || r.tipo === "DESPESA_IMPOSTO" || r.tipo === "DESPESA_PONTUAL") { b.despesaCents += r.valorCents; if (r.status === "pago") b.despesaPagoCents += r.valorCents; }
   }
   return months.map((m) => { const b = byMes.get(m)!; return { ...b, resultadoCents: b.receitaCents - b.despesaCents }; });
+}
+
+export type SeriePonto = {
+  periodo: string; receitaCents: number; despesaCents: number; resultadoCents: number;
+  mrrCents: number; recorrenteCents: number; pontualCents: number;
+  receitaPagoCents: number; despesaPagoCents: number; parcial: boolean; realizado: boolean;
+};
+
+/**
+ * v5 — Série histórica (Tendência · MRR · mix Recorrente×Pontual).
+ * Fluxo (receita/despesa/resultado/recorrente/pontual) = SOMA no período.
+ * Estoque/taxa (MRR) anual = MÉDIA mensal (Σ MRR mensal ÷ nº meses com dado).
+ * Reflete realizado + previsto (despesa replicada inclusa). `realizado` marca
+ * onde termina o realizado e começa a projeção. `parcial` marca anos incompletos.
+ */
+export async function financeSerieHistorica(
+  granularidade: "mensal" | "anual",
+  janela: "12m" | "24m" | "vitalicio",
+) {
+  const db = await getDb();
+  const meta = { granularidade, janela, realizadoAte: null as string | null };
+  if (!db) return { ...meta, pontos: [] as SeriePonto[] };
+  const rows = await db.select().from(financePnlEntries);
+  type Acc = { receita: number; despesa: number; recorrente: number; pontual: number; receitaPago: number; despesaPago: number };
+  const zero = (): Acc => ({ receita: 0, despesa: 0, recorrente: 0, pontual: 0, receitaPago: 0, despesaPago: 0 });
+  const byMonth = new Map<string, Acc>();
+  for (const r of rows) {
+    if (!byMonth.has(r.mes)) byMonth.set(r.mes, zero());
+    const b = byMonth.get(r.mes)!;
+    if (r.tipo === "RECEITA_RECORRENTE" || r.tipo === "RECEITA_PONTUAL") {
+      b.receita += r.valorCents; if (r.status === "pago") b.receitaPago += r.valorCents;
+      if (r.tipo === "RECEITA_RECORRENTE") b.recorrente += r.valorCents; else b.pontual += r.valorCents;
+    } else if (r.tipo === "DESPESA_RECORRENTE" || r.tipo === "DESPESA_IMPOSTO" || r.tipo === "DESPESA_PONTUAL") {
+      b.despesa += r.valorCents; if (r.status === "pago") b.despesaPago += r.valorCents;
+    }
+  }
+  const allMonths = Array.from(byMonth.keys()).sort();
+  if (!allMonths.length) return { ...meta, pontos: [] as SeriePonto[] };
+
+  // fronteira realizado × projeção = último mês com algo pago.
+  let realizadoAte: string | null = null;
+  for (const m of allMonths) { const b = byMonth.get(m)!; if (b.receitaPago > 0 || b.despesaPago > 0) realizadoAte = m; }
+  meta.realizadoAte = realizadoAte;
+
+  // meses por ano na base COMPLETA (para marcar parcial).
+  const mesesPorAnoFull = new Map<string, number>();
+  for (const m of allMonths) { const y = m.slice(0, 4); mesesPorAnoFull.set(y, (mesesPorAnoFull.get(y) ?? 0) + 1); }
+  const anoCorrente = agencyCurrentMonth().slice(0, 4);
+
+  let months = allMonths;
+  if (janela === "12m") months = allMonths.slice(-12);
+  else if (janela === "24m") months = allMonths.slice(-24);
+
+  if (granularidade === "mensal") {
+    const pontos: SeriePonto[] = months.map((m) => {
+      const b = byMonth.get(m)!;
+      return {
+        periodo: m, receitaCents: b.receita, despesaCents: b.despesa, resultadoCents: b.receita - b.despesa,
+        mrrCents: b.recorrente, recorrenteCents: b.recorrente, pontualCents: b.pontual,
+        receitaPagoCents: b.receitaPago, despesaPagoCents: b.despesaPago,
+        parcial: false, realizado: realizadoAte != null && m <= realizadoAte,
+      };
+    });
+    return { ...meta, pontos };
+  }
+
+  // anual — agrega os meses da janela por ano.
+  const anos = Array.from(new Set(months.map((m) => m.slice(0, 4)))).sort();
+  const byYear = new Map<string, Acc & { mrrSum: number; nMeses: number }>();
+  for (const m of months) {
+    const y = m.slice(0, 4); const b = byMonth.get(m)!;
+    if (!byYear.has(y)) byYear.set(y, { ...zero(), mrrSum: 0, nMeses: 0 });
+    const a = byYear.get(y)!;
+    a.receita += b.receita; a.despesa += b.despesa; a.recorrente += b.recorrente; a.pontual += b.pontual;
+    a.receitaPago += b.receitaPago; a.despesaPago += b.despesaPago; a.mrrSum += b.recorrente; a.nMeses += 1;
+  }
+  const pontos: SeriePonto[] = anos.map((y) => {
+    const a = byYear.get(y)!;
+    return {
+      periodo: y, receitaCents: a.receita, despesaCents: a.despesa, resultadoCents: a.receita - a.despesa,
+      mrrCents: a.nMeses ? Math.round(a.mrrSum / a.nMeses) : 0, // MRR anual = média mensal
+      recorrenteCents: a.recorrente, pontualCents: a.pontual,
+      receitaPagoCents: a.receitaPago, despesaPagoCents: a.despesaPago,
+      parcial: (mesesPorAnoFull.get(y) ?? 0) < 12 || y >= anoCorrente,
+      realizado: realizadoAte != null && `${y}-12` <= realizadoAte,
+    };
+  });
+  return { ...meta, pontos };
 }
 
 /** A Receber / aging por VENCIMENTO (data real). Linhas sem vencimento → "sem data". */

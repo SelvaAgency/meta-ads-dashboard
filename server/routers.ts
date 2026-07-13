@@ -249,6 +249,8 @@ import {
   listFinanceRecorrencia,
   financeProximoMesRecorrente,
   gerarMesRecorrente,
+  recorrenciaStatusMes,
+  createDespesaRecorrencia,
   marcarSaidaRecorrencia,
   reativarRecorrencia,
   ajustarValorRecorrencia,
@@ -259,6 +261,7 @@ import {
   financePeriodoResumoRP,
   financePnlTrendRP,
   financeAReceberVenc,
+  financeSerieHistorica,
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
@@ -608,7 +611,11 @@ const financeRouter = router({
   recorrencia: router({
     list: adminProcedure.query(() => listFinanceRecorrencia()),
     proximoMes: adminProcedure.query(() => financeProximoMesRecorrente()),
+    statusMes: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => recorrenciaStatusMes(input.mes)),
     gerar: adminProcedure.input(z.object({ mes: MES })).mutation(({ input }) => gerarMesRecorrente(input.mes)),
+    createDespesa: adminProcedure
+      .input(z.object({ descricao: z.string().min(1).max(255), valorCents: CENTS, tipoEntry: z.enum(["DESPESA_RECORRENTE", "DESPESA_IMPOSTO"]), estimativa: z.boolean().default(false), mesInicio: MES, diaVencimento: z.number().int().min(1).max(31).nullable().optional() }))
+      .mutation(async ({ input }) => { const id = await createDespesaRecorrencia({ descricao: input.descricao, valorCents: input.valorCents, tipoEntry: input.tipoEntry, estimativa: input.estimativa, mesInicio: input.mesInicio, diaVencimento: input.diaVencimento ?? null }); return { id } as const; }),
     marcarSaida: adminProcedure.input(z.object({ recorrenciaId: z.number().int(), mes: MES })).mutation(({ input }) => marcarSaidaRecorrencia(input.recorrenciaId, input.mes)),
     reativar: adminProcedure.input(z.object({ recorrenciaId: z.number().int() })).mutation(async ({ input }) => { await reativarRecorrencia(input.recorrenciaId); return { success: true } as const; }),
     ajustarValor: adminProcedure.input(z.object({ recorrenciaId: z.number().int(), valorCents: CENTS, aplicarGerados: z.boolean().default(false) })).mutation(async ({ input }) => { await ajustarValorRecorrencia(input.recorrenciaId, input.valorCents, input.aplicarGerados); return { success: true } as const; }),
@@ -663,6 +670,9 @@ const financeRouter = router({
     qualidadeClientes: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional() }).optional()).query(({ input }) => financeQualidadeClientes(input ?? {})),
     aReceber: adminProcedure.query(() => financeAReceberVenc()),
     despesaPorCategoria: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional(), limitMonths: z.number().int().min(1).max(36).optional() }).optional()).query(({ input }) => financeDespesaCategoria(input ?? {})),
+    serieHistorica: adminProcedure
+      .input(z.object({ granularidade: z.enum(["mensal", "anual"]).default("mensal"), janela: z.enum(["12m", "24m", "vitalicio"]).default("12m") }))
+      .query(({ input }) => financeSerieHistorica(input.granularidade, input.janela)),
   }),
 });
 

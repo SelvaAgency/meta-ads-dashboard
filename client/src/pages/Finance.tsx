@@ -160,12 +160,19 @@ function MonthNav({ mes, onChange, months }: { mes: string; onChange: (m: string
 type TrendPoint = { mes: string; receitaCents: number; despesaCents: number; resultadoCents: number; receitaRecorrenteCents: number; receitaPontualCents: number; receitaPagoCents: number; despesaPagoCents: number };
 const axisFmt = (v: number) => (Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`);
 const tipTxt = (v: number) => centsToBRL(v * 100);
-function TrendChart({ data }: { data: TrendPoint[] }) {
-  // Resultado sólido até o último mês realizado; projeção (futuro) tracejada.
+// v5 — ponto de série histórica (mensal ou anual).
+type SeriePoint = { periodo: string; receitaCents: number; despesaCents: number; resultadoCents: number; mrrCents: number; recorrenteCents: number; pontualCents: number; receitaPagoCents: number; despesaPagoCents: number; parcial: boolean; realizado: boolean };
+type Janela = "12m" | "24m" | "vitalicio";
+type SerieGran = "mensal" | "anual";
+// rótulo do eixo: mês → "jul/26"; ano → "2025" (parcial marca "*").
+const fmtPeriodo = (p: string, parcial: boolean) => (p.length === 4 ? (parcial ? `${p}*` : p) : formatMes(p));
+
+function TrendChart({ pontos }: { pontos: SeriePoint[] }) {
+  // Resultado sólido no realizado; projeção (futuro) tracejada.
   let lastReal = -1;
-  data.forEach((t, i) => { if (t.receitaPagoCents > 0 || t.despesaPagoCents > 0) lastReal = i; });
-  const d = data.map((t, i) => ({
-    mes: formatMes(t.mes), Receita: t.receitaCents / 100, Despesa: t.despesaCents / 100,
+  pontos.forEach((t, i) => { if (t.realizado) lastReal = i; });
+  const d = pontos.map((t, i) => ({
+    lbl: fmtPeriodo(t.periodo, t.parcial), Receita: t.receitaCents / 100, Despesa: t.despesaCents / 100,
     Resultado: i <= lastReal ? t.resultadoCents / 100 : null,
     "Resultado projetado": i >= lastReal ? t.resultadoCents / 100 : null,
   }));
@@ -173,7 +180,7 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
     <ResponsiveContainer width="100%" height={220}>
       <ComposedChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-        <XAxis dataKey="mes" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
+        <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
         <Tooltip formatter={(v: number) => tipTxt(v)} /><Legend wrapperStyle={{ fontSize: 12 }} />
         <Line type="linear" dataKey="Receita" stroke="#16A34A" strokeWidth={2} dot={{ r: 2 }} />
         <Line type="linear" dataKey="Despesa" stroke="#DC2626" strokeWidth={2} dot={{ r: 2 }} />
@@ -183,30 +190,45 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
     </ResponsiveContainer>
   );
 }
-function MixChart({ data }: { data: TrendPoint[] }) {
-  const d = data.map((t) => ({ mes: formatMes(t.mes), Recorrente: t.receitaRecorrenteCents / 100, Pontual: t.receitaPontualCents / 100 }));
+function MixChart({ pontos }: { pontos: SeriePoint[] }) {
+  const d = pontos.map((t) => ({ lbl: fmtPeriodo(t.periodo, t.parcial), Recorrente: t.recorrenteCents / 100, Pontual: t.pontualCents / 100 }));
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-        <XAxis dataKey="mes" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
+        <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
         <Tooltip formatter={(v: number) => tipTxt(v)} /><Legend wrapperStyle={{ fontSize: 12 }} />
         <Bar dataKey="Recorrente" stackId="r" fill="#3B54E6" /><Bar dataKey="Pontual" stackId="r" fill="#EF701B" />
       </BarChart>
     </ResponsiveContainer>
   );
 }
-function MrrChart({ serie }: { serie: { mes: string; mrrCents: number }[] }) {
-  const d = serie.map((s) => ({ mes: formatMes(s.mes), MRR: s.mrrCents / 100 }));
+function MrrChart({ pontos }: { pontos: SeriePoint[] }) {
+  const d = pontos.map((t) => ({ lbl: fmtPeriodo(t.periodo, t.parcial), MRR: t.mrrCents / 100 }));
   return (
     <ResponsiveContainer width="100%" height={200}>
       <ComposedChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-        <XAxis dataKey="mes" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
+        <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
         <Tooltip formatter={(v: number) => tipTxt(v)} />
         <Line type="linear" dataKey="MRR" stroke="#3B54E6" strokeWidth={2} dot={{ r: 2 }} />
       </ComposedChart>
     </ResponsiveContainer>
+  );
+}
+// Controle compartilhado: janela (12m/24m/vitalício) + granularidade (mensal/anual).
+function SerieControls({ janela, setJanela, gran, setGran }: { janela: Janela; setJanela: (j: Janela) => void; gran: SerieGran; setGran: (g: SerieGran) => void }) {
+  return (
+    <div className="flex items-center gap-1">
+      <Select value={janela} onValueChange={(v) => setJanela(v as Janela)}>
+        <SelectTrigger className="h-7 w-[108px] text-xs"><SelectValue /></SelectTrigger>
+        <SelectContent><SelectItem value="12m">12 meses</SelectItem><SelectItem value="24m">24 meses</SelectItem><SelectItem value="vitalicio">Vitalício</SelectItem></SelectContent>
+      </Select>
+      <Select value={gran} onValueChange={(v) => setGran(v as SerieGran)}>
+        <SelectTrigger className="h-7 w-[92px] text-xs"><SelectValue /></SelectTrigger>
+        <SelectContent><SelectItem value="mensal">Mensal</SelectItem><SelectItem value="anual">Anual</SelectItem></SelectContent>
+      </Select>
+    </div>
   );
 }
 function DespesaStackChart({ serie }: { serie: { mes: string; recorrenteCents: number; impostoCents: number; pontualCents: number }[] }) {
@@ -306,7 +328,7 @@ type ProjForm = { clienteId: number | null; nome: string; parcelas: ProjParcela[
 
 function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes: Cliente[]; clienteById: Map<number, Cliente> }) {
   const utils = trpc.useUtils();
-  const [period, setPeriod] = useState<PeriodState>(defaultPeriod(months[0] ?? ""));
+  const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
   const { from, to, refMonth } = periodRange(period, months);
   const [tipo, setTipo] = useState(""); const [status, setStatus] = useState(""); const [clienteFilter, setClienteFilter] = useState<number | "">("");
   const [form, setForm] = useState<PnlForm | null>(null);
@@ -316,8 +338,10 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
   const resumoQ = trpc.finance.analytics.periodoResumo.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) && MES_RE.test(to) });
   const mrrQ = trpc.finance.analytics.mrr.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
   const listQ = trpc.finance.pnl.list.useQuery({ mesFrom: from, mesTo: to, ...(tipo ? { tipo: tipo as PnlTipo } : {}), ...(status ? { status: status as "pago" | "pendente" } : {}), ...(clienteFilter ? { clienteId: clienteFilter } : {}) }, { enabled: MES_RE.test(from) });
-  const trendQ = trpc.finance.pnl.trend.useQuery({ limitMonths: 12 });
-  const proximoMesQ = trpc.finance.recorrencia.proximoMes.useQuery();
+  const [serieJanela, setSerieJanela] = useState<Janela>("12m");
+  const [serieGran, setSerieGran] = useState<SerieGran>("mensal");
+  const serieQ = trpc.finance.analytics.serieHistorica.useQuery({ granularidade: serieGran, janela: serieJanela });
+  const statusMesQ = trpc.finance.recorrencia.statusMes.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
   const rows = (listQ.data ?? []) as PnlRow[];
   const r = resumoQ.data;
   const margem = r && r.receitaTotalCents > 0 ? `${Math.round((r.resultadoFinalCents / r.receitaTotalCents) * 100)}%` : "—";
@@ -373,9 +397,18 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
       <div className="flex flex-wrap items-center gap-2">
         <PeriodBar period={period} setPeriod={setPeriod} months={months} from={from} to={to} />
         <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => proximoMesQ.data && gerar.mutate({ mes: proximoMesQ.data })} disabled={gerar.isPending || !proximoMesQ.data}>
-            {gerar.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />} Gerar {proximoMesQ.data ? formatMes(proximoMesQ.data) : "próximo mês"}
-          </Button>
+          {(() => {
+            const cur = agencyCurrentMonthCli();
+            const faltam = statusMesQ.data?.faltam ?? 0;
+            const passado = refMonth < cur;
+            const podeGerar = !passado && faltam > 0;
+            const label = passado ? `${formatMes(refMonth)} fechado` : faltam > 0 ? `Gerar ${formatMes(refMonth)}` : `${formatMes(refMonth)} já gerado`;
+            return (
+              <Button size="sm" variant="outline" onClick={() => gerar.mutate({ mes: refMonth })} disabled={gerar.isPending || !podeGerar || !MES_RE.test(refMonth)} title={podeGerar ? `${faltam} recorrência(s) a gerar` : undefined}>
+                {gerar.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />} {label}
+              </Button>
+            );
+          })()}
           <Button size="sm" variant="outline" onClick={() => setProjForm({ clienteId: null, nome: "", parcelas: [{ valor: "", vencimento: "" }, { valor: "", vencimento: "" }] })}>Projeto</Button>
           <Button size="sm" onClick={() => setForm({ mes: refMonth, tipo: "DESPESA_PONTUAL", descricao: "", valor: "", status: "pendente", clienteId: null, vencimento: "" })}><Plus className="w-4 h-4 mr-1" /> Lançamento</Button>
         </div>
@@ -393,9 +426,13 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
       {(r?.aporteCents ?? 0) > 0 && <div className="grid grid-cols-2 md:grid-cols-4 gap-3"><Stat label="Aporte" value={centsToBRL(r!.aporteCents)} /></div>}
       {from > (months[0] ?? "") && <p className="text-[11px] text-amber-600">Período no futuro — os valores são 100% previstos (pendentes).</p>}
 
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-xs text-muted-foreground">Séries — {serieGran === "anual" ? "fluxo somado no ano; anos parciais marcam *" : "mensal"}{serieQ.data?.realizadoAte ? ` · realizado até ${fmtPeriodo(serieGran === "anual" ? serieQ.data.realizadoAte.slice(0, 4) : serieQ.data.realizadoAte, false)}` : ""}</p>
+        <SerieControls janela={serieJanela} setJanela={setSerieJanela} gran={serieGran} setGran={setSerieGran} />
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">Tendência (12m) — realizado sólido, projeção tracejada</p>{trendQ.data ? <TrendChart data={trendQ.data} /> : <div className="h-[220px]" />}</CardContent></Card>
-        <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">Receita: recorrente × pontual</p>{trendQ.data ? <MixChart data={trendQ.data} /> : <div className="h-[220px]" />}</CardContent></Card>
+        <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">Tendência — realizado sólido, projeção tracejada</p>{serieQ.data ? <TrendChart pontos={serieQ.data.pontos} /> : <div className="h-[220px]" />}</CardContent></Card>
+        <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">Receita: recorrente × pontual</p>{serieQ.data ? <MixChart pontos={serieQ.data.pontos} /> : <div className="h-[220px]" />}</CardContent></Card>
       </div>
 
       <Card><CardContent className="p-4 space-y-3">
@@ -537,7 +574,7 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
 type QualRow = { clienteId: number | null; nome: string; cor: string | null; mesesAtivos: number; totalCents: number; mediaCents: number; primeiroMes: string; ultimoMes: string; status: "ativo" | "churned" | "pontual" };
 
 function ClientesTab({ months }: { months: string[] }) {
-  const [period, setPeriod] = useState<PeriodState>(defaultPeriod(months[0] ?? ""));
+  const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
   const { from, to, refMonth } = periodRange(period, months);
   const [escopo, setEscopo] = useState<"vitalicio" | "periodo">("vitalicio");
   const [sortKey, setSortKey] = useState<keyof QualRow>("mediaCents");
@@ -545,6 +582,9 @@ function ClientesTab({ months }: { months: string[] }) {
 
   const utils = trpc.useUtils();
   const [ajuste, setAjuste] = useState<{ recorrenciaId: number; nome: string; valor: string; aplicarGerados: boolean } | null>(null);
+  const [serieJanela, setSerieJanela] = useState<Janela>("12m");
+  const [serieGran, setSerieGran] = useState<SerieGran>("mensal");
+  const serieQ = trpc.finance.analytics.serieHistorica.useQuery({ granularidade: serieGran, janela: serieJanela });
   const mrrQ = trpc.finance.analytics.mrr.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
   const churnQ = trpc.finance.analytics.churn.useQuery({ mesFrom: from, mesTo: to, limitMonths: 12 }, { enabled: MES_RE.test(from) });
   const qualQ = trpc.finance.analytics.qualidadeClientes.useQuery(escopo === "periodo" ? { mesFrom: from, mesTo: to } : {}, { enabled: escopo === "vitalicio" || MES_RE.test(from) });
@@ -589,7 +629,7 @@ function ClientesTab({ months }: { months: string[] }) {
             <TableHeader><TableRow><TableHead>Cliente</TableHead><TableHead className="text-right">Valor mensal</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
             <TableBody>
               {recQ.isLoading && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
-              {(recQ.data ?? []).map((rec) => (
+              {(recQ.data ?? []).filter((rec) => rec.natureza !== "DESPESA").map((rec) => (
                 <TableRow key={rec.id}>
                   <TableCell><span className="inline-flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: rec.cor ?? "#64748b" }} />{rec.clienteNome}</span></TableCell>
                   <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(rec.valorCents)}</TableCell>
@@ -604,7 +644,7 @@ function ClientesTab({ months }: { months: string[] }) {
                   </TableCell>
                 </TableRow>
               ))}
-              {!recQ.isLoading && (recQ.data?.length ?? 0) === 0 && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">Nenhuma recorrência. Rode o setup:recorrencia.</TableCell></TableRow>}
+              {!recQ.isLoading && (recQ.data ?? []).filter((rec) => rec.natureza !== "DESPESA").length === 0 && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">Nenhuma recorrência. Rode o setup:recorrencia.</TableCell></TableRow>}
             </TableBody>
           </Table>
         </div>
@@ -619,7 +659,13 @@ function ClientesTab({ months }: { months: string[] }) {
         <Stat label="Contração" value={`-${centsToBRL(m?.contracaoCents ?? 0)}`} tone="neg" />
         <Stat label="Churn (mês)" value={`-${centsToBRL(m?.churnCents ?? 0)}`} tone="neg" />
       </div>
-      <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">MRR — últimos 12 meses</p>{m ? <MrrChart serie={m.serie} /> : <div className="h-[200px]" />}</CardContent></Card>
+      <Card><CardContent className="p-3">
+        <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+          <p className="text-xs font-semibold text-muted-foreground">MRR{serieGran === "anual" ? " — anual = média mensal do ano" : " mensal"}</p>
+          <SerieControls janela={serieJanela} setJanela={setSerieJanela} gran={serieGran} setGran={setSerieGran} />
+        </div>
+        {serieQ.data ? <MrrChart pontos={serieQ.data.pontos} /> : <div className="h-[200px]" />}
+      </CardContent></Card>
 
       {/* Churn — headline do PERÍODO + timeline */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -722,12 +768,28 @@ function ClientesTab({ months }: { months: string[] }) {
 //  Aba Despesas (por categoria)
 // ═════════════════════════════════════════════════════════════════════════════
 function DespesasTab({ months }: { months: string[] }) {
-  const [period, setPeriod] = useState<PeriodState>(defaultPeriod(months[0] ?? ""));
+  const utils = trpc.useUtils();
+  const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
   const { from, to } = periodRange(period, months);
   const q = trpc.finance.analytics.despesaPorCategoria.useQuery({ mesFrom: from, mesTo: to, limitMonths: 12 }, { enabled: MES_RE.test(from) });
+  const recQ = trpc.finance.recorrencia.list.useQuery();
+  const despRec = (recQ.data ?? []).filter((r) => r.natureza === "DESPESA");
   const p = q.data?.periodo;
   const total = p?.totalCents ?? 0;
   const pct = (c: number) => (total > 0 ? `${Math.round((c / total) * 100)}%` : "—");
+  const cur = agencyCurrentMonthCli();
+
+  const [ajuste, setAjuste] = useState<{ recorrenciaId: number; nome: string; valor: string; aplicarGerados: boolean } | null>(null);
+  const [novo, setNovo] = useState<{ descricao: string; valor: string; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; dia: string } | null>(null);
+
+  const invRec = () => { utils.finance.recorrencia.invalidate(); utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); };
+  const marcarSaida = trpc.finance.recorrencia.marcarSaida.useMutation({ onSuccess: (res) => { invRec(); toast.success(`Despesa encerrada. ${res.removidas} mês(es) futuro(s) pendente(s) removido(s).`); } });
+  const reativar = trpc.finance.recorrencia.reativar.useMutation({ onSuccess: () => { invRec(); toast.success("Despesa reativada."); } });
+  const ajustarValor = trpc.finance.recorrencia.ajustarValor.useMutation({ onSuccess: () => { invRec(); setAjuste(null); toast.success("Valor ajustado."); } });
+  const createDespesa = trpc.finance.recorrencia.createDespesa.useMutation({ onSuccess: () => { invRec(); setNovo(null); toast.success("Despesa recorrente criada."); } });
+
+  const totalRecMensal = despRec.filter((r) => r.ativo).reduce((s, r) => s + r.valorCents, 0);
+
   return (
     <div className="space-y-5">
       <PeriodBar period={period} setPeriod={setPeriod} months={months} from={from} to={to} />
@@ -741,6 +803,74 @@ function DespesasTab({ months }: { months: string[] }) {
         <p className="text-xs font-semibold mb-1 text-muted-foreground">Despesa por categoria — últimos 12 meses (recorrente inclui folha da equipe)</p>
         {q.data ? <DespesaStackChart serie={q.data.serie} /> : <div className="h-[240px]" />}
       </CardContent></Card>
+
+      {/* Recorrências de despesa (folha + impostos) — ajustar · encerrar · reativar · adicionar */}
+      <Card><CardContent className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-semibold flex items-center gap-2"><Repeat className="w-4 h-4" /> Recorrências de despesa <span className="text-xs font-normal text-muted-foreground">· {centsToBRL(totalRecMensal)}/mês ativos</span></p>
+          <Button size="sm" variant="outline" onClick={() => setNovo({ descricao: "", valor: "", tipoEntry: "DESPESA_RECORRENTE", dia: "" })}><Plus className="w-4 h-4 mr-1" /> Adicionar</Button>
+        </div>
+        <div className="max-h-72 overflow-y-auto rounded-md border border-border">
+          <Table>
+            <TableHeader><TableRow><TableHead>Descrição</TableHead><TableHead>Tipo</TableHead><TableHead className="text-right">Valor mensal</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {recQ.isLoading && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
+              {despRec.map((rec) => (
+                <TableRow key={rec.id}>
+                  <TableCell className="font-medium">{rec.clienteNome}</TableCell>
+                  <TableCell>{rec.tipoEntry === "DESPESA_IMPOSTO" ? <Badge variant="secondary" className="font-normal">Imposto{rec.estimativa ? " · estimativa" : ""}</Badge> : <Badge variant="secondary" className="font-normal">Recorrente</Badge>}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(rec.valorCents)}</TableCell>
+                  <TableCell>{rec.ativo ? <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30">Ativa</Badge> : <Badge className="bg-red-500/15 text-red-600 border-red-500/30">Encerrada {rec.churnMes ? formatMes(rec.churnMes) : ""}</Badge>}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap">
+                    <div className="inline-flex items-center gap-1">
+                      <button onClick={() => setAjuste({ recorrenciaId: rec.id, nome: rec.clienteNome, valor: centsToInput(rec.valorCents), aplicarGerados: false })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Ajustar valor"><Pencil className="w-4 h-4" /></button>
+                      {rec.ativo
+                        ? <button onClick={() => { if (confirm(`Encerrar "${rec.clienteNome}"? Remove os meses futuros pendentes (não mexe nos pagos).`)) marcarSaida.mutate({ recorrenciaId: rec.id, mes: cur }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Encerrar"><TrendingDown className="w-4 h-4" /></button>
+                        : <button onClick={() => reativar.mutate({ recorrenciaId: rec.id })} className="text-xs text-accent px-1" title="Reativar">reativar</button>}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!recQ.isLoading && despRec.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6">Nenhuma despesa recorrente. Rode o setup:recorrencia-despesa ou clique em Adicionar.</TableCell></TableRow>}
+            </TableBody>
+          </Table>
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">Impostos replicados são <span className="font-medium">estimativa</span>. Encerrar mantém o histórico pago e limpa apenas os meses futuros pendentes.</p>
+      </CardContent></Card>
+
+      {/* Dialog ajustar valor */}
+      <Dialog open={!!ajuste} onOpenChange={(o) => !o && setAjuste(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Ajustar valor — {ajuste?.nome}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><label className="text-xs text-muted-foreground">Novo valor mensal</label><Input value={ajuste?.valor ?? ""} onChange={(e) => ajuste && setAjuste({ ...ajuste, valor: e.target.value })} placeholder="0,00" /></div>
+            <label className="flex items-center gap-2 text-sm"><Switch checked={ajuste?.aplicarGerados ?? false} onCheckedChange={(v) => ajuste && setAjuste({ ...ajuste, aplicarGerados: !!v })} /> Aplicar também aos meses futuros já gerados (pendentes)</label>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setAjuste(null)}>Cancelar</Button><Button onClick={() => { if (!ajuste) return; const c = parseMoneyToCents(ajuste.valor); if (c == null || c < 0) return toast.error("Valor inválido."); ajustarValor.mutate({ recorrenciaId: ajuste.recorrenciaId, valorCents: c, aplicarGerados: ajuste.aplicarGerados }); }} disabled={ajustarValor.isPending}>Salvar</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog nova despesa recorrente */}
+      <Dialog open={!!novo} onOpenChange={(o) => !o && setNovo(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Nova despesa recorrente</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><label className="text-xs text-muted-foreground">Descrição</label><Input value={novo?.descricao ?? ""} onChange={(e) => novo && setNovo({ ...novo, descricao: e.target.value })} placeholder="Ex.: Salário — Fulano / DAS Simples" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="text-xs text-muted-foreground">Valor mensal</label><Input value={novo?.valor ?? ""} onChange={(e) => novo && setNovo({ ...novo, valor: e.target.value })} placeholder="0,00" /></div>
+              <div><label className="text-xs text-muted-foreground">Dia venc. (opcional)</label><Input value={novo?.dia ?? ""} onChange={(e) => novo && setNovo({ ...novo, dia: e.target.value })} placeholder="5" /></div>
+            </div>
+            <div><label className="text-xs text-muted-foreground">Tipo</label>
+              <Select value={novo?.tipoEntry ?? "DESPESA_RECORRENTE"} onValueChange={(v) => novo && setNovo({ ...novo, tipoEntry: v as "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO" })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="DESPESA_RECORRENTE">Recorrente (folha/serviço)</SelectItem><SelectItem value="DESPESA_IMPOSTO">Imposto (estimativa)</SelectItem></SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground">Começa a valer no mês atual ({formatMes(cur)}). Gere o mês no P&amp;L para lançar.</p>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setNovo(null)}>Cancelar</Button><Button onClick={() => { if (!novo) return; if (!novo.descricao.trim()) return toast.error("Informe a descrição."); const c = parseMoneyToCents(novo.valor); if (c == null || c <= 0) return toast.error("Valor inválido."); const dia = novo.dia.trim() ? Number(novo.dia) : null; if (dia != null && (!Number.isInteger(dia) || dia < 1 || dia > 31)) return toast.error("Dia inválido (1–31)."); createDespesa.mutate({ descricao: novo.descricao.trim(), valorCents: c, tipoEntry: novo.tipoEntry, estimativa: novo.tipoEntry === "DESPESA_IMPOSTO", mesInicio: cur, diaVencimento: dia }); }} disabled={createDespesa.isPending}>Criar</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

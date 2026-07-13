@@ -683,17 +683,23 @@ export const financePnlEntries = mysqlTable("finance_pnl_entries", {
 // v4 — definição da assinatura recorrente por cliente (fonte da geração mensal).
 export const financeRecorrencia = mysqlTable("finance_recorrencia", {
   id: int("id").autoincrement().primaryKey(),
-  clienteId: int("clienteId").notNull(),
+  clienteId: int("clienteId"),                      // NULL para despesa (v4.1)
   valorCents: int("valorCents").notNull(),          // valor mensal padrão atual
   diaVencimento: int("diaVencimento"),
   mesInicio: varchar("mesInicio", { length: 7 }).notNull(),
   ativo: boolean("ativo").default(true).notNull(),
   churnMes: varchar("churnMes", { length: 7 }),
+  // v4.1 — recorrência também de despesa (espelha a receita).
+  natureza: mysqlEnum("natureza", ["RECEITA", "DESPESA"]).default("RECEITA").notNull(),
+  descricao: varchar("descricao", { length: 255 }), // nome da despesa/pessoa (receita usa clienteId)
+  tipoEntry: varchar("tipoEntry", { length: 30 }),  // 'DESPESA_RECORRENTE' | 'DESPESA_IMPOSTO'
+  estimativa: boolean("estimativa").default(false).notNull(), // true p/ imposto
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   idxCliente: index("idx_rec_cliente").on(table.clienteId),
   idxAtivo: index("idx_rec_ativo").on(table.ativo),
+  idxNatureza: index("idx_rec_natureza").on(table.natureza),
 }));
 export type FinanceRecorrencia = typeof financeRecorrencia.$inferSelect;
 export type InsertFinanceRecorrencia = typeof financeRecorrencia.$inferInsert;

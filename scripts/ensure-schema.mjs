@@ -343,6 +343,33 @@ async function main() {
     }
     console.log("[ensure-schema] ok  · finance_recorrencia / finance_projetos / colunas de ledger garantidas");
 
+    // 13) Financeiro v4.1: recorrência de despesa (colunas + clienteId nullable).
+    const recCols = [
+      { name: "natureza", ddl: "ADD COLUMN `natureza` ENUM('RECEITA','DESPESA') NOT NULL DEFAULT 'RECEITA'" },
+      { name: "descricao", ddl: "ADD COLUMN `descricao` VARCHAR(255) NULL" },
+      { name: "tipoEntry", ddl: "ADD COLUMN `tipoEntry` VARCHAR(30) NULL" },
+      { name: "estimativa", ddl: "ADD COLUMN `estimativa` BOOLEAN NOT NULL DEFAULT FALSE" },
+    ];
+    for (const c of recCols) {
+      if (!(await columnExists(conn, "finance_recorrencia", c.name))) {
+        await conn.query(`ALTER TABLE \`finance_recorrencia\` ${c.ddl}`);
+        console.log(`[ensure-schema] ok  · finance_recorrencia.${c.name} adicionada`);
+      }
+    }
+    // clienteId → NULLABLE (só altera se ainda for NOT NULL).
+    const [nn] = await conn.query(
+      "SELECT IS_NULLABLE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'finance_recorrencia' AND column_name = 'clienteId'",
+    );
+    if (nn.length && nn[0].IS_NULLABLE === "NO") {
+      await conn.query("ALTER TABLE `finance_recorrencia` MODIFY COLUMN `clienteId` INT NULL");
+      console.log("[ensure-schema] ok  · finance_recorrencia.clienteId agora nullable");
+    }
+    const [nix] = await conn.query(
+      "SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'finance_recorrencia' AND index_name = 'idx_rec_natureza' LIMIT 1",
+    );
+    if (nix.length === 0) await conn.query("ALTER TABLE `finance_recorrencia` ADD INDEX `idx_rec_natureza` (`natureza`)");
+    console.log("[ensure-schema] ok  · finance_recorrencia (despesa) garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();
