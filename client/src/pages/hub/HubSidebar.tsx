@@ -101,7 +101,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Administrativo",
     adminOnly: true,
     items: [
-      { label: "Financeiro", icon: DollarSign, kind: "placeholder" },
+      { label: "Financeiro", icon: DollarSign, kind: "app", href: "/finance" },
       { label: "Contratos", icon: FileSignature, kind: "app", href: "/contracts" },
       { label: "Propostas", icon: ScrollText, kind: "placeholder" },
       { label: "Colaboradores", icon: Users, kind: "internal", href: "/people" },

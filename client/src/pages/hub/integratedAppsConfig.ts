@@ -32,6 +32,7 @@ export const INTEGRATED_APPS: IntegratedApp[] = [
   { id: "tracker", label: "Tracker", route: "/tracker", externalUrl: "/tracker?embedded=1", supportsClientFlyout: true },
   { id: "reports", label: "Relatórios", route: "/reports", externalUrl: "/reports?embedded=1" },
   { id: "contracts", label: "Contratos", route: "/contracts", externalUrl: "/contracts?embedded=1" },
+  { id: "finance", label: "Financeiro", route: "/finance", externalUrl: "/finance?embedded=1" },
 ];
 
 /** Rota interna → app integrado (query string já vem removida pelo wouter). */
