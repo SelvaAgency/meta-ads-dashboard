@@ -17,6 +17,7 @@
     "seed:employees": "tsx scripts/seed-employees.ts",
     "seed:finance": "tsx server/seedFinance.ts",
     "backfill:clientes": "tsx server/backfillClientes.ts",
+    "setup:recorrencia": "tsx server/setupRecorrencia.ts",
     "test:finance-access": "tsx server/testFinanceAccess.ts",
     "users:export": "tsx scripts/export-users.ts",
     "users:audit": "tsx scripts/users-audit.ts"

@@ -661,6 +661,14 @@ export const financePnlEntries = mysqlTable("finance_pnl_entries", {
   status: mysqlEnum("status", ["pago", "pendente"]).default("pendente").notNull(),
   // Cliente (FK lógica → finance_clientes.id). Só receita usa; despesa/aporte NULL.
   clienteId: int("clienteId"),
+  // v4 — gestão ativa (ledger). Colunas nullable: histórico antigo fica MANUAL/NULL.
+  vencimento: date("vencimento", { mode: "string" }),           // data real (YYYY-MM-DD)
+  vencimentoOriginal: date("vencimentoOriginal", { mode: "string" }), // p/ badge "Remarcado"
+  origem: mysqlEnum("origem", ["MANUAL", "RECORRENCIA", "PROJETO"]).default("MANUAL").notNull(),
+  recorrenciaId: int("recorrenciaId"),
+  projetoId: int("projetoId"),
+  parcelaNum: int("parcelaNum"),
+  parcelaTotal: int("parcelaTotal"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
@@ -668,7 +676,40 @@ export const financePnlEntries = mysqlTable("finance_pnl_entries", {
   idxTipo: index("idx_pnl_tipo").on(table.tipo),
   idxStatus: index("idx_pnl_status").on(table.status),
   idxCliente: index("idx_pnl_cliente").on(table.clienteId),
+  idxVencimento: index("idx_pnl_vencimento").on(table.vencimento),
+  idxOrigem: index("idx_pnl_origem").on(table.origem),
 }));
+
+// v4 — definição da assinatura recorrente por cliente (fonte da geração mensal).
+export const financeRecorrencia = mysqlTable("finance_recorrencia", {
+  id: int("id").autoincrement().primaryKey(),
+  clienteId: int("clienteId").notNull(),
+  valorCents: int("valorCents").notNull(),          // valor mensal padrão atual
+  diaVencimento: int("diaVencimento"),
+  mesInicio: varchar("mesInicio", { length: 7 }).notNull(),
+  ativo: boolean("ativo").default(true).notNull(),
+  churnMes: varchar("churnMes", { length: 7 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxCliente: index("idx_rec_cliente").on(table.clienteId),
+  idxAtivo: index("idx_rec_ativo").on(table.ativo),
+}));
+export type FinanceRecorrencia = typeof financeRecorrencia.$inferSelect;
+export type InsertFinanceRecorrencia = typeof financeRecorrencia.$inferInsert;
+
+// v4 — projetos parcelados (receita pontual dividida em N parcelas).
+export const financeProjetos = mysqlTable("finance_projetos", {
+  id: int("id").autoincrement().primaryKey(),
+  clienteId: int("clienteId"),
+  nome: varchar("nome", { length: 255 }).notNull(),
+  valorTotalCents: int("valorTotalCents").notNull(),
+  numParcelas: int("numParcelas").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type FinanceProjeto = typeof financeProjetos.$inferSelect;
+export type InsertFinanceProjeto = typeof financeProjetos.$inferInsert;
 
 // Clientes do Financeiro (tags de receita). nome único; cor hex para o chip.
 export const financeClientes = mysqlTable("finance_clientes", {

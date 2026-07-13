@@ -246,6 +246,19 @@ import {
   financeQualidadeClientes,
   financeAReceber,
   financeDespesaCategoria,
+  listFinanceRecorrencia,
+  financeProximoMesRecorrente,
+  gerarMesRecorrente,
+  marcarSaidaRecorrencia,
+  reativarRecorrencia,
+  ajustarValorRecorrencia,
+  listFinanceProjetos,
+  createFinanceProjeto,
+  deleteFinanceProjeto,
+  remarcarFinancePnl,
+  financePeriodoResumoRP,
+  financePnlTrendRP,
+  financeAReceberVenc,
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
@@ -568,6 +581,7 @@ const PNL_STATUS = z.enum(["pago", "pendente"]);
 const REEMB_CAT = z.enum(["PLATAFORMA_ANUNCIOS", "OFFICE", "EXTRAS"]);
 const CENTS = z.number().int().min(0); // P&L/reembolsos: positivo; sinal vem do tipo
 const CENTS_SIGNED = z.number().int();  // retiradas: pode ser negativo (estorno)
+const DATA = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "data deve ser YYYY-MM-DD");
 
 const financeRouter = router({
   // Meses distintos para popular seletores no front.
@@ -578,16 +592,34 @@ const financeRouter = router({
       .input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional(), tipo: PNL_TIPO.optional(), status: PNL_STATUS.optional(), clienteId: z.number().int().optional() }).optional())
       .query(({ input }) => listFinancePnl(input ?? {})),
     resumo: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => financePnlResumo(input.mes)),
-    trend: adminProcedure.input(z.object({ limitMonths: z.number().int().min(1).max(36).optional() }).optional()).query(({ input }) => financePnlTrend(input?.limitMonths ?? 12)),
+    trend: adminProcedure.input(z.object({ limitMonths: z.number().int().min(1).max(36).optional() }).optional()).query(({ input }) => financePnlTrendRP(input?.limitMonths ?? 12)),
     receitaPorCliente: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional() }).optional()).query(({ input }) => financeReceitaPorCliente(input ?? {})),
     create: adminProcedure
-      .input(z.object({ mes: MES, tipo: PNL_TIPO, descricao: z.string().min(1).max(255), valorCents: CENTS, status: PNL_STATUS.default("pendente"), clienteId: z.number().int().nullable().optional() }))
+      .input(z.object({ mes: MES, tipo: PNL_TIPO, descricao: z.string().min(1).max(255), valorCents: CENTS, status: PNL_STATUS.default("pendente"), clienteId: z.number().int().nullable().optional(), vencimento: DATA.nullable().optional() }))
       .mutation(async ({ input }) => ({ id: await createFinancePnl(input) })),
     update: adminProcedure
       .input(z.object({ id: z.number().int(), mes: MES.optional(), tipo: PNL_TIPO.optional(), descricao: z.string().min(1).max(255).optional(), valorCents: CENTS.optional(), status: PNL_STATUS.optional(), clienteId: z.number().int().nullable().optional() }))
       .mutation(async ({ input }) => { const { id, ...patch } = input; await updateFinancePnl(id, patch); return { success: true } as const; }),
     delete: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => { await deleteFinancePnl(input.id); return { success: true } as const; }),
     setStatus: adminProcedure.input(z.object({ id: z.number().int(), status: PNL_STATUS })).mutation(async ({ input }) => { await updateFinancePnl(input.id, { status: input.status }); return { success: true } as const; }),
+    remarcar: adminProcedure.input(z.object({ id: z.number().int(), vencimento: DATA })).mutation(async ({ input }) => { await remarcarFinancePnl(input.id, input.vencimento); return { success: true } as const; }),
+  }),
+
+  recorrencia: router({
+    list: adminProcedure.query(() => listFinanceRecorrencia()),
+    proximoMes: adminProcedure.query(() => financeProximoMesRecorrente()),
+    gerar: adminProcedure.input(z.object({ mes: MES })).mutation(({ input }) => gerarMesRecorrente(input.mes)),
+    marcarSaida: adminProcedure.input(z.object({ recorrenciaId: z.number().int(), mes: MES })).mutation(({ input }) => marcarSaidaRecorrencia(input.recorrenciaId, input.mes)),
+    reativar: adminProcedure.input(z.object({ recorrenciaId: z.number().int() })).mutation(async ({ input }) => { await reativarRecorrencia(input.recorrenciaId); return { success: true } as const; }),
+    ajustarValor: adminProcedure.input(z.object({ recorrenciaId: z.number().int(), valorCents: CENTS, aplicarGerados: z.boolean().default(false) })).mutation(async ({ input }) => { await ajustarValorRecorrencia(input.recorrenciaId, input.valorCents, input.aplicarGerados); return { success: true } as const; }),
+  }),
+
+  projetos: router({
+    list: adminProcedure.query(() => listFinanceProjetos()),
+    create: adminProcedure
+      .input(z.object({ clienteId: z.number().int().nullable().optional(), nome: z.string().min(1).max(255), parcelas: z.array(z.object({ valorCents: CENTS, vencimento: DATA })).min(1).max(60) }))
+      .mutation(({ input }) => createFinanceProjeto({ clienteId: input.clienteId ?? null, nome: input.nome, parcelas: input.parcelas })),
+    delete: adminProcedure.input(z.object({ id: z.number().int() })).mutation(({ input }) => deleteFinanceProjeto(input.id)),
   }),
 
   clientes: router({
@@ -625,11 +657,11 @@ const financeRouter = router({
 
   // Analytics v3 (só leitura/cálculo sobre as tabelas existentes).
   analytics: router({
-    periodoResumo: adminProcedure.input(z.object({ mesFrom: MES, mesTo: MES })).query(({ input }) => financePeriodoResumo(input.mesFrom, input.mesTo)),
+    periodoResumo: adminProcedure.input(z.object({ mesFrom: MES, mesTo: MES })).query(({ input }) => financePeriodoResumoRP(input.mesFrom, input.mesTo)),
     mrr: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => financeMrr(input.mes)),
     churn: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional(), limitMonths: z.number().int().min(1).max(36).optional() }).optional()).query(({ input }) => financeChurn(input ?? {})),
     qualidadeClientes: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional() }).optional()).query(({ input }) => financeQualidadeClientes(input ?? {})),
-    aReceber: adminProcedure.query(() => financeAReceber()),
+    aReceber: adminProcedure.query(() => financeAReceberVenc()),
     despesaPorCategoria: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional(), limitMonths: z.number().int().min(1).max(36).optional() }).optional()).query(({ input }) => financeDespesaCategoria(input ?? {})),
   }),
 });

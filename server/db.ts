@@ -24,6 +24,9 @@ import {
   financeRetiradas,
   type InsertFinanceRetirada,
   financeClientes,
+  financeRecorrencia,
+  type InsertFinanceRecorrencia,
+  financeProjetos,
   appSettings,
   selvatvPollVotes,
   aiSuggestions,
@@ -2048,8 +2051,16 @@ export async function listFinancePnl(f: { mesFrom?: string; mesTo?: string; tipo
 export async function createFinancePnl(data: InsertFinancePnlEntry): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
-  const [row] = await db.insert(financePnlEntries).values(data).$returningId();
+  // Ao criar com vencimento, vencimentoOriginal = vencimento (base do "Remarcado").
+  const values = data.vencimento && data.vencimentoOriginal == null ? { ...data, vencimentoOriginal: data.vencimento } : data;
+  const [row] = await db.insert(financePnlEntries).values(values).$returningId();
   return row.id;
+}
+export async function getFinancePnlById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(financePnlEntries).where(eq(financePnlEntries.id, id)).limit(1);
+  return r[0];
 }
 export async function updateFinancePnl(id: number, patch: Partial<InsertFinancePnlEntry>) {
   const db = await getDb();
@@ -2457,4 +2468,218 @@ export async function financeDespesaCategoria(f: { mesFrom?: string; mesTo?: str
     periodo = { recorrenteCents: rec, impostoCents: imp, pontualCents: pon, totalCents: rec + imp + pon };
   }
   return { serie: months.map((m) => byMes.get(m)!), periodo };
+}
+
+// ─── Financeiro v4: ledger ativo (recorrência, geração, projetos, vencimento) ─
+function agencyTodayStr(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+function clampDay(mesAlvo: string, dia: number): number {
+  const [y, m] = mesAlvo.split("-").map(Number);
+  const lastDay = new Date(y, m, 0).getDate(); // último dia do mês m (1-based)
+  return Math.max(1, Math.min(dia, lastDay));
+}
+function monthsLate(venc: string, hoje: string): number {
+  const [vy, vm, vd] = venc.split("-").map(Number);
+  const [hy, hm, hd] = hoje.split("-").map(Number);
+  let mm = (hy - vy) * 12 + (hm - vm);
+  if (hd < vd) mm -= 1;
+  return mm;
+}
+const pad2s = (n: number) => String(n).padStart(2, "0");
+
+/** Recorrências (assinaturas) + nome/cor do cliente. */
+export async function listFinanceRecorrencia() {
+  const db = await getDb();
+  if (!db) return [];
+  const [recs, clientes] = await Promise.all([
+    db.select().from(financeRecorrencia).orderBy(desc(financeRecorrencia.ativo), financeRecorrencia.clienteId),
+    db.select().from(financeClientes),
+  ]);
+  const cmap = new Map(clientes.map((c) => [c.id, c]));
+  return recs.map((r) => ({ ...r, clienteNome: cmap.get(r.clienteId)?.nome ?? `Cliente #${r.clienteId}`, cor: cmap.get(r.clienteId)?.cor ?? null }));
+}
+
+/** Próximo mês a gerar = max(mês corrente, últimoMêsRecorrente + 1). */
+export async function financeProximoMesRecorrente(): Promise<string> {
+  const db = await getDb();
+  const cur = agencyCurrentMonth();
+  if (!db) return cur;
+  const rows = await db.selectDistinct({ mes: financePnlEntries.mes }).from(financePnlEntries).where(eq(financePnlEntries.tipo, "RECEITA_RECORRENTE"));
+  const maxRec = rows.map((r) => r.mes).sort().slice(-1)[0];
+  const candidate = maxRec ? addMonthsSrv(maxRec, 1) : cur;
+  return candidate < cur ? cur : candidate;
+}
+
+/** Motor: gera as linhas recorrentes PENDENTES do mês (idempotente; nunca passado). */
+export async function gerarMesRecorrente(mesAlvo: string): Promise<{ criadas: number; mes: string; skipped: boolean }> {
+  const db = await getDb();
+  if (!db) return { criadas: 0, mes: mesAlvo, skipped: true };
+  if (mesAlvo < agencyCurrentMonth()) return { criadas: 0, mes: mesAlvo, skipped: true };
+  const recs = await db.select().from(financeRecorrencia).where(eq(financeRecorrencia.ativo, true));
+  if (!recs.length) return { criadas: 0, mes: mesAlvo, skipped: false };
+  const existing = await db.select({ recorrenciaId: financePnlEntries.recorrenciaId }).from(financePnlEntries)
+    .where(and(eq(financePnlEntries.mes, mesAlvo), eq(financePnlEntries.origem, "RECORRENCIA")));
+  const has = new Set(existing.map((e) => e.recorrenciaId));
+  const clientes = await db.select().from(financeClientes);
+  const cmap = new Map(clientes.map((c) => [c.id, c]));
+  let criadas = 0;
+  for (const r of recs) {
+    if (has.has(r.id)) continue;
+    if (mesAlvo < r.mesInicio) continue;
+    const venc = r.diaVencimento ? `${mesAlvo}-${pad2s(clampDay(mesAlvo, r.diaVencimento))}` : null;
+    await db.insert(financePnlEntries).values({
+      mes: mesAlvo, tipo: "RECEITA_RECORRENTE", descricao: cmap.get(r.clienteId)?.nome ?? `Cliente #${r.clienteId}`,
+      valorCents: r.valorCents, status: "pendente", clienteId: r.clienteId, origem: "RECORRENCIA",
+      recorrenciaId: r.id, vencimento: venc, vencimentoOriginal: venc,
+    });
+    criadas++;
+  }
+  return { criadas, mes: mesAlvo, skipped: false };
+}
+
+/** Churn: desativa a recorrência e remove SÓ as linhas futuras pendentes dela. */
+export async function marcarSaidaRecorrencia(recorrenciaId: number, mes: string): Promise<{ removidas: number }> {
+  const db = await getDb();
+  if (!db) return { removidas: 0 };
+  await db.update(financeRecorrencia).set({ ativo: false, churnMes: mes }).where(eq(financeRecorrencia.id, recorrenciaId));
+  const cur = agencyCurrentMonth();
+  const futuras = await db.select({ id: financePnlEntries.id }).from(financePnlEntries)
+    .where(and(eq(financePnlEntries.recorrenciaId, recorrenciaId), eq(financePnlEntries.origem, "RECORRENCIA"), eq(financePnlEntries.status, "pendente"), gte(financePnlEntries.mes, cur)));
+  if (futuras.length) await db.delete(financePnlEntries)
+    .where(and(eq(financePnlEntries.recorrenciaId, recorrenciaId), eq(financePnlEntries.origem, "RECORRENCIA"), eq(financePnlEntries.status, "pendente"), gte(financePnlEntries.mes, cur)));
+  return { removidas: futuras.length };
+}
+export async function reativarRecorrencia(recorrenciaId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(financeRecorrencia).set({ ativo: true, churnMes: null }).where(eq(financeRecorrencia.id, recorrenciaId));
+}
+export async function ajustarValorRecorrencia(recorrenciaId: number, valorCents: number, aplicarGerados: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(financeRecorrencia).set({ valorCents }).where(eq(financeRecorrencia.id, recorrenciaId));
+  if (aplicarGerados) {
+    const cur = agencyCurrentMonth();
+    await db.update(financePnlEntries).set({ valorCents })
+      .where(and(eq(financePnlEntries.recorrenciaId, recorrenciaId), eq(financePnlEntries.origem, "RECORRENCIA"), eq(financePnlEntries.status, "pendente"), gte(financePnlEntries.mes, cur)));
+  }
+}
+
+/** Projetos parcelados. */
+export async function listFinanceProjetos() {
+  const db = await getDb();
+  if (!db) return [];
+  const [projs, clientes] = await Promise.all([
+    db.select().from(financeProjetos).orderBy(desc(financeProjetos.id)),
+    db.select().from(financeClientes),
+  ]);
+  const cmap = new Map(clientes.map((c) => [c.id, c]));
+  return projs.map((p) => ({ ...p, clienteNome: p.clienteId ? (cmap.get(p.clienteId)?.nome ?? null) : null }));
+}
+export async function createFinanceProjeto(data: { clienteId: number | null; nome: string; parcelas: { valorCents: number; vencimento: string }[] }): Promise<{ id: number; criadas: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const nome = data.nome.trim();
+  const num = data.parcelas.length;
+  const total = data.parcelas.reduce((s, p) => s + p.valorCents, 0);
+  const [proj] = await db.insert(financeProjetos).values({ clienteId: data.clienteId, nome, valorTotalCents: total, numParcelas: num }).$returningId();
+  const sorted = data.parcelas.slice().sort((a, b) => a.vencimento.localeCompare(b.vencimento));
+  for (let i = 0; i < sorted.length; i++) {
+    const p = sorted[i];
+    await db.insert(financePnlEntries).values({
+      mes: p.vencimento.slice(0, 7), tipo: "RECEITA_PONTUAL", descricao: `${nome} (${i + 1}/${num})`, valorCents: p.valorCents,
+      status: "pendente", clienteId: data.clienteId, origem: "PROJETO", projetoId: proj.id, parcelaNum: i + 1, parcelaTotal: num,
+      vencimento: p.vencimento, vencimentoOriginal: p.vencimento,
+    });
+  }
+  return { id: proj.id, criadas: num };
+}
+/** Exclui projeto: remove só as parcelas PENDENTES (pagas ficam como receita realizada). */
+export async function deleteFinanceProjeto(id: number): Promise<{ removidas: number }> {
+  const db = await getDb();
+  if (!db) return { removidas: 0 };
+  const pend = await db.select({ id: financePnlEntries.id }).from(financePnlEntries)
+    .where(and(eq(financePnlEntries.projetoId, id), eq(financePnlEntries.status, "pendente")));
+  if (pend.length) await db.delete(financePnlEntries).where(and(eq(financePnlEntries.projetoId, id), eq(financePnlEntries.status, "pendente")));
+  await db.delete(financeProjetos).where(eq(financeProjetos.id, id));
+  return { removidas: pend.length };
+}
+
+/** Remarcar: muda o vencimento. 1ª atribuição não vira "Remarcado". */
+export async function remarcarFinancePnl(id: number, vencimento: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const before = await getFinancePnlById(id);
+  const patch: Partial<InsertFinancePnlEntry> = { vencimento };
+  if (!before?.vencimentoOriginal) patch.vencimentoOriginal = vencimento;
+  await db.update(financePnlEntries).set(patch).where(eq(financePnlEntries.id, id));
+}
+
+/** Resumo do período separando Realizado (pago) × Previsto (pendente). */
+export async function financePeriodoResumoRP(mesFrom: string, mesTo: string) {
+  const db = await getDb();
+  const empty = { receitaRealizadaCents: 0, receitaPrevistaCents: 0, despesaRealizadaCents: 0, despesaPrevistaCents: 0, aporteCents: 0, receitaRecorrenteCents: 0, receitaPontualCents: 0 };
+  if (!db) return { ...empty, receitaTotalCents: 0, despesaTotalCents: 0, resultadoFinalCents: 0, resultadoRealizadoCents: 0, resultadoPrevistoCents: 0, totalPendenteCents: 0 };
+  const rows = await db.select().from(financePnlEntries).where(and(gte(financePnlEntries.mes, mesFrom), lte(financePnlEntries.mes, mesTo)));
+  let rRec = 0, rPend = 0, dRec = 0, dPend = 0, aporte = 0, rec = 0, pon = 0;
+  for (const r of rows) {
+    const receita = r.tipo === "RECEITA_RECORRENTE" || r.tipo === "RECEITA_PONTUAL";
+    const despesa = r.tipo === "DESPESA_RECORRENTE" || r.tipo === "DESPESA_IMPOSTO" || r.tipo === "DESPESA_PONTUAL";
+    if (receita) { if (r.status === "pago") rRec += r.valorCents; else rPend += r.valorCents; if (r.tipo === "RECEITA_RECORRENTE") rec += r.valorCents; else pon += r.valorCents; }
+    else if (despesa) { if (r.status === "pago") dRec += r.valorCents; else dPend += r.valorCents; }
+    else if (r.tipo === "APORTE") aporte += r.valorCents;
+  }
+  const receitaTotal = rRec + rPend, despesaTotal = dRec + dPend;
+  return {
+    receitaRealizadaCents: rRec, receitaPrevistaCents: rPend, despesaRealizadaCents: dRec, despesaPrevistaCents: dPend,
+    receitaTotalCents: receitaTotal, despesaTotalCents: despesaTotal, resultadoFinalCents: receitaTotal - despesaTotal,
+    resultadoRealizadoCents: rRec - dRec, resultadoPrevistoCents: rPend - dPend,
+    aporteCents: aporte, receitaRecorrenteCents: rec, receitaPontualCents: pon, totalPendenteCents: rPend + dPend,
+  };
+}
+
+/** Tendência 12m com split realizado (pago) para desenhar projeção tracejada. */
+export async function financePnlTrendRP(limitMonths = 12) {
+  const db = await getDb();
+  if (!db) return [] as { mes: string; receitaCents: number; despesaCents: number; resultadoCents: number; receitaRecorrenteCents: number; receitaPontualCents: number; receitaPagoCents: number; despesaPagoCents: number }[];
+  const monthsRows = await db.selectDistinct({ mes: financePnlEntries.mes }).from(financePnlEntries);
+  const months = monthsRows.map((r) => r.mes).sort().slice(-limitMonths);
+  if (!months.length) return [];
+  const rows = await db.select().from(financePnlEntries).where(inArray(financePnlEntries.mes, months));
+  const byMes = new Map<string, { mes: string; receitaCents: number; despesaCents: number; receitaRecorrenteCents: number; receitaPontualCents: number; receitaPagoCents: number; despesaPagoCents: number }>();
+  for (const m of months) byMes.set(m, { mes: m, receitaCents: 0, despesaCents: 0, receitaRecorrenteCents: 0, receitaPontualCents: 0, receitaPagoCents: 0, despesaPagoCents: 0 });
+  for (const r of rows) {
+    const b = byMes.get(r.mes); if (!b) continue;
+    if (r.tipo === "RECEITA_RECORRENTE" || r.tipo === "RECEITA_PONTUAL") { b.receitaCents += r.valorCents; if (r.status === "pago") b.receitaPagoCents += r.valorCents; if (r.tipo === "RECEITA_RECORRENTE") b.receitaRecorrenteCents += r.valorCents; else b.receitaPontualCents += r.valorCents; }
+    else if (r.tipo === "DESPESA_RECORRENTE" || r.tipo === "DESPESA_IMPOSTO" || r.tipo === "DESPESA_PONTUAL") { b.despesaCents += r.valorCents; if (r.status === "pago") b.despesaPagoCents += r.valorCents; }
+  }
+  return months.map((m) => { const b = byMes.get(m)!; return { ...b, resultadoCents: b.receitaCents - b.despesaCents }; });
+}
+
+/** A Receber / aging por VENCIMENTO (data real). Linhas sem vencimento → "sem data". */
+export async function financeAReceberVenc() {
+  const db = await getDb();
+  const hoje = agencyTodayStr();
+  const mesCorrente = agencyCurrentMonth();
+  const empty = { mesCorrente, hoje, totalPendenteCents: 0, totalVencidoCents: 0, buckets: { corrente: 0, m1: 0, m2: 0, m3plus: 0, semData: 0 }, itens: [] as { clienteNome: string; cor: string | null; descricao: string; mes: string; vencimento: string | null; valorCents: number; idade: number | null }[] };
+  if (!db) return empty;
+  const [rows, clientes] = await Promise.all([
+    db.select().from(financePnlEntries).where(and(RECEITA_TIPOS, eq(financePnlEntries.status, "pendente"))),
+    db.select().from(financeClientes),
+  ]);
+  const cmap = new Map(clientes.map((c) => [c.id, c]));
+  const buckets = { corrente: 0, m1: 0, m2: 0, m3plus: 0, semData: 0 };
+  const itens = rows.map((r) => {
+    const idade = r.vencimento ? monthsLate(r.vencimento, hoje) : null;
+    if (idade == null) buckets.semData += r.valorCents;
+    else if (idade <= 0) buckets.corrente += r.valorCents;
+    else if (idade === 1) buckets.m1 += r.valorCents;
+    else if (idade === 2) buckets.m2 += r.valorCents;
+    else buckets.m3plus += r.valorCents;
+    const c = r.clienteId ? cmap.get(r.clienteId) : undefined;
+    return { clienteNome: c?.nome ?? "—", cor: c?.cor ?? null, descricao: r.descricao, mes: r.mes, vencimento: r.vencimento, valorCents: r.valorCents, idade };
+  }).sort((a, b) => (b.idade ?? -99) - (a.idade ?? -99) || b.valorCents - a.valorCents);
+  const totalPendente = rows.reduce((s, r) => s + r.valorCents, 0);
+  return { mesCorrente, hoje, totalPendenteCents: totalPendente, totalVencidoCents: buckets.m1 + buckets.m2 + buckets.m3plus, buckets, itens };
 }

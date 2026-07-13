@@ -291,6 +291,58 @@ async function main() {
     }
     console.log("[ensure-schema] ok  · finance_clientes garantida");
 
+    // 12) Financeiro v4: recorrência + projetos + colunas de ledger no P&L.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`finance_recorrencia\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`clienteId\` INT NOT NULL,
+        \`valorCents\` INT NOT NULL,
+        \`diaVencimento\` INT NULL,
+        \`mesInicio\` VARCHAR(7) NOT NULL,
+        \`ativo\` BOOLEAN NOT NULL DEFAULT TRUE,
+        \`churnMes\` VARCHAR(7) NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX \`idx_rec_cliente\` (\`clienteId\`), INDEX \`idx_rec_ativo\` (\`ativo\`)
+      )
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`finance_projetos\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`clienteId\` INT NULL,
+        \`nome\` VARCHAR(255) NOT NULL,
+        \`valorTotalCents\` INT NOT NULL,
+        \`numParcelas\` INT NOT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    // Colunas de ledger no P&L (idempotente — só adiciona se faltar).
+    const pnlCols = [
+      { name: "vencimento", ddl: "ADD COLUMN `vencimento` DATE NULL" },
+      { name: "vencimentoOriginal", ddl: "ADD COLUMN `vencimentoOriginal` DATE NULL" },
+      { name: "origem", ddl: "ADD COLUMN `origem` ENUM('MANUAL','RECORRENCIA','PROJETO') NOT NULL DEFAULT 'MANUAL'" },
+      { name: "recorrenciaId", ddl: "ADD COLUMN `recorrenciaId` INT NULL" },
+      { name: "projetoId", ddl: "ADD COLUMN `projetoId` INT NULL" },
+      { name: "parcelaNum", ddl: "ADD COLUMN `parcelaNum` INT NULL" },
+      { name: "parcelaTotal", ddl: "ADD COLUMN `parcelaTotal` INT NULL" },
+    ];
+    for (const c of pnlCols) {
+      if (!(await columnExists(conn, "finance_pnl_entries", c.name))) {
+        await conn.query(`ALTER TABLE \`finance_pnl_entries\` ${c.ddl}`);
+        console.log(`[ensure-schema] ok  · finance_pnl_entries.${c.name} adicionada`);
+      }
+    }
+    // Índices de ledger (idempotente via checagem em information_schema.statistics).
+    for (const idx of [{ name: "idx_pnl_vencimento", col: "vencimento" }, { name: "idx_pnl_origem", col: "origem" }]) {
+      const [ix] = await conn.query(
+        "SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'finance_pnl_entries' AND index_name = ? LIMIT 1",
+        [idx.name],
+      );
+      if (ix.length === 0) await conn.query(`ALTER TABLE \`finance_pnl_entries\` ADD INDEX \`${idx.name}\` (\`${idx.col}\`)`);
+    }
+    console.log("[ensure-schema] ok  · finance_recorrencia / finance_projetos / colunas de ledger garantidas");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

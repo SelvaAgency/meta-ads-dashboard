@@ -347,6 +347,19 @@ export async function syncAllAccounts() {
 
 async function runAutoSync() {
   logger.info("[AutoSync] Starting daily auto-sync for all accounts...");
+
+  // Financeiro v4: gera (idempotente) as linhas recorrentes pendentes do mês
+  // corrente. No-op se já geradas. Nunca gera mês passado. Falha aqui não
+  // interrompe o sync de Meta Ads.
+  try {
+    const { gerarMesRecorrente } = await import("./db");
+    const mesCorrente = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit" }).format(new Date());
+    const res = await gerarMesRecorrente(mesCorrente);
+    if (res.criadas > 0) logger.info(`[AutoSync] Financeiro: ${res.criadas} recorrentes geradas para ${res.mes}.`);
+  } catch (e) {
+    logger.warn(`[AutoSync] Financeiro: geração recorrente falhou (ignorado): ${String(e)}`);
+  }
+
   const accounts = await getAllActiveMetaAdAccounts();
   if (accounts.length === 0) {
     logger.info("[AutoSync] No accounts found, skipping.");

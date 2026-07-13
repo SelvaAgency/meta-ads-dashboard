@@ -12,7 +12,7 @@ import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Wallet, Plus, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight, ArrowLeftRight, Users, TrendingDown, AlertTriangle } from "lucide-react";
+import { Wallet, Plus, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight, ArrowLeftRight, Users, TrendingDown, AlertTriangle, CalendarClock, Repeat } from "lucide-react";
 import { ResponsiveContainer, ComposedChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,8 @@ const pad2 = (n: number) => String(n).padStart(2, "0");
 function formatMes(mes: string): string { const [y, m] = (mes ?? "").split("-"); return `${MES_ABBR[Number(m) - 1] ?? m}/${y}`; }
 function addMonths(ymd: string, delta: number): string { const [y, m] = ymd.split("-").map(Number); const idx = y * 12 + (m - 1) + delta; return `${Math.floor(idx / 12)}-${pad2((idx % 12) + 1)}`; }
 function monthsBetween(a: string, b: string): number { const [ay, am] = a.split("-").map(Number); const [by, bm] = b.split("-").map(Number); return (by * 12 + bm) - (ay * 12 + am); }
+// Mês corrente no fuso da agência (sem toISOString).
+function agencyCurrentMonthCli(): string { return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit" }).format(new Date()); }
 function parseMoneyToCents(input: string): number | null {
   let s = (input ?? "").trim().replace(/R\$|\s/g, "");
   if (!s) return null;
@@ -155,11 +157,18 @@ function MonthNav({ mes, onChange, months }: { mes: string; onChange: (m: string
 }
 
 // ── Charts (linha RETA ponto-a-ponto — sem spline) ───────────────────────────
-type TrendPoint = { mes: string; receitaCents: number; despesaCents: number; resultadoCents: number; receitaRecorrenteCents: number; receitaPontualCents: number };
+type TrendPoint = { mes: string; receitaCents: number; despesaCents: number; resultadoCents: number; receitaRecorrenteCents: number; receitaPontualCents: number; receitaPagoCents: number; despesaPagoCents: number };
 const axisFmt = (v: number) => (Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`);
 const tipTxt = (v: number) => centsToBRL(v * 100);
 function TrendChart({ data }: { data: TrendPoint[] }) {
-  const d = data.map((t) => ({ mes: formatMes(t.mes), Receita: t.receitaCents / 100, Despesa: t.despesaCents / 100, Resultado: t.resultadoCents / 100 }));
+  // Resultado sólido até o último mês realizado; projeção (futuro) tracejada.
+  let lastReal = -1;
+  data.forEach((t, i) => { if (t.receitaPagoCents > 0 || t.despesaPagoCents > 0) lastReal = i; });
+  const d = data.map((t, i) => ({
+    mes: formatMes(t.mes), Receita: t.receitaCents / 100, Despesa: t.despesaCents / 100,
+    Resultado: i <= lastReal ? t.resultadoCents / 100 : null,
+    "Resultado projetado": i >= lastReal ? t.resultadoCents / 100 : null,
+  }));
   return (
     <ResponsiveContainer width="100%" height={220}>
       <ComposedChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -168,7 +177,8 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
         <Tooltip formatter={(v: number) => tipTxt(v)} /><Legend wrapperStyle={{ fontSize: 12 }} />
         <Line type="linear" dataKey="Receita" stroke="#16A34A" strokeWidth={2} dot={{ r: 2 }} />
         <Line type="linear" dataKey="Despesa" stroke="#DC2626" strokeWidth={2} dot={{ r: 2 }} />
-        <Line type="linear" dataKey="Resultado" stroke="#2563EB" strokeWidth={2} dot={{ r: 2 }} />
+        <Line type="linear" dataKey="Resultado" stroke="#2563EB" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+        <Line type="linear" dataKey="Resultado projetado" stroke="#2563EB" strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls={false} />
       </ComposedChart>
     </ResponsiveContainer>
   );
@@ -289,8 +299,10 @@ const defaultPeriod = (anchor: string): PeriodState => ({ gran: "mes", anchor, c
 // ═════════════════════════════════════════════════════════════════════════════
 //  Aba P&L
 // ═════════════════════════════════════════════════════════════════════════════
-type PnlRow = { id: number; mes: string; tipo: string; descricao: string; valorCents: number; status: "pago" | "pendente"; clienteId: number | null };
-type PnlForm = { id?: number; mes: string; tipo: PnlTipo; descricao: string; valor: string; status: "pago" | "pendente"; clienteId: number | null };
+type PnlRow = { id: number; mes: string; tipo: string; descricao: string; valorCents: number; status: "pago" | "pendente"; clienteId: number | null; vencimento: string | null; vencimentoOriginal: string | null; origem: "MANUAL" | "RECORRENCIA" | "PROJETO"; parcelaNum: number | null; parcelaTotal: number | null };
+type PnlForm = { id?: number; mes: string; tipo: PnlTipo; descricao: string; valor: string; status: "pago" | "pendente"; clienteId: number | null; vencimento: string };
+type ProjParcela = { valor: string; vencimento: string };
+type ProjForm = { clienteId: number | null; nome: string; parcelas: ProjParcela[] };
 
 function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes: Cliente[]; clienteById: Map<number, Cliente> }) {
   const utils = trpc.useUtils();
@@ -298,20 +310,27 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
   const { from, to, refMonth } = periodRange(period, months);
   const [tipo, setTipo] = useState(""); const [status, setStatus] = useState(""); const [clienteFilter, setClienteFilter] = useState<number | "">("");
   const [form, setForm] = useState<PnlForm | null>(null);
+  const [projForm, setProjForm] = useState<ProjForm | null>(null);
+  const [remarcar, setRemarcar] = useState<{ id: number; venc: string } | null>(null);
 
   const resumoQ = trpc.finance.analytics.periodoResumo.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) && MES_RE.test(to) });
   const mrrQ = trpc.finance.analytics.mrr.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
   const listQ = trpc.finance.pnl.list.useQuery({ mesFrom: from, mesTo: to, ...(tipo ? { tipo: tipo as PnlTipo } : {}), ...(status ? { status: status as "pago" | "pendente" } : {}), ...(clienteFilter ? { clienteId: clienteFilter } : {}) }, { enabled: MES_RE.test(from) });
   const trendQ = trpc.finance.pnl.trend.useQuery({ limitMonths: 12 });
+  const proximoMesQ = trpc.finance.recorrencia.proximoMes.useQuery();
   const rows = (listQ.data ?? []) as PnlRow[];
   const r = resumoQ.data;
   const margem = r && r.receitaTotalCents > 0 ? `${Math.round((r.resultadoFinalCents / r.receitaTotalCents) * 100)}%` : "—";
+  const rpHint = (real: number, prev: number) => `Real ${centsToBRL(real)} · Prev ${centsToBRL(prev)}`;
 
-  const invalidate = () => { utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); utils.finance.months.invalidate(); };
+  const invalidate = () => { utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); utils.finance.months.invalidate(); utils.finance.recorrencia.invalidate(); };
   const create = trpc.finance.pnl.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Lançamento criado."); } });
   const update = trpc.finance.pnl.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Lançamento atualizado."); } });
   const del = trpc.finance.pnl.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Excluído."); } });
-  const setStatusM = trpc.finance.pnl.setStatus.useMutation({ onSuccess: () => { utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); } });
+  const setStatusM = trpc.finance.pnl.setStatus.useMutation({ onSuccess: () => { utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); } });
+  const remarcarM = trpc.finance.pnl.remarcar.useMutation({ onSuccess: () => { invalidate(); setRemarcar(null); toast.success("Vencimento remarcado."); } });
+  const gerar = trpc.finance.recorrencia.gerar.useMutation({ onSuccess: (res) => { invalidate(); toast.success(res.criadas > 0 ? `${res.criadas} recorrentes gerados em ${res.mes}.` : `Nada a gerar em ${res.mes} (já existem).`); } });
+  const projCreate = trpc.finance.projetos.create.useMutation({ onSuccess: (res) => { invalidate(); utils.finance.projetos.list.invalidate(); setProjForm(null); toast.success(`Projeto criado (${res.criadas} parcelas).`); } });
 
   const detalhe = useMemo(() => {
     const recPorCliente = new Map<number | string, { nome: string; cliente?: Cliente; cents: number }>();
@@ -334,29 +353,48 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
     const valorCents = parseMoneyToCents(form.valor);
     if (valorCents == null) return toast.error("Valor inválido.");
     const payload = { mes: form.mes, tipo: form.tipo, descricao: form.descricao.trim(), valorCents, status: form.status, clienteId: tipoKind(form.tipo) === "receita" ? form.clienteId : null };
-    if (form.id) update.mutate({ id: form.id, ...payload }); else create.mutate(payload);
+    if (form.id) update.mutate({ id: form.id, ...payload });
+    else create.mutate({ ...payload, ...(form.vencimento ? { vencimento: form.vencimento } : {}) });
   };
   const isReceitaForm = form ? tipoKind(form.tipo) === "receita" : false;
 
+  const projTotal = projForm ? projForm.parcelas.reduce((s, p) => s + (parseMoneyToCents(p.valor) ?? 0), 0) : 0;
+  const submitProj = () => {
+    if (!projForm) return;
+    if (!projForm.nome.trim()) return toast.error("Informe o nome do projeto.");
+    const parcelas = projForm.parcelas.map((p) => ({ valorCents: parseMoneyToCents(p.valor), vencimento: p.vencimento }));
+    if (parcelas.some((p) => p.valorCents == null || p.valorCents <= 0)) return toast.error("Valor de parcela inválido.");
+    if (parcelas.some((p) => !/^\d{4}-\d{2}-\d{2}$/.test(p.vencimento))) return toast.error("Data de parcela inválida (YYYY-MM-DD).");
+    projCreate.mutate({ clienteId: projForm.clienteId, nome: projForm.nome.trim(), parcelas: parcelas as { valorCents: number; vencimento: string }[] });
+  };
+
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <PeriodBar period={period} setPeriod={setPeriod} months={months} from={from} to={to} />
-        <div className="ml-auto"><Button size="sm" onClick={() => setForm({ mes: refMonth, tipo: "DESPESA_PONTUAL", descricao: "", valor: "", status: "pendente", clienteId: null })}><Plus className="w-4 h-4 mr-1" /> Lançamento</Button></div>
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => proximoMesQ.data && gerar.mutate({ mes: proximoMesQ.data })} disabled={gerar.isPending || !proximoMesQ.data}>
+            {gerar.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />} Gerar {proximoMesQ.data ? formatMes(proximoMesQ.data) : "próximo mês"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setProjForm({ clienteId: null, nome: "", parcelas: [{ valor: "", vencimento: "" }, { valor: "", vencimento: "" }] })}>Projeto</Button>
+          <Button size="sm" onClick={() => setForm({ mes: refMonth, tipo: "DESPESA_PONTUAL", descricao: "", valor: "", status: "pendente", clienteId: null, vencimento: "" })}><Plus className="w-4 h-4 mr-1" /> Lançamento</Button>
+        </div>
       </div>
 
+      {/* Cards: Realizado × Previsto */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-        <Stat label="Receita" value={centsToBRL(r?.receitaTotalCents ?? 0)} tone="pos" />
-        <Stat label="Despesa" value={centsToBRL(r?.despesaTotalCents ?? 0)} tone="neg" />
-        <Stat label="Resultado" value={centsToBRL(r?.resultadoFinalCents ?? 0)} tone={(r?.resultadoFinalCents ?? 0) >= 0 ? "pos" : "neg"} />
+        <Stat label="Receita" value={centsToBRL(r?.receitaTotalCents ?? 0)} tone="pos" hint={r ? rpHint(r.receitaRealizadaCents, r.receitaPrevistaCents) : ""} />
+        <Stat label="Despesa" value={centsToBRL(r?.despesaTotalCents ?? 0)} tone="neg" hint={r ? rpHint(r.despesaRealizadaCents, r.despesaPrevistaCents) : ""} />
+        <Stat label="Resultado" value={centsToBRL(r?.resultadoFinalCents ?? 0)} tone={(r?.resultadoFinalCents ?? 0) >= 0 ? "pos" : "neg"} hint={r ? rpHint(r.resultadoRealizadoCents, r.resultadoPrevistoCents) : ""} />
         <Stat label="Margem" value={margem} tone={(r?.resultadoFinalCents ?? 0) >= 0 ? "pos" : "neg"} />
         <Stat label={`MRR (${formatMes(refMonth)})`} value={centsToBRL(mrrQ.data?.mrrCents ?? 0)} hint="métrica de 1 mês" />
-        <Stat label="Pendente" value={centsToBRL(r?.totalPendenteCents ?? 0)} tone="warn" />
+        <Stat label="A receber (previsto)" value={centsToBRL(r?.totalPendenteCents ?? 0)} tone="warn" />
       </div>
       {(r?.aporteCents ?? 0) > 0 && <div className="grid grid-cols-2 md:grid-cols-4 gap-3"><Stat label="Aporte" value={centsToBRL(r!.aporteCents)} /></div>}
+      {from > (months[0] ?? "") && <p className="text-[11px] text-amber-600">Período no futuro — os valores são 100% previstos (pendentes).</p>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">Tendência (12 meses)</p>{trendQ.data ? <TrendChart data={trendQ.data} /> : <div className="h-[220px]" />}</CardContent></Card>
+        <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">Tendência (12m) — realizado sólido, projeção tracejada</p>{trendQ.data ? <TrendChart data={trendQ.data} /> : <div className="h-[220px]" />}</CardContent></Card>
         <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">Receita: recorrente × pontual</p>{trendQ.data ? <MixChart data={trendQ.data} /> : <div className="h-[220px]" />}</CardContent></Card>
       </div>
 
@@ -373,7 +411,7 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
           </div>
           <div>
             <p className="text-xs uppercase tracking-wide text-red-600 font-semibold mb-1">Despesas</p>
-            <div className="flex items-center justify-between py-0.5"><span>Recorrente</span><span className="tabular-nums">{centsToBRL(detalhe.despRec)}</span></div>
+            <div className="flex items-center justify-between py-0.5"><span>Recorrente <span className="text-[10px] text-muted-foreground">(inclui folha)</span></span><span className="tabular-nums">{centsToBRL(detalhe.despRec)}</span></div>
             <div className="flex items-center justify-between py-0.5"><span>Imposto</span><span className="tabular-nums">{centsToBRL(detalhe.despImp)}</span></div>
             <div className="flex items-center justify-between py-0.5"><span>Pontual</span><span className="tabular-nums">{centsToBRL(detalhe.despPon)}</span></div>
             <div className="flex items-center justify-between py-0.5 font-semibold border-t border-border mt-1 pt-1"><span>Total despesa</span><span className="tabular-nums">{centsToBRL(detalhe.despRec + detalhe.despImp + detalhe.despPon)}</span></div>
@@ -395,25 +433,44 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
 
       <div className="rounded-lg border border-border overflow-x-auto">
         <Table>
-          <TableHeader><TableRow><TableHead>Mês</TableHead><TableHead>Tipo</TableHead><TableHead>Descrição</TableHead><TableHead>Cliente</TableHead><TableHead className="text-right">Valor</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Mês</TableHead><TableHead>Tipo</TableHead><TableHead>Descrição</TableHead><TableHead>Cliente</TableHead><TableHead>Vencimento</TableHead><TableHead className="text-right">Valor</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
           <TableBody>
-            {listQ.isLoading && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
-            {!listQ.isLoading && rows.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">Nenhum lançamento no período/filtro.</TableCell></TableRow>}
-            {rows.slice(0, 300).map((row) => (
-              <TableRow key={row.id}>
-                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatMes(row.mes)}</TableCell>
-                <TableCell><Badge variant="secondary" className="font-normal whitespace-nowrap">{tipoLabel(row.tipo)}</Badge></TableCell>
-                <TableCell className="max-w-[220px] truncate">{row.descricao}</TableCell>
-                <TableCell>{row.clienteId ? <ClientTag cliente={clienteById.get(row.clienteId)} /> : <span className="text-muted-foreground text-xs">—</span>}</TableCell>
-                <TableCell className={`text-right whitespace-nowrap font-medium ${tipoKind(row.tipo) === "despesa" ? "text-red-600" : tipoKind(row.tipo) === "receita" ? "text-emerald-600" : ""}`}>{tipoKind(row.tipo) === "despesa" ? "-" : ""}{centsToBRL(row.valorCents)}</TableCell>
-                <TableCell><button onClick={() => setStatusM.mutate({ id: row.id, status: row.status === "pago" ? "pendente" : "pago" })}><Badge className={row.status === "pago" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" : "bg-amber-500/15 text-amber-600 border-amber-500/30"}>{row.status === "pago" ? "Pago" : "Pendente"}</Badge></button></TableCell>
-                <TableCell className="text-right whitespace-nowrap"><RowActions onEdit={() => setForm({ id: row.id, mes: row.mes, tipo: row.tipo as PnlTipo, descricao: row.descricao, valor: centsToInput(row.valorCents), status: row.status, clienteId: row.clienteId })} onDelete={() => del.mutate({ id: row.id })} /></TableCell>
-              </TableRow>
-            ))}
+            {listQ.isLoading && <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
+            {!listQ.isLoading && rows.length === 0 && <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-6">Nenhum lançamento no período/filtro.</TableCell></TableRow>}
+            {rows.slice(0, 300).map((row) => {
+              const remarcado = row.vencimento && row.vencimentoOriginal && row.vencimento !== row.vencimentoOriginal;
+              return (
+                <TableRow key={row.id}>
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatMes(row.mes)}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <Badge variant="secondary" className="font-normal whitespace-nowrap">{tipoLabel(row.tipo)}</Badge>
+                      {row.origem === "RECORRENCIA" && <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[9px] px-1">rec</Badge>}
+                      {row.origem === "PROJETO" && <Badge className="bg-purple-500/10 text-purple-600 border-purple-500/20 text-[9px] px-1">proj {row.parcelaNum}/{row.parcelaTotal}</Badge>}
+                    </div>
+                  </TableCell>
+                  <TableCell className="max-w-[200px] truncate">{row.descricao}</TableCell>
+                  <TableCell>{row.clienteId ? <ClientTag cliente={clienteById.get(row.clienteId)} /> : <span className="text-muted-foreground text-xs">—</span>}</TableCell>
+                  <TableCell className="whitespace-nowrap text-xs">
+                    {row.vencimento ? row.vencimento : <span className="text-muted-foreground">—</span>}
+                    {remarcado && <Badge className="ml-1 bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}
+                  </TableCell>
+                  <TableCell className={`text-right whitespace-nowrap font-medium ${tipoKind(row.tipo) === "despesa" ? "text-red-600" : tipoKind(row.tipo) === "receita" ? "text-emerald-600" : ""}`}>{tipoKind(row.tipo) === "despesa" ? "-" : ""}{centsToBRL(row.valorCents)}</TableCell>
+                  <TableCell><button onClick={() => setStatusM.mutate({ id: row.id, status: row.status === "pago" ? "pendente" : "pago" })}><Badge className={row.status === "pago" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" : "bg-amber-500/15 text-amber-600 border-amber-500/30"}>{row.status === "pago" ? "Pago" : "Pendente"}</Badge></button></TableCell>
+                  <TableCell className="text-right whitespace-nowrap">
+                    <div className="inline-flex items-center gap-1">
+                      <button onClick={() => setRemarcar({ id: row.id, venc: row.vencimento ?? "" })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Remarcar vencimento"><CalendarClock className="w-4 h-4" /></button>
+                      <RowActions onEdit={() => setForm({ id: row.id, mes: row.mes, tipo: row.tipo as PnlTipo, descricao: row.descricao, valor: centsToInput(row.valorCents), status: row.status, clienteId: row.clienteId, vencimento: row.vencimento ?? "" })} onDelete={() => del.mutate({ id: row.id })} />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </div>
 
+      {/* Dialog lançamento */}
       <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>{form?.id ? "Editar lançamento" : "Novo lançamento"}</DialogTitle></DialogHeader>
@@ -425,9 +482,49 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
               {isReceitaForm && <Field label="Cliente" full><ClienteSelect value={form.clienteId} onChange={(id) => setForm({ ...form, clienteId: id })} clientes={clientes} /></Field>}
               <Field label="Valor"><MoneyInput value={form.valor} onChange={(v) => setForm({ ...form, valor: v })} /></Field>
               <Field label="Status"><Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as "pago" | "pendente" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pendente">Pendente</SelectItem><SelectItem value="pago">Pago</SelectItem></SelectContent></Select></Field>
+              {!form.id && <Field label="Vencimento (opcional)" full><Input type="date" value={form.vencimento} onChange={(e) => setForm({ ...form, vencimento: e.target.value })} /></Field>}
             </div>
           )}
           <DialogFooter><Button variant="outline" onClick={() => setForm(null)}>Cancelar</Button><Button onClick={submit} disabled={create.isPending || update.isPending}>{(create.isPending || update.isPending) && <Loader2 className="w-4 h-4 mr-1 animate-spin" />} Salvar</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog remarcar */}
+      <Dialog open={!!remarcar} onOpenChange={(o) => !o && setRemarcar(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Remarcar vencimento</DialogTitle></DialogHeader>
+          {remarcar && <Field label="Nova data de vencimento"><Input type="date" value={remarcar.venc} onChange={(e) => setRemarcar({ ...remarcar, venc: e.target.value })} /></Field>}
+          <DialogFooter><Button variant="outline" onClick={() => setRemarcar(null)}>Cancelar</Button><Button onClick={() => { if (remarcar && /^\d{4}-\d{2}-\d{2}$/.test(remarcar.venc)) remarcarM.mutate({ id: remarcar.id, vencimento: remarcar.venc }); else toast.error("Data inválida."); }} disabled={remarcarM.isPending}>Salvar</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog projeto parcelado */}
+      <Dialog open={!!projForm} onOpenChange={(o) => !o && setProjForm(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Novo projeto parcelado</DialogTitle></DialogHeader>
+          {projForm && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Nome do projeto" full><Input value={projForm.nome} onChange={(e) => setProjForm({ ...projForm, nome: e.target.value })} placeholder="Ex.: Site institucional" /></Field>
+                <Field label="Cliente" full><ClienteSelect value={projForm.clienteId} onChange={(id) => setProjForm({ ...projForm, clienteId: id })} clientes={clientes} /></Field>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1"><Label className="text-xs">Parcelas (valor + vencimento)</Label><span className="text-xs text-muted-foreground">Total: {centsToBRL(projTotal)}</span></div>
+                <div className="space-y-2 max-h-56 overflow-y-auto">
+                  {projForm.parcelas.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground w-5">{i + 1}</span>
+                      <MoneyInput value={p.valor} onChange={(v) => setProjForm({ ...projForm, parcelas: projForm.parcelas.map((x, j) => j === i ? { ...x, valor: v } : x) })} />
+                      <Input type="date" value={p.vencimento} onChange={(e) => setProjForm({ ...projForm, parcelas: projForm.parcelas.map((x, j) => j === i ? { ...x, vencimento: e.target.value } : x) })} className="w-[150px]" />
+                      <button onClick={() => setProjForm({ ...projForm, parcelas: projForm.parcelas.filter((_, j) => j !== i) })} className="p-1 text-muted-foreground hover:text-destructive" title="Remover"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  ))}
+                </div>
+                <Button size="sm" variant="ghost" className="mt-1" onClick={() => setProjForm({ ...projForm, parcelas: [...projForm.parcelas, { valor: "", vencimento: "" }] })}><Plus className="w-3.5 h-3.5 mr-1" /> Parcela</Button>
+              </div>
+            </div>
+          )}
+          <DialogFooter><Button variant="outline" onClick={() => setProjForm(null)}>Cancelar</Button><Button onClick={submitProj} disabled={projCreate.isPending}>{projCreate.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />} Criar projeto</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
@@ -446,12 +543,20 @@ function ClientesTab({ months }: { months: string[] }) {
   const [sortKey, setSortKey] = useState<keyof QualRow>("mediaCents");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
+  const utils = trpc.useUtils();
+  const [ajuste, setAjuste] = useState<{ recorrenciaId: number; nome: string; valor: string; aplicarGerados: boolean } | null>(null);
   const mrrQ = trpc.finance.analytics.mrr.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
   const churnQ = trpc.finance.analytics.churn.useQuery({ mesFrom: from, mesTo: to, limitMonths: 12 }, { enabled: MES_RE.test(from) });
   const qualQ = trpc.finance.analytics.qualidadeClientes.useQuery(escopo === "periodo" ? { mesFrom: from, mesTo: to } : {}, { enabled: escopo === "vitalicio" || MES_RE.test(from) });
+  const recQ = trpc.finance.recorrencia.list.useQuery();
   const m = mrrQ.data;
   const ch = churnQ.data;
   const summary = qualQ.data?.summary;
+
+  const invRec = () => { utils.finance.recorrencia.invalidate(); utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); };
+  const marcarSaida = trpc.finance.recorrencia.marcarSaida.useMutation({ onSuccess: (res) => { invRec(); toast.success(`Saída marcada. ${res.removidas} linha(s) futura(s) pendente(s) removida(s).`); } });
+  const reativar = trpc.finance.recorrencia.reativar.useMutation({ onSuccess: () => { invRec(); toast.success("Recorrência reativada."); } });
+  const ajustarValor = trpc.finance.recorrencia.ajustarValor.useMutation({ onSuccess: () => { invRec(); setAjuste(null); toast.success("Valor recorrente ajustado."); } });
 
   const qualRows = useMemo(() => {
     const rows = ((qualQ.data?.rows ?? []) as QualRow[]).slice();
@@ -470,9 +575,40 @@ function ClientesTab({ months }: { months: string[] }) {
   );
   const statusBadge = (s: string) => s === "ativo" ? <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30">Ativo</Badge> : s === "churned" ? <Badge className="bg-red-500/15 text-red-600 border-red-500/30">Churned</Badge> : <Badge variant="secondary" className="font-normal">Pontual</Badge>;
 
+  const cur = agencyCurrentMonthCli();
+
   return (
     <div className="space-y-5">
       <PeriodBar period={period} setPeriod={setPeriod} months={months} from={from} to={to} />
+
+      {/* Recorrências (assinaturas) — ajustar valor · marcar saída · reativar */}
+      <Card><CardContent className="p-4">
+        <p className="text-sm font-semibold mb-2 flex items-center gap-2"><Repeat className="w-4 h-4" /> Recorrências (assinaturas)</p>
+        <div className="max-h-72 overflow-y-auto rounded-md border border-border">
+          <Table>
+            <TableHeader><TableRow><TableHead>Cliente</TableHead><TableHead className="text-right">Valor mensal</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {recQ.isLoading && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
+              {(recQ.data ?? []).map((rec) => (
+                <TableRow key={rec.id}>
+                  <TableCell><span className="inline-flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: rec.cor ?? "#64748b" }} />{rec.clienteNome}</span></TableCell>
+                  <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(rec.valorCents)}</TableCell>
+                  <TableCell>{rec.ativo ? <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30">Ativa</Badge> : <Badge className="bg-red-500/15 text-red-600 border-red-500/30">Saiu {rec.churnMes ? formatMes(rec.churnMes) : ""}</Badge>}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap">
+                    <div className="inline-flex items-center gap-1">
+                      <button onClick={() => setAjuste({ recorrenciaId: rec.id, nome: rec.clienteNome, valor: centsToInput(rec.valorCents), aplicarGerados: false })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Ajustar valor recorrente"><Pencil className="w-4 h-4" /></button>
+                      {rec.ativo
+                        ? <button onClick={() => { if (confirm(`Marcar saída de ${rec.clienteNome}? Remove os meses futuros pendentes (não mexe nos pagos).`)) marcarSaida.mutate({ recorrenciaId: rec.id, mes: cur }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Marcar saída (churn)"><TrendingDown className="w-4 h-4" /></button>
+                        : <button onClick={() => reativar.mutate({ recorrenciaId: rec.id })} className="text-xs text-accent px-1" title="Reativar">reativar</button>}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!recQ.isLoading && (recQ.data?.length ?? 0) === 0 && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">Nenhuma recorrência. Rode o setup:recorrencia.</TableCell></TableRow>}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent></Card>
 
       {/* MRR + movimento */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -563,6 +699,21 @@ function ClientesTab({ months }: { months: string[] }) {
           </Table>
         </div>
       </CardContent></Card>
+
+      {/* Dialog ajustar valor recorrente */}
+      <Dialog open={!!ajuste} onOpenChange={(o) => !o && setAjuste(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Ajustar valor recorrente{ajuste ? ` — ${ajuste.nome}` : ""}</DialogTitle></DialogHeader>
+          {ajuste && (
+            <div className="space-y-3">
+              <Field label="Novo valor mensal"><MoneyInput value={ajuste.valor} onChange={(v) => setAjuste({ ...ajuste, valor: v })} /></Field>
+              <label className="flex items-center gap-2 text-sm"><Switch checked={ajuste.aplicarGerados} onCheckedChange={(v) => setAjuste({ ...ajuste, aplicarGerados: !!v })} /> Aplicar também aos meses futuros já gerados (pendentes)</label>
+              <p className="text-[11px] text-muted-foreground">Sem marcar, vale só para os próximos meses a gerar. Não reescreve meses já pagos.</p>
+            </div>
+          )}
+          <DialogFooter><Button variant="outline" onClick={() => setAjuste(null)}>Cancelar</Button><Button onClick={() => { if (!ajuste) return; const c = parseMoneyToCents(ajuste.valor); if (c == null || c < 0) return toast.error("Valor inválido."); ajustarValor.mutate({ recorrenciaId: ajuste.recorrenciaId, valorCents: c, aplicarGerados: ajuste.aplicarGerados }); }} disabled={ajustarValor.isPending}>Salvar</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -602,37 +753,33 @@ function AReceberTab() {
   const d = q.data;
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Total a receber" value={centsToBRL(d?.totalPendenteCents ?? 0)} tone="warn" hint={d ? `mês corrente ${formatMes(d.mesCorrente)}` : ""} />
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Stat label="Total a receber" value={centsToBRL(d?.totalPendenteCents ?? 0)} tone="warn" hint={d ? `hoje ${d.hoje}` : ""} />
         <Stat label="Vencido (≥ 1 mês)" value={centsToBRL(d?.totalVencidoCents ?? 0)} tone="neg" />
         <Stat label="A vencer / corrente" value={centsToBRL(d?.buckets.corrente ?? 0)} />
-        <Stat label="3+ meses" value={centsToBRL(d?.buckets.m3plus ?? 0)} tone="neg" />
+        <Stat label="1 mês" value={centsToBRL(d?.buckets.m1 ?? 0)} tone="warn" />
+        <Stat label="2 · 3+ meses" value={`${centsToBRL(d?.buckets.m2 ?? 0)} · ${centsToBRL(d?.buckets.m3plus ?? 0)}`} tone="neg" />
+        <Stat label="Sem data" value={centsToBRL(d?.buckets.semData ?? 0)} />
       </div>
       {d && d.itens.length === 0 ? (
-        <Card><CardContent className="p-8 text-center text-muted-foreground text-sm">Nenhuma conta pendente. Marque uma receita como <span className="font-medium">pendente</span> no P&amp;L para começar a acompanhar o aging.</CardContent></Card>
+        <Card><CardContent className="p-8 text-center text-muted-foreground text-sm">Nenhuma conta pendente. Marque uma receita como <span className="font-medium">pendente</span> no P&amp;L (ou gere o próximo mês recorrente) para acompanhar o aging por vencimento.</CardContent></Card>
       ) : (
-        <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Stat label="1 mês" value={centsToBRL(d?.buckets.m1 ?? 0)} />
-            <Stat label="2 meses" value={centsToBRL(d?.buckets.m2 ?? 0)} />
-          </div>
-          <div className="rounded-lg border border-border overflow-x-auto">
-            <Table>
-              <TableHeader><TableRow><TableHead>Cliente / descrição</TableHead><TableHead>Mês</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="text-right">Idade (meses)</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {q.isLoading && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
-                {(d?.itens ?? []).map((it, i) => (
-                  <TableRow key={i}>
-                    <TableCell><span className="inline-flex items-center gap-2">{it.cor && <span className="w-2.5 h-2.5 rounded-full" style={{ background: it.cor }} />}{it.clienteNome !== "—" ? it.clienteNome : it.descricao}</span></TableCell>
-                    <TableCell className="whitespace-nowrap">{formatMes(it.mes)}</TableCell>
-                    <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(it.valorCents)}</TableCell>
-                    <TableCell className={`text-right ${it.idade >= 3 ? "text-red-600 font-medium" : it.idade >= 1 ? "text-amber-600" : ""}`}>{it.idade <= 0 ? "corrente" : it.idade}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </>
+        <div className="rounded-lg border border-border overflow-x-auto">
+          <Table>
+            <TableHeader><TableRow><TableHead>Cliente / descrição</TableHead><TableHead>Vencimento</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="text-right">Idade</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {q.isLoading && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
+              {(d?.itens ?? []).map((it, i) => (
+                <TableRow key={i}>
+                  <TableCell><span className="inline-flex items-center gap-2">{it.cor && <span className="w-2.5 h-2.5 rounded-full" style={{ background: it.cor }} />}{it.clienteNome !== "—" ? it.clienteNome : it.descricao}</span></TableCell>
+                  <TableCell className="whitespace-nowrap text-xs">{it.vencimento ?? <span className="text-muted-foreground">sem data</span>}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(it.valorCents)}</TableCell>
+                  <TableCell className={`text-right ${it.idade == null ? "text-muted-foreground" : it.idade >= 3 ? "text-red-600 font-medium" : it.idade >= 1 ? "text-amber-600" : ""}`}>{it.idade == null ? "—" : it.idade <= 0 ? "corrente" : `${it.idade} m`}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </div>
   );
