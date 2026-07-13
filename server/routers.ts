@@ -262,6 +262,9 @@ import {
   financePnlTrendRP,
   financeAReceberVenc,
   financeSerieHistorica,
+  listMesesFechados,
+  fecharMes,
+  reabrirMes,
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
@@ -660,6 +663,13 @@ const financeRouter = router({
   reconciliacao: router({
     get: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => financeReconciliacao(input.mes)),
     acumulado: adminProcedure.query(() => financeReconciliacaoAcumulado()),
+  }),
+
+  // v6 — fechar/travar mês (idempotente). fechar retorna a contagem de pendências (aviso).
+  meses: router({
+    list: adminProcedure.query(() => listMesesFechados()),
+    fechar: adminProcedure.input(z.object({ mes: MES })).mutation(({ input, ctx }) => fecharMes(input.mes, ctx.user?.id ?? null)),
+    reabrir: adminProcedure.input(z.object({ mes: MES })).mutation(({ input }) => reabrirMes(input.mes)),
   }),
 
   // Analytics v3 (só leitura/cálculo sobre as tabelas existentes).

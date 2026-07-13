@@ -12,7 +12,7 @@ import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Wallet, Plus, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight, ArrowLeftRight, Users, TrendingDown, AlertTriangle, CalendarClock, Repeat } from "lucide-react";
+import { Wallet, Plus, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight, ArrowLeftRight, Users, TrendingDown, AlertTriangle, CalendarClock, Repeat, Lock, Unlock } from "lucide-react";
 import { ResponsiveContainer, ComposedChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -342,19 +342,34 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
   const [serieGran, setSerieGran] = useState<SerieGran>("mensal");
   const serieQ = trpc.finance.analytics.serieHistorica.useQuery({ granularidade: serieGran, janela: serieJanela });
   const statusMesQ = trpc.finance.recorrencia.statusMes.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
+  const mesesFechadosQ = trpc.finance.meses.list.useQuery();
+  const closedSet = useMemo(() => new Set(mesesFechadosQ.data ?? []), [mesesFechadosQ.data]);
+  const refClosed = closedSet.has(refMonth);
+  const monoMes = period.gran === "mes"; // trava é por mês
   const rows = (listQ.data ?? []) as PnlRow[];
   const r = resumoQ.data;
   const margem = r && r.receitaTotalCents > 0 ? `${Math.round((r.resultadoFinalCents / r.receitaTotalCents) * 100)}%` : "—";
   const rpHint = (real: number, prev: number) => `Real ${centsToBRL(real)} · Prev ${centsToBRL(prev)}`;
 
   const invalidate = () => { utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); utils.finance.months.invalidate(); utils.finance.recorrencia.invalidate(); };
-  const create = trpc.finance.pnl.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Lançamento criado."); } });
-  const update = trpc.finance.pnl.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Lançamento atualizado."); } });
-  const del = trpc.finance.pnl.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Excluído."); } });
-  const setStatusM = trpc.finance.pnl.setStatus.useMutation({ onSuccess: () => { utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); } });
-  const remarcarM = trpc.finance.pnl.remarcar.useMutation({ onSuccess: () => { invalidate(); setRemarcar(null); toast.success("Vencimento remarcado."); } });
-  const gerar = trpc.finance.recorrencia.gerar.useMutation({ onSuccess: (res) => { invalidate(); toast.success(res.criadas > 0 ? `${res.criadas} recorrentes gerados em ${res.mes}.` : `Nada a gerar em ${res.mes} (já existem).`); } });
-  const projCreate = trpc.finance.projetos.create.useMutation({ onSuccess: (res) => { invalidate(); utils.finance.projetos.list.invalidate(); setProjForm(null); toast.success(`Projeto criado (${res.criadas} parcelas).`); } });
+  const onErr = (e: { message: string }) => toast.error(e.message);
+  const create = trpc.finance.pnl.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Lançamento criado."); }, onError: onErr });
+  const update = trpc.finance.pnl.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Lançamento atualizado."); }, onError: onErr });
+  const del = trpc.finance.pnl.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Excluído."); }, onError: onErr });
+  const setStatusM = trpc.finance.pnl.setStatus.useMutation({ onSuccess: () => { utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); }, onError: onErr });
+  const remarcarM = trpc.finance.pnl.remarcar.useMutation({ onSuccess: () => { invalidate(); setRemarcar(null); toast.success("Vencimento remarcado."); }, onError: onErr });
+  const gerar = trpc.finance.recorrencia.gerar.useMutation({ onSuccess: (res) => { invalidate(); toast.success(res.criadas > 0 ? `${res.criadas} recorrentes gerados em ${res.mes}.` : `Nada a gerar em ${res.mes} (já existem).`); }, onError: onErr });
+  const projCreate = trpc.finance.projetos.create.useMutation({ onSuccess: (res) => { invalidate(); utils.finance.projetos.list.invalidate(); setProjForm(null); toast.success(`Projeto criado (${res.criadas} parcelas).`); }, onError: onErr });
+  const invMeses = () => { invalidate(); utils.finance.meses.list.invalidate(); };
+  const fecharMesM = trpc.finance.meses.fechar.useMutation({ onSuccess: (res) => { invMeses(); toast.success(`Mês ${formatMes(res.mes)} fechado.${res.pendencias > 0 ? ` ${res.pendencias} pendência(s) travada(s).` : ""}`); }, onError: onErr });
+  const reabrirMesM = trpc.finance.meses.reabrir.useMutation({ onSuccess: (res) => { invMeses(); toast.success(`Mês ${formatMes(res.mes)} reaberto.`); }, onError: onErr });
+  const onFechar = () => {
+    const pend = rows.filter((x) => x.status === "pendente").length;
+    const msg = pend > 0
+      ? `Fechar ${formatMes(refMonth)}? Há ${pend} pendência(s) neste mês — elas NÃO serão pagas, apenas travadas. Ninguém poderá editar até reabrir. Continuar?`
+      : `Fechar ${formatMes(refMonth)}? Ninguém poderá criar/editar/excluir neste mês até reabrir.`;
+    if (confirm(msg)) fecharMesM.mutate({ mes: refMonth });
+  };
 
   const detalhe = useMemo(() => {
     const recPorCliente = new Map<number | string, { nome: string; cliente?: Cliente; cents: number }>();
@@ -396,21 +411,29 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
         <PeriodBar period={period} setPeriod={setPeriod} months={months} from={from} to={to} />
+        {monoMes && refClosed && (
+          <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 gap-1"><Lock className="w-3 h-3" /> {formatMes(refMonth)} fechado</Badge>
+        )}
         <div className="ml-auto flex items-center gap-2">
+          {monoMes && MES_RE.test(refMonth) && (
+            refClosed
+              ? <Button size="sm" variant="outline" onClick={() => reabrirMesM.mutate({ mes: refMonth })} disabled={reabrirMesM.isPending}><Unlock className="w-4 h-4 mr-1" /> Reabrir mês</Button>
+              : <Button size="sm" variant="outline" onClick={onFechar} disabled={fecharMesM.isPending}><Lock className="w-4 h-4 mr-1" /> Fechar mês</Button>
+          )}
           {(() => {
             const cur = agencyCurrentMonthCli();
             const faltam = statusMesQ.data?.faltam ?? 0;
             const passado = refMonth < cur;
-            const podeGerar = !passado && faltam > 0;
-            const label = passado ? `${formatMes(refMonth)} fechado` : faltam > 0 ? `Gerar ${formatMes(refMonth)}` : `${formatMes(refMonth)} já gerado`;
+            const podeGerar = !passado && faltam > 0 && !refClosed;
+            const label = refClosed ? `${formatMes(refMonth)} travado` : passado ? `${formatMes(refMonth)} fechado` : faltam > 0 ? `Gerar ${formatMes(refMonth)}` : `${formatMes(refMonth)} já gerado`;
             return (
-              <Button size="sm" variant="outline" onClick={() => gerar.mutate({ mes: refMonth })} disabled={gerar.isPending || !podeGerar || !MES_RE.test(refMonth)} title={podeGerar ? `${faltam} recorrência(s) a gerar` : undefined}>
-                {gerar.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />} {label}
+              <Button size="sm" variant="outline" onClick={() => gerar.mutate({ mes: refMonth })} disabled={gerar.isPending || !podeGerar || !MES_RE.test(refMonth)} title={refClosed ? "Mês fechado — reabra para gerar" : podeGerar ? `${faltam} recorrência(s) a gerar` : undefined}>
+                {gerar.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : refClosed ? <Lock className="w-4 h-4 mr-1" /> : <Plus className="w-4 h-4 mr-1" />} {label}
               </Button>
             );
           })()}
           <Button size="sm" variant="outline" onClick={() => setProjForm({ clienteId: null, nome: "", parcelas: [{ valor: "", vencimento: "" }, { valor: "", vencimento: "" }] })}>Projeto</Button>
-          <Button size="sm" onClick={() => setForm({ mes: refMonth, tipo: "DESPESA_PONTUAL", descricao: "", valor: "", status: "pendente", clienteId: null, vencimento: "" })}><Plus className="w-4 h-4 mr-1" /> Lançamento</Button>
+          <Button size="sm" disabled={refClosed} title={refClosed ? "Mês fechado — reabra para lançar" : undefined} onClick={() => setForm({ mes: refMonth, tipo: "DESPESA_PONTUAL", descricao: "", valor: "", status: "pendente", clienteId: null, vencimento: "" })}><Plus className="w-4 h-4 mr-1" /> Lançamento</Button>
         </div>
       </div>
 
@@ -476,6 +499,7 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
             {!listQ.isLoading && rows.length === 0 && <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-6">Nenhum lançamento no período/filtro.</TableCell></TableRow>}
             {rows.slice(0, 300).map((row) => {
               const remarcado = row.vencimento && row.vencimentoOriginal && row.vencimento !== row.vencimentoOriginal;
+              const rowClosed = closedSet.has(row.mes);
               return (
                 <TableRow key={row.id}>
                   <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatMes(row.mes)}</TableCell>
@@ -493,12 +517,16 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
                     {remarcado && <Badge className="ml-1 bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}
                   </TableCell>
                   <TableCell className={`text-right whitespace-nowrap font-medium ${tipoKind(row.tipo) === "despesa" ? "text-red-600" : tipoKind(row.tipo) === "receita" ? "text-emerald-600" : ""}`}>{tipoKind(row.tipo) === "despesa" ? "-" : ""}{centsToBRL(row.valorCents)}</TableCell>
-                  <TableCell><button onClick={() => setStatusM.mutate({ id: row.id, status: row.status === "pago" ? "pendente" : "pago" })}><Badge className={row.status === "pago" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" : "bg-amber-500/15 text-amber-600 border-amber-500/30"}>{row.status === "pago" ? "Pago" : "Pendente"}</Badge></button></TableCell>
+                  <TableCell><button disabled={rowClosed} className={rowClosed ? "cursor-not-allowed opacity-70" : ""} title={rowClosed ? "Mês fechado" : undefined} onClick={() => !rowClosed && setStatusM.mutate({ id: row.id, status: row.status === "pago" ? "pendente" : "pago" })}><Badge className={row.status === "pago" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" : "bg-amber-500/15 text-amber-600 border-amber-500/30"}>{row.status === "pago" ? "Pago" : "Pendente"}</Badge></button></TableCell>
                   <TableCell className="text-right whitespace-nowrap">
-                    <div className="inline-flex items-center gap-1">
-                      <button onClick={() => setRemarcar({ id: row.id, venc: row.vencimento ?? "" })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Remarcar vencimento"><CalendarClock className="w-4 h-4" /></button>
-                      <RowActions onEdit={() => setForm({ id: row.id, mes: row.mes, tipo: row.tipo as PnlTipo, descricao: row.descricao, valor: centsToInput(row.valorCents), status: row.status, clienteId: row.clienteId, vencimento: row.vencimento ?? "" })} onDelete={() => del.mutate({ id: row.id })} />
-                    </div>
+                    {rowClosed ? (
+                      <span className="inline-flex items-center gap-1 text-muted-foreground text-xs" title="Mês fechado — reabra para editar"><Lock className="w-3.5 h-3.5" /></span>
+                    ) : (
+                      <div className="inline-flex items-center gap-1">
+                        <button onClick={() => setRemarcar({ id: row.id, venc: row.vencimento ?? "" })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Remarcar vencimento"><CalendarClock className="w-4 h-4" /></button>
+                        <RowActions onEdit={() => setForm({ id: row.id, mes: row.mes, tipo: row.tipo as PnlTipo, descricao: row.descricao, valor: centsToInput(row.valorCents), status: row.status, clienteId: row.clienteId, vencimento: row.vencimento ?? "" })} onDelete={() => del.mutate({ id: row.id })} />
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               );
@@ -770,8 +798,10 @@ function ClientesTab({ months }: { months: string[] }) {
 function DespesasTab({ months }: { months: string[] }) {
   const utils = trpc.useUtils();
   const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
-  const { from, to } = periodRange(period, months);
+  const { from, to, refMonth } = periodRange(period, months);
   const q = trpc.finance.analytics.despesaPorCategoria.useQuery({ mesFrom: from, mesTo: to, limitMonths: 12 }, { enabled: MES_RE.test(from) });
+  const mesesFechadosQ = trpc.finance.meses.list.useQuery();
+  const refClosed = period.gran === "mes" && (mesesFechadosQ.data ?? []).includes(refMonth);
   const recQ = trpc.finance.recorrencia.list.useQuery();
   const despRec = (recQ.data ?? []).filter((r) => r.natureza === "DESPESA");
   const p = q.data?.periodo;
@@ -792,7 +822,10 @@ function DespesasTab({ months }: { months: string[] }) {
 
   return (
     <div className="space-y-5">
-      <PeriodBar period={period} setPeriod={setPeriod} months={months} from={from} to={to} />
+      <div className="flex items-center gap-2">
+        <PeriodBar period={period} setPeriod={setPeriod} months={months} from={from} to={to} />
+        {refClosed && <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 gap-1"><Lock className="w-3 h-3" /> {formatMes(refMonth)} fechado</Badge>}
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Stat label="Recorrente" value={centsToBRL(p?.recorrenteCents ?? 0)} hint={`${pct(p?.recorrenteCents ?? 0)} · inclui folha`} tone="neg" />
         <Stat label="Imposto" value={centsToBRL(p?.impostoCents ?? 0)} hint={pct(p?.impostoCents ?? 0)} tone="neg" />
@@ -932,15 +965,20 @@ function GuiSelvaTab({ months }: { months: string[] }) {
   const reembQ = trpc.finance.reembolsos.list.useQuery({ mes }, { enabled: MES_RE.test(mes) });
   const retirQ = trpc.finance.retiradas.list.useQuery({ mes }, { enabled: MES_RE.test(mes) });
   const reemb = (reembQ.data ?? []) as ReembRow[]; const retir = (retirQ.data ?? []) as RetiradaRow[]; const rec = recQ.data;
+  const mesesFechadosQ = trpc.finance.meses.list.useQuery();
+  const mesClosed = (mesesFechadosQ.data ?? []).includes(mes);
 
+  const onErr = (e: { message: string }) => toast.error(e.message);
   const invalidate = () => { utils.finance.reembolsos.list.invalidate(); utils.finance.retiradas.list.invalidate(); utils.finance.reconciliacao.invalidate(); utils.finance.months.invalidate(); };
-  const createReemb = trpc.finance.reembolsos.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Gasto adicionado."); } });
-  const updateReemb = trpc.finance.reembolsos.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Gasto atualizado."); } });
-  const delReemb = trpc.finance.reembolsos.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Excluído."); } });
-  const setReembFlag = trpc.finance.reembolsos.setReembolsado.useMutation({ onSuccess: () => utils.finance.reembolsos.list.invalidate() });
-  const createRetir = trpc.finance.retiradas.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Retirada adicionada."); } });
-  const updateRetir = trpc.finance.retiradas.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Retirada atualizada."); } });
-  const delRetir = trpc.finance.retiradas.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Excluída."); } });
+  const createReemb = trpc.finance.reembolsos.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Gasto adicionado."); }, onError: onErr });
+  const updateReemb = trpc.finance.reembolsos.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Gasto atualizado."); }, onError: onErr });
+  const delReemb = trpc.finance.reembolsos.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Excluído."); }, onError: onErr });
+  const setReembFlag = trpc.finance.reembolsos.setReembolsado.useMutation({ onSuccess: () => utils.finance.reembolsos.list.invalidate(), onError: onErr });
+  const createRetir = trpc.finance.retiradas.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Retirada adicionada."); }, onError: onErr });
+  const updateRetir = trpc.finance.retiradas.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Retirada atualizada."); }, onError: onErr });
+  const delRetir = trpc.finance.retiradas.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Excluída."); }, onError: onErr });
+  const fecharMesM = trpc.finance.meses.fechar.useMutation({ onSuccess: (res) => { invalidate(); utils.finance.meses.list.invalidate(); toast.success(`Mês ${formatMes(res.mes)} fechado.${res.pendencias > 0 ? ` ${res.pendencias} pendência(s) travada(s).` : ""}`); }, onError: onErr });
+  const reabrirMesM = trpc.finance.meses.reabrir.useMutation({ onSuccess: (res) => { invalidate(); utils.finance.meses.list.invalidate(); toast.success(`Mês ${formatMes(res.mes)} reaberto.`); }, onError: onErr });
 
   const submit = () => {
     if (!form) return;
@@ -955,7 +993,16 @@ function GuiSelvaTab({ months }: { months: string[] }) {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3"><MonthNav mes={mes} onChange={setMes} months={months} /><div className="ml-auto"><Button size="sm" onClick={() => setChoosing(true)}><Plus className="w-4 h-4 mr-1" /> Adicionar</Button></div></div>
+      <div className="flex flex-wrap items-center gap-3">
+        <MonthNav mes={mes} onChange={setMes} months={months} />
+        {mesClosed && <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 gap-1"><Lock className="w-3 h-3" /> fechado</Badge>}
+        <div className="ml-auto flex items-center gap-2">
+          {MES_RE.test(mes) && (mesClosed
+            ? <Button size="sm" variant="outline" onClick={() => reabrirMesM.mutate({ mes })} disabled={reabrirMesM.isPending}><Unlock className="w-4 h-4 mr-1" /> Reabrir mês</Button>
+            : <Button size="sm" variant="outline" onClick={() => { if (confirm(`Fechar ${formatMes(mes)}? Ninguém poderá editar gastos/retiradas deste mês até reabrir.`)) fecharMesM.mutate({ mes }); }} disabled={fecharMesM.isPending}><Lock className="w-4 h-4 mr-1" /> Fechar mês</Button>)}
+          <Button size="sm" disabled={mesClosed} title={mesClosed ? "Mês fechado — reabra para adicionar" : undefined} onClick={() => setChoosing(true)}><Plus className="w-4 h-4 mr-1" /> Adicionar</Button>
+        </div>
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Stat label="Total Despesas (reembolsos)" value={centsToBRL(rec?.totalDespesasCents ?? 0)} tone="neg" />
         <Stat label="Total Retiradas" value={centsToBRL(rec?.totalRetiradasCents ?? 0)} />
@@ -972,9 +1019,9 @@ function GuiSelvaTab({ months }: { months: string[] }) {
               <TableRow key={`g${row.id}`}>
                 <TableCell><Badge className="bg-red-500/15 text-red-600 border-red-500/30">Gasto</Badge></TableCell>
                 <TableCell className="max-w-[220px] truncate">{row.descricao}</TableCell>
-                <TableCell className="text-xs text-muted-foreground whitespace-nowrap"><Badge variant="secondary" className="font-normal mr-1">{catLabel(row.categoria)}</Badge>{row.quemPagou ?? ""}<span className="ml-2 inline-flex items-center gap-1">reemb. <Switch checked={row.reembolsado} onCheckedChange={(v) => setReembFlag.mutate({ id: row.id, reembolsado: !!v })} /></span></TableCell>
+                <TableCell className="text-xs text-muted-foreground whitespace-nowrap"><Badge variant="secondary" className="font-normal mr-1">{catLabel(row.categoria)}</Badge>{row.quemPagou ?? ""}<span className="ml-2 inline-flex items-center gap-1">reemb. <Switch checked={row.reembolsado} disabled={mesClosed} onCheckedChange={(v) => setReembFlag.mutate({ id: row.id, reembolsado: !!v })} /></span></TableCell>
                 <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(row.valorCents)}</TableCell>
-                <TableCell className="text-right whitespace-nowrap"><RowActions onEdit={() => setForm({ kind: "gasto", id: row.id, mes: row.mes, categoria: row.categoria as ReembCat, descricao: row.descricao, valor: centsToInput(row.valorCents), quemPagou: row.quemPagou ?? "", reembolsado: row.reembolsado })} onDelete={() => delReemb.mutate({ id: row.id })} /></TableCell>
+                <TableCell className="text-right whitespace-nowrap">{mesClosed ? <Lock className="w-3.5 h-3.5 text-muted-foreground inline" /> : <RowActions onEdit={() => setForm({ kind: "gasto", id: row.id, mes: row.mes, categoria: row.categoria as ReembCat, descricao: row.descricao, valor: centsToInput(row.valorCents), quemPagou: row.quemPagou ?? "", reembolsado: row.reembolsado })} onDelete={() => delReemb.mutate({ id: row.id })} />}</TableCell>
               </TableRow>
             ))}
             {retir.map((row) => (
@@ -983,7 +1030,7 @@ function GuiSelvaTab({ months }: { months: string[] }) {
                 <TableCell className="max-w-[220px] truncate">{row.descricao}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">—</TableCell>
                 <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(row.valorCents)}</TableCell>
-                <TableCell className="text-right whitespace-nowrap"><RowActions onEdit={() => setForm({ kind: "retirada", id: row.id, mes: row.mes, descricao: row.descricao, valor: centsToInput(row.valorCents) })} onDelete={() => delRetir.mutate({ id: row.id })} /></TableCell>
+                <TableCell className="text-right whitespace-nowrap">{mesClosed ? <Lock className="w-3.5 h-3.5 text-muted-foreground inline" /> : <RowActions onEdit={() => setForm({ kind: "retirada", id: row.id, mes: row.mes, descricao: row.descricao, valor: centsToInput(row.valorCents) })} onDelete={() => delRetir.mutate({ id: row.id })} />}</TableCell>
               </TableRow>
             ))}
           </TableBody>

@@ -370,6 +370,17 @@ async function main() {
     if (nix.length === 0) await conn.query("ALTER TABLE `finance_recorrencia` ADD INDEX `idx_rec_natureza` (`natureza`)");
     console.log("[ensure-schema] ok  · finance_recorrencia (despesa) garantida");
 
+    // 14) Financeiro v6: meses fechados (trava de edição).
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`finance_meses_fechados\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`mes\` VARCHAR(7) NOT NULL,
+      \`fechadoEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      \`fechadoPor\` INT NULL,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`uq_mes_fechado\` (\`mes\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · finance_meses_fechados garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

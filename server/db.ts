@@ -22,6 +22,7 @@ import {
   financeReembolsos,
   type InsertFinanceReembolso,
   financeRetiradas,
+  financeMesesFechados,
   type InsertFinanceRetirada,
   financeClientes,
   financeRecorrencia,
@@ -2051,6 +2052,7 @@ export async function listFinancePnl(f: { mesFrom?: string; mesTo?: string; tipo
 export async function createFinancePnl(data: InsertFinancePnlEntry): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
+  await assertMesAberto(data.mes);
   // Ao criar com vencimento, vencimentoOriginal = vencimento (base do "Remarcado").
   const values = data.vencimento && data.vencimentoOriginal == null ? { ...data, vencimentoOriginal: data.vencimento } : data;
   const [row] = await db.insert(financePnlEntries).values(values).$returningId();
@@ -2065,11 +2067,14 @@ export async function getFinancePnlById(id: number) {
 export async function updateFinancePnl(id: number, patch: Partial<InsertFinancePnlEntry>) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
+  await assertMesAberto((await getFinancePnlById(id))?.mes); // mês atual da linha
+  if (patch.mes) await assertMesAberto(patch.mes);           // e o mês de destino
   await db.update(financePnlEntries).set(patch).where(eq(financePnlEntries.id, id));
 }
 export async function deleteFinancePnl(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
+  await assertMesAberto((await getFinancePnlById(id))?.mes);
   await db.delete(financePnlEntries).where(eq(financePnlEntries.id, id));
 }
 /** Resumo do P&L por mês (tudo calculado). */
@@ -2102,17 +2107,21 @@ export async function listFinanceReembolsos(f: { mes?: string; categoria?: Reemb
 export async function createFinanceReembolso(data: InsertFinanceReembolso): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
+  await assertMesAberto(data.mes);
   const [row] = await db.insert(financeReembolsos).values(data).$returningId();
   return row.id;
 }
 export async function updateFinanceReembolso(id: number, patch: Partial<InsertFinanceReembolso>) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
+  await assertMesAberto((await getFinanceReembolsoById(id))?.mes);
+  if (patch.mes) await assertMesAberto(patch.mes);
   await db.update(financeReembolsos).set(patch).where(eq(financeReembolsos.id, id));
 }
 export async function deleteFinanceReembolso(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
+  await assertMesAberto((await getFinanceReembolsoById(id))?.mes);
   await db.delete(financeReembolsos).where(eq(financeReembolsos.id, id));
 }
 
@@ -2129,18 +2138,76 @@ export async function listFinanceRetiradas(f: { mes?: string } = {}) {
 export async function createFinanceRetirada(data: InsertFinanceRetirada): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
+  await assertMesAberto(data.mes);
   const [row] = await db.insert(financeRetiradas).values(data).$returningId();
   return row.id;
 }
 export async function updateFinanceRetirada(id: number, patch: Partial<InsertFinanceRetirada>) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
+  await assertMesAberto((await getFinanceRetiradaById(id))?.mes);
+  if (patch.mes) await assertMesAberto(patch.mes);
   await db.update(financeRetiradas).set(patch).where(eq(financeRetiradas.id, id));
 }
 export async function deleteFinanceRetirada(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
+  await assertMesAberto((await getFinanceRetiradaById(id))?.mes);
   await db.delete(financeRetiradas).where(eq(financeRetiradas.id, id));
+}
+export async function getFinanceRetiradaById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(financeRetiradas).where(eq(financeRetiradas.id, id)).limit(1);
+  return r[0];
+}
+export async function getFinanceReembolsoById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(financeReembolsos).where(eq(financeReembolsos.id, id)).limit(1);
+  return r[0];
+}
+
+// ─── Financeiro v6: meses fechados (trava de edição) ──────────────────────────
+/** Conjunto de meses fechados. */
+export async function isMesFechado(mes: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const r = await db.select({ mes: financeMesesFechados.mes }).from(financeMesesFechados).where(eq(financeMesesFechados.mes, mes)).limit(1);
+  return r.length > 0;
+}
+/** Barreira usada em TODAS as mutations com `mes`. Mês fechado → rejeita. */
+export async function assertMesAberto(mes: string | null | undefined): Promise<void> {
+  if (!mes) return;
+  if (await isMesFechado(mes)) throw new Error(`Mês ${mes} está fechado — reabra para editar.`);
+}
+/** Nº de linhas PENDENTES (a receber/a pagar) no P&L do mês — para o aviso ao fechar. */
+export async function contarPendenciasMes(mes: string): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const r = await db.select({ id: financePnlEntries.id }).from(financePnlEntries).where(and(eq(financePnlEntries.mes, mes), eq(financePnlEntries.status, "pendente")));
+  return r.length;
+}
+export async function listMesesFechados(): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ mes: financeMesesFechados.mes }).from(financeMesesFechados);
+  return rows.map((r) => r.mes).sort().reverse();
+}
+/** Fecha o mês (idempotente). Retorna a contagem de pendências (aviso, não bloqueia). */
+export async function fecharMes(mes: string, userId: number | null): Promise<{ mes: string; pendencias: number; jaFechado: boolean }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const pendencias = await contarPendenciasMes(mes);
+  if (await isMesFechado(mes)) return { mes, pendencias, jaFechado: true };
+  await db.insert(financeMesesFechados).values({ mes, fechadoPor: userId });
+  return { mes, pendencias, jaFechado: false };
+}
+export async function reabrirMes(mes: string): Promise<{ mes: string }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.delete(financeMesesFechados).where(eq(financeMesesFechados.mes, mes));
+  return { mes };
 }
 /** Reconciliação Gui & SELVA por mês: despesas (reembolsos) vs. retiradas.
  *  Convenção (igual à planilha): diferenca = despesas − retiradas.
@@ -2520,6 +2587,7 @@ export async function gerarMesRecorrente(mesAlvo: string): Promise<{ criadas: nu
   const db = await getDb();
   if (!db) return { criadas: 0, mes: mesAlvo, skipped: true };
   if (mesAlvo < agencyCurrentMonth()) return { criadas: 0, mes: mesAlvo, skipped: true };
+  if (await isMesFechado(mesAlvo)) return { criadas: 0, mes: mesAlvo, skipped: true }; // mês travado
   const recs = await db.select().from(financeRecorrencia).where(eq(financeRecorrencia.ativo, true));
   if (!recs.length) return { criadas: 0, mes: mesAlvo, skipped: false };
   const existing = await db.select({ recorrenciaId: financePnlEntries.recorrenciaId }).from(financePnlEntries)
@@ -2617,6 +2685,8 @@ export async function createFinanceProjeto(data: { clienteId: number | null; nom
   const nome = data.nome.trim();
   const num = data.parcelas.length;
   const total = data.parcelas.reduce((s, p) => s + p.valorCents, 0);
+  // Nenhuma parcela pode cair em mês fechado.
+  for (const mes of Array.from(new Set(data.parcelas.map((p) => p.vencimento.slice(0, 7))))) await assertMesAberto(mes);
   const [proj] = await db.insert(financeProjetos).values({ clienteId: data.clienteId, nome, valorTotalCents: total, numParcelas: num }).$returningId();
   const sorted = data.parcelas.slice().sort((a, b) => a.vencimento.localeCompare(b.vencimento));
   for (let i = 0; i < sorted.length; i++) {
@@ -2645,6 +2715,7 @@ export async function remarcarFinancePnl(id: number, vencimento: string) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
   const before = await getFinancePnlById(id);
+  await assertMesAberto(before?.mes);
   const patch: Partial<InsertFinancePnlEntry> = { vencimento };
   if (!before?.vencimentoOriginal) patch.vencimentoOriginal = vencimento;
   await db.update(financePnlEntries).set(patch).where(eq(financePnlEntries.id, id));

@@ -760,3 +760,14 @@ export const financeRetiradas = mysqlTable("finance_retiradas", {
 }));
 export type FinanceRetirada = typeof financeRetiradas.$inferSelect;
 export type InsertFinanceRetirada = typeof financeRetiradas.$inferInsert;
+
+// v6 — meses fechados (trava de edição). Fechar = inserir linha; reabrir = remover.
+export const financeMesesFechados = mysqlTable("finance_meses_fechados", {
+  id: int("id").autoincrement().primaryKey(),
+  mes: varchar("mes", { length: 7 }).notNull(),
+  fechadoEm: timestamp("fechadoEm").defaultNow().notNull(),
+  fechadoPor: int("fechadoPor"),
+}, (table) => ({
+  uqMes: uniqueIndex("uq_mes_fechado").on(table.mes),
+}));
+export type FinanceMesFechado = typeof financeMesesFechados.$inferSelect;
