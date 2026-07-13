@@ -490,11 +490,15 @@ function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => 
 // ── Página ────────────────────────────────────────────────────────────────────
 export default function Finance() {
   const { user } = useAuth();
-  // Guard no front (o backend também exige admin em todas as procedures).
-  if ((user as { role?: string } | null)?.role !== "admin") return null;
-
-  const monthsQ = trpc.finance.months.useQuery();
+  const isAdmin = (user as { role?: string } | null)?.role === "admin";
+  // Hooks SEMPRE no topo, incondicionais e na mesma ordem em todo render
+  // (regras de hooks). A query só dispara p/ admin (enabled), mas o hook é
+  // chamado sempre. Early return só DEPOIS de todos os hooks.
+  const monthsQ = trpc.finance.months.useQuery(undefined, { enabled: isAdmin });
   const months = monthsQ.data ?? [];
+
+  // Guard no front (o backend também exige admin em todas as procedures).
+  if (!isAdmin) return null;
 
   return (
     <MetaDashboardLayout>
