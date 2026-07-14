@@ -1225,7 +1225,9 @@ function GuiSelvaTab({ months }: { months: string[] }) {
         <Stat label={`Diferença ${formatMes(mes)} · desp − retir (+ = falta receber)`} value={centsToBRL(rec?.diferencaCents ?? 0)} tone={(rec?.diferencaCents ?? 0) > 0 ? "warn" : (rec?.diferencaCents ?? 0) < 0 ? "pos" : undefined} />
         <Stat label="Falta receber acumulado" value={centsToBRL(acumQ.data?.diferencaCents ?? 0)} tone={(acumQ.data?.diferencaCents ?? 0) > 0 ? "warn" : "pos"} />
       </div>
-      <div className="rounded-lg border border-border overflow-x-auto">
+      <Card><CardContent className="p-4">
+        <p className="text-sm font-semibold mb-2 flex items-center gap-2"><ArrowLeftRight className="w-4 h-4" /> Gastos e retiradas · {formatMes(mes)}</p>
+        <div className="rounded-md border border-border overflow-x-auto">
         <Table>
           <TableHeader><TableRow><TableHead>Tipo</TableHead><TableHead>Descrição</TableHead><TableHead>Detalhe</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
           <TableBody>
@@ -1251,7 +1253,8 @@ function GuiSelvaTab({ months }: { months: string[] }) {
             ))}
           </TableBody>
         </Table>
-      </div>
+        </div>
+      </CardContent></Card>
       <Dialog open={choosing} onOpenChange={setChoosing}>
         <DialogContent>
           <DialogHeader><DialogTitle>Adicionar</DialogTitle></DialogHeader>
