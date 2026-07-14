@@ -352,6 +352,23 @@ function NovoMenu({ onReceita, onDespesa, onProjeto, disabled, title }: { onRece
   );
 }
 
+/** Par realizado × previsto compacto (para cards que somam pago vs pendente). */
+function BiValue({ real, prev }: { real: number; prev: number }) {
+  return <span className="text-[11px] text-muted-foreground">real {centsToBRL(real)} · prev {centsToBRL(prev)}</span>;
+}
+
+/** Card secundário clicável (drill). */
+function DrillCard({ label, value, hint, tone, onClick }: { label: string; value: string; hint?: ReactNode; tone?: "pos" | "neg" | "warn"; onClick?: () => void }) {
+  const toneCls = tone === "pos" ? "text-emerald-600" : tone === "neg" ? "text-red-600" : tone === "warn" ? "text-amber-600" : "";
+  return (
+    <button onClick={onClick} disabled={!onClick} className={`text-left rounded-xl border border-border bg-card p-3 transition ${onClick ? "hover:border-accent/50 hover:bg-accent/5 cursor-pointer" : "cursor-default"}`}>
+      <div className="flex items-center justify-between"><span className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</span>{onClick && <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}</div>
+      <div className={`text-lg font-bold tabular-nums mt-0.5 ${toneCls}`}>{value}</div>
+      {hint && <div className="mt-0.5">{hint}</div>}
+    </button>
+  );
+}
+
 /** Card de bloco de gráfico com título + controles de janela/granularidade. */
 function ChartCard({ title, hint, controls, children }: { title: string; hint?: string; controls?: ReactNode; children: ReactNode }) {
   return (
@@ -373,7 +390,7 @@ type PnlForm = { id?: number; mes: string; tipo: PnlTipo; descricao: string; val
 type ProjParcela = { valor: string; vencimento: string };
 type ProjForm = { clienteId: number | null; nome: string; parcelas: ProjParcela[] };
 
-function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes: Cliente[]; clienteById: Map<number, Cliente> }) {
+function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[]; clientes: Cliente[]; clienteById: Map<number, Cliente>; onNavigate?: (tab: string) => void }) {
   const utils = trpc.useUtils();
   const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
   const { from, to, refMonth } = periodRange(period, months);
@@ -383,7 +400,7 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
   const [remarcar, setRemarcar] = useState<{ id: number; venc: string } | null>(null);
   const [showAging, setShowAging] = useState(false);
 
-  const resumoQ = trpc.finance.analytics.periodoResumo.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) && MES_RE.test(to) });
+  const resumoQ = trpc.finance.overview.resumo.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) && MES_RE.test(to) });
   const mrrQ = trpc.finance.analytics.mrr.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
   const listQ = trpc.finance.pnl.list.useQuery({ mesFrom: from, mesTo: to, ...(tipo ? { tipo: tipo as PnlTipo } : {}), ...(status ? { status: status as "pago" | "pendente" } : {}), ...(clienteFilter ? { clienteId: clienteFilter } : {}) }, { enabled: MES_RE.test(from) });
   const [serieJanela, setSerieJanela] = useState<Janela>("12m");
@@ -396,8 +413,7 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
   const monoMes = period.gran === "mes"; // trava é por mês
   const rows = (listQ.data ?? []) as PnlRow[];
   const r = resumoQ.data;
-  const margem = r && r.receitaTotalCents > 0 ? `${Math.round((r.resultadoFinalCents / r.receitaTotalCents) * 100)}%` : "—";
-  const rpHint = (real: number, prev: number) => `Real ${centsToBRL(real)} · Prev ${centsToBRL(prev)}`;
+  const futuro = from > (months[0] ?? "");
 
   const invalidate = () => { utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); utils.finance.months.invalidate(); utils.finance.recorrencia.invalidate(); };
   const onErr = (e: { message: string }) => toast.error(e.message);
@@ -418,20 +434,6 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
       : `Fechar ${formatMes(refMonth)}? Ninguém poderá criar/editar/excluir neste mês até reabrir.`;
     if (confirm(msg)) fecharMesM.mutate({ mes: refMonth });
   };
-
-  const detalhe = useMemo(() => {
-    const recPorCliente = new Map<number | string, { nome: string; cliente?: Cliente; cents: number }>();
-    const pontual: PnlRow[] = []; let despRec = 0, despImp = 0, despPon = 0, aporte = 0;
-    for (const row of rows) {
-      if (row.tipo === "RECEITA_RECORRENTE") { const k = row.clienteId ?? "sem"; const c = row.clienteId ? clienteById.get(row.clienteId) : undefined; if (!recPorCliente.has(k)) recPorCliente.set(k, { nome: c?.nome ?? "Sem cliente", cliente: c, cents: 0 }); recPorCliente.get(k)!.cents += row.valorCents; }
-      else if (row.tipo === "RECEITA_PONTUAL") pontual.push(row);
-      else if (row.tipo === "DESPESA_RECORRENTE") despRec += row.valorCents;
-      else if (row.tipo === "DESPESA_IMPOSTO") despImp += row.valorCents;
-      else if (row.tipo === "DESPESA_PONTUAL") despPon += row.valorCents;
-      else if (row.tipo === "APORTE") aporte += row.valorCents;
-    }
-    return { recArr: Array.from(recPorCliente.values()).sort((a, b) => b.cents - a.cents), pontual, despRec, despImp, despPon, aporte };
-  }, [rows, clienteById]);
 
   const submit = () => {
     if (!form) return;
@@ -491,17 +493,52 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
         </div>
       </div>
 
-      {/* Cards: Realizado × Previsto */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-        <Stat label="Receita" value={centsToBRL(r?.receitaTotalCents ?? 0)} tone="pos" hint={r ? rpHint(r.receitaRealizadaCents, r.receitaPrevistaCents) : ""} />
-        <Stat label="Despesa" value={centsToBRL(r?.despesaTotalCents ?? 0)} tone="neg" hint={r ? rpHint(r.despesaRealizadaCents, r.despesaPrevistaCents) : ""} />
-        <Stat label="Resultado" value={centsToBRL(r?.resultadoFinalCents ?? 0)} tone={(r?.resultadoFinalCents ?? 0) >= 0 ? "pos" : "neg"} hint={r ? rpHint(r.resultadoRealizadoCents, r.resultadoPrevistoCents) : ""} />
-        <Stat label="Margem" value={margem} tone={(r?.resultadoFinalCents ?? 0) >= 0 ? "pos" : "neg"} />
-        <Stat label={`MRR (${formatMes(refMonth)})`} value={centsToBRL(mrrQ.data?.mrrCents ?? 0)} hint="métrica de 1 mês" />
-        <Stat label="A receber (previsto)" value={centsToBRL(r?.totalPendenteCents ?? 0)} tone="warn" />
+      {/* Herói — (A) Resultado do período · (B) Posição de caixa */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card><CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Resultado · {periodLabel(period, from, to)}</p>
+            {futuro && <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 text-[10px]">100% previsto</Badge>}
+          </div>
+          <div className="flex items-end gap-3 mt-1">
+            <span className={`text-3xl font-bold tabular-nums ${(r?.resultadoFinalCents ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>{centsToBRL(r?.resultadoFinalCents ?? 0)}</span>
+            <span className="text-sm font-semibold text-muted-foreground mb-1">margem {r?.margemPct != null ? `${r.margemPct}%` : "—"}</span>
+          </div>
+          <BiValue real={r?.resultadoRealizadoCents ?? 0} prev={r?.resultadoPrevistoCents ?? 0} />
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <div><p className="text-[11px] uppercase tracking-wide text-emerald-600">Receita</p><p className="text-base font-semibold tabular-nums">{centsToBRL(r?.receitaTotalCents ?? 0)}</p><BiValue real={r?.receitaRealizadaCents ?? 0} prev={r?.receitaPrevistaCents ?? 0} /></div>
+            <div><p className="text-[11px] uppercase tracking-wide text-red-600">Despesa</p><p className="text-base font-semibold tabular-nums">{centsToBRL(r?.despesaTotalCents ?? 0)}</p><BiValue real={r?.despesaRealizadaCents ?? 0} prev={r?.despesaPrevistaCents ?? 0} /></div>
+          </div>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Posição de caixa (pendências)</p>
+          <div className="flex items-end gap-3 mt-1">
+            <span className={`text-3xl font-bold tabular-nums ${(r?.saldoProjetadoCents ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>{centsToBRL(r?.saldoProjetadoCents ?? 0)}</span>
+            <span className="text-sm text-muted-foreground mb-1">saldo projetado</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground">a receber − a pagar (todas as pendências)</p>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <button onClick={() => setShowAging(true)} className="text-left rounded-lg border border-border p-2 transition hover:border-accent/50 hover:bg-accent/5">
+              <p className="text-[11px] uppercase tracking-wide text-emerald-600 flex items-center gap-1">A receber <ChevronRight className="w-3 h-3" /></p>
+              <p className="text-base font-semibold tabular-nums">{centsToBRL(r?.aReceberCents ?? 0)}</p>
+            </button>
+            <button onClick={() => onNavigate?.("despesas")} className="text-left rounded-lg border border-border p-2 transition hover:border-accent/50 hover:bg-accent/5">
+              <p className="text-[11px] uppercase tracking-wide text-red-600 flex items-center gap-1">A pagar <ChevronRight className="w-3 h-3" /></p>
+              <p className="text-base font-semibold tabular-nums">{centsToBRL(r?.aPagarCents ?? 0)}</p>
+            </button>
+          </div>
+        </CardContent></Card>
       </div>
-      {(r?.aporteCents ?? 0) > 0 && <div className="grid grid-cols-2 md:grid-cols-4 gap-3"><Stat label="Aporte" value={centsToBRL(r!.aporteCents)} /></div>}
-      {from > (months[0] ?? "") && <p className="text-[11px] text-amber-600">Período no futuro — os valores são 100% previstos (pendentes).</p>}
+
+      {/* Cards secundários (drills) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <DrillCard label="Receita recorrente" value={centsToBRL(r?.receitaRecorrenteCents ?? 0)} tone="pos" hint={<span className="text-[11px] text-muted-foreground">MRR {centsToBRL(mrrQ.data?.mrrCents ?? 0)}</span>} onClick={() => onNavigate?.("clientes")} />
+        <DrillCard label="Receita pontual" value={centsToBRL(r?.receitaPontualCents ?? 0)} tone="pos" onClick={() => onNavigate?.("clientes")} />
+        <DrillCard label="A receber" value={centsToBRL(r?.aReceberCents ?? 0)} tone="warn" hint={<span className="text-[11px] text-muted-foreground">ver aging →</span>} onClick={() => setShowAging(true)} />
+        <DrillCard label="Despesa" value={centsToBRL(r?.despesaTotalCents ?? 0)} tone="neg" hint={<BiValue real={r?.despesaRealizadaCents ?? 0} prev={r?.despesaPrevistaCents ?? 0} />} onClick={() => onNavigate?.("despesas")} />
+      </div>
+      {(r?.aporteCents ?? 0) > 0 && <p className="text-[11px] text-muted-foreground">Aporte no período: {centsToBRL(r!.aporteCents)}</p>}
+      {futuro && <p className="text-[11px] text-amber-600">Período no futuro — os valores são 100% previstos (pendentes).</p>}
 
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-xs text-muted-foreground">Séries — {serieGran === "anual" ? "fluxo somado no ano; anos parciais marcam *" : "mensal"}{serieQ.data?.realizadoAte ? ` · realizado até ${fmtPeriodo(serieGran === "anual" ? serieQ.data.realizadoAte.slice(0, 4) : serieQ.data.realizadoAte, false)}` : ""}</p>
@@ -512,28 +549,7 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
         <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">Receita: recorrente × pontual</p>{serieQ.data ? <MixChart pontos={serieQ.data.pontos} /> : <div className="h-[220px]" />}</CardContent></Card>
       </div>
 
-      <Card><CardContent className="p-4 space-y-3">
-        <p className="text-sm font-semibold">Detalhamento — {periodLabel(period, from, to)}</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-emerald-600 font-semibold mb-1">Receita recorrente · {centsToBRL(detalhe.recArr.reduce((s, x) => s + x.cents, 0))}</p>
-            {detalhe.recArr.length === 0 && <p className="text-xs text-muted-foreground">—</p>}
-            {detalhe.recArr.map((x, i) => <div key={i} className="flex items-center justify-between py-0.5"><span>{x.cliente ? <ClientTag cliente={x.cliente} /> : <span className="text-muted-foreground">{x.nome}</span>}</span><span className="tabular-nums">{centsToBRL(x.cents)}</span></div>)}
-            <p className="text-xs uppercase tracking-wide text-emerald-600 font-semibold mt-3 mb-1">Receita pontual · {centsToBRL(detalhe.pontual.reduce((s, x) => s + x.valorCents, 0))}</p>
-            {detalhe.pontual.length === 0 && <p className="text-xs text-muted-foreground">—</p>}
-            {detalhe.pontual.slice(0, 40).map((x) => <div key={x.id} className="flex items-center justify-between py-0.5"><span className="truncate mr-2">{x.descricao}</span><span className="tabular-nums whitespace-nowrap">{centsToBRL(x.valorCents)}</span></div>)}
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-wide text-red-600 font-semibold mb-1">Despesas</p>
-            <div className="flex items-center justify-between py-0.5"><span>Recorrente <span className="text-[10px] text-muted-foreground">(inclui folha)</span></span><span className="tabular-nums">{centsToBRL(detalhe.despRec)}</span></div>
-            <div className="flex items-center justify-between py-0.5"><span>Imposto</span><span className="tabular-nums">{centsToBRL(detalhe.despImp)}</span></div>
-            <div className="flex items-center justify-between py-0.5"><span>Pontual</span><span className="tabular-nums">{centsToBRL(detalhe.despPon)}</span></div>
-            <div className="flex items-center justify-between py-0.5 font-semibold border-t border-border mt-1 pt-1"><span>Total despesa</span><span className="tabular-nums">{centsToBRL(detalhe.despRec + detalhe.despImp + detalhe.despPon)}</span></div>
-            {detalhe.aporte > 0 && <div className="flex items-center justify-between py-0.5 mt-2"><span>Aporte</span><span className="tabular-nums">{centsToBRL(detalhe.aporte)}</span></div>}
-          </div>
-        </div>
-      </CardContent></Card>
-
+      <p className="text-sm font-semibold pt-1">Lançamentos do mês <span className="text-xs font-normal text-muted-foreground">— resumo · o operacional por linha mora nos hubs (Clientes/Despesas)</span></p>
       <div className="flex flex-wrap items-end gap-2">
         <FilterSelect label="Tipo" value={tipo} onChange={setTipo} options={PNL_TIPOS.map((t) => t.v)} format={tipoLabel} allLabel="Todos" />
         <FilterSelect label="Status" value={status} onChange={setStatus} options={["pago", "pendente"]} format={(s) => (s === "pago" ? "Pago" : "Pendente")} allLabel="Todos" />
@@ -1138,6 +1154,7 @@ export default function Finance() {
   const months = monthsQ.data ?? [];
   const clientes = (clientesQ.data ?? []) as Cliente[];
   const clienteById = useMemo(() => new Map(clientes.map((c) => [c.id, c])), [clientes]);
+  const [tab, setTab] = useState("visao");
 
   if (!isAdmin) return null;
 
@@ -1152,14 +1169,14 @@ export default function Finance() {
         {months.length === 0 ? (
           <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Carregando…</p>
         ) : (
-          <Tabs defaultValue="visao">
+          <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="flex-wrap h-auto">
               <TabsTrigger value="visao">Visão geral</TabsTrigger>
               <TabsTrigger value="clientes"><Users className="w-3.5 h-3.5 mr-1" /> Clientes e projetos</TabsTrigger>
               <TabsTrigger value="despesas"><TrendingDown className="w-3.5 h-3.5 mr-1" /> Despesas</TabsTrigger>
               <TabsTrigger value="guiselva"><ArrowLeftRight className="w-3.5 h-3.5 mr-1" /> Gui &amp; SELVA</TabsTrigger>
             </TabsList>
-            <TabsContent value="visao" className="mt-4"><PnlTab months={months} clientes={clientes} clienteById={clienteById} /></TabsContent>
+            <TabsContent value="visao" className="mt-4"><PnlTab months={months} clientes={clientes} clienteById={clienteById} onNavigate={setTab} /></TabsContent>
             <TabsContent value="clientes" className="mt-4"><ClientesTab months={months} /></TabsContent>
             <TabsContent value="despesas" className="mt-4"><DespesasTab months={months} /></TabsContent>
             <TabsContent value="guiselva" className="mt-4"><GuiSelvaTab months={months} /></TabsContent>

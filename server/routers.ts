@@ -261,6 +261,8 @@ import {
   financePeriodoResumoRP,
   financePnlTrendRP,
   financeAReceberVenc,
+  financeAPagarVenc,
+  financeOverviewResumo,
   financeSerieHistorica,
   listMesesFechados,
   fecharMes,
@@ -664,6 +666,12 @@ const financeRouter = router({
     get: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => financeReconciliacao(input.mes)),
     acumulado: adminProcedure.query(() => financeReconciliacaoAcumulado()),
   }),
+
+  // Redesign — leituras da Visão Geral (adminProcedure, sem schema novo).
+  overview: router({
+    resumo: adminProcedure.input(z.object({ mesFrom: MES, mesTo: MES })).query(({ input }) => financeOverviewResumo(input.mesFrom, input.mesTo)),
+  }),
+  aPagar: adminProcedure.query(() => financeAPagarVenc()),
 
   // v6 — fechar/travar mês (idempotente). fechar retorna a contagem de pendências (aviso).
   meses: router({

@@ -2876,3 +2876,44 @@ export async function financeAReceberVenc() {
   const totalPendente = rows.reduce((s, r) => s + r.valorCents, 0);
   return { mesCorrente, hoje, totalPendenteCents: totalPendente, totalVencidoCents: buckets.m1 + buckets.m2 + buckets.m3plus, buckets, itens };
 }
+
+/** A Pagar / aging por VENCIMENTO — espelho de aReceber para DESPESA pendente. */
+export async function financeAPagarVenc() {
+  const db = await getDb();
+  const hoje = agencyTodayStr();
+  const mesCorrente = agencyCurrentMonth();
+  const empty = { mesCorrente, hoje, totalPendenteCents: 0, totalVencidoCents: 0, buckets: { corrente: 0, m1: 0, m2: 0, m3plus: 0, semData: 0 }, itens: [] as { descricao: string; tipo: string; mes: string; vencimento: string | null; valorCents: number; idade: number | null }[] };
+  if (!db) return empty;
+  const rows = await db.select().from(financePnlEntries).where(and(DESPESA_TIPOS, eq(financePnlEntries.status, "pendente")));
+  const buckets = { corrente: 0, m1: 0, m2: 0, m3plus: 0, semData: 0 };
+  const itens = rows.map((r) => {
+    const idade = r.vencimento ? monthsLate(r.vencimento, hoje) : null;
+    if (idade == null) buckets.semData += r.valorCents;
+    else if (idade <= 0) buckets.corrente += r.valorCents;
+    else if (idade === 1) buckets.m1 += r.valorCents;
+    else if (idade === 2) buckets.m2 += r.valorCents;
+    else buckets.m3plus += r.valorCents;
+    return { descricao: r.descricao, tipo: r.tipo, mes: r.mes, vencimento: r.vencimento, valorCents: r.valorCents, idade };
+  }).sort((a, b) => (b.idade ?? -99) - (a.idade ?? -99) || b.valorCents - a.valorCents);
+  const totalPendente = rows.reduce((s, r) => s + r.valorCents, 0);
+  return { mesCorrente, hoje, totalPendenteCents: totalPendente, totalVencidoCents: buckets.m1 + buckets.m2 + buckets.m3plus, buckets, itens };
+}
+
+/**
+ * Visão Geral — resumo do período (reusa periodoResumoRP) + posição de caixa.
+ * Caixa = TODA receita pendente (a receber) × TODA despesa pendente (a pagar),
+ * não escopado ao período — é a posição projetada de caixa. Saldo = receber − pagar.
+ */
+export async function financeOverviewResumo(mesFrom: string, mesTo: string) {
+  const db = await getDb();
+  const periodo = await financePeriodoResumoRP(mesFrom, mesTo);
+  const margemPct = periodo.receitaTotalCents > 0 ? Math.round((periodo.resultadoFinalCents / periodo.receitaTotalCents) * 100) : null;
+  if (!db) return { ...periodo, margemPct, aReceberCents: 0, aPagarCents: 0, saldoProjetadoCents: 0 };
+  const [recPend, despPend] = await Promise.all([
+    db.select({ v: financePnlEntries.valorCents }).from(financePnlEntries).where(and(RECEITA_TIPOS, eq(financePnlEntries.status, "pendente"))),
+    db.select({ v: financePnlEntries.valorCents }).from(financePnlEntries).where(and(DESPESA_TIPOS, eq(financePnlEntries.status, "pendente"))),
+  ]);
+  const aReceber = recPend.reduce((s, r) => s + r.v, 0);
+  const aPagar = despPend.reduce((s, r) => s + r.v, 0);
+  return { ...periodo, margemPct, aReceberCents: aReceber, aPagarCents: aPagar, saldoProjetadoCents: aReceber - aPagar };
+}
