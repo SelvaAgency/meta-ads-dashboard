@@ -28,6 +28,7 @@ async function expectBlocked(label: string, role: "user" | "developer" | null): 
     ["finance.recorrencia.list", () => caller.finance.recorrencia.list()],
     ["finance.recorrencia.statusMes", () => caller.finance.recorrencia.statusMes({ mes: "2026-07" })],
     ["finance.recorrencia.createDespesa", () => caller.finance.recorrencia.createDespesa({ descricao: "x", valorCents: 1, tipoEntry: "DESPESA_RECORRENTE", estimativa: false, mesInicio: "2026-07" })],
+    ["finance.recorrencia.createReceita", () => caller.finance.recorrencia.createReceita({ clienteNome: "x", valorCents: 1, mesInicio: "2026-07" })],
     ["finance.analytics.serieHistorica", () => caller.finance.analytics.serieHistorica({ granularidade: "mensal", janela: "12m" })],
     ["finance.overview.resumo", () => caller.finance.overview.resumo({ mesFrom: "2026-07", mesTo: "2026-07" })],
     ["finance.aPagar", () => caller.finance.aPagar()],

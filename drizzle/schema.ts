@@ -669,6 +669,8 @@ export const financePnlEntries = mysqlTable("finance_pnl_entries", {
   projetoId: int("projetoId"),
   parcelaNum: int("parcelaNum"),
   parcelaTotal: int("parcelaTotal"),
+  // Ajustes 3 — despesa paga pelo Gui (reembolso pendente). Só despesa usa.
+  reembolsoPendente: boolean("reembolsoPendente").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({

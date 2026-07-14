@@ -1,5 +1,5 @@
 import { logger } from "./logger";
-import { and, desc, eq, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -2212,17 +2212,29 @@ export async function reabrirMes(mes: string): Promise<{ mes: string }> {
 /** Reconciliação Gui & SELVA por mês: despesas (reembolsos) vs. retiradas.
  *  Convenção (igual à planilha): diferenca = despesas − retiradas.
  *  → POSITIVO = falta receber (gastou mais do que retirou). Sempre calculado. */
+/**
+ * Reconciliação Gui & SELVA (Ajustes 3): falta receber = despesas pagas por você
+ * (reembolso pendente) − retiradas. Fontes das "reembolsáveis": reembolsos legados
+ * (histórico) + despesas do P&L com reembolsoPendente=true. Salário/imposto ficam
+ * fora (nunca são marcados reembolsoPendente). diferenca = despesas − retiradas.
+ */
 export async function financeReconciliacao(mes: string) {
   const db = await getDb();
-  const empty = { mes, totalDespesasCents: 0, totalRetiradasCents: 0, diferencaCents: 0 };
+  const empty = { mes, totalDespesasCents: 0, totalRetiradasCents: 0, diferencaCents: 0, reembolsaveis: [] as { descricao: string; valorCents: number }[], retiradasItens: [] as { descricao: string; valorCents: number }[] };
   if (!db) return empty;
-  const [reembs, retirs] = await Promise.all([
+  const [reembs, flagged, retirs] = await Promise.all([
     db.select().from(financeReembolsos).where(eq(financeReembolsos.mes, mes)),
+    db.select().from(financePnlEntries).where(and(eq(financePnlEntries.mes, mes), eq(financePnlEntries.reembolsoPendente, true))),
     db.select().from(financeRetiradas).where(eq(financeRetiradas.mes, mes)),
   ]);
-  const totalDespesas = reembs.reduce((s, r) => s + r.valorCents, 0);
-  const totalRetiradas = retirs.reduce((s, r) => s + r.valorCents, 0);
-  return { mes, totalDespesasCents: totalDespesas, totalRetiradasCents: totalRetiradas, diferencaCents: totalDespesas - totalRetiradas };
+  const reembolsaveis = [
+    ...reembs.map((r) => ({ descricao: r.descricao, valorCents: r.valorCents })),
+    ...flagged.map((r) => ({ descricao: r.descricao, valorCents: r.valorCents })),
+  ];
+  const retiradasItens = retirs.map((r) => ({ descricao: r.descricao, valorCents: r.valorCents }));
+  const totalDespesas = reembolsaveis.reduce((s, r) => s + r.valorCents, 0);
+  const totalRetiradas = retiradasItens.reduce((s, r) => s + r.valorCents, 0);
+  return { mes, totalDespesasCents: totalDespesas, totalRetiradasCents: totalRetiradas, diferencaCents: totalDespesas - totalRetiradas, reembolsaveis, retiradasItens };
 }
 /** Meses distintos (union das 3 tabelas) — popula seletores de mês no front. */
 export async function financeMonths(): Promise<string[]> {
@@ -2299,18 +2311,25 @@ export async function financeReceitaPorCliente(f: { mesFrom?: string; mesTo?: st
   return Array.from(agg.values()).sort((a, b) => b.totalCents - a.totalCents);
 }
 
-/** Falta receber ACUMULADO = Σ(despesas − retiradas) de todos os meses. */
+/** Falta receber ACUMULADO = Σ(despesas reembolsáveis − retiradas) + breakdown por mês. */
 export async function financeReconciliacaoAcumulado() {
   const db = await getDb();
-  const empty = { totalDespesasCents: 0, totalRetiradasCents: 0, diferencaCents: 0 };
+  const empty = { totalDespesasCents: 0, totalRetiradasCents: 0, diferencaCents: 0, porMes: [] as { mes: string; despesasCents: number; retiradasCents: number; diferencaCents: number }[] };
   if (!db) return empty;
-  const [reembs, retirs] = await Promise.all([
-    db.select({ v: financeReembolsos.valorCents }).from(financeReembolsos),
-    db.select({ v: financeRetiradas.valorCents }).from(financeRetiradas),
+  const [reembs, flagged, retirs] = await Promise.all([
+    db.select({ mes: financeReembolsos.mes, v: financeReembolsos.valorCents }).from(financeReembolsos),
+    db.select({ mes: financePnlEntries.mes, v: financePnlEntries.valorCents }).from(financePnlEntries).where(eq(financePnlEntries.reembolsoPendente, true)),
+    db.select({ mes: financeRetiradas.mes, v: financeRetiradas.valorCents }).from(financeRetiradas),
   ]);
-  const totalDespesas = reembs.reduce((s, r) => s + r.v, 0);
-  const totalRetiradas = retirs.reduce((s, r) => s + r.v, 0);
-  return { totalDespesasCents: totalDespesas, totalRetiradasCents: totalRetiradas, diferencaCents: totalDespesas - totalRetiradas };
+  const byMes = new Map<string, { despesas: number; retiradas: number }>();
+  const bump = (mes: string, campo: "despesas" | "retiradas", v: number) => { if (!byMes.has(mes)) byMes.set(mes, { despesas: 0, retiradas: 0 }); byMes.get(mes)![campo] += v; };
+  reembs.forEach((r) => bump(r.mes, "despesas", r.v));
+  flagged.forEach((r) => bump(r.mes, "despesas", r.v));
+  retirs.forEach((r) => bump(r.mes, "retiradas", r.v));
+  const porMes = Array.from(byMes.entries()).map(([mes, x]) => ({ mes, despesasCents: x.despesas, retiradasCents: x.retiradas, diferencaCents: x.despesas - x.retiradas })).sort((a, b) => b.mes.localeCompare(a.mes));
+  const totalDespesas = porMes.reduce((s, r) => s + r.despesasCents, 0);
+  const totalRetiradas = porMes.reduce((s, r) => s + r.retiradasCents, 0);
+  return { totalDespesasCents: totalDespesas, totalRetiradasCents: totalRetiradas, diferencaCents: totalDespesas - totalRetiradas, porMes };
 }
 
 // ─── Financeiro v3: analytics (cálculo/leitura; sem schema novo) ──────────────
@@ -2606,6 +2625,7 @@ export async function gerarMesRecorrente(mesAlvo: string): Promise<{ criadas: nu
   const db = await getDb();
   if (!db) return { criadas: 0, mes: mesAlvo, skipped: true };
   if (mesAlvo < agencyCurrentMonth()) return { criadas: 0, mes: mesAlvo, skipped: true };
+  if (mesAlvo > addMonthsSrv(agencyCurrentMonth(), 1)) return { criadas: 0, mes: mesAlvo, skipped: true }; // no máx. próximo mês
   if (await isMesFechado(mesAlvo)) return { criadas: 0, mes: mesAlvo, skipped: true }; // mês travado
   const recs = await db.select().from(financeRecorrencia).where(eq(financeRecorrencia.ativo, true));
   if (!recs.length) return { criadas: 0, mes: mesAlvo, skipped: false };
@@ -2651,26 +2671,42 @@ export async function recorrenciaStatusMes(mes: string): Promise<{ faltam: numbe
 }
 
 /** Cria uma recorrência de DESPESA (colaborador/imposto). */
-export async function createDespesaRecorrencia(data: { descricao: string; valorCents: number; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; estimativa: boolean; mesInicio: string; diaVencimento?: number | null }): Promise<number> {
+export async function createDespesaRecorrencia(data: { descricao: string; valorCents: number; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; estimativa: boolean; mesInicio: string; diaVencimento?: number | null; vencimentoMesSeguinte?: boolean }): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
   const [row] = await db.insert(financeRecorrencia).values({
     natureza: "DESPESA", clienteId: null, descricao: data.descricao.trim(), valorCents: data.valorCents,
-    tipoEntry: data.tipoEntry, estimativa: data.estimativa, mesInicio: data.mesInicio, diaVencimento: data.diaVencimento ?? null, ativo: true,
+    tipoEntry: data.tipoEntry, estimativa: data.estimativa, mesInicio: data.mesInicio, diaVencimento: data.diaVencimento ?? null,
+    vencimentoMesSeguinte: !!data.vencimentoMesSeguinte, ativo: true,
+  }).$returningId();
+  return row.id;
+}
+
+/** Cria uma recorrência de RECEITA (contrato/assinatura). Cria o cliente se preciso. */
+export async function createReceitaRecorrencia(data: { clienteNome: string; valorCents: number; diaVencimento?: number | null; mesInicio: string; vencimentoMesSeguinte?: boolean }): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const cli = await createFinanceCliente({ nome: data.clienteNome });
+  const [row] = await db.insert(financeRecorrencia).values({
+    natureza: "RECEITA", clienteId: cli.id, valorCents: data.valorCents, diaVencimento: data.diaVencimento ?? null,
+    mesInicio: data.mesInicio, vencimentoMesSeguinte: !!data.vencimentoMesSeguinte, ativo: true,
   }).$returningId();
   return row.id;
 }
 
 /** Churn: desativa a recorrência e remove SÓ as linhas futuras pendentes dela. */
-export async function marcarSaidaRecorrencia(recorrenciaId: number, mes: string): Promise<{ removidas: number }> {
+/**
+ * Churn de recorrência. `churnMes` = ÚLTIMO mês ativo (o cliente ainda deve/paga
+ * neste mês). Remove só as pendentes de meses POSTERIORES (mes > churnMes) — nunca
+ * o próprio churnMes. Assim Baesh (churn com jul pago) mantém a linha de julho.
+ */
+export async function marcarSaidaRecorrencia(recorrenciaId: number, churnMes: string): Promise<{ removidas: number }> {
   const db = await getDb();
   if (!db) return { removidas: 0 };
-  await db.update(financeRecorrencia).set({ ativo: false, churnMes: mes }).where(eq(financeRecorrencia.id, recorrenciaId));
-  const cur = agencyCurrentMonth();
-  const futuras = await db.select({ id: financePnlEntries.id }).from(financePnlEntries)
-    .where(and(eq(financePnlEntries.recorrenciaId, recorrenciaId), eq(financePnlEntries.origem, "RECORRENCIA"), eq(financePnlEntries.status, "pendente"), gte(financePnlEntries.mes, cur)));
-  if (futuras.length) await db.delete(financePnlEntries)
-    .where(and(eq(financePnlEntries.recorrenciaId, recorrenciaId), eq(financePnlEntries.origem, "RECORRENCIA"), eq(financePnlEntries.status, "pendente"), gte(financePnlEntries.mes, cur)));
+  await db.update(financeRecorrencia).set({ ativo: false, churnMes }).where(eq(financeRecorrencia.id, recorrenciaId));
+  const cond = and(eq(financePnlEntries.recorrenciaId, recorrenciaId), eq(financePnlEntries.origem, "RECORRENCIA"), eq(financePnlEntries.status, "pendente"), gt(financePnlEntries.mes, churnMes));
+  const futuras = await db.select({ id: financePnlEntries.id }).from(financePnlEntries).where(cond);
+  if (futuras.length) await db.delete(financePnlEntries).where(cond);
   return { removidas: futuras.length };
 }
 export async function reativarRecorrencia(recorrenciaId: number) {
@@ -2872,17 +2908,25 @@ export async function financeSerieHistorica(
 }
 
 /** A Receber / aging por VENCIMENTO (data real). Linhas sem vencimento → "sem data". */
-export async function financeAReceberVenc() {
+/**
+ * Aging A Receber ESCOPADO (Ajustes 3): vencidos (venc < hoje, pendentes) + a vencer
+ * DENTRO do mês selecionado. Nada de meses posteriores ao selecionado (`mesTo`).
+ * Item entra se seu mês efetivo (vencimento ou competência) ≤ mesTo.
+ */
+export async function financeAReceberVenc(mesTo?: string) {
   const db = await getDb();
   const hoje = agencyTodayStr();
   const mesCorrente = agencyCurrentMonth();
-  const empty = { mesCorrente, hoje, totalPendenteCents: 0, totalVencidoCents: 0, buckets: { corrente: 0, m1: 0, m2: 0, m3plus: 0, semData: 0 }, itens: [] as { clienteNome: string; cor: string | null; descricao: string; mes: string; vencimento: string | null; valorCents: number; idade: number | null }[] };
+  const limite = mesTo ?? mesCorrente;
+  const empty = { mesCorrente, hoje, mesTo: limite, totalPendenteCents: 0, totalVencidoCents: 0, buckets: { corrente: 0, m1: 0, m2: 0, m3plus: 0, semData: 0 }, itens: [] as { clienteNome: string; cor: string | null; descricao: string; mes: string; vencimento: string | null; valorCents: number; idade: number | null }[] };
   if (!db) return empty;
-  const [rows, clientes] = await Promise.all([
+  const [allRows, clientes] = await Promise.all([
     db.select().from(financePnlEntries).where(and(RECEITA_TIPOS, eq(financePnlEntries.status, "pendente"))),
     db.select().from(financeClientes),
   ]);
   const cmap = new Map(clientes.map((c) => [c.id, c]));
+  // Mês efetivo do item; corta o que vence depois do mês selecionado.
+  const rows = allRows.filter((r) => (r.vencimento ? r.vencimento.slice(0, 7) : r.mes) <= limite);
   const buckets = { corrente: 0, m1: 0, m2: 0, m3plus: 0, semData: 0 };
   const itens = rows.map((r) => {
     const idade = r.vencimento ? monthsLate(r.vencimento, hoje) : null;
@@ -2895,7 +2939,7 @@ export async function financeAReceberVenc() {
     return { clienteNome: c?.nome ?? "—", cor: c?.cor ?? null, descricao: r.descricao, mes: r.mes, vencimento: r.vencimento, valorCents: r.valorCents, idade };
   }).sort((a, b) => (b.idade ?? -99) - (a.idade ?? -99) || b.valorCents - a.valorCents);
   const totalPendente = rows.reduce((s, r) => s + r.valorCents, 0);
-  return { mesCorrente, hoje, totalPendenteCents: totalPendente, totalVencidoCents: buckets.m1 + buckets.m2 + buckets.m3plus, buckets, itens };
+  return { mesCorrente, hoje, mesTo: limite, totalPendenteCents: totalPendente, totalVencidoCents: buckets.m1 + buckets.m2 + buckets.m3plus, buckets, itens };
 }
 
 /** A Pagar / aging por VENCIMENTO — espelho de aReceber para DESPESA pendente. */
@@ -2998,12 +3042,12 @@ export async function financeDespesasAtivos(mes: string) {
     })
     .sort((a, b) => b.valorCents - a.valorCents);
   const pontuais: DespesaPon[] = pontualEntries
-    .map((e) => ({ entryId: e.id, descricao: e.descricao, valorCents: e.valorCents, vencimento: e.vencimento ?? null, vencimentoOriginal: e.vencimentoOriginal ?? null, status: e.status }))
+    .map((e) => ({ entryId: e.id, descricao: e.descricao, valorCents: e.valorCents, vencimento: e.vencimento ?? null, vencimentoOriginal: e.vencimentoOriginal ?? null, status: e.status, reembolsoPendente: !!e.reembolsoPendente }))
     .sort((a, b) => b.valorCents - a.valorCents);
   return { recorrentes, pontuais };
 }
 type DespesaRec = { recorrenciaId: number; descricao: string; valorCents: number; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; estimativa: boolean; diaVencimento: number | null; entryId: number | null; status: "pago" | "pendente" | null; vencimento: string | null; vencimentoOriginal: string | null; gerado: boolean };
-type DespesaPon = { entryId: number; descricao: string; valorCents: number; vencimento: string | null; vencimentoOriginal: string | null; status: "pago" | "pendente" };
+type DespesaPon = { entryId: number; descricao: string; valorCents: number; vencimento: string | null; vencimentoOriginal: string | null; status: "pago" | "pendente"; reembolsoPendente: boolean };
 
 type ContratoRec = { recorrenciaId: number; clienteId: number | null; clienteNome: string; cor: string | null; valorCents: number; diaVencimento: number | null; entryId: number | null; status: "pago" | "pendente" | null; vencimento: string | null; vencimentoOriginal: string | null; gerado: boolean };
 type ContratoPon = { entryId: number; projetoId: number | null; parcelaNum: number | null; parcelaTotal: number | null; clienteId: number | null; clienteNome: string; cor: string | null; descricao: string; valorCents: number; vencimento: string | null; vencimentoOriginal: string | null; status: "pago" | "pendente" };

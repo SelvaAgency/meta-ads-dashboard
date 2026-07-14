@@ -326,6 +326,7 @@ async function main() {
       { name: "projetoId", ddl: "ADD COLUMN `projetoId` INT NULL" },
       { name: "parcelaNum", ddl: "ADD COLUMN `parcelaNum` INT NULL" },
       { name: "parcelaTotal", ddl: "ADD COLUMN `parcelaTotal` INT NULL" },
+      { name: "reembolsoPendente", ddl: "ADD COLUMN `reembolsoPendente` BOOLEAN NOT NULL DEFAULT FALSE" },
     ];
     for (const c of pnlCols) {
       if (!(await columnExists(conn, "finance_pnl_entries", c.name))) {

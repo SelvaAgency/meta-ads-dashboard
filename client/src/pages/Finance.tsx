@@ -505,8 +505,6 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
   const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
   const { from, to, refMonth } = periodRange(period, months);
   const [lancTab, setLancTab] = useState<PnlTipo>("RECEITA_RECORRENTE"); const [status, setStatus] = useState(""); const [clienteFilter, setClienteFilter] = useState<number | "">("");
-  const [form, setForm] = useState<PnlForm | null>(null);
-  const [projForm, setProjForm] = useState<ProjForm | null>(null);
   const [showAging, setShowAging] = useState(false);
 
   const resumoQ = trpc.finance.overview.resumo.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) && MES_RE.test(to) });
@@ -526,10 +524,7 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
 
   const invalidate = () => { utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); utils.finance.months.invalidate(); utils.finance.recorrencia.invalidate(); };
   const onErr = (e: { message: string }) => toast.error(e.message);
-  const create = trpc.finance.pnl.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Lançamento criado."); }, onError: onErr });
-  const update = trpc.finance.pnl.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Lançamento atualizado."); }, onError: onErr });
   const gerar = trpc.finance.recorrencia.gerar.useMutation({ onSuccess: (res) => { invalidate(); toast.success(res.criadas > 0 ? `${res.criadas} recorrentes gerados em ${res.mes}.` : `Nada a gerar em ${res.mes} (já existem).`); }, onError: onErr });
-  const projCreate = trpc.finance.projetos.create.useMutation({ onSuccess: (res) => { invalidate(); utils.finance.projetos.list.invalidate(); setProjForm(null); toast.success(`Projeto criado (${res.criadas} parcelas).`); }, onError: onErr });
   const invMeses = () => { invalidate(); utils.finance.meses.list.invalidate(); };
   const fecharMesM = trpc.finance.meses.fechar.useMutation({ onSuccess: (res) => { invMeses(); toast.success(`Mês ${formatMes(res.mes)} fechado.${res.pendencias > 0 ? ` ${res.pendencias} pendência(s) travada(s).` : ""}`); }, onError: onErr });
   const reabrirMesM = trpc.finance.meses.reabrir.useMutation({ onSuccess: (res) => { invMeses(); toast.success(`Mês ${formatMes(res.mes)} reaberto.`); }, onError: onErr });
@@ -539,28 +534,6 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
       ? `Fechar ${formatMes(refMonth)}? Há ${pend} pendência(s) neste mês — elas NÃO serão pagas, apenas travadas. Ninguém poderá editar até reabrir. Continuar?`
       : `Fechar ${formatMes(refMonth)}? Ninguém poderá criar/editar/excluir neste mês até reabrir.`;
     if (confirm(msg)) fecharMesM.mutate({ mes: refMonth });
-  };
-
-  const submit = () => {
-    if (!form) return;
-    if (!MES_RE.test(form.mes)) return toast.error("Mês inválido (YYYY-MM).");
-    if (!form.descricao.trim()) return toast.error("Informe a descrição.");
-    const valorCents = parseMoneyToCents(form.valor);
-    if (valorCents == null) return toast.error("Valor inválido.");
-    const payload = { mes: form.mes, tipo: form.tipo, descricao: form.descricao.trim(), valorCents, status: form.status, clienteId: tipoKind(form.tipo) === "receita" ? form.clienteId : null };
-    if (form.id) update.mutate({ id: form.id, ...payload });
-    else create.mutate({ ...payload, ...(form.vencimento ? { vencimento: form.vencimento } : {}) });
-  };
-  const isReceitaForm = form ? tipoKind(form.tipo) === "receita" : false;
-
-  const projTotal = projForm ? projForm.parcelas.reduce((s, p) => s + (parseMoneyToCents(p.valor) ?? 0), 0) : 0;
-  const submitProj = () => {
-    if (!projForm) return;
-    if (!projForm.nome.trim()) return toast.error("Informe o nome do projeto.");
-    const parcelas = projForm.parcelas.map((p) => ({ valorCents: parseMoneyToCents(p.valor), vencimento: p.vencimento }));
-    if (parcelas.some((p) => p.valorCents == null || p.valorCents <= 0)) return toast.error("Valor de parcela inválido.");
-    if (parcelas.some((p) => !/^\d{4}-\d{2}-\d{2}$/.test(p.vencimento))) return toast.error("Data de parcela inválida (YYYY-MM-DD).");
-    projCreate.mutate({ clienteId: projForm.clienteId, nome: projForm.nome.trim(), parcelas: parcelas as { valorCents: number; vencimento: string }[] });
   };
 
   return (
@@ -589,13 +562,6 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
             );
           })()}
           <Button size="sm" variant="outline" onClick={() => setShowAging(true)}><CalendarClock className="w-4 h-4 mr-1" /> A receber</Button>
-          <NovoMenu
-            disabled={refClosed}
-            title={refClosed ? "Mês fechado — reabra para lançar" : undefined}
-            onReceita={() => setForm({ mes: refMonth, tipo: "RECEITA_PONTUAL", descricao: "", valor: "", status: "pendente", clienteId: null, vencimento: "" })}
-            onDespesa={() => setForm({ mes: refMonth, tipo: "DESPESA_PONTUAL", descricao: "", valor: "", status: "pendente", clienteId: null, vencimento: "" })}
-            onProjeto={() => setProjForm({ clienteId: null, nome: "", parcelas: [{ valor: "", vencimento: "" }, { valor: "", vencimento: "" }] })}
-          />
         </div>
       </div>
 
@@ -714,60 +680,11 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
         </Table>
       </div>
 
-      {/* Dialog lançamento */}
-      <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{form?.id ? "Editar lançamento" : "Novo lançamento"}</DialogTitle></DialogHeader>
-          {form && (
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Mês (YYYY-MM)"><Input value={form.mes} onChange={(e) => setForm({ ...form, mes: e.target.value })} placeholder="2026-07" /></Field>
-              <Field label="Tipo"><Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as PnlTipo })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PNL_TIPOS.map((t) => <SelectItem key={t.v} value={t.v}>{t.label}</SelectItem>)}</SelectContent></Select></Field>
-              <Field label="Descrição" full><Input value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /></Field>
-              {isReceitaForm && <Field label="Cliente" full><ClienteSelect value={form.clienteId} onChange={(id) => setForm({ ...form, clienteId: id })} clientes={clientes} /></Field>}
-              <Field label="Valor"><MoneyInput value={form.valor} onChange={(v) => setForm({ ...form, valor: v })} /></Field>
-              <Field label="Status"><Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as "pago" | "pendente" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pendente">Pendente</SelectItem><SelectItem value="pago">Pago</SelectItem></SelectContent></Select></Field>
-              {!form.id && <Field label="Vencimento (opcional)" full><Input type="date" value={form.vencimento} onChange={(e) => setForm({ ...form, vencimento: e.target.value })} /></Field>}
-            </div>
-          )}
-          <DialogFooter><Button variant="outline" onClick={() => setForm(null)}>Cancelar</Button><Button onClick={submit} disabled={create.isPending || update.isPending}>{(create.isPending || update.isPending) && <Loader2 className="w-4 h-4 mr-1 animate-spin" />} Salvar</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Drill: A receber (aging) — deixou de ser aba, abre a partir da Visão geral */}
+      {/* Drill: A receber (aging escopado ao mês) — abre a partir da Visão geral */}
       <Dialog open={showAging} onOpenChange={setShowAging}>
         <DialogContent className="max-w-4xl w-[95vw]">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><CalendarClock className="w-4 h-4" /> A receber — aging por vencimento</DialogTitle></DialogHeader>
-          <div className="max-h-[72vh] overflow-y-auto pr-1"><AReceberTab /></div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog projeto parcelado */}
-      <Dialog open={!!projForm} onOpenChange={(o) => !o && setProjForm(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Novo projeto parcelado</DialogTitle></DialogHeader>
-          {projForm && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Nome do projeto" full><Input value={projForm.nome} onChange={(e) => setProjForm({ ...projForm, nome: e.target.value })} placeholder="Ex.: Site institucional" /></Field>
-                <Field label="Cliente" full><ClienteSelect value={projForm.clienteId} onChange={(id) => setProjForm({ ...projForm, clienteId: id })} clientes={clientes} /></Field>
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-1"><Label className="text-xs">Parcelas (valor + vencimento)</Label><span className="text-xs text-muted-foreground">Total: {centsToBRL(projTotal)}</span></div>
-                <div className="space-y-2 max-h-56 overflow-y-auto">
-                  {projForm.parcelas.map((p, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground w-5">{i + 1}</span>
-                      <MoneyInput value={p.valor} onChange={(v) => setProjForm({ ...projForm, parcelas: projForm.parcelas.map((x, j) => j === i ? { ...x, valor: v } : x) })} />
-                      <Input type="date" value={p.vencimento} onChange={(e) => setProjForm({ ...projForm, parcelas: projForm.parcelas.map((x, j) => j === i ? { ...x, vencimento: e.target.value } : x) })} className="w-[150px]" />
-                      <button onClick={() => setProjForm({ ...projForm, parcelas: projForm.parcelas.filter((_, j) => j !== i) })} className="p-1 text-muted-foreground hover:text-destructive" title="Remover"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-                  ))}
-                </div>
-                <Button size="sm" variant="ghost" className="mt-1" onClick={() => setProjForm({ ...projForm, parcelas: [...projForm.parcelas, { valor: "", vencimento: "" }] })}><Plus className="w-3.5 h-3.5 mr-1" /> Parcela</Button>
-              </div>
-            </div>
-          )}
-          <DialogFooter><Button variant="outline" onClick={() => setProjForm(null)}>Cancelar</Button><Button onClick={submitProj} disabled={projCreate.isPending}>{projCreate.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />} Criar projeto</Button></DialogFooter>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><CalendarClock className="w-4 h-4" /> A receber — aging até {formatMes(refMonth)}</DialogTitle></DialogHeader>
+          <div className="max-h-[72vh] overflow-y-auto pr-1"><AReceberTab mesTo={refMonth} /></div>
         </DialogContent>
       </Dialog>
     </div>
@@ -779,7 +696,7 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
 // ═════════════════════════════════════════════════════════════════════════════
 type QualRow = { clienteId: number | null; nome: string; cor: string | null; mesesAtivos: number; totalCents: number; mediaCents: number; primeiroMes: string; ultimoMes: string; status: "ativo" | "churned" | "pontual" };
 
-function ClientesTab({ months, drill }: { months: string[]; drill?: { nonce: number; period?: PeriodState; sub?: string } }) {
+function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: Cliente[]; drill?: { nonce: number; period?: PeriodState; sub?: string } }) {
   const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
   const { from, to, refMonth } = periodRange(period, months);
   const [escopo, setEscopo] = useState<"vitalicio" | "periodo">("vitalicio");
@@ -791,6 +708,8 @@ function ClientesTab({ months, drill }: { months: string[]; drill?: { nonce: num
   const [remarcar, setRemarcar] = useState<{ id: number; venc: string } | null>(null);
   const [editPon, setEditPon] = useState<EditPon | null>(null);
   const [contratoTab, setContratoTab] = useState<"recorrente" | "pontual">("recorrente");
+  const [novoContrato, setNovoContrato] = useState<{ nome: string; valor: string; dia: string; mesInicio: string; mesSeguinte: boolean } | null>(null);
+  const [projForm, setProjForm] = useState<ProjForm | null>(null);
   // Drill vindo da Visão Geral: preserva o período e abre a sub-aba certa.
   useEffect(() => {
     if (!drill) return;
@@ -814,7 +733,9 @@ function ClientesTab({ months, drill }: { months: string[]; drill?: { nonce: num
   const encerradas = (recQ.data ?? []).filter((rec) => rec.natureza !== "DESPESA" && !rec.ativo);
 
   const onErr = (e: { message: string }) => toast.error(e.message);
-  const invRec = () => { utils.finance.recorrencia.invalidate(); utils.finance.pnl.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); utils.finance.contratosAtivos.invalidate(); utils.finance.overview.invalidate(); };
+  const invRec = () => { utils.finance.recorrencia.invalidate(); utils.finance.pnl.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); utils.finance.contratosAtivos.invalidate(); utils.finance.overview.invalidate(); utils.finance.clientes.list.invalidate(); utils.finance.projetos.list.invalidate(); };
+  const createReceita = trpc.finance.recorrencia.createReceita.useMutation({ onSuccess: () => { invRec(); setNovoContrato(null); toast.success("Contrato recorrente criado."); }, onError: onErr });
+  const projCreate = trpc.finance.projetos.create.useMutation({ onSuccess: (res) => { invRec(); setProjForm(null); toast.success(`Projeto criado (${res.criadas} parcelas).`); }, onError: onErr });
   const marcarSaida = trpc.finance.recorrencia.marcarSaida.useMutation({ onSuccess: (res) => { invRec(); toast.success(`Saída marcada. ${res.removidas} linha(s) futura(s) pendente(s) removida(s).`); }, onError: onErr });
   const reativar = trpc.finance.recorrencia.reativar.useMutation({ onSuccess: () => { invRec(); toast.success("Recorrência reativada."); }, onError: onErr });
   const ajustarValor = trpc.finance.recorrencia.ajustarValor.useMutation({ onSuccess: () => { invRec(); setAjuste(null); toast.success("Valor recorrente ajustado."); }, onError: onErr });
@@ -888,6 +809,17 @@ function ClientesTab({ months, drill }: { months: string[]; drill?: { nonce: num
       <div className="flex items-center gap-2 flex-wrap">
         <PeriodBar period={period} setPeriod={setPeriod} months={months} from={from} to={to} />
         {refClosed && <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 gap-1"><Lock className="w-3 h-3" /> {formatMes(refMonth)} fechado</Badge>}
+        <div className="ml-auto">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild><Button size="sm"><Plus className="w-4 h-4 mr-1" /> Novo</Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Adicionar receita</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setNovoContrato({ nome: "", valor: "", dia: "", mesInicio: cur, mesSeguinte: false })}><Repeat className="w-3.5 h-3.5 mr-2" /> Contrato recorrente</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setProjForm({ clienteId: null, nome: "", parcelas: [{ valor: "", vencimento: "" }, { valor: "", vencimento: "" }] })}><CalendarClock className="w-3.5 h-3.5 mr-2" /> Projeto pontual (parcelado)</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {/* TOPO — contratos/projetos ativos no mês (Recorrente | Pontual) */}
@@ -1041,6 +973,71 @@ function ClientesTab({ months, drill }: { months: string[]; drill?: { nonce: num
       </Dialog>
 
       <EditPontualDialog entry={editPon} onClose={() => setEditPon(null)} onSaved={invRec} label="receita pontual" />
+
+      {/* Dialog novo contrato recorrente (mesmo padrão do colaborador) */}
+      <Dialog open={!!novoContrato} onOpenChange={(o) => !o && setNovoContrato(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Novo contrato recorrente</DialogTitle></DialogHeader>
+          {novoContrato && (
+            <div className="space-y-3">
+              <Field label="Nome do cliente" full><Input value={novoContrato.nome} onChange={(e) => setNovoContrato({ ...novoContrato, nome: e.target.value })} placeholder="Ex.: Acme Ltda" /></Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Valor mensal"><MoneyInput value={novoContrato.valor} onChange={(v) => setNovoContrato({ ...novoContrato, valor: v })} /></Field>
+                <Field label="Dia de vencimento"><Input value={novoContrato.dia} onChange={(e) => setNovoContrato({ ...novoContrato, dia: e.target.value })} placeholder="15" /></Field>
+                <Field label="Mês de início"><Input value={novoContrato.mesInicio} onChange={(e) => setNovoContrato({ ...novoContrato, mesInicio: e.target.value })} placeholder="2026-07" /></Field>
+                <Field label="Cobrança"><Select value={novoContrato.mesSeguinte ? "pos" : "ant"} onValueChange={(v) => setNovoContrato({ ...novoContrato, mesSeguinte: v === "pos" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ant">Antecipado (vence no mês)</SelectItem><SelectItem value="pos">Pós-pago (mês seguinte)</SelectItem></SelectContent></Select></Field>
+              </div>
+            </div>
+          )}
+          <DialogFooter><Button variant="outline" onClick={() => setNovoContrato(null)}>Cancelar</Button><Button disabled={createReceita.isPending} onClick={() => {
+            if (!novoContrato) return;
+            if (!novoContrato.nome.trim()) return toast.error("Informe o nome do cliente.");
+            const c = parseMoneyToCents(novoContrato.valor);
+            if (c == null || c <= 0) return toast.error("Valor inválido.");
+            if (!MES_RE.test(novoContrato.mesInicio)) return toast.error("Mês de início inválido (YYYY-MM).");
+            const dia = novoContrato.dia.trim() ? Number(novoContrato.dia) : null;
+            if (dia != null && (!Number.isInteger(dia) || dia < 1 || dia > 31)) return toast.error("Dia inválido (1–31).");
+            createReceita.mutate({ clienteNome: novoContrato.nome.trim(), valorCents: c, diaVencimento: dia, mesInicio: novoContrato.mesInicio, vencimentoMesSeguinte: novoContrato.mesSeguinte });
+          }}>Criar</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog projeto pontual (parcelado) */}
+      <Dialog open={!!projForm} onOpenChange={(o) => !o && setProjForm(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Novo projeto parcelado</DialogTitle></DialogHeader>
+          {projForm && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Nome do projeto" full><Input value={projForm.nome} onChange={(e) => setProjForm({ ...projForm, nome: e.target.value })} placeholder="Ex.: Site institucional" /></Field>
+                <Field label="Cliente" full><ClienteSelect value={projForm.clienteId} onChange={(id) => setProjForm({ ...projForm, clienteId: id })} clientes={clientes} /></Field>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1"><Label className="text-xs">Parcelas (valor + vencimento)</Label><span className="text-xs text-muted-foreground">Total: {centsToBRL(projForm.parcelas.reduce((s, p) => s + (parseMoneyToCents(p.valor) ?? 0), 0))}</span></div>
+                <div className="space-y-2 max-h-56 overflow-y-auto">
+                  {projForm.parcelas.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground w-5">{i + 1}</span>
+                      <MoneyInput value={p.valor} onChange={(v) => setProjForm({ ...projForm, parcelas: projForm.parcelas.map((x, j) => j === i ? { ...x, valor: v } : x) })} />
+                      <Input type="date" value={p.vencimento} onChange={(e) => setProjForm({ ...projForm, parcelas: projForm.parcelas.map((x, j) => j === i ? { ...x, vencimento: e.target.value } : x) })} className="w-[150px]" />
+                      <button onClick={() => setProjForm({ ...projForm, parcelas: projForm.parcelas.filter((_, j) => j !== i) })} className="p-1 text-muted-foreground hover:text-destructive" title="Remover"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  ))}
+                </div>
+                <Button size="sm" variant="ghost" className="mt-1" onClick={() => setProjForm({ ...projForm, parcelas: [...projForm.parcelas, { valor: "", vencimento: "" }] })}><Plus className="w-3.5 h-3.5 mr-1" /> Parcela</Button>
+              </div>
+            </div>
+          )}
+          <DialogFooter><Button variant="outline" onClick={() => setProjForm(null)}>Cancelar</Button><Button disabled={projCreate.isPending} onClick={() => {
+            if (!projForm) return;
+            if (!projForm.nome.trim()) return toast.error("Informe o nome do projeto.");
+            const parcelas = projForm.parcelas.map((p) => ({ valorCents: parseMoneyToCents(p.valor), vencimento: p.vencimento }));
+            if (parcelas.some((p) => p.valorCents == null || p.valorCents <= 0)) return toast.error("Valor de parcela inválido.");
+            if (parcelas.some((p) => !/^\d{4}-\d{2}-\d{2}$/.test(p.vencimento))) return toast.error("Data de parcela inválida (YYYY-MM-DD).");
+            projCreate.mutate({ clienteId: projForm.clienteId, nome: projForm.nome.trim(), parcelas: parcelas as { valorCents: number; vencimento: string }[] });
+          }}>Criar projeto</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1065,17 +1062,20 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
   const cur = agencyCurrentMonthCli();
 
   const [ajuste, setAjuste] = useState<{ recorrenciaId: number; nome: string; valor: string; aplicarGerados: boolean } | null>(null);
-  const [novo, setNovo] = useState<{ descricao: string; valor: string; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; dia: string } | null>(null);
+  const [novo, setNovo] = useState<{ descricao: string; valor: string; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; dia: string; mesInicio: string; mesSeguinte: boolean } | null>(null);
+  const [novoPontual, setNovoPontual] = useState<{ descricao: string; valor: string; venc: string; reembolso: boolean } | null>(null);
   const [remarcar, setRemarcar] = useState<{ id: number; venc: string } | null>(null);
   const [editPon, setEditPon] = useState<EditPon | null>(null);
   const [custoTab, setCustoTab] = useState<"recorrente" | "imposto" | "pontual">("recorrente");
 
   const onErr = (e: { message: string }) => toast.error(e.message);
-  const invRec = () => { utils.finance.recorrencia.invalidate(); utils.finance.pnl.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); utils.finance.despesasAtivos.invalidate(); utils.finance.overview.invalidate(); };
+  const invRec = () => { utils.finance.recorrencia.invalidate(); utils.finance.pnl.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); utils.finance.despesasAtivos.invalidate(); utils.finance.overview.invalidate(); utils.finance.reconciliacao.invalidate(); };
   const marcarSaida = trpc.finance.recorrencia.marcarSaida.useMutation({ onSuccess: (res) => { invRec(); toast.success(`Despesa encerrada. ${res.removidas} mês(es) futuro(s) pendente(s) removido(s).`); }, onError: onErr });
   const reativar = trpc.finance.recorrencia.reativar.useMutation({ onSuccess: () => { invRec(); toast.success("Despesa reativada."); }, onError: onErr });
   const ajustarValor = trpc.finance.recorrencia.ajustarValor.useMutation({ onSuccess: () => { invRec(); setAjuste(null); toast.success("Valor ajustado."); }, onError: onErr });
   const createDespesa = trpc.finance.recorrencia.createDespesa.useMutation({ onSuccess: () => { invRec(); setNovo(null); toast.success("Despesa recorrente criada."); }, onError: onErr });
+  const createPontual = trpc.finance.pnl.create.useMutation({ onSuccess: () => { invRec(); setNovoPontual(null); toast.success("Despesa pontual criada."); }, onError: onErr });
+  const toggleReembolso = trpc.finance.pnl.update.useMutation({ onSuccess: () => invRec(), onError: onErr });
   const setStatusM = trpc.finance.pnl.setStatus.useMutation({ onSuccess: () => invRec(), onError: onErr });
   const remarcarM = trpc.finance.pnl.remarcar.useMutation({ onSuccess: () => { invRec(); setRemarcar(null); toast.success("Vencimento remarcado."); }, onError: onErr });
   const delM = trpc.finance.pnl.delete.useMutation({ onSuccess: () => { invRec(); toast.success("Excluído."); }, onError: onErr });
@@ -1107,6 +1107,7 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
   const pontualRows: HubRow[] = (despesasQ.data?.pontuais ?? []).map((d) => ({
     key: `p${d.entryId}`,
     nome: d.descricao,
+    sub: d.reembolsoPendente ? "pago pelo Gui · reembolso pendente" : undefined,
     valorCents: d.valorCents,
     vencInfo: vencCell(d.vencimento, d.vencimentoOriginal, null),
     status: d.status,
@@ -1114,6 +1115,7 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
     onToggle: () => setStatusM.mutate({ id: d.entryId, status: d.status === "pago" ? "pendente" : "pago" }),
     actions: (
       <div className="inline-flex items-center gap-1">
+        <button onClick={() => toggleReembolso.mutate({ id: d.entryId, reembolsoPendente: !d.reembolsoPendente })} className={`p-1.5 ${d.reembolsoPendente ? "text-amber-600" : "text-muted-foreground"} hover:text-amber-600`} title={d.reembolsoPendente ? "Pago pelo Gui (reembolso pendente) — clique p/ tirar" : "Marcar como pago pelo Gui (reembolso pendente)"}><ArrowLeftRight className="w-4 h-4" /></button>
         <button onClick={() => setEditPon({ id: d.entryId, descricao: d.descricao, valorCents: d.valorCents, vencimento: d.vencimento })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Editar (descrição, valor, vencimento)"><Pencil className="w-4 h-4" /></button>
         <button onClick={() => { if (confirm("Excluir esta despesa pontual?")) delM.mutate({ id: d.entryId }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Excluir"><Trash2 className="w-4 h-4" /></button>
       </div>
@@ -1144,7 +1146,16 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
               <button onClick={() => setCustoTab("imposto")} className={`px-3 py-1 border-l border-border ${custoTab === "imposto" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Imposto ({impostoRows.length})</button>
               <button onClick={() => setCustoTab("pontual")} className={`px-3 py-1 border-l border-border ${custoTab === "pontual" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Pontual ({pontualRows.length})</button>
             </div>
-            <Button size="sm" variant="outline" onClick={() => setNovo({ descricao: "", valor: "", tipoEntry: "DESPESA_RECORRENTE", dia: "" })}><Plus className="w-4 h-4 mr-1" /> Recorrente</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button size="sm"><Plus className="w-4 h-4 mr-1" /> Novo</Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuLabel>Adicionar despesa</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setNovo({ descricao: "", valor: "", tipoEntry: "DESPESA_RECORRENTE", dia: "", mesInicio: cur, mesSeguinte: false })}>Folha (colaborador)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setNovo({ descricao: "", valor: "", tipoEntry: "DESPESA_IMPOSTO", dia: "", mesInicio: cur, mesSeguinte: false })}>Imposto</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setNovoPontual({ descricao: "", valor: "", venc: "", reembolso: true })}>Pontual / extra</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         <HubTable rows={tabRows} nomeLabel="Fornecedor / pessoa" valorLabel="Valor" loading={despesasQ.isLoading} emptyMsg={custoTab === "pontual" ? "Nenhuma despesa pontual neste mês." : "Nenhuma despesa recorrente ativa neste mês."} />
@@ -1179,25 +1190,42 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
         </DialogContent>
       </Dialog>
 
-      {/* Dialog nova despesa recorrente */}
+      {/* Dialog nova despesa recorrente (folha/imposto) — mesmo padrão do contrato */}
       <Dialog open={!!novo} onOpenChange={(o) => !o && setNovo(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Nova despesa recorrente</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div><label className="text-xs text-muted-foreground">Descrição</label><Input value={novo?.descricao ?? ""} onChange={(e) => novo && setNovo({ ...novo, descricao: e.target.value })} placeholder="Ex.: Salário — Fulano / DAS Simples" /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><label className="text-xs text-muted-foreground">Valor mensal</label><Input value={novo?.valor ?? ""} onChange={(e) => novo && setNovo({ ...novo, valor: e.target.value })} placeholder="0,00" /></div>
-              <div><label className="text-xs text-muted-foreground">Dia venc. (opcional)</label><Input value={novo?.dia ?? ""} onChange={(e) => novo && setNovo({ ...novo, dia: e.target.value })} placeholder="5" /></div>
+          <DialogHeader><DialogTitle>Nova despesa recorrente — {novo?.tipoEntry === "DESPESA_IMPOSTO" ? "imposto" : "folha"}</DialogTitle></DialogHeader>
+          {novo && (
+            <div className="space-y-3">
+              <Field label="Nome / descrição" full><Input value={novo.descricao} onChange={(e) => setNovo({ ...novo, descricao: e.target.value })} placeholder="Ex.: Salário — Fulano / DAS Simples" /></Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Valor padrão"><MoneyInput value={novo.valor} onChange={(v) => setNovo({ ...novo, valor: v })} /></Field>
+                <Field label="Dia de vencimento"><Input value={novo.dia} onChange={(e) => setNovo({ ...novo, dia: e.target.value })} placeholder="5" /></Field>
+                <Field label="Mês de início"><Input value={novo.mesInicio} onChange={(e) => setNovo({ ...novo, mesInicio: e.target.value })} placeholder="2026-07" /></Field>
+                <Field label="Cobrança"><Select value={novo.mesSeguinte ? "pos" : "ant"} onValueChange={(v) => setNovo({ ...novo, mesSeguinte: v === "pos" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ant">Antecipado (vence no mês)</SelectItem><SelectItem value="pos">Pós-pago (mês seguinte)</SelectItem></SelectContent></Select></Field>
+              </div>
+              {novo.tipoEntry === "DESPESA_IMPOSTO" && <p className="text-[11px] text-muted-foreground">Imposto entra como estimativa.</p>}
             </div>
-            <div><label className="text-xs text-muted-foreground">Tipo</label>
-              <Select value={novo?.tipoEntry ?? "DESPESA_RECORRENTE"} onValueChange={(v) => novo && setNovo({ ...novo, tipoEntry: v as "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO" })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="DESPESA_RECORRENTE">Recorrente (folha/serviço)</SelectItem><SelectItem value="DESPESA_IMPOSTO">Imposto (estimativa)</SelectItem></SelectContent>
-              </Select>
+          )}
+          <DialogFooter><Button variant="outline" onClick={() => setNovo(null)}>Cancelar</Button><Button onClick={() => { if (!novo) return; if (!novo.descricao.trim()) return toast.error("Informe a descrição."); const c = parseMoneyToCents(novo.valor); if (c == null || c <= 0) return toast.error("Valor inválido."); if (!MES_RE.test(novo.mesInicio)) return toast.error("Mês de início inválido (YYYY-MM)."); const dia = novo.dia.trim() ? Number(novo.dia) : null; if (dia != null && (!Number.isInteger(dia) || dia < 1 || dia > 31)) return toast.error("Dia inválido (1–31)."); createDespesa.mutate({ descricao: novo.descricao.trim(), valorCents: c, tipoEntry: novo.tipoEntry, estimativa: novo.tipoEntry === "DESPESA_IMPOSTO", mesInicio: novo.mesInicio, diaVencimento: dia, vencimentoMesSeguinte: novo.mesSeguinte }); }} disabled={createDespesa.isPending}>Criar</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog nova despesa pontual / extra */}
+      <Dialog open={!!novoPontual} onOpenChange={(o) => !o && setNovoPontual(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Nova despesa pontual / extra</DialogTitle></DialogHeader>
+          {novoPontual && (
+            <div className="space-y-3">
+              <Field label="Descrição" full><Input value={novoPontual.descricao} onChange={(e) => setNovoPontual({ ...novoPontual, descricao: e.target.value })} placeholder="Ex.: Ferramenta X / Freela Y" /></Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Valor"><MoneyInput value={novoPontual.valor} onChange={(v) => setNovoPontual({ ...novoPontual, valor: v })} /></Field>
+                <Field label="Vencimento (opcional)"><Input type="date" value={novoPontual.venc} onChange={(e) => setNovoPontual({ ...novoPontual, venc: e.target.value })} /></Field>
+              </div>
+              <label className="flex items-center gap-2 text-sm"><Switch checked={novoPontual.reembolso} onCheckedChange={(v) => setNovoPontual({ ...novoPontual, reembolso: !!v })} /> Pago pelo Gui (reembolso pendente)</label>
+              <p className="text-[11px] text-muted-foreground">Pontual/extra vem marcado como reembolso por padrão. Conta 1× no P&amp;L; o reembolso alimenta o "falta receber" do Gui &amp; SELVA.</p>
             </div>
-            <p className="text-xs text-muted-foreground">Começa a valer no mês atual ({formatMes(cur)}). Gere o mês no P&amp;L para lançar.</p>
-          </div>
-          <DialogFooter><Button variant="outline" onClick={() => setNovo(null)}>Cancelar</Button><Button onClick={() => { if (!novo) return; if (!novo.descricao.trim()) return toast.error("Informe a descrição."); const c = parseMoneyToCents(novo.valor); if (c == null || c <= 0) return toast.error("Valor inválido."); const dia = novo.dia.trim() ? Number(novo.dia) : null; if (dia != null && (!Number.isInteger(dia) || dia < 1 || dia > 31)) return toast.error("Dia inválido (1–31)."); createDespesa.mutate({ descricao: novo.descricao.trim(), valorCents: c, tipoEntry: novo.tipoEntry, estimativa: novo.tipoEntry === "DESPESA_IMPOSTO", mesInicio: cur, diaVencimento: dia }); }} disabled={createDespesa.isPending}>Criar</Button></DialogFooter>
+          )}
+          <DialogFooter><Button variant="outline" onClick={() => setNovoPontual(null)}>Cancelar</Button><Button onClick={() => { if (!novoPontual) return; if (!novoPontual.descricao.trim()) return toast.error("Informe a descrição."); const c = parseMoneyToCents(novoPontual.valor); if (c == null || c <= 0) return toast.error("Valor inválido."); if (novoPontual.venc && !/^\d{4}-\d{2}-\d{2}$/.test(novoPontual.venc)) return toast.error("Data inválida."); createPontual.mutate({ mes: refMonth, tipo: "DESPESA_PONTUAL", descricao: novoPontual.descricao.trim(), valorCents: c, status: "pago", clienteId: null, reembolsoPendente: novoPontual.reembolso, ...(novoPontual.venc ? { vencimento: novoPontual.venc } : {}) }); }} disabled={createPontual.isPending}>Criar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1221,8 +1249,8 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
 // ═════════════════════════════════════════════════════════════════════════════
 //  Aba A Receber (aging)
 // ═════════════════════════════════════════════════════════════════════════════
-function AReceberTab() {
-  const q = trpc.finance.analytics.aReceber.useQuery();
+function AReceberTab({ mesTo }: { mesTo?: string }) {
+  const q = trpc.finance.analytics.aReceber.useQuery(mesTo ? { mesTo } : undefined);
   const d = q.data;
   const bk = d?.buckets;
   const cards: { label: string; value: string; tone?: "neg" | "warn" }[] = [
@@ -1244,7 +1272,7 @@ function AReceberTab() {
           </div>
         ))}
       </div>
-      {d && <p className="text-[11px] text-muted-foreground">Aging por vencimento · hoje {d.hoje} · total geral (todas as pendências, fora do período selecionado).</p>}
+      {d && <p className="text-[11px] text-muted-foreground">Aging por vencimento · hoje {d.hoje} · vencidos + a vencer até {formatMes(d.mesTo)} (sem meses posteriores).</p>}
       {d && d.itens.length === 0 ? (
         <Card><CardContent className="p-8 text-center text-muted-foreground text-sm">Nenhuma conta pendente. Marque uma receita como <span className="font-medium">pendente</span> (ou gere o próximo mês recorrente) para acompanhar o aging por vencimento.</CardContent></Card>
       ) : (
@@ -1274,32 +1302,28 @@ function AReceberTab() {
 // ═════════════════════════════════════════════════════════════════════════════
 type ReembRow = { id: number; mes: string; categoria: string; descricao: string; valorCents: number; quemPagou: string | null; reembolsado: boolean };
 type RetiradaRow = { id: number; mes: string; descricao: string; valorCents: number };
-type GsForm = { kind: "gasto"; id?: number; mes: string; categoria: ReembCat; descricao: string; valor: string; quemPagou: string; reembolsado: boolean } | { kind: "retirada"; id?: number; mes: string; descricao: string; valor: string } | { kind: "aporte"; id?: number; mes: string; descricao: string; valor: string };
+type GsForm = { kind: "retirada"; id?: number; mes: string; descricao: string; valor: string } | { kind: "aporte"; id?: number; mes: string; descricao: string; valor: string };
 type AporteRow = { id: number; mes: string; descricao: string; valorCents: number; status: "pago" | "pendente" };
 
 function GuiSelvaTab({ months }: { months: string[] }) {
   const utils = trpc.useUtils();
-  const [mes, setMes] = useState<string>(months[0] ?? "");
+  const [mes, setMes] = useState<string>(agencyCurrentMonthCli());
   const [form, setForm] = useState<GsForm | null>(null);
   const [choosing, setChoosing] = useState(false);
+  const [detail, setDetail] = useState<"lista" | "reembolsaveis" | "acumulado">("lista");
   const recQ = trpc.finance.reconciliacao.get.useQuery({ mes }, { enabled: MES_RE.test(mes) });
   const acumQ = trpc.finance.reconciliacao.acumulado.useQuery();
-  const reembQ = trpc.finance.reembolsos.list.useQuery({ mes }, { enabled: MES_RE.test(mes) });
   const retirQ = trpc.finance.retiradas.list.useQuery({ mes }, { enabled: MES_RE.test(mes) });
   const aporteQ = trpc.finance.pnl.list.useQuery({ mesFrom: mes, mesTo: mes, tipo: "APORTE" }, { enabled: MES_RE.test(mes) });
-  const reemb = (reembQ.data ?? []) as ReembRow[]; const retir = (retirQ.data ?? []) as RetiradaRow[]; const aportes = (aporteQ.data ?? []) as AporteRow[]; const rec = recQ.data;
+  const retir = (retirQ.data ?? []) as RetiradaRow[]; const aportes = (aporteQ.data ?? []) as AporteRow[]; const rec = recQ.data;
   const mesesFechadosQ = trpc.finance.meses.list.useQuery();
   const mesClosed = (mesesFechadosQ.data ?? []).includes(mes);
 
   const onErr = (e: { message: string }) => toast.error(e.message);
-  const invalidate = () => { utils.finance.reembolsos.list.invalidate(); utils.finance.retiradas.list.invalidate(); utils.finance.reconciliacao.invalidate(); utils.finance.months.invalidate(); utils.finance.pnl.invalidate(); utils.finance.overview.invalidate(); utils.finance.analytics.invalidate(); };
+  const invalidate = () => { utils.finance.retiradas.list.invalidate(); utils.finance.reconciliacao.invalidate(); utils.finance.months.invalidate(); utils.finance.pnl.invalidate(); utils.finance.overview.invalidate(); utils.finance.analytics.invalidate(); };
   const createAporte = trpc.finance.pnl.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Aporte adicionado."); }, onError: onErr });
   const updateAporte = trpc.finance.pnl.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Aporte atualizado."); }, onError: onErr });
   const delAporte = trpc.finance.pnl.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Aporte excluído."); }, onError: onErr });
-  const createReemb = trpc.finance.reembolsos.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Gasto adicionado."); }, onError: onErr });
-  const updateReemb = trpc.finance.reembolsos.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Gasto atualizado."); }, onError: onErr });
-  const delReemb = trpc.finance.reembolsos.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Excluído."); }, onError: onErr });
-  const setReembFlag = trpc.finance.reembolsos.setReembolsado.useMutation({ onSuccess: () => utils.finance.reembolsos.list.invalidate(), onError: onErr });
   const createRetir = trpc.finance.retiradas.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Retirada adicionada."); }, onError: onErr });
   const updateRetir = trpc.finance.retiradas.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Retirada atualizada."); }, onError: onErr });
   const delRetir = trpc.finance.retiradas.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Excluída."); }, onError: onErr });
@@ -1312,11 +1336,10 @@ function GuiSelvaTab({ months }: { months: string[] }) {
     if (!form.descricao.trim()) return toast.error("Informe a descrição.");
     const valorCents = parseMoneyToCents(form.valor);
     if (valorCents == null) return toast.error("Valor inválido.");
-    if (form.kind === "gasto") { const p = { mes: form.mes, categoria: form.categoria, descricao: form.descricao.trim(), valorCents, quemPagou: form.quemPagou.trim() || undefined, reembolsado: form.reembolsado }; if (form.id) updateReemb.mutate({ id: form.id, ...p }); else createReemb.mutate(p); }
-    else if (form.kind === "retirada") { const p = { mes: form.mes, descricao: form.descricao.trim(), valorCents }; if (form.id) updateRetir.mutate({ id: form.id, ...p }); else createRetir.mutate(p); }
-    else { if (form.id) updateAporte.mutate({ id: form.id, descricao: form.descricao.trim(), valorCents }); else createAporte.mutate({ mes: form.mes, tipo: "APORTE", descricao: form.descricao.trim(), valorCents, status: "pago", clienteId: null }); }
+    if (form.kind === "retirada") { const p = { mes: form.mes, descricao: form.descricao.trim(), valorCents }; if (form.id) updateRetir.mutate({ id: form.id, ...p }); else createRetir.mutate(p); }
+    else if (form.kind === "aporte") { if (form.id) updateAporte.mutate({ id: form.id, descricao: form.descricao.trim(), valorCents }); else createAporte.mutate({ mes: form.mes, tipo: "APORTE", descricao: form.descricao.trim(), valorCents, status: "pago", clienteId: null }); }
   };
-  const saving = createReemb.isPending || updateReemb.isPending || createRetir.isPending || updateRetir.isPending || createAporte.isPending || updateAporte.isPending;
+  const saving = createRetir.isPending || updateRetir.isPending || createAporte.isPending || updateAporte.isPending;
 
   return (
     <div className="space-y-5">
@@ -1331,28 +1354,57 @@ function GuiSelvaTab({ months }: { months: string[] }) {
         </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Total Despesas (reembolsos)" value={centsToBRL(rec?.totalDespesasCents ?? 0)} tone="neg" />
-        <Stat label="Total Retiradas" value={centsToBRL(rec?.totalRetiradasCents ?? 0)} />
-        <Stat label={`Diferença ${formatMes(mes)} · desp − retir (+ = falta receber)`} value={centsToBRL(rec?.diferencaCents ?? 0)} tone={(rec?.diferencaCents ?? 0) > 0 ? "warn" : (rec?.diferencaCents ?? 0) < 0 ? "pos" : undefined} />
-        <Stat label="Falta receber acumulado" value={centsToBRL(acumQ.data?.diferencaCents ?? 0)} tone={(acumQ.data?.diferencaCents ?? 0) > 0 ? "warn" : "pos"} />
+        <button onClick={() => setDetail("reembolsaveis")} className={`text-left rounded-xl border p-3 transition hover:border-accent/50 hover:bg-accent/5 ${detail === "reembolsaveis" ? "border-accent/60 bg-accent/5" : "border-border"}`}>
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">Despesas reembolsáveis <ChevronRight className="w-3 h-3" /></p>
+          <p className="text-lg font-bold tabular-nums text-red-600">{centsToBRL(rec?.totalDespesasCents ?? 0)}</p>
+        </button>
+        <button onClick={() => setDetail("lista")} className={`text-left rounded-xl border p-3 transition hover:border-accent/50 hover:bg-accent/5 ${detail === "lista" ? "border-accent/60 bg-accent/5" : "border-border"}`}>
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">Retiradas <ChevronRight className="w-3 h-3" /></p>
+          <p className="text-lg font-bold tabular-nums">{centsToBRL(rec?.totalRetiradasCents ?? 0)}</p>
+        </button>
+        <div className="rounded-xl border border-border p-3">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Falta receber · {formatMes(mes)}</p>
+          <p className={`text-lg font-bold tabular-nums ${(rec?.diferencaCents ?? 0) > 0 ? "text-amber-600" : (rec?.diferencaCents ?? 0) < 0 ? "text-emerald-600" : ""}`}>{centsToBRL(rec?.diferencaCents ?? 0)}</p>
+        </div>
+        <button onClick={() => setDetail("acumulado")} className={`text-left rounded-xl border p-3 transition hover:border-accent/50 hover:bg-accent/5 ${detail === "acumulado" ? "border-accent/60 bg-accent/5" : "border-border"}`}>
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">Falta receber acumulado <ChevronRight className="w-3 h-3" /></p>
+          <p className={`text-lg font-bold tabular-nums ${(acumQ.data?.diferencaCents ?? 0) > 0 ? "text-amber-600" : "text-emerald-600"}`}>{centsToBRL(acumQ.data?.diferencaCents ?? 0)}</p>
+        </button>
       </div>
+      <p className="text-[11px] text-muted-foreground">Falta receber = despesas pagas por você (reembolso pendente) − retiradas. Salários e impostos ficam fora.</p>
+
+      {detail === "reembolsaveis" && (
+        <Card><CardContent className="p-4">
+          <p className="text-sm font-semibold mb-2 flex items-center gap-2"><ArrowLeftRight className="w-4 h-4" /> Despesas reembolsáveis · {formatMes(mes)} <span className="text-xs font-normal text-muted-foreground">— criadas na aba Despesas</span></p>
+          <div className="rounded-md border border-border overflow-x-auto"><Table>
+            <TableHeader><TableRow><TableHead>Descrição</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {(rec?.reembolsaveis ?? []).map((r, i) => <TableRow key={i}><TableCell>{r.descricao}</TableCell><TableCell className="text-right font-medium tabular-nums">{centsToBRL(r.valorCents)}</TableCell></TableRow>)}
+              {(rec?.reembolsaveis.length ?? 0) === 0 && <TableRow><TableCell colSpan={2} className="text-center text-muted-foreground py-6">Nenhuma despesa reembolsável neste mês.</TableCell></TableRow>}
+            </TableBody>
+          </Table></div>
+        </CardContent></Card>
+      )}
+      {detail === "acumulado" && (
+        <Card><CardContent className="p-4">
+          <p className="text-sm font-semibold mb-2 flex items-center gap-2"><ArrowLeftRight className="w-4 h-4" /> Falta receber — breakdown por mês</p>
+          <div className="rounded-md border border-border overflow-x-auto"><Table>
+            <TableHeader><TableRow><TableHead>Mês</TableHead><TableHead className="text-right">Reembolsáveis</TableHead><TableHead className="text-right">Retiradas</TableHead><TableHead className="text-right">Diferença</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {(acumQ.data?.porMes ?? []).map((r) => <TableRow key={r.mes}><TableCell className="whitespace-nowrap">{formatMes(r.mes)}</TableCell><TableCell className="text-right tabular-nums">{centsToBRL(r.despesasCents)}</TableCell><TableCell className="text-right tabular-nums">{centsToBRL(r.retiradasCents)}</TableCell><TableCell className={`text-right font-medium tabular-nums ${r.diferencaCents > 0 ? "text-amber-600" : "text-emerald-600"}`}>{centsToBRL(r.diferencaCents)}</TableCell></TableRow>)}
+            </TableBody>
+          </Table></div>
+        </CardContent></Card>
+      )}
+
       <Card><CardContent className="p-4">
-        <p className="text-sm font-semibold mb-2 flex items-center gap-2"><ArrowLeftRight className="w-4 h-4" /> Gastos e retiradas · {formatMes(mes)}</p>
+        <p className="text-sm font-semibold mb-2 flex items-center gap-2"><ArrowLeftRight className="w-4 h-4" /> Retiradas e aportes · {formatMes(mes)}</p>
         <div className="rounded-md border border-border overflow-x-auto">
         <Table>
           <TableHeader><TableRow><TableHead>Tipo</TableHead><TableHead>Descrição</TableHead><TableHead>Detalhe</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
           <TableBody>
-            {(reembQ.isLoading || retirQ.isLoading) && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
-            {!reembQ.isLoading && !retirQ.isLoading && reemb.length === 0 && retir.length === 0 && aportes.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6">Nada neste mês.</TableCell></TableRow>}
-            {reemb.map((row) => (
-              <TableRow key={`g${row.id}`}>
-                <TableCell><Badge className="bg-red-500/15 text-red-600 border-red-500/30">Gasto</Badge></TableCell>
-                <TableCell className="max-w-[220px] truncate">{row.descricao}</TableCell>
-                <TableCell className="text-xs text-muted-foreground whitespace-nowrap"><Badge variant="secondary" className="font-normal mr-1">{catLabel(row.categoria)}</Badge>{row.quemPagou ?? ""}<span className="ml-2 inline-flex items-center gap-1">reemb. <Switch checked={row.reembolsado} disabled={mesClosed} onCheckedChange={(v) => setReembFlag.mutate({ id: row.id, reembolsado: !!v })} /></span></TableCell>
-                <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(row.valorCents)}</TableCell>
-                <TableCell className="text-right whitespace-nowrap">{mesClosed ? <Lock className="w-3.5 h-3.5 text-muted-foreground inline" /> : <RowActions onEdit={() => setForm({ kind: "gasto", id: row.id, mes: row.mes, categoria: row.categoria as ReembCat, descricao: row.descricao, valor: centsToInput(row.valorCents), quemPagou: row.quemPagou ?? "", reembolsado: row.reembolsado })} onDelete={() => delReemb.mutate({ id: row.id })} />}</TableCell>
-              </TableRow>
-            ))}
+            {(retirQ.isLoading || aporteQ.isLoading) && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
+            {!retirQ.isLoading && retir.length === 0 && aportes.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6">Nada neste mês.</TableCell></TableRow>}
             {retir.map((row) => (
               <TableRow key={`r${row.id}`}>
                 <TableCell><Badge className="bg-blue-500/15 text-blue-600 border-blue-500/30">Retirada</Badge></TableCell>
@@ -1378,8 +1430,7 @@ function GuiSelvaTab({ months }: { months: string[] }) {
       <Dialog open={choosing} onOpenChange={setChoosing}>
         <DialogContent>
           <DialogHeader><DialogTitle>Adicionar</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-3 gap-3">
-            <button className="rounded-lg border border-border p-4 hover:border-primary/50 hover:bg-muted/30 text-left" onClick={() => { setChoosing(false); setForm({ kind: "gasto", mes, categoria: "PLATAFORMA_ANUNCIOS", descricao: "", valor: "", quemPagou: "", reembolsado: false }); }}><p className="text-sm font-medium">Gasto (reembolso)</p><p className="text-xs text-muted-foreground">Despesa a reembolsar</p></button>
+          <div className="grid grid-cols-2 gap-3">
             <button className="rounded-lg border border-border p-4 hover:border-primary/50 hover:bg-muted/30 text-left" onClick={() => { setChoosing(false); setForm({ kind: "retirada", mes, descricao: "", valor: "" }); }}><p className="text-sm font-medium">Retirada</p><p className="text-xs text-muted-foreground">Retirada Gui & SELVA</p></button>
             <button className="rounded-lg border border-border p-4 hover:border-primary/50 hover:bg-muted/30 text-left" onClick={() => { setChoosing(false); setForm({ kind: "aporte", mes, descricao: "", valor: "" }); }}><p className="text-sm font-medium">Aporte</p><p className="text-xs text-muted-foreground">Capital sócio↔empresa</p></button>
           </div>
@@ -1387,17 +1438,12 @@ function GuiSelvaTab({ months }: { months: string[] }) {
       </Dialog>
       <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{form?.id ? "Editar" : "Novo"} {form?.kind === "gasto" ? "gasto" : form?.kind === "aporte" ? "aporte" : "retirada"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{form?.id ? "Editar" : "Novo"} {form?.kind === "aporte" ? "aporte" : "retirada"}</DialogTitle></DialogHeader>
           {form && (
             <div className="grid grid-cols-2 gap-3">
               <Field label="Mês (YYYY-MM)"><Input value={form.mes} onChange={(e) => setForm({ ...form, mes: e.target.value })} placeholder="2026-07" /></Field>
               <Field label="Valor"><MoneyInput value={form.valor} onChange={(v) => setForm({ ...form, valor: v })} /></Field>
               <Field label="Descrição" full><Input value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /></Field>
-              {form.kind === "gasto" && <>
-                <Field label="Categoria"><Select value={form.categoria} onValueChange={(v) => setForm({ ...form, categoria: v as ReembCat })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CATEGORIAS.map((c) => <SelectItem key={c.v} value={c.v}>{c.label}</SelectItem>)}</SelectContent></Select></Field>
-                <Field label="Quem pagou"><Input value={form.quemPagou} onChange={(e) => setForm({ ...form, quemPagou: e.target.value })} placeholder="Gui / SELVA…" /></Field>
-                <Field label="Reembolsado" full><div className="flex items-center gap-2 h-9"><Switch checked={form.reembolsado} onCheckedChange={(v) => setForm({ ...form, reembolsado: !!v })} /><span className="text-sm text-muted-foreground">{form.reembolsado ? "Sim" : "Não"}</span></div></Field>
-              </>}
             </div>
           )}
           <DialogFooter><Button variant="outline" onClick={() => setForm(null)}>Cancelar</Button><Button onClick={submit} disabled={saving}>{saving && <Loader2 className="w-4 h-4 mr-1 animate-spin" />} Salvar</Button></DialogFooter>
@@ -1441,7 +1487,7 @@ export default function Finance() {
               <TabsTrigger value="guiselva"><ArrowLeftRight className="w-3.5 h-3.5 mr-1" /> Gui &amp; SELVA</TabsTrigger>
             </TabsList>
             <TabsContent value="visao" className="mt-4"><PnlTab months={months} clientes={clientes} clienteById={clienteById} onNavigate={navigate} /></TabsContent>
-            <TabsContent value="clientes" className="mt-4"><ClientesTab months={months} drill={drill} /></TabsContent>
+            <TabsContent value="clientes" className="mt-4"><ClientesTab months={months} clientes={clientes} drill={drill} /></TabsContent>
             <TabsContent value="despesas" className="mt-4"><DespesasTab months={months} drill={drill} /></TabsContent>
             <TabsContent value="guiselva" className="mt-4"><GuiSelvaTab months={months} /></TabsContent>
           </Tabs>
