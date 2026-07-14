@@ -2387,18 +2387,26 @@ export async function financeChurn(f: { mesFrom?: string; mesTo?: string; limitM
   const db = await getDb();
   const empty = { mesReferencia: "", ativos: 0, churnedCount: 0, mrrPerdidoLifetimeCents: 0, periodoPerdidoCents: 0, taxa: 0, mesIncompleto: false, serie: [] as { mes: string; mrrPerdidoCents: number }[], churned: [] as { clienteId: number | null; nome: string; cor: string | null; ultimoMes: string; valorMensalCents: number; mesesDesde: number }[] };
   if (!db) return empty;
-  const [recRows, clientes] = await Promise.all([
+  const [recRows, clientes, recDefs] = await Promise.all([
     db.select().from(financePnlEntries).where(RECEITA_TIPOS),
     db.select().from(financeClientes),
+    db.select().from(financeRecorrencia).where(eq(financeRecorrencia.natureza, "RECEITA")),
   ]);
   if (recRows.length === 0) return empty;
   const cmap = new Map(clientes.map((c) => [c.id, c]));
-  const refMonth = recRows.reduce((mx, r) => (r.mes > mx ? r.mes : mx), "0000-00");
+  // Referência = mês ATUAL (não MAX(mes), que pode estar no futuro por geração/projetos).
+  const refMonth = agencyCurrentMonth();
+  const activeSet = new Set<number>();
+  recDefs.forEach((r) => { if (r.ativo && r.clienteId) activeSet.add(r.clienteId); });
   const recorrente = recRows.filter((r) => r.tipo === "RECEITA_RECORRENTE");
+  const recorrentePast = recorrente.filter((r) => r.mes <= refMonth); // só histórico realizado
+  const everRec = new Set<string | number>();
+  recDefs.forEach((r) => { if (r.clienteId) everRec.add(r.clienteId); });
+  recorrente.forEach((r) => everRec.add(r.clienteId ?? "sem"));
   const byCliente = new Map<string | number, { months: Set<string>; valorByMonth: Map<string, number> }>();
   const recCountByMonth = new Map<string, number>();
   const monthClienteValue = new Map<string, Map<string | number, number>>(); // mes -> (cliente -> valor recorrente)
-  for (const r of recorrente) {
+  for (const r of recorrentePast) {
     recCountByMonth.set(r.mes, (recCountByMonth.get(r.mes) ?? 0) + 1);
     const key: string | number = r.clienteId ?? "sem";
     if (!byCliente.has(key)) byCliente.set(key, { months: new Set(), valorByMonth: new Map() });
@@ -2409,14 +2417,16 @@ export async function financeChurn(f: { mesFrom?: string; mesTo?: string; limitM
     const mv = monthClienteValue.get(r.mes)!;
     mv.set(key, (mv.get(key) ?? 0) + r.valorCents);
   }
-  let ativos = 0;
+  // Ativo = tem recorrência de receita ATIVA. Churned = já foi recorrente e não é ativo.
+  const ativos = activeSet.size;
   const churned: typeof empty.churned = [];
-  byCliente.forEach((e, key) => {
-    if (e.months.has(refMonth)) { ativos++; return; }
-    const last = Array.from(e.months).sort().pop()!;
+  everRec.forEach((key) => {
+    if (typeof key === "number" && activeSet.has(key)) return; // ativo, não é churn
+    const e = byCliente.get(key);
+    const last = e && e.months.size ? Array.from(e.months).sort().pop()! : "";
     const nome = typeof key === "number" ? (cmap.get(key)?.nome ?? `Cliente #${key}`) : "Sem cliente";
     const cor = typeof key === "number" ? (cmap.get(key)?.cor ?? null) : null;
-    churned.push({ clienteId: typeof key === "number" ? key : null, nome, cor, ultimoMes: last, valorMensalCents: e.valorByMonth.get(last) ?? 0, mesesDesde: monthsBetween(last, refMonth) });
+    churned.push({ clienteId: typeof key === "number" ? key : null, nome, cor, ultimoMes: last || refMonth, valorMensalCents: e && last ? (e.valorByMonth.get(last) ?? 0) : 0, mesesDesde: last ? monthsBetween(last, refMonth) : 0 });
   });
   churned.sort((a, b) => b.valorMensalCents - a.valorMensalCents);
   const mrrPerdidoLifetime = churned.reduce((s, c) => s + c.valorMensalCents, 0);
@@ -2425,6 +2435,7 @@ export async function financeChurn(f: { mesFrom?: string; mesTo?: string; limitM
   const churnByMonth = new Map<string, number>();
   monthClienteValue.forEach((baseP, prev) => {
     const m = addMonthsSrv(prev, 1);
+    if (m > refMonth) return; // não computa churn em meses ainda não realizados
     const baseM = monthClienteValue.get(m) ?? new Map<string | number, number>();
     let lost = 0;
     baseP.forEach((v, k) => { if (!((baseM.get(k) ?? 0) > 0)) lost += v; });
@@ -2448,20 +2459,25 @@ export async function financeQualidadeClientes(f: { mesFrom?: string; mesTo?: st
   const db = await getDb();
   const empty = { refMonth: "", summary: { ativos: 0, churned: 0, pontual: 0 }, rows: [] as { clienteId: number | null; nome: string; cor: string | null; mesesAtivos: number; totalCents: number; mediaCents: number; primeiroMes: string; ultimoMes: string; status: "ativo" | "churned" | "pontual" }[] };
   if (!db) return empty;
-  const [receita, clientes] = await Promise.all([
+  const [receita, clientes, recDefs] = await Promise.all([
     db.select().from(financePnlEntries).where(RECEITA_TIPOS),
     db.select().from(financeClientes),
+    db.select().from(financeRecorrencia).where(eq(financeRecorrencia.natureza, "RECEITA")),
   ]);
   if (receita.length === 0) return empty;
   const cmap = new Map(clientes.map((c) => [c.id, c]));
+  const cur = agencyCurrentMonth();
   const refMonth = receita.reduce((mx, r) => (r.mes > mx ? r.mes : mx), "0000-00");
-  // Histórico GLOBAL de recorrente (para status, independe do período).
-  const recorrenteMonths = new Map<string | number, Set<string>>();
-  for (const r of receita) if (r.tipo === "RECEITA_RECORRENTE") { const k: string | number = r.clienteId ?? "sem"; if (!recorrenteMonths.has(k)) recorrenteMonths.set(k, new Set()); recorrenteMonths.get(k)!.add(r.mes); }
+  // Status pela FONTE DA VERDADE (finance_recorrencia), não por MAX(mes) das entries.
+  const activeSet = new Set<number>();
+  recDefs.forEach((r) => { if (r.ativo && r.clienteId) activeSet.add(r.clienteId); });
+  const everRec = new Set<string | number>();          // já foi recorrente algum dia
+  recDefs.forEach((r) => { if (r.clienteId) everRec.add(r.clienteId); });
+  for (const r of receita) if (r.tipo === "RECEITA_RECORRENTE") everRec.add(r.clienteId ?? "sem");
   const statusOf = (k: string | number): "ativo" | "churned" | "pontual" => {
-    const rm = recorrenteMonths.get(k);
-    if (!rm || rm.size === 0) return "pontual";
-    return rm.has(refMonth) ? "ativo" : "churned";
+    if (typeof k === "number" && activeSet.has(k)) return "ativo";
+    if (everRec.has(k)) return "churned";
+    return "pontual";
   };
   // Métricas (respeitam o filtro de período, se houver).
   const inRange = (m: string) => (!f.mesFrom || m >= f.mesFrom) && (!f.mesTo || m <= f.mesTo);
@@ -2478,7 +2494,10 @@ export async function financeQualidadeClientes(f: { mesFrom?: string; mesTo?: st
   const rows = Array.from(metrics.entries()).map(([k, e]) => {
     const c = typeof k === "number" ? cmap.get(k) : undefined;
     const meses = e.months.size;
-    return { clienteId: typeof k === "number" ? k : null, nome: c?.nome ?? "Sem cliente", cor: c?.cor ?? null, mesesAtivos: meses, totalCents: e.total, mediaCents: Math.round(e.total / Math.max(1, meses)), primeiroMes: e.primeiro, ultimoMes: e.ultimo, status: statusOf(k) };
+    const status = statusOf(k);
+    // "Último" capado no mês atual p/ ativos (meses futuros são geração, não histórico).
+    const ultimo = status === "ativo" && e.ultimo > cur ? cur : e.ultimo;
+    return { clienteId: typeof k === "number" ? k : null, nome: c?.nome ?? "Sem cliente", cor: c?.cor ?? null, mesesAtivos: meses, totalCents: e.total, mediaCents: Math.round(e.total / Math.max(1, meses)), primeiroMes: e.primeiro, ultimoMes: ultimo, status };
   }).sort((a, b) => b.mediaCents - a.mediaCents);
   return { refMonth, summary: { ativos: rows.filter((r) => r.status === "ativo").length, churned: rows.filter((r) => r.status === "churned").length, pontual: rows.filter((r) => r.status === "pontual").length }, rows };
 }
@@ -2599,7 +2618,9 @@ export async function gerarMesRecorrente(mesAlvo: string): Promise<{ criadas: nu
   for (const r of recs) {
     if (has.has(r.id)) continue;
     if (mesAlvo < r.mesInicio) continue;
-    const venc = r.diaVencimento ? `${mesAlvo}-${pad2s(clampDay(mesAlvo, r.diaVencimento))}` : null;
+    // Vencimento: dia diaVencimento do mês da competência (ou do mês seguinte se pós-pago).
+    const vencMes = r.vencimentoMesSeguinte ? addMonthsSrv(mesAlvo, 1) : mesAlvo;
+    const venc = r.diaVencimento ? `${vencMes}-${pad2s(clampDay(vencMes, r.diaVencimento))}` : null;
     if (r.natureza === "DESPESA") {
       await db.insert(financePnlEntries).values({
         mes: mesAlvo, tipo: r.tipoEntry === "DESPESA_IMPOSTO" ? "DESPESA_IMPOSTO" : "DESPESA_RECORRENTE",
@@ -2997,11 +3018,14 @@ export async function financeOverviewResumo(mesFrom: string, mesTo: string) {
   const periodo = await financePeriodoResumoRP(mesFrom, mesTo);
   const margemPct = periodo.receitaTotalCents > 0 ? Math.round((periodo.resultadoFinalCents / periodo.receitaTotalCents) * 100) : null;
   if (!db) return { ...periodo, margemPct, aReceberCents: 0, aPagarCents: 0, saldoProjetadoCents: 0 };
+  // Caixa ESCOPADA ao período: pendências cujo vencimento cai em [mesFrom, mesTo]
+  // (sem vencimento → usa a competência/mes). É só o que falta entrar/sair no período.
   const [recPend, despPend] = await Promise.all([
-    db.select({ v: financePnlEntries.valorCents }).from(financePnlEntries).where(and(RECEITA_TIPOS, eq(financePnlEntries.status, "pendente"))),
-    db.select({ v: financePnlEntries.valorCents }).from(financePnlEntries).where(and(DESPESA_TIPOS, eq(financePnlEntries.status, "pendente"))),
+    db.select({ v: financePnlEntries.valorCents, venc: financePnlEntries.vencimento, mes: financePnlEntries.mes }).from(financePnlEntries).where(and(RECEITA_TIPOS, eq(financePnlEntries.status, "pendente"))),
+    db.select({ v: financePnlEntries.valorCents, venc: financePnlEntries.vencimento, mes: financePnlEntries.mes }).from(financePnlEntries).where(and(DESPESA_TIPOS, eq(financePnlEntries.status, "pendente"))),
   ]);
-  const aReceber = recPend.reduce((s, r) => s + r.v, 0);
-  const aPagar = despPend.reduce((s, r) => s + r.v, 0);
+  const noPeriodo = (venc: string | null, mes: string) => { const m = venc ? venc.slice(0, 7) : mes; return m >= mesFrom && m <= mesTo; };
+  const aReceber = recPend.filter((r) => noPeriodo(r.venc, r.mes)).reduce((s, r) => s + r.v, 0);
+  const aPagar = despPend.filter((r) => noPeriodo(r.venc, r.mes)).reduce((s, r) => s + r.v, 0);
   return { ...periodo, margemPct, aReceberCents: aReceber, aPagarCents: aPagar, saldoProjetadoCents: aReceber - aPagar };
 }

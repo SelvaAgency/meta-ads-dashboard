@@ -60,6 +60,14 @@ const PNL_TIPOS = [
 type PnlTipo = (typeof PNL_TIPOS)[number]["v"];
 const tipoLabel = (v: string) => PNL_TIPOS.find((t) => t.v === v)?.label ?? v;
 const tipoKind = (v: string) => PNL_TIPOS.find((t) => t.v === v)?.kind ?? "despesa";
+// Abas (leitura) da seção "Lançamentos do mês" na Visão Geral.
+const LANC_TABS: { v: PnlTipo; label: string }[] = [
+  { v: "RECEITA_RECORRENTE", label: "Receita recorrente" },
+  { v: "RECEITA_PONTUAL", label: "Receita pontual" },
+  { v: "DESPESA_RECORRENTE", label: "Folha" },
+  { v: "DESPESA_IMPOSTO", label: "Imposto" },
+  { v: "DESPESA_PONTUAL", label: "Despesa extra" },
+];
 
 const CATEGORIAS = [
   { v: "PLATAFORMA_ANUNCIOS", label: "Plataforma de anúncios" },
@@ -492,18 +500,18 @@ type PnlForm = { id?: number; mes: string; tipo: PnlTipo; descricao: string; val
 type ProjParcela = { valor: string; vencimento: string };
 type ProjForm = { clienteId: number | null; nome: string; parcelas: ProjParcela[] };
 
-function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[]; clientes: Cliente[]; clienteById: Map<number, Cliente>; onNavigate?: (tab: string) => void }) {
+function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[]; clientes: Cliente[]; clienteById: Map<number, Cliente>; onNavigate?: (tab: string, opts?: { period?: PeriodState; sub?: string }) => void }) {
   const utils = trpc.useUtils();
   const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
   const { from, to, refMonth } = periodRange(period, months);
-  const [tipo, setTipo] = useState(""); const [status, setStatus] = useState(""); const [clienteFilter, setClienteFilter] = useState<number | "">("");
+  const [lancTab, setLancTab] = useState<PnlTipo>("RECEITA_RECORRENTE"); const [status, setStatus] = useState(""); const [clienteFilter, setClienteFilter] = useState<number | "">("");
   const [form, setForm] = useState<PnlForm | null>(null);
   const [projForm, setProjForm] = useState<ProjForm | null>(null);
   const [showAging, setShowAging] = useState(false);
 
   const resumoQ = trpc.finance.overview.resumo.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) && MES_RE.test(to) });
   const mrrQ = trpc.finance.analytics.mrr.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
-  const listQ = trpc.finance.pnl.list.useQuery({ mesFrom: from, mesTo: to, ...(tipo ? { tipo: tipo as PnlTipo } : {}), ...(status ? { status: status as "pago" | "pendente" } : {}), ...(clienteFilter ? { clienteId: clienteFilter } : {}) }, { enabled: MES_RE.test(from) });
+  const listQ = trpc.finance.pnl.list.useQuery({ mesFrom: from, mesTo: to, tipo: lancTab, ...(status ? { status: status as "pago" | "pendente" } : {}), ...(clienteFilter ? { clienteId: clienteFilter } : {}) }, { enabled: MES_RE.test(from) });
   const [serieJanela, setSerieJanela] = useState<Janela>("12m");
   const [serieGran, setSerieGran] = useState<SerieGran>("mensal");
   const serieQ = trpc.finance.analytics.serieHistorica.useQuery({ granularidade: serieGran, janela: serieJanela });
@@ -620,7 +628,7 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
               <p className="text-[11px] uppercase tracking-wide text-emerald-600 flex items-center gap-1">A receber <ChevronRight className="w-3 h-3" /></p>
               <p className="text-base font-semibold tabular-nums">{centsToBRL(r?.aReceberCents ?? 0)}</p>
             </button>
-            <button onClick={() => onNavigate?.("despesas")} className="text-left rounded-lg border border-border p-2 transition hover:border-accent/50 hover:bg-accent/5">
+            <button onClick={() => onNavigate?.("despesas", { period })} className="text-left rounded-lg border border-border p-2 transition hover:border-accent/50 hover:bg-accent/5">
               <p className="text-[11px] uppercase tracking-wide text-red-600 flex items-center gap-1">A pagar <ChevronRight className="w-3 h-3" /></p>
               <p className="text-base font-semibold tabular-nums">{centsToBRL(r?.aPagarCents ?? 0)}</p>
             </button>
@@ -630,10 +638,10 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
 
       {/* Cards secundários (drills) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <DrillCard label="Receita recorrente" value={centsToBRL(r?.receitaRecorrenteCents ?? 0)} tone="pos" hint={<span className="text-[11px] text-muted-foreground">MRR {centsToBRL(mrrQ.data?.mrrCents ?? 0)}</span>} onClick={() => onNavigate?.("clientes")} />
-        <DrillCard label="Receita pontual" value={centsToBRL(r?.receitaPontualCents ?? 0)} tone="pos" onClick={() => onNavigate?.("clientes")} />
+        <DrillCard label="Receita recorrente" value={centsToBRL(r?.receitaRecorrenteCents ?? 0)} tone="pos" hint={<span className="text-[11px] text-muted-foreground">MRR {centsToBRL(mrrQ.data?.mrrCents ?? 0)}</span>} onClick={() => onNavigate?.("clientes", { period, sub: "recorrente" })} />
+        <DrillCard label="Receita pontual" value={centsToBRL(r?.receitaPontualCents ?? 0)} tone="pos" onClick={() => onNavigate?.("clientes", { period, sub: "pontual" })} />
         <DrillCard label="A receber" value={centsToBRL(r?.aReceberCents ?? 0)} tone="warn" hint={<span className="text-[11px] text-muted-foreground">ver aging →</span>} onClick={() => setShowAging(true)} />
-        <DrillCard label="Despesa" value={centsToBRL(r?.despesaTotalCents ?? 0)} tone="neg" hint={<BiValue real={r?.despesaRealizadaCents ?? 0} prev={r?.despesaPrevistaCents ?? 0} />} onClick={() => onNavigate?.("despesas")} />
+        <DrillCard label="Despesa" value={centsToBRL(r?.despesaTotalCents ?? 0)} tone="neg" hint={<BiValue real={r?.despesaRealizadaCents ?? 0} prev={r?.despesaPrevistaCents ?? 0} />} onClick={() => onNavigate?.("despesas", { period })} />
       </div>
       {(r?.aporteCents ?? 0) > 0 && <p className="text-[11px] text-muted-foreground">Aporte no período: {centsToBRL(r!.aporteCents)}</p>}
       {futuro && <p className="text-[11px] text-amber-600">Período no futuro — os valores são 100% previstos (pendentes).</p>}
@@ -648,14 +656,20 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
       </div>
 
       <p className="text-sm font-semibold pt-1">Lançamentos do mês <span className="text-xs font-normal text-muted-foreground">— resumo (somente leitura) · clique numa linha para editar no hub correspondente</span></p>
-      <div className="flex flex-wrap items-end gap-2">
-        <FilterSelect label="Tipo" value={tipo} onChange={setTipo} options={PNL_TIPOS.map((t) => t.v)} format={tipoLabel} allLabel="Todos" />
-        <FilterSelect label="Status" value={status} onChange={setStatus} options={["pago", "pendente"]} format={(s) => (s === "pago" ? "Pago" : "Pendente")} allLabel="Todos" />
-        <div className="flex flex-col gap-1"><Label className="text-[11px] text-muted-foreground">Cliente</Label>
-          <Select value={clienteFilter ? String(clienteFilter) : "__all__"} onValueChange={(v) => setClienteFilter(v === "__all__" ? "" : Number(v))}>
-            <SelectTrigger className="h-9 w-[170px]"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="__all__">Todos</SelectItem>{clientes.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>)}</SelectContent>
-          </Select>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex flex-wrap rounded-md border border-border overflow-hidden text-xs">
+          {LANC_TABS.map((t, i) => (
+            <button key={t.v} onClick={() => setLancTab(t.v)} className={`px-3 py-1.5 ${i > 0 ? "border-l border-border" : ""} ${lancTab === t.v ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>{t.label}</button>
+          ))}
+        </div>
+        <div className="ml-auto flex items-end gap-2">
+          <FilterSelect label="Status" value={status} onChange={setStatus} options={["pago", "pendente"]} format={(s) => (s === "pago" ? "Pago" : "Pendente")} allLabel="Todos" />
+          <div className="flex flex-col gap-1"><Label className="text-[11px] text-muted-foreground">Cliente</Label>
+            <Select value={clienteFilter ? String(clienteFilter) : "__all__"} onValueChange={(v) => setClienteFilter(v === "__all__" ? "" : Number(v))}>
+              <SelectTrigger className="h-9 w-[160px]"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="__all__">Todos</SelectItem>{clientes.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -669,11 +683,11 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
               const remarcado = row.vencimento && row.vencimentoOriginal && row.vencimento !== row.vencimentoOriginal;
               const kind = tipoKind(row.tipo);
               const drill = () => {
-                if (kind === "receita") onNavigate?.("clientes");
-                else if (kind === "despesa") onNavigate?.("despesas");
-                else setForm({ id: row.id, mes: row.mes, tipo: row.tipo as PnlTipo, descricao: row.descricao, valor: centsToInput(row.valorCents), status: row.status, clienteId: row.clienteId, vencimento: row.vencimento ?? "" });
+                if (kind === "receita") onNavigate?.("clientes", { period, sub: row.tipo === "RECEITA_RECORRENTE" ? "recorrente" : "pontual" });
+                else if (kind === "despesa") onNavigate?.("despesas", { period });
+                else onNavigate?.("guiselva");
               };
-              const drillHint = kind === "receita" ? "Editar em Clientes e projetos" : kind === "despesa" ? "Editar em Despesas" : "Editar aporte";
+              const drillHint = kind === "receita" ? "Editar em Clientes e projetos" : kind === "despesa" ? "Editar em Despesas" : "Editar em Gui & SELVA (aporte)";
               return (
                 <TableRow key={row.id} className="cursor-pointer hover:bg-accent/5" onClick={drill} title={drillHint}>
                   <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatMes(row.mes)}</TableCell>
@@ -721,9 +735,9 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
 
       {/* Drill: A receber (aging) — deixou de ser aba, abre a partir da Visão geral */}
       <Dialog open={showAging} onOpenChange={setShowAging}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-4xl w-[95vw]">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><CalendarClock className="w-4 h-4" /> A receber — aging por vencimento</DialogTitle></DialogHeader>
-          <div className="max-h-[70vh] overflow-y-auto"><AReceberTab /></div>
+          <div className="max-h-[72vh] overflow-y-auto pr-1"><AReceberTab /></div>
         </DialogContent>
       </Dialog>
 
@@ -765,7 +779,7 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
 // ═════════════════════════════════════════════════════════════════════════════
 type QualRow = { clienteId: number | null; nome: string; cor: string | null; mesesAtivos: number; totalCents: number; mediaCents: number; primeiroMes: string; ultimoMes: string; status: "ativo" | "churned" | "pontual" };
 
-function ClientesTab({ months }: { months: string[] }) {
+function ClientesTab({ months, drill }: { months: string[]; drill?: { nonce: number; period?: PeriodState; sub?: string } }) {
   const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
   const { from, to, refMonth } = periodRange(period, months);
   const [escopo, setEscopo] = useState<"vitalicio" | "periodo">("vitalicio");
@@ -777,6 +791,12 @@ function ClientesTab({ months }: { months: string[] }) {
   const [remarcar, setRemarcar] = useState<{ id: number; venc: string } | null>(null);
   const [editPon, setEditPon] = useState<EditPon | null>(null);
   const [contratoTab, setContratoTab] = useState<"recorrente" | "pontual">("recorrente");
+  // Drill vindo da Visão Geral: preserva o período e abre a sub-aba certa.
+  useEffect(() => {
+    if (!drill) return;
+    if (drill.period) setPeriod(drill.period);
+    if (drill.sub === "recorrente" || drill.sub === "pontual") setContratoTab(drill.sub);
+  }, [drill?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   const [serieView, setSerieView] = useState<"recorrente" | "pontual">("recorrente");
   const [serieJanela, setSerieJanela] = useState<Janela>("12m");
   const [serieGran, setSerieGran] = useState<SerieGran>("mensal");
@@ -1028,9 +1048,10 @@ function ClientesTab({ months }: { months: string[] }) {
 // ═════════════════════════════════════════════════════════════════════════════
 //  Aba Despesas (por categoria)
 // ═════════════════════════════════════════════════════════════════════════════
-function DespesasTab({ months }: { months: string[] }) {
+function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: number; period?: PeriodState; sub?: string } }) {
   const utils = trpc.useUtils();
   const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
+  useEffect(() => { if (drill?.period) setPeriod(drill.period); }, [drill?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   const { from, to, refMonth } = periodRange(period, months);
   const q = trpc.finance.analytics.despesaPorCategoria.useQuery({ mesFrom: from, mesTo: to, limitMonths: 12 }, { enabled: MES_RE.test(from) });
   const mesesFechadosQ = trpc.finance.meses.list.useQuery();
@@ -1203,30 +1224,41 @@ function DespesasTab({ months }: { months: string[] }) {
 function AReceberTab() {
   const q = trpc.finance.analytics.aReceber.useQuery();
   const d = q.data;
+  const bk = d?.buckets;
+  const cards: { label: string; value: string; tone?: "neg" | "warn" }[] = [
+    { label: "Total a receber", value: centsToBRL(d?.totalPendenteCents ?? 0), tone: "warn" },
+    { label: "Vencido (≥ 1 mês)", value: centsToBRL(d?.totalVencidoCents ?? 0), tone: "neg" },
+    { label: "A vencer / corrente", value: centsToBRL(bk?.corrente ?? 0) },
+    { label: "1 mês", value: centsToBRL(bk?.m1 ?? 0), tone: "warn" },
+    { label: "2 meses", value: centsToBRL(bk?.m2 ?? 0), tone: "neg" },
+    { label: "3+ meses", value: centsToBRL(bk?.m3plus ?? 0), tone: "neg" },
+    { label: "Sem data", value: centsToBRL(bk?.semData ?? 0) },
+  ];
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Stat label="Total a receber" value={centsToBRL(d?.totalPendenteCents ?? 0)} tone="warn" hint={d ? `hoje ${d.hoje}` : ""} />
-        <Stat label="Vencido (≥ 1 mês)" value={centsToBRL(d?.totalVencidoCents ?? 0)} tone="neg" />
-        <Stat label="A vencer / corrente" value={centsToBRL(d?.buckets.corrente ?? 0)} />
-        <Stat label="1 mês" value={centsToBRL(d?.buckets.m1 ?? 0)} tone="warn" />
-        <Stat label="2 · 3+ meses" value={`${centsToBRL(d?.buckets.m2 ?? 0)} · ${centsToBRL(d?.buckets.m3plus ?? 0)}`} tone="neg" />
-        <Stat label="Sem data" value={centsToBRL(d?.buckets.semData ?? 0)} />
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+        {cards.map((c, i) => (
+          <div key={i} className="rounded-lg border border-border p-2.5 min-w-0">
+            <p className="text-[11px] text-muted-foreground leading-tight truncate">{c.label}</p>
+            <p className={`text-sm font-semibold tabular-nums mt-0.5 whitespace-nowrap ${c.tone === "neg" ? "text-red-600" : c.tone === "warn" ? "text-amber-600" : ""}`}>{c.value}</p>
+          </div>
+        ))}
       </div>
+      {d && <p className="text-[11px] text-muted-foreground">Aging por vencimento · hoje {d.hoje} · total geral (todas as pendências, fora do período selecionado).</p>}
       {d && d.itens.length === 0 ? (
-        <Card><CardContent className="p-8 text-center text-muted-foreground text-sm">Nenhuma conta pendente. Marque uma receita como <span className="font-medium">pendente</span> no P&amp;L (ou gere o próximo mês recorrente) para acompanhar o aging por vencimento.</CardContent></Card>
+        <Card><CardContent className="p-8 text-center text-muted-foreground text-sm">Nenhuma conta pendente. Marque uma receita como <span className="font-medium">pendente</span> (ou gere o próximo mês recorrente) para acompanhar o aging por vencimento.</CardContent></Card>
       ) : (
         <div className="rounded-lg border border-border overflow-x-auto">
           <Table>
-            <TableHeader><TableRow><TableHead>Cliente / descrição</TableHead><TableHead>Vencimento</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="text-right">Idade</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead className="min-w-[160px]">Cliente / descrição</TableHead><TableHead className="w-[110px]">Vencimento</TableHead><TableHead className="text-right w-[120px]">Valor</TableHead><TableHead className="text-right w-[90px]">Idade</TableHead></TableRow></TableHeader>
             <TableBody>
               {q.isLoading && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
               {(d?.itens ?? []).map((it, i) => (
                 <TableRow key={i}>
-                  <TableCell><span className="inline-flex items-center gap-2">{it.cor && <span className="w-2.5 h-2.5 rounded-full" style={{ background: it.cor }} />}{it.clienteNome !== "—" ? it.clienteNome : it.descricao}</span></TableCell>
+                  <TableCell className="max-w-[220px]"><span className="inline-flex items-center gap-2 min-w-0">{it.cor && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: it.cor }} />}<span className="truncate">{it.clienteNome !== "—" ? it.clienteNome : it.descricao}</span></span></TableCell>
                   <TableCell className="whitespace-nowrap text-xs">{it.vencimento ?? <span className="text-muted-foreground">sem data</span>}</TableCell>
-                  <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(it.valorCents)}</TableCell>
-                  <TableCell className={`text-right ${it.idade == null ? "text-muted-foreground" : it.idade >= 3 ? "text-red-600 font-medium" : it.idade >= 1 ? "text-amber-600" : ""}`}>{it.idade == null ? "—" : it.idade <= 0 ? "corrente" : `${it.idade} m`}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap font-medium tabular-nums">{centsToBRL(it.valorCents)}</TableCell>
+                  <TableCell className={`text-right whitespace-nowrap ${it.idade == null ? "text-muted-foreground" : it.idade >= 3 ? "text-red-600 font-medium" : it.idade >= 1 ? "text-amber-600" : ""}`}>{it.idade == null ? "—" : it.idade <= 0 ? "corrente" : `${it.idade} m`}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1242,7 +1274,8 @@ function AReceberTab() {
 // ═════════════════════════════════════════════════════════════════════════════
 type ReembRow = { id: number; mes: string; categoria: string; descricao: string; valorCents: number; quemPagou: string | null; reembolsado: boolean };
 type RetiradaRow = { id: number; mes: string; descricao: string; valorCents: number };
-type GsForm = { kind: "gasto"; id?: number; mes: string; categoria: ReembCat; descricao: string; valor: string; quemPagou: string; reembolsado: boolean } | { kind: "retirada"; id?: number; mes: string; descricao: string; valor: string };
+type GsForm = { kind: "gasto"; id?: number; mes: string; categoria: ReembCat; descricao: string; valor: string; quemPagou: string; reembolsado: boolean } | { kind: "retirada"; id?: number; mes: string; descricao: string; valor: string } | { kind: "aporte"; id?: number; mes: string; descricao: string; valor: string };
+type AporteRow = { id: number; mes: string; descricao: string; valorCents: number; status: "pago" | "pendente" };
 
 function GuiSelvaTab({ months }: { months: string[] }) {
   const utils = trpc.useUtils();
@@ -1253,12 +1286,16 @@ function GuiSelvaTab({ months }: { months: string[] }) {
   const acumQ = trpc.finance.reconciliacao.acumulado.useQuery();
   const reembQ = trpc.finance.reembolsos.list.useQuery({ mes }, { enabled: MES_RE.test(mes) });
   const retirQ = trpc.finance.retiradas.list.useQuery({ mes }, { enabled: MES_RE.test(mes) });
-  const reemb = (reembQ.data ?? []) as ReembRow[]; const retir = (retirQ.data ?? []) as RetiradaRow[]; const rec = recQ.data;
+  const aporteQ = trpc.finance.pnl.list.useQuery({ mesFrom: mes, mesTo: mes, tipo: "APORTE" }, { enabled: MES_RE.test(mes) });
+  const reemb = (reembQ.data ?? []) as ReembRow[]; const retir = (retirQ.data ?? []) as RetiradaRow[]; const aportes = (aporteQ.data ?? []) as AporteRow[]; const rec = recQ.data;
   const mesesFechadosQ = trpc.finance.meses.list.useQuery();
   const mesClosed = (mesesFechadosQ.data ?? []).includes(mes);
 
   const onErr = (e: { message: string }) => toast.error(e.message);
-  const invalidate = () => { utils.finance.reembolsos.list.invalidate(); utils.finance.retiradas.list.invalidate(); utils.finance.reconciliacao.invalidate(); utils.finance.months.invalidate(); };
+  const invalidate = () => { utils.finance.reembolsos.list.invalidate(); utils.finance.retiradas.list.invalidate(); utils.finance.reconciliacao.invalidate(); utils.finance.months.invalidate(); utils.finance.pnl.invalidate(); utils.finance.overview.invalidate(); utils.finance.analytics.invalidate(); };
+  const createAporte = trpc.finance.pnl.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Aporte adicionado."); }, onError: onErr });
+  const updateAporte = trpc.finance.pnl.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Aporte atualizado."); }, onError: onErr });
+  const delAporte = trpc.finance.pnl.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Aporte excluído."); }, onError: onErr });
   const createReemb = trpc.finance.reembolsos.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Gasto adicionado."); }, onError: onErr });
   const updateReemb = trpc.finance.reembolsos.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Gasto atualizado."); }, onError: onErr });
   const delReemb = trpc.finance.reembolsos.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Excluído."); }, onError: onErr });
@@ -1276,9 +1313,10 @@ function GuiSelvaTab({ months }: { months: string[] }) {
     const valorCents = parseMoneyToCents(form.valor);
     if (valorCents == null) return toast.error("Valor inválido.");
     if (form.kind === "gasto") { const p = { mes: form.mes, categoria: form.categoria, descricao: form.descricao.trim(), valorCents, quemPagou: form.quemPagou.trim() || undefined, reembolsado: form.reembolsado }; if (form.id) updateReemb.mutate({ id: form.id, ...p }); else createReemb.mutate(p); }
-    else { const p = { mes: form.mes, descricao: form.descricao.trim(), valorCents }; if (form.id) updateRetir.mutate({ id: form.id, ...p }); else createRetir.mutate(p); }
+    else if (form.kind === "retirada") { const p = { mes: form.mes, descricao: form.descricao.trim(), valorCents }; if (form.id) updateRetir.mutate({ id: form.id, ...p }); else createRetir.mutate(p); }
+    else { if (form.id) updateAporte.mutate({ id: form.id, descricao: form.descricao.trim(), valorCents }); else createAporte.mutate({ mes: form.mes, tipo: "APORTE", descricao: form.descricao.trim(), valorCents, status: "pago", clienteId: null }); }
   };
-  const saving = createReemb.isPending || updateReemb.isPending || createRetir.isPending || updateRetir.isPending;
+  const saving = createReemb.isPending || updateReemb.isPending || createRetir.isPending || updateRetir.isPending || createAporte.isPending || updateAporte.isPending;
 
   return (
     <div className="space-y-5">
@@ -1305,7 +1343,7 @@ function GuiSelvaTab({ months }: { months: string[] }) {
           <TableHeader><TableRow><TableHead>Tipo</TableHead><TableHead>Descrição</TableHead><TableHead>Detalhe</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
           <TableBody>
             {(reembQ.isLoading || retirQ.isLoading) && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
-            {!reembQ.isLoading && !retirQ.isLoading && reemb.length === 0 && retir.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6">Nada neste mês.</TableCell></TableRow>}
+            {!reembQ.isLoading && !retirQ.isLoading && reemb.length === 0 && retir.length === 0 && aportes.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6">Nada neste mês.</TableCell></TableRow>}
             {reemb.map((row) => (
               <TableRow key={`g${row.id}`}>
                 <TableCell><Badge className="bg-red-500/15 text-red-600 border-red-500/30">Gasto</Badge></TableCell>
@@ -1324,6 +1362,15 @@ function GuiSelvaTab({ months }: { months: string[] }) {
                 <TableCell className="text-right whitespace-nowrap">{mesClosed ? <Lock className="w-3.5 h-3.5 text-muted-foreground inline" /> : <RowActions onEdit={() => setForm({ kind: "retirada", id: row.id, mes: row.mes, descricao: row.descricao, valor: centsToInput(row.valorCents) })} onDelete={() => delRetir.mutate({ id: row.id })} />}</TableCell>
               </TableRow>
             ))}
+            {aportes.map((row) => (
+              <TableRow key={`a${row.id}`}>
+                <TableCell><Badge className="bg-violet-500/15 text-violet-600 border-violet-500/30">Aporte</Badge></TableCell>
+                <TableCell className="max-w-[220px] truncate">{row.descricao}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">capital sócio↔empresa</TableCell>
+                <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(row.valorCents)}</TableCell>
+                <TableCell className="text-right whitespace-nowrap">{mesClosed ? <Lock className="w-3.5 h-3.5 text-muted-foreground inline" /> : <RowActions onEdit={() => setForm({ kind: "aporte", id: row.id, mes: row.mes, descricao: row.descricao, valor: centsToInput(row.valorCents) })} onDelete={() => delAporte.mutate({ id: row.id })} />}</TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
         </div>
@@ -1331,15 +1378,16 @@ function GuiSelvaTab({ months }: { months: string[] }) {
       <Dialog open={choosing} onOpenChange={setChoosing}>
         <DialogContent>
           <DialogHeader><DialogTitle>Adicionar</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <button className="rounded-lg border border-border p-4 hover:border-primary/50 hover:bg-muted/30 text-left" onClick={() => { setChoosing(false); setForm({ kind: "gasto", mes, categoria: "PLATAFORMA_ANUNCIOS", descricao: "", valor: "", quemPagou: "", reembolsado: false }); }}><p className="text-sm font-medium">Gasto (reembolso)</p><p className="text-xs text-muted-foreground">Despesa a reembolsar</p></button>
             <button className="rounded-lg border border-border p-4 hover:border-primary/50 hover:bg-muted/30 text-left" onClick={() => { setChoosing(false); setForm({ kind: "retirada", mes, descricao: "", valor: "" }); }}><p className="text-sm font-medium">Retirada</p><p className="text-xs text-muted-foreground">Retirada Gui & SELVA</p></button>
+            <button className="rounded-lg border border-border p-4 hover:border-primary/50 hover:bg-muted/30 text-left" onClick={() => { setChoosing(false); setForm({ kind: "aporte", mes, descricao: "", valor: "" }); }}><p className="text-sm font-medium">Aporte</p><p className="text-xs text-muted-foreground">Capital sócio↔empresa</p></button>
           </div>
         </DialogContent>
       </Dialog>
       <Dialog open={!!form} onOpenChange={(o) => !o && setForm(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{form?.id ? "Editar" : "Novo"} {form?.kind === "gasto" ? "gasto" : "retirada"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{form?.id ? "Editar" : "Novo"} {form?.kind === "gasto" ? "gasto" : form?.kind === "aporte" ? "aporte" : "retirada"}</DialogTitle></DialogHeader>
           {form && (
             <div className="grid grid-cols-2 gap-3">
               <Field label="Mês (YYYY-MM)"><Input value={form.mes} onChange={(e) => setForm({ ...form, mes: e.target.value })} placeholder="2026-07" /></Field>
@@ -1369,6 +1417,8 @@ export default function Finance() {
   const clientes = (clientesQ.data ?? []) as Cliente[];
   const clienteById = useMemo(() => new Map(clientes.map((c) => [c.id, c])), [clientes]);
   const [tab, setTab] = useState("visao");
+  const [drill, setDrill] = useState<{ nonce: number; period?: PeriodState; sub?: string }>({ nonce: 0 });
+  const navigate = (t: string, opts?: { period?: PeriodState; sub?: string }) => { setTab(t); if (opts) setDrill((d) => ({ nonce: d.nonce + 1, period: opts.period, sub: opts.sub })); };
 
   if (!isAdmin) return null;
 
@@ -1390,9 +1440,9 @@ export default function Finance() {
               <TabsTrigger value="despesas"><TrendingDown className="w-3.5 h-3.5 mr-1" /> Despesas</TabsTrigger>
               <TabsTrigger value="guiselva"><ArrowLeftRight className="w-3.5 h-3.5 mr-1" /> Gui &amp; SELVA</TabsTrigger>
             </TabsList>
-            <TabsContent value="visao" className="mt-4"><PnlTab months={months} clientes={clientes} clienteById={clienteById} onNavigate={setTab} /></TabsContent>
-            <TabsContent value="clientes" className="mt-4"><ClientesTab months={months} /></TabsContent>
-            <TabsContent value="despesas" className="mt-4"><DespesasTab months={months} /></TabsContent>
+            <TabsContent value="visao" className="mt-4"><PnlTab months={months} clientes={clientes} clienteById={clienteById} onNavigate={navigate} /></TabsContent>
+            <TabsContent value="clientes" className="mt-4"><ClientesTab months={months} drill={drill} /></TabsContent>
+            <TabsContent value="despesas" className="mt-4"><DespesasTab months={months} drill={drill} /></TabsContent>
             <TabsContent value="guiselva" className="mt-4"><GuiSelvaTab months={months} /></TabsContent>
           </Tabs>
         )}

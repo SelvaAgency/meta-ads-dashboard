@@ -349,6 +349,7 @@ async function main() {
       { name: "descricao", ddl: "ADD COLUMN `descricao` VARCHAR(255) NULL" },
       { name: "tipoEntry", ddl: "ADD COLUMN `tipoEntry` VARCHAR(30) NULL" },
       { name: "estimativa", ddl: "ADD COLUMN `estimativa` BOOLEAN NOT NULL DEFAULT FALSE" },
+      { name: "vencimentoMesSeguinte", ddl: "ADD COLUMN `vencimentoMesSeguinte` BOOLEAN NOT NULL DEFAULT FALSE" },
     ];
     for (const c of recCols) {
       if (!(await columnExists(conn, "finance_recorrencia", c.name))) {

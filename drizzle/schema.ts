@@ -694,6 +694,7 @@ export const financeRecorrencia = mysqlTable("finance_recorrencia", {
   descricao: varchar("descricao", { length: 255 }), // nome da despesa/pessoa (receita usa clienteId)
   tipoEntry: varchar("tipoEntry", { length: 30 }),  // 'DESPESA_RECORRENTE' | 'DESPESA_IMPOSTO'
   estimativa: boolean("estimativa").default(false).notNull(), // true p/ imposto
+  vencimentoMesSeguinte: boolean("vencimentoMesSeguinte").default(false).notNull(), // true = pós-pago (vence no mês seguinte)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
