@@ -8,7 +8,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useMemo, useState } from "react";
-import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { HubShell } from "./hub/HubShell";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -1080,8 +1080,9 @@ export default function Finance() {
   if (!isAdmin) return null;
 
   return (
-    <MetaDashboardLayout>
-      <div className="max-w-6xl mx-auto py-6 space-y-6">
+    <HubShell>
+      <main className="flex-1 overflow-auto p-6 md:p-8">
+      <div className="max-w-6xl mx-auto space-y-6">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2"><Wallet className="w-5 h-5" /> Controle Financeiro</h1>
           <p className="text-sm text-muted-foreground mt-1">Período · P&amp;L · clientes (MRR/churn) · despesas · a receber · Gui &amp; SELVA.</p>
@@ -1105,6 +1106,7 @@ export default function Finance() {
           </Tabs>
         )}
       </div>
-    </MetaDashboardLayout>
+      </main>
+    </HubShell>
   );
 }

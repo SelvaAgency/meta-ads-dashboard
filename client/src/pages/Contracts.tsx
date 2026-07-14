@@ -1,4 +1,4 @@
-import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { HubShell } from "./hub/HubShell";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -630,8 +630,9 @@ export default function Contracts() {
   const lbl = "text-xs text-muted-foreground mb-1 block";
 
   return (
-    <MetaDashboardLayout>
-      <div className="max-w-3xl mx-auto py-6 space-y-6">
+    <HubShell>
+      <main className="flex-1 overflow-auto p-6 md:p-8">
+      <div className="max-w-3xl mx-auto space-y-6">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2">
             <FileSignature className="w-5 h-5" /> Contratos PJ
@@ -729,6 +730,7 @@ export default function Contracts() {
           </TabsContent>
         </Tabs>
       </div>
-    </MetaDashboardLayout>
+      </main>
+    </HubShell>
   );
 }

@@ -48,10 +48,11 @@ function RedirectTo({ to }: { to: string }) {
 const Root = () => (isEmbedded() ? <SuggestionsHub /> : <Hub />);
 const TrackerRoute = () => (isEmbedded() ? <SuggestionsHub /> : <HubApp />);
 const ReportsRoute = () => (isEmbedded() ? <Reports /> : <HubApp />);
-// Contratos = área Administrativa → admin only fora do iframe.
-const ContractsRoute = () => (isEmbedded() ? <Contracts /> : <AdminOnly><HubApp /></AdminOnly>);
-// Financeiro = área Administrativa → admin only fora do iframe.
-const FinanceRoute = () => (isEmbedded() ? <Finance /> : <AdminOnly><HubApp /></AdminOnly>);
+// Contratos e Financeiro = área Administrativa do Selva Spaces. Renderizam DIRETO
+// no portal (HubShell dentro da própria página), igual à Colaboradores — nunca
+// dentro do shell/iframe do Performance Tracker (HubApp).
+const ContractsRoute = () => <AdminOnly><Contracts /></AdminOnly>;
+const FinanceRoute = () => <AdminOnly><Finance /></AdminOnly>;
 const SettingsRoute = () => (isEmbedded() ? <Settings /> : <HubSettings />);
 
 function Router() {
