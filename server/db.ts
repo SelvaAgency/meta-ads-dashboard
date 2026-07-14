@@ -2900,6 +2900,55 @@ export async function financeAPagarVenc() {
 }
 
 /**
+ * Hub de receita — contratos/projetos ativos no mês (topo do hub Clientes&Projetos).
+ * Recorrente = finance_recorrencia (natureza RECEITA, ativa) + o entry gerado do mês.
+ * Pontual = todos os RECEITA_PONTUAL do mês (parcelas de projeto + avulsas).
+ */
+export async function financeContratosAtivos(mes: string) {
+  const db = await getDb();
+  const empty = { recorrentes: [] as ContratoRec[], pontuais: [] as ContratoPon[] };
+  if (!db) return empty;
+  const [recs, clientes, entries] = await Promise.all([
+    db.select().from(financeRecorrencia).where(eq(financeRecorrencia.natureza, "RECEITA")),
+    db.select().from(financeClientes),
+    db.select().from(financePnlEntries).where(eq(financePnlEntries.mes, mes)),
+  ]);
+  const cmap = new Map(clientes.map((c) => [c.id, c]));
+  const entryByRec = new Map<number, typeof entries[number]>();
+  const pontualEntries: typeof entries = [];
+  for (const e of entries) {
+    if (e.tipo === "RECEITA_RECORRENTE" && e.origem === "RECORRENCIA" && e.recorrenciaId) entryByRec.set(e.recorrenciaId, e);
+    else if (e.tipo === "RECEITA_PONTUAL") pontualEntries.push(e);
+  }
+  const recorrentes: ContratoRec[] = recs
+    .filter((r) => r.ativo && r.mesInicio <= mes)
+    .map((r) => {
+      const e = entryByRec.get(r.id);
+      const c = r.clienteId ? cmap.get(r.clienteId) : undefined;
+      return {
+        recorrenciaId: r.id, clienteId: r.clienteId ?? null, clienteNome: c?.nome ?? r.descricao ?? `Cliente #${r.clienteId}`, cor: c?.cor ?? null,
+        valorCents: e?.valorCents ?? r.valorCents, diaVencimento: r.diaVencimento ?? null,
+        entryId: e?.id ?? null, status: e?.status ?? null, vencimento: e?.vencimento ?? null,
+        vencimentoOriginal: e?.vencimentoOriginal ?? null, gerado: !!e,
+      };
+    })
+    .sort((a, b) => b.valorCents - a.valorCents);
+  const pontuais: ContratoPon[] = pontualEntries
+    .map((e) => {
+      const c = e.clienteId ? cmap.get(e.clienteId) : undefined;
+      return {
+        entryId: e.id, projetoId: e.projetoId ?? null, parcelaNum: e.parcelaNum ?? null, parcelaTotal: e.parcelaTotal ?? null,
+        clienteId: e.clienteId ?? null, clienteNome: c?.nome ?? "—", cor: c?.cor ?? null, descricao: e.descricao,
+        valorCents: e.valorCents, vencimento: e.vencimento ?? null, vencimentoOriginal: e.vencimentoOriginal ?? null, status: e.status,
+      };
+    })
+    .sort((a, b) => b.valorCents - a.valorCents);
+  return { recorrentes, pontuais };
+}
+type ContratoRec = { recorrenciaId: number; clienteId: number | null; clienteNome: string; cor: string | null; valorCents: number; diaVencimento: number | null; entryId: number | null; status: "pago" | "pendente" | null; vencimento: string | null; vencimentoOriginal: string | null; gerado: boolean };
+type ContratoPon = { entryId: number; projetoId: number | null; parcelaNum: number | null; parcelaTotal: number | null; clienteId: number | null; clienteNome: string; cor: string | null; descricao: string; valorCents: number; vencimento: string | null; vencimentoOriginal: string | null; status: "pago" | "pendente" };
+
+/**
  * Visão Geral — resumo do período (reusa periodoResumoRP) + posição de caixa.
  * Caixa = TODA receita pendente (a receber) × TODA despesa pendente (a pagar),
  * não escopado ao período — é a posição projetada de caixa. Saldo = receber − pagar.
