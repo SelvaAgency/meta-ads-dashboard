@@ -13,7 +13,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Wallet, Plus, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight, ArrowLeftRight, Users, TrendingDown, AlertTriangle, CalendarClock, Repeat, Lock, Unlock } from "lucide-react";
-import { ResponsiveContainer, ComposedChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts";
+import { ResponsiveContainer, ComposedChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -167,54 +167,77 @@ type Janela = "12m" | "24m" | "vitalicio";
 type SerieGran = "mensal" | "anual";
 // rótulo do eixo: mês → "jul/26"; ano → "2025" (parcial marca "*").
 const fmtPeriodo = (p: string, parcial: boolean) => (p.length === 4 ? (parcial ? `${p}*` : p) : formatMes(p));
+// Confirmado × previsto: mês/ano ANTERIOR ao atual = realizado (cheio); atual/futuro = previsto (apagado).
+const isPeriodoConfirmado = (periodo: string) => { const cur = agencyCurrentMonthCli(); return periodo.length === 4 ? periodo < cur.slice(0, 4) : periodo < cur; };
+const CONF_LEGEND = "linha cheia = confirmado (realizado) · tracejado claro = previsto";
+const CONF_LEGEND_BAR = "barras cheias = confirmado · claras = previsto (mês atual/futuro)";
 
 function TrendChart({ pontos }: { pontos: SeriePoint[] }) {
-  // Resultado sólido no realizado; projeção (futuro) tracejada.
-  let lastReal = -1;
-  pontos.forEach((t, i) => { if (t.realizado) lastReal = i; });
-  const d = pontos.map((t, i) => ({
-    lbl: fmtPeriodo(t.periodo, t.parcial), Receita: t.receitaCents / 100, Despesa: t.despesaCents / 100,
-    Resultado: i <= lastReal ? t.resultadoCents / 100 : null,
-    "Resultado projetado": i >= lastReal ? t.resultadoCents / 100 : null,
-  }));
+  let lastConf = -1;
+  pontos.forEach((t, i) => { if (isPeriodoConfirmado(t.periodo)) lastConf = i; });
+  const d = pontos.map((t, i) => {
+    const conf = i <= lastConf, prev = i >= lastConf;
+    return {
+      lbl: fmtPeriodo(t.periodo, t.parcial),
+      Receita: conf ? t.receitaCents / 100 : null, "Receita prev": prev ? t.receitaCents / 100 : null,
+      Despesa: conf ? t.despesaCents / 100 : null, "Despesa prev": prev ? t.despesaCents / 100 : null,
+      Resultado: conf ? t.resultadoCents / 100 : null, "Resultado prev": prev ? t.resultadoCents / 100 : null,
+    };
+  });
+  const legendPayload = [{ value: "Receita", type: "line" as const, color: "#16A34A" }, { value: "Despesa", type: "line" as const, color: "#DC2626" }, { value: "Resultado", type: "line" as const, color: "#2563EB" }];
   return (
-    <ResponsiveContainer width="100%" height={220}>
-      <ComposedChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-        <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
-        <Tooltip formatter={(v: number) => tipTxt(v)} /><Legend wrapperStyle={{ fontSize: 12 }} />
-        <Line type="linear" dataKey="Receita" stroke="#16A34A" strokeWidth={2} dot={{ r: 2 }} />
-        <Line type="linear" dataKey="Despesa" stroke="#DC2626" strokeWidth={2} dot={{ r: 2 }} />
-        <Line type="linear" dataKey="Resultado" stroke="#2563EB" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
-        <Line type="linear" dataKey="Resultado projetado" stroke="#2563EB" strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls={false} />
-      </ComposedChart>
-    </ResponsiveContainer>
+    <div>
+      <ResponsiveContainer width="100%" height={210}>
+        <ComposedChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+          <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
+          <Tooltip formatter={(v: number, n: string) => [tipTxt(v), String(n).replace(" prev", " (prev)")]} /><Legend wrapperStyle={{ fontSize: 12 }} payload={legendPayload} />
+          <Line type="linear" dataKey="Receita" stroke="#16A34A" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+          <Line type="linear" dataKey="Receita prev" stroke="#16A34A" strokeWidth={2} strokeOpacity={0.4} strokeDasharray="5 4" dot={false} connectNulls={false} legendType="none" />
+          <Line type="linear" dataKey="Despesa" stroke="#DC2626" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+          <Line type="linear" dataKey="Despesa prev" stroke="#DC2626" strokeWidth={2} strokeOpacity={0.4} strokeDasharray="5 4" dot={false} connectNulls={false} legendType="none" />
+          <Line type="linear" dataKey="Resultado" stroke="#2563EB" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+          <Line type="linear" dataKey="Resultado prev" stroke="#2563EB" strokeWidth={2} strokeOpacity={0.4} strokeDasharray="5 4" dot={false} connectNulls={false} legendType="none" />
+        </ComposedChart>
+      </ResponsiveContainer>
+      <p className="text-[10px] text-muted-foreground text-center">{CONF_LEGEND}</p>
+    </div>
   );
 }
 function MixChart({ pontos }: { pontos: SeriePoint[] }) {
-  const d = pontos.map((t) => ({ lbl: fmtPeriodo(t.periodo, t.parcial), Recorrente: t.recorrenteCents / 100, Pontual: t.pontualCents / 100 }));
+  const d = pontos.map((t) => ({ lbl: fmtPeriodo(t.periodo, t.parcial), Recorrente: t.recorrenteCents / 100, Pontual: t.pontualCents / 100, conf: isPeriodoConfirmado(t.periodo) }));
   return (
-    <ResponsiveContainer width="100%" height={220}>
-      <BarChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-        <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
-        <Tooltip formatter={(v: number) => tipTxt(v)} /><Legend wrapperStyle={{ fontSize: 12 }} />
-        <Bar dataKey="Recorrente" stackId="r" fill="#3B54E6" /><Bar dataKey="Pontual" stackId="r" fill="#EF701B" />
-      </BarChart>
-    </ResponsiveContainer>
+    <div>
+      <ResponsiveContainer width="100%" height={210}>
+        <BarChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+          <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
+          <Tooltip formatter={(v: number) => tipTxt(v)} /><Legend wrapperStyle={{ fontSize: 12 }} />
+          <Bar dataKey="Recorrente" stackId="r" fill="#3B54E6">{d.map((e, i) => <Cell key={i} fillOpacity={e.conf ? 1 : 0.4} />)}</Bar>
+          <Bar dataKey="Pontual" stackId="r" fill="#EF701B">{d.map((e, i) => <Cell key={i} fillOpacity={e.conf ? 1 : 0.4} />)}</Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <p className="text-[10px] text-muted-foreground text-center">{CONF_LEGEND_BAR}</p>
+    </div>
   );
 }
 function MrrChart({ pontos }: { pontos: SeriePoint[] }) {
-  const d = pontos.map((t) => ({ lbl: fmtPeriodo(t.periodo, t.parcial), MRR: t.mrrCents / 100 }));
+  let lastConf = -1;
+  pontos.forEach((t, i) => { if (isPeriodoConfirmado(t.periodo)) lastConf = i; });
+  const d = pontos.map((t, i) => ({ lbl: fmtPeriodo(t.periodo, t.parcial), MRR: i <= lastConf ? t.mrrCents / 100 : null, "MRR prev": i >= lastConf ? t.mrrCents / 100 : null }));
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <ComposedChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-        <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
-        <Tooltip formatter={(v: number) => tipTxt(v)} />
-        <Line type="linear" dataKey="MRR" stroke="#3B54E6" strokeWidth={2} dot={{ r: 2 }} />
-      </ComposedChart>
-    </ResponsiveContainer>
+    <div>
+      <ResponsiveContainer width="100%" height={190}>
+        <ComposedChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+          <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
+          <Tooltip formatter={(v: number, n: string) => [tipTxt(v), String(n).replace(" prev", " (prev)")]} />
+          <Line type="linear" dataKey="MRR" stroke="#3B54E6" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+          <Line type="linear" dataKey="MRR prev" stroke="#3B54E6" strokeWidth={2} strokeOpacity={0.4} strokeDasharray="5 4" dot={false} connectNulls={false} />
+        </ComposedChart>
+      </ResponsiveContainer>
+      <p className="text-[10px] text-muted-foreground text-center">{CONF_LEGEND}</p>
+    </div>
   );
 }
 // Controle compartilhado: janela (12m/24m/vitalício) + granularidade (mensal/anual).
@@ -233,16 +256,22 @@ function SerieControls({ janela, setJanela, gran, setGran }: { janela: Janela; s
   );
 }
 function DespesaStackChart({ serie }: { serie: { mes: string; recorrenteCents: number; impostoCents: number; pontualCents: number }[] }) {
-  const d = serie.map((s) => ({ mes: formatMes(s.mes), Recorrente: s.recorrenteCents / 100, Imposto: s.impostoCents / 100, Pontual: s.pontualCents / 100 }));
+  const cur = agencyCurrentMonthCli();
+  const d = serie.map((s) => ({ mes: formatMes(s.mes), Recorrente: s.recorrenteCents / 100, Imposto: s.impostoCents / 100, Pontual: s.pontualCents / 100, conf: s.mes < cur }));
   return (
-    <ResponsiveContainer width="100%" height={240}>
-      <BarChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-        <XAxis dataKey="mes" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
-        <Tooltip formatter={(v: number) => tipTxt(v)} /><Legend wrapperStyle={{ fontSize: 12 }} />
-        <Bar dataKey="Recorrente" stackId="d" fill="#DC2626" /><Bar dataKey="Imposto" stackId="d" fill="#D97706" /><Bar dataKey="Pontual" stackId="d" fill="#9333EA" />
-      </BarChart>
-    </ResponsiveContainer>
+    <div>
+      <ResponsiveContainer width="100%" height={230}>
+        <BarChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+          <XAxis dataKey="mes" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
+          <Tooltip formatter={(v: number) => tipTxt(v)} /><Legend wrapperStyle={{ fontSize: 12 }} />
+          <Bar dataKey="Recorrente" stackId="d" fill="#DC2626">{d.map((e, i) => <Cell key={i} fillOpacity={e.conf ? 1 : 0.4} />)}</Bar>
+          <Bar dataKey="Imposto" stackId="d" fill="#D97706">{d.map((e, i) => <Cell key={i} fillOpacity={e.conf ? 1 : 0.4} />)}</Bar>
+          <Bar dataKey="Pontual" stackId="d" fill="#9333EA">{d.map((e, i) => <Cell key={i} fillOpacity={e.conf ? 1 : 0.4} />)}</Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <p className="text-[10px] text-muted-foreground text-center">{CONF_LEGEND_BAR}</p>
+    </div>
   );
 }
 
