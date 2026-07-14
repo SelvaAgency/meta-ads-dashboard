@@ -264,6 +264,7 @@ import {
   financeAPagarVenc,
   financeOverviewResumo,
   financeContratosAtivos,
+  financeDespesasAtivos,
   financeSerieHistorica,
   listMesesFechados,
   fecharMes,
@@ -674,6 +675,7 @@ const financeRouter = router({
   }),
   aPagar: adminProcedure.query(() => financeAPagarVenc()),
   contratosAtivos: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => financeContratosAtivos(input.mes)),
+  despesasAtivos: adminProcedure.input(z.object({ mes: MES })).query(({ input }) => financeDespesasAtivos(input.mes)),
 
   // v6 — fechar/travar mês (idempotente). fechar retorna a contagem de pendências (aviso).
   meses: router({

@@ -969,9 +969,10 @@ function DespesasTab({ months }: { months: string[] }) {
   const { from, to, refMonth } = periodRange(period, months);
   const q = trpc.finance.analytics.despesaPorCategoria.useQuery({ mesFrom: from, mesTo: to, limitMonths: 12 }, { enabled: MES_RE.test(from) });
   const mesesFechadosQ = trpc.finance.meses.list.useQuery();
-  const refClosed = period.gran === "mes" && (mesesFechadosQ.data ?? []).includes(refMonth);
+  const refClosed = (mesesFechadosQ.data ?? []).includes(refMonth);
   const recQ = trpc.finance.recorrencia.list.useQuery();
-  const despRec = (recQ.data ?? []).filter((r) => r.natureza === "DESPESA");
+  const despesasQ = trpc.finance.despesasAtivos.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
+  const encerradas = (recQ.data ?? []).filter((r) => r.natureza === "DESPESA" && !r.ativo);
   const p = q.data?.periodo;
   const total = p?.totalCents ?? 0;
   const pct = (c: number) => (total > 0 ? `${Math.round((c / total) * 100)}%` : "—");
@@ -979,14 +980,56 @@ function DespesasTab({ months }: { months: string[] }) {
 
   const [ajuste, setAjuste] = useState<{ recorrenciaId: number; nome: string; valor: string; aplicarGerados: boolean } | null>(null);
   const [novo, setNovo] = useState<{ descricao: string; valor: string; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; dia: string } | null>(null);
+  const [remarcar, setRemarcar] = useState<{ id: number; venc: string } | null>(null);
+  const [custoTab, setCustoTab] = useState<"recorrente" | "imposto" | "pontual">("recorrente");
 
-  const invRec = () => { utils.finance.recorrencia.invalidate(); utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); };
-  const marcarSaida = trpc.finance.recorrencia.marcarSaida.useMutation({ onSuccess: (res) => { invRec(); toast.success(`Despesa encerrada. ${res.removidas} mês(es) futuro(s) pendente(s) removido(s).`); } });
-  const reativar = trpc.finance.recorrencia.reativar.useMutation({ onSuccess: () => { invRec(); toast.success("Despesa reativada."); } });
-  const ajustarValor = trpc.finance.recorrencia.ajustarValor.useMutation({ onSuccess: () => { invRec(); setAjuste(null); toast.success("Valor ajustado."); } });
-  const createDespesa = trpc.finance.recorrencia.createDespesa.useMutation({ onSuccess: () => { invRec(); setNovo(null); toast.success("Despesa recorrente criada."); } });
+  const onErr = (e: { message: string }) => toast.error(e.message);
+  const invRec = () => { utils.finance.recorrencia.invalidate(); utils.finance.pnl.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); utils.finance.despesasAtivos.invalidate(); utils.finance.overview.invalidate(); };
+  const marcarSaida = trpc.finance.recorrencia.marcarSaida.useMutation({ onSuccess: (res) => { invRec(); toast.success(`Despesa encerrada. ${res.removidas} mês(es) futuro(s) pendente(s) removido(s).`); }, onError: onErr });
+  const reativar = trpc.finance.recorrencia.reativar.useMutation({ onSuccess: () => { invRec(); toast.success("Despesa reativada."); }, onError: onErr });
+  const ajustarValor = trpc.finance.recorrencia.ajustarValor.useMutation({ onSuccess: () => { invRec(); setAjuste(null); toast.success("Valor ajustado."); }, onError: onErr });
+  const createDespesa = trpc.finance.recorrencia.createDespesa.useMutation({ onSuccess: () => { invRec(); setNovo(null); toast.success("Despesa recorrente criada."); }, onError: onErr });
+  const setStatusM = trpc.finance.pnl.setStatus.useMutation({ onSuccess: () => invRec(), onError: onErr });
+  const remarcarM = trpc.finance.pnl.remarcar.useMutation({ onSuccess: () => { invRec(); setRemarcar(null); toast.success("Vencimento remarcado."); }, onError: onErr });
+  const delM = trpc.finance.pnl.delete.useMutation({ onSuccess: () => { invRec(); toast.success("Excluído."); }, onError: onErr });
 
-  const totalRecMensal = despRec.filter((r) => r.ativo).reduce((s, r) => s + r.valorCents, 0);
+  const vencCell = (venc: string | null, orig: string | null, dia: number | null) => {
+    const remarc = venc && orig && venc !== orig;
+    return <span>{venc ?? (dia ? `dia ${dia}` : "—")}{remarc && <Badge className="ml-1 bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}</span>;
+  };
+  const recRow = (d: NonNullable<typeof despesasQ.data>["recorrentes"][number]): HubRow => ({
+    key: `r${d.recorrenciaId}`,
+    nome: d.descricao,
+    sub: !d.gerado ? "não gerado neste mês" : d.estimativa ? "estimativa" : undefined,
+    valorCents: d.valorCents,
+    vencInfo: vencCell(d.vencimento, d.vencimentoOriginal, d.diaVencimento),
+    status: d.status,
+    locked: refClosed,
+    onToggle: d.entryId ? () => setStatusM.mutate({ id: d.entryId!, status: d.status === "pago" ? "pendente" : "pago" }) : undefined,
+    actions: (
+      <div className="inline-flex items-center gap-1">
+        {d.entryId && <button onClick={() => setRemarcar({ id: d.entryId!, venc: d.vencimento ?? "" })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Mudar data de pagamento"><CalendarClock className="w-4 h-4" /></button>}
+        <button onClick={() => setAjuste({ recorrenciaId: d.recorrenciaId, nome: d.descricao, valor: centsToInput(d.valorCents), aplicarGerados: false })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Ajustar valor"><Pencil className="w-4 h-4" /></button>
+        <button onClick={() => { if (confirm(`Encerrar "${d.descricao}"? Remove os meses futuros pendentes (não mexe nos pagos).`)) marcarSaida.mutate({ recorrenciaId: d.recorrenciaId, mes: cur }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Encerrar recorrência"><TrendingDown className="w-4 h-4" /></button>
+      </div>
+    ),
+  });
+  const recorrentes = despesasQ.data?.recorrentes ?? [];
+  const recorrenteRows = recorrentes.filter((d) => d.tipoEntry === "DESPESA_RECORRENTE").map(recRow);
+  const impostoRows = recorrentes.filter((d) => d.tipoEntry === "DESPESA_IMPOSTO").map(recRow);
+  const pontualRows: HubRow[] = (despesasQ.data?.pontuais ?? []).map((d) => ({
+    key: `p${d.entryId}`,
+    nome: d.descricao,
+    valorCents: d.valorCents,
+    vencInfo: vencCell(d.vencimento, d.vencimentoOriginal, null),
+    status: d.status,
+    locked: refClosed,
+    onToggle: () => setStatusM.mutate({ id: d.entryId, status: d.status === "pago" ? "pendente" : "pago" }),
+    actions: (
+      <button onClick={() => { if (confirm("Excluir esta despesa pontual?")) delM.mutate({ id: d.entryId }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Excluir"><Trash2 className="w-4 h-4" /></button>
+    ),
+  }));
+  const tabRows = custoTab === "recorrente" ? recorrenteRows : custoTab === "imposto" ? impostoRows : pontualRows;
 
   return (
     <div className="space-y-5">
@@ -1005,37 +1048,30 @@ function DespesasTab({ months }: { months: string[] }) {
         {q.data ? <DespesaStackChart serie={q.data.serie} /> : <div className="h-[240px]" />}
       </CardContent></Card>
 
-      {/* Recorrências de despesa (folha + impostos) — ajustar · encerrar · reativar · adicionar */}
+      {/* TOPO — despesas do mês (Recorrente | Imposto | Pontual) */}
       <Card><CardContent className="p-4">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-sm font-semibold flex items-center gap-2"><Repeat className="w-4 h-4" /> Recorrências de despesa <span className="text-xs font-normal text-muted-foreground">· {centsToBRL(totalRecMensal)}/mês ativos</span></p>
-          <Button size="sm" variant="outline" onClick={() => setNovo({ descricao: "", valor: "", tipoEntry: "DESPESA_RECORRENTE", dia: "" })}><Plus className="w-4 h-4 mr-1" /> Adicionar</Button>
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <p className="text-sm font-semibold flex items-center gap-2"><Repeat className="w-4 h-4" /> Despesas · {formatMes(refMonth)}</p>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-md border border-border overflow-hidden text-xs">
+              <button onClick={() => setCustoTab("recorrente")} className={`px-3 py-1 ${custoTab === "recorrente" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Recorrente ({recorrenteRows.length})</button>
+              <button onClick={() => setCustoTab("imposto")} className={`px-3 py-1 border-l border-border ${custoTab === "imposto" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Imposto ({impostoRows.length})</button>
+              <button onClick={() => setCustoTab("pontual")} className={`px-3 py-1 border-l border-border ${custoTab === "pontual" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Pontual ({pontualRows.length})</button>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setNovo({ descricao: "", valor: "", tipoEntry: "DESPESA_RECORRENTE", dia: "" })}><Plus className="w-4 h-4 mr-1" /> Recorrente</Button>
+          </div>
         </div>
-        <div className="max-h-72 overflow-y-auto rounded-md border border-border">
-          <Table>
-            <TableHeader><TableRow><TableHead>Descrição</TableHead><TableHead>Tipo</TableHead><TableHead className="text-right">Valor mensal</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
-            <TableBody>
-              {recQ.isLoading && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
-              {despRec.map((rec) => (
-                <TableRow key={rec.id}>
-                  <TableCell className="font-medium">{rec.clienteNome}</TableCell>
-                  <TableCell>{rec.tipoEntry === "DESPESA_IMPOSTO" ? <Badge variant="secondary" className="font-normal">Imposto{rec.estimativa ? " · estimativa" : ""}</Badge> : <Badge variant="secondary" className="font-normal">Recorrente</Badge>}</TableCell>
-                  <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(rec.valorCents)}</TableCell>
-                  <TableCell>{rec.ativo ? <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/30">Ativa</Badge> : <Badge className="bg-red-500/15 text-red-600 border-red-500/30">Encerrada {rec.churnMes ? formatMes(rec.churnMes) : ""}</Badge>}</TableCell>
-                  <TableCell className="text-right whitespace-nowrap">
-                    <div className="inline-flex items-center gap-1">
-                      <button onClick={() => setAjuste({ recorrenciaId: rec.id, nome: rec.clienteNome, valor: centsToInput(rec.valorCents), aplicarGerados: false })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Ajustar valor"><Pencil className="w-4 h-4" /></button>
-                      {rec.ativo
-                        ? <button onClick={() => { if (confirm(`Encerrar "${rec.clienteNome}"? Remove os meses futuros pendentes (não mexe nos pagos).`)) marcarSaida.mutate({ recorrenciaId: rec.id, mes: cur }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Encerrar"><TrendingDown className="w-4 h-4" /></button>
-                        : <button onClick={() => reativar.mutate({ recorrenciaId: rec.id })} className="text-xs text-accent px-1" title="Reativar">reativar</button>}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {!recQ.isLoading && despRec.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6">Nenhuma despesa recorrente. Rode o setup:recorrencia-despesa ou clique em Adicionar.</TableCell></TableRow>}
-            </TableBody>
-          </Table>
-        </div>
+        <HubTable rows={tabRows} nomeLabel="Fornecedor / pessoa" valorLabel="Valor" loading={despesasQ.isLoading} emptyMsg={custoTab === "pontual" ? "Nenhuma despesa pontual neste mês." : "Nenhuma despesa recorrente ativa neste mês."} />
+        {encerradas.length > 0 && (
+          <div className="mt-2 flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+            <span>Encerradas:</span>
+            {encerradas.map((rec) => (
+              <button key={rec.id} onClick={() => reativar.mutate({ recorrenciaId: rec.id })} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 hover:border-accent/50 hover:bg-accent/5" title="Reativar">
+                {rec.clienteNome} · reativar
+              </button>
+            ))}
+          </div>
+        )}
         <p className="text-xs text-muted-foreground mt-2">Impostos replicados são <span className="font-medium">estimativa</span>. Encerrar mantém o histórico pago e limpa apenas os meses futuros pendentes.</p>
       </CardContent></Card>
 
@@ -1072,6 +1108,18 @@ function DespesasTab({ months }: { months: string[] }) {
           <DialogFooter><Button variant="outline" onClick={() => setNovo(null)}>Cancelar</Button><Button onClick={() => { if (!novo) return; if (!novo.descricao.trim()) return toast.error("Informe a descrição."); const c = parseMoneyToCents(novo.valor); if (c == null || c <= 0) return toast.error("Valor inválido."); const dia = novo.dia.trim() ? Number(novo.dia) : null; if (dia != null && (!Number.isInteger(dia) || dia < 1 || dia > 31)) return toast.error("Dia inválido (1–31)."); createDespesa.mutate({ descricao: novo.descricao.trim(), valorCents: c, tipoEntry: novo.tipoEntry, estimativa: novo.tipoEntry === "DESPESA_IMPOSTO", mesInicio: cur, diaVencimento: dia }); }} disabled={createDespesa.isPending}>Criar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog remarcar (mudar data de pagamento) */}
+      <Dialog open={!!remarcar} onOpenChange={(o) => !o && setRemarcar(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Mudar data de pagamento</DialogTitle></DialogHeader>
+          {remarcar && <Field label="Nova data de vencimento"><Input type="date" value={remarcar.venc} onChange={(e) => setRemarcar({ ...remarcar, venc: e.target.value })} /></Field>}
+          <DialogFooter><Button variant="outline" onClick={() => setRemarcar(null)}>Cancelar</Button><Button onClick={() => { if (remarcar && /^\d{4}-\d{2}-\d{2}$/.test(remarcar.venc)) remarcarM.mutate({ id: remarcar.id, vencimento: remarcar.venc }); else toast.error("Data inválida."); }} disabled={remarcarM.isPending}>Salvar</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Backlog: "Custo por pessoa por período" exige canonicalizar nomes de despesa
+          (como foi feito com clientes) — não implementado nesta rodada. */}
     </div>
   );
 }
