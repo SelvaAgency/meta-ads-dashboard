@@ -7,7 +7,7 @@
  *  `mes` = 'YYYY-MM' (aritmética inteira em string, sem Date/toISOString).
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { HubShell } from "./hub/HubShell";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -24,6 +24,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 
 // ── Utils ────────────────────────────────────────────────────────────────────
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -319,6 +320,52 @@ function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => 
 const defaultPeriod = (anchor: string): PeriodState => ({ gran: "mes", anchor, customFrom: anchor, customTo: anchor });
 
 // ═════════════════════════════════════════════════════════════════════════════
+//  Componentes compartilhados do redesign (Fase 1)
+// ═════════════════════════════════════════════════════════════════════════════
+/** Chip de status pago/pendente (clicável) + selo "Remarcado" + cadeado (mês fechado). */
+function StatusChip({ status, remarcado, locked, onToggle }: { status: "pago" | "pendente"; remarcado?: boolean; locked?: boolean; onToggle?: () => void }) {
+  const cls = status === "pago" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" : "bg-amber-500/15 text-amber-600 border-amber-500/30";
+  const chip = <Badge className={cls}>{status === "pago" ? "Pago" : "Pendente"}</Badge>;
+  return (
+    <span className="inline-flex items-center gap-1">
+      {onToggle && !locked ? <button onClick={onToggle} title="Alternar pago/pendente">{chip}</button> : <span title={locked ? "Mês fechado" : undefined} className={locked ? "opacity-80" : ""}>{chip}</span>}
+      {remarcado && <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}
+    </span>
+  );
+}
+
+/** Menu único "+ Novo" — Receita avulsa · Despesa avulsa · Projeto parcelado. */
+function NovoMenu({ onReceita, onDespesa, onProjeto, disabled, title }: { onReceita: () => void; onDespesa: () => void; onProjeto: () => void; disabled?: boolean; title?: string }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" disabled={disabled} title={title}><Plus className="w-4 h-4 mr-1" /> Novo</Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        <DropdownMenuLabel>Adicionar lançamento</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={onReceita}><span className="w-2 h-2 rounded-full bg-emerald-500 mr-2" /> Receita avulsa</DropdownMenuItem>
+        <DropdownMenuItem onClick={onDespesa}><span className="w-2 h-2 rounded-full bg-red-500 mr-2" /> Despesa avulsa</DropdownMenuItem>
+        <DropdownMenuItem onClick={onProjeto}><span className="w-2 h-2 rounded-full bg-purple-500 mr-2" /> Projeto parcelado</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Card de bloco de gráfico com título + controles de janela/granularidade. */
+function ChartCard({ title, hint, controls, children }: { title: string; hint?: string; controls?: ReactNode; children: ReactNode }) {
+  return (
+    <Card><CardContent className="p-3">
+      <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+        <div><p className="text-xs font-semibold text-muted-foreground">{title}</p>{hint && <p className="text-[10px] text-muted-foreground/80">{hint}</p>}</div>
+        {controls}
+      </div>
+      {children}
+    </CardContent></Card>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 //  Aba P&L
 // ═════════════════════════════════════════════════════════════════════════════
 type PnlRow = { id: number; mes: string; tipo: string; descricao: string; valorCents: number; status: "pago" | "pendente"; clienteId: number | null; vencimento: string | null; vencimentoOriginal: string | null; origem: "MANUAL" | "RECORRENCIA" | "PROJETO"; parcelaNum: number | null; parcelaTotal: number | null };
@@ -334,6 +381,7 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
   const [form, setForm] = useState<PnlForm | null>(null);
   const [projForm, setProjForm] = useState<ProjForm | null>(null);
   const [remarcar, setRemarcar] = useState<{ id: number; venc: string } | null>(null);
+  const [showAging, setShowAging] = useState(false);
 
   const resumoQ = trpc.finance.analytics.periodoResumo.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) && MES_RE.test(to) });
   const mrrQ = trpc.finance.analytics.mrr.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
@@ -432,8 +480,14 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
               </Button>
             );
           })()}
-          <Button size="sm" variant="outline" onClick={() => setProjForm({ clienteId: null, nome: "", parcelas: [{ valor: "", vencimento: "" }, { valor: "", vencimento: "" }] })}>Projeto</Button>
-          <Button size="sm" disabled={refClosed} title={refClosed ? "Mês fechado — reabra para lançar" : undefined} onClick={() => setForm({ mes: refMonth, tipo: "DESPESA_PONTUAL", descricao: "", valor: "", status: "pendente", clienteId: null, vencimento: "" })}><Plus className="w-4 h-4 mr-1" /> Lançamento</Button>
+          <Button size="sm" variant="outline" onClick={() => setShowAging(true)}><CalendarClock className="w-4 h-4 mr-1" /> A receber</Button>
+          <NovoMenu
+            disabled={refClosed}
+            title={refClosed ? "Mês fechado — reabra para lançar" : undefined}
+            onReceita={() => setForm({ mes: refMonth, tipo: "RECEITA_PONTUAL", descricao: "", valor: "", status: "pendente", clienteId: null, vencimento: "" })}
+            onDespesa={() => setForm({ mes: refMonth, tipo: "DESPESA_PONTUAL", descricao: "", valor: "", status: "pendente", clienteId: null, vencimento: "" })}
+            onProjeto={() => setProjForm({ clienteId: null, nome: "", parcelas: [{ valor: "", vencimento: "" }, { valor: "", vencimento: "" }] })}
+          />
         </div>
       </div>
 
@@ -517,7 +571,7 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
                     {remarcado && <Badge className="ml-1 bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}
                   </TableCell>
                   <TableCell className={`text-right whitespace-nowrap font-medium ${tipoKind(row.tipo) === "despesa" ? "text-red-600" : tipoKind(row.tipo) === "receita" ? "text-emerald-600" : ""}`}>{tipoKind(row.tipo) === "despesa" ? "-" : ""}{centsToBRL(row.valorCents)}</TableCell>
-                  <TableCell><button disabled={rowClosed} className={rowClosed ? "cursor-not-allowed opacity-70" : ""} title={rowClosed ? "Mês fechado" : undefined} onClick={() => !rowClosed && setStatusM.mutate({ id: row.id, status: row.status === "pago" ? "pendente" : "pago" })}><Badge className={row.status === "pago" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" : "bg-amber-500/15 text-amber-600 border-amber-500/30"}>{row.status === "pago" ? "Pago" : "Pendente"}</Badge></button></TableCell>
+                  <TableCell><StatusChip status={row.status} locked={rowClosed} onToggle={() => setStatusM.mutate({ id: row.id, status: row.status === "pago" ? "pendente" : "pago" })} /></TableCell>
                   <TableCell className="text-right whitespace-nowrap">
                     {rowClosed ? (
                       <span className="inline-flex items-center gap-1 text-muted-foreground text-xs" title="Mês fechado — reabra para editar"><Lock className="w-3.5 h-3.5" /></span>
@@ -560,6 +614,14 @@ function PnlTab({ months, clientes, clienteById }: { months: string[]; clientes:
           <DialogHeader><DialogTitle>Remarcar vencimento</DialogTitle></DialogHeader>
           {remarcar && <Field label="Nova data de vencimento"><Input type="date" value={remarcar.venc} onChange={(e) => setRemarcar({ ...remarcar, venc: e.target.value })} /></Field>}
           <DialogFooter><Button variant="outline" onClick={() => setRemarcar(null)}>Cancelar</Button><Button onClick={() => { if (remarcar && /^\d{4}-\d{2}-\d{2}$/.test(remarcar.venc)) remarcarM.mutate({ id: remarcar.id, vencimento: remarcar.venc }); else toast.error("Data inválida."); }} disabled={remarcarM.isPending}>Salvar</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Drill: A receber (aging) — deixou de ser aba, abre a partir da Visão geral */}
+      <Dialog open={showAging} onOpenChange={setShowAging}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><CalendarClock className="w-4 h-4" /> A receber — aging por vencimento</DialogTitle></DialogHeader>
+          <div className="max-h-[70vh] overflow-y-auto"><AReceberTab /></div>
         </DialogContent>
       </Dialog>
 
@@ -1085,23 +1147,21 @@ export default function Finance() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2"><Wallet className="w-5 h-5" /> Controle Financeiro</h1>
-          <p className="text-sm text-muted-foreground mt-1">Período · P&amp;L · clientes (MRR/churn) · despesas · a receber · Gui &amp; SELVA.</p>
+          <p className="text-sm text-muted-foreground mt-1">Visão geral · Clientes e projetos · Despesas · Gui &amp; SELVA.</p>
         </div>
         {months.length === 0 ? (
           <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Carregando…</p>
         ) : (
-          <Tabs defaultValue="pnl">
+          <Tabs defaultValue="visao">
             <TabsList className="flex-wrap h-auto">
-              <TabsTrigger value="pnl">P&amp;L</TabsTrigger>
-              <TabsTrigger value="clientes"><Users className="w-3.5 h-3.5 mr-1" /> Clientes</TabsTrigger>
-              <TabsTrigger value="despesas">Despesas</TabsTrigger>
-              <TabsTrigger value="areceber">A Receber</TabsTrigger>
+              <TabsTrigger value="visao">Visão geral</TabsTrigger>
+              <TabsTrigger value="clientes"><Users className="w-3.5 h-3.5 mr-1" /> Clientes e projetos</TabsTrigger>
+              <TabsTrigger value="despesas"><TrendingDown className="w-3.5 h-3.5 mr-1" /> Despesas</TabsTrigger>
               <TabsTrigger value="guiselva"><ArrowLeftRight className="w-3.5 h-3.5 mr-1" /> Gui &amp; SELVA</TabsTrigger>
             </TabsList>
-            <TabsContent value="pnl" className="mt-4"><PnlTab months={months} clientes={clientes} clienteById={clienteById} /></TabsContent>
+            <TabsContent value="visao" className="mt-4"><PnlTab months={months} clientes={clientes} clienteById={clienteById} /></TabsContent>
             <TabsContent value="clientes" className="mt-4"><ClientesTab months={months} /></TabsContent>
             <TabsContent value="despesas" className="mt-4"><DespesasTab months={months} /></TabsContent>
-            <TabsContent value="areceber" className="mt-4"><AReceberTab /></TabsContent>
             <TabsContent value="guiselva" className="mt-4"><GuiSelvaTab months={months} /></TabsContent>
           </Tabs>
         )}
