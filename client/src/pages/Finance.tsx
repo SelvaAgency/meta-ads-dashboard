@@ -7,7 +7,7 @@
  *  `mes` = 'YYYY-MM' (aritmética inteira em string, sem Date/toISOString).
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { HubShell } from "./hub/HubShell";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -221,10 +221,13 @@ function MixChart({ pontos }: { pontos: SeriePoint[] }) {
     </div>
   );
 }
-function MrrChart({ pontos }: { pontos: SeriePoint[] }) {
+function MrrChart({ pontos, campo = "mrr" }: { pontos: SeriePoint[]; campo?: "mrr" | "pontual" }) {
+  const conf = campo === "pontual"
+    ? { key: "Pontual", color: "#EF701B", val: (t: SeriePoint) => t.pontualCents }
+    : { key: "MRR", color: "#3B54E6", val: (t: SeriePoint) => t.mrrCents };
   let lastConf = -1;
   pontos.forEach((t, i) => { if (isPeriodoConfirmado(t.periodo)) lastConf = i; });
-  const d = pontos.map((t, i) => ({ lbl: fmtPeriodo(t.periodo, t.parcial), MRR: i <= lastConf ? t.mrrCents / 100 : null, "MRR prev": i >= lastConf ? t.mrrCents / 100 : null }));
+  const d = pontos.map((t, i) => ({ lbl: fmtPeriodo(t.periodo, t.parcial), [conf.key]: i <= lastConf ? conf.val(t) / 100 : null, [`${conf.key} prev`]: i >= lastConf ? conf.val(t) / 100 : null }));
   return (
     <div>
       <ResponsiveContainer width="100%" height={190}>
@@ -232,8 +235,8 @@ function MrrChart({ pontos }: { pontos: SeriePoint[] }) {
           <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
           <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
           <Tooltip formatter={(v: number, n: string) => [tipTxt(v), String(n).replace(" prev", " (prev)")]} />
-          <Line type="linear" dataKey="MRR" stroke="#3B54E6" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
-          <Line type="linear" dataKey="MRR prev" stroke="#3B54E6" strokeWidth={2} strokeOpacity={0.4} strokeDasharray="5 4" dot={false} connectNulls={false} />
+          <Line type="linear" dataKey={conf.key} stroke={conf.color} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+          <Line type="linear" dataKey={`${conf.key} prev`} stroke={conf.color} strokeWidth={2} strokeOpacity={0.4} strokeDasharray="5 4" dot={false} connectNulls={false} />
         </ComposedChart>
       </ResponsiveContainer>
       <p className="text-[10px] text-muted-foreground text-center">{CONF_LEGEND}</p>
@@ -430,6 +433,44 @@ function HubTable({ rows, nomeLabel = "Nome", valorLabel = "Valor", vencLabel = 
   );
 }
 
+/** Editor reutilizável de lançamento pontual/avulso (descrição · valor · vencimento). */
+type EditPon = { id: number; descricao: string; valorCents: number; vencimento: string | null };
+function EditPontualDialog({ entry, onClose, onSaved, label = "lançamento" }: { entry: EditPon | null; onClose: () => void; onSaved: () => void; label?: string }) {
+  const [descricao, setDescricao] = useState("");
+  const [valor, setValor] = useState("");
+  const [venc, setVenc] = useState("");
+  useEffect(() => { if (entry) { setDescricao(entry.descricao); setValor(centsToInput(entry.valorCents)); setVenc(entry.vencimento ?? ""); } }, [entry]);
+  const update = trpc.finance.pnl.update.useMutation();
+  const remarcar = trpc.finance.pnl.remarcar.useMutation();
+  const save = async () => {
+    if (!entry) return;
+    if (!descricao.trim()) return toast.error("Informe a descrição.");
+    const c = parseMoneyToCents(valor);
+    if (c == null || c <= 0) return toast.error("Valor inválido.");
+    if (venc && !/^\d{4}-\d{2}-\d{2}$/.test(venc)) return toast.error("Data inválida (YYYY-MM-DD).");
+    try {
+      await update.mutateAsync({ id: entry.id, descricao: descricao.trim(), valorCents: c });
+      if (venc && venc !== (entry.vencimento ?? "")) await remarcar.mutateAsync({ id: entry.id, vencimento: venc });
+      onSaved(); onClose(); toast.success("Lançamento atualizado.");
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Falha ao salvar."); }
+  };
+  return (
+    <Dialog open={!!entry} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Editar {label}</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <Field label="Descrição" full><Input value={descricao} onChange={(e) => setDescricao(e.target.value)} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Valor"><MoneyInput value={valor} onChange={setValor} /></Field>
+            <Field label="Vencimento"><Input type="date" value={venc} onChange={(e) => setVenc(e.target.value)} /></Field>
+          </div>
+        </div>
+        <DialogFooter><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={save} disabled={update.isPending || remarcar.isPending}>Salvar</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** Card de bloco de gráfico com título + controles de janela/granularidade. */
 function ChartCard({ title, hint, controls, children }: { title: string; hint?: string; controls?: ReactNode; children: ReactNode }) {
   return (
@@ -458,7 +499,6 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
   const [tipo, setTipo] = useState(""); const [status, setStatus] = useState(""); const [clienteFilter, setClienteFilter] = useState<number | "">("");
   const [form, setForm] = useState<PnlForm | null>(null);
   const [projForm, setProjForm] = useState<ProjForm | null>(null);
-  const [remarcar, setRemarcar] = useState<{ id: number; venc: string } | null>(null);
   const [showAging, setShowAging] = useState(false);
 
   const resumoQ = trpc.finance.overview.resumo.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) && MES_RE.test(to) });
@@ -480,9 +520,6 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
   const onErr = (e: { message: string }) => toast.error(e.message);
   const create = trpc.finance.pnl.create.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Lançamento criado."); }, onError: onErr });
   const update = trpc.finance.pnl.update.useMutation({ onSuccess: () => { invalidate(); setForm(null); toast.success("Lançamento atualizado."); }, onError: onErr });
-  const del = trpc.finance.pnl.delete.useMutation({ onSuccess: () => { invalidate(); toast.success("Excluído."); }, onError: onErr });
-  const setStatusM = trpc.finance.pnl.setStatus.useMutation({ onSuccess: () => { utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); }, onError: onErr });
-  const remarcarM = trpc.finance.pnl.remarcar.useMutation({ onSuccess: () => { invalidate(); setRemarcar(null); toast.success("Vencimento remarcado."); }, onError: onErr });
   const gerar = trpc.finance.recorrencia.gerar.useMutation({ onSuccess: (res) => { invalidate(); toast.success(res.criadas > 0 ? `${res.criadas} recorrentes gerados em ${res.mes}.` : `Nada a gerar em ${res.mes} (já existem).`); }, onError: onErr });
   const projCreate = trpc.finance.projetos.create.useMutation({ onSuccess: (res) => { invalidate(); utils.finance.projetos.list.invalidate(); setProjForm(null); toast.success(`Projeto criado (${res.criadas} parcelas).`); }, onError: onErr });
   const invMeses = () => { invalidate(); utils.finance.meses.list.invalidate(); };
@@ -610,7 +647,7 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
         <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">Receita: recorrente × pontual</p>{serieQ.data ? <MixChart pontos={serieQ.data.pontos} /> : <div className="h-[220px]" />}</CardContent></Card>
       </div>
 
-      <p className="text-sm font-semibold pt-1">Lançamentos do mês <span className="text-xs font-normal text-muted-foreground">— resumo · o operacional por linha mora nos hubs (Clientes/Despesas)</span></p>
+      <p className="text-sm font-semibold pt-1">Lançamentos do mês <span className="text-xs font-normal text-muted-foreground">— resumo (somente leitura) · clique numa linha para editar no hub correspondente</span></p>
       <div className="flex flex-wrap items-end gap-2">
         <FilterSelect label="Tipo" value={tipo} onChange={setTipo} options={PNL_TIPOS.map((t) => t.v)} format={tipoLabel} allLabel="Todos" />
         <FilterSelect label="Status" value={status} onChange={setStatus} options={["pago", "pendente"]} format={(s) => (s === "pago" ? "Pago" : "Pendente")} allLabel="Todos" />
@@ -624,15 +661,21 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
 
       <div className="rounded-lg border border-border overflow-x-auto">
         <Table>
-          <TableHeader><TableRow><TableHead>Mês</TableHead><TableHead>Tipo</TableHead><TableHead>Descrição</TableHead><TableHead>Cliente</TableHead><TableHead>Vencimento</TableHead><TableHead className="text-right">Valor</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Mês</TableHead><TableHead>Tipo</TableHead><TableHead>Descrição</TableHead><TableHead>Cliente</TableHead><TableHead>Vencimento</TableHead><TableHead className="text-right">Valor</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
           <TableBody>
             {listQ.isLoading && <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
             {!listQ.isLoading && rows.length === 0 && <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-6">Nenhum lançamento no período/filtro.</TableCell></TableRow>}
             {rows.slice(0, 300).map((row) => {
               const remarcado = row.vencimento && row.vencimentoOriginal && row.vencimento !== row.vencimentoOriginal;
-              const rowClosed = closedSet.has(row.mes);
+              const kind = tipoKind(row.tipo);
+              const drill = () => {
+                if (kind === "receita") onNavigate?.("clientes");
+                else if (kind === "despesa") onNavigate?.("despesas");
+                else setForm({ id: row.id, mes: row.mes, tipo: row.tipo as PnlTipo, descricao: row.descricao, valor: centsToInput(row.valorCents), status: row.status, clienteId: row.clienteId, vencimento: row.vencimento ?? "" });
+              };
+              const drillHint = kind === "receita" ? "Editar em Clientes e projetos" : kind === "despesa" ? "Editar em Despesas" : "Editar aporte";
               return (
-                <TableRow key={row.id}>
+                <TableRow key={row.id} className="cursor-pointer hover:bg-accent/5" onClick={drill} title={drillHint}>
                   <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatMes(row.mes)}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1 flex-wrap">
@@ -647,18 +690,9 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
                     {row.vencimento ? row.vencimento : <span className="text-muted-foreground">—</span>}
                     {remarcado && <Badge className="ml-1 bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}
                   </TableCell>
-                  <TableCell className={`text-right whitespace-nowrap font-medium ${tipoKind(row.tipo) === "despesa" ? "text-red-600" : tipoKind(row.tipo) === "receita" ? "text-emerald-600" : ""}`}>{tipoKind(row.tipo) === "despesa" ? "-" : ""}{centsToBRL(row.valorCents)}</TableCell>
-                  <TableCell><StatusChip status={row.status} locked={rowClosed} onToggle={() => setStatusM.mutate({ id: row.id, status: row.status === "pago" ? "pendente" : "pago" })} /></TableCell>
-                  <TableCell className="text-right whitespace-nowrap">
-                    {rowClosed ? (
-                      <span className="inline-flex items-center gap-1 text-muted-foreground text-xs" title="Mês fechado — reabra para editar"><Lock className="w-3.5 h-3.5" /></span>
-                    ) : (
-                      <div className="inline-flex items-center gap-1">
-                        <button onClick={() => setRemarcar({ id: row.id, venc: row.vencimento ?? "" })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Remarcar vencimento"><CalendarClock className="w-4 h-4" /></button>
-                        <RowActions onEdit={() => setForm({ id: row.id, mes: row.mes, tipo: row.tipo as PnlTipo, descricao: row.descricao, valor: centsToInput(row.valorCents), status: row.status, clienteId: row.clienteId, vencimento: row.vencimento ?? "" })} onDelete={() => del.mutate({ id: row.id })} />
-                      </div>
-                    )}
-                  </TableCell>
+                  <TableCell className={`text-right whitespace-nowrap font-medium ${kind === "despesa" ? "text-red-600" : kind === "receita" ? "text-emerald-600" : ""}`}>{kind === "despesa" ? "-" : ""}{centsToBRL(row.valorCents)}</TableCell>
+                  <TableCell><StatusChip status={row.status} /></TableCell>
+                  <TableCell className="text-right whitespace-nowrap text-muted-foreground"><ChevronRight className="w-4 h-4 inline" /></TableCell>
                 </TableRow>
               );
             })}
@@ -682,15 +716,6 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
             </div>
           )}
           <DialogFooter><Button variant="outline" onClick={() => setForm(null)}>Cancelar</Button><Button onClick={submit} disabled={create.isPending || update.isPending}>{(create.isPending || update.isPending) && <Loader2 className="w-4 h-4 mr-1 animate-spin" />} Salvar</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog remarcar */}
-      <Dialog open={!!remarcar} onOpenChange={(o) => !o && setRemarcar(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Remarcar vencimento</DialogTitle></DialogHeader>
-          {remarcar && <Field label="Nova data de vencimento"><Input type="date" value={remarcar.venc} onChange={(e) => setRemarcar({ ...remarcar, venc: e.target.value })} /></Field>}
-          <DialogFooter><Button variant="outline" onClick={() => setRemarcar(null)}>Cancelar</Button><Button onClick={() => { if (remarcar && /^\d{4}-\d{2}-\d{2}$/.test(remarcar.venc)) remarcarM.mutate({ id: remarcar.id, vencimento: remarcar.venc }); else toast.error("Data inválida."); }} disabled={remarcarM.isPending}>Salvar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -750,7 +775,9 @@ function ClientesTab({ months }: { months: string[] }) {
   const utils = trpc.useUtils();
   const [ajuste, setAjuste] = useState<{ recorrenciaId: number; nome: string; valor: string; aplicarGerados: boolean } | null>(null);
   const [remarcar, setRemarcar] = useState<{ id: number; venc: string } | null>(null);
+  const [editPon, setEditPon] = useState<EditPon | null>(null);
   const [contratoTab, setContratoTab] = useState<"recorrente" | "pontual">("recorrente");
+  const [serieView, setSerieView] = useState<"recorrente" | "pontual">("recorrente");
   const [serieJanela, setSerieJanela] = useState<Janela>("12m");
   const [serieGran, setSerieGran] = useState<SerieGran>("mensal");
   const serieQ = trpc.finance.analytics.serieHistorica.useQuery({ granularidade: serieGran, janela: serieJanela });
@@ -810,6 +837,7 @@ function ClientesTab({ months }: { months: string[] }) {
     onToggle: () => setStatusM.mutate({ id: c.entryId, status: c.status === "pago" ? "pendente" : "pago" }),
     actions: (
       <div className="inline-flex items-center gap-1">
+        <button onClick={() => setEditPon({ id: c.entryId, descricao: c.descricao, valorCents: c.valorCents, vencimento: c.vencimento })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Editar (descrição, valor, vencimento)"><Pencil className="w-4 h-4" /></button>
         <button onClick={() => setRemarcar({ id: c.entryId, venc: c.vencimento ?? "" })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Mudar data de pagamento"><CalendarClock className="w-4 h-4" /></button>
         <button onClick={() => { if (confirm("Excluir esta parcela/receita pontual?")) delM.mutate({ id: c.entryId }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Excluir"><Trash2 className="w-4 h-4" /></button>
       </div>
@@ -877,10 +905,16 @@ function ClientesTab({ months }: { months: string[] }) {
       </div>
       <Card><CardContent className="p-3">
         <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
-          <p className="text-xs font-semibold text-muted-foreground">MRR{serieGran === "anual" ? " — anual = média mensal do ano" : " mensal"}</p>
-          <SerieControls janela={serieJanela} setJanela={setSerieJanela} gran={serieGran} setGran={setSerieGran} />
+          <p className="text-xs font-semibold text-muted-foreground">{serieView === "pontual" ? "Receita pontual" : "MRR (recorrente)"}{serieGran === "anual" ? " — anual = média mensal do ano" : " ao longo dos meses"}</p>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-md border border-border overflow-hidden text-xs">
+              <button onClick={() => setSerieView("recorrente")} className={`px-3 py-1 ${serieView === "recorrente" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Recorrente</button>
+              <button onClick={() => setSerieView("pontual")} className={`px-3 py-1 border-l border-border ${serieView === "pontual" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Pontual</button>
+            </div>
+            <SerieControls janela={serieJanela} setJanela={setSerieJanela} gran={serieGran} setGran={setSerieGran} />
+          </div>
         </div>
-        {serieQ.data ? <MrrChart pontos={serieQ.data.pontos} /> : <div className="h-[200px]" />}
+        {serieQ.data ? <MrrChart pontos={serieQ.data.pontos} campo={serieView === "pontual" ? "pontual" : "mrr"} /> : <div className="h-[200px]" />}
       </CardContent></Card>
 
       {/* Churn — headline do PERÍODO + timeline */}
@@ -985,6 +1019,8 @@ function ClientesTab({ months }: { months: string[] }) {
           <DialogFooter><Button variant="outline" onClick={() => setRemarcar(null)}>Cancelar</Button><Button onClick={() => { if (remarcar && /^\d{4}-\d{2}-\d{2}$/.test(remarcar.venc)) remarcarM.mutate({ id: remarcar.id, vencimento: remarcar.venc }); else toast.error("Data inválida."); }} disabled={remarcarM.isPending}>Salvar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <EditPontualDialog entry={editPon} onClose={() => setEditPon(null)} onSaved={invRec} label="receita pontual" />
     </div>
   );
 }
@@ -1010,6 +1046,7 @@ function DespesasTab({ months }: { months: string[] }) {
   const [ajuste, setAjuste] = useState<{ recorrenciaId: number; nome: string; valor: string; aplicarGerados: boolean } | null>(null);
   const [novo, setNovo] = useState<{ descricao: string; valor: string; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; dia: string } | null>(null);
   const [remarcar, setRemarcar] = useState<{ id: number; venc: string } | null>(null);
+  const [editPon, setEditPon] = useState<EditPon | null>(null);
   const [custoTab, setCustoTab] = useState<"recorrente" | "imposto" | "pontual">("recorrente");
 
   const onErr = (e: { message: string }) => toast.error(e.message);
@@ -1055,7 +1092,10 @@ function DespesasTab({ months }: { months: string[] }) {
     locked: refClosed,
     onToggle: () => setStatusM.mutate({ id: d.entryId, status: d.status === "pago" ? "pendente" : "pago" }),
     actions: (
-      <button onClick={() => { if (confirm("Excluir esta despesa pontual?")) delM.mutate({ id: d.entryId }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Excluir"><Trash2 className="w-4 h-4" /></button>
+      <div className="inline-flex items-center gap-1">
+        <button onClick={() => setEditPon({ id: d.entryId, descricao: d.descricao, valorCents: d.valorCents, vencimento: d.vencimento })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Editar (descrição, valor, vencimento)"><Pencil className="w-4 h-4" /></button>
+        <button onClick={() => { if (confirm("Excluir esta despesa pontual?")) delM.mutate({ id: d.entryId }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Excluir"><Trash2 className="w-4 h-4" /></button>
+      </div>
     ),
   }));
   const tabRows = custoTab === "recorrente" ? recorrenteRows : custoTab === "imposto" ? impostoRows : pontualRows;
@@ -1072,10 +1112,6 @@ function DespesasTab({ months }: { months: string[] }) {
         <Stat label="Pontual" value={centsToBRL(p?.pontualCents ?? 0)} hint={pct(p?.pontualCents ?? 0)} tone="neg" />
         <Stat label="Total despesa" value={centsToBRL(total)} tone="neg" />
       </div>
-      <Card><CardContent className="p-3">
-        <p className="text-xs font-semibold mb-1 text-muted-foreground">Despesa por categoria — últimos 12 meses (recorrente inclui folha da equipe)</p>
-        {q.data ? <DespesaStackChart serie={q.data.serie} /> : <div className="h-[240px]" />}
-      </CardContent></Card>
 
       {/* TOPO — despesas do mês (Recorrente | Imposto | Pontual) */}
       <Card><CardContent className="p-4">
@@ -1102,6 +1138,12 @@ function DespesasTab({ months }: { months: string[] }) {
           </div>
         )}
         <p className="text-xs text-muted-foreground mt-2">Impostos replicados são <span className="font-medium">estimativa</span>. Encerrar mantém o histórico pago e limpa apenas os meses futuros pendentes.</p>
+      </CardContent></Card>
+
+      {/* Gráfico por categoria — depois da lista (espelha o hub de receita) */}
+      <Card><CardContent className="p-3">
+        <p className="text-xs font-semibold mb-1 text-muted-foreground">Despesa por categoria — últimos 12 meses (recorrente inclui folha da equipe)</p>
+        {q.data ? <DespesaStackChart serie={q.data.serie} /> : <div className="h-[240px]" />}
       </CardContent></Card>
 
       {/* Dialog ajustar valor */}
@@ -1146,6 +1188,8 @@ function DespesasTab({ months }: { months: string[] }) {
           <DialogFooter><Button variant="outline" onClick={() => setRemarcar(null)}>Cancelar</Button><Button onClick={() => { if (remarcar && /^\d{4}-\d{2}-\d{2}$/.test(remarcar.venc)) remarcarM.mutate({ id: remarcar.id, vencimento: remarcar.venc }); else toast.error("Data inválida."); }} disabled={remarcarM.isPending}>Salvar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <EditPontualDialog entry={editPon} onClose={() => setEditPon(null)} onSaved={invRec} label="despesa pontual" />
 
       {/* Backlog: "Custo por pessoa por período" exige canonicalizar nomes de despesa
           (como foi feito com clientes) — não implementado nesta rodada. */}
