@@ -323,7 +323,7 @@ export default function SuggestionsHub() {
       if ((a as any).aiStatusColor === "red") ids.add(a.id);
     }
     for (const alert of urgentAlerts ?? []) {
-      if (alert.severity === "CRITICAL") ids.add(alert.accountId);
+      if (alert.severity === "CRITICAL" && alert.accountId != null) ids.add(alert.accountId);
     }
     return (accounts ?? []).filter((a) => ids.has(a.id));
   }, [accounts, urgentAlerts]);

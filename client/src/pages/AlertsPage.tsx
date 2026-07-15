@@ -9,6 +9,11 @@ import {
   CRITICAL_TYPES, WARNING_TYPES, NOTIFICATION_TYPES,
 } from "@/components/AlertBlock";
 
+// Notificação sem conta de mídia (domínio Financeiro) agrupa sob esta chave.
+const SEM_CONTA = -1;
+// Tipos do sistema de notificações que entram na aba "Notificações".
+const NOTIF_EXTRA_TYPES = new Set(["DAILY_BRIEFING", "WEEKLY_REPORT", "FINANCE_OVERDUE"]);
+
 function initials(name: string | null | undefined): string {
   if (!name) return "??";
   const parts = name.replace(/^CA\s*[-–]\s*/i, "").trim().split(/\s+/);
@@ -46,6 +51,8 @@ export default function AlertsPage() {
   const [groupMode, setGroupMode] = useState<"account" | "type">("type");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [activeTypeFilter, setActiveTypeFilter] = useState<string | null>(null);
+  const [dominio, setDominio] = useState<"PERFORMANCE" | "FINANCEIRO" | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"nova" | "lida" | null>("nova");
   const utils = trpc.useUtils();
 
   const toggleGroup = (key: string) => {
@@ -56,7 +63,11 @@ export default function AlertsPage() {
     });
   };
 
-  const { data: allAlerts, isLoading } = trpc.alerts.listAll.useQuery();
+  const { data: allAlerts, isLoading } = trpc.alerts.listAll.useQuery({
+    ...(dominio ? { dominio } : {}),
+    ...(statusFilter ? { status: statusFilter } : {}),
+  });
+  const { data: contagem } = trpc.alerts.unreadByDominio.useQuery();
 
   const markRead = trpc.alerts.markRead.useMutation({
     onSuccess: () => { utils.alerts.listAll.invalidate(); utils.alerts.unreadCount.invalidate(); },
@@ -68,14 +79,16 @@ export default function AlertsPage() {
 
   const handleDismiss = (id: number) => markRead.mutate({ alertId: id });
 
+  // O status (nova/lida) já vem filtrado do servidor — aqui só separamos as duas
+  // abas por tipo. FINANCE_OVERDUE e os relatórios entram como notificação.
   const criticalAlerts = useMemo(() => {
     if (!allAlerts) return [];
-    return allAlerts.filter((a: any) => !a.isRead && (CRITICAL_TYPES.has(a.type) || WARNING_TYPES.has(a.type)));
+    return allAlerts.filter((a: any) => CRITICAL_TYPES.has(a.type) || WARNING_TYPES.has(a.type) || a.type === "ANOMALY");
   }, [allAlerts]);
 
   const notifications = useMemo(() => {
     if (!allAlerts) return [];
-    return allAlerts.filter((a: any) => NOTIFICATION_TYPES.has(a.type)).slice(0, 50);
+    return allAlerts.filter((a: any) => NOTIFICATION_TYPES.has(a.type) || NOTIF_EXTRA_TYPES.has(a.type)).slice(0, 50);
   }, [allAlerts]);
 
   // Notificacoes divididas por conta (sem agrupar/agregar eventos do mesmo tipo)
@@ -83,8 +96,9 @@ export default function AlertsPage() {
     const map = new Map<number, { accountName: string | null; items: any[]; lastDate: number }>();
     for (const n of notifications) {
       const ts = new Date(n.createdAt).getTime();
-      if (!map.has(n.accountId)) map.set(n.accountId, { accountName: n.accountName, items: [], lastDate: ts });
-      const group = map.get(n.accountId)!;
+      const key = n.accountId ?? SEM_CONTA;
+      if (!map.has(key)) map.set(key, { accountName: n.accountName ?? "Financeiro", items: [], lastDate: ts });
+      const group = map.get(key)!;
       group.items.push(n);
       if (ts > group.lastDate) group.lastDate = ts;
     }
@@ -98,7 +112,7 @@ export default function AlertsPage() {
   });
 
   const summaryStats = useMemo(() => {
-    const accountSet = new Set(criticalAlerts.map((a: any) => a.accountId));
+    const accountSet = new Set(criticalAlerts.map((a: any) => a.accountId ?? SEM_CONTA));
     const tokenIssues = criticalAlerts.filter((a: any) => a.type === "SYNC_ERROR").length;
     const budgetIssues = criticalAlerts.filter((a: any) => a.type === "BUDGET_WARNING").length;
     return { accounts: accountSet.size, tokenIssues, budgetIssues };
@@ -123,8 +137,9 @@ export default function AlertsPage() {
   const groupedByAccount = useMemo(() => {
     const map = new Map<number, { accountName: string | null; items: any[] }>();
     for (const a of filteredCriticalAlerts) {
-      if (!map.has(a.accountId)) map.set(a.accountId, { accountName: a.accountName, items: [] });
-      map.get(a.accountId)!.items.push(a);
+      const key = a.accountId ?? SEM_CONTA;
+      if (!map.has(key)) map.set(key, { accountName: a.accountName ?? "Financeiro", items: [] });
+      map.get(key)!.items.push(a);
     }
     return Array.from(map.entries()).map(([accountId, v]) => ({ accountId, ...v }));
   }, [filteredCriticalAlerts]);
@@ -178,6 +193,35 @@ export default function AlertsPage() {
             <Bell size={15} />
             Notificações
             {notifications.length > 0 && <span style={{ background: "var(--color-background-secondary)", color: "var(--color-text-secondary)", fontSize: 10, fontWeight: 500, padding: "1px 7px", borderRadius: 10 }}>{notifications.length}</span>}
+          </div>
+        </div>
+
+        {/* Filtros: domínio × status */}
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>Domínio</span>
+            {([[null, "Todos"], ["PERFORMANCE", "Performance"], ["FINANCEIRO", "Financeiro"]] as const).map(([v, lbl]) => {
+              const n = v === "PERFORMANCE" ? contagem?.PERFORMANCE ?? 0 : v === "FINANCEIRO" ? contagem?.FINANCEIRO ?? 0 : (contagem?.PERFORMANCE ?? 0) + (contagem?.FINANCEIRO ?? 0);
+              return (
+                <button key={String(v)} onClick={() => setDominio(v)} style={{
+                  padding: "4px 10px", borderRadius: 999, fontSize: 11, cursor: "pointer",
+                  border: "0.5px solid " + (dominio === v ? "#D4537E" : "var(--color-border-secondary)"),
+                  background: dominio === v ? "#FCEFF4" : "#fff", color: dominio === v ? "#D4537E" : "var(--color-text-secondary)",
+                  fontWeight: dominio === v ? 500 : 400,
+                }}>{lbl}{n > 0 ? ` · ${n}` : ""}</button>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>Status</span>
+            {([["nova", "Novas"], ["lida", "Lidas"], [null, "Todas"]] as const).map(([v, lbl]) => (
+              <button key={String(v)} onClick={() => setStatusFilter(v)} style={{
+                padding: "4px 10px", borderRadius: 999, fontSize: 11, cursor: "pointer",
+                border: "0.5px solid " + (statusFilter === v ? "#D4537E" : "var(--color-border-secondary)"),
+                background: statusFilter === v ? "#FCEFF4" : "#fff", color: statusFilter === v ? "#D4537E" : "var(--color-text-secondary)",
+                fontWeight: statusFilter === v ? 500 : 400,
+              }}>{lbl}</button>
+            ))}
           </div>
         </div>
 

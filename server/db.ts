@@ -1,5 +1,5 @@
 import { logger } from "./logger";
-import { and, desc, eq, gt, gte, inArray, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -1045,6 +1045,9 @@ export async function getUrgentAlertsForUser(userId: number) {
     .where(and(
       eq(metaAdAccounts.isActive, true),
       eq(alerts.isRead, false),
+      // Painel de urgentes é só Performance: financeiro é admin-only e nunca
+      // pode vazar por este caminho, que é global por design (contas são globais).
+      eq(alerts.dominio, "PERFORMANCE"),
       or(eq(alerts.severity, "CRITICAL"), eq(alerts.severity, "WARNING"))
     ))
     .orderBy(desc(alerts.createdAt))
@@ -1335,7 +1338,15 @@ export async function getAlertsByUserId(userId: number, limit = 50) {
     .limit(limit);
 }
 
-export async function getAllAlertsForUser(userId: number, limit = 200) {
+/**
+ * Lista para o sino e a AlertsPage. leftJoin (não inner): notificação de domínio
+ * FINANCEIRO não tem conta de mídia e sumiria num inner join.
+ */
+export async function getAllAlertsForUser(
+  userId: number,
+  limit = 200,
+  filtro?: { dominio?: "PERFORMANCE" | "FINANCEIRO"; status?: "nova" | "lida" },
+) {
   const db = await getDb();
   if (!db) return [];
   return db
@@ -1345,6 +1356,7 @@ export async function getAllAlertsForUser(userId: number, limit = 200) {
       message:     alerts.message,
       severity:    alerts.severity,
       type:        alerts.type,
+      dominio:     alerts.dominio,
       priority:    alerts.priority,
       suggestedAction: alerts.suggestedAction,
       isRead:      alerts.isRead,
@@ -1354,8 +1366,12 @@ export async function getAllAlertsForUser(userId: number, limit = 200) {
       metaAccountId: metaAdAccounts.accountId,
     })
     .from(alerts)
-    .innerJoin(metaAdAccounts, eq(alerts.accountId, metaAdAccounts.id))
-    .where(eq(alerts.userId, userId))
+    .leftJoin(metaAdAccounts, eq(alerts.accountId, metaAdAccounts.id))
+    .where(and(
+      eq(alerts.userId, userId),
+      ...(filtro?.dominio ? [eq(alerts.dominio, filtro.dominio)] : []),
+      ...(filtro?.status ? [eq(alerts.isRead, filtro.status === "lida")] : []),
+    ))
     .orderBy(desc(alerts.createdAt))
     .limit(limit);
 }
@@ -1408,15 +1424,17 @@ export async function createAlertIfNotExists(data: InsertAlert): Promise<any | n
 
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
+  // Sem filtro de isRead de propósito: com soft-read, o alerta dispensado
+  // continua na tabela (isRead=true) e é justamente ele que precisa segurar o
+  // dedup — senão o próximo ciclo do cron recria o que a pessoa acabou de fechar.
   const existing = await db
     .select({ id: alerts.id })
     .from(alerts)
     .where(
       and(
-        eq(alerts.accountId, data.accountId),
+        data.accountId == null ? isNull(alerts.accountId) : eq(alerts.accountId, data.accountId),
         eq(alerts.type, data.type),
         eq(alerts.title, data.title),
-        eq(alerts.isRead, false),
         gte(alerts.createdAt, twentyFourHoursAgo)
       )
     )
@@ -1464,27 +1482,32 @@ export async function markAnomalyEmailSent(id: number) {
   await db.update(anomalies).set({ emailSentAt: new Date() }).where(eq(anomalies.id, id));
 }
 
+/**
+ * Marcar como lida é UPDATE, não DELETE. Além de o histórico sobreviver (e o
+ * filtro lida/nova existir), é o que faz o dedup funcionar: createNotification
+ * procura a linha por dedupKey — se dispensar apagasse a linha, o próximo ciclo
+ * do cron recriaria a mesma notificação.
+ */
 export async function markAlertRead(id: number, userId: number) {
   const db = await getDb();
   if (!db) return;
-  // Delete the alert when marked as read — it disappears from the list
-  await db
-    .delete(alerts)
-    .where(and(eq(alerts.id, id), eq(alerts.userId, userId)));
+  await db.update(alerts).set({ isRead: true }).where(and(eq(alerts.id, id), eq(alerts.userId, userId)));
 }
 
-export async function markAllAlertsRead(userId: number) {
+export async function markAllAlertsRead(userId: number, dominio?: "PERFORMANCE" | "FINANCEIRO") {
   const db = await getDb();
   if (!db) return;
-  // Delete all alerts when marking all as read
-  await db.delete(alerts).where(eq(alerts.userId, userId));
+  await db.update(alerts).set({ isRead: true }).where(and(
+    eq(alerts.userId, userId),
+    eq(alerts.isRead, false),
+    ...(dominio ? [eq(alerts.dominio, dominio)] : []),
+  ));
 }
 
 export async function markAllAlertsReadByAccount(userId: number, accountId: number) {
   const db = await getDb();
   if (!db) return;
-  // Delete only alerts for a specific account
-  await db.delete(alerts).where(and(eq(alerts.userId, userId), eq(alerts.accountId, accountId)));
+  await db.update(alerts).set({ isRead: true }).where(and(eq(alerts.userId, userId), eq(alerts.accountId, accountId)));
 }
 
 // Limpa apenas as notificacoes informativas (sugestao aplicada, sync, experimento, relatorio)
@@ -1854,7 +1877,8 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs } from "../drizzle/schema";
+import { type NotifTipo, notifTipoDef, dominioDoAlerta } from "../shared/notifications";
 
 export async function getAccountThresholds(accountId: number) {
   const db = await getDb();
@@ -3228,4 +3252,168 @@ export async function financeOverviewResumo(mesFrom: string, mesTo: string) {
     receitaStatus, despesaStatus, aReceberVencidoCents: receitaStatus.atrasadoCents, aPagarVencidoCents: despesaStatus.atrasadoCents,
     receitaMedia6Cents: receitaMedia6, despesaMedia6Cents: despesaMedia6, resultadoMedia6Cents: receitaMedia6 - despesaMedia6,
   };
+}
+
+// ─── Sistema de notificações (Performance + Financeiro) ──────────────────────
+// Modelo: uma linha por DESTINATÁRIO. O cron resolve quem opta por receber cada
+// tipo e cria uma notificação por pessoa — assim cada um lê/dispensa a sua, e o
+// filtro por userId é sempre correto. Dedup por (userId, dedupKey).
+
+/** Usuários que devem receber `tipo` no canal in-app. Financeiro: só admin. */
+export async function destinatariosInApp(tipo: NotifTipo): Promise<{ id: number; email: string | null; name: string | null }[]> {
+  return destinatariosPara(tipo, "inApp");
+}
+/** Usuários que devem receber `tipo` por email. Financeiro: só admin. */
+export async function destinatariosEmail(tipo: NotifTipo): Promise<{ id: number; email: string | null; name: string | null }[]> {
+  return destinatariosPara(tipo, "email");
+}
+
+async function destinatariosPara(tipo: NotifTipo, canal: "inApp" | "email") {
+  const db = await getDb();
+  if (!db) return [];
+  const def = notifTipoDef(tipo);
+  if (!def) return [];
+  const ativos = await db.select({ id: users.id, email: users.email, name: users.name, role: users.role })
+    .from(users).where(eq(users.active, true));
+  const elegiveis = ativos.filter((u) => (def.adminOnly ? u.role === "admin" : true));
+  if (elegiveis.length === 0) return [];
+  const prefs = await db.select().from(notificationPrefs).where(and(
+    eq(notificationPrefs.tipo, tipo),
+    inArray(notificationPrefs.userId, elegiveis.map((u) => u.id)),
+  ));
+  const pmap = new Map(prefs.map((p) => [p.userId, p]));
+  // Sem linha de preferência = default do catálogo (só gravamos o que foi mexido).
+  const padrao = canal === "inApp" ? def.inApp : def.email;
+  return elegiveis
+    .filter((u) => { const p = pmap.get(u.id); return p ? (canal === "inApp" ? p.inApp : p.email) : padrao; })
+    .map((u) => ({ id: u.id, email: u.email, name: u.name }));
+}
+
+export type NovaNotificacao = {
+  tipo: NotifTipo;
+  alertType: "ANOMALY" | "SYNC_ERROR" | "BUDGET_WARNING" | "DAILY_BRIEFING" | "WEEKLY_REPORT" | "FINANCE_OVERDUE" | "REPORT";
+  title: string;
+  message: string;
+  severity: "INFO" | "WARNING" | "CRITICAL";
+  /** Componente estável da chave de dedup (ex.: id da conta, "global"). */
+  referencia: string;
+  /** Dia da competência (YYYY-MM-DD) — fecha o dedup "1× por dia". */
+  dia: string;
+  accountId?: number | null;
+  suggestedAction?: string | null;
+};
+
+/**
+ * Cria a notificação para todos que optaram pelo in-app, pulando quem já tem a
+ * mesma dedupKey (independente de lida) — reprocessar o dia é no-op.
+ * Retorna os userIds que receberam agora.
+ */
+export async function createNotification(n: NovaNotificacao): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const dominio = dominioDoAlerta(n.alertType);
+  const dedupKey = `${n.tipo}:${n.referencia}:${n.dia}`.slice(0, 180);
+  const destinos = await destinatariosInApp(n.tipo);
+  if (destinos.length === 0) return [];
+
+  const jaTem = await db.select({ userId: alerts.userId }).from(alerts).where(and(
+    eq(alerts.dedupKey, dedupKey),
+    inArray(alerts.userId, destinos.map((d) => d.id)),
+  ));
+  const tem = new Set(jaTem.map((r) => r.userId));
+  const novos = destinos.filter((d) => !tem.has(d.id));
+  if (novos.length === 0) return [];
+
+  await db.insert(alerts).values(novos.map((d) => ({
+    userId: d.id,
+    accountId: n.accountId ?? null,
+    title: n.title.slice(0, 255),
+    message: n.message,
+    type: n.alertType,
+    severity: n.severity,
+    dominio,
+    dedupKey,
+    suggestedAction: n.suggestedAction ?? null,
+    isRead: false,
+  })) as InsertAlert[]);
+  return novos.map((d) => d.id);
+}
+
+/** Marca o email como enviado para a notificação de um dedupKey/usuário. */
+export async function marcarEmailEnviado(userId: number, dedupKey: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(alerts).set({ emailSentAt: new Date() })
+    .where(and(eq(alerts.userId, userId), eq(alerts.dedupKey, dedupKey)));
+}
+
+/** Já enviamos email deste dedupKey para este usuário? (idempotência do cron) */
+export async function emailJaEnviado(userId: number, dedupKey: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const r = await db.select({ id: alerts.id }).from(alerts).where(and(
+    eq(alerts.userId, userId), eq(alerts.dedupKey, dedupKey), isNotNull(alerts.emailSentAt),
+  )).limit(1);
+  return r.length > 0;
+}
+
+export async function getNotificationPrefs(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(notificationPrefs).where(eq(notificationPrefs.userId, userId));
+}
+
+export async function upsertNotificationPref(userId: number, tipo: string, values: { inApp?: boolean; email?: boolean }) {
+  const db = await getDb();
+  if (!db) return;
+  const def = notifTipoDef(tipo);
+  if (!def) throw new Error(`Tipo de notificação desconhecido: ${tipo}`);
+  await db.insert(notificationPrefs)
+    .values({ userId, tipo, inApp: values.inApp ?? def.inApp, email: values.email ?? def.email })
+    .onDuplicateKeyUpdate({ set: { ...(values.inApp !== undefined ? { inApp: values.inApp } : {}), ...(values.email !== undefined ? { email: values.email } : {}) } });
+}
+
+export async function getUnreadCountByDominio(userId: number): Promise<{ PERFORMANCE: number; FINANCEIRO: number }> {
+  const db = await getDb();
+  const zero = { PERFORMANCE: 0, FINANCEIRO: 0 };
+  if (!db) return zero;
+  const rows = await db.select({ dominio: alerts.dominio, n: sql<number>`count(*)` }).from(alerts)
+    .where(and(eq(alerts.userId, userId), eq(alerts.isRead, false)))
+    .groupBy(alerts.dominio);
+  const out = { ...zero };
+  for (const r of rows) out[r.dominio as "PERFORMANCE" | "FINANCEIRO"] = Number(r.n);
+  return out;
+}
+
+/**
+ * Atrasos financeiros: pendências com vencimento ESTRITAMENTE anterior a hoje
+ * (data local da agência). Só isso — nada de aviso antecipado. Dias de atraso,
+ * não meses, porque é o que a notificação precisa mostrar.
+ */
+export async function financeAtrasos() {
+  const db = await getDb();
+  const hoje = agencyTodayStr();
+  const vazio = {
+    hoje,
+    aReceber: [] as { nome: string; descricao: string; mes: string; vencimento: string; valorCents: number; dias: number }[],
+    aPagar: [] as { nome: string; descricao: string; mes: string; vencimento: string; valorCents: number; dias: number }[],
+    totalReceberCents: 0, totalPagarCents: 0, total: 0,
+  };
+  if (!db) return vazio;
+  const [receitas, despesas, clientes] = await Promise.all([
+    db.select().from(financePnlEntries).where(and(RECEITA_TIPOS, eq(financePnlEntries.status, "pendente"), isNotNull(financePnlEntries.vencimento), lt(financePnlEntries.vencimento, hoje))),
+    db.select().from(financePnlEntries).where(and(DESPESA_TIPOS, eq(financePnlEntries.status, "pendente"), isNotNull(financePnlEntries.vencimento), lt(financePnlEntries.vencimento, hoje))),
+    db.select().from(financeClientes),
+  ]);
+  const cmap = new Map(clientes.map((c) => [c.id, c]));
+  const dias = (venc: string) => Math.round((Date.parse(`${hoje}T00:00:00Z`) - Date.parse(`${venc}T00:00:00Z`)) / 86400000);
+  const mapear = (rows: typeof receitas, nomeDe: (r: (typeof receitas)[number]) => string) => rows
+    .map((r) => ({ nome: nomeDe(r), descricao: r.descricao, mes: r.mes, vencimento: r.vencimento as string, valorCents: r.valorCents, dias: dias(r.vencimento as string) }))
+    .sort((a, b) => b.dias - a.dias || b.valorCents - a.valorCents);
+
+  const aReceber = mapear(receitas, (r) => (r.clienteId ? cmap.get(r.clienteId)?.nome ?? "—" : r.descricao));
+  const aPagar = mapear(despesas, (r) => r.descricao);
+  const totalReceber = aReceber.reduce((s, x) => s + x.valorCents, 0);
+  const totalPagar = aPagar.reduce((s, x) => s + x.valorCents, 0);
+  return { hoje, aReceber, aPagar, totalReceberCents: totalReceber, totalPagarCents: totalPagar, total: aReceber.length + aPagar.length };
 }

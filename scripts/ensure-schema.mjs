@@ -389,6 +389,65 @@ async function main() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · finance_meses_fechados garantida");
 
+    // 15) Sistema de notificações (Performance + Financeiro) — tudo aditivo.
+    // alerts.accountId precisa aceitar NULL: notificação financeira não tem conta de mídia.
+    const [accNull] = await conn.query(
+      "SELECT IS_NULLABLE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'alerts' AND column_name = 'accountId'",
+    );
+    if (accNull.length && accNull[0].IS_NULLABLE === "NO") {
+      await conn.query("ALTER TABLE `alerts` MODIFY COLUMN `accountId` INT NULL");
+      console.log("[ensure-schema] ok  · alerts.accountId agora nullable");
+    }
+    const alertCols = [
+      { name: "dominio", ddl: "ADD COLUMN `dominio` ENUM('PERFORMANCE','FINANCEIRO') NOT NULL DEFAULT 'PERFORMANCE'" },
+      { name: "dedupKey", ddl: "ADD COLUMN `dedupKey` VARCHAR(180) NULL" },
+    ];
+    for (const c of alertCols) {
+      if (!(await columnExists(conn, "alerts", c.name))) {
+        await conn.query(`ALTER TABLE \`alerts\` ${c.ddl}`);
+        console.log(`[ensure-schema] ok  · alerts.${c.name} adicionada`);
+      }
+    }
+    // Novos valores do enum alerts.type (MODIFY é idempotente: reescreve a lista completa).
+    const [typeCol] = await conn.query(
+      "SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'alerts' AND column_name = 'type'",
+    );
+    if (typeCol.length && !String(typeCol[0].COLUMN_TYPE).includes("FINANCE_OVERDUE")) {
+      await conn.query(
+        "ALTER TABLE `alerts` MODIFY COLUMN `type` ENUM('ANOMALY','REPORT','SYNC_ERROR','BUDGET_WARNING','CAMPAIGN_PAUSED','PAYMENT_FAILED','AD_REJECTED','AD_ERROR','PAGE_UNLINKED','INSTAGRAM_UNLINKED','PIXEL_ERROR','ADSET_NO_DELIVERY','SUGGESTION_APPLIED','EXPERIMENT_UPDATE','SYNC_COMPLETE','DAILY_BRIEFING','WEEKLY_REPORT','FINANCE_OVERDUE') NOT NULL",
+      );
+      console.log("[ensure-schema] ok  · alerts.type expandido (DAILY_BRIEFING/WEEKLY_REPORT/FINANCE_OVERDUE)");
+    }
+    // Índices de leitura do sino/AlertsPage (a tabela não tinha nenhum além da PK).
+    for (const idx of [
+      { name: "idx_alerts_user_read", cols: "`userId`, `isRead`" },
+      { name: "idx_alerts_dominio", cols: "`dominio`" },
+      { name: "idx_alerts_dedup", cols: "`dedupKey`" },
+      { name: "idx_alerts_created", cols: "`createdAt`" },
+    ]) {
+      const [ix] = await conn.query(
+        "SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'alerts' AND index_name = ? LIMIT 1",
+        [idx.name],
+      );
+      if (ix.length === 0) {
+        await conn.query(`ALTER TABLE \`alerts\` ADD INDEX \`${idx.name}\` (${idx.cols})`);
+        console.log(`[ensure-schema] ok  · alerts.${idx.name} criado`);
+      }
+    }
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`notification_prefs\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`userId\` INT NOT NULL,
+        \`tipo\` VARCHAR(40) NOT NULL,
+        \`inApp\` BOOLEAN NOT NULL DEFAULT TRUE,
+        \`email\` BOOLEAN NOT NULL DEFAULT FALSE,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uq_notif_pref_user_tipo\` (\`userId\`, \`tipo\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · notification_prefs garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

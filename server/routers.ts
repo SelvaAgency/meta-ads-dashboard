@@ -277,6 +277,8 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
+import { getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref } from "./db";
+import { notifTiposFor, notifTipoDef } from "../shared/notifications";
 
 // ─── Helper: computeNextRun ─────────────────────────────────────────────────
 /** Calcula o próximo disparo de um agendamento de relatório. */
@@ -1775,6 +1777,25 @@ export const appRouter = router({
   // ─── Dashboard ─────────────────────────────────────────────────────────────
 
   notifications: router({
+    // Preferências por (tipo × canal). Retorna o catálogo já resolvido com o que
+    // o usuário gravou — o front não precisa saber dos defaults.
+    prefs: protectedProcedure.query(async ({ ctx }) => {
+      const salvos = await getNotificationPrefs(ctx.user.id);
+      const pmap = new Map(salvos.map((p) => [p.tipo, p]));
+      return notifTiposFor(ctx.user.role).map((t) => {
+        const p = pmap.get(t.v);
+        return { tipo: t.v, dominio: t.dominio, label: t.label, desc: t.desc, inApp: p?.inApp ?? t.inApp, email: p?.email ?? t.email };
+      });
+    }),
+    setPref: protectedProcedure
+      .input(z.object({ tipo: z.string().max(40), inApp: z.boolean().optional(), email: z.boolean().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const def = notifTipoDef(input.tipo);
+        if (!def) throw new TRPCError({ code: "BAD_REQUEST", message: "Tipo de notificação desconhecido." });
+        if (def.adminOnly && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Sem acesso a notificações financeiras." });
+        await upsertNotificationPref(ctx.user.id, input.tipo, { inApp: input.inApp, email: input.email });
+        return { success: true } as const;
+      }),
     get: protectedProcedure
       .query(async ({ ctx }) => {
         return getNotificationSettings(ctx.user.id);
@@ -2675,8 +2696,22 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
       return getUrgentAlertsForUser(ctx.user.id);
     }),
 
-    listAll: protectedProcedure.query(async ({ ctx }) => {
-      return getAllAlertsForUser(ctx.user.id);
+    listAll: protectedProcedure
+      .input(z.object({
+        dominio: z.enum(["PERFORMANCE", "FINANCEIRO"]).optional(),
+        status: z.enum(["nova", "lida"]).optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        // Financeiro é admin-only: um não-admin pedindo esse domínio recebe vazio,
+        // e sem filtro ele nunca vê financeiro (não há linha dele — o fan-out do
+        // cron só cria para admin). O guard aqui é a segunda barreira.
+        if (input?.dominio === "FINANCEIRO" && ctx.user.role !== "admin") return [];
+        return getAllAlertsForUser(ctx.user.id, 200, input ?? undefined);
+      }),
+
+    unreadByDominio: protectedProcedure.query(async ({ ctx }) => {
+      const c = await getUnreadCountByDominio(ctx.user.id);
+      return ctx.user.role === "admin" ? c : { ...c, FINANCEIRO: 0 };
     }),
 
     // unreadCount filtered by account for sidebar badge
@@ -2697,13 +2732,12 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
       }),
 
     markAllRead: protectedProcedure
-      .input(z.object({ accountId: z.number().optional() }))
+      .input(z.object({ accountId: z.number().optional(), dominio: z.enum(["PERFORMANCE", "FINANCEIRO"]).optional() }))
       .mutation(async ({ ctx, input }) => {
         if (input.accountId) {
-          // Only delete alerts for this specific account
           await markAllAlertsReadByAccount(ctx.user.id, input.accountId);
         } else {
-          await markAllAlertsRead(ctx.user.id);
+          await markAllAlertsRead(ctx.user.id, input.dominio);
         }
         return { success: true };
       }),

@@ -363,7 +363,8 @@ export type InsertScheduledReport = typeof scheduledReports.$inferInsert;
 export const alerts = mysqlTable("alerts", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
-  accountId: int("accountId").notNull(),
+  // NULL para notificação sem conta de mídia (ex.: domínio FINANCEIRO).
+  accountId: int("accountId"),
   anomalyId: int("anomalyId"),
   title: varchar("title", { length: 255 }).notNull(),
   message: text("message").notNull(),
@@ -383,6 +384,10 @@ export const alerts = mysqlTable("alerts", {
     "SUGGESTION_APPLIED",
     "EXPERIMENT_UPDATE",
     "SYNC_COMPLETE",
+    // Sistema de notificações: relatórios e financeiro.
+    "DAILY_BRIEFING",
+    "WEEKLY_REPORT",
+    "FINANCE_OVERDUE",
   ]).notNull(),
   severity: mysqlEnum("severity", ["INFO", "WARNING", "CRITICAL"]).notNull(),
   // Prioridade do alerta: CRITICAL=imediato, HIGH=até 30min, MEDIUM=consolidado a cada 2h
@@ -396,8 +401,16 @@ export const alerts = mysqlTable("alerts", {
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   // Controle de envio de email: null = ainda não enviado, data = já enviado (enviar apenas uma vez)
   emailSentAt: timestamp("emailSentAt"),
+  // Sistema de notificações: eixo de produto + dedup por (tipo, referência, dia).
+  dominio: mysqlEnum("dominio", ["PERFORMANCE", "FINANCEIRO"]).default("PERFORMANCE").notNull(),
+  dedupKey: varchar("dedupKey", { length: 180 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserRead: index("idx_alerts_user_read").on(table.userId, table.isRead),
+  idxDominio: index("idx_alerts_dominio").on(table.dominio),
+  idxDedup: index("idx_alerts_dedup").on(table.dedupKey),
+  idxCreated: index("idx_alerts_created").on(table.createdAt),
+}));
 export type Alert = typeof alerts.$inferSelect;
 export type InsertAlert = typeof alerts.$inferInsert;
 
@@ -572,6 +585,25 @@ export const notificationSettings = mysqlTable("notification_settings", {
 });
 export type NotificationSettings = typeof notificationSettings.$inferSelect;
 export type InsertNotificationSettings = typeof notificationSettings.$inferInsert;
+
+/**
+ * Preferência de notificação por (usuário × tipo × canal). Tipo é o eixo de
+ * produto de shared/notifications.ts (NOTIF_TIPOS), não o alerts.type técnico.
+ * Ausência de linha = usa o default do catálogo — só gravamos o que foi mexido.
+ */
+export const notificationPrefs = mysqlTable("notification_prefs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  tipo: varchar("tipo", { length: 40 }).notNull(),
+  inApp: boolean("inApp").default(true).notNull(),
+  email: boolean("email").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqUserTipo: uniqueIndex("uq_notif_pref_user_tipo").on(table.userId, table.tipo),
+}));
+export type NotificationPref = typeof notificationPrefs.$inferSelect;
+export type InsertNotificationPref = typeof notificationPrefs.$inferInsert;
 
 
 // ─── Account Context (memória por conta) ─────────────────────────────────────

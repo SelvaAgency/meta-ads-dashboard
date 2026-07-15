@@ -90,10 +90,15 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   const [showAdminModal, setShowAdminModal] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  const { data: recentAlerts, isLoading: notifLoading } = trpc.alerts.listAll.useQuery(undefined, {
-    enabled: isAuthenticated && notifOpen,
-    refetchInterval: notifOpen ? 15000 : false,
+  const [notifDominio, setNotifDominio] = useState<"PERFORMANCE" | "FINANCEIRO" | null>(null);
+  const { data: notifPorDominio } = trpc.alerts.unreadByDominio.useQuery(undefined, {
+    enabled: isAuthenticated, refetchInterval: 30000,
   });
+  // status:"nova" é obrigatório agora: com soft-read a lida continua na tabela.
+  const { data: recentAlerts, isLoading: notifLoading } = trpc.alerts.listAll.useQuery(
+    { status: "nova", ...(notifDominio ? { dominio: notifDominio } : {}) },
+    { enabled: isAuthenticated && notifOpen, refetchInterval: notifOpen ? 15000 : false },
+  );
 
   useEffect(() => {
     if (!notifOpen) return;
@@ -564,6 +569,20 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                         Ver tudo
                       </span>
                     </Link>
+                  </div>
+                  {/* Filtro por domínio — Financeiro só aparece quando existe (admin). */}
+                  <div className="px-3 py-2 border-b border-border flex items-center gap-1.5">
+                    {([[null, "Todos"], ["PERFORMANCE", "Performance"], ["FINANCEIRO", "Financeiro"]] as const)
+                      .filter(([v]) => v !== "FINANCEIRO" || (notifPorDominio?.FINANCEIRO ?? 0) > 0 || notifDominio === "FINANCEIRO")
+                      .map(([v, lbl]) => {
+                        const n = v === "PERFORMANCE" ? notifPorDominio?.PERFORMANCE ?? 0 : v === "FINANCEIRO" ? notifPorDominio?.FINANCEIRO ?? 0 : 0;
+                        return (
+                          <button key={String(v)} onClick={() => setNotifDominio(v)}
+                            className={`px-2 py-0.5 rounded-full text-[11px] border transition ${notifDominio === v ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground hover:text-foreground"}`}>
+                            {lbl}{n > 0 ? ` · ${n}` : ""}
+                          </button>
+                        );
+                      })}
                   </div>
 
                   <div className="max-h-96 overflow-y-auto">

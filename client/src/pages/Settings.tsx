@@ -453,6 +453,57 @@ function TokenSection() {
   );
 }
 
+// ─── Preferências de notificação (tipo × canal) ───────────────────────────────
+// Cada usuário escolhe o que recebe e por onde. O backend resolve os defaults do
+// catálogo — aqui só mostramos o que veio pronto. Financeiro só chega p/ admin.
+function NotifPrefsSection() {
+  const utils = trpc.useUtils();
+  const { data: prefs, isLoading } = trpc.notifications.prefs.useQuery();
+  const setPref = trpc.notifications.setPref.useMutation({
+    onSuccess: () => utils.notifications.prefs.invalidate(),
+    onError: (e) => toast.error(e.message),
+  });
+  const emailOn = !!(prefs ?? []).length;
+  if (isLoading) return <div className="text-sm text-muted-foreground">Carregando...</div>;
+  if (!emailOn) return null;
+
+  const Toggle = ({ on, onClick }: { on: boolean; onClick: () => void }) => (
+    <button onClick={onClick} className={`relative rounded-full transition-colors flex-shrink-0 ${on ? "bg-primary" : "bg-muted-foreground/30"}`} style={{ height: "18px", width: "32px" }}>
+      <span className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-all ${on ? "left-[14px]" : "left-0.5"}`} />
+    </button>
+  );
+
+  const dominios = ["PERFORMANCE", "FINANCEIRO"] as const;
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden mb-4">
+      <div className="flex items-center gap-4 px-4 py-2 border-b border-border/50 bg-muted/30">
+        <p className="text-[11px] text-muted-foreground font-medium flex-1">O que você recebe</p>
+        <span className="text-[11px] text-muted-foreground w-12 text-center">No app</span>
+        <span className="text-[11px] text-muted-foreground w-12 text-center">Email</span>
+      </div>
+      {dominios.map((dom) => {
+        const linhas = (prefs ?? []).filter((p) => p.dominio === dom);
+        if (linhas.length === 0) return null;
+        return (
+          <div key={dom}>
+            <p className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{dom === "PERFORMANCE" ? "Performance" : "Financeiro"}</p>
+            {linhas.map((p) => (
+              <div key={p.tipo} className="flex items-center gap-4 p-4 border-b border-border/50 last:border-b-0">
+                <div className="flex-1">
+                  <p className="text-sm text-foreground">{p.label}</p>
+                  <p className="text-xs text-muted-foreground">{p.desc}</p>
+                </div>
+                <div className="w-12 flex justify-center"><Toggle on={p.inApp} onClick={() => setPref.mutate({ tipo: p.tipo, inApp: !p.inApp })} /></div>
+                <div className="w-12 flex justify-center"><Toggle on={p.email} onClick={() => setPref.mutate({ tipo: p.tipo, email: !p.email })} /></div>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Notifications section ────────────────────────────────────────────────────
 function NotificationsSection() {
   const utils = trpc.useUtils();
@@ -763,6 +814,7 @@ export default function Settings() {
             <Bell className="w-3.5 h-3.5 text-muted-foreground" />
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Alertas e notificações</h2>
           </div>
+          <NotifPrefsSection />
           <NotificationsSection />
         </section>
 

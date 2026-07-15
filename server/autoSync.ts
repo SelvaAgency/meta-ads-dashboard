@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, type AnomaliaNotif } from "./notificationJobs";
 /**
  * autoSync.ts — Cron job para sincronização automática diária de todas as contas Meta Ads.
  *
@@ -71,7 +72,7 @@ import {
   checkRealTimeAlerts,
   validateToken,
 } from "./metaAdsService";
-import { generateAgencyReport } from "./analysisService";
+import { detectAnomalies, generateAgencyReport } from "./analysisService";
 import type { CampaignReportData } from "./analysisService";
 
 const SYNC_DAYS = 30; // Always sync 30 days to ensure complete data for all dashboard filters
@@ -400,6 +401,105 @@ function aggregateCampaignRows(rows: Awaited<ReturnType<typeof getCampaignPerfor
     impressions: totals.impressions,
     frequency: 0,
   };
+}
+
+/**
+ * Anomalias de mídia (Ajustes: notificações). Antes, detectAnomalies só rodava
+ * quando alguém apertava o botão no front — o caminho automático nunca a usava.
+ * Aqui ela roda no ciclo diário, com as três janelas calculadas de verdade
+ * (7/14/30): a validação multi-período do detector exige 2 de 3 confirmando, e
+ * passar a mesma média nas três (como faz o caller do front) desliga esse filtro.
+ */
+async function runAnomaliasDeMidia() {
+  const accounts = await getAllActiveMetaAdAccounts();
+  if (accounts.length === 0) return;
+  const dia = (d: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() - d * 86400000));
+  const hoje = dia(0), ontem = dia(1);
+  const achadas: AnomaliaNotif[] = [];
+
+  for (const account of accounts) {
+    try {
+      const janela = async (dias: number) => {
+        const rows = await getAccountMetricsSummary(account.id, dia(dias), ontem);
+        if (rows.length === 0) return null;
+        const n = rows.length;
+        const somaR = rows.reduce((a, m) => ({
+          roas: a.roas + Number(m.avgRoas ?? 0), cpa: a.cpa + Number(m.avgCpa ?? 0), ctr: a.ctr + Number(m.avgCtr ?? 0),
+          spend: a.spend + Number(m.totalSpend ?? 0), impressions: a.impressions + Number(m.totalImpressions ?? 0),
+          conversions: a.conversions + Number(m.totalConversions ?? 0),
+        }), { roas: 0, cpa: 0, ctr: 0, spend: 0, impressions: 0, conversions: 0 });
+        return { roas: somaR.roas / n, cpa: somaR.cpa / n, ctr: somaR.ctr / n, spend: somaR.spend / n, impressions: somaR.impressions / n, conversions: somaR.conversions / n };
+      };
+      const atualRows = await getAccountMetricsSummary(account.id, ontem, hoje);
+      if (atualRows.length === 0) continue;
+      const r = atualRows[atualRows.length - 1];
+      const atual = {
+        roas: Number(r.avgRoas ?? 0), cpa: Number(r.avgCpa ?? 0), ctr: Number(r.avgCtr ?? 0),
+        spend: Number(r.totalSpend ?? 0), impressions: Number(r.totalImpressions ?? 0), conversions: Number(r.totalConversions ?? 0), frequency: 0,
+      };
+      const [a7, a14, a30] = await Promise.all([janela(7), janela(14), janela(30)]);
+      if (!a7 || !a14 || !a30) continue;
+      // Menos de 30 dias de série = thresholds dobrados no detector.
+      const hist = await getAccountMetricsSummary(account.id, dia(30), hoje);
+      const anomalias = detectAnomalies(atual, a7, a14, a30, { hasLimitedHistory: hist.length < 14 });
+      for (const an of anomalias) {
+        achadas.push({
+          accountId: account.id, accountName: account.accountName ?? account.accountId,
+          type: an.type, severity: an.severity, title: an.title, description: an.description,
+        });
+      }
+    } catch (err) {
+      logger.error(`[Anomalias] Falha na conta ${account.accountId}: ${(err as Error)?.message}`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  if (achadas.length > 0) await runAnomaliasNotif(achadas);
+  logger.info(`[Anomalias] Ciclo completo — ${achadas.length} anomalia(s) em ${accounts.length} conta(s).`);
+}
+
+/**
+ * Notificações do dia: financeiro (atrasos) + briefing + semanal (segunda).
+ * Idempotente por dedup — reexecutar não duplica.
+ */
+async function runNotificacoesDiarias() {
+  try {
+    await runFinanceAtrasos();
+  } catch (err) { logger.error(`[Notif] Financeiro falhou: ${(err as Error)?.message}`); }
+  try {
+    await runBriefingDiario(async () => null);
+  } catch (err) { logger.error(`[Notif] Briefing falhou: ${(err as Error)?.message}`); }
+  try {
+    const diaSemana = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", weekday: "short" }).format(new Date()) === "Mon");
+    if (diaSemana === 1) await runRelatorioSemanalDeContas();
+  } catch (err) { logger.error(`[Notif] Semanal falhou: ${(err as Error)?.message}`); }
+}
+
+/** Relatório semanal consolidado por conta — com métricas reais (não zeros). */
+async function runRelatorioSemanalDeContas() {
+  const accounts = await getAllActiveMetaAdAccounts();
+  if (accounts.length === 0) return;
+  const fmt = (d: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() - d * 86400000));
+  const inicio = fmt(7), fim = fmt(0);
+  const blocos: string[] = [];
+  for (const account of accounts) {
+    // Métricas REAIS (getCampaignPerformanceSummary) — o cron antigo montava
+    // CampaignReportData com spend/impressions/conversions zerados e mandava
+    // isso pro LLM, gerando relatório agendado falso.
+    const dados = await getCampaignPerformanceSummary(account.id, inicio, fim).catch(() => []);
+    if (dados.length === 0) continue;
+    const campaigns: CampaignReportData[] = dados.map((c) => ({
+      campaignId: c.campaignId, campaignName: c.campaignName ?? "Campanha",
+      campaignObjective: c.campaignObjective ?? "OUTCOME_SALES", campaignStatus: c.campaignStatus ?? "ACTIVE",
+      totalSpend: Number(c.totalSpend ?? 0), totalImpressions: Number(c.totalImpressions ?? 0),
+      totalClicks: Number(c.totalClicks ?? 0), totalConversions: Number(c.totalConversions ?? 0),
+      totalConversionValue: Number(c.totalConversionValue ?? 0), totalReach: Number(c.totalReach ?? 0),
+      avgRoas: Number(c.avgRoas ?? 0), avgCpa: Number(c.avgCpa ?? 0), avgCtr: Number(c.avgCtr ?? 0),
+      avgCpc: Number(c.avgCpc ?? 0), avgCpm: Number(c.avgCpm ?? 0), avgFrequency: Number(c.avgFrequency ?? 0),
+    }));
+    const txt = await generateAgencyReport(account.accountName ?? account.accountId, "WEEKLY", campaigns, inicio, fim).catch(() => "");
+    if (txt) blocos.push(txt);
+  }
+  if (blocos.length > 0) await runRelatorioSemanal(blocos.join("\n\n———\n\n"));
 }
 
 async function runAnomalyDetection() {
@@ -931,6 +1031,12 @@ export async function startAutoSync() {
 
   // Daily technical alerts check at 08:55 UTC (05:55 BRT) — runs 5min before the main sync
   cron.schedule("0 55 8 * * *", runAnomalyDetection);
+
+  // Anomalias de mídia (09:20 UTC) — depois do sync das 09:00.
+  cron.schedule("0 20 9 * * *", runAnomaliasDeMidia);
+
+  // Notificações do dia: financeiro + briefing + semanal (09:25 UTC).
+  cron.schedule("0 25 9 * * *", runNotificacoesDiarias);
 
   // Daily cleanup of old read anomalies (09:05 UTC)
   cron.schedule("0 5 9 * * *", async () => {

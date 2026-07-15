@@ -69,6 +69,42 @@ async function expectAllowed(label: string): Promise<boolean> {
   }
 }
 
+/**
+ * Muro do domínio FINANCEIRO no sistema de notificações: não-admin não lista
+ * notificação financeira nem consegue configurar o tipo financeiro.
+ */
+async function expectNotifWall(): Promise<boolean> {
+  let ok = true;
+  for (const role of ["user", "developer"] as const) {
+    const caller = appRouter.createCaller(ctxWith(role));
+    const rows = await caller.alerts.listAll({ dominio: "FINANCEIRO" });
+    const vazio = Array.isArray(rows) && rows.length === 0;
+    console.log(`  ${vazio ? "✓" : "✗"} role ${role} · alerts.listAll(FINANCEIRO): ${vazio ? "vazio" : `VAZOU ${rows.length} linha(s) — FALHA`}`);
+    if (!vazio) ok = false;
+
+    const c = await caller.alerts.unreadByDominio();
+    const zerado = c.FINANCEIRO === 0;
+    console.log(`  ${zerado ? "✓" : "✗"} role ${role} · alerts.unreadByDominio: FINANCEIRO=${c.FINANCEIRO}${zerado ? "" : " — FALHA"}`);
+    if (!zerado) ok = false;
+
+    try {
+      await caller.notifications.setPref({ tipo: "FINANCE_ATRASO", email: true });
+      console.log(`  ✗ role ${role} · notifications.setPref(FINANCE_ATRASO): NÃO bloqueou — FALHA`);
+      ok = false;
+    } catch (e: any) {
+      const good = e?.code === "FORBIDDEN";
+      console.log(`  ${good ? "✓" : "✗"} role ${role} · notifications.setPref(FINANCE_ATRASO): bloqueado (${e?.code})`);
+      if (!good) ok = false;
+    }
+
+    const prefs = await caller.notifications.prefs();
+    const semFin = !prefs.some((p) => p.dominio === "FINANCEIRO");
+    console.log(`  ${semFin ? "✓" : "✗"} role ${role} · notifications.prefs: ${semFin ? "sem tipos financeiros" : "EXPÔS tipo financeiro — FALHA"}`);
+    if (!semFin) ok = false;
+  }
+  return ok;
+}
+
 async function main() {
   console.log("Teste de acesso — finance.pnl.list\n");
   const results = [
@@ -77,6 +113,8 @@ async function main() {
     await expectBlocked("sem sessão (não autenticado)", null),
     await expectAllowed("role admin"),
   ];
+  console.log("\nMuro do domínio FINANCEIRO (notificações):");
+  results.push(await expectNotifWall());
   const passed = results.every(Boolean);
   console.log(`\n=== ${passed ? "TODOS PASSARAM" : "FALHOU"} (${results.filter(Boolean).length}/${results.length}) ===`);
   process.exit(passed ? 0 : 1);
