@@ -1013,29 +1013,37 @@ Seja objetivo. Não invente dados. Se os resultados são inconclusivos, diga iss
   }
 }
 
+/**
+ * Fuso EXPLÍCITO em todo agendamento. Antes nenhum declarava, e os horários só
+ * batiam porque o container roda em UTC por acaso: bastaria alguém definir TZ no
+ * Railway para tudo deslocar 3h em silêncio. Agora os horários abaixo são o que
+ * está escrito — horário de Brasília.
+ */
+const TZ = { timezone: "America/Sao_Paulo" } as const;
+
 export async function startAutoSync() {
   logger.info("[AutoSync] Initializing auto-sync service...");
 
   // Daily sync at 09:00 UTC (06:00 Brasília)
-  cron.schedule("0 0 9 * * *", runAutoSync);
+  cron.schedule("0 0 6 * * *", runAutoSync, TZ);
 
   // Daily Meta Ads report email at 09:03 UTC (06:03 BRT) — offset from sync to avoid overlap
-  cron.schedule("0 3 9 * * *", runDailyReport);
+  cron.schedule("0 3 6 * * *", runDailyReport, TZ);
 
   // Daily development progress report at 23:00 UTC (20:00 BRT)
-  cron.schedule("0 0 23 * * *", runDailyProgress);
+  cron.schedule("0 0 20 * * *", runDailyProgress, TZ);
 
   // Daily technical alerts check at 08:55 UTC (05:55 BRT) — runs 5min before the main sync
-  cron.schedule("0 55 8 * * *", runAnomalyDetection);
+  cron.schedule("0 55 5 * * *", runAnomalyDetection, TZ);
 
   // Anomalias de mídia (09:20 UTC) — depois do sync das 09:00.
-  cron.schedule("0 20 9 * * *", runAnomaliasDeMidia);
+  cron.schedule("0 20 9 * * *", runAnomaliasDeMidia, TZ);
 
   // Notificações do dia: financeiro + briefing + semanal (09:25 UTC).
-  cron.schedule("0 25 9 * * *", runNotificacoesDiarias);
+  cron.schedule("0 25 9 * * *", runNotificacoesDiarias, TZ);
 
   // Daily cleanup of old read anomalies (09:05 UTC)
-  cron.schedule("0 5 9 * * *", async () => {
+  cron.schedule("0 5 6 * * *", async () => {
     try {
       const deleted = await purgeOldReadAnomalies();
       if (deleted > 0) {
@@ -1044,16 +1052,16 @@ export async function startAutoSync() {
     } catch (err) {
       console.error("[AutoSync] Error purging old anomalies:", err);
     }
-  });
+  }, TZ);
 
   // Polling fallback for scheduled reports (every 5 minutes)
-  cron.schedule("0 */5 * * * *", runScheduledReports);
+  cron.schedule("0 */5 * * * *", runScheduledReports); // a cada 5 min — fuso é irrelevante
 
   // Daily experiment checkpoint snapshots at 09:10 UTC
-  cron.schedule("0 10 9 * * *", runExperimentCheckpoints);
+  cron.schedule("0 10 6 * * *", runExperimentCheckpoints, TZ);
 
   // Daily action outcome closures at 09:15 UTC (06:15 BRT)
-  cron.schedule("0 15 9 * * *", runActionOutcomeClosures);
+  cron.schedule("0 15 6 * * *", runActionOutcomeClosures, TZ);
 
   // Run initial sync after a short delay to let the server warm up
   setTimeout(async () => {
