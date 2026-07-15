@@ -521,6 +521,48 @@ async function main() {
       console.log("[ensure-schema] ok  · comunicados.alvoFuncao adicionada");
     }
 
+    // 18) Microsoft Clarity por cliente. Token cifrado (AES-256-GCM), nunca em claro.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`client_clarity_settings\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`accountId\` INT NOT NULL,
+        \`enabled\` BOOLEAN NOT NULL DEFAULT FALSE,
+        \`projectId\` VARCHAR(64) NULL,
+        \`encryptedApiToken\` TEXT NULL,
+        \`domain\` VARCHAR(255) NULL,
+        \`importantUrlsJson\` JSON NULL,
+        \`notes\` TEXT NULL,
+        \`apiCallsDate\` VARCHAR(10) NULL,
+        \`apiCallsCount\` INT NOT NULL DEFAULT 0,
+        \`lastSyncAt\` TIMESTAMP NULL,
+        \`lastSyncStatus\` VARCHAR(16) NULL,
+        \`lastSyncError\` VARCHAR(255) NULL,
+        \`updatedByUserId\` INT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uq_clarity_account\` (\`accountId\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`client_clarity_snapshots\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`accountId\` INT NOT NULL,
+        \`dia\` VARCHAR(10) NOT NULL,
+        \`dias\` INT NOT NULL DEFAULT 1,
+        \`rangeStart\` TIMESTAMP NULL,
+        \`rangeEnd\` TIMESTAMP NULL,
+        \`metricsJson\` JSON NULL,
+        \`topPagesJson\` JSON NULL,
+        \`sourcesJson\` JSON NULL,
+        \`issuesJson\` JSON NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uq_clarity_snapshot\` (\`accountId\`, \`dia\`, \`dias\`),
+        KEY \`idx_clarity_snap_conta_dia\` (\`accountId\`, \`dia\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · client_clarity_settings / client_clarity_snapshots garantidas");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

@@ -19,6 +19,7 @@ import {
   LogOut,
   Lightbulb,
   TrendingUp,
+  Activity,
   Settings,
   AlertTriangle,
   Info,
@@ -143,6 +144,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
     { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
+    { path: "/clarity", label: "Clarity", icon: Activity },
   ];
 
   // ── Loading / Auth guards ──────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { logger } from "./logger";
 import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, runDigestDiario, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
+import { runClaritySnapshots } from "./clarityJobs";
 /**
  * autoSync.ts — Cron job para sincronização automática diária de todas as contas Meta Ads.
  *
@@ -1035,6 +1036,10 @@ export async function startAutoSync() {
 
   // Daily technical alerts check at 08:55 UTC (05:55 BRT) — runs 5min before the main sync
   cron.schedule("0 55 5 * * *", runAnomalyDetection, TZ);
+
+  // Snapshot do Clarity (06:40 BRT). Cedo de propósito: a API só devolve os
+  // últimos 1–3 dias, então o dia não capturado se perde para sempre.
+  cron.schedule("0 40 6 * * *", runClaritySnapshots, TZ);
 
   // Anomalias de mídia (09:20 UTC) — depois do sync das 09:00.
   cron.schedule("0 20 9 * * *", runAnomaliasDeMidia, TZ);

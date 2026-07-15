@@ -277,7 +277,8 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
-import { getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks } from "./db";
+import { getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots } from "./db";
+import { sincronizarClarity } from "./clarityJobs";
 import { entregarComunicado } from "./notificationJobs";
 import { notifTiposFor, notifTipoDef, type EmailModo } from "../shared/notifications";
 
@@ -2780,6 +2781,53 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
       await saveDailyBriefing(ctx.user.id, today, content);
       return { content };
     }),
+  }),
+
+  // ─── Microsoft Clarity por cliente ──────────────────────────────────────────
+  clarity: router({
+    /**
+     * Config do cliente. Qualquer usuário logado LÊ (clientes são globais aqui),
+     * mas o token nunca sai do servidor — vai só `hasToken`.
+     */
+    settings: protectedProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(({ input }) => getClaritySettings(input.accountId)),
+
+    /** Configurar é de admin e developer (contentProcedure). */
+    upsert: contentProcedure
+      .input(z.object({
+        accountId: z.number().int(),
+        enabled: z.boolean().optional(),
+        projectId: z.string().max(64).nullable().optional(),
+        // undefined = não mexe no token; "" = apaga. O front nunca reenvia o atual.
+        apiToken: z.string().max(500).nullable().optional(),
+        domain: z.string().max(255).nullable().optional(),
+        importantUrls: z.array(z.string().max(500)).nullable().optional(),
+        notes: z.string().max(5000).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { accountId, ...v } = input;
+        try {
+          await upsertClaritySettings(accountId, v, ctx.user.id);
+          return { success: true } as const;
+        } catch (e) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+        }
+      }),
+
+    /** Último snapshot + série (o histórico que a API do Clarity não dá). */
+    ultimo: protectedProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(({ input }) => ultimoClaritySnapshot(input.accountId)),
+
+    serie: protectedProcedure
+      .input(z.object({ accountId: z.number().int(), limite: z.number().int().min(1).max(90).default(30) }))
+      .query(({ input }) => serieClaritySnapshots(input.accountId, input.limite)),
+
+    /** Sync manual — gasta até 3 das 10 requisições do dia. */
+    sync: contentProcedure
+      .input(z.object({ accountId: z.number().int(), dias: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1) }))
+      .mutation(({ input }) => sincronizarClarity(input.accountId, input.dias)),
   }),
 
   // ─── Alerts ───────────────────────────────────────────────────────────────────────────

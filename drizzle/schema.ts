@@ -184,6 +184,67 @@ export const clientCoordinators = mysqlTable("client_coordinators", {
 export type ClientCoordinator = typeof clientCoordinators.$inferSelect;
 export type InsertClientCoordinator = typeof clientCoordinators.$inferInsert;
 
+// ─── Microsoft Clarity por cliente ───────────────────────────────────────────
+// A API do Clarity (project-live-insights) tem limites duros que moldam este
+// desenho: só devolve os ÚLTIMOS 1–3 DIAS, aceita no máximo 10 requisições por
+// projeto por dia, e não recebe projectId — o TOKEN identifica o projeto.
+// Por isso: (a) o snapshot diário é a única forma de existir histórico;
+// (b) precisamos contar as requisições para não estourar a cota;
+// (c) projectId serve só para montar o link do dashboard do Clarity.
+
+export const clientClaritySettings = mysqlTable("client_clarity_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),          // → meta_ad_accounts.id
+  enabled: boolean("enabled").default(false).notNull(),
+  projectId: varchar("projectId", { length: 64 }), // só p/ deep-link no Clarity
+  // AES-256-GCM (mesmo esquema do Trello). NUNCA volta para o frontend.
+  encryptedApiToken: text("encryptedApiToken"),
+  domain: varchar("domain", { length: 255 }),
+  importantUrlsJson: json("importantUrlsJson"),
+  notes: text("notes"),
+  // Cota da API: 10 req/projeto/dia. Contamos para não estourar.
+  apiCallsDate: varchar("apiCallsDate", { length: 10 }),
+  apiCallsCount: int("apiCallsCount").default(0).notNull(),
+  // Diagnóstico do último sync (mensagem nunca contém token).
+  lastSyncAt: timestamp("lastSyncAt"),
+  lastSyncStatus: varchar("lastSyncStatus", { length: 16 }),
+  lastSyncError: varchar("lastSyncError", { length: 255 }),
+  updatedByUserId: int("updatedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqAccount: uniqueIndex("uq_clarity_account").on(table.accountId),
+}));
+export type ClientClaritySettings = typeof clientClaritySettings.$inferSelect;
+export type InsertClientClaritySettings = typeof clientClaritySettings.$inferInsert;
+
+/**
+ * Só métricas AGREGADAS. Nunca gravação, nunca dado pessoal — a API não devolve
+ * gravação e não queremos esse dado no nosso banco.
+ * Dedup por (accountId, dia, dias): re-sincronizar o mesmo dia ATUALIZA a linha
+ * em vez de criar outra. A janela da API é rolante (últimas 24h a partir da
+ * chamada), então rangeStart/rangeEnd ficam como registro do que foi lido.
+ */
+export const clientClaritySnapshots = mysqlTable("client_clarity_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  dia: varchar("dia", { length: 10 }).notNull(),   // dia local (America/Sao_Paulo)
+  dias: int("dias").default(1).notNull(),          // numOfDays usado (1|2|3)
+  rangeStart: timestamp("rangeStart"),
+  rangeEnd: timestamp("rangeEnd"),
+  metricsJson: json("metricsJson"),
+  topPagesJson: json("topPagesJson"),
+  sourcesJson: json("sourcesJson"),
+  issuesJson: json("issuesJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqSnapshot: uniqueIndex("uq_clarity_snapshot").on(table.accountId, table.dia, table.dias),
+  idxAccountDia: index("idx_clarity_snap_conta_dia").on(table.accountId, table.dia),
+}));
+export type ClientClaritySnapshot = typeof clientClaritySnapshots.$inferSelect;
+export type InsertClientClaritySnapshot = typeof clientClaritySnapshots.$inferInsert;
+
 // ─── Configurações simples (key-value) — ex.: slide "Você prefere?" da SELVA TV ─
 export const appSettings = mysqlTable("app_settings", {
   settingKey: varchar("settingKey", { length: 191 }).primaryKey(),

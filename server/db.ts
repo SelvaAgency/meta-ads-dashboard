@@ -1877,7 +1877,8 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, type InsertComunicado } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot } from "../drizzle/schema";
+import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta } from "../shared/notifications";
 
 export async function getAccountThresholds(accountId: number) {
@@ -3694,4 +3695,141 @@ export async function getNotificationRecipientsForClient(input: { accountId: num
 
   const coords = await coordenadoresDaConta(input.accountId);
   return Array.from(new Set([...porRole.map((r) => r.id), ...coords]));
+}
+
+// ─── Microsoft Clarity por cliente ───────────────────────────────────────────
+
+/** Config do Clarity SEM o token — é o que pode ir para o frontend. */
+export async function getClaritySettings(accountId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(clientClaritySettings)
+    .where(eq(clientClaritySettings.accountId, accountId)).limit(1);
+  const s = r[0];
+  if (!s) return null;
+  const { encryptedApiToken, ...resto } = s;
+  // hasToken em vez do token: o segredo nunca sai do servidor.
+  return { ...resto, hasToken: !!encryptedApiToken };
+}
+
+/** Token em claro — uso EXCLUSIVO do servidor (sync). Nunca exponha. */
+export async function getClarityToken(accountId: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select({ tok: clientClaritySettings.encryptedApiToken })
+    .from(clientClaritySettings).where(eq(clientClaritySettings.accountId, accountId)).limit(1);
+  const enc = r[0]?.tok;
+  if (!enc) return null;
+  try { return decryptSecret(enc); } catch { return null; }
+}
+
+export async function upsertClaritySettings(accountId: number, v: {
+  enabled?: boolean; projectId?: string | null; apiToken?: string | null;
+  domain?: string | null; importantUrls?: string[] | null; notes?: string | null;
+}, actorUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+
+  const conta = await db.select({ id: metaAdAccounts.id }).from(metaAdAccounts)
+    .where(eq(metaAdAccounts.id, accountId)).limit(1);
+  if (conta.length === 0) throw new Error("Cliente não encontrado.");
+
+  const patch: Record<string, unknown> = { updatedByUserId: actorUserId };
+  if (v.enabled !== undefined) patch.enabled = v.enabled;
+  if (v.projectId !== undefined) patch.projectId = v.projectId;
+  if (v.domain !== undefined) patch.domain = v.domain;
+  if (v.importantUrls !== undefined) patch.importantUrlsJson = v.importantUrls;
+  if (v.notes !== undefined) patch.notes = v.notes;
+  // apiToken "" ou null = apagar; undefined = não mexer (o front nunca reenvia o token).
+  if (v.apiToken !== undefined) {
+    if (!v.apiToken) patch.encryptedApiToken = null;
+    else {
+      if (!isEncryptionConfigured()) throw new Error("Criptografia não configurada — não é seguro guardar o token.");
+      patch.encryptedApiToken = encryptSecret(v.apiToken);
+    }
+  }
+  await db.insert(clientClaritySettings)
+    .values({ accountId, ...patch } as InsertClientClaritySettings)
+    .onDuplicateKeyUpdate({ set: patch });
+}
+
+/** Clientes com Clarity ligado e token — base do job diário. */
+export async function contasComClarity(): Promise<{ accountId: number; nome: string | null }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ accountId: clientClaritySettings.accountId, nome: metaAdAccounts.accountName })
+    .from(clientClaritySettings)
+    .innerJoin(metaAdAccounts, eq(clientClaritySettings.accountId, metaAdAccounts.id))
+    .where(and(
+      eq(clientClaritySettings.enabled, true),
+      isNotNull(clientClaritySettings.encryptedApiToken),
+      eq(metaAdAccounts.isActive, true),
+    ));
+  return rows;
+}
+
+/**
+ * Guarda da cota: a API permite 10 requisições por projeto por dia. Reservamos
+ * `precisa` antes de chamar; se não couber, nem tenta (evita o 429 e deixa o
+ * motivo claro para quem clicou em Sincronizar).
+ */
+export async function reservarCotaClarity(accountId: number, precisa: number, dia: string): Promise<{ ok: boolean; usadas: number }> {
+  const db = await getDb();
+  if (!db) return { ok: false, usadas: 0 };
+  const r = await db.select({ d: clientClaritySettings.apiCallsDate, n: clientClaritySettings.apiCallsCount })
+    .from(clientClaritySettings).where(eq(clientClaritySettings.accountId, accountId)).limit(1);
+  const mesmoDia = r[0]?.d === dia;
+  const usadas = mesmoDia ? (r[0]?.n ?? 0) : 0; // vira o dia → zera
+  if (usadas + precisa > 10) return { ok: false, usadas };
+  await db.update(clientClaritySettings)
+    .set({ apiCallsDate: dia, apiCallsCount: usadas + precisa })
+    .where(eq(clientClaritySettings.accountId, accountId));
+  return { ok: true, usadas: usadas + precisa };
+}
+
+/** Acerta o contador com o que foi realmente gasto (as chamadas de detalhe podem falhar). */
+export async function ajustarCotaClarity(accountId: number, reservado: number, gasto: number, dia: string) {
+  const db = await getDb();
+  if (!db || reservado === gasto) return;
+  const r = await db.select({ n: clientClaritySettings.apiCallsCount })
+    .from(clientClaritySettings).where(eq(clientClaritySettings.accountId, accountId)).limit(1);
+  const atual = r[0]?.n ?? 0;
+  await db.update(clientClaritySettings)
+    .set({ apiCallsDate: dia, apiCallsCount: Math.max(0, atual - (reservado - gasto)) })
+    .where(eq(clientClaritySettings.accountId, accountId));
+}
+
+export async function registrarSyncClarity(accountId: number, status: "ok" | "erro", erro?: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(clientClaritySettings).set({
+    lastSyncAt: new Date(), lastSyncStatus: status,
+    lastSyncError: status === "erro" ? (erro ?? "").slice(0, 255) : null,
+  }).where(eq(clientClaritySettings.accountId, accountId));
+}
+
+/** Upsert por (conta, dia, dias): re-sincronizar o mesmo dia atualiza a linha. */
+export async function salvarClaritySnapshot(s: InsertClientClaritySnapshot) {
+  const db = await getDb();
+  if (!db) return;
+  const { accountId, dia, dias, ...resto } = s;
+  await db.insert(clientClaritySnapshots).values(s).onDuplicateKeyUpdate({ set: resto });
+}
+
+export async function ultimoClaritySnapshot(accountId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(clientClaritySnapshots)
+    .where(eq(clientClaritySnapshots.accountId, accountId))
+    .orderBy(desc(clientClaritySnapshots.dia)).limit(1);
+  return r[0] ?? null;
+}
+
+/** Série de snapshots — a base do histórico que a API não dá. */
+export async function serieClaritySnapshots(accountId: number, limite = 30) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(clientClaritySnapshots)
+    .where(eq(clientClaritySnapshots.accountId, accountId))
+    .orderBy(desc(clientClaritySnapshots.dia)).limit(limite);
 }
