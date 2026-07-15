@@ -259,6 +259,7 @@ import {
   createFinanceProjeto,
   deleteFinanceProjeto,
   remarcarFinancePnl,
+  remarcarOficialFinancePnl,
   financePeriodoResumoRP,
   financePnlTrendRP,
   financeAReceberVenc,
@@ -616,6 +617,7 @@ const financeRouter = router({
     delete: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => { await deleteFinancePnl(input.id); return { success: true } as const; }),
     setStatus: adminProcedure.input(z.object({ id: z.number().int(), status: PNL_STATUS })).mutation(async ({ input }) => { await updateFinancePnl(input.id, { status: input.status }); return { success: true } as const; }),
     remarcar: adminProcedure.input(z.object({ id: z.number().int(), vencimento: DATA })).mutation(async ({ input }) => { await remarcarFinancePnl(input.id, input.vencimento); return { success: true } as const; }),
+    remarcarOficial: adminProcedure.input(z.object({ id: z.number().int(), vencimento: DATA })).mutation(async ({ input }) => { const r = await remarcarOficialFinancePnl(input.id, input.vencimento); return { success: true, ...r } as const; }),
   }),
 
   recorrencia: router({

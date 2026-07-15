@@ -36,6 +36,8 @@ async function expectBlocked(label: string, role: "user" | "developer" | null): 
     ["finance.despesasAtivos", () => caller.finance.despesasAtivos({ mes: "2026-07" })],
     ["finance.analytics.despesaPorFornecedor", () => caller.finance.analytics.despesaPorFornecedor(undefined)],
     ["finance.analytics.despesaPontualPorSub", () => caller.finance.analytics.despesaPontualPorSub(undefined)],
+    ["finance.pnl.remarcarOficial", () => caller.finance.pnl.remarcarOficial({ id: 1, vencimento: "2026-07-15" })],
+    ["finance.reconciliacao.acumulado", () => caller.finance.reconciliacao.acumulado()],
     ["finance.meses.list", () => caller.finance.meses.list()],
     ["finance.meses.fechar", () => caller.finance.meses.fechar({ mes: "2026-05" })],
     ["finance.meses.reabrir", () => caller.finance.meses.reabrir({ mes: "2026-05" })],

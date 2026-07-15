@@ -335,6 +335,11 @@ async function main() {
         console.log(`[ensure-schema] ok  · finance_pnl_entries.${c.name} adicionada`);
       }
     }
+    // Ajustes 4 — retirada conciliada (espelha finance_reembolsos.reembolsado).
+    if (!(await columnExists(conn, "finance_retiradas", "realizado"))) {
+      await conn.query("ALTER TABLE `finance_retiradas` ADD COLUMN `realizado` BOOLEAN NOT NULL DEFAULT FALSE");
+      console.log("[ensure-schema] ok  · finance_retiradas.realizado adicionada");
+    }
     // Índices de ledger (idempotente via checagem em information_schema.statistics).
     for (const idx of [{ name: "idx_pnl_vencimento", col: "vencimento" }, { name: "idx_pnl_origem", col: "origem" }]) {
       const [ix] = await conn.query(

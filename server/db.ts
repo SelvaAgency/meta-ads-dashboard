@@ -2220,20 +2220,21 @@ export async function reabrirMes(mes: string): Promise<{ mes: string }> {
  */
 export async function financeReconciliacao(mes: string) {
   const db = await getDb();
-  const empty = { mes, totalDespesasCents: 0, totalRetiradasCents: 0, diferencaCents: 0, reembolsaveis: [] as { descricao: string; valorCents: number }[], retiradasItens: [] as { descricao: string; valorCents: number }[] };
+  const empty = { mes, totalDespesasCents: 0, totalRetiradasCents: 0, diferencaCents: 0, reembolsaveis: [] as { descricao: string; valorCents: number; quitado: boolean }[], retiradasItens: [] as { descricao: string; valorCents: number; quitado: boolean }[] };
   if (!db) return empty;
   const [reembs, flagged, retirs] = await Promise.all([
     db.select().from(financeReembolsos).where(eq(financeReembolsos.mes, mes)),
     db.select().from(financePnlEntries).where(and(eq(financePnlEntries.mes, mes), eq(financePnlEntries.reembolsoPendente, true))),
     db.select().from(financeRetiradas).where(eq(financeRetiradas.mes, mes)),
   ]);
+  // Itens quitados (Ajustes 4) seguem listados como histórico, mas não entram nos totais.
   const reembolsaveis = [
-    ...reembs.map((r) => ({ descricao: r.descricao, valorCents: r.valorCents })),
-    ...flagged.map((r) => ({ descricao: r.descricao, valorCents: r.valorCents })),
+    ...reembs.map((r) => ({ descricao: r.descricao, valorCents: r.valorCents, quitado: !!r.reembolsado })),
+    ...flagged.map((r) => ({ descricao: r.descricao, valorCents: r.valorCents, quitado: false })),
   ];
-  const retiradasItens = retirs.map((r) => ({ descricao: r.descricao, valorCents: r.valorCents }));
-  const totalDespesas = reembolsaveis.reduce((s, r) => s + r.valorCents, 0);
-  const totalRetiradas = retiradasItens.reduce((s, r) => s + r.valorCents, 0);
+  const retiradasItens = retirs.map((r) => ({ descricao: r.descricao, valorCents: r.valorCents, quitado: !!r.realizado }));
+  const totalDespesas = reembolsaveis.reduce((s, r) => s + (r.quitado ? 0 : r.valorCents), 0);
+  const totalRetiradas = retiradasItens.reduce((s, r) => s + (r.quitado ? 0 : r.valorCents), 0);
   return { mes, totalDespesasCents: totalDespesas, totalRetiradasCents: totalRetiradas, diferencaCents: totalDespesas - totalRetiradas, reembolsaveis, retiradasItens };
 }
 /** Meses distintos (union das 3 tabelas) — popula seletores de mês no front. */
@@ -2316,10 +2317,11 @@ export async function financeReconciliacaoAcumulado() {
   const db = await getDb();
   const empty = { totalDespesasCents: 0, totalRetiradasCents: 0, diferencaCents: 0, porMes: [] as { mes: string; despesasCents: number; retiradasCents: number; diferencaCents: number }[] };
   if (!db) return empty;
+  // Só o que ainda está em aberto: quitados (Ajustes 4) saem da falta-receber.
   const [reembs, flagged, retirs] = await Promise.all([
-    db.select({ mes: financeReembolsos.mes, v: financeReembolsos.valorCents }).from(financeReembolsos),
+    db.select({ mes: financeReembolsos.mes, v: financeReembolsos.valorCents }).from(financeReembolsos).where(eq(financeReembolsos.reembolsado, false)),
     db.select({ mes: financePnlEntries.mes, v: financePnlEntries.valorCents }).from(financePnlEntries).where(eq(financePnlEntries.reembolsoPendente, true)),
-    db.select({ mes: financeRetiradas.mes, v: financeRetiradas.valorCents }).from(financeRetiradas),
+    db.select({ mes: financeRetiradas.mes, v: financeRetiradas.valorCents }).from(financeRetiradas).where(eq(financeRetiradas.realizado, false)),
   ]);
   const byMes = new Map<string, { despesas: number; retiradas: number }>();
   const bump = (mes: string, campo: "despesas" | "retiradas", v: number) => { if (!byMes.has(mes)) byMes.set(mes, { despesas: 0, retiradas: 0 }); byMes.get(mes)![campo] += v; };
@@ -2793,18 +2795,62 @@ export async function remarcarFinancePnl(id: number, vencimento: string) {
   await db.update(financePnlEntries).set(patch).where(eq(financePnlEntries.id, id));
 }
 
+/**
+ * Remarcar OFICIAL (Ajustes 4): além de mover a entry do mês, grava a nova data na
+ * definição da recorrência (diaVencimento + pós-pago), valendo para os meses gerados
+ * dali pra frente. Também realinha os meses futuros já gerados que estejam abertos e
+ * pendentes — nunca toca em mês passado, fechado ou lançamento já pago.
+ */
+export async function remarcarOficialFinancePnl(id: number, vencimento: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const before = await getFinancePnlById(id);
+  if (!before) throw new Error("Lançamento não encontrado");
+  if (!before.recorrenciaId) throw new Error("Este lançamento não vem de uma recorrência — use “Só este mês”.");
+  await remarcarFinancePnl(id, vencimento);
+
+  const dia = Number(vencimento.split("-")[2]);
+  const posPago = vencimento.slice(0, 7) > before.mes;
+  await db.update(financeRecorrencia)
+    .set({ diaVencimento: dia, vencimentoMesSeguinte: posPago })
+    .where(eq(financeRecorrencia.id, before.recorrenciaId));
+
+  // Futuros já gerados: só os abertos e pendentes.
+  const futuras = await db.select().from(financePnlEntries).where(and(
+    eq(financePnlEntries.recorrenciaId, before.recorrenciaId),
+    gt(financePnlEntries.mes, before.mes),
+    eq(financePnlEntries.status, "pendente"),
+  ));
+  const fechados = new Set(await listMesesFechados());
+  let realinhadas = 0;
+  for (const f of futuras) {
+    if (fechados.has(f.mes)) continue;
+    const vencMes = posPago ? addMonthsSrv(f.mes, 1) : f.mes;
+    const venc = `${vencMes}-${pad2s(clampDay(vencMes, dia))}`;
+    if (venc === f.vencimento) continue;
+    await db.update(financePnlEntries).set({ vencimento: venc }).where(eq(financePnlEntries.id, f.id));
+    realinhadas++;
+  }
+  return { realinhadas };
+}
+
 /** Resumo do período separando Realizado (pago) × Previsto (pendente). */
 export async function financePeriodoResumoRP(mesFrom: string, mesTo: string) {
   const db = await getDb();
-  const empty = { receitaRealizadaCents: 0, receitaPrevistaCents: 0, despesaRealizadaCents: 0, despesaPrevistaCents: 0, aporteCents: 0, receitaRecorrenteCents: 0, receitaPontualCents: 0 };
+  const empty = { receitaRealizadaCents: 0, receitaPrevistaCents: 0, despesaRealizadaCents: 0, despesaPrevistaCents: 0, aporteCents: 0, receitaRecorrenteCents: 0, receitaPontualCents: 0, despesaFolhaCents: 0, despesaImpostoCents: 0, despesaExtraCents: 0 };
   if (!db) return { ...empty, receitaTotalCents: 0, despesaTotalCents: 0, resultadoFinalCents: 0, resultadoRealizadoCents: 0, resultadoPrevistoCents: 0, totalPendenteCents: 0 };
   const rows = await db.select().from(financePnlEntries).where(and(gte(financePnlEntries.mes, mesFrom), lte(financePnlEntries.mes, mesTo)));
-  let rRec = 0, rPend = 0, dRec = 0, dPend = 0, aporte = 0, rec = 0, pon = 0;
+  let rRec = 0, rPend = 0, dRec = 0, dPend = 0, aporte = 0, rec = 0, pon = 0, dFolha = 0, dImposto = 0, dExtra = 0;
   for (const r of rows) {
     const receita = r.tipo === "RECEITA_RECORRENTE" || r.tipo === "RECEITA_PONTUAL";
     const despesa = r.tipo === "DESPESA_RECORRENTE" || r.tipo === "DESPESA_IMPOSTO" || r.tipo === "DESPESA_PONTUAL";
     if (receita) { if (r.status === "pago") rRec += r.valorCents; else rPend += r.valorCents; if (r.tipo === "RECEITA_RECORRENTE") rec += r.valorCents; else pon += r.valorCents; }
-    else if (despesa) { if (r.status === "pago") dRec += r.valorCents; else dPend += r.valorCents; }
+    else if (despesa) {
+      if (r.status === "pago") dRec += r.valorCents; else dPend += r.valorCents;
+      if (r.tipo === "DESPESA_RECORRENTE") dFolha += r.valorCents;
+      else if (r.tipo === "DESPESA_IMPOSTO") dImposto += r.valorCents;
+      else dExtra += r.valorCents;
+    }
     else if (r.tipo === "APORTE") aporte += r.valorCents;
   }
   const receitaTotal = rRec + rPend, despesaTotal = dRec + dPend;
@@ -2813,6 +2859,7 @@ export async function financePeriodoResumoRP(mesFrom: string, mesTo: string) {
     receitaTotalCents: receitaTotal, despesaTotalCents: despesaTotal, resultadoFinalCents: receitaTotal - despesaTotal,
     resultadoRealizadoCents: rRec - dRec, resultadoPrevistoCents: rPend - dPend,
     aporteCents: aporte, receitaRecorrenteCents: rec, receitaPontualCents: pon, totalPendenteCents: rPend + dPend,
+    despesaFolhaCents: dFolha, despesaImpostoCents: dImposto, despesaExtraCents: dExtra,
   };
 }
 

@@ -22,6 +22,7 @@
     "setup:vencimentos": "tsx server/setupVencimentosReceita.ts",
     "setup:ajustes3": "tsx server/setupAjustes3.ts",
     "setup:subcategorias": "tsx server/setupSubcategorias.ts",
+    "setup:fechar-passado": "tsx server/setupFecharPassado.ts",
     "test:finance-access": "tsx server/testFinanceAccess.ts",
     "users:export": "tsx scripts/export-users.ts",
     "users:audit": "tsx scripts/users-audit.ts"

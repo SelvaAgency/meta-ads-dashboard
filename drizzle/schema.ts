@@ -758,6 +758,9 @@ export const financeRetiradas = mysqlTable("finance_retiradas", {
   mes: varchar("mes", { length: 7 }).notNull(),
   descricao: varchar("descricao", { length: 120 }).notNull(),
   valorCents: int("valorCents").notNull(),
+  // Ajustes 4 — retirada já conciliada (não entra mais na falta-receber). Espelha
+  // finance_reembolsos.reembolsado: item quitado continua visível no histórico do mês.
+  realizado: boolean("realizado").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
