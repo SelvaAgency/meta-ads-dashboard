@@ -302,6 +302,26 @@ export const clientSiteReports = mysqlTable("client_site_reports", {
 export type ClientSiteReport = typeof clientSiteReports.$inferSelect;
 export type InsertClientSiteReport = typeof clientSiteReports.$inferInsert;
 
+/**
+ * Chat por cliente. O histórico é do CLIENTE, não da pessoa: o time inteiro vê
+ * o que já foi perguntado — pergunta repetida é sinal de que falta documentação.
+ * accountId é o muro: o contexto de um cliente nunca entra no chat de outro.
+ */
+export const clientChatMessages = mysqlTable("client_chat_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  userId: int("userId").notNull(),          // quem perguntou (também nas respostas)
+  role: mysqlEnum("role", ["user", "assistant"]).notNull(),
+  content: text("content").notNull(),
+  /** Fontes que a resposta teve à mão — o que sustenta a citação. */
+  fontesJson: json("fontesJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  idxConta: index("idx_chat_conta").on(table.accountId, table.createdAt),
+}));
+export type ClientChatMessage = typeof clientChatMessages.$inferSelect;
+export type InsertClientChatMessage = typeof clientChatMessages.$inferInsert;
+
 // ─── Configurações simples (key-value) — ex.: slide "Você prefere?" da SELVA TV ─
 export const appSettings = mysqlTable("app_settings", {
   settingKey: varchar("settingKey", { length: 191 }).primaryKey(),

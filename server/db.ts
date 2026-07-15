@@ -1877,7 +1877,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, clientContext, clientNotes, clientSiteReports, type InsertClientContext, type InsertClientSiteReport } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta } from "../shared/notifications";
 
@@ -3904,4 +3904,32 @@ export async function getSiteReport(id: number) {
   if (!db) return null;
   const r = await db.select().from(clientSiteReports).where(eq(clientSiteReports.id, id)).limit(1);
   return r[0] ?? null;
+}
+
+// ─── Chat por cliente ────────────────────────────────────────────────────────
+// Histórico do CLIENTE (o time todo vê), sempre escopado por accountId.
+
+export async function listChatMessages(accountId: number, limite = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    id: clientChatMessages.id, role: clientChatMessages.role, content: clientChatMessages.content,
+    createdAt: clientChatMessages.createdAt, userId: clientChatMessages.userId,
+    autorNome: users.name, fontesJson: clientChatMessages.fontesJson,
+  }).from(clientChatMessages).leftJoin(users, eq(clientChatMessages.userId, users.id))
+    .where(eq(clientChatMessages.accountId, accountId))
+    .orderBy(desc(clientChatMessages.createdAt)).limit(limite);
+  return rows.reverse(); // do mais antigo para o mais novo, como se lê uma conversa
+}
+
+export async function salvarChatMessage(m: InsertClientChatMessage) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(clientChatMessages).values(m);
+}
+
+export async function limparChat(accountId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(clientChatMessages).where(eq(clientChatMessages.accountId, accountId));
 }

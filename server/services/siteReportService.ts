@@ -52,7 +52,7 @@ const n2 = (n: number | null | undefined): number | null =>
   n === null || n === undefined || !Number.isFinite(Number(n)) ? null : Math.round(Number(n) * 100) / 100;
 
 /** Agrega a mídia paga do período. */
-async function agregarMidia(accountId: number, inicio: string, fim: string) {
+export async function agregarMidia(accountId: number, inicio: string, fim: string) {
   const rows = await getAccountMetricsSummary(accountId, inicio, fim);
   if (rows.length === 0) return null;
   const t = rows.reduce((a, r) => ({
@@ -74,7 +74,7 @@ async function agregarMidia(accountId: number, inicio: string, fim: string) {
 }
 
 /** Soma os snapshots do Clarity que caem dentro do período. */
-async function agregarClarity(accountId: number, inicio: string, fim: string) {
+export async function agregarClarity(accountId: number, inicio: string, fim: string) {
   const todos = await serieClaritySnapshots(accountId, 90);
   const dentro = todos.filter((s) => s.dia >= inicio && s.dia <= fim);
   if (dentro.length === 0) return null;

@@ -603,6 +603,19 @@ async function main() {
         KEY \`idx_site_reports_conta\` (\`accountId\`, \`createdAt\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · client_context / client_notes / client_site_reports garantidas");
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`client_chat_messages\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`accountId\` INT NOT NULL,
+        \`userId\` INT NOT NULL,
+        \`role\` ENUM('user','assistant') NOT NULL,
+        \`content\` TEXT NOT NULL,
+        \`fontesJson\` JSON NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_chat_conta\` (\`accountId\`, \`createdAt\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · client_chat_messages garantida");
 
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {

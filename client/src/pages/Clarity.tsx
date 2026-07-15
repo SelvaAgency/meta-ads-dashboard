@@ -16,7 +16,7 @@ import { useState } from "react";
 import {
   Activity, AlertTriangle, ExternalLink, Eye, Loader2, MousePointerClick,
   RefreshCw, Settings2, TrendingUp, Users, X, Clock, ArrowDownWideNarrow,
-  FileText, NotebookPen, Sparkles, Copy, Trash2, Check,
+  FileText, NotebookPen, Sparkles, Copy, Trash2, Check, MessageSquare, Send,
 } from "lucide-react";
 import { toast } from "sonner";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
@@ -49,7 +49,7 @@ export default function Clarity() {
   const { activeAccountId, activeAccount } = useActiveAccount();
   const utils = trpc.useUtils();
   const [config, setConfig] = useState(false);
-  const [aba, setAba] = useState<"site" | "contexto" | "relatorios">("site");
+  const [aba, setAba] = useState<"site" | "contexto" | "relatorios" | "chat">("site");
 
   const enabled = !!activeAccountId;
   const cfgQ = trpc.clarity.settings.useQuery({ accountId: activeAccountId! }, { enabled });
@@ -114,7 +114,7 @@ export default function Clarity() {
         </header>
 
         <div className="flex gap-1 border-b border-border">
-          {([["site", "Comportamento", Activity], ["contexto", "Contexto", NotebookPen], ["relatorios", "Relatórios", FileText]] as const).map(([v, lbl, Ic]) => (
+          {([["site", "Comportamento", Activity], ["contexto", "Contexto", NotebookPen], ["relatorios", "Relatórios", FileText], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
             <button key={v} onClick={() => setAba(v)}
               className={`px-4 py-2 text-sm transition border-b-2 -mb-px flex items-center gap-1.5 ${aba === v ? "border-accent text-accent font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
               <Ic className="w-3.5 h-3.5" /> {lbl}
@@ -124,6 +124,7 @@ export default function Clarity() {
 
         {aba === "contexto" && <AbaContexto accountId={activeAccountId} podeEditar={podeConfigurar} />}
         {aba === "relatorios" && <AbaRelatorios accountId={activeAccountId} podeGerar={podeConfigurar} />}
+        {aba === "chat" && <AbaChat accountId={activeAccountId} nome={activeAccount?.accountName ?? "este cliente"} podeLimpar={podeConfigurar} />}
 
         {aba === "site" && <>
         {/* ESTADO 1 — sem Clarity configurado */}
@@ -639,6 +640,115 @@ function Carregando() {
   return (
     <div className="flex items-center gap-2 py-12 justify-center text-sm text-muted-foreground">
       <Loader2 className="w-4 h-4 animate-spin" /> Carregando…
+    </div>
+  );
+}
+
+// ─── Aba Perguntar ───────────────────────────────────────────────────────────
+// Responde só com o que o Spaces tem deste cliente. Quando falta dado, diz que
+// falta — é isso que separa a ferramenta de um chute bem escrito.
+
+const FONTE_LABEL: Record<string, string> = {
+  midia: "Mídia paga", clarity: "Clarity", contexto: "Contexto", notas: "Notas",
+};
+
+function AbaChat({ accountId, nome, podeLimpar }: { accountId: number; nome: string; podeLimpar: boolean }) {
+  const utils = trpc.useUtils();
+  const chatQ = trpc.siteDiag.chat.useQuery({ accountId });
+  const [pergunta, setPergunta] = useState("");
+
+  const perguntar = trpc.siteDiag.perguntar.useMutation({
+    onSuccess: () => { utils.siteDiag.chat.invalidate(); setPergunta(""); },
+    onError: (e) => toast.error(e.message),
+  });
+  const limpar = trpc.siteDiag.limparChat.useMutation({
+    onSuccess: () => { utils.siteDiag.chat.invalidate(); toast.success("Conversa limpa."); },
+  });
+
+  const enviar = (q: string) => { if (q.trim() && !perguntar.isPending) perguntar.mutate({ accountId, pergunta: q.trim() }); };
+
+  if (chatQ.isLoading) return <Carregando />;
+  const msgs = chatQ.data?.mensagens ?? [];
+  const f = chatQ.data?.fontes;
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* O que ele sabe deste cliente — expectativa alinhada antes da pergunta */}
+      {f && (
+        <div className="flex items-center gap-2 flex-wrap text-[11px]">
+          <span className="text-muted-foreground">Responde com base em:</span>
+          {(["midia", "clarity", "contexto", "notas"] as const).map((k) => (
+            <span key={k} className={`px-2 py-0.5 rounded-full border ${f[k] ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600" : "border-border text-muted-foreground line-through opacity-60"}`}>
+              {FONTE_LABEL[k]}
+            </span>
+          ))}
+          <span className={`px-2 py-0.5 rounded-full border ${f.relatorios > 0 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600" : "border-border text-muted-foreground line-through opacity-60"}`}>
+            {f.relatorios > 0 ? `${f.relatorios} relatório(s)` : "Relatórios"}
+          </span>
+          {podeLimpar && msgs.length > 0 && (
+            <button onClick={() => { if (confirm("Limpar toda a conversa deste cliente?")) limpar.mutate({ accountId }); }}
+              className="ml-auto text-muted-foreground hover:text-destructive flex items-center gap-1">
+              <Trash2 className="w-3 h-3" /> Limpar conversa
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3 min-h-[280px]">
+        {msgs.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-2 py-8 text-center">
+            <MessageSquare className="w-7 h-7 text-muted-foreground/40" />
+            <p className="text-sm font-medium">Pergunte sobre {nome}</p>
+            <p className="text-xs text-muted-foreground max-w-sm">
+              Responde só com o que temos aqui — mídia, Clarity, contexto e relatórios. Quando falta dado, ele diz que falta.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {msgs.map((m) => (
+              <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[85%] rounded-xl px-3 py-2 ${m.role === "user" ? "bg-primary/15 text-foreground" : "bg-muted/50 text-foreground"}`}>
+                  {m.role === "user" && <p className="text-[10px] text-muted-foreground mb-0.5">{m.autorNome ?? "—"}</p>}
+                  <p className="text-sm whitespace-pre-line">{m.content}</p>
+                </div>
+              </div>
+            ))}
+            {perguntar.isPending && (
+              <div className="flex justify-start">
+                <div className="bg-muted/50 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Consultando os dados do cliente…
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Sugestões ancoradas no que ESTE cliente consegue responder */}
+        {msgs.length === 0 && (chatQ.data?.sugestoes ?? []).length > 0 && (
+          <div className="flex flex-wrap gap-1.5 justify-center">
+            {(chatQ.data?.sugestoes ?? []).map((s, i) => (
+              <button key={i} onClick={() => enviar(s)}
+                className="text-[11px] px-2.5 py-1 rounded-full border border-border text-muted-foreground hover:border-accent/40 hover:text-foreground transition">
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-2">
+        <input value={pergunta} onChange={(e) => setPergunta(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") enviar(pergunta); }}
+          placeholder={`Pergunte sobre ${nome}…`} disabled={perguntar.isPending}
+          className="flex-1 text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60" />
+        <button onClick={() => enviar(pergunta)} disabled={!pergunta.trim() || perguntar.isPending}
+          className="px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-1.5 disabled:opacity-50">
+          {perguntar.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+        </button>
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        Sugere, não executa. Nenhuma resposta altera dado — as ações continuam sendo suas.
+      </p>
     </div>
   );
 }

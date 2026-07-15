@@ -277,9 +277,10 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
-import { getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport } from "./db";
+import { getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat } from "./db";
 import { sincronizarClarity } from "./clarityJobs";
 import { gerarSiteReport, siteReportMarkdown } from "./services/siteReportService";
+import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
 import { entregarComunicado } from "./notificationJobs";
 import { notifTiposFor, notifTipoDef, type EmailModo } from "../shared/notifications";
 
@@ -2914,6 +2915,42 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
     relatorio: protectedProcedure
       .input(z.object({ id: z.number().int() }))
       .query(({ input }) => getSiteReport(input.id)),
+
+    // ── Chat por cliente ──────────────────────────────────────────────────────
+    /** Histórico é do cliente: o time todo lê o que já foi perguntado. */
+    chat: protectedProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(async ({ input }) => {
+        const msgs = await listChatMessages(input.accountId, 50);
+        const { fontes } = await montarFontesChat(input.accountId);
+        return { mensagens: msgs, sugestoes: sugestoesPara(fontes), fontes };
+      }),
+
+    perguntar: protectedProcedure
+      .input(z.object({ accountId: z.number().int(), pergunta: z.string().min(1).max(2000) }))
+      .mutation(async ({ ctx, input }) => {
+        const conta = await getMetaAdAccountById(input.accountId);
+        if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
+
+        // Histórico só deste cliente — nunca cruza contexto entre clientes.
+        const anteriores = await listChatMessages(input.accountId, 12);
+        const historico = anteriores.map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+        let r: { resposta: string; fontes: FontesChat };
+        try {
+          r = await perguntarSobreCliente(input.accountId, conta.accountName ?? conta.accountId, input.pergunta, historico);
+        } catch (e) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: (e as Error).message });
+        }
+        // Só grava se respondeu: pergunta órfã sujaria o histórico.
+        await salvarChatMessage({ accountId: input.accountId, userId: ctx.user.id, role: "user", content: input.pergunta });
+        await salvarChatMessage({ accountId: input.accountId, userId: ctx.user.id, role: "assistant", content: r.resposta, fontesJson: r.fontes });
+        return r;
+      }),
+
+    limparChat: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .mutation(async ({ input }) => { await limparChat(input.accountId); return { success: true } as const; }),
   }),
 
   // ─── Alerts ───────────────────────────────────────────────────────────────────────────
