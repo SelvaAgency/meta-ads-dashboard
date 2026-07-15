@@ -488,6 +488,39 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · comunicados garantida");
 
+    // 17) Coordenadores de cliente. `role` (permissão) fica intacta; operationalRole
+    // é responsabilidade operacional e nasce como collaborator para todo mundo.
+    if (!(await columnExists(conn, "users", "operationalRole"))) {
+      await conn.query("ALTER TABLE `users` ADD COLUMN `operationalRole` ENUM('collaborator','coordinator') NOT NULL DEFAULT 'collaborator'");
+      console.log("[ensure-schema] ok  · users.operationalRole adicionada (default collaborator)");
+    }
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`client_coordinators\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`accountId\` INT NOT NULL,
+        \`userId\` INT NOT NULL,
+        \`createdByUserId\` INT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uq_client_coord\` (\`accountId\`, \`userId\`),
+        KEY \`idx_client_coord_user\` (\`userId\`),
+        KEY \`idx_client_coord_account\` (\`accountId\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · client_coordinators garantida");
+
+    // Público de comunicado por função operacional (coordenadores/colaboradores).
+    const [pubCol] = await conn.query(
+      "SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'comunicados' AND column_name = 'publico'",
+    );
+    if (pubCol.length && !String(pubCol[0].COLUMN_TYPE).includes("FUNCAO")) {
+      await conn.query("ALTER TABLE `comunicados` MODIFY COLUMN `publico` ENUM('TODOS','ROLE','FUNCAO','PESSOAS') NOT NULL DEFAULT 'TODOS'");
+      console.log("[ensure-schema] ok  · comunicados.publico expandido (FUNCAO)");
+    }
+    if (!(await columnExists(conn, "comunicados", "alvoFuncao"))) {
+      await conn.query("ALTER TABLE `comunicados` ADD COLUMN `alvoFuncao` VARCHAR(20) NULL");
+      console.log("[ensure-schema] ok  · comunicados.alvoFuncao adicionada");
+    }
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

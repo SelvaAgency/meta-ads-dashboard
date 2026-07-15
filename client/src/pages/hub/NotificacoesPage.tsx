@@ -237,7 +237,7 @@ function Enviados() {
                   <p className="text-sm font-semibold">{c.titulo}</p>
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  {c.autorNome ?? "—"} · {quando(c.createdAt)} · {c.publico === "TODOS" ? "todo mundo" : c.publico === "ROLE" ? `cargo: ${c.alvoRole}` : "pessoas específicas"}
+                  {c.autorNome ?? "—"} · {quando(c.createdAt)} · {c.publico === "TODOS" ? "todo mundo" : c.publico === "ROLE" ? `permissão: ${c.alvoRole}` : c.publico === "FUNCAO" ? "por função" : "pessoas específicas"}
                 </p>
               </div>
               <button onClick={() => fixar.mutate({ id: c.id, fixado: !c.fixado })} title={c.fixado ? "Desafixar" : "Fixar"}
@@ -289,14 +289,15 @@ function ComporComunicado({ onClose }: { onClose: () => void }) {
   const utils = trpc.useUtils();
   const [titulo, setTitulo] = useState("");
   const [corpo, setCorpo] = useState("");
-  const [publico, setPublico] = useState<"TODOS" | "ROLE" | "PESSOAS">("TODOS");
+  const [publico, setPublico] = useState<"TODOS" | "ROLE" | "FUNCAO" | "PESSOAS">("TODOS");
+  const [alvoFuncao, setAlvoFuncao] = useState<"collaborator" | "coordinator">("coordinator");
   const [alvoRole, setAlvoRole] = useState<"user" | "admin" | "developer">("user");
   const [alvoUserIds, setAlvoUserIds] = useState<number[]>([]);
   const [fixado, setFixado] = useState(false);
 
   const pessoasQ = trpc.people.list.useQuery(undefined, { enabled: publico === "PESSOAS" });
   const previewQ = trpc.comunicados.previewPublico.useQuery(
-    { publico, alvoRole: publico === "ROLE" ? alvoRole : null, alvoUserIds: publico === "PESSOAS" ? alvoUserIds : null },
+    { publico, alvoRole: publico === "ROLE" ? alvoRole : null, alvoFuncao: publico === "FUNCAO" ? alvoFuncao : null, alvoUserIds: publico === "PESSOAS" ? alvoUserIds : null },
     { enabled: publico !== "PESSOAS" || alvoUserIds.length > 0 },
   );
   const enviar = trpc.comunicados.enviar.useMutation({
@@ -335,7 +336,7 @@ function ComporComunicado({ onClose }: { onClose: () => void }) {
           <div>
             <label className="text-[11px] text-muted-foreground">Para quem</label>
             <div className="flex gap-1.5 mt-1 flex-wrap">
-              {([["TODOS", "Todo mundo"], ["ROLE", "Por cargo"], ["PESSOAS", "Pessoas"]] as const).map(([v, lbl]) => (
+              {([["TODOS", "Todo mundo"], ["ROLE", "Por permissão"], ["FUNCAO", "Por função"], ["PESSOAS", "Pessoas"]] as const).map(([v, lbl]) => (
                 <Chip key={v} on={publico === v} onClick={() => setPublico(v)}>{lbl}</Chip>
               ))}
             </div>
@@ -345,6 +346,14 @@ function ComporComunicado({ onClose }: { onClose: () => void }) {
             <div className="flex gap-1.5 flex-wrap">
               {([["user", "Colaborador"], ["admin", "Administrativo"], ["developer", "Desenvolvedor"]] as const).map(([v, lbl]) => (
                 <Chip key={v} on={alvoRole === v} onClick={() => setAlvoRole(v)}>{lbl}</Chip>
+              ))}
+            </div>
+          )}
+
+          {publico === "FUNCAO" && (
+            <div className="flex gap-1.5 flex-wrap">
+              {([["coordinator", "Coordenadores"], ["collaborator", "Colaboradores"]] as const).map(([v, lbl]) => (
+                <Chip key={v} on={alvoFuncao === v} onClick={() => setAlvoFuncao(v)}>{lbl}</Chip>
               ))}
             </div>
           )}
@@ -376,7 +385,7 @@ function ComporComunicado({ onClose }: { onClose: () => void }) {
         <div className="flex justify-end gap-2 p-4 border-t border-border">
           <button onClick={onClose} className="text-sm px-4 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground">Cancelar</button>
           <button
-            onClick={() => enviar.mutate({ titulo: titulo.trim(), corpo: corpo.trim(), publico, alvoRole: publico === "ROLE" ? alvoRole : null, alvoUserIds: publico === "PESSOAS" ? alvoUserIds : null, fixado })}
+            onClick={() => enviar.mutate({ titulo: titulo.trim(), corpo: corpo.trim(), publico, alvoRole: publico === "ROLE" ? alvoRole : null, alvoFuncao: publico === "FUNCAO" ? alvoFuncao : null, alvoUserIds: publico === "PESSOAS" ? alvoUserIds : null, fixado })}
             disabled={!podeEnviar}
             className="text-sm px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-50 flex items-center gap-2">
             {enviar.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Enviar

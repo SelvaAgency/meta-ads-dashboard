@@ -23,7 +23,12 @@ export const users = mysqlTable("users", {
   passwordHash: varchar("passwordHash", { length: 255 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   // Roles: admin (Administrativo) · developer (Desenvolvedor) · user (Colaborador)
+  // PERMISSÃO do sistema — o que a pessoa pode fazer. Não confundir com operationalRole.
   role: mysqlEnum("role", ["user", "admin", "developer"]).default("user").notNull(),
+  // RESPONSABILIDADE operacional — por quais clientes a pessoa responde. Ortogonal a
+  // `role`: uma coordenadora normalmente é role=user + operationalRole=coordinator.
+  // Só afeta destinatário de alerta; não concede permissão nenhuma.
+  operationalRole: mysqlEnum("operationalRole", ["collaborator", "coordinator"]).default("collaborator").notNull(),
   // Perfil de colaborador
   jobTitle: varchar("jobTitle", { length: 255 }),
   birthdayDay: int("birthdayDay"),     // 1–31
@@ -157,6 +162,27 @@ export const userAuditLogs = mysqlTable("user_audit_logs", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export type InsertUserAuditLog = typeof userAuditLogs.$inferInsert;
+
+/**
+ * Vínculo coordenador × cliente. `accountId` aponta para meta_ad_accounts.id —
+ * a mesma referência que alerts.accountId usa, então o alerta de uma conta liga
+ * direto nos coordenadores dela, sem camada de tradução.
+ * N:N — um cliente tem vários coordenadores, um coordenador tem vários clientes.
+ * O unique (accountId, userId) é o que impede vínculo duplicado no banco.
+ */
+export const clientCoordinators = mysqlTable("client_coordinators", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),   // → meta_ad_accounts.id
+  userId: int("userId").notNull(),
+  createdByUserId: int("createdByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  uqAccountUser: uniqueIndex("uq_client_coord").on(table.accountId, table.userId),
+  idxUser: index("idx_client_coord_user").on(table.userId),
+  idxAccount: index("idx_client_coord_account").on(table.accountId),
+}));
+export type ClientCoordinator = typeof clientCoordinators.$inferSelect;
+export type InsertClientCoordinator = typeof clientCoordinators.$inferInsert;
 
 // ─── Configurações simples (key-value) — ex.: slide "Você prefere?" da SELVA TV ─
 export const appSettings = mysqlTable("app_settings", {
@@ -623,7 +649,8 @@ export const comunicados = mysqlTable("comunicados", {
   autorUserId: int("autorUserId").notNull(),
   titulo: varchar("titulo", { length: 180 }).notNull(),
   corpo: text("corpo").notNull(),
-  publico: mysqlEnum("publico", ["TODOS", "ROLE", "PESSOAS"]).default("TODOS").notNull(),
+  publico: mysqlEnum("publico", ["TODOS", "ROLE", "FUNCAO", "PESSOAS"]).default("TODOS").notNull(),
+  alvoFuncao: varchar("alvoFuncao", { length: 20 }),  // quando publico = FUNCAO
   alvoRole: varchar("alvoRole", { length: 20 }),   // quando publico = ROLE
   alvoUserIds: json("alvoUserIds"),                 // quando publico = PESSOAS
   fixado: boolean("fixado").default(false).notNull(),

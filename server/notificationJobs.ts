@@ -204,6 +204,25 @@ export async function runAnomaliasNotif(anomalias: AnomaliaNotif[]): Promise<num
   return criadas;
 }
 
+/**
+ * Alerta técnico preso a uma conta (token, saldo, anúncio recusado…).
+ *
+ * Antes, isso era criado com `userId: account.userId` — e como todas as contas
+ * pertencem à conta de sistema que as conectou, os alertas nasciam invisíveis:
+ * ninguém logava naquele usuário e /alerts filtra por userId. Agora o destinatário
+ * sai do resolver central: admins + developers + coordenadores daquele cliente.
+ */
+export async function criarAlertaDeConta(a: {
+  accountId: number; accountName: string; alertType: "SYNC_ERROR" | "BUDGET_WARNING" | "ANOMALY";
+  title: string; message: string; severity: "INFO" | "WARNING" | "CRITICAL"; referencia: string;
+}): Promise<number[]> {
+  return createNotification({
+    tipo: notifTipoDoAlerta(a.alertType), alertType: a.alertType, severity: a.severity,
+    title: a.title, message: a.message, referencia: a.referencia, dia: hojeAgencia(),
+    accountId: a.accountId,
+  });
+}
+
 // ─── TAREFAS: prazos do Trello ───────────────────────────────────────────────
 
 /**

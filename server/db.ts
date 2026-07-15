@@ -167,7 +167,7 @@ export async function updateUserFields(
   id: number,
   patch: Partial<Pick<
     typeof users.$inferInsert,
-    "name" | "email" | "role" | "jobTitle" | "birthdayDay" | "birthdayMonth" | "active"
+    "name" | "email" | "role" | "operationalRole" | "jobTitle" | "birthdayDay" | "birthdayMonth" | "active"
   >>,
 ) {
   const db = await getDb();
@@ -1877,7 +1877,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, type InsertComunicado } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, type InsertComunicado } from "../drizzle/schema";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta } from "../shared/notifications";
 
 export async function getAccountThresholds(accountId: number) {
@@ -3335,7 +3335,13 @@ export async function createNotification(n: NovaNotificacao): Promise<number[]> 
   if (!db) return [];
   const dominio = dominioDoAlerta(n.alertType);
   const dedupKey = (n.dedupKey ?? `${n.tipo}:${n.referencia}:${n.dia}`).slice(0, 180);
-  const destinos = await destinatariosInApp(n.tipo, n.apenas);
+  // Alerta preso a um cliente → admins + coordenadores daquele cliente (resolver
+  // central). Sem conta → fan-out normal por preferência. `apenas` (ex.: prazo de
+  // card, que é do dono) tem precedência sobre os dois.
+  const elegiveis = n.apenas
+    ?? (n.accountId != null ? await getNotificationRecipientsForClient({ accountId: n.accountId, tipo: n.tipo }) : undefined);
+  if (n.accountId != null && !n.apenas && elegiveis && elegiveis.length === 0) return [];
+  const destinos = await destinatariosInApp(n.tipo, elegiveis);
   if (destinos.length === 0) return [];
 
   const jaTem = await db.select({ userId: alerts.userId }).from(alerts).where(and(
@@ -3470,12 +3476,19 @@ export async function aniversariantesDe(dia: number, mes: number) {
 }
 
 /** Resolve o público de um comunicado em userIds concretos. */
-export async function resolverPublico(publico: "TODOS" | "ROLE" | "PESSOAS", alvoRole?: string | null, alvoUserIds?: number[] | null): Promise<number[]> {
+export async function resolverPublico(
+  publico: "TODOS" | "ROLE" | "FUNCAO" | "PESSOAS",
+  alvoRole?: string | null,
+  alvoUserIds?: number[] | null,
+  alvoFuncao?: string | null,
+): Promise<number[]> {
   const db = await getDb();
   if (!db) return [];
-  const ativos = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.active, true));
+  const ativos = await db.select({ id: users.id, role: users.role, operationalRole: users.operationalRole })
+    .from(users).where(eq(users.active, true));
   if (publico === "TODOS") return ativos.map((u) => u.id);
   if (publico === "ROLE") return ativos.filter((u) => u.role === alvoRole).map((u) => u.id);
+  if (publico === "FUNCAO") return ativos.filter((u) => u.operationalRole === alvoFuncao).map((u) => u.id);
   const alvo = new Set(alvoUserIds ?? []);
   return ativos.filter((u) => alvo.has(u.id)).map((u) => u.id);
 }
@@ -3556,4 +3569,129 @@ export async function usuariosAtivosComEmail() {
   const rows = await db.select({ id: users.id, name: users.name, email: users.email })
     .from(users).where(and(eq(users.active, true), isNotNull(users.email)));
   return rows as { id: number; name: string | null; email: string }[];
+}
+
+// ─── Coordenadores de cliente ────────────────────────────────────────────────
+// `role` = permissão do sistema · `operationalRole` = por quais clientes a pessoa
+// responde. São eixos independentes: mexer aqui não concede permissão nenhuma.
+
+export async function setOperationalRole(userId: number, operationalRole: "collaborator" | "coordinator") {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ operationalRole }).where(eq(users.id, userId));
+}
+
+/** Contas (meta_ad_accounts.id) que este usuário coordena. */
+export async function getCoordinatorAccounts(userId: number): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ accountId: clientCoordinators.accountId })
+    .from(clientCoordinators).where(eq(clientCoordinators.userId, userId));
+  return rows.map((r) => r.accountId);
+}
+
+/** Todos os vínculos, para a lista de Colaboradores desenhar os chips numa query só. */
+export async function listCoordinatorLinks(): Promise<{ userId: number; accountId: number; accountName: string | null }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    userId: clientCoordinators.userId,
+    accountId: clientCoordinators.accountId,
+    accountName: metaAdAccounts.accountName,
+  }).from(clientCoordinators)
+    .leftJoin(metaAdAccounts, eq(clientCoordinators.accountId, metaAdAccounts.id));
+}
+
+/**
+ * Substitui os vínculos de um coordenador. Valida no BANCO (o front não é
+ * segurança): usuário existe, está ativo e é coordenador; contas existem e estão
+ * ativas. Retorna o que mudou, para a auditoria.
+ */
+export async function setCoordinatorAccounts(userId: number, accountIds: number[], actorUserId: number): Promise<{ antes: number[]; depois: number[] }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+
+  const u = await getUserById(userId);
+  if (!u) throw new Error("Usuário não encontrado.");
+  if (!u.active) throw new Error("Usuário inativo não pode coordenar clientes.");
+  if (u.operationalRole !== "coordinator") throw new Error("Só quem é coordenador pode ter clientes vinculados.");
+
+  const ids = Array.from(new Set(accountIds)); // dedup do input
+  if (ids.length > 0) {
+    const existem = await db.select({ id: metaAdAccounts.id }).from(metaAdAccounts)
+      .where(and(inArray(metaAdAccounts.id, ids), eq(metaAdAccounts.isActive, true)));
+    const validos = new Set(existem.map((r) => r.id));
+    const invalidos = ids.filter((i) => !validos.has(i));
+    if (invalidos.length) throw new Error(`Cliente inexistente ou inativo: ${invalidos.join(", ")}`);
+  }
+
+  const antes = await getCoordinatorAccounts(userId);
+  const remover = antes.filter((a) => !ids.includes(a));
+  const adicionar = ids.filter((a) => !antes.includes(a));
+  if (remover.length) {
+    await db.delete(clientCoordinators).where(and(
+      eq(clientCoordinators.userId, userId), inArray(clientCoordinators.accountId, remover),
+    ));
+  }
+  if (adicionar.length) {
+    await db.insert(clientCoordinators)
+      .values(adicionar.map((accountId) => ({ accountId, userId, createdByUserId: actorUserId })))
+      .onDuplicateKeyUpdate({ set: { userId } }); // unique (accountId,userId) segura a duplicata
+  }
+  return { antes, depois: ids };
+}
+
+/** Remove todos os vínculos de um usuário (ao rebaixar de coordenador). */
+export async function clearCoordinatorAccounts(userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const antes = await getCoordinatorAccounts(userId);
+  if (antes.length === 0) return 0;
+  await db.delete(clientCoordinators).where(eq(clientCoordinators.userId, userId));
+  return antes.length;
+}
+
+/** Coordenadores ATIVOS de uma conta. Inativo nunca é destinatário. */
+export async function coordenadoresDaConta(accountId: number): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ userId: clientCoordinators.userId })
+    .from(clientCoordinators)
+    .innerJoin(users, eq(clientCoordinators.userId, users.id))
+    .where(and(
+      eq(clientCoordinators.accountId, accountId),
+      eq(users.active, true),
+      eq(users.operationalRole, "coordinator"),
+    ));
+  return rows.map((r) => r.userId);
+}
+
+/**
+ * RESOLVER CENTRAL de destinatários de alerta de cliente.
+ *
+ * Ponto único para que cada job não invente a própria regra. Para alerta preso a
+ * uma conta:
+ *   · admins ativos          → sempre (visão geral da operação)
+ *   · coordenadores ativos   → só os vinculados àquela conta
+ *   · developers ativos      → só em tipo técnico/sistema (OPERACIONAL)
+ *
+ * Devolve userIds já deduplicados — quem é admin E coordenador aparece uma vez.
+ * Conta inativa não gera destinatário nenhum. Tipos adminOnly (financeiro) não
+ * passam por aqui: continuam resolvidos pelo catálogo.
+ */
+export async function getNotificationRecipientsForClient(input: { accountId: number; tipo: NotifTipo }): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conta = await db.select({ id: metaAdAccounts.id }).from(metaAdAccounts)
+    .where(and(eq(metaAdAccounts.id, input.accountId), eq(metaAdAccounts.isActive, true))).limit(1);
+  if (conta.length === 0) return []; // cliente desativado não gera alerta
+
+  const tecnico = input.tipo === "OPERACIONAL";
+  const roles: ("admin" | "developer")[] = tecnico ? ["admin", "developer"] : ["admin"];
+  const porRole = await db.select({ id: users.id }).from(users)
+    .where(and(eq(users.active, true), inArray(users.role, roles)));
+
+  const coords = await coordenadoresDaConta(input.accountId);
+  return Array.from(new Set([...porRole.map((r) => r.id), ...coords]));
 }

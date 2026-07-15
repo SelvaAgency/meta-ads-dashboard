@@ -277,7 +277,7 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
-import { getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado } from "./db";
+import { getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks } from "./db";
 import { entregarComunicado } from "./notificationJobs";
 import { notifTiposFor, notifTipoDef, type EmailModo } from "../shared/notifications";
 
@@ -768,6 +768,39 @@ export const appRouter = router({
 
   // ─── Colaboradores (People management) — admin only ─────────────────────────
   people: router({
+    /** Contas ativas para o seletor de clientes do coordenador. */
+    clientesDisponiveis: adminProcedure.query(async () => {
+      const contas = await getAllActiveMetaAdAccountsForListing();
+      return contas.map((c) => ({ id: c.id, nome: c.accountName ?? c.accountId })).sort((a, b) => a.nome.localeCompare(b.nome));
+    }),
+
+    /** Todos os vínculos coordenador × cliente (a lista desenha os chips com isso). */
+    vinculos: adminProcedure.query(() => listCoordinatorLinks()),
+
+    /**
+     * Substitui os clientes de um coordenador. Toda validação é no backend:
+     * o front não é segurança.
+     */
+    setClientes: adminProcedure
+      .input(z.object({ userId: z.number().int(), accountIds: z.array(z.number().int()) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const { antes, depois } = await setCoordinatorAccounts(input.userId, input.accountIds, ctx.user.id);
+          const mudou = antes.length !== depois.length || antes.some((a) => !depois.includes(a));
+          if (mudou) {
+            await createUserAudit({
+              actorUserId: ctx.user.id, targetUserId: input.userId,
+              action: "coordinator_clients_updated",
+              previousValue: String(antes.length), newValue: String(depois.length),
+              metadataJson: { antes, depois },
+            });
+          }
+          return { success: true, total: depois.length } as const;
+        } catch (e) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+        }
+      }),
+
     list: adminProcedure.query(async () => {
       const rows = await getAllUsers();
       // Nunca expõe passwordHash.
@@ -812,6 +845,8 @@ export const appRouter = router({
         name: z.string().min(1).optional(),
         email: z.string().email().optional(),
         role: z.enum(["user", "admin", "developer"]).optional(),
+        // Responsabilidade operacional — ortogonal a `role`, não dá permissão.
+        operationalRole: z.enum(["collaborator", "coordinator"]).optional(),
         jobTitle: z.string().nullable().optional(),
         birthdayDay: z.number().int().min(1).max(31).nullable().optional(),
         birthdayMonth: z.number().int().min(1).max(12).nullable().optional(),
@@ -852,6 +887,16 @@ export const appRouter = router({
         const audit = (action: string, previousValue?: string | null, newValue?: string | null, metadataJson?: unknown) =>
           createUserAudit({ actorUserId: ctx.user.id, targetUserId: id, action, previousValue: previousValue ?? null, newValue: newValue ?? null, metadataJson: metadataJson ?? null });
         if (patch.role && before.role !== patch.role) await audit("role_changed", before.role, patch.role);
+        // Deixar de ser coordenador remove os vínculos: manter vínculo órfão faria
+        // a pessoa voltar a receber tudo se fosse repromovida sem revisão.
+        if (patch.operationalRole && before.operationalRole !== patch.operationalRole) {
+          if (patch.operationalRole === "coordinator") {
+            await audit("coordinator_role_enabled", before.operationalRole, patch.operationalRole);
+          } else {
+            const removidos = await clearCoordinatorAccounts(id);
+            await audit("coordinator_role_disabled", before.operationalRole, patch.operationalRole, { vinculosRemovidos: removidos });
+          }
+        }
         if (patch.active === false && before.active !== false) await audit("user_deactivated", "active", "inactive");
         else if (patch.active === true && before.active === false) await audit("user_reactivated", "inactive", "active");
         const profileFields = (["name", "email", "jobTitle", "birthdayDay", "birthdayMonth"] as const).filter((f) => patch[f] !== undefined);
@@ -1785,9 +1830,9 @@ export const appRouter = router({
 
     /** Prévia do alcance antes de enviar — evita disparar para o público errado. */
     previewPublico: adminProcedure
-      .input(z.object({ publico: z.enum(["TODOS", "ROLE", "PESSOAS"]), alvoRole: z.string().max(20).nullable().optional(), alvoUserIds: z.array(z.number().int()).nullable().optional() }))
+      .input(z.object({ publico: z.enum(["TODOS", "ROLE", "FUNCAO", "PESSOAS"]), alvoRole: z.string().max(20).nullable().optional(), alvoFuncao: z.string().max(20).nullable().optional(), alvoUserIds: z.array(z.number().int()).nullable().optional() }))
       .query(async ({ input }) => {
-        const ids = await resolverPublico(input.publico, input.alvoRole ?? null, input.alvoUserIds ?? null);
+        const ids = await resolverPublico(input.publico, input.alvoRole ?? null, input.alvoUserIds ?? null, input.alvoFuncao ?? null);
         return { total: ids.length };
       }),
 
@@ -1795,20 +1840,22 @@ export const appRouter = router({
       .input(z.object({
         titulo: z.string().min(1).max(180),
         corpo: z.string().min(1).max(20000),
-        publico: z.enum(["TODOS", "ROLE", "PESSOAS"]).default("TODOS"),
+        publico: z.enum(["TODOS", "ROLE", "FUNCAO", "PESSOAS"]).default("TODOS"),
         alvoRole: z.enum(["user", "admin", "developer"]).nullable().optional(),
+        alvoFuncao: z.enum(["collaborator", "coordinator"]).nullable().optional(),
         alvoUserIds: z.array(z.number().int()).nullable().optional(),
         fixado: z.boolean().default(false),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (input.publico === "ROLE" && !input.alvoRole) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha o cargo." });
+        if (input.publico === "ROLE" && !input.alvoRole) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha a permissão." });
+        if (input.publico === "FUNCAO" && !input.alvoFuncao) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha a função operacional." });
         if (input.publico === "PESSOAS" && !(input.alvoUserIds?.length)) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha ao menos uma pessoa." });
-        const destinatarios = await resolverPublico(input.publico, input.alvoRole ?? null, input.alvoUserIds ?? null);
+        const destinatarios = await resolverPublico(input.publico, input.alvoRole ?? null, input.alvoUserIds ?? null, input.alvoFuncao ?? null);
         if (destinatarios.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum destinatário para este público." });
 
         const id = await criarComunicado({
           autorUserId: ctx.user.id, titulo: input.titulo, corpo: input.corpo,
-          publico: input.publico, alvoRole: input.alvoRole ?? null,
+          publico: input.publico, alvoRole: input.alvoRole ?? null, alvoFuncao: input.alvoFuncao ?? null,
           alvoUserIds: input.alvoUserIds ?? null, fixado: input.fixado,
         });
         const r = await entregarComunicado({

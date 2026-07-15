@@ -99,9 +99,10 @@ export const dominioDoAlerta = (alertType: string): NotifDominio =>
   notifTipoDef(notifTipoDoAlerta(alertType))?.dominio ?? "PERFORMANCE";
 
 /** Público de um comunicado. */
-export type ComunicadoPublico = "TODOS" | "ROLE" | "PESSOAS";
+export type ComunicadoPublico = "TODOS" | "ROLE" | "FUNCAO" | "PESSOAS";
 export const COMUNICADO_PUBLICOS: { v: ComunicadoPublico; label: string }[] = [
   { v: "TODOS", label: "Todo mundo" },
-  { v: "ROLE", label: "Por cargo" },
+  { v: "ROLE", label: "Por permissão" },
+  { v: "FUNCAO", label: "Por função" },
   { v: "PESSOAS", label: "Pessoas específicas" },
 ];

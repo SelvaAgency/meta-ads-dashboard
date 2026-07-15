@@ -1,5 +1,5 @@
 import { logger } from "./logger";
-import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, runDigestDiario, type AnomaliaNotif } from "./notificationJobs";
+import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, runDigestDiario, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
 /**
  * autoSync.ts — Cron job para sincronização automática diária de todas as contas Meta Ads.
  *
@@ -122,13 +122,11 @@ export async function syncAccount(account: { id: number; accountId: string; acce
     const tokenValid = await validateToken(account.accessToken);
     if (!tokenValid) {
       console.error(`[AutoSync] ✗ Token expirado para conta "${label}" (${account.accountId}). Criando alerta SYNC_ERROR.`);
-      await createAlertIfNotExists({
-        userId: account.userId,
-        accountId: account.id,
+      await criarAlertaDeConta({
+        accountId: account.id, accountName: label, alertType: "SYNC_ERROR", severity: "CRITICAL",
         title: `Token expirado: ${label}`,
         message: `O token de acesso da conta "${label}" expirou ou foi invalidado. Reconecte a conta em Gerenciar Contas para restaurar a sincronização automática.`,
-        type: "SYNC_ERROR" as any,
-        severity: "CRITICAL",
+        referencia: `${account.id}:token`,
       });
       return;
     }
@@ -307,35 +305,29 @@ export async function syncAccount(account: { id: number; accountId: string; acce
     // If token expired or permission denied, create SYNC_ERROR alert
     if (errMsg.includes('META_TOKEN_EXPIRED') || metaCode === '190') {
       try {
-        await createAlertIfNotExists({
-          userId: account.userId,
-          accountId: account.id,
+        await criarAlertaDeConta({
+          accountId: account.id, accountName: label, alertType: "SYNC_ERROR", severity: "CRITICAL",
           title: `Token expirado: ${label}`,
           message: `Sincronização falhou por token expirado. Reconecte a conta em Gerenciar Contas.`,
-          type: "SYNC_ERROR" as any,
-          severity: "CRITICAL",
+          referencia: `${account.id}:token`,
         });
       } catch (_) { /* ignore alert creation errors */ }
     } else if (metaCode === '200' || errMsg.includes('ads_management') || errMsg.includes('ads_read')) {
       try {
-        await createAlertIfNotExists({
-          userId: account.userId,
-          accountId: account.id,
+        await criarAlertaDeConta({
+          accountId: account.id, accountName: label, alertType: "SYNC_ERROR", severity: "CRITICAL",
           title: `Permissão negada: ${label}`,
           message: `A conta "${label}" não concedeu permissão ads_management/ads_read. O dono da conta precisa autorizar o acesso via Facebook Business.`,
-          type: "SYNC_ERROR" as any,
-          severity: "CRITICAL",
+          referencia: `${account.id}:permissao`,
         });
       } catch (_) { /* ignore alert creation errors */ }
     } else {
       try {
-        await createAlertIfNotExists({
-          userId: account.userId,
-          accountId: account.id,
+        await criarAlertaDeConta({
+          accountId: account.id, accountName: label, alertType: "SYNC_ERROR", severity: "CRITICAL",
           title: `Sync falhou: ${label}`,
           message: `Erro ao sincronizar: ${errMsg.substring(0, 200)}`,
-          type: "SYNC_ERROR" as any,
-          severity: "CRITICAL",
+          referencia: `${account.id}:sync`,
         });
       } catch (_) { /* ignore alert creation errors */ }
     }
@@ -538,26 +530,26 @@ async function runRealTimeAlerts(account: { id: number; accountId: string; acces
     const lowBalanceThreshold = thresholds?.lowBalanceThreshold ? Number(thresholds.lowBalanceThreshold) : 200;
     const activeCampaignIds = await getActiveCampaignMetaIdsWithRecentSpend(account.id, 3);
     const alerts = await checkRealTimeAlerts(account.accountId, account.accessToken, lowBalanceThreshold, activeCampaignIds);
+    const nome = account.accountName ?? account.accountId;
     for (const alert of alerts) {
-      const result = await createAlertIfNotExists({
-        userId: account.userId,
+      // Destinatário sai do resolver central (admins + devs + coordenadores da
+      // conta). Antes ia para account.userId — a conta de sistema que conectou o
+      // cliente —, então nenhum humano via esses alertas em /alerts.
+      const criados = await criarAlertaDeConta({
         accountId: account.id,
-        title: alert.title,
+        accountName: nome,
+        alertType: (alert.type === "BUDGET_WARNING" ? "BUDGET_WARNING" : "SYNC_ERROR"),
+        title: `${nome}: ${alert.title}`,
         message: alert.message,
-        type: alert.type as any,
-        severity: (alert.severity as any) ?? "WARNING",
+        severity: (alert.severity as "INFO" | "WARNING" | "CRITICAL") ?? "WARNING",
+        referencia: `${account.id}:${alert.type}`,
       });
-      if (!result) continue; // Alerta já existia, pular notificação
-      const alertId = (result as any).insertId as number | undefined;
+      if (criados.length === 0) continue; // já avisado hoje (dedup) ou sem destinatário
 
-      // Notificar o dono da conta para todo alerta técnico (sem filtro por prioridade)
-      if (alertId) {
-        const sent = await notifyOwner({
-          title: `⚠️ Alerta técnico: ${alert.title}`,
-          content: `Conta: ${account.accountName ?? account.accountId}\n\n${alert.message}`,
-        });
-        if (sent) await markAlertEmailSent(alertId);
-      }
+      await notifyOwner({
+        title: `⚠️ Alerta técnico: ${alert.title}`,
+        content: `Conta: ${nome}\n\n${alert.message}`,
+      });
     }
     if (alerts.length > 0) {
       logger.info(`[RealTimeAlerts] ✓ ${alerts.length} alerta(s) técnico(s) para "${account.accountName ?? account.accountId}"`);
