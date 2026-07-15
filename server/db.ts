@@ -1345,7 +1345,7 @@ export async function getAlertsByUserId(userId: number, limit = 50) {
 export async function getAllAlertsForUser(
   userId: number,
   limit = 200,
-  filtro?: { dominio?: "PERFORMANCE" | "FINANCEIRO"; status?: "nova" | "lida" },
+  filtro?: { dominio?: NotifDominio; status?: "nova" | "lida" },
 ) {
   const db = await getDb();
   if (!db) return [];
@@ -1494,7 +1494,7 @@ export async function markAlertRead(id: number, userId: number) {
   await db.update(alerts).set({ isRead: true }).where(and(eq(alerts.id, id), eq(alerts.userId, userId)));
 }
 
-export async function markAllAlertsRead(userId: number, dominio?: "PERFORMANCE" | "FINANCEIRO") {
+export async function markAllAlertsRead(userId: number, dominio?: NotifDominio) {
   const db = await getDb();
   if (!db) return;
   await db.update(alerts).set({ isRead: true }).where(and(
@@ -1877,8 +1877,8 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs } from "../drizzle/schema";
-import { type NotifTipo, notifTipoDef, dominioDoAlerta } from "../shared/notifications";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, type InsertComunicado } from "../drizzle/schema";
+import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta } from "../shared/notifications";
 
 export async function getAccountThresholds(accountId: number) {
   const db = await getDb();
@@ -3260,38 +3260,56 @@ export async function financeOverviewResumo(mesFrom: string, mesTo: string) {
 // filtro por userId é sempre correto. Dedup por (userId, dedupKey).
 
 /** Usuários que devem receber `tipo` no canal in-app. Financeiro: só admin. */
-export async function destinatariosInApp(tipo: NotifTipo): Promise<{ id: number; email: string | null; name: string | null }[]> {
-  return destinatariosPara(tipo, "inApp");
+export async function destinatariosInApp(tipo: NotifTipo, apenas?: number[]): Promise<{ id: number; email: string | null; name: string | null }[]> {
+  return destinatariosPara(tipo, "inApp", undefined, apenas);
 }
-/** Usuários que devem receber `tipo` por email. Financeiro: só admin. */
-export async function destinatariosEmail(tipo: NotifTipo): Promise<{ id: number; email: string | null; name: string | null }[]> {
-  return destinatariosPara(tipo, "email");
+/** Quem recebe `tipo` por email. `modo` filtra entre "hora" e "digest". */
+export async function destinatariosEmail(tipo: NotifTipo, modo?: EmailModo, apenas?: number[]): Promise<{ id: number; email: string | null; name: string | null }[]> {
+  return destinatariosPara(tipo, "email", modo, apenas);
 }
 
-async function destinatariosPara(tipo: NotifTipo, canal: "inApp" | "email") {
+/** Modo de email efetivo de um usuário para um tipo (default do catálogo se nunca mexeu). */
+export async function emailModoDe(userId: number, tipo: NotifTipo): Promise<EmailModo> {
+  const db = await getDb();
+  const def = notifTipoDef(tipo);
+  if (!db || !def) return "off";
+  const r = await db.select().from(notificationPrefs)
+    .where(and(eq(notificationPrefs.userId, userId), eq(notificationPrefs.tipo, tipo))).limit(1);
+  return ((r[0]?.emailModo as EmailModo) ?? def.emailModo) || "off";
+}
+
+async function destinatariosPara(tipo: NotifTipo, canal: "inApp" | "email", modo?: EmailModo, apenas?: number[]) {
   const db = await getDb();
   if (!db) return [];
   const def = notifTipoDef(tipo);
   if (!def) return [];
   const ativos = await db.select({ id: users.id, email: users.email, name: users.name, role: users.role })
     .from(users).where(eq(users.active, true));
-  const elegiveis = ativos.filter((u) => (def.adminOnly ? u.role === "admin" : true));
+  let elegiveis = ativos.filter((u) => (def.adminOnly ? u.role === "admin" : true));
+  if (apenas) elegiveis = elegiveis.filter((u) => apenas.includes(u.id));
   if (elegiveis.length === 0) return [];
   const prefs = await db.select().from(notificationPrefs).where(and(
     eq(notificationPrefs.tipo, tipo),
     inArray(notificationPrefs.userId, elegiveis.map((u) => u.id)),
   ));
   const pmap = new Map(prefs.map((p) => [p.userId, p]));
-  // Sem linha de preferência = default do catálogo (só gravamos o que foi mexido).
-  const padrao = canal === "inApp" ? def.inApp : def.email;
   return elegiveis
-    .filter((u) => { const p = pmap.get(u.id); return p ? (canal === "inApp" ? p.inApp : p.email) : padrao; })
+    .filter((u) => {
+      const p = pmap.get(u.id);
+      if (canal === "inApp") {
+        // Mensagem dirigida (comunicado, reconexão) sempre chega no app.
+        if (def.inAppObrigatorio) return true;
+        return p ? p.inApp : def.inApp;
+      }
+      const m = ((p?.emailModo as EmailModo) ?? def.emailModo) || "off";
+      return modo ? m === modo : m !== "off";
+    })
     .map((u) => ({ id: u.id, email: u.email, name: u.name }));
 }
 
 export type NovaNotificacao = {
   tipo: NotifTipo;
-  alertType: "ANOMALY" | "SYNC_ERROR" | "BUDGET_WARNING" | "DAILY_BRIEFING" | "WEEKLY_REPORT" | "FINANCE_OVERDUE" | "REPORT";
+  alertType: "ANOMALY" | "SYNC_ERROR" | "BUDGET_WARNING" | "DAILY_BRIEFING" | "WEEKLY_REPORT" | "FINANCE_OVERDUE" | "REPORT" | "TRELLO_DUE" | "TRELLO_RECONNECT" | "COMUNICADO" | "BIRTHDAY";
   title: string;
   message: string;
   severity: "INFO" | "WARNING" | "CRITICAL";
@@ -3301,6 +3319,10 @@ export type NovaNotificacao = {
   dia: string;
   accountId?: number | null;
   suggestedAction?: string | null;
+  /** Sobrescreve a chave padrão `tipo:referencia:dia` (ex.: comunicado, que não é diário). */
+  dedupKey?: string;
+  /** Restringe o fan-out a estes usuários (ex.: prazo de card é só de quem é dono). */
+  apenas?: number[];
 };
 
 /**
@@ -3312,8 +3334,8 @@ export async function createNotification(n: NovaNotificacao): Promise<number[]> 
   const db = await getDb();
   if (!db) return [];
   const dominio = dominioDoAlerta(n.alertType);
-  const dedupKey = `${n.tipo}:${n.referencia}:${n.dia}`.slice(0, 180);
-  const destinos = await destinatariosInApp(n.tipo);
+  const dedupKey = (n.dedupKey ?? `${n.tipo}:${n.referencia}:${n.dia}`).slice(0, 180);
+  const destinos = await destinatariosInApp(n.tipo, n.apenas);
   if (destinos.length === 0) return [];
 
   const jaTem = await db.select({ userId: alerts.userId }).from(alerts).where(and(
@@ -3363,25 +3385,31 @@ export async function getNotificationPrefs(userId: number) {
   return db.select().from(notificationPrefs).where(eq(notificationPrefs.userId, userId));
 }
 
-export async function upsertNotificationPref(userId: number, tipo: string, values: { inApp?: boolean; email?: boolean }) {
+export async function upsertNotificationPref(userId: number, tipo: string, values: { inApp?: boolean; emailModo?: EmailModo }) {
   const db = await getDb();
   if (!db) return;
   const def = notifTipoDef(tipo);
   if (!def) throw new Error(`Tipo de notificação desconhecido: ${tipo}`);
+  const modo = values.emailModo ?? def.emailModo;
+  // `email` (boolean legado) segue espelhando emailModo para não divergir.
   await db.insert(notificationPrefs)
-    .values({ userId, tipo, inApp: values.inApp ?? def.inApp, email: values.email ?? def.email })
-    .onDuplicateKeyUpdate({ set: { ...(values.inApp !== undefined ? { inApp: values.inApp } : {}), ...(values.email !== undefined ? { email: values.email } : {}) } });
+    .values({ userId, tipo, inApp: values.inApp ?? def.inApp, emailModo: modo, email: modo !== "off" })
+    .onDuplicateKeyUpdate({ set: {
+      ...(values.inApp !== undefined ? { inApp: values.inApp } : {}),
+      ...(values.emailModo !== undefined ? { emailModo: values.emailModo, email: values.emailModo !== "off" } : {}),
+    } });
 }
 
-export async function getUnreadCountByDominio(userId: number): Promise<{ PERFORMANCE: number; FINANCEIRO: number }> {
+export type ContagemDominio = Record<NotifDominio, number>;
+export async function getUnreadCountByDominio(userId: number): Promise<ContagemDominio> {
   const db = await getDb();
-  const zero = { PERFORMANCE: 0, FINANCEIRO: 0 };
+  const zero: ContagemDominio = { PERFORMANCE: 0, FINANCEIRO: 0, TAREFAS: 0, COMUNICADO: 0 };
   if (!db) return zero;
   const rows = await db.select({ dominio: alerts.dominio, n: sql<number>`count(*)` }).from(alerts)
     .where(and(eq(alerts.userId, userId), eq(alerts.isRead, false)))
     .groupBy(alerts.dominio);
   const out = { ...zero };
-  for (const r of rows) out[r.dominio as "PERFORMANCE" | "FINANCEIRO"] = Number(r.n);
+  for (const r of rows) out[r.dominio as NotifDominio] = Number(r.n);
   return out;
 }
 
@@ -3416,4 +3444,116 @@ export async function financeAtrasos() {
   const totalReceber = aReceber.reduce((s, x) => s + x.valorCents, 0);
   const totalPagar = aPagar.reduce((s, x) => s + x.valorCents, 0);
   return { hoje, aReceber, aPagar, totalReceberCents: totalReceber, totalPagarCents: totalPagar, total: aReceber.length + aPagar.length };
+}
+
+// ─── Hub pessoal: comunicados, digest, aniversários ──────────────────────────
+
+/** Usuários com Trello conectado (para o cron de prazos). */
+export async function usuariosComTrello(): Promise<{ userId: number; tokenEnc: string }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(userIntegrations).where(and(
+    eq(userIntegrations.provider, "trello"),
+    eq(userIntegrations.active, true),
+    isNotNull(userIntegrations.accessTokenEncrypted),
+  ));
+  return rows.map((r) => ({ userId: r.userId, tokenEnc: r.accessTokenEncrypted as string }));
+}
+
+/** Aniversariantes do dia (dia/mês locais). */
+export async function aniversariantesDe(dia: number, mes: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ id: users.id, name: users.name, jobTitle: users.jobTitle })
+    .from(users)
+    .where(and(eq(users.active, true), eq(users.birthdayDay, dia), eq(users.birthdayMonth, mes)));
+}
+
+/** Resolve o público de um comunicado em userIds concretos. */
+export async function resolverPublico(publico: "TODOS" | "ROLE" | "PESSOAS", alvoRole?: string | null, alvoUserIds?: number[] | null): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const ativos = await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.active, true));
+  if (publico === "TODOS") return ativos.map((u) => u.id);
+  if (publico === "ROLE") return ativos.filter((u) => u.role === alvoRole).map((u) => u.id);
+  const alvo = new Set(alvoUserIds ?? []);
+  return ativos.filter((u) => alvo.has(u.id)).map((u) => u.id);
+}
+
+export async function criarComunicado(data: InsertComunicado): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const r = await db.insert(comunicados).values(data);
+  return (r as unknown as { insertId: number }).insertId ?? (r as any)[0]?.insertId;
+}
+
+export async function setComunicadoEnviados(id: number, n: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(comunicados).set({ enviados: n }).where(eq(comunicados.id, id));
+}
+
+export async function setComunicadoFixado(id: number, fixado: boolean) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(comunicados).set({ fixado }).where(eq(comunicados.id, id));
+}
+
+/**
+ * Comunicados enviados + recibo de leitura agregado. O recibo sai de `alerts`
+ * (uma linha por destinatário, dedupKey "COMUNICADO:<id>") — não há tabela de
+ * recibo: quem leu é literalmente alerts.isRead.
+ */
+export async function listarComunicados(limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    id: comunicados.id, titulo: comunicados.titulo, corpo: comunicados.corpo,
+    publico: comunicados.publico, alvoRole: comunicados.alvoRole, fixado: comunicados.fixado,
+    enviados: comunicados.enviados, createdAt: comunicados.createdAt,
+    autorUserId: comunicados.autorUserId, autorNome: users.name,
+  }).from(comunicados).leftJoin(users, eq(comunicados.autorUserId, users.id))
+    .orderBy(desc(comunicados.fixado), desc(comunicados.createdAt)).limit(limit);
+  if (rows.length === 0) return [];
+  const lidos = await db.select({ dedupKey: alerts.dedupKey, n: sql<number>`sum(case when ${alerts.isRead} then 1 else 0 end)` })
+    .from(alerts)
+    .where(inArray(alerts.dedupKey, rows.map((r) => `COMUNICADO:${r.id}`)))
+    .groupBy(alerts.dedupKey);
+  const lmap = new Map(lidos.map((l) => [l.dedupKey, Number(l.n)]));
+  return rows.map((r) => ({ ...r, leram: lmap.get(`COMUNICADO:${r.id}`) ?? 0 }));
+}
+
+/** Quem leu / quem não leu um comunicado. */
+export async function recibosComunicado(id: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ userId: alerts.userId, nome: users.name, lido: alerts.isRead })
+    .from(alerts).leftJoin(users, eq(alerts.userId, users.id))
+    .where(eq(alerts.dedupKey, `COMUNICADO:${id}`))
+    .orderBy(desc(alerts.isRead));
+}
+
+/** Notificações do dia de um usuário ainda sem email — matéria-prima do digest. */
+export async function pendentesDoDigest(userId: number, desde: Date) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ id: alerts.id, title: alerts.title, message: alerts.message, type: alerts.type, dominio: alerts.dominio, dedupKey: alerts.dedupKey })
+    .from(alerts)
+    .where(and(eq(alerts.userId, userId), isNull(alerts.emailSentAt), gte(alerts.createdAt, desde)))
+    .orderBy(desc(alerts.createdAt));
+}
+
+export async function marcarEmailEnviadoIds(ids: number[]) {
+  const db = await getDb();
+  if (!db || ids.length === 0) return;
+  await db.update(alerts).set({ emailSentAt: new Date() }).where(inArray(alerts.id, ids));
+}
+
+/** Usuários ativos com email (base do digest). */
+export async function usuariosAtivosComEmail() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ id: users.id, name: users.name, email: users.email })
+    .from(users).where(and(eq(users.active, true), isNotNull(users.email)));
+  return rows as { id: number; name: string | null; email: string }[];
 }

@@ -1,5 +1,5 @@
 import { logger } from "./logger";
-import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, type AnomaliaNotif } from "./notificationJobs";
+import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, runDigestDiario, type AnomaliaNotif } from "./notificationJobs";
 /**
  * autoSync.ts — Cron job para sincronização automática diária de todas as contas Meta Ads.
  *
@@ -462,16 +462,20 @@ async function runAnomaliasDeMidia() {
  * Idempotente por dedup — reexecutar não duplica.
  */
 async function runNotificacoesDiarias() {
-  try {
-    await runFinanceAtrasos();
-  } catch (err) { logger.error(`[Notif] Financeiro falhou: ${(err as Error)?.message}`); }
-  try {
-    await runBriefingDiario(async () => null);
-  } catch (err) { logger.error(`[Notif] Briefing falhou: ${(err as Error)?.message}`); }
-  try {
-    const diaSemana = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", weekday: "short" }).format(new Date()) === "Mon");
-    if (diaSemana === 1) await runRelatorioSemanalDeContas();
-  } catch (err) { logger.error(`[Notif] Semanal falhou: ${(err as Error)?.message}`); }
+  // Cada gatilho é isolado: um falhando não derruba os outros nem o digest.
+  const passo = async (nome: string, fn: () => Promise<unknown>) => {
+    try { await fn(); } catch (err) { logger.error(`[Notif] ${nome} falhou: ${(err as Error)?.message}`); }
+  };
+  await passo("Financeiro", runFinanceAtrasos);
+  await passo("Trello", runTrelloPrazos);
+  await passo("Aniversários", runAniversarios);
+  await passo("Briefing", () => runBriefingDiario(async () => null));
+  await passo("Semanal", async () => {
+    const hoje = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", weekday: "short" }).format(new Date());
+    if (hoje === "Mon") await runRelatorioSemanalDeContas();
+  });
+  // Por último: o digest junta tudo que os gatilhos acabaram de criar.
+  await passo("Digest", runDigestDiario);
 }
 
 /** Relatório semanal consolidado por conta — com métricas reais (não zeros). */

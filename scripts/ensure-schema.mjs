@@ -448,6 +448,46 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · notification_prefs garantida");
 
+    // 16) Hub de notificações pessoais: tarefas (Trello), comunicados, aniversários.
+    const [domCol] = await conn.query(
+      "SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'alerts' AND column_name = 'dominio'",
+    );
+    if (domCol.length && !String(domCol[0].COLUMN_TYPE).includes("COMUNICADO")) {
+      await conn.query("ALTER TABLE `alerts` MODIFY COLUMN `dominio` ENUM('PERFORMANCE','FINANCEIRO','TAREFAS','COMUNICADO') NOT NULL DEFAULT 'PERFORMANCE'");
+      console.log("[ensure-schema] ok  · alerts.dominio expandido (TAREFAS/COMUNICADO)");
+    }
+    const [typeCol2] = await conn.query(
+      "SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'alerts' AND column_name = 'type'",
+    );
+    if (typeCol2.length && !String(typeCol2[0].COLUMN_TYPE).includes("TRELLO_DUE")) {
+      await conn.query(
+        "ALTER TABLE `alerts` MODIFY COLUMN `type` ENUM('ANOMALY','REPORT','SYNC_ERROR','BUDGET_WARNING','CAMPAIGN_PAUSED','PAYMENT_FAILED','AD_REJECTED','AD_ERROR','PAGE_UNLINKED','INSTAGRAM_UNLINKED','PIXEL_ERROR','ADSET_NO_DELIVERY','SUGGESTION_APPLIED','EXPERIMENT_UPDATE','SYNC_COMPLETE','DAILY_BRIEFING','WEEKLY_REPORT','FINANCE_OVERDUE','TRELLO_DUE','TRELLO_RECONNECT','COMUNICADO','BIRTHDAY') NOT NULL",
+      );
+      console.log("[ensure-schema] ok  · alerts.type expandido (TRELLO_DUE/TRELLO_RECONNECT/COMUNICADO/BIRTHDAY)");
+    }
+    if (!(await columnExists(conn, "notification_prefs", "emailModo"))) {
+      await conn.query("ALTER TABLE `notification_prefs` ADD COLUMN `emailModo` VARCHAR(10) NOT NULL DEFAULT 'off'");
+      // Quem já tinha email=1 gravado continua recebendo na hora.
+      await conn.query("UPDATE `notification_prefs` SET `emailModo` = 'hora' WHERE `email` = 1");
+      console.log("[ensure-schema] ok  · notification_prefs.emailModo adicionada");
+    }
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`comunicados\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`autorUserId\` INT NOT NULL,
+        \`titulo\` VARCHAR(180) NOT NULL,
+        \`corpo\` TEXT NOT NULL,
+        \`publico\` ENUM('TODOS','ROLE','PESSOAS') NOT NULL DEFAULT 'TODOS',
+        \`alvoRole\` VARCHAR(20) NULL,
+        \`alvoUserIds\` JSON NULL,
+        \`fixado\` BOOLEAN NOT NULL DEFAULT FALSE,
+        \`enviados\` INT NOT NULL DEFAULT 0,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_comunicado_criado\` (\`createdAt\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · comunicados garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

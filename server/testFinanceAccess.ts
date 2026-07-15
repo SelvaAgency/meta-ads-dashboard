@@ -88,7 +88,7 @@ async function expectNotifWall(): Promise<boolean> {
     if (!zerado) ok = false;
 
     try {
-      await caller.notifications.setPref({ tipo: "FINANCE_ATRASO", email: true });
+      await caller.notifications.setPref({ tipo: "FINANCE_ATRASO", emailModo: "hora" });
       console.log(`  ✗ role ${role} · notifications.setPref(FINANCE_ATRASO): NÃO bloqueou — FALHA`);
       ok = false;
     } catch (e: any) {

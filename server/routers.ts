@@ -277,8 +277,9 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
-import { getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref } from "./db";
-import { notifTiposFor, notifTipoDef } from "../shared/notifications";
+import { getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado } from "./db";
+import { entregarComunicado } from "./notificationJobs";
+import { notifTiposFor, notifTipoDef, type EmailModo } from "../shared/notifications";
 
 // ─── Helper: computeNextRun ─────────────────────────────────────────────────
 /** Calcula o próximo disparo de um agendamento de relatório. */
@@ -1776,6 +1777,53 @@ export const appRouter = router({
 
   // ─── Dashboard ─────────────────────────────────────────────────────────────
 
+  // ─── Comunicados (avisos internos do admin) ─────────────────────────────────
+  comunicados: router({
+    /** Lista com recibo agregado — quem envia precisa ver quem leu. */
+    list: adminProcedure.query(() => listarComunicados()),
+    recibos: adminProcedure.input(z.object({ id: z.number().int() })).query(({ input }) => recibosComunicado(input.id)),
+
+    /** Prévia do alcance antes de enviar — evita disparar para o público errado. */
+    previewPublico: adminProcedure
+      .input(z.object({ publico: z.enum(["TODOS", "ROLE", "PESSOAS"]), alvoRole: z.string().max(20).nullable().optional(), alvoUserIds: z.array(z.number().int()).nullable().optional() }))
+      .query(async ({ input }) => {
+        const ids = await resolverPublico(input.publico, input.alvoRole ?? null, input.alvoUserIds ?? null);
+        return { total: ids.length };
+      }),
+
+    enviar: adminProcedure
+      .input(z.object({
+        titulo: z.string().min(1).max(180),
+        corpo: z.string().min(1).max(20000),
+        publico: z.enum(["TODOS", "ROLE", "PESSOAS"]).default("TODOS"),
+        alvoRole: z.enum(["user", "admin", "developer"]).nullable().optional(),
+        alvoUserIds: z.array(z.number().int()).nullable().optional(),
+        fixado: z.boolean().default(false),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (input.publico === "ROLE" && !input.alvoRole) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha o cargo." });
+        if (input.publico === "PESSOAS" && !(input.alvoUserIds?.length)) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha ao menos uma pessoa." });
+        const destinatarios = await resolverPublico(input.publico, input.alvoRole ?? null, input.alvoUserIds ?? null);
+        if (destinatarios.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum destinatário para este público." });
+
+        const id = await criarComunicado({
+          autorUserId: ctx.user.id, titulo: input.titulo, corpo: input.corpo,
+          publico: input.publico, alvoRole: input.alvoRole ?? null,
+          alvoUserIds: input.alvoUserIds ?? null, fixado: input.fixado,
+        });
+        const r = await entregarComunicado({
+          id, titulo: input.titulo, corpo: input.corpo,
+          autorNome: ctx.user.name ?? "Administração", destinatarios,
+        });
+        await setComunicadoEnviados(id, r.entregues);
+        return { success: true, id, ...r } as const;
+      }),
+
+    fixar: adminProcedure
+      .input(z.object({ id: z.number().int(), fixado: z.boolean() }))
+      .mutation(async ({ input }) => { await setComunicadoFixado(input.id, input.fixado); return { success: true } as const; }),
+  }),
+
   notifications: router({
     // Preferências por (tipo × canal). Retorna o catálogo já resolvido com o que
     // o usuário gravou — o front não precisa saber dos defaults.
@@ -1784,16 +1832,21 @@ export const appRouter = router({
       const pmap = new Map(salvos.map((p) => [p.tipo, p]));
       return notifTiposFor(ctx.user.role).map((t) => {
         const p = pmap.get(t.v);
-        return { tipo: t.v, dominio: t.dominio, label: t.label, desc: t.desc, inApp: p?.inApp ?? t.inApp, email: p?.email ?? t.email };
+        return {
+          tipo: t.v, dominio: t.dominio, label: t.label, desc: t.desc,
+          inApp: p?.inApp ?? t.inApp,
+          emailModo: (p?.emailModo as EmailModo) ?? t.emailModo,
+          inAppObrigatorio: !!t.inAppObrigatorio,
+        };
       });
     }),
     setPref: protectedProcedure
-      .input(z.object({ tipo: z.string().max(40), inApp: z.boolean().optional(), email: z.boolean().optional() }))
+      .input(z.object({ tipo: z.string().max(40), inApp: z.boolean().optional(), emailModo: z.enum(["off", "hora", "digest"]).optional() }))
       .mutation(async ({ ctx, input }) => {
         const def = notifTipoDef(input.tipo);
         if (!def) throw new TRPCError({ code: "BAD_REQUEST", message: "Tipo de notificação desconhecido." });
         if (def.adminOnly && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Sem acesso a notificações financeiras." });
-        await upsertNotificationPref(ctx.user.id, input.tipo, { inApp: input.inApp, email: input.email });
+        await upsertNotificationPref(ctx.user.id, input.tipo, { inApp: input.inApp, emailModo: input.emailModo });
         return { success: true } as const;
       }),
     get: protectedProcedure
@@ -2698,7 +2751,7 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
 
     listAll: protectedProcedure
       .input(z.object({
-        dominio: z.enum(["PERFORMANCE", "FINANCEIRO"]).optional(),
+        dominio: z.enum(["PERFORMANCE", "FINANCEIRO", "TAREFAS", "COMUNICADO"]).optional(),
         status: z.enum(["nova", "lida"]).optional(),
       }).optional())
       .query(async ({ ctx, input }) => {
@@ -2732,7 +2785,7 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
       }),
 
     markAllRead: protectedProcedure
-      .input(z.object({ accountId: z.number().optional(), dominio: z.enum(["PERFORMANCE", "FINANCEIRO"]).optional() }))
+      .input(z.object({ accountId: z.number().optional(), dominio: z.enum(["PERFORMANCE", "FINANCEIRO", "TAREFAS", "COMUNICADO"]).optional() }))
       .mutation(async ({ ctx, input }) => {
         if (input.accountId) {
           await markAllAlertsReadByAccount(ctx.user.id, input.accountId);

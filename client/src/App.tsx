@@ -28,6 +28,7 @@ import ExperimentDetail from "./pages/ExperimentDetail";
 // Selva Spaces — portal interno (raiz da aplicação). Ver client/src/pages/hub/.
 import Hub from "./pages/hub/Hub";
 import HubAccess from "./pages/hub/HubAccess";
+import NotificacoesPage from "./pages/hub/NotificacoesPage";
 import HubApp from "./pages/hub/HubApp";
 import HubSettings from "./pages/hub/HubSettings";
 import PeoplePage from "./pages/hub/PeoplePage";
@@ -66,6 +67,7 @@ function Router() {
       <Route path="/finance" component={FinanceRoute} />
       <Route path="/settings" component={SettingsRoute} />
       <Route path="/access" component={HubAccess} />
+      <Route path="/notificacoes" component={NotificacoesPage} />
       <Route path="/spaces" component={SpacesPage} />
       <Route path="/people" component={() => <AdminOnly><PeoplePage /></AdminOnly>} />
       <Route path="/change-password" component={ChangePassword} />

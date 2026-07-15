@@ -16,8 +16,12 @@ import { isEmailConfigured, sendEmail } from "./emailService";
 import {
   createNotification, destinatariosEmail, emailJaEnviado, marcarEmailEnviado,
   financeAtrasos, getDailyBriefing, saveDailyBriefing,
+  usuariosComTrello, aniversariantesDe, pendentesDoDigest, marcarEmailEnviadoIds,
+  usuariosAtivosComEmail, emailModoDe,
 } from "./db";
-import type { NotifTipo } from "../shared/notifications";
+import { decryptSecret } from "./_core/integrationsCrypto";
+import { isTrelloConfigured, listMyCards, TrelloAuthError } from "./trelloService";
+import { type NotifTipo, notifTipoDoAlerta, dominioLabel } from "../shared/notifications";
 
 const BRL = (c: number) => "R$ " + ((c ?? 0) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
 
@@ -44,12 +48,13 @@ function layout(titulo: string, corpoHtml: string): string {
  * Envia para quem optou por email naquele tipo, pulando quem já recebeu este
  * dedupKey. Devolve quantos e-mails saíram (0 se SMTP não estiver configurado).
  */
-async function enviarEmails(tipo: NotifTipo, dedupKey: string, subject: string, html: string, text: string): Promise<number> {
+async function enviarEmails(tipo: NotifTipo, dedupKey: string, subject: string, html: string, text: string, apenas?: number[]): Promise<number> {
   if (!isEmailConfigured()) {
     logger.info(`[Notif] SMTP não configurado — email de ${tipo} pulado (in-app segue normal)`);
     return 0;
   }
-  const destinos = await destinatariosEmail(tipo);
+  // Só quem escolheu "na hora": quem escolheu "digest" recebe no resumo do dia.
+  const destinos = await destinatariosEmail(tipo, "hora", apenas);
   let enviados = 0;
   for (const d of destinos) {
     if (!d.email) continue;
@@ -197,4 +202,169 @@ export async function runAnomaliasNotif(anomalias: AnomaliaNotif[]): Promise<num
   }
   logger.info(`[Notif] Anomalias: ${criadas} nova(s) de ${anomalias.length} detectada(s)`);
   return criadas;
+}
+
+// ─── TAREFAS: prazos do Trello ───────────────────────────────────────────────
+
+/**
+ * Prazo é por pessoa: cada card pertence a quem está atribuído, então o fan-out
+ * é restrito ao dono (`apenas: [userId]`). O token do Trello expira em 30 dias e
+ * não tem refresh — quando isso acontece, avisamos para reconectar em vez de
+ * falhar em silêncio (hoje a pessoa só descobre quando abre a Home).
+ */
+export async function runTrelloPrazos(): Promise<{ prazos: number; reconexoes: number }> {
+  if (!isTrelloConfigured()) {
+    logger.info("[Notif] Trello não configurado — prazos pulados.");
+    return { prazos: 0, reconexoes: 0 };
+  }
+  const dia = hojeAgencia();
+  const contas = await usuariosComTrello();
+  let prazos = 0, reconexoes = 0;
+
+  for (const conta of contas) {
+    let cards;
+    try {
+      cards = await listMyCards(decryptSecret(conta.tokenEnc));
+    } catch (e) {
+      if (e instanceof TrelloAuthError) {
+        const criados = await createNotification({
+          tipo: "TRELLO_RECONEXAO", alertType: "TRELLO_RECONNECT", severity: "WARNING",
+          title: "Reconecte seu Trello",
+          message: "O acesso ao Trello expirou (ele vale 30 dias). Reconecte em Configurações para voltar a ver seus cards e prazos.",
+          referencia: "reconexao", dia, apenas: [conta.userId],
+        });
+        if (criados.length) reconexoes++;
+      } else {
+        logger.error(`[Notif] Trello falhou para user ${conta.userId}: ${(e as Error)?.message}`);
+      }
+      continue;
+    }
+
+    for (const card of cards) {
+      if (!card.due) continue;
+      const venc = card.due.slice(0, 10);
+      const d = diasEntre(dia, venc); // >0 vencido · 0 hoje · -1 amanhã
+      if (d < 0 && d !== -1) continue; // só interessa vencido, hoje e amanhã
+      const quando = d > 0 ? `venceu há ${d} dia(s)` : d === 0 ? "vence hoje" : "vence amanhã";
+      const sev = d > 0 ? "CRITICAL" : d === 0 ? "WARNING" : "INFO";
+      const onde = card.boardName ? ` · ${card.boardName}` : "";
+      const criados = await createNotification({
+        tipo: "TRELLO_PRAZO", alertType: "TRELLO_DUE", severity: sev,
+        title: `${card.name} — ${quando}`, message: `Card do Trello${onde}. Prazo: ${fmtData(venc)}.\n${card.url}`,
+        // Dedup por card+dia: o mesmo card reavisa amanhã, não duas vezes hoje.
+        referencia: card.id, dia, apenas: [conta.userId],
+        suggestedAction: card.url,
+      });
+      if (criados.length) prazos++;
+    }
+  }
+  logger.info(`[Notif] Trello: ${prazos} prazo(s) · ${reconexoes} reconexão(ões) · ${contas.length} conta(s)`);
+  return { prazos, reconexoes };
+}
+
+/** Dias entre duas datas YYYY-MM-DD (positivo = `venc` no passado). */
+function diasEntre(hoje: string, venc: string): number {
+  return Math.round((Date.parse(`${hoje}T00:00:00Z`) - Date.parse(`${venc}T00:00:00Z`)) / 86400000);
+}
+
+// ─── COMUNICADO: aniversários ────────────────────────────────────────────────
+
+export async function runAniversarios(): Promise<number> {
+  const dia = hojeAgencia();
+  const [, m, d] = dia.split("-").map(Number);
+  const lista = await aniversariantesDe(d, m);
+  let criados = 0;
+  for (const p of lista) {
+    const nome = p.name ?? "Alguém do time";
+    const users = await createNotification({
+      tipo: "ANIVERSARIO", alertType: "BIRTHDAY", severity: "INFO",
+      title: `Hoje é aniversário de ${nome} 🎉`,
+      message: `${nome}${p.jobTitle ? ` · ${p.jobTitle}` : ""} faz aniversário hoje. Passa lá dar os parabéns.`,
+      referencia: String(p.id), dia,
+    });
+    if (users.length) criados++;
+  }
+  if (lista.length) logger.info(`[Notif] Aniversários: ${criados} avisado(s) de ${lista.length} aniversariante(s)`);
+  return criados;
+}
+
+// ─── COMUNICADO: aviso do admin ──────────────────────────────────────────────
+
+/**
+ * Entrega um comunicado: cria a notificação para cada destinatário (o in-app é
+ * obrigatório — é mensagem dirigida) e manda email para quem escolheu "na hora".
+ * Quem escolheu "digest" recebe no resumo do dia. dedupKey fixo por comunicado:
+ * o recibo de leitura é o próprio alerts.isRead de cada linha.
+ */
+export async function entregarComunicado(c: {
+  id: number; titulo: string; corpo: string; autorNome: string; destinatarios: number[];
+}): Promise<{ entregues: number; emails: number }> {
+  const dedupKey = `COMUNICADO:${c.id}`;
+  const entregues = await createNotification({
+    tipo: "COMUNICADO", alertType: "COMUNICADO", severity: "INFO",
+    title: c.titulo, message: c.corpo, referencia: String(c.id), dia: hojeAgencia(),
+    dedupKey, apenas: c.destinatarios,
+  });
+  const html = layout(c.titulo, `
+    ${c.corpo.split("\n").map((l) => `<p style="margin:6px 0;font-size:14px;color:#333">${escapar(l)}</p>`).join("")}
+    <p style="margin:20px 0 0;font-size:12px;color:#888;border-top:1px solid #eee;padding-top:12px">Enviado por ${escapar(c.autorNome)} · SELVA</p>`);
+  const texto = `${c.corpo}\n\n— ${c.autorNome}`;
+  const emails = await enviarEmails("COMUNICADO", dedupKey, `[SELVA] ${c.titulo}`, html, texto, c.destinatarios);
+  logger.info(`[Notif] Comunicado ${c.id}: ${entregues.length} entregue(s) · ${emails} email(s) na hora`);
+  return { entregues: entregues.length, emails };
+}
+
+/** Escapa HTML — o corpo do comunicado é texto livre digitado por uma pessoa. */
+function escapar(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+}
+
+// ─── Digest diário ───────────────────────────────────────────────────────────
+
+/**
+ * Um email por pessoa com tudo que ela marcou como "no resumo do dia" e ainda
+ * não recebeu. Roda por último, depois de todos os gatilhos terem criado suas
+ * notificações. Marca emailSentAt — reexecutar não reenvia.
+ */
+export async function runDigestDiario(): Promise<{ enviados: number }> {
+  if (!isEmailConfigured()) {
+    logger.info("[Notif] SMTP não configurado — digest pulado.");
+    return { enviados: 0 };
+  }
+  const dia = hojeAgencia();
+  const inicioDoDia = new Date(`${dia}T00:00:00-03:00`);
+  const pessoas = await usuariosAtivosComEmail();
+  let enviados = 0;
+
+  for (const p of pessoas) {
+    const pendentes = await pendentesDoDigest(p.id, inicioDoDia);
+    if (pendentes.length === 0) continue;
+    // Só o que ESTA pessoa marcou como digest.
+    const doDigest = [];
+    for (const n of pendentes) {
+      if ((await emailModoDe(p.id, notifTipoDoAlerta(n.type))) === "digest") doDigest.push(n);
+    }
+    if (doDigest.length === 0) continue;
+
+    const porDominio = new Map<string, typeof doDigest>();
+    for (const n of doDigest) {
+      const k = n.dominio as string;
+      if (!porDominio.has(k)) porDominio.set(k, []);
+      porDominio.get(k)!.push(n);
+    }
+    const secoes = Array.from(porDominio.entries()).map(([dom, itens]) => `
+      <p style="margin:16px 0 6px;font-size:12px;font-weight:bold;color:#E85BA8;text-transform:uppercase;letter-spacing:1px">${dominioLabel(dom)}</p>
+      ${itens.map((i) => `<div style="border-left:2px solid #eee;padding:4px 0 4px 10px;margin:6px 0">
+        <p style="margin:0;font-size:14px;color:#1a1a1a;font-weight:bold">${escapar(i.title)}</p>
+        <p style="margin:2px 0 0;font-size:13px;color:#555">${escapar(String(i.message ?? "").slice(0, 240))}</p>
+      </div>`).join("")}`).join("");
+
+    const titulo = `Seu resumo do dia · ${fmtData(dia)}`;
+    const html = layout(titulo, `<p style="margin:0;font-size:14px;color:#333">${doDigest.length} novidade(s) desde ontem.</p>${secoes}`);
+    const texto = doDigest.map((i) => `• ${i.title}`).join("\n");
+    const ok = await sendEmail({ to: p.email, subject: `[SELVA] ${titulo}`, html, text: texto });
+    if (ok) { await marcarEmailEnviadoIds(doDigest.map((i) => i.id)); enviados++; }
+  }
+  logger.info(`[Notif] Digest diário: ${enviados} email(s)`);
+  return { enviados };
 }

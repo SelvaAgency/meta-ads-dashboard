@@ -388,6 +388,11 @@ export const alerts = mysqlTable("alerts", {
     "DAILY_BRIEFING",
     "WEEKLY_REPORT",
     "FINANCE_OVERDUE",
+    // Hub pessoal: tarefas (Trello), comunicados e aniversários.
+    "TRELLO_DUE",
+    "TRELLO_RECONNECT",
+    "COMUNICADO",
+    "BIRTHDAY",
   ]).notNull(),
   severity: mysqlEnum("severity", ["INFO", "WARNING", "CRITICAL"]).notNull(),
   // Prioridade do alerta: CRITICAL=imediato, HIGH=até 30min, MEDIUM=consolidado a cada 2h
@@ -402,7 +407,7 @@ export const alerts = mysqlTable("alerts", {
   // Controle de envio de email: null = ainda não enviado, data = já enviado (enviar apenas uma vez)
   emailSentAt: timestamp("emailSentAt"),
   // Sistema de notificações: eixo de produto + dedup por (tipo, referência, dia).
-  dominio: mysqlEnum("dominio", ["PERFORMANCE", "FINANCEIRO"]).default("PERFORMANCE").notNull(),
+  dominio: mysqlEnum("dominio", ["PERFORMANCE", "FINANCEIRO", "TAREFAS", "COMUNICADO"]).default("PERFORMANCE").notNull(),
   dedupKey: varchar("dedupKey", { length: 180 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
@@ -596,7 +601,10 @@ export const notificationPrefs = mysqlTable("notification_prefs", {
   userId: int("userId").notNull(),
   tipo: varchar("tipo", { length: 40 }).notNull(),
   inApp: boolean("inApp").default(true).notNull(),
+  // Mantida por compatibilidade: emailModo != "off" é a fonte de verdade.
   email: boolean("email").default(false).notNull(),
+  // "off" | "hora" | "digest" — quem escolhe é a pessoa, por tipo.
+  emailModo: varchar("emailModo", { length: 10 }).default("off").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
@@ -604,6 +612,28 @@ export const notificationPrefs = mysqlTable("notification_prefs", {
 }));
 export type NotificationPref = typeof notificationPrefs.$inferSelect;
 export type InsertNotificationPref = typeof notificationPrefs.$inferInsert;
+
+/**
+ * Comunicado interno: o admin escreve uma vez aqui; a ENTREGA e o recibo de
+ * leitura vivem em `alerts` (uma linha por destinatário, dedupKey
+ * "COMUNICADO:<id>"). Quem leu = alerts.isRead — sem tabela de recibo separada.
+ */
+export const comunicados = mysqlTable("comunicados", {
+  id: int("id").autoincrement().primaryKey(),
+  autorUserId: int("autorUserId").notNull(),
+  titulo: varchar("titulo", { length: 180 }).notNull(),
+  corpo: text("corpo").notNull(),
+  publico: mysqlEnum("publico", ["TODOS", "ROLE", "PESSOAS"]).default("TODOS").notNull(),
+  alvoRole: varchar("alvoRole", { length: 20 }),   // quando publico = ROLE
+  alvoUserIds: json("alvoUserIds"),                 // quando publico = PESSOAS
+  fixado: boolean("fixado").default(false).notNull(),
+  enviados: int("enviados").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  idxCriado: index("idx_comunicado_criado").on(table.createdAt),
+}));
+export type Comunicado = typeof comunicados.$inferSelect;
+export type InsertComunicado = typeof comunicados.$inferInsert;
 
 
 // ─── Account Context (memória por conta) ─────────────────────────────────────
