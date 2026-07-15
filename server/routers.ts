@@ -2800,7 +2800,9 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
         enabled: z.boolean().optional(),
         projectId: z.string().max(64).nullable().optional(),
         // undefined = não mexe no token; "" = apaga. O front nunca reenvia o atual.
-        apiToken: z.string().max(500).nullable().optional(),
+        // O token do Clarity é um JWT e passa fácil de 1KB — o limite antigo de
+        // 500 recusava tokens legítimos. A coluna é TEXT; 8k é folga com sobra.
+        apiToken: z.string().max(8000, "Token muito longo — confira se colou só o token.").nullable().optional(),
         domain: z.string().max(255).nullable().optional(),
         importantUrls: z.array(z.string().max(500)).nullable().optional(),
         notes: z.string().max(5000).nullable().optional(),
