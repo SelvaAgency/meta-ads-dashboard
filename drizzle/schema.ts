@@ -671,6 +671,8 @@ export const financePnlEntries = mysqlTable("finance_pnl_entries", {
   parcelaTotal: int("parcelaTotal"),
   // Ajustes 3 — despesa paga pelo Gui (reembolso pendente). Só despesa usa.
   reembolsoPendente: boolean("reembolsoPendente").default(false).notNull(),
+  // Subcategoria da despesa pontual (só DESPESA_PONTUAL usa).
+  subcategoria: varchar("subcategoria", { length: 24 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({

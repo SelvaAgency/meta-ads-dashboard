@@ -3094,10 +3094,23 @@ export async function financeDespesasAtivos(mes: string) {
   recorrentes.sort((a, b) => b.valorCents - a.valorCents);
   const pontuais: DespesaPon[] = entries
     .filter((e) => e.tipo === "DESPESA_PONTUAL")
-    .map((e) => ({ entryId: e.id, descricao: e.descricao, valorCents: e.valorCents, vencimento: e.vencimento ?? null, vencimentoOriginal: e.vencimentoOriginal ?? null, status: e.status, reembolsoPendente: !!e.reembolsoPendente }))
+    .map((e) => ({ entryId: e.id, descricao: e.descricao, valorCents: e.valorCents, vencimento: e.vencimento ?? null, vencimentoOriginal: e.vencimentoOriginal ?? null, status: e.status, reembolsoPendente: !!e.reembolsoPendente, subcategoria: e.subcategoria ?? null }))
     .sort((a, b) => b.valorCents - a.valorCents);
   return { recorrentes, pontuais };
 }
+/** Composição da despesa PONTUAL por subcategoria no período (para o donut). */
+export async function financeDespesaPontualPorSub(f: { mesFrom?: string; mesTo?: string } = {}) {
+  const db = await getDb();
+  if (!db) return [] as { sub: string; totalCents: number }[];
+  const conds = [eq(financePnlEntries.tipo, "DESPESA_PONTUAL")];
+  if (f.mesFrom) conds.push(gte(financePnlEntries.mes, f.mesFrom));
+  if (f.mesTo) conds.push(lte(financePnlEntries.mes, f.mesTo));
+  const rows = await db.select({ sub: financePnlEntries.subcategoria, v: financePnlEntries.valorCents }).from(financePnlEntries).where(and(...conds));
+  const agg = new Map<string, number>();
+  for (const r of rows) { const k = r.sub ?? "OUTROS"; agg.set(k, (agg.get(k) ?? 0) + r.v); }
+  return Array.from(agg.entries()).map(([sub, totalCents]) => ({ sub, totalCents })).sort((a, b) => b.totalCents - a.totalCents);
+}
+
 /** Despesa por fornecedor/descrição no período (para o donut de concentração de custo). */
 export async function financeDespesaPorFornecedor(f: { mesFrom?: string; mesTo?: string } = {}) {
   const db = await getDb();
@@ -3111,7 +3124,7 @@ export async function financeDespesaPorFornecedor(f: { mesFrom?: string; mesTo?:
   return Array.from(agg.entries()).map(([nome, totalCents]) => ({ nome, totalCents })).sort((a, b) => b.totalCents - a.totalCents);
 }
 type DespesaRec = { recorrenciaId: number | null; descricao: string; valorCents: number; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; estimativa: boolean; diaVencimento: number | null; entryId: number | null; status: "pago" | "pendente" | null; vencimento: string | null; vencimentoOriginal: string | null; projetado: boolean };
-type DespesaPon = { entryId: number; descricao: string; valorCents: number; vencimento: string | null; vencimentoOriginal: string | null; status: "pago" | "pendente"; reembolsoPendente: boolean };
+type DespesaPon = { entryId: number; descricao: string; valorCents: number; vencimento: string | null; vencimentoOriginal: string | null; status: "pago" | "pendente"; reembolsoPendente: boolean; subcategoria: string | null };
 
 type ContratoRec = { recorrenciaId: number | null; clienteId: number | null; clienteNome: string; cor: string | null; valorCents: number; diaVencimento: number | null; entryId: number | null; status: "pago" | "pendente" | null; vencimento: string | null; vencimentoOriginal: string | null; projetado: boolean };
 type ContratoPon = { entryId: number; projetoId: number | null; parcelaNum: number | null; parcelaTotal: number | null; clienteId: number | null; clienteNome: string; cor: string | null; descricao: string; valorCents: number; vencimento: string | null; vencimentoOriginal: string | null; status: "pago" | "pendente" };

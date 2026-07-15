@@ -70,6 +70,18 @@ const PNL_TIPOS = [
 type PnlTipo = (typeof PNL_TIPOS)[number]["v"];
 const tipoLabel = (v: string) => PNL_TIPOS.find((t) => t.v === v)?.label ?? v;
 const tipoKind = (v: string) => PNL_TIPOS.find((t) => t.v === v)?.kind ?? "despesa";
+// Subcategorias da despesa pontual.
+const SUBCATS: { v: string; label: string }[] = [
+  { v: "PLATAFORMAS", label: "Plataformas & Ferramentas" },
+  { v: "OFFICE", label: "Office & Estrutura" },
+  { v: "EQUIPAMENTOS", label: "Equipamentos" },
+  { v: "TELEFONIA", label: "Telefonia" },
+  { v: "EQUIPE_EVENTOS", label: "Equipe & Eventos" },
+  { v: "FREELAS", label: "Freelas" },
+  { v: "TAXAS", label: "Taxas" },
+  { v: "OUTROS", label: "Outros" },
+];
+const subLabel = (v: string | null) => SUBCATS.find((s) => s.v === v)?.label ?? "Outros";
 // Abas (leitura) da seção "Lançamentos do mês" na Visão Geral.
 const LANC_TABS: { v: PnlTipo; label: string }[] = [
   { v: "RECEITA_RECORRENTE", label: "Receita recorrente" },
@@ -288,21 +300,21 @@ function MovimentoChart({ pontos, destaque }: { pontos: SeriePoint[]; destaque?:
     </div>
   );
 }
-// Donut de concentração da receita por cliente (top fatias + "demais").
-const DONUT_CORES = ["#3B54E6", "#16A34A", "#EF701B", "#9333EA", "#0EA5E9", "#94a3b8"];
-function ConcentracaoDonut({ data }: { data: { nome: string; totalCents: number }[] }) {
+// Donut de concentração (top fatias + "demais"). Clique opcional filtra por key.
+const DONUT_CORES = ["#3B54E6", "#16A34A", "#EF701B", "#9333EA", "#0EA5E9", "#D97706", "#DC2626", "#0D9488", "#94a3b8"];
+function ConcentracaoDonut({ data, topN = 5, onSlice, emptyMsg = "Sem receita no período." }: { data: { nome: string; totalCents: number; key?: string }[]; topN?: number; onSlice?: (key: string | null) => void; emptyMsg?: string }) {
   const total = data.reduce((s, x) => s + x.totalCents, 0);
-  const top = data.slice(0, 5);
-  const demais = data.slice(5).reduce((s, x) => s + x.totalCents, 0);
-  const fatias = [...top.map((x, i) => ({ nome: x.nome, v: x.totalCents / 100, cor: DONUT_CORES[i] })), ...(demais > 0 ? [{ nome: "Demais", v: demais / 100, cor: DONUT_CORES[5] }] : [])];
+  const top = data.slice(0, topN);
+  const demais = data.slice(topN).reduce((s, x) => s + x.totalCents, 0);
+  const fatias = [...top.map((x, i) => ({ nome: x.nome, v: x.totalCents / 100, cor: DONUT_CORES[i % DONUT_CORES.length], k: x.key ?? null })), ...(demais > 0 ? [{ nome: "Demais", v: demais / 100, cor: DONUT_CORES[DONUT_CORES.length - 1], k: null }] : [])];
   const top3pct = total > 0 ? Math.round((data.slice(0, 3).reduce((s, x) => s + x.totalCents, 0) / total) * 100) : 0;
-  if (total === 0) return <div className="h-[200px] flex items-center justify-center text-sm text-muted-foreground">Sem receita no período.</div>;
+  if (total === 0) return <div className="h-[200px] flex items-center justify-center text-sm text-muted-foreground">{emptyMsg}</div>;
   return (
     <div className="flex items-center gap-3 flex-wrap">
       <div className="relative" style={{ width: 160, height: 160 }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={fatias} dataKey="v" nameKey="nome" innerRadius={52} outerRadius={76} paddingAngle={1} strokeWidth={0}>
+            <Pie data={fatias} dataKey="v" nameKey="nome" innerRadius={52} outerRadius={76} paddingAngle={1} strokeWidth={0} className={onSlice ? "cursor-pointer" : ""} onClick={onSlice ? (e) => { const k = (e as { k?: string | null })?.k; onSlice(k ?? null); } : undefined}>
               {fatias.map((f, i) => <Cell key={i} fill={f.cor} />)}
             </Pie>
             <Tooltip
@@ -328,12 +340,12 @@ function ConcentracaoDonut({ data }: { data: { nome: string; totalCents: number 
           <span className="text-[10px] text-muted-foreground">top 3</span>
         </div>
       </div>
-      <div className="flex-1 min-w-[140px] space-y-1">
+      <div className="flex-1 min-w-[150px] space-y-1">
         {fatias.map((f, i) => (
-          <div key={i} className="flex items-center justify-between gap-2 text-xs">
+          <button key={i} disabled={!onSlice || !f.k} onClick={() => onSlice?.(f.k)} className={`w-full flex items-center justify-between gap-2 text-xs ${onSlice && f.k ? "hover:text-foreground cursor-pointer" : "cursor-default"}`}>
             <span className="inline-flex items-center gap-1.5 min-w-0"><span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: f.cor }} /><span className="truncate">{f.nome}</span></span>
-            <span className="tabular-nums text-muted-foreground">{Math.round((f.v * 100 / (total / 100)))}%</span>
-          </div>
+            <span className="tabular-nums text-muted-foreground whitespace-nowrap">{centsToBRL(Math.round(f.v * 100))} · {Math.round((f.v * 100 / (total / 100)))}%</span>
+          </button>
         ))}
       </div>
     </div>
@@ -640,12 +652,13 @@ function HubTable({ rows, nomeLabel = "Nome", valorLabel = "Valor", vencLabel = 
 }
 
 /** Editor reutilizável de lançamento pontual/avulso (descrição · valor · vencimento). */
-type EditPon = { id: number; descricao: string; valorCents: number; vencimento: string | null };
-function EditPontualDialog({ entry, onClose, onSaved, label = "lançamento" }: { entry: EditPon | null; onClose: () => void; onSaved: () => void; label?: string }) {
+type EditPon = { id: number; descricao: string; valorCents: number; vencimento: string | null; subcategoria?: string | null };
+function EditPontualDialog({ entry, onClose, onSaved, label = "lançamento", showSub }: { entry: EditPon | null; onClose: () => void; onSaved: () => void; label?: string; showSub?: boolean }) {
   const [descricao, setDescricao] = useState("");
   const [valor, setValor] = useState("");
   const [venc, setVenc] = useState("");
-  useEffect(() => { if (entry) { setDescricao(entry.descricao); setValor(centsToInput(entry.valorCents)); setVenc(entry.vencimento ?? ""); } }, [entry]);
+  const [sub, setSub] = useState("OUTROS");
+  useEffect(() => { if (entry) { setDescricao(entry.descricao); setValor(centsToInput(entry.valorCents)); setVenc(entry.vencimento ?? ""); setSub(entry.subcategoria ?? "OUTROS"); } }, [entry]);
   const update = trpc.finance.pnl.update.useMutation();
   const remarcar = trpc.finance.pnl.remarcar.useMutation();
   const save = async () => {
@@ -655,7 +668,7 @@ function EditPontualDialog({ entry, onClose, onSaved, label = "lançamento" }: {
     if (c == null || c <= 0) return toast.error("Valor inválido.");
     if (venc && !/^\d{4}-\d{2}-\d{2}$/.test(venc)) return toast.error("Data inválida (YYYY-MM-DD).");
     try {
-      await update.mutateAsync({ id: entry.id, descricao: descricao.trim(), valorCents: c });
+      await update.mutateAsync({ id: entry.id, descricao: descricao.trim(), valorCents: c, ...(showSub ? { subcategoria: sub } : {}) });
       if (venc && venc !== (entry.vencimento ?? "")) await remarcar.mutateAsync({ id: entry.id, vencimento: venc });
       onSaved(); onClose(); toast.success("Lançamento atualizado.");
     } catch (e) { toast.error(e instanceof Error ? e.message : "Falha ao salvar."); }
@@ -670,6 +683,7 @@ function EditPontualDialog({ entry, onClose, onSaved, label = "lançamento" }: {
             <Field label="Valor"><MoneyInput value={valor} onChange={setValor} /></Field>
             <Field label="Vencimento"><Input type="date" value={venc} onChange={(e) => setVenc(e.target.value)} /></Field>
           </div>
+          {showSub && <Field label="Subcategoria" full><Select value={sub} onValueChange={setSub}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{SUBCATS.map((s) => <SelectItem key={s.v} value={s.v}>{s.label}</SelectItem>)}</SelectContent></Select></Field>}
         </div>
         <DialogFooter><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={save} disabled={update.isPending || remarcar.isPending}>Salvar</Button></DialogFooter>
       </DialogContent>
@@ -1373,6 +1387,7 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
   const despesasQ = trpc.finance.despesasAtivos.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
   const overviewQ = trpc.finance.overview.resumo.useQuery({ mesFrom: refMonth, mesTo: refMonth }, { enabled: MES_RE.test(refMonth) });
   const concentracaoQ = trpc.finance.analytics.despesaPorFornecedor.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) });
+  const subCompQ = trpc.finance.analytics.despesaPontualPorSub.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) });
   const encerradas = (recQ.data ?? []).filter((r) => r.natureza === "DESPESA" && !r.ativo);
   const p = q.data?.periodo;
   const ov = overviewQ.data;
@@ -1382,7 +1397,8 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
 
   const [ajuste, setAjuste] = useState<{ recorrenciaId: number; nome: string; valor: string; aplicarGerados: boolean } | null>(null);
   const [novo, setNovo] = useState<{ descricao: string; valor: string; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; dia: string; mesInicio: string; mesSeguinte: boolean } | null>(null);
-  const [novoPontual, setNovoPontual] = useState<{ descricao: string; valor: string; venc: string; reembolso: boolean } | null>(null);
+  const [novoPontual, setNovoPontual] = useState<{ descricao: string; valor: string; venc: string; reembolso: boolean; sub: string } | null>(null);
+  const [subFilter, setSubFilter] = useState<string | null>(null);
   const [remarcar, setRemarcar] = useState<{ id: number; venc: string } | null>(null);
   const [editPon, setEditPon] = useState<EditPon | null>(null);
   const [custoTab, setCustoTab] = useState<"recorrente" | "imposto" | "pontual">("recorrente");
@@ -1424,23 +1440,25 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
   const recorrentes = despesasQ.data?.recorrentes ?? [];
   const recorrenteRows = recorrentes.filter((d) => d.tipoEntry === "DESPESA_RECORRENTE").map(recRow);
   const impostoRows = recorrentes.filter((d) => d.tipoEntry === "DESPESA_IMPOSTO").map(recRow);
-  const pontualRows: HubRow[] = (despesasQ.data?.pontuais ?? []).map((d) => ({
-    key: `p${d.entryId}`,
-    nome: d.descricao,
-    sub: d.reembolsoPendente ? "pago pelo Gui · reembolso pendente" : undefined,
-    valorCents: d.valorCents,
-    vencInfo: vencCell(d.vencimento, d.vencimentoOriginal, null), vencimento: d.vencimento,
-    status: d.status,
-    locked: refClosed,
-    onToggle: () => setStatusM.mutate({ id: d.entryId, status: d.status === "pago" ? "pendente" : "pago" }),
-    actions: (
-      <div className="inline-flex items-center gap-1">
-        <button onClick={() => toggleReembolso.mutate({ id: d.entryId, reembolsoPendente: !d.reembolsoPendente })} className={`p-1.5 ${d.reembolsoPendente ? "text-amber-600" : "text-muted-foreground"} hover:text-amber-600`} title={d.reembolsoPendente ? "Pago pelo Gui (reembolso pendente) — clique p/ tirar" : "Marcar como pago pelo Gui (reembolso pendente)"}><ArrowLeftRight className="w-4 h-4" /></button>
-        <button onClick={() => setEditPon({ id: d.entryId, descricao: d.descricao, valorCents: d.valorCents, vencimento: d.vencimento })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Editar (descrição, valor, vencimento)"><Pencil className="w-4 h-4" /></button>
-        <button onClick={() => { if (confirm("Excluir esta despesa pontual?")) delM.mutate({ id: d.entryId }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Excluir"><Trash2 className="w-4 h-4" /></button>
-      </div>
-    ),
-  }));
+  const pontualRows: HubRow[] = (despesasQ.data?.pontuais ?? [])
+    .filter((d) => !subFilter || (d.subcategoria ?? "OUTROS") === subFilter)
+    .map((d) => ({
+      key: `p${d.entryId}`,
+      nome: d.descricao,
+      sub: <span>{subLabel(d.subcategoria)}{d.reembolsoPendente ? " · reembolso pendente" : ""}</span>,
+      valorCents: d.valorCents,
+      vencInfo: vencCell(d.vencimento, d.vencimentoOriginal, null), vencimento: d.vencimento,
+      status: d.status,
+      locked: refClosed,
+      onToggle: () => setStatusM.mutate({ id: d.entryId, status: d.status === "pago" ? "pendente" : "pago" }),
+      actions: (
+        <div className="inline-flex items-center gap-1">
+          <button onClick={() => toggleReembolso.mutate({ id: d.entryId, reembolsoPendente: !d.reembolsoPendente })} className={`p-1.5 ${d.reembolsoPendente ? "text-amber-600" : "text-muted-foreground"} hover:text-amber-600`} title={d.reembolsoPendente ? "Pago pelo Gui (reembolso pendente) — clique p/ tirar" : "Marcar como pago pelo Gui (reembolso pendente)"}><ArrowLeftRight className="w-4 h-4" /></button>
+          <button onClick={() => setEditPon({ id: d.entryId, descricao: d.descricao, valorCents: d.valorCents, vencimento: d.vencimento, subcategoria: d.subcategoria })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Editar (descrição, valor, vencimento, subcategoria)"><Pencil className="w-4 h-4" /></button>
+          <button onClick={() => { if (confirm("Excluir esta despesa pontual?")) delM.mutate({ id: d.entryId }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Excluir"><Trash2 className="w-4 h-4" /></button>
+        </div>
+      ),
+    }));
   const tabRows = custoTab === "recorrente" ? recorrenteRows : custoTab === "imposto" ? impostoRows : pontualRows;
 
   return (
@@ -1473,6 +1491,12 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
         </CardContent></Card>
       </div>
 
+      {/* Composição da despesa pontual por subcategoria (clique filtra a lista) */}
+      <Card><CardContent className="p-4">
+        <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Composição da despesa pontual · {periodLabel(period, from, to)} <span className="normal-case font-normal">— clique numa fatia para filtrar a lista</span></p>
+        <ConcentracaoDonut topN={8} emptyMsg="Sem despesa pontual no período." data={(subCompQ.data ?? []).map((x) => ({ nome: subLabel(x.sub), totalCents: x.totalCents, key: x.sub }))} onSlice={(k) => { setSubFilter(k); setCustoTab("pontual"); }} />
+      </CardContent></Card>
+
       {/* Despesas do mês (Recorrente | Imposto | Pontual) */}
       <Card><CardContent className="p-4">
         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -1490,11 +1514,14 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setNovo({ descricao: "", valor: "", tipoEntry: "DESPESA_RECORRENTE", dia: "", mesInicio: cur, mesSeguinte: false })}>Folha (colaborador)</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setNovo({ descricao: "", valor: "", tipoEntry: "DESPESA_IMPOSTO", dia: "", mesInicio: cur, mesSeguinte: false })}>Imposto</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setNovoPontual({ descricao: "", valor: "", venc: "", reembolso: true })}>Pontual / extra</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setNovoPontual({ descricao: "", valor: "", venc: "", reembolso: true, sub: "OUTROS" })}>Pontual / extra</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
+        {custoTab === "pontual" && subFilter && (
+          <div className="mb-2"><button onClick={() => setSubFilter(null)} className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-xs text-accent hover:bg-accent/15">Filtrando: {subLabel(subFilter)} <span className="text-sm leading-none">×</span></button></div>
+        )}
         <HubTable rows={tabRows} nomeLabel="Fornecedor / pessoa" valorLabel="Valor" loading={despesasQ.isLoading} emptyMsg={custoTab === "pontual" ? "Nenhuma despesa pontual neste mês." : "Nenhuma despesa recorrente ativa neste mês."} />
         {encerradas.length > 0 && (
           <div className="mt-2 flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
@@ -1563,11 +1590,12 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
                 <Field label="Valor"><MoneyInput value={novoPontual.valor} onChange={(v) => setNovoPontual({ ...novoPontual, valor: v })} /></Field>
                 <Field label="Vencimento (opcional)"><Input type="date" value={novoPontual.venc} onChange={(e) => setNovoPontual({ ...novoPontual, venc: e.target.value })} /></Field>
               </div>
+              <Field label="Subcategoria" full><Select value={novoPontual.sub} onValueChange={(v) => setNovoPontual({ ...novoPontual, sub: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{SUBCATS.map((s) => <SelectItem key={s.v} value={s.v}>{s.label}</SelectItem>)}</SelectContent></Select></Field>
               <label className="flex items-center gap-2 text-sm"><Switch checked={novoPontual.reembolso} onCheckedChange={(v) => setNovoPontual({ ...novoPontual, reembolso: !!v })} /> Pago pelo Gui (reembolso pendente)</label>
               <p className="text-[11px] text-muted-foreground">Pontual/extra vem marcado como reembolso por padrão. Conta 1× no P&amp;L; o reembolso alimenta o "falta receber" do Gui &amp; SELVA.</p>
             </div>
           )}
-          <DialogFooter><Button variant="outline" onClick={() => setNovoPontual(null)}>Cancelar</Button><Button onClick={() => { if (!novoPontual) return; if (!novoPontual.descricao.trim()) return toast.error("Informe a descrição."); const c = parseMoneyToCents(novoPontual.valor); if (c == null || c <= 0) return toast.error("Valor inválido."); if (novoPontual.venc && !/^\d{4}-\d{2}-\d{2}$/.test(novoPontual.venc)) return toast.error("Data inválida."); createPontual.mutate({ mes: refMonth, tipo: "DESPESA_PONTUAL", descricao: novoPontual.descricao.trim(), valorCents: c, status: "pago", clienteId: null, reembolsoPendente: novoPontual.reembolso, ...(novoPontual.venc ? { vencimento: novoPontual.venc } : {}) }); }} disabled={createPontual.isPending}>Criar</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setNovoPontual(null)}>Cancelar</Button><Button onClick={() => { if (!novoPontual) return; if (!novoPontual.descricao.trim()) return toast.error("Informe a descrição."); const c = parseMoneyToCents(novoPontual.valor); if (c == null || c <= 0) return toast.error("Valor inválido."); if (novoPontual.venc && !/^\d{4}-\d{2}-\d{2}$/.test(novoPontual.venc)) return toast.error("Data inválida."); createPontual.mutate({ mes: refMonth, tipo: "DESPESA_PONTUAL", descricao: novoPontual.descricao.trim(), valorCents: c, status: "pago", clienteId: null, reembolsoPendente: novoPontual.reembolso, subcategoria: novoPontual.sub, ...(novoPontual.venc ? { vencimento: novoPontual.venc } : {}) }); }} disabled={createPontual.isPending}>Criar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1580,7 +1608,7 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
         </DialogContent>
       </Dialog>
 
-      <EditPontualDialog entry={editPon} onClose={() => setEditPon(null)} onSaved={invRec} label="despesa pontual" />
+      <EditPontualDialog entry={editPon} onClose={() => setEditPon(null)} onSaved={invRec} label="despesa pontual" showSub />
 
       {/* Backlog: "Custo por pessoa por período" exige canonicalizar nomes de despesa
           (como foi feito com clientes) — não implementado nesta rodada. */}
