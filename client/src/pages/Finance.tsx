@@ -386,6 +386,26 @@ function DespesaStackChart({ serie, destaque }: { serie: { mes: string; recorren
   );
 }
 
+// Gui & SELVA — reembolsáveis (você pagou) × retiradas por mês, com marcador do mês.
+function FaltaReceberChart({ porMes, destaque }: { porMes: { mes: string; despesasCents: number; retiradasCents: number; diferencaCents: number }[]; destaque?: string }) {
+  const asc = [...porMes].sort((a, b) => a.mes.localeCompare(b.mes));
+  const marcador = destaque ? asc.find((x) => x.mes === destaque)?.mes : undefined;
+  const d = asc.map((x) => ({ lbl: formatMes(x.mes), "Reembolsáveis": x.despesasCents / 100, Retiradas: x.retiradasCents / 100 }));
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+          <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
+          <Tooltip formatter={(v: number) => tipTxt(v)} /><Legend wrapperStyle={{ fontSize: 12 }} />
+          {marcador && <ReferenceLine x={formatMes(marcador)} stroke="#6366F1" strokeDasharray="2 2" label={{ value: formatMes(marcador), position: "top", fontSize: 10, fill: "#6366F1" }} />}
+          <Bar dataKey="Reembolsáveis" fill="#DC2626" /><Bar dataKey="Retiradas" fill="#3B54E6" />
+        </BarChart>
+      </ResponsiveContainer>
+      <p className="text-[10px] text-muted-foreground text-center">despesas que você pagou (reembolso pendente) × retiradas, por mês</p>
+    </div>
+  );
+}
 function ChurnBarChart({ serie }: { serie: { mes: string; mrrPerdidoCents: number }[] }) {
   const d = serie.map((s) => ({ mes: formatMes(s.mes), "MRR perdido": s.mrrPerdidoCents / 100 }));
   return (
@@ -1649,6 +1669,18 @@ function GuiSelvaTab({ months }: { months: string[] }) {
         </Table>
         </div>
       </CardContent></Card>
+
+      {/* ── Divisor: Análise — histórico ─────────────────────────────────────── */}
+      <div className="flex items-center gap-3 pt-2">
+        <div className="h-px flex-1 bg-border" />
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1"><ArrowLeftRight className="w-3.5 h-3.5" /> Análise — histórico</span>
+        <div className="h-px flex-1 bg-border" />
+      </div>
+      <Card><CardContent className="p-3">
+        <p className="text-xs font-semibold mb-1 text-muted-foreground">Falta receber por mês — reembolsáveis × retiradas</p>
+        {acumQ.data ? <FaltaReceberChart porMes={acumQ.data.porMes} destaque={agencyCurrentMonthCli()} /> : <div className="h-[200px]" />}
+      </CardContent></Card>
+
       <Dialog open={choosing} onOpenChange={setChoosing}>
         <DialogContent>
           <DialogHeader><DialogTitle>Adicionar</DialogTitle></DialogHeader>
