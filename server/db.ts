@@ -3061,15 +3061,47 @@ export async function financeOverviewResumo(mesFrom: string, mesTo: string) {
   const db = await getDb();
   const periodo = await financePeriodoResumoRP(mesFrom, mesTo);
   const margemPct = periodo.receitaTotalCents > 0 ? Math.round((periodo.resultadoFinalCents / periodo.receitaTotalCents) * 100) : null;
-  if (!db) return { ...periodo, margemPct, aReceberCents: 0, aPagarCents: 0, saldoProjetadoCents: 0 };
-  // Caixa ESCOPADA ao período: pendências cujo vencimento cai em [mesFrom, mesTo]
-  // (sem vencimento → usa a competência/mes). É só o que falta entrar/sair no período.
-  const [recPend, despPend] = await Promise.all([
+  const zStatus = { pagoCents: 0, aVencerCents: 0, atrasadoCents: 0 };
+  const empty = { ...periodo, margemPct, aReceberCents: 0, aPagarCents: 0, saldoProjetadoCents: 0, receitaStatus: { ...zStatus }, despesaStatus: { ...zStatus }, aReceberVencidoCents: 0, aPagarVencidoCents: 0, receitaMedia6Cents: 0, despesaMedia6Cents: 0, resultadoMedia6Cents: 0 };
+  if (!db) return empty;
+  const hoje = agencyTodayStr();
+  const cur = agencyCurrentMonth();
+  const meses6: string[] = []; for (let i = 6; i >= 1; i--) meses6.push(addMonthsSrv(cur, -i));
+  const [recPend, despPend, periodRows, rows6] = await Promise.all([
     db.select({ v: financePnlEntries.valorCents, venc: financePnlEntries.vencimento, mes: financePnlEntries.mes }).from(financePnlEntries).where(and(RECEITA_TIPOS, eq(financePnlEntries.status, "pendente"))),
     db.select({ v: financePnlEntries.valorCents, venc: financePnlEntries.vencimento, mes: financePnlEntries.mes }).from(financePnlEntries).where(and(DESPESA_TIPOS, eq(financePnlEntries.status, "pendente"))),
+    db.select({ tipo: financePnlEntries.tipo, status: financePnlEntries.status, venc: financePnlEntries.vencimento, v: financePnlEntries.valorCents }).from(financePnlEntries).where(and(gte(financePnlEntries.mes, mesFrom), lte(financePnlEntries.mes, mesTo))),
+    db.select({ mes: financePnlEntries.mes, tipo: financePnlEntries.tipo, v: financePnlEntries.valorCents }).from(financePnlEntries).where(inArray(financePnlEntries.mes, meses6)),
   ]);
+  // Caixa ESCOPADA ao período (por vencimento).
   const noPeriodo = (venc: string | null, mes: string) => { const m = venc ? venc.slice(0, 7) : mes; return m >= mesFrom && m <= mesTo; };
   const aReceber = recPend.filter((r) => noPeriodo(r.venc, r.mes)).reduce((s, r) => s + r.v, 0);
   const aPagar = despPend.filter((r) => noPeriodo(r.venc, r.mes)).reduce((s, r) => s + r.v, 0);
-  return { ...periodo, margemPct, aReceberCents: aReceber, aPagarCents: aPagar, saldoProjetadoCents: aReceber - aPagar };
+  // Status pago × a vencer × atrasado (pendente com vencimento < hoje) no período.
+  const receitaStatus = { ...zStatus }, despesaStatus = { ...zStatus };
+  const RECEITA = new Set(["RECEITA_RECORRENTE", "RECEITA_PONTUAL"]);
+  const DESPESA = new Set(["DESPESA_RECORRENTE", "DESPESA_IMPOSTO", "DESPESA_PONTUAL"]);
+  for (const r of periodRows) {
+    const bucket = RECEITA.has(r.tipo) ? receitaStatus : DESPESA.has(r.tipo) ? despesaStatus : null;
+    if (!bucket) continue;
+    if (r.status === "pago") bucket.pagoCents += r.v;
+    else if (r.venc && r.venc < hoje) bucket.atrasadoCents += r.v;
+    else bucket.aVencerCents += r.v;
+  }
+  // Média móvel dos 6 meses fechados (anteriores ao atual).
+  const perMes = new Map<string, { rec: number; desp: number }>();
+  for (const m of meses6) perMes.set(m, { rec: 0, desp: 0 });
+  for (const r of rows6) {
+    const b = perMes.get(r.mes); if (!b) continue;
+    if (RECEITA.has(r.tipo)) b.rec += r.v; else if (DESPESA.has(r.tipo)) b.desp += r.v;
+  }
+  const comDados = Array.from(perMes.values()).filter((x) => x.rec > 0 || x.desp > 0);
+  const n = Math.max(1, comDados.length);
+  const receitaMedia6 = Math.round(comDados.reduce((s, x) => s + x.rec, 0) / n);
+  const despesaMedia6 = Math.round(comDados.reduce((s, x) => s + x.desp, 0) / n);
+  return {
+    ...periodo, margemPct, aReceberCents: aReceber, aPagarCents: aPagar, saldoProjetadoCents: aReceber - aPagar,
+    receitaStatus, despesaStatus, aReceberVencidoCents: receitaStatus.atrasadoCents, aPagarVencidoCents: despesaStatus.atrasadoCents,
+    receitaMedia6Cents: receitaMedia6, despesaMedia6Cents: despesaMedia6, resultadoMedia6Cents: receitaMedia6 - despesaMedia6,
+  };
 }

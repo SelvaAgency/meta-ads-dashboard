@@ -13,7 +13,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Wallet, Plus, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight, ArrowLeftRight, Users, TrendingDown, AlertTriangle, CalendarClock, Repeat, Lock, Unlock } from "lucide-react";
-import { ResponsiveContainer, ComposedChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from "recharts";
+import { ResponsiveContainer, ComposedChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ReferenceLine } from "recharts";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +36,14 @@ function addMonths(ymd: string, delta: number): string { const [y, m] = ymd.spli
 function monthsBetween(a: string, b: string): number { const [ay, am] = a.split("-").map(Number); const [by, bm] = b.split("-").map(Number); return (by * 12 + bm) - (ay * 12 + am); }
 // Mês corrente no fuso da agência (sem toISOString).
 function agencyCurrentMonthCli(): string { return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit" }).format(new Date()); }
+// Data de hoje YYYY-MM-DD no fuso da agência (para "atrasado").
+function agencyTodayCli(): string { return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
+// Estado de um lançamento: pago · a vencer · atrasado (pendente + vencimento < hoje).
+type Estado = "pago" | "aVencer" | "atrasado";
+function entryEstado(status: "pago" | "pendente", vencimento: string | null): Estado {
+  if (status === "pago") return "pago";
+  return vencimento && vencimento < agencyTodayCli() ? "atrasado" : "aVencer";
+}
 function parseMoneyToCents(input: string): number | null {
   let s = (input ?? "").trim().replace(/R\$|\s/g, "");
   if (!s) return null;
@@ -180,9 +188,11 @@ const isPeriodoConfirmado = (periodo: string) => { const cur = agencyCurrentMont
 const CONF_LEGEND = "linha cheia = confirmado (realizado) · tracejado claro = previsto";
 const CONF_LEGEND_BAR = "barras cheias = confirmado · claras = previsto (mês atual/futuro)";
 
-function TrendChart({ pontos }: { pontos: SeriePoint[] }) {
+function TrendChart({ pontos, destaque }: { pontos: SeriePoint[]; destaque?: string }) {
   let lastConf = -1;
   pontos.forEach((t, i) => { if (isPeriodoConfirmado(t.periodo)) lastConf = i; });
+  const marcador = destaque ? pontos.find((t) => t.periodo === destaque) : undefined;
+  const marcadorLbl = marcador ? fmtPeriodo(marcador.periodo, marcador.parcial) : undefined;
   const d = pontos.map((t, i) => {
     const conf = i <= lastConf, prev = i >= lastConf;
     return {
@@ -200,6 +210,7 @@ function TrendChart({ pontos }: { pontos: SeriePoint[] }) {
           <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
           <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
           <Tooltip formatter={(v: number, n: string) => [tipTxt(v), String(n).replace(" prev", " (prev)")]} /><Legend wrapperStyle={{ fontSize: 12 }} payload={legendPayload} />
+          {marcadorLbl && <ReferenceLine x={marcadorLbl} stroke="#6366F1" strokeDasharray="2 2" label={{ value: marcadorLbl, position: "top", fontSize: 10, fill: "#6366F1" }} />}
           <Line type="linear" dataKey="Receita" stroke="#16A34A" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
           <Line type="linear" dataKey="Receita prev" stroke="#16A34A" strokeWidth={2} strokeOpacity={0.4} strokeDasharray="5 4" dot={false} connectNulls={false} legendType="none" />
           <Line type="linear" dataKey="Despesa" stroke="#DC2626" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
@@ -363,14 +374,59 @@ const defaultPeriod = (anchor: string): PeriodState => ({ gran: "mes", anchor, c
 //  Componentes compartilhados do redesign (Fase 1)
 // ═════════════════════════════════════════════════════════════════════════════
 /** Chip de status pago/pendente (clicável) + selo "Remarcado" + cadeado (mês fechado). */
-function StatusChip({ status, remarcado, locked, onToggle }: { status: "pago" | "pendente"; remarcado?: boolean; locked?: boolean; onToggle?: () => void }) {
-  const cls = status === "pago" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" : "bg-amber-500/15 text-amber-600 border-amber-500/30";
-  const chip = <Badge className={cls}>{status === "pago" ? "Pago" : "Pendente"}</Badge>;
+const ESTADO_CLS: Record<Estado, string> = {
+  pago: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30",
+  aVencer: "bg-amber-500/15 text-amber-600 border-amber-500/30",
+  atrasado: "bg-red-500/15 text-red-600 border-red-500/30",
+};
+const ESTADO_LABEL: Record<Estado, string> = { pago: "Pago", aVencer: "A vencer", atrasado: "Atrasado" };
+function StatusChip({ status, vencimento, remarcado, locked, onToggle }: { status: "pago" | "pendente"; vencimento?: string | null; remarcado?: boolean; locked?: boolean; onToggle?: () => void }) {
+  const est = entryEstado(status, vencimento ?? null);
+  const chip = <Badge className={ESTADO_CLS[est]}>{ESTADO_LABEL[est]}</Badge>;
   return (
     <span className="inline-flex items-center gap-1">
       {onToggle && !locked ? <button onClick={onToggle} title="Alternar pago/pendente">{chip}</button> : <span title={locked ? "Mês fechado" : undefined} className={locked ? "opacity-80" : ""}>{chip}</span>}
       {remarcado && <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}
     </span>
+  );
+}
+
+/** Barra de status empilhada (pago · a vencer · atrasado) + legenda com valores. */
+function StatusBar({ pago, aVencer, atrasado }: { pago: number; aVencer: number; atrasado: number }) {
+  const total = Math.max(1, pago + aVencer + atrasado);
+  const seg = (v: number, cls: string) => v > 0 ? <div className={cls} style={{ width: `${(v / total) * 100}%` }} /> : null;
+  const item = (label: string, v: number, dot: string) => <span className="inline-flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${dot}`} />{label} <span className="tabular-nums font-medium">{centsToBRL(v)}</span></span>;
+  return (
+    <div>
+      <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
+        {seg(pago, "bg-emerald-500")}{seg(aVencer, "bg-amber-500")}{seg(atrasado, "bg-red-500")}
+      </div>
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+        {item("Pago", pago, "bg-emerald-500")}{aVencer > 0 && item("A vencer", aVencer, "bg-amber-500")}{atrasado > 0 && item("Atrasado", atrasado, "bg-red-500")}
+      </div>
+    </div>
+  );
+}
+
+/** Delta vs média 6m (seta + %). higherIsBetter=false p/ despesa (subir = ruim). */
+function Delta({ value, media, higherIsBetter = true }: { value: number; media: number; higherIsBetter?: boolean }) {
+  if (!media) return <span className="text-[11px] text-muted-foreground">vs média 6m: —</span>;
+  const pct = Math.round(((value - media) / media) * 100);
+  const up = pct >= 0;
+  const good = higherIsBetter ? up : !up;
+  return <span className={`text-[11px] font-medium ${pct === 0 ? "text-muted-foreground" : good ? "text-emerald-600" : "text-red-600"}`}>{up ? "▲" : "▼"} {Math.abs(pct)}% <span className="font-normal text-muted-foreground">vs média 6m</span></span>;
+}
+
+/** Card de categoria colapsável (acordeão nativo). */
+function CategoriaCard({ label, count, totalCents, tone, children }: { label: string; count: number; totalCents: number; tone?: "pos" | "neg"; children: ReactNode }) {
+  return (
+    <details className="rounded-lg border border-border group">
+      <summary className="flex items-center justify-between gap-2 px-3 py-2 cursor-pointer list-none select-none hover:bg-accent/5">
+        <span className="flex items-center gap-2 text-sm"><ChevronRight className="w-4 h-4 text-muted-foreground transition group-open:rotate-90" /> {label} <Badge variant="secondary" className="font-normal">{count}</Badge></span>
+        <span className={`tabular-nums font-semibold ${tone === "neg" ? "text-red-600" : tone === "pos" ? "text-emerald-600" : ""}`}>{centsToBRL(totalCents)}</span>
+      </summary>
+      <div className="border-t border-border">{children}</div>
+    </details>
   );
 }
 
@@ -410,7 +466,7 @@ function DrillCard({ label, value, hint, tone, onClick }: { label: string; value
 }
 
 /** Linha genérica dos hubs (receita/despesa) — nome, valor, vencimento, status, ações. */
-type HubRow = { key: string; nome: ReactNode; sub?: ReactNode; valorCents: number; vencInfo?: ReactNode; status: "pago" | "pendente" | null; locked?: boolean; onToggle?: () => void; actions?: ReactNode };
+type HubRow = { key: string; nome: ReactNode; sub?: ReactNode; valorCents: number; vencInfo?: ReactNode; vencimento?: string | null; status: "pago" | "pendente" | null; locked?: boolean; onToggle?: () => void; actions?: ReactNode };
 /** Tabela acionável reutilizável pros dois hubs (Clientes&Projetos ↔ Despesas). */
 function HubTable({ rows, nomeLabel = "Nome", valorLabel = "Valor", vencLabel = "Vencimento", loading, emptyMsg }: { rows: HubRow[]; nomeLabel?: string; valorLabel?: string; vencLabel?: string; loading?: boolean; emptyMsg?: string }) {
   return (
@@ -431,7 +487,7 @@ function HubTable({ rows, nomeLabel = "Nome", valorLabel = "Valor", vencLabel = 
               <TableCell><div className="flex flex-col"><span>{r.nome}</span>{r.sub && <span className="text-[10px] text-muted-foreground">{r.sub}</span>}</div></TableCell>
               <TableCell className="text-right whitespace-nowrap font-medium tabular-nums">{centsToBRL(r.valorCents)}</TableCell>
               <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{r.vencInfo ?? "—"}</TableCell>
-              <TableCell>{r.status ? <StatusChip status={r.status} locked={r.locked} onToggle={r.onToggle} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
+              <TableCell>{r.status ? <StatusChip status={r.status} vencimento={r.vencimento} locked={r.locked} onToggle={r.onToggle} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
               <TableCell className="text-right whitespace-nowrap">{r.locked ? <Lock className="w-3.5 h-3.5 text-muted-foreground inline" /> : (r.actions ?? null)}</TableCell>
             </TableRow>
           ))}
@@ -504,12 +560,12 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
   const utils = trpc.useUtils();
   const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
   const { from, to, refMonth } = periodRange(period, months);
-  const [lancTab, setLancTab] = useState<PnlTipo>("RECEITA_RECORRENTE"); const [status, setStatus] = useState(""); const [clienteFilter, setClienteFilter] = useState<number | "">("");
+  const [status, setStatus] = useState(""); const [clienteFilter, setClienteFilter] = useState<number | "">("");
   const [showAging, setShowAging] = useState(false);
 
   const resumoQ = trpc.finance.overview.resumo.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) && MES_RE.test(to) });
   const mrrQ = trpc.finance.analytics.mrr.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
-  const listQ = trpc.finance.pnl.list.useQuery({ mesFrom: from, mesTo: to, tipo: lancTab, ...(status ? { status: status as "pago" | "pendente" } : {}), ...(clienteFilter ? { clienteId: clienteFilter } : {}) }, { enabled: MES_RE.test(from) });
+  const listQ = trpc.finance.pnl.list.useQuery({ mesFrom: from, mesTo: to, ...(status ? { status: status as "pago" | "pendente" } : {}), ...(clienteFilter ? { clienteId: clienteFilter } : {}) }, { enabled: MES_RE.test(from) });
   const [serieJanela, setSerieJanela] = useState<Janela>("12m");
   const [serieGran, setSerieGran] = useState<SerieGran>("mensal");
   const serieQ = trpc.finance.analytics.serieHistorica.useQuery({ granularidade: serieGran, janela: serieJanela });
@@ -521,6 +577,16 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
   const rows = (listQ.data ?? []) as PnlRow[];
   const r = resumoQ.data;
   const futuro = from > (months[0] ?? "");
+  const curMes = agencyCurrentMonthCli();
+  const destaqueSerie = serieGran === "anual" ? curMes.slice(0, 4) : curMes;
+  const vencido = (r?.aReceberVencidoCents ?? 0) + (r?.aPagarVencidoCents ?? 0);
+  const lancGroups = useMemo(() => LANC_TABS.map((t) => ({ ...t, linhas: rows.filter((x) => x.tipo === t.v) })), [rows]);
+  // Frase comparativa da tendência (receita do período vs média 6m).
+  const comparativo = (() => {
+    if (!r || !r.receitaMedia6Cents) return "";
+    const pct = Math.round(((r.receitaTotalCents - r.receitaMedia6Cents) / r.receitaMedia6Cents) * 100);
+    return `${formatMes(refMonth)}: receita ${Math.abs(pct)}% ${pct >= 0 ? "acima" : "abaixo"} da média de 6 meses.`;
+  })();
 
   const invalidate = () => { utils.finance.pnl.list.invalidate(); utils.finance.analytics.invalidate(); utils.finance.pnl.trend.invalidate(); utils.finance.months.invalidate(); utils.finance.recorrencia.invalidate(); };
   const onErr = (e: { message: string }) => toast.error(e.message);
@@ -565,30 +631,46 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
         </div>
       </div>
 
-      {/* Herói — (A) Resultado do período · (B) Posição de caixa */}
+      {/* Faixa de atrasado (só quando há vencido) */}
+      {vencido > 0 && (
+        <button onClick={() => setShowAging(true)} className="w-full flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-left text-sm text-red-700 transition hover:bg-red-500/15">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span><span className="font-semibold">Atrasado:</span> {centsToBRL(r?.aReceberVencidoCents ?? 0)} a receber vencido · {centsToBRL(r?.aPagarVencidoCents ?? 0)} a pagar vencido</span>
+          <ChevronRight className="w-4 h-4 ml-auto" />
+        </button>
+      )}
+
+      {/* Herói — (A) Resultado + status · (B) Posição de caixa do mês */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card><CardContent className="p-4">
           <div className="flex items-center justify-between">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Resultado · {periodLabel(period, from, to)}</p>
             {futuro && <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 text-[10px]">100% previsto</Badge>}
           </div>
-          <div className="flex items-end gap-3 mt-1">
+          <div className="flex items-end gap-3 mt-1 flex-wrap">
             <span className={`text-3xl font-bold tabular-nums ${(r?.resultadoFinalCents ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>{centsToBRL(r?.resultadoFinalCents ?? 0)}</span>
             <span className="text-sm font-semibold text-muted-foreground mb-1">margem {r?.margemPct != null ? `${r.margemPct}%` : "—"}</span>
+            <span className="mb-1"><Delta value={r?.resultadoFinalCents ?? 0} media={r?.resultadoMedia6Cents ?? 0} /></span>
           </div>
           <BiValue real={r?.resultadoRealizadoCents ?? 0} prev={r?.resultadoPrevistoCents ?? 0} />
-          <div className="grid grid-cols-2 gap-3 mt-3">
-            <div><p className="text-[11px] uppercase tracking-wide text-emerald-600">Receita</p><p className="text-base font-semibold tabular-nums">{centsToBRL(r?.receitaTotalCents ?? 0)}</p><BiValue real={r?.receitaRealizadaCents ?? 0} prev={r?.receitaPrevistaCents ?? 0} /></div>
-            <div><p className="text-[11px] uppercase tracking-wide text-red-600">Despesa</p><p className="text-base font-semibold tabular-nums">{centsToBRL(r?.despesaTotalCents ?? 0)}</p><BiValue real={r?.despesaRealizadaCents ?? 0} prev={r?.despesaPrevistaCents ?? 0} /></div>
+          <div className="mt-3 space-y-3">
+            <div>
+              <div className="flex items-center justify-between text-[11px] mb-1"><span className="uppercase tracking-wide text-emerald-600 font-medium">Receita {centsToBRL(r?.receitaTotalCents ?? 0)}</span><Delta value={r?.receitaTotalCents ?? 0} media={r?.receitaMedia6Cents ?? 0} /></div>
+              <StatusBar pago={r?.receitaStatus.pagoCents ?? 0} aVencer={r?.receitaStatus.aVencerCents ?? 0} atrasado={r?.receitaStatus.atrasadoCents ?? 0} />
+            </div>
+            <div>
+              <div className="flex items-center justify-between text-[11px] mb-1"><span className="uppercase tracking-wide text-red-600 font-medium">Despesa {centsToBRL(r?.despesaTotalCents ?? 0)}</span><Delta value={r?.despesaTotalCents ?? 0} media={r?.despesaMedia6Cents ?? 0} higherIsBetter={false} /></div>
+              <StatusBar pago={r?.despesaStatus.pagoCents ?? 0} aVencer={r?.despesaStatus.aVencerCents ?? 0} atrasado={r?.despesaStatus.atrasadoCents ?? 0} />
+            </div>
           </div>
         </CardContent></Card>
         <Card><CardContent className="p-4">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Posição de caixa (pendências)</p>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Posição de caixa · {formatMes(refMonth)}</p>
           <div className="flex items-end gap-3 mt-1">
             <span className={`text-3xl font-bold tabular-nums ${(r?.saldoProjetadoCents ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>{centsToBRL(r?.saldoProjetadoCents ?? 0)}</span>
-            <span className="text-sm text-muted-foreground mb-1">saldo projetado</span>
+            <span className="text-sm text-muted-foreground mb-1">saldo projetado do mês</span>
           </div>
-          <p className="text-[11px] text-muted-foreground">a receber − a pagar (todas as pendências)</p>
+          <p className="text-[11px] text-muted-foreground">a receber − a pagar (pendências do mês)</p>
           <div className="grid grid-cols-2 gap-3 mt-3">
             <button onClick={() => setShowAging(true)} className="text-left rounded-lg border border-border p-2 transition hover:border-accent/50 hover:bg-accent/5">
               <p className="text-[11px] uppercase tracking-wide text-emerald-600 flex items-center gap-1">A receber <ChevronRight className="w-3 h-3" /></p>
@@ -602,32 +684,32 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
         </CardContent></Card>
       </div>
 
-      {/* Cards secundários (drills) */}
+      {/* Cards secundários (drills) — cada um com delta vs média 6m */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <DrillCard label="Receita recorrente" value={centsToBRL(r?.receitaRecorrenteCents ?? 0)} tone="pos" hint={<span className="text-[11px] text-muted-foreground">MRR {centsToBRL(mrrQ.data?.mrrCents ?? 0)}</span>} onClick={() => onNavigate?.("clientes", { period, sub: "recorrente" })} />
         <DrillCard label="Receita pontual" value={centsToBRL(r?.receitaPontualCents ?? 0)} tone="pos" onClick={() => onNavigate?.("clientes", { period, sub: "pontual" })} />
         <DrillCard label="A receber" value={centsToBRL(r?.aReceberCents ?? 0)} tone="warn" hint={<span className="text-[11px] text-muted-foreground">ver aging →</span>} onClick={() => setShowAging(true)} />
-        <DrillCard label="Despesa" value={centsToBRL(r?.despesaTotalCents ?? 0)} tone="neg" hint={<BiValue real={r?.despesaRealizadaCents ?? 0} prev={r?.despesaPrevistaCents ?? 0} />} onClick={() => onNavigate?.("despesas", { period })} />
+        <DrillCard label="Despesa" value={centsToBRL(r?.despesaTotalCents ?? 0)} tone="neg" hint={<Delta value={r?.despesaTotalCents ?? 0} media={r?.despesaMedia6Cents ?? 0} higherIsBetter={false} />} onClick={() => onNavigate?.("despesas", { period })} />
       </div>
       {(r?.aporteCents ?? 0) > 0 && <p className="text-[11px] text-muted-foreground">Aporte no período: {centsToBRL(r!.aporteCents)}</p>}
       {futuro && <p className="text-[11px] text-amber-600">Período no futuro — os valores são 100% previstos (pendentes).</p>}
 
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <p className="text-xs text-muted-foreground">Séries — {serieGran === "anual" ? "fluxo somado no ano; anos parciais marcam *" : "mensal"}{serieQ.data?.realizadoAte ? ` · realizado até ${fmtPeriodo(serieGran === "anual" ? serieQ.data.realizadoAte.slice(0, 4) : serieQ.data.realizadoAte, false)}` : ""}</p>
+        <p className="text-xs text-muted-foreground">Séries{serieQ.data?.realizadoAte ? ` · realizado até ${fmtPeriodo(serieGran === "anual" ? serieQ.data.realizadoAte.slice(0, 4) : serieQ.data.realizadoAte, false)}` : ""}</p>
         <SerieControls janela={serieJanela} setJanela={setSerieJanela} gran={serieGran} setGran={setSerieGran} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">Tendência — realizado sólido, projeção tracejada</p>{serieQ.data ? <TrendChart pontos={serieQ.data.pontos} /> : <div className="h-[220px]" />}</CardContent></Card>
+        <Card><CardContent className="p-3">
+          <p className="text-xs font-semibold text-muted-foreground">Tendência — receita × despesa × resultado</p>
+          {comparativo && <p className="text-[11px] text-accent mb-1">{comparativo}</p>}
+          {serieQ.data ? <TrendChart pontos={serieQ.data.pontos} destaque={destaqueSerie} /> : <div className="h-[220px]" />}
+        </CardContent></Card>
         <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">Receita: recorrente × pontual</p>{serieQ.data ? <MixChart pontos={serieQ.data.pontos} /> : <div className="h-[220px]" />}</CardContent></Card>
       </div>
 
-      <p className="text-sm font-semibold pt-1">Lançamentos do mês <span className="text-xs font-normal text-muted-foreground">— resumo (somente leitura) · clique numa linha para editar no hub correspondente</span></p>
+      {/* Lançamentos do mês — cards colapsáveis por categoria (leitura) */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex flex-wrap rounded-md border border-border overflow-hidden text-xs">
-          {LANC_TABS.map((t, i) => (
-            <button key={t.v} onClick={() => setLancTab(t.v)} className={`px-3 py-1.5 ${i > 0 ? "border-l border-border" : ""} ${lancTab === t.v ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>{t.label}</button>
-          ))}
-        </div>
+        <p className="text-sm font-semibold">Lançamentos do mês <span className="text-xs font-normal text-muted-foreground">— clique numa categoria para expandir; nas linhas, para editar no hub</span></p>
         <div className="ml-auto flex items-end gap-2">
           <FilterSelect label="Status" value={status} onChange={setStatus} options={["pago", "pendente"]} format={(s) => (s === "pago" ? "Pago" : "Pendente")} allLabel="Todos" />
           <div className="flex flex-col gap-1"><Label className="text-[11px] text-muted-foreground">Cliente</Label>
@@ -638,47 +720,37 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
           </div>
         </div>
       </div>
-
-      <div className="rounded-lg border border-border overflow-x-auto">
-        <Table>
-          <TableHeader><TableRow><TableHead>Mês</TableHead><TableHead>Tipo</TableHead><TableHead>Descrição</TableHead><TableHead>Cliente</TableHead><TableHead>Vencimento</TableHead><TableHead className="text-right">Valor</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
-          <TableBody>
-            {listQ.isLoading && <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
-            {!listQ.isLoading && rows.length === 0 && <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-6">Nenhum lançamento no período/filtro.</TableCell></TableRow>}
-            {rows.slice(0, 300).map((row) => {
-              const remarcado = row.vencimento && row.vencimentoOriginal && row.vencimento !== row.vencimentoOriginal;
-              const kind = tipoKind(row.tipo);
-              const drill = () => {
-                if (kind === "receita") onNavigate?.("clientes", { period, sub: row.tipo === "RECEITA_RECORRENTE" ? "recorrente" : "pontual" });
-                else if (kind === "despesa") onNavigate?.("despesas", { period });
-                else onNavigate?.("guiselva");
-              };
-              const drillHint = kind === "receita" ? "Editar em Clientes e projetos" : kind === "despesa" ? "Editar em Despesas" : "Editar em Gui & SELVA (aporte)";
-              return (
-                <TableRow key={row.id} className="cursor-pointer hover:bg-accent/5" onClick={drill} title={drillHint}>
-                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatMes(row.mes)}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1 flex-wrap">
-                      <Badge variant="secondary" className="font-normal whitespace-nowrap">{tipoLabel(row.tipo)}</Badge>
-                      {row.origem === "RECORRENCIA" && <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[9px] px-1">rec</Badge>}
-                      {row.origem === "PROJETO" && <Badge className="bg-purple-500/10 text-purple-600 border-purple-500/20 text-[9px] px-1">proj {row.parcelaNum}/{row.parcelaTotal}</Badge>}
-                    </div>
-                  </TableCell>
-                  <TableCell className="max-w-[200px] truncate">{row.descricao}</TableCell>
-                  <TableCell>{row.clienteId ? <ClientTag cliente={clienteById.get(row.clienteId)} /> : <span className="text-muted-foreground text-xs">—</span>}</TableCell>
-                  <TableCell className="whitespace-nowrap text-xs">
-                    {row.vencimento ? row.vencimento : <span className="text-muted-foreground">—</span>}
-                    {remarcado && <Badge className="ml-1 bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}
-                  </TableCell>
-                  <TableCell className={`text-right whitespace-nowrap font-medium ${kind === "despesa" ? "text-red-600" : kind === "receita" ? "text-emerald-600" : ""}`}>{kind === "despesa" ? "-" : ""}{centsToBRL(row.valorCents)}</TableCell>
-                  <TableCell><StatusChip status={row.status} /></TableCell>
-                  <TableCell className="text-right whitespace-nowrap text-muted-foreground"><ChevronRight className="w-4 h-4 inline" /></TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
+      {listQ.isLoading ? <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Carregando…</p> : (
+        <div className="space-y-2">
+          {lancGroups.map((g) => {
+            const tone = tipoKind(g.v) === "receita" ? "pos" : "neg";
+            const total = g.linhas.reduce((s, x) => s + x.valorCents, 0);
+            return (
+              <CategoriaCard key={g.v} label={g.label} count={g.linhas.length} totalCents={total} tone={tone}>
+                {g.linhas.length === 0 ? <p className="px-3 py-3 text-xs text-muted-foreground">Nenhum lançamento.</p> : (
+                  <Table>
+                    <TableBody>
+                      {g.linhas.slice(0, 200).map((row) => {
+                        const remarcado = row.vencimento && row.vencimentoOriginal && row.vencimento !== row.vencimentoOriginal;
+                        const drill = () => tipoKind(g.v) === "receita" ? onNavigate?.("clientes", { period, sub: g.v === "RECEITA_RECORRENTE" ? "recorrente" : "pontual" }) : onNavigate?.("despesas", { period });
+                        return (
+                          <TableRow key={row.id} className="cursor-pointer hover:bg-accent/5" onClick={drill} title="Editar no hub">
+                            <TableCell className="max-w-[220px] truncate">{row.clienteId ? <ClientTag cliente={clienteById.get(row.clienteId)} /> : row.descricao}</TableCell>
+                            <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{row.vencimento ?? "—"}{remarcado && <Badge className="ml-1 bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}</TableCell>
+                            <TableCell><StatusChip status={row.status} vencimento={row.vencimento} /></TableCell>
+                            <TableCell className={`text-right whitespace-nowrap font-medium tabular-nums ${tone === "neg" ? "text-red-600" : "text-emerald-600"}`}>{centsToBRL(row.valorCents)}</TableCell>
+                            <TableCell className="text-right text-muted-foreground w-8"><ChevronRight className="w-4 h-4 inline" /></TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+              </CategoriaCard>
+            );
+          })}
+        </div>
+      )}
 
       {/* Drill: A receber (aging escopado ao mês) — abre a partir da Visão geral */}
       <Dialog open={showAging} onOpenChange={setShowAging}>
@@ -755,7 +827,7 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
     nome: nomeCell(c.clienteId, c.clienteNome, c.cor),
     sub: !c.gerado ? "não gerado neste mês" : undefined,
     valorCents: c.valorCents,
-    vencInfo: vencCell(c.vencimento, c.vencimentoOriginal, c.diaVencimento),
+    vencInfo: vencCell(c.vencimento, c.vencimentoOriginal, c.diaVencimento), vencimento: c.vencimento,
     status: c.status,
     locked: refClosed,
     onToggle: c.entryId ? () => setStatusM.mutate({ id: c.entryId!, status: c.status === "pago" ? "pendente" : "pago" }) : undefined,
@@ -772,7 +844,7 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
     nome: nomeCell(c.clienteId, c.clienteNome !== "—" ? c.clienteNome : c.descricao, c.cor),
     sub: c.projetoId ? `projeto · parcela ${c.parcelaNum}/${c.parcelaTotal} · ${c.descricao}` : "avulsa",
     valorCents: c.valorCents,
-    vencInfo: vencCell(c.vencimento, c.vencimentoOriginal, null),
+    vencInfo: vencCell(c.vencimento, c.vencimentoOriginal, null), vencimento: c.vencimento,
     status: c.status,
     locked: refClosed,
     onToggle: () => setStatusM.mutate({ id: c.entryId, status: c.status === "pago" ? "pendente" : "pago" }),
@@ -1089,7 +1161,7 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
     nome: d.descricao,
     sub: !d.gerado ? "não gerado neste mês" : d.estimativa ? "estimativa" : undefined,
     valorCents: d.valorCents,
-    vencInfo: vencCell(d.vencimento, d.vencimentoOriginal, d.diaVencimento),
+    vencInfo: vencCell(d.vencimento, d.vencimentoOriginal, d.diaVencimento), vencimento: d.vencimento,
     status: d.status,
     locked: refClosed,
     onToggle: d.entryId ? () => setStatusM.mutate({ id: d.entryId!, status: d.status === "pago" ? "pendente" : "pago" }) : undefined,
@@ -1109,7 +1181,7 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
     nome: d.descricao,
     sub: d.reembolsoPendente ? "pago pelo Gui · reembolso pendente" : undefined,
     valorCents: d.valorCents,
-    vencInfo: vencCell(d.vencimento, d.vencimentoOriginal, null),
+    vencInfo: vencCell(d.vencimento, d.vencimentoOriginal, null), vencimento: d.vencimento,
     status: d.status,
     locked: refClosed,
     onToggle: () => setStatusM.mutate({ id: d.entryId, status: d.status === "pago" ? "pendente" : "pago" }),
