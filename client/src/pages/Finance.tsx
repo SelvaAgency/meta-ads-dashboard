@@ -753,15 +753,27 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card><CardContent className="p-4">
           <div className="flex items-center justify-between">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Resultado · {periodLabel(period, from, to)}</p>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">{periodLabel(period, from, to)}</p>
             {futuro && <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 text-[10px]">100% previsto</Badge>}
           </div>
-          <div className="flex items-end gap-3 mt-1 flex-wrap">
-            <span className={`text-3xl font-bold tabular-nums ${(r?.resultadoFinalCents ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>{centsToBRL(r?.resultadoFinalCents ?? 0)}</span>
-            <span className="text-sm font-semibold text-muted-foreground mb-1">margem {r?.margemPct != null ? `${r.margemPct}%` : "—"}</span>
-            <span className="mb-1"><Delta value={r?.resultadoFinalCents ?? 0} media={r?.resultadoMedia6Cents ?? 0} /></span>
+          <div className="mt-1 space-y-1.5">
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-emerald-600 font-medium">Receita</p>
+              <div className="flex items-end gap-3 flex-wrap">
+                <span className="text-3xl font-bold tabular-nums text-emerald-600">{centsToBRL(r?.receitaTotalCents ?? 0)}</span>
+                <span className="mb-1"><Delta value={r?.receitaTotalCents ?? 0} media={r?.receitaMedia6Cents ?? 0} /></span>
+              </div>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">Resultado</p>
+              <div className="flex items-end gap-3 flex-wrap">
+                <span className={`text-3xl font-bold tabular-nums ${(r?.resultadoFinalCents ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>{centsToBRL(r?.resultadoFinalCents ?? 0)}</span>
+                <span className="text-sm font-semibold text-muted-foreground mb-1">margem {r?.margemPct != null ? `${r.margemPct}%` : "—"}</span>
+                <span className="mb-1"><Delta value={r?.resultadoFinalCents ?? 0} media={r?.resultadoMedia6Cents ?? 0} /></span>
+              </div>
+              <BiValue real={r?.resultadoRealizadoCents ?? 0} prev={r?.resultadoPrevistoCents ?? 0} />
+            </div>
           </div>
-          <BiValue real={r?.resultadoRealizadoCents ?? 0} prev={r?.resultadoPrevistoCents ?? 0} />
           <div className="mt-3 space-y-3">
             <div>
               <div className="flex items-center justify-between text-[11px] mb-1"><span className="uppercase tracking-wide text-emerald-600 font-medium">Receita {centsToBRL(r?.receitaTotalCents ?? 0)}</span><Delta value={r?.receitaTotalCents ?? 0} media={r?.receitaMedia6Cents ?? 0} /></div>
