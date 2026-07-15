@@ -15,7 +15,7 @@ import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { HubShell } from "./HubShell";
 
-const CLIPPER_URL = "https://spin-clipper.up.railway.app/";
+const CLIPPER_URL = "https://selva-clipper.up.railway.app/";
 
 export default function SpacesPage() {
   const [, navigate] = useLocation();

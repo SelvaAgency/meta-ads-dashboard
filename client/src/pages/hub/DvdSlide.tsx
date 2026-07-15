@@ -18,7 +18,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canAccessAdmin } from "@shared/permissions";
 
-const CLIPPER_URL = "https://spin-clipper.up.railway.app/";
+const CLIPPER_URL = "https://selva-clipper.up.railway.app/";
 
 interface Shortcut {
   key: string;

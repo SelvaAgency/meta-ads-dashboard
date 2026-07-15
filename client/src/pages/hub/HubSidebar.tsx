@@ -94,7 +94,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Conteúdo",
     items: [
-      { label: "Clipper", icon: Scissors, kind: "external", href: "https://spin-clipper.up.railway.app/" },
+      { label: "Clipper", icon: Scissors, kind: "external", href: "https://selva-clipper.up.railway.app/" },
     ],
   },
   {
