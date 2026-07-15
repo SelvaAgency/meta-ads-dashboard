@@ -2971,34 +2971,51 @@ export async function financeAPagarVenc() {
  */
 export async function financeContratosAtivos(mes: string) {
   const db = await getDb();
-  const empty = { recorrentes: [] as ContratoRec[], pontuais: [] as ContratoPon[] };
+  const empty = { recorrentes: [] as ContratoRec[], pontuais: [] as ContratoPon[], novosCents: 0 };
   if (!db) return empty;
-  const [recs, clientes, entries] = await Promise.all([
+  const [recs, clientes, entries, allReceita] = await Promise.all([
     db.select().from(financeRecorrencia).where(eq(financeRecorrencia.natureza, "RECEITA")),
     db.select().from(financeClientes),
     db.select().from(financePnlEntries).where(eq(financePnlEntries.mes, mes)),
+    db.select({ mes: financePnlEntries.mes, clienteId: financePnlEntries.clienteId, projetoId: financePnlEntries.projetoId, descricao: financePnlEntries.descricao, v: financePnlEntries.valorCents }).from(financePnlEntries).where(RECEITA_TIPOS),
   ]);
   const cmap = new Map(clientes.map((c) => [c.id, c]));
-  const entryByRec = new Map<number, typeof entries[number]>();
-  const pontualEntries: typeof entries = [];
+  // Recorrência ATIVA por cliente (fonte para ações + projeção de meses futuros).
+  const activeRecByCliente = new Map<number, typeof recs[number]>();
+  for (const r of recs) if (r.ativo && r.clienteId) activeRecByCliente.set(r.clienteId, r);
+
+  // Recorrentes REAIS do mês: casa por cliente+mês+tipo (NÃO por recorrenciaId).
+  const clientesComRec = new Set<number | string>();
+  const recorrentes: ContratoRec[] = [];
   for (const e of entries) {
-    if (e.tipo === "RECEITA_RECORRENTE" && e.origem === "RECORRENCIA" && e.recorrenciaId) entryByRec.set(e.recorrenciaId, e);
-    else if (e.tipo === "RECEITA_PONTUAL") pontualEntries.push(e);
+    if (e.tipo !== "RECEITA_RECORRENTE") continue;
+    const key = e.clienteId ?? `d:${e.descricao}`;
+    clientesComRec.add(key);
+    const rec = e.clienteId ? activeRecByCliente.get(e.clienteId) : undefined;
+    const c = e.clienteId ? cmap.get(e.clienteId) : undefined;
+    recorrentes.push({
+      recorrenciaId: rec?.id ?? null, clienteId: e.clienteId ?? null, clienteNome: c?.nome ?? e.descricao, cor: c?.cor ?? null,
+      valorCents: e.valorCents, diaVencimento: rec?.diaVencimento ?? null, entryId: e.id, status: e.status,
+      vencimento: e.vencimento ?? null, vencimentoOriginal: e.vencimentoOriginal ?? null, projetado: false,
+    });
   }
-  const recorrentes: ContratoRec[] = recs
-    .filter((r) => r.ativo && r.mesInicio <= mes)
-    .map((r) => {
-      const e = entryByRec.get(r.id);
-      const c = r.clienteId ? cmap.get(r.clienteId) : undefined;
-      return {
-        recorrenciaId: r.id, clienteId: r.clienteId ?? null, clienteNome: c?.nome ?? r.descricao ?? `Cliente #${r.clienteId}`, cor: c?.cor ?? null,
-        valorCents: e?.valorCents ?? r.valorCents, diaVencimento: r.diaVencimento ?? null,
-        entryId: e?.id ?? null, status: e?.status ?? null, vencimento: e?.vencimento ?? null,
-        vencimentoOriginal: e?.vencimentoOriginal ?? null, gerado: !!e,
-      };
-    })
-    .sort((a, b) => b.valorCents - a.valorCents);
-  const pontuais: ContratoPon[] = pontualEntries
+  // Projeção: recorrência ativa cujo período cobre o mês (mesInicio ≤ mes) e o
+  // cliente ainda não tem entry real no mês → "Previsto" com vencimento calculado.
+  for (const r of recs) {
+    if (!r.ativo || !r.clienteId || r.mesInicio > mes || clientesComRec.has(r.clienteId)) continue;
+    const vencMes = r.vencimentoMesSeguinte ? addMonthsSrv(mes, 1) : mes;
+    const venc = r.diaVencimento ? `${vencMes}-${pad2s(clampDay(vencMes, r.diaVencimento))}` : null;
+    const c = cmap.get(r.clienteId);
+    recorrentes.push({
+      recorrenciaId: r.id, clienteId: r.clienteId, clienteNome: c?.nome ?? r.descricao ?? `Cliente #${r.clienteId}`, cor: c?.cor ?? null,
+      valorCents: r.valorCents, diaVencimento: r.diaVencimento ?? null, entryId: null, status: null,
+      vencimento: venc, vencimentoOriginal: venc, projetado: true,
+    });
+  }
+  recorrentes.sort((a, b) => b.valorCents - a.valorCents);
+
+  const pontuais: ContratoPon[] = entries
+    .filter((e) => e.tipo === "RECEITA_PONTUAL")
     .map((e) => {
       const c = e.clienteId ? cmap.get(e.clienteId) : undefined;
       return {
@@ -3008,7 +3025,15 @@ export async function financeContratosAtivos(mes: string) {
       };
     })
     .sort((a, b) => b.valorCents - a.valorCents);
-  return { recorrentes, pontuais };
+
+  // Novos = receita (recorrente OU pontual) de cliente/projeto que não existia antes.
+  const identOf = (x: { clienteId: number | null; projetoId: number | null; descricao: string }) => x.clienteId != null ? `c${x.clienteId}` : x.projetoId != null ? `p${x.projetoId}` : `d${x.descricao}`;
+  const firstMonth = new Map<string, string>();
+  for (const x of allReceita) { const k = identOf(x); const f = firstMonth.get(k); if (!f || x.mes < f) firstMonth.set(k, x.mes); }
+  let novosCents = 0;
+  for (const x of allReceita) if (x.mes === mes && firstMonth.get(identOf(x)) === mes) novosCents += x.v;
+
+  return { recorrentes, pontuais, novosCents };
 }
 /**
  * Hub de custo — despesas ativas no mês (espelho de contratosAtivos).
@@ -3049,7 +3074,7 @@ export async function financeDespesasAtivos(mes: string) {
 type DespesaRec = { recorrenciaId: number; descricao: string; valorCents: number; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; estimativa: boolean; diaVencimento: number | null; entryId: number | null; status: "pago" | "pendente" | null; vencimento: string | null; vencimentoOriginal: string | null; gerado: boolean };
 type DespesaPon = { entryId: number; descricao: string; valorCents: number; vencimento: string | null; vencimentoOriginal: string | null; status: "pago" | "pendente"; reembolsoPendente: boolean };
 
-type ContratoRec = { recorrenciaId: number; clienteId: number | null; clienteNome: string; cor: string | null; valorCents: number; diaVencimento: number | null; entryId: number | null; status: "pago" | "pendente" | null; vencimento: string | null; vencimentoOriginal: string | null; gerado: boolean };
+type ContratoRec = { recorrenciaId: number | null; clienteId: number | null; clienteNome: string; cor: string | null; valorCents: number; diaVencimento: number | null; entryId: number | null; status: "pago" | "pendente" | null; vencimento: string | null; vencimentoOriginal: string | null; projetado: boolean };
 type ContratoPon = { entryId: number; projetoId: number | null; parcelaNum: number | null; parcelaTotal: number | null; clienteId: number | null; clienteNome: string; cor: string | null; descricao: string; valorCents: number; vencimento: string | null; vencimentoOriginal: string | null; status: "pago" | "pendente" };
 
 /**

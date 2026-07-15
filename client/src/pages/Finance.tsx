@@ -32,6 +32,8 @@ const centsToBRL = (c: number) => BRL.format((c ?? 0) / 100);
 const MES_ABBR = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const pad2 = (n: number) => String(n).padStart(2, "0");
 function formatMes(mes: string): string { const [y, m] = (mes ?? "").split("-"); return `${MES_ABBR[Number(m) - 1] ?? m}/${y}`; }
+// Vencimento padronizado: DD/MMM (ex.: 05/ago). Formato único em todos os meses.
+function fmtVenc(venc: string | null): string { if (!venc) return "—"; const [, m, d] = venc.split("-"); return `${d}/${MES_ABBR[Number(m) - 1] ?? m}`; }
 function addMonths(ymd: string, delta: number): string { const [y, m] = ymd.split("-").map(Number); const idx = y * 12 + (m - 1) + delta; return `${Math.floor(idx / 12)}-${pad2((idx % 12) + 1)}`; }
 function monthsBetween(a: string, b: string): number { const [ay, am] = a.split("-").map(Number); const [by, bm] = b.split("-").map(Number); return (by * 12 + bm) - (ay * 12 + am); }
 // Mês corrente no fuso da agência (sem toISOString).
@@ -303,10 +305,25 @@ function ConcentracaoDonut({ data }: { data: { nome: string; totalCents: number 
             <Pie data={fatias} dataKey="v" nameKey="nome" innerRadius={52} outerRadius={76} paddingAngle={1} strokeWidth={0}>
               {fatias.map((f, i) => <Cell key={i} fill={f.cor} />)}
             </Pie>
-            <Tooltip formatter={(v: number) => tipTxt(v)} />
+            <Tooltip
+              allowEscapeViewBox={{ x: true, y: true }}
+              wrapperStyle={{ zIndex: 60, outline: "none" }}
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const p = payload[0].payload as { nome: string; v: number; cor: string };
+                const totalV = fatias.reduce((s, x) => s + x.v, 0);
+                const pct = totalV ? Math.round((p.v / totalV) * 100) : 0;
+                return (
+                  <div className="rounded-md border border-border bg-popover px-2.5 py-1.5 shadow-lg text-xs">
+                    <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: p.cor }} /><span className="font-medium text-foreground">{p.nome}</span></div>
+                    <div className="text-muted-foreground tabular-nums mt-0.5">{centsToBRL(Math.round(p.v * 100))} · {pct}%</div>
+                  </div>
+                );
+              }}
+            />
           </PieChart>
         </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ zIndex: 1 }}>
           <span className="text-lg font-bold tabular-nums">{top3pct}%</span>
           <span className="text-[10px] text-muted-foreground">top 3</span>
         </div>
@@ -536,7 +553,7 @@ function DrillCard({ label, value, hint, tone, onClick }: { label: string; value
 }
 
 /** Linha genérica dos hubs (receita/despesa) — nome, valor, vencimento, status, ações. */
-type HubRow = { key: string; nome: ReactNode; sub?: ReactNode; valorCents: number; vencInfo?: ReactNode; vencimento?: string | null; status: "pago" | "pendente" | null; locked?: boolean; onToggle?: () => void; actions?: ReactNode };
+type HubRow = { key: string; nome: ReactNode; sub?: ReactNode; valorCents: number; vencInfo?: ReactNode; vencimento?: string | null; status: "pago" | "pendente" | null; estadoChip?: ReactNode; locked?: boolean; onToggle?: () => void; actions?: ReactNode };
 /** Tabela acionável reutilizável pros dois hubs (Clientes&Projetos ↔ Despesas). */
 function HubTable({ rows, nomeLabel = "Nome", valorLabel = "Valor", vencLabel = "Vencimento", loading, emptyMsg }: { rows: HubRow[]; nomeLabel?: string; valorLabel?: string; vencLabel?: string; loading?: boolean; emptyMsg?: string }) {
   return (
@@ -557,7 +574,7 @@ function HubTable({ rows, nomeLabel = "Nome", valorLabel = "Valor", vencLabel = 
               <TableCell><div className="flex flex-col"><span>{r.nome}</span>{r.sub && <span className="text-[10px] text-muted-foreground">{r.sub}</span>}</div></TableCell>
               <TableCell className="text-right whitespace-nowrap font-medium tabular-nums">{centsToBRL(r.valorCents)}</TableCell>
               <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{r.vencInfo ?? "—"}</TableCell>
-              <TableCell>{r.status ? <StatusChip status={r.status} vencimento={r.vencimento} locked={r.locked} onToggle={r.onToggle} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
+              <TableCell>{r.estadoChip ?? (r.status ? <StatusChip status={r.status} vencimento={r.vencimento} locked={r.locked} onToggle={r.onToggle} /> : <span className="text-xs text-muted-foreground">—</span>)}</TableCell>
               <TableCell className="text-right whitespace-nowrap">{r.locked ? <Lock className="w-3.5 h-3.5 text-muted-foreground inline" /> : (r.actions ?? null)}</TableCell>
             </TableRow>
           ))}
@@ -890,27 +907,28 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
   const remarcarM = trpc.finance.pnl.remarcar.useMutation({ onSuccess: () => { invRec(); setRemarcar(null); toast.success("Vencimento remarcado."); }, onError: onErr });
   const delM = trpc.finance.pnl.delete.useMutation({ onSuccess: () => { invRec(); toast.success("Excluído."); }, onError: onErr });
 
-  const vencCell = (venc: string | null, orig: string | null, dia: number | null) => {
+  const vencCell = (venc: string | null, orig: string | null, _dia: number | null) => {
     const remarc = venc && orig && venc !== orig;
-    return <span>{venc ?? (dia ? `dia ${dia}` : "—")}{remarc && <Badge className="ml-1 bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}</span>;
+    return <span>{fmtVenc(venc)}{remarc && <Badge className="ml-1 bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}</span>;
   };
   const nomeCell = (clienteId: number | null, nome: string, cor: string | null) =>
     clienteId ? <ClientTag cliente={{ id: clienteId, nome, cor, ativo: true }} /> : <span>{nome}</span>;
 
   const recorrentesRows: HubRow[] = (contratosQ.data?.recorrentes ?? []).map((c) => ({
-    key: `r${c.recorrenciaId}`,
+    key: c.entryId != null ? `e${c.entryId}` : `r${c.recorrenciaId}`,
     nome: nomeCell(c.clienteId, c.clienteNome, c.cor),
-    sub: !c.gerado ? "não gerado neste mês" : undefined,
+    sub: c.projetado ? "projetado da recorrência" : undefined,
     valorCents: c.valorCents,
     vencInfo: vencCell(c.vencimento, c.vencimentoOriginal, c.diaVencimento), vencimento: c.vencimento,
     status: c.status,
+    estadoChip: c.projetado ? <Badge className="bg-blue-500/15 text-blue-600 border-blue-500/30">Previsto</Badge> : undefined,
     locked: refClosed,
     onToggle: c.entryId ? () => setStatusM.mutate({ id: c.entryId!, status: c.status === "pago" ? "pendente" : "pago" }) : undefined,
     actions: (
       <div className="inline-flex items-center gap-1">
         {c.entryId && <button onClick={() => setRemarcar({ id: c.entryId!, venc: c.vencimento ?? "" })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Mudar data de pagamento"><CalendarClock className="w-4 h-4" /></button>}
-        <button onClick={() => setAjuste({ recorrenciaId: c.recorrenciaId, nome: c.clienteNome, valor: centsToInput(c.valorCents), aplicarGerados: false })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Ajustar valor recorrente"><Pencil className="w-4 h-4" /></button>
-        <button onClick={() => { if (confirm(`Encerrar contrato de ${c.clienteNome}? Remove os meses futuros pendentes (não mexe nos pagos).`)) marcarSaida.mutate({ recorrenciaId: c.recorrenciaId, mes: cur }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Churn / encerrar contrato"><TrendingDown className="w-4 h-4" /></button>
+        {c.recorrenciaId != null && <button onClick={() => setAjuste({ recorrenciaId: c.recorrenciaId!, nome: c.clienteNome, valor: centsToInput(c.valorCents), aplicarGerados: false })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Ajustar valor recorrente"><Pencil className="w-4 h-4" /></button>}
+        {c.recorrenciaId != null && <button onClick={() => { if (confirm(`Encerrar contrato de ${c.clienteNome}? Remove os meses futuros pendentes (não mexe nos pagos).`)) marcarSaida.mutate({ recorrenciaId: c.recorrenciaId!, mes: cur }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Churn / encerrar contrato"><TrendingDown className="w-4 h-4" /></button>}
       </div>
     ),
   }));
@@ -974,13 +992,14 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card><CardContent className="p-4">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Contratos ativos · {formatMes(refMonth)}</p>
-          <div className="flex items-end gap-3 mt-1">
-            <span className="text-4xl font-bold tabular-nums text-emerald-600">{recorrentesRows.length}</span>
-            <span className="text-sm text-muted-foreground mb-1">recorrentes{pontuaisRows.length > 0 ? ` · ${pontuaisRows.length} pontuais` : ""}</span>
+          <div className="flex items-end gap-4 mt-1">
+            <div><span className="text-4xl font-bold tabular-nums text-emerald-600">{recorrentesRows.length}</span><p className="text-[11px] uppercase tracking-wide text-muted-foreground">recorrentes</p></div>
+            <span className="text-2xl text-muted-foreground mb-2">·</span>
+            <div><span className="text-4xl font-bold tabular-nums text-orange-500">{pontuaisRows.length}</span><p className="text-[11px] uppercase tracking-wide text-muted-foreground">pontuais</p></div>
           </div>
           <div className="grid grid-cols-3 gap-3 mt-3">
             <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">MRR</p><p className="text-sm font-semibold tabular-nums">{centsToBRL(m?.mrrCents ?? 0)}</p><span className={`text-[11px] font-medium ${(m?.deltaCents ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>{(m?.deltaCents ?? 0) >= 0 ? "▲" : "▼"} {centsToBRL(Math.abs(m?.deltaCents ?? 0))}</span></div>
-            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Novos</p><p className="text-sm font-semibold tabular-nums text-emerald-600">{centsToBRL(m?.novosCents ?? 0)}</p></div>
+            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Novos</p><p className="text-sm font-semibold tabular-nums text-emerald-600">{centsToBRL(contratosQ.data?.novosCents ?? 0)}</p><span className="text-[10px] text-muted-foreground">receita nova</span></div>
             <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Churn</p><p className="text-sm font-semibold tabular-nums text-red-600">-{centsToBRL(m?.churnCents ?? 0)}</p></div>
           </div>
           <div className="mt-3">
@@ -1255,9 +1274,9 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
   const remarcarM = trpc.finance.pnl.remarcar.useMutation({ onSuccess: () => { invRec(); setRemarcar(null); toast.success("Vencimento remarcado."); }, onError: onErr });
   const delM = trpc.finance.pnl.delete.useMutation({ onSuccess: () => { invRec(); toast.success("Excluído."); }, onError: onErr });
 
-  const vencCell = (venc: string | null, orig: string | null, dia: number | null) => {
+  const vencCell = (venc: string | null, orig: string | null, _dia: number | null) => {
     const remarc = venc && orig && venc !== orig;
-    return <span>{venc ?? (dia ? `dia ${dia}` : "—")}{remarc && <Badge className="ml-1 bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}</span>;
+    return <span>{fmtVenc(venc)}{remarc && <Badge className="ml-1 bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}</span>;
   };
   const recRow = (d: NonNullable<typeof despesasQ.data>["recorrentes"][number]): HubRow => ({
     key: `r${d.recorrenciaId}`,
