@@ -12,7 +12,7 @@
  *  O token nunca chega neste arquivo: o backend manda só `hasToken`.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Activity, AlertTriangle, ExternalLink, Eye, Loader2, MousePointerClick,
   RefreshCw, Settings2, TrendingUp, Users, X, Clock, ArrowDownWideNarrow,
@@ -46,9 +46,16 @@ type Metricas = {
 export default function Clarity() {
   const { user } = useAuth();
   const podeConfigurar = canManageContent((user as { role?: string } | null)?.role);
-  const { activeAccountId, activeAccount } = useActiveAccount();
+  const { activeAccountId, activeAccount, setActiveAccountId } = useActiveAccount();
   const utils = trpc.useUtils();
   const [config, setConfig] = useState(false);
+
+  // Deep-link de notificação: /clarity?account=15 abre já no cliente certo.
+  // Sem isto, o alerta levaria para a tela do cliente que estivesse selecionado.
+  useEffect(() => {
+    const alvo = Number(new URLSearchParams(window.location.search).get("account"));
+    if (alvo && alvo !== activeAccountId) setActiveAccountId(alvo);
+  }, [activeAccountId, setActiveAccountId]);
   const [aba, setAba] = useState<"site" | "contexto" | "relatorios" | "chat">("site");
 
   const enabled = !!activeAccountId;

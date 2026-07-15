@@ -2969,7 +2969,7 @@ Escreva em portuguÃªs brasileiro, de forma direta e profissional. Destaque padrÃ
 
     listAll: protectedProcedure
       .input(z.object({
-        dominio: z.enum(["PERFORMANCE", "FINANCEIRO", "TAREFAS", "COMUNICADO"]).optional(),
+        dominio: z.enum(["PERFORMANCE", "FINANCEIRO", "TAREFAS", "COMUNICADO", "SITE"]).optional(),
         status: z.enum(["nova", "lida"]).optional(),
       }).optional())
       .query(async ({ ctx, input }) => {
@@ -3003,7 +3003,7 @@ Escreva em portuguÃªs brasileiro, de forma direta e profissional. Destaque padrÃ
       }),
 
     markAllRead: protectedProcedure
-      .input(z.object({ accountId: z.number().optional(), dominio: z.enum(["PERFORMANCE", "FINANCEIRO", "TAREFAS", "COMUNICADO"]).optional() }))
+      .input(z.object({ accountId: z.number().optional(), dominio: z.enum(["PERFORMANCE", "FINANCEIRO", "TAREFAS", "COMUNICADO", "SITE"]).optional() }))
       .mutation(async ({ ctx, input }) => {
         if (input.accountId) {
           await markAllAlertsReadByAccount(ctx.user.id, input.accountId);

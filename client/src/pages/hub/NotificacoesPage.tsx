@@ -12,8 +12,8 @@
  */
 import { useMemo, useState } from "react";
 import {
-  Bell, CalendarClock, Cake, CheckCheck, DollarSign, Loader2, Megaphone,
-  Pin, Send, TrendingUp, Users, X,
+  Activity, AlertTriangle, Bell, CalendarClock, Cake, CheckCheck, DollarSign,
+  Loader2, Megaphone, Pin, Send, TrendingUp, Users, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -29,6 +29,8 @@ const ICONE: Record<string, typeof Bell> = {
   TRELLO_DUE: CalendarClock,
   TRELLO_RECONNECT: CalendarClock,
   FINANCE_OVERDUE: DollarSign,
+  CLARITY_ISSUE: Activity,
+  TRACKING_PROBLEM: AlertTriangle,
   DAILY_BRIEFING: TrendingUp,
   WEEKLY_REPORT: TrendingUp,
   ANOMALY: TrendingUp,
@@ -36,6 +38,7 @@ const ICONE: Record<string, typeof Bell> = {
 const COR_DOMINIO: Record<string, string> = {
   COMUNICADO: "bg-primary/20 text-accent",
   TAREFAS: "bg-blue-500/15 text-blue-600",
+  SITE: "bg-violet-500/15 text-violet-600",
   FINANCEIRO: "bg-emerald-500/15 text-emerald-600",
   PERFORMANCE: "bg-amber-500/15 text-amber-600",
 };
@@ -76,7 +79,7 @@ export default function NotificacoesPage() {
 
   const total = useMemo(() => {
     const c = contagemQ.data;
-    return c ? c.PERFORMANCE + c.FINANCEIRO + c.TAREFAS + c.COMUNICADO : 0;
+    return c ? c.PERFORMANCE + c.FINANCEIRO + c.TAREFAS + c.COMUNICADO + c.SITE : 0;
   }, [contagemQ.data]);
 
   const dominiosVisiveis = NOTIF_DOMINIOS.filter((d) => d.v !== "FINANCEIRO" || isAdmin);
@@ -158,7 +161,11 @@ export default function NotificacoesPage() {
                   {itens.map((n) => {
                     const Icon = ICONE[n.type] ?? Bell;
                     const cor = COR_DOMINIO[n.dominio] ?? "bg-muted text-muted-foreground";
-                    const link = n.suggestedAction?.startsWith("http") ? n.suggestedAction : null;
+                    // Aceita link externo (card do Trello) e rota interna
+                    // (/clarity?account=15) — o alerta precisa levar a algum lugar.
+                    const acao = n.suggestedAction ?? "";
+                    const link = acao.startsWith("http") ? acao : null;
+                    const rota = acao.startsWith("/") ? acao : null;
                     return (
                       <div key={n.id} className={`rounded-xl border p-4 flex gap-3 transition ${n.isRead ? "border-border bg-card opacity-60" : "border-accent/30 bg-primary/[0.04]"}`}>
                         <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${cor}`}>
@@ -175,6 +182,7 @@ export default function NotificacoesPage() {
                             {link && (
                               <a href={link} target="_blank" rel="noopener noreferrer" className="text-[11px] text-accent hover:underline">Abrir</a>
                             )}
+                            {rota && <a href={rota} className="text-[11px] text-accent hover:underline">Ver no Tracker</a>}
                             {!n.isRead && (
                               <button onClick={() => markRead.mutate({ alertId: n.id })} className="text-[11px] text-muted-foreground hover:text-foreground ml-auto">
                                 Marcar como lida

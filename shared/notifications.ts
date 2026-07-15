@@ -17,12 +17,13 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-export type NotifDominio = "PERFORMANCE" | "FINANCEIRO" | "TAREFAS" | "COMUNICADO";
+export type NotifDominio = "PERFORMANCE" | "FINANCEIRO" | "TAREFAS" | "COMUNICADO" | "SITE";
 export type NotifTipo =
   | "RELATORIO_DIARIO" | "RELATORIO_SEMANAL" | "ANOMALIA" | "OPERACIONAL"
   | "FINANCE_ATRASO"
   | "TRELLO_PRAZO" | "TRELLO_RECONEXAO"
-  | "COMUNICADO" | "ANIVERSARIO";
+  | "COMUNICADO" | "ANIVERSARIO"
+  | "CLARITY_ISSUE" | "TRACKING_PROBLEM";
 
 export type EmailModo = "off" | "hora" | "digest";
 
@@ -54,12 +55,17 @@ export const NOTIF_TIPOS: NotifTipoDef[] = [
   // Comunicados — mensagem dirigida: sempre chega no app.
   { v: "COMUNICADO", dominio: "COMUNICADO", label: "Comunicados", desc: "Avisos enviados pela administração.", inApp: true, emailModo: "hora", inAppObrigatorio: true },
   { v: "ANIVERSARIO", dominio: "COMUNICADO", label: "Aniversários", desc: "Aniversário de alguém do time.", inApp: true, emailModo: "off" },
+  // Site — comportamento no site do cliente (Clarity). Separado de Performance
+  // porque é outra pergunta: mídia trouxe gente, o site segurou?
+  { v: "CLARITY_ISSUE", dominio: "SITE", label: "Fricção no site", desc: "Cliques mortos, rage clicks, scroll baixo, tráfego de bot, queda de sessões.", inApp: true, emailModo: "off" },
+  { v: "TRACKING_PROBLEM", dominio: "SITE", label: "Risco de medição", desc: "Erros de JS que podem quebrar o disparo de conversão.", inApp: true, emailModo: "hora" },
 ];
 
 export const NOTIF_DOMINIOS: { v: NotifDominio; label: string }[] = [
   { v: "COMUNICADO", label: "Comunicados" },
   { v: "TAREFAS", label: "Tarefas" },
   { v: "PERFORMANCE", label: "Performance" },
+  { v: "SITE", label: "Site" },
   { v: "FINANCEIRO", label: "Financeiro" },
 ];
 
@@ -92,6 +98,8 @@ export const ALERT_TYPE_TO_NOTIF: Record<string, NotifTipo> = {
   TRELLO_RECONNECT: "TRELLO_RECONEXAO",
   COMUNICADO: "COMUNICADO",
   BIRTHDAY: "ANIVERSARIO",
+  CLARITY_ISSUE: "CLARITY_ISSUE",
+  TRACKING_PROBLEM: "TRACKING_PROBLEM",
 };
 
 export const notifTipoDoAlerta = (alertType: string): NotifTipo => ALERT_TYPE_TO_NOTIF[alertType] ?? "OPERACIONAL";

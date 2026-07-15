@@ -3310,7 +3310,7 @@ async function destinatariosPara(tipo: NotifTipo, canal: "inApp" | "email", modo
 
 export type NovaNotificacao = {
   tipo: NotifTipo;
-  alertType: "ANOMALY" | "SYNC_ERROR" | "BUDGET_WARNING" | "DAILY_BRIEFING" | "WEEKLY_REPORT" | "FINANCE_OVERDUE" | "REPORT" | "TRELLO_DUE" | "TRELLO_RECONNECT" | "COMUNICADO" | "BIRTHDAY";
+  alertType: "ANOMALY" | "SYNC_ERROR" | "BUDGET_WARNING" | "DAILY_BRIEFING" | "WEEKLY_REPORT" | "FINANCE_OVERDUE" | "REPORT" | "TRELLO_DUE" | "TRELLO_RECONNECT" | "COMUNICADO" | "BIRTHDAY" | "CLARITY_ISSUE" | "TRACKING_PROBLEM";
   title: string;
   message: string;
   severity: "INFO" | "WARNING" | "CRITICAL";
@@ -3410,7 +3410,7 @@ export async function upsertNotificationPref(userId: number, tipo: string, value
 export type ContagemDominio = Record<NotifDominio, number>;
 export async function getUnreadCountByDominio(userId: number): Promise<ContagemDominio> {
   const db = await getDb();
-  const zero: ContagemDominio = { PERFORMANCE: 0, FINANCEIRO: 0, TAREFAS: 0, COMUNICADO: 0 };
+  const zero: ContagemDominio = { PERFORMANCE: 0, FINANCEIRO: 0, TAREFAS: 0, COMUNICADO: 0, SITE: 0 };
   if (!db) return zero;
   const rows = await db.select({ dominio: alerts.dominio, n: sql<number>`count(*)` }).from(alerts)
     .where(and(eq(alerts.userId, userId), eq(alerts.isRead, false)))
@@ -3688,7 +3688,9 @@ export async function getNotificationRecipientsForClient(input: { accountId: num
     .where(and(eq(metaAdAccounts.id, input.accountId), eq(metaAdAccounts.isActive, true))).limit(1);
   if (conta.length === 0) return []; // cliente desativado não gera alerta
 
-  const tecnico = input.tipo === "OPERACIONAL";
+  // Técnico = interessa também a quem cuida da infra. Risco de medição entra:
+  // erro de JS que quebra conversão é problema de código, não de mídia.
+  const tecnico = input.tipo === "OPERACIONAL" || input.tipo === "TRACKING_PROBLEM";
   const roles: ("admin" | "developer")[] = tecnico ? ["admin", "developer"] : ["admin"];
   const porRole = await db.select({ id: users.id }).from(users)
     .where(and(eq(users.active, true), inArray(users.role, roles)));

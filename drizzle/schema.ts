@@ -557,6 +557,9 @@ export const alerts = mysqlTable("alerts", {
     "TRELLO_RECONNECT",
     "COMUNICADO",
     "BIRTHDAY",
+    // Site (Clarity): fricção e risco de medição.
+    "CLARITY_ISSUE",
+    "TRACKING_PROBLEM",
   ]).notNull(),
   severity: mysqlEnum("severity", ["INFO", "WARNING", "CRITICAL"]).notNull(),
   // Prioridade do alerta: CRITICAL=imediato, HIGH=até 30min, MEDIUM=consolidado a cada 2h
@@ -571,7 +574,7 @@ export const alerts = mysqlTable("alerts", {
   // Controle de envio de email: null = ainda não enviado, data = já enviado (enviar apenas uma vez)
   emailSentAt: timestamp("emailSentAt"),
   // Sistema de notificações: eixo de produto + dedup por (tipo, referência, dia).
-  dominio: mysqlEnum("dominio", ["PERFORMANCE", "FINANCEIRO", "TAREFAS", "COMUNICADO"]).default("PERFORMANCE").notNull(),
+  dominio: mysqlEnum("dominio", ["PERFORMANCE", "FINANCEIRO", "TAREFAS", "COMUNICADO", "SITE"]).default("PERFORMANCE").notNull(),
   dedupKey: varchar("dedupKey", { length: 180 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({

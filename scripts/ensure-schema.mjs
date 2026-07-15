@@ -617,6 +617,24 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · client_chat_messages garantida");
 
+    // 20) Alertas de site (Clarity): domínio SITE + tipos novos.
+    const [domCol2] = await conn.query(
+      "SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'alerts' AND column_name = 'dominio'",
+    );
+    if (domCol2.length && !String(domCol2[0].COLUMN_TYPE).includes("'SITE'")) {
+      await conn.query("ALTER TABLE `alerts` MODIFY COLUMN `dominio` ENUM('PERFORMANCE','FINANCEIRO','TAREFAS','COMUNICADO','SITE') NOT NULL DEFAULT 'PERFORMANCE'");
+      console.log("[ensure-schema] ok  · alerts.dominio expandido (SITE)");
+    }
+    const [typeCol3] = await conn.query(
+      "SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'alerts' AND column_name = 'type'",
+    );
+    if (typeCol3.length && !String(typeCol3[0].COLUMN_TYPE).includes("CLARITY_ISSUE")) {
+      await conn.query(
+        "ALTER TABLE `alerts` MODIFY COLUMN `type` ENUM('ANOMALY','REPORT','SYNC_ERROR','BUDGET_WARNING','CAMPAIGN_PAUSED','PAYMENT_FAILED','AD_REJECTED','AD_ERROR','PAGE_UNLINKED','INSTAGRAM_UNLINKED','PIXEL_ERROR','ADSET_NO_DELIVERY','SUGGESTION_APPLIED','EXPERIMENT_UPDATE','SYNC_COMPLETE','DAILY_BRIEFING','WEEKLY_REPORT','FINANCE_OVERDUE','TRELLO_DUE','TRELLO_RECONNECT','COMUNICADO','BIRTHDAY','CLARITY_ISSUE','TRACKING_PROBLEM') NOT NULL",
+      );
+      console.log("[ensure-schema] ok  · alerts.type expandido (CLARITY_ISSUE/TRACKING_PROBLEM)");
+    }
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

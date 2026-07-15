@@ -1,6 +1,7 @@
 import { logger } from "./logger";
 import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, runDigestDiario, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
 import { runClaritySnapshots } from "./clarityJobs";
+import { runClarityAlertas } from "./services/clarityAlertService";
 /**
  * autoSync.ts — Cron job para sincronização automática diária de todas as contas Meta Ads.
  *
@@ -460,6 +461,8 @@ async function runNotificacoesDiarias() {
     try { await fn(); } catch (err) { logger.error(`[Notif] ${nome} falhou: ${(err as Error)?.message}`); }
   };
   await passo("Financeiro", runFinanceAtrasos);
+  // Analisa o snapshot de Clarity tirado às 06:40 e avisa admins + coordenadores.
+  await passo("Clarity", runClarityAlertas);
   await passo("Trello", runTrelloPrazos);
   await passo("Aniversários", runAniversarios);
   await passo("Briefing", () => runBriefingDiario(async () => null));
