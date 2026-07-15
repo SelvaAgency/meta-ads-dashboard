@@ -1877,7 +1877,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, clientContext, clientNotes, clientSiteReports, type InsertClientContext, type InsertClientSiteReport } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta } from "../shared/notifications";
 
@@ -3832,4 +3832,76 @@ export async function serieClaritySnapshots(accountId: number, limite = 30) {
   return db.select().from(clientClaritySnapshots)
     .where(eq(clientClaritySnapshots.accountId, accountId))
     .orderBy(desc(clientClaritySnapshots.dia)).limit(limite);
+}
+
+// ─── Contexto, notas e relatórios de site por cliente ────────────────────────
+
+export async function getClientContext(accountId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(clientContext).where(eq(clientContext.accountId, accountId)).limit(1);
+  return r[0] ?? null;
+}
+
+export async function upsertClientContext(accountId: number, v: Partial<InsertClientContext>, actorUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const conta = await db.select({ id: metaAdAccounts.id }).from(metaAdAccounts)
+    .where(eq(metaAdAccounts.id, accountId)).limit(1);
+  if (conta.length === 0) throw new Error("Cliente não encontrado.");
+  const patch = { ...v, updatedByUserId: actorUserId };
+  delete (patch as { accountId?: number }).accountId;
+  await db.insert(clientContext).values({ accountId, ...patch }).onDuplicateKeyUpdate({ set: patch });
+}
+
+export async function listClientNotes(accountId: number, limite = 20) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: clientNotes.id, body: clientNotes.body, createdAt: clientNotes.createdAt,
+    authorUserId: clientNotes.authorUserId, autorNome: users.name,
+  }).from(clientNotes).leftJoin(users, eq(clientNotes.authorUserId, users.id))
+    .where(eq(clientNotes.accountId, accountId))
+    .orderBy(desc(clientNotes.createdAt)).limit(limite);
+}
+
+export async function criarClientNote(accountId: number, authorUserId: number, body: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.insert(clientNotes).values({ accountId, authorUserId, body });
+}
+
+export async function apagarClientNote(id: number, authorUserId: number, isAdmin: boolean) {
+  const db = await getDb();
+  if (!db) return;
+  // Cada um apaga a própria nota; admin apaga qualquer uma.
+  await db.delete(clientNotes).where(isAdmin
+    ? eq(clientNotes.id, id)
+    : and(eq(clientNotes.id, id), eq(clientNotes.authorUserId, authorUserId)));
+}
+
+export async function salvarSiteReport(r: InsertClientSiteReport) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const res = await db.insert(clientSiteReports).values(r);
+  return (res as unknown as { insertId: number }).insertId ?? (res as any)[0]?.insertId;
+}
+
+export async function listarSiteReports(accountId: number, limite = 20) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: clientSiteReports.id, rangeStart: clientSiteReports.rangeStart, rangeEnd: clientSiteReports.rangeEnd,
+    createdAt: clientSiteReports.createdAt, fontesJson: clientSiteReports.fontesJson,
+    reportJson: clientSiteReports.reportJson, autorNome: users.name,
+  }).from(clientSiteReports).leftJoin(users, eq(clientSiteReports.generatedByUserId, users.id))
+    .where(eq(clientSiteReports.accountId, accountId))
+    .orderBy(desc(clientSiteReports.createdAt)).limit(limite);
+}
+
+export async function getSiteReport(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(clientSiteReports).where(eq(clientSiteReports.id, id)).limit(1);
+  return r[0] ?? null;
 }

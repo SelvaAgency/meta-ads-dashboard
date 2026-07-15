@@ -245,6 +245,63 @@ export const clientClaritySnapshots = mysqlTable("client_clarity_snapshots", {
 export type ClientClaritySnapshot = typeof clientClaritySnapshots.$inferSelect;
 export type InsertClientClaritySnapshot = typeof clientClaritySnapshots.$inferInsert;
 
+// ─── Contexto manual, notas e relatórios de site por cliente ─────────────────
+// O que a máquina não sabe: objetivo, oferta, público, o que já foi testado.
+// É isto que transforma número em diagnóstico — sem contexto, o relatório só
+// descreve; com contexto, ele interpreta.
+
+export const clientContext = mysqlTable("client_context", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),      // → meta_ad_accounts.id
+  objective: text("objective"),
+  offer: text("offer"),
+  audience: text("audience"),
+  importantPagesJson: json("importantPagesJson"),
+  conversionEventsJson: json("conversionEventsJson"),
+  trackingNotes: text("trackingNotes"),
+  currentHypotheses: text("currentHypotheses"),
+  constraints: text("constraints"),
+  previousTests: text("previousTests"),
+  nextSteps: text("nextSteps"),
+  updatedByUserId: int("updatedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqAccount: uniqueIndex("uq_client_context").on(table.accountId),
+}));
+export type ClientContext = typeof clientContext.$inferSelect;
+export type InsertClientContext = typeof clientContext.$inferInsert;
+
+export const clientNotes = mysqlTable("client_notes", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  authorUserId: int("authorUserId").notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  idxConta: index("idx_client_notes_conta").on(table.accountId, table.createdAt),
+}));
+export type ClientNote = typeof clientNotes.$inferSelect;
+export type InsertClientNote = typeof clientNotes.$inferInsert;
+
+/** Histórico dos Relatórios de Site & Jornada. */
+export const clientSiteReports = mysqlTable("client_site_reports", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  rangeStart: varchar("rangeStart", { length: 10 }).notNull(),
+  rangeEnd: varchar("rangeEnd", { length: 10 }).notNull(),
+  generatedByUserId: int("generatedByUserId"),
+  reportJson: json("reportJson"),
+  markdown: text("markdown"),
+  /** Quais fontes existiam de fato — o relatório não finge o que não tinha. */
+  fontesJson: json("fontesJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  idxConta: index("idx_site_reports_conta").on(table.accountId, table.createdAt),
+}));
+export type ClientSiteReport = typeof clientSiteReports.$inferSelect;
+export type InsertClientSiteReport = typeof clientSiteReports.$inferInsert;
+
 // ─── Configurações simples (key-value) — ex.: slide "Você prefere?" da SELVA TV ─
 export const appSettings = mysqlTable("app_settings", {
   settingKey: varchar("settingKey", { length: 191 }).primaryKey(),

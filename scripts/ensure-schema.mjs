@@ -563,6 +563,47 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · client_clarity_settings / client_clarity_snapshots garantidas");
 
+    // 19) Contexto manual, notas e relatórios de site por cliente.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`client_context\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`accountId\` INT NOT NULL,
+        \`objective\` TEXT NULL, \`offer\` TEXT NULL, \`audience\` TEXT NULL,
+        \`importantPagesJson\` JSON NULL, \`conversionEventsJson\` JSON NULL,
+        \`trackingNotes\` TEXT NULL, \`currentHypotheses\` TEXT NULL,
+        \`constraints\` TEXT NULL, \`previousTests\` TEXT NULL, \`nextSteps\` TEXT NULL,
+        \`updatedByUserId\` INT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uq_client_context\` (\`accountId\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`client_notes\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`accountId\` INT NOT NULL,
+        \`authorUserId\` INT NOT NULL,
+        \`body\` TEXT NOT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_client_notes_conta\` (\`accountId\`, \`createdAt\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`client_site_reports\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`accountId\` INT NOT NULL,
+        \`rangeStart\` VARCHAR(10) NOT NULL,
+        \`rangeEnd\` VARCHAR(10) NOT NULL,
+        \`generatedByUserId\` INT NULL,
+        \`reportJson\` JSON NULL,
+        \`markdown\` TEXT NULL,
+        \`fontesJson\` JSON NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_site_reports_conta\` (\`accountId\`, \`createdAt\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · client_context / client_notes / client_site_reports garantidas");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

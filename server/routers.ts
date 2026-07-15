@@ -277,8 +277,9 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
-import { getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots } from "./db";
+import { getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport } from "./db";
 import { sincronizarClarity } from "./clarityJobs";
+import { gerarSiteReport, siteReportMarkdown } from "./services/siteReportService";
 import { entregarComunicado } from "./notificationJobs";
 import { notifTiposFor, notifTipoDef, type EmailModo } from "../shared/notifications";
 
@@ -2830,6 +2831,89 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
     sync: contentProcedure
       .input(z.object({ accountId: z.number().int(), dias: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1) }))
       .mutation(({ input }) => sincronizarClarity(input.accountId, input.dias)),
+  }),
+
+  // ─── Contexto, notas e Relatório de Site & Jornada ──────────────────────────
+  siteDiag: router({
+    /** Contexto manual do cliente. Todo mundo lê; admin/dev escrevem. */
+    contexto: protectedProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(({ input }) => getClientContext(input.accountId)),
+
+    salvarContexto: contentProcedure
+      .input(z.object({
+        accountId: z.number().int(),
+        objective: z.string().max(2000).nullable().optional(),
+        offer: z.string().max(2000).nullable().optional(),
+        audience: z.string().max(2000).nullable().optional(),
+        importantPages: z.array(z.string().max(500)).nullable().optional(),
+        conversionEvents: z.array(z.string().max(200)).nullable().optional(),
+        trackingNotes: z.string().max(4000).nullable().optional(),
+        currentHypotheses: z.string().max(4000).nullable().optional(),
+        constraints: z.string().max(4000).nullable().optional(),
+        previousTests: z.string().max(4000).nullable().optional(),
+        nextSteps: z.string().max(4000).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { accountId, importantPages, conversionEvents, ...resto } = input;
+        try {
+          await upsertClientContext(accountId, {
+            ...resto,
+            ...(importantPages !== undefined ? { importantPagesJson: importantPages } : {}),
+            ...(conversionEvents !== undefined ? { conversionEventsJson: conversionEvents } : {}),
+          }, ctx.user.id);
+          return { success: true } as const;
+        } catch (e) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+        }
+      }),
+
+    /** Notas do cliente — qualquer pessoa da equipe registra o que observou. */
+    notas: protectedProcedure
+      .input(z.object({ accountId: z.number().int(), limite: z.number().int().min(1).max(50).default(20) }))
+      .query(({ input }) => listClientNotes(input.accountId, input.limite)),
+
+    criarNota: protectedProcedure
+      .input(z.object({ accountId: z.number().int(), body: z.string().min(1).max(4000) }))
+      .mutation(async ({ ctx, input }) => {
+        await criarClientNote(input.accountId, ctx.user.id, input.body.trim());
+        return { success: true } as const;
+      }),
+
+    apagarNota: protectedProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ ctx, input }) => {
+        await apagarClientNote(input.id, ctx.user.id, ctx.user.role === "admin");
+        return { success: true } as const;
+      }),
+
+    /** Gera e salva o relatório. Custa uma chamada de LLM — por isso é admin/dev. */
+    gerarRelatorio: contentProcedure
+      .input(z.object({
+        accountId: z.number().int(),
+        rangeStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        rangeEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const conta = await getMetaAdAccountById(input.accountId);
+        if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
+        const nome = conta.accountName ?? conta.accountId;
+        const r = await gerarSiteReport(input.accountId, nome, input.rangeStart, input.rangeEnd);
+        const md = siteReportMarkdown(r, nome, input.rangeStart, input.rangeEnd);
+        const id = await salvarSiteReport({
+          accountId: input.accountId, rangeStart: input.rangeStart, rangeEnd: input.rangeEnd,
+          generatedByUserId: ctx.user.id, reportJson: r, markdown: md, fontesJson: r.fontes,
+        });
+        return { id, relatorio: r, markdown: md };
+      }),
+
+    relatorios: protectedProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(({ input }) => listarSiteReports(input.accountId)),
+
+    relatorio: protectedProcedure
+      .input(z.object({ id: z.number().int() }))
+      .query(({ input }) => getSiteReport(input.id)),
   }),
 
   // ─── Alerts ───────────────────────────────────────────────────────────────────────────

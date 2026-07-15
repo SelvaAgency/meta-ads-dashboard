@@ -16,6 +16,7 @@ import { useState } from "react";
 import {
   Activity, AlertTriangle, ExternalLink, Eye, Loader2, MousePointerClick,
   RefreshCw, Settings2, TrendingUp, Users, X, Clock, ArrowDownWideNarrow,
+  FileText, NotebookPen, Sparkles, Copy, Trash2, Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
@@ -48,6 +49,7 @@ export default function Clarity() {
   const { activeAccountId, activeAccount } = useActiveAccount();
   const utils = trpc.useUtils();
   const [config, setConfig] = useState(false);
+  const [aba, setAba] = useState<"site" | "contexto" | "relatorios">("site");
 
   const enabled = !!activeAccountId;
   const cfgQ = trpc.clarity.settings.useQuery({ accountId: activeAccountId! }, { enabled });
@@ -83,7 +85,7 @@ export default function Clarity() {
         <header className="flex items-start gap-3 flex-wrap">
           <div className="flex-1 min-w-[200px]">
             <h1 className="text-xl font-semibold flex items-center gap-2">
-              <Activity className="w-5 h-5 text-accent" /> Comportamento no site
+              <Activity className="w-5 h-5 text-accent" /> Site & Jornada
             </h1>
             <p className="text-sm text-muted-foreground">
               {activeAccount?.accountName ?? "Cliente"} · Microsoft Clarity
@@ -111,6 +113,19 @@ export default function Clarity() {
           )}
         </header>
 
+        <div className="flex gap-1 border-b border-border">
+          {([["site", "Comportamento", Activity], ["contexto", "Contexto", NotebookPen], ["relatorios", "Relatórios", FileText]] as const).map(([v, lbl, Ic]) => (
+            <button key={v} onClick={() => setAba(v)}
+              className={`px-4 py-2 text-sm transition border-b-2 -mb-px flex items-center gap-1.5 ${aba === v ? "border-accent text-accent font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+              <Ic className="w-3.5 h-3.5" /> {lbl}
+            </button>
+          ))}
+        </div>
+
+        {aba === "contexto" && <AbaContexto accountId={activeAccountId} podeEditar={podeConfigurar} />}
+        {aba === "relatorios" && <AbaRelatorios accountId={activeAccountId} podeGerar={podeConfigurar} />}
+
+        {aba === "site" && <>
         {/* ESTADO 1 — sem Clarity configurado */}
         {!cfgQ.isLoading && !configurado && (
           <Vazio icone={<Activity className="w-8 h-8" />} titulo="Clarity ainda não configurado para este cliente"
@@ -187,7 +202,9 @@ export default function Clarity() {
           </>
         )}
 
-        {(cfgQ.isLoading || snapQ.isLoading) && (
+        </>}
+
+        {aba === "site" && (cfgQ.isLoading || snapQ.isLoading) && (
           <div className="flex items-center gap-2 py-12 justify-center text-sm text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" /> Carregando…
           </div>
@@ -335,6 +352,293 @@ function Campo({ label, hint, children }: { label: string; hint?: string; childr
       <label className="text-[11px] text-muted-foreground">{label}</label>
       {children}
       {hint && <p className="text-[10px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+// ─── Aba Contexto ────────────────────────────────────────────────────────────
+// O que a máquina não tem como saber. É isto que faz o relatório interpretar
+// em vez de só descrever.
+
+const CAMPOS = [
+  { k: "objective", label: "Objetivo atual", ph: "Ex.: gerar orçamentos qualificados para a linha industrial." },
+  { k: "offer", label: "Oferta / produto principal", ph: "O que está sendo vendido e a que preço/condição." },
+  { k: "audience", label: "Público-alvo", ph: "Quem precisa ver o anúncio." },
+  { k: "currentHypotheses", label: "Hipóteses em andamento", ph: "O que suspeitamos hoje e queremos provar." },
+  { k: "previousTests", label: "O que já foi testado", ph: "Para não repetir teste que já deu resposta." },
+  { k: "constraints", label: "Restrições / importante saber", ph: "Ex.: não pode falar preço; site só edita via agência." },
+  { k: "trackingNotes", label: "Observações de tracking", ph: "Ex.: o pixel só dispara após aceitar cookies." },
+  { k: "nextSteps", label: "Próximos passos combinados", ph: "O combinado com o cliente." },
+] as const;
+
+function AbaContexto({ accountId, podeEditar }: { accountId: number; podeEditar: boolean }) {
+  const utils = trpc.useUtils();
+  const ctxQ = trpc.siteDiag.contexto.useQuery({ accountId });
+  const notasQ = trpc.siteDiag.notas.useQuery({ accountId, limite: 20 });
+  const { user } = useAuth();
+  const meuId = (user as { id?: number } | null)?.id;
+  const isAdmin = (user as { role?: string } | null)?.role === "admin";
+
+  const [draft, setDraft] = useState<Record<string, string> | null>(null);
+  const [pages, setPages] = useState<string | null>(null);
+  const [eventos, setEventos] = useState<string | null>(null);
+  const [nota, setNota] = useState("");
+
+  const salvar = trpc.siteDiag.salvarContexto.useMutation({
+    onSuccess: () => { utils.siteDiag.contexto.invalidate(); setDraft(null); setPages(null); setEventos(null); toast.success("Contexto salvo."); },
+    onError: (e) => toast.error(e.message),
+  });
+  const criarNota = trpc.siteDiag.criarNota.useMutation({
+    onSuccess: () => { utils.siteDiag.notas.invalidate(); setNota(""); },
+    onError: (e) => toast.error(e.message),
+  });
+  const apagarNota = trpc.siteDiag.apagarNota.useMutation({ onSuccess: () => utils.siteDiag.notas.invalidate() });
+
+  if (ctxQ.isLoading) return <Carregando />;
+  const c = ctxQ.data;
+  const val = (k: string) => draft?.[k] ?? ((c as Record<string, unknown> | null)?.[k] as string | null) ?? "";
+  const set = (k: string, v: string) => setDraft({ ...(draft ?? {}), [k]: v });
+  const pagesVal = pages ?? (((c?.importantPagesJson as string[] | null) ?? []).join("\n"));
+  const eventosVal = eventos ?? (((c?.conversionEventsJson as string[] | null) ?? []).join("\n"));
+  const mudou = draft !== null || pages !== null || eventos !== null;
+
+  return (
+    <div className="flex flex-col gap-4">
+      {!podeEditar && (
+        <p className="text-xs text-muted-foreground">Você pode ler o contexto; editar é de administradores.</p>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {CAMPOS.map((f) => (
+          <div key={f.k} className="flex flex-col gap-1">
+            <label className="text-[11px] text-muted-foreground">{f.label}</label>
+            <textarea value={val(f.k)} onChange={(e) => set(f.k, e.target.value)} rows={3} placeholder={f.ph} disabled={!podeEditar}
+              className="text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary resize-y disabled:opacity-70" />
+          </div>
+        ))}
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-muted-foreground">Páginas importantes <span className="opacity-60">(uma por linha)</span></label>
+          <textarea value={pagesVal} onChange={(e) => setPages(e.target.value)} rows={3} disabled={!podeEditar}
+            placeholder={"https://site.com.br/\nhttps://site.com.br/orcamento"}
+            className="text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary resize-y disabled:opacity-70" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-muted-foreground">Eventos de conversão esperados <span className="opacity-60">(um por linha)</span></label>
+          <textarea value={eventosVal} onChange={(e) => setEventos(e.target.value)} rows={3} disabled={!podeEditar}
+            placeholder={"Lead\nAdicionar ao carrinho"}
+            className="text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary resize-y disabled:opacity-70" />
+        </div>
+      </div>
+
+      {podeEditar && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => salvar.mutate({
+              accountId,
+              ...Object.fromEntries(CAMPOS.map((f) => [f.k, val(f.k).trim() || null])),
+              importantPages: pagesVal.split("\n").map((x) => x.trim()).filter(Boolean),
+              conversionEvents: eventosVal.split("\n").map((x) => x.trim()).filter(Boolean),
+            } as never)}
+            disabled={!mudou || salvar.isPending}
+            className="text-sm px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50">
+            {salvar.isPending ? "Salvando…" : "Salvar contexto"}
+          </button>
+          {c?.updatedAt && <span className="text-[11px] text-muted-foreground">Atualizado em {new Date(c.updatedAt).toLocaleString("pt-BR")}</span>}
+        </div>
+      )}
+
+      {/* Notas — histórico curto do que a equipe observou */}
+      <div className="rounded-xl border border-border bg-card p-4 mt-2">
+        <p className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1.5"><NotebookPen className="w-3.5 h-3.5" /> Notas do cliente</p>
+        <div className="flex gap-2">
+          <input value={nota} onChange={(e) => setNota(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && nota.trim()) criarNota.mutate({ accountId, body: nota.trim() }); }}
+            placeholder="Registre o que observou hoje…"
+            className="flex-1 text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary" />
+          <button onClick={() => nota.trim() && criarNota.mutate({ accountId, body: nota.trim() })} disabled={!nota.trim() || criarNota.isPending}
+            className="text-sm px-3 py-2 rounded-md border border-border text-muted-foreground hover:text-foreground disabled:opacity-50">Adicionar</button>
+        </div>
+        <div className="flex flex-col gap-2 mt-3">
+          {(notasQ.data ?? []).map((n) => (
+            <div key={n.id} className="flex items-start gap-2 text-xs border-b border-border/50 pb-2 last:border-b-0">
+              <div className="flex-1">
+                <p className="text-foreground whitespace-pre-line">{n.body}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{n.autorNome ?? "—"} · {new Date(n.createdAt).toLocaleString("pt-BR")}</p>
+              </div>
+              {(isAdmin || n.authorUserId === meuId) && (
+                <button onClick={() => apagarNota.mutate({ id: n.id })} className="text-muted-foreground hover:text-destructive p-1" title="Apagar">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
+          {(notasQ.data ?? []).length === 0 && <p className="text-xs text-muted-foreground py-2">Nenhuma nota ainda.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Aba Relatórios ──────────────────────────────────────────────────────────
+
+const hojeStr = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+const diasAtras = (n: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() - n * 86400000));
+
+const ORIGEM_LABEL: Record<string, string> = {
+  midia: "Mídia", site: "Site/página", oferta: "Oferta", tracking: "Tracking",
+  tecnico: "Técnico", indeterminado: "Indeterminado",
+};
+const ORIGEM_COR: Record<string, string> = {
+  midia: "bg-amber-500/15 text-amber-600", site: "bg-blue-500/15 text-blue-600",
+  oferta: "bg-purple-500/15 text-purple-600", tracking: "bg-orange-500/15 text-orange-600",
+  tecnico: "bg-red-500/15 text-red-600", indeterminado: "bg-muted text-muted-foreground",
+};
+
+type Fontes = { midia: boolean; clarity: boolean; contexto: boolean; notas: boolean; diasClarity: number; diasPeriodo: number };
+type Relatorio = {
+  resumoExecutivo: string; diagnostico: string; origemProvavel: string;
+  problemas: string[]; hipoteses: string[]; proximasAcoes: string[]; observacoesTracking: string[];
+  midia: Record<string, number | null>; site: Record<string, number | null>; fontes: Fontes;
+};
+
+function AbaRelatorios({ accountId, podeGerar }: { accountId: number; podeGerar: boolean }) {
+  const utils = trpc.useUtils();
+  const [inicio, setInicio] = useState(diasAtras(6));
+  const [fim, setFim] = useState(hojeStr());
+  const [aberto, setAberto] = useState<number | null>(null);
+  const [copiado, setCopiado] = useState(false);
+
+  const listaQ = trpc.siteDiag.relatorios.useQuery({ accountId });
+  const detalheQ = trpc.siteDiag.relatorio.useQuery({ id: aberto! }, { enabled: !!aberto });
+
+  const gerar = trpc.siteDiag.gerarRelatorio.useMutation({
+    onSuccess: (r) => { utils.siteDiag.relatorios.invalidate(); setAberto(r.id); toast.success("Relatório gerado."); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const r = (detalheQ.data?.reportJson ?? null) as Relatorio | null;
+  const md = detalheQ.data?.markdown ?? "";
+
+  return (
+    <div className="flex flex-col gap-4">
+      {podeGerar && (
+        <div className="rounded-xl border border-border bg-card p-4 flex items-end gap-3 flex-wrap">
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-muted-foreground">De</label>
+            <input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)}
+              className="text-sm border border-border rounded-md px-2 py-1.5 bg-background" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-muted-foreground">Até</label>
+            <input type="date" value={fim} onChange={(e) => setFim(e.target.value)}
+              className="text-sm border border-border rounded-md px-2 py-1.5 bg-background" />
+          </div>
+          <button onClick={() => gerar.mutate({ accountId, rangeStart: inicio, rangeEnd: fim })} disabled={gerar.isPending}
+            className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-1.5 disabled:opacity-60">
+            {gerar.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {gerar.isPending ? "Analisando…" : "Gerar relatório"}
+          </button>
+          <p className="text-[11px] text-muted-foreground flex-1 min-w-[200px]">
+            Cruza a mídia do período com o comportamento no site e o contexto. Só usa o que existe — o que faltar, ele diz.
+          </p>
+        </div>
+      )}
+
+      {aberto && detalheQ.isLoading && <Carregando />}
+
+      {aberto && r && (
+        <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-4">
+          <div className="flex items-start gap-2 flex-wrap">
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${ORIGEM_COR[r.origemProvavel] ?? ORIGEM_COR.indeterminado}`}>
+              Origem provável: {ORIGEM_LABEL[r.origemProvavel] ?? r.origemProvavel}
+            </span>
+            <div className="ml-auto flex gap-2">
+              <button onClick={() => { navigator.clipboard.writeText(md); setCopiado(true); setTimeout(() => setCopiado(false), 1500); }}
+                className="text-[11px] px-2 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground flex items-center gap-1">
+                {copiado ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />} {copiado ? "Copiado" : "Copiar resumo"}
+              </button>
+              <button onClick={() => setAberto(null)} className="text-[11px] px-2 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground">Fechar</button>
+            </div>
+          </div>
+
+          <FontesBadges f={r.fontes} />
+          <p className="text-sm text-foreground">{r.resumoExecutivo}</p>
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground mb-1">Diagnóstico</p>
+            <p className="text-sm text-muted-foreground whitespace-pre-line">{r.diagnostico}</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <BlocoLista titulo="Problemas encontrados" itens={r.problemas} />
+            <BlocoLista titulo="Hipóteses a testar" itens={r.hipoteses} />
+            <BlocoLista titulo="Próximas ações" itens={r.proximasAcoes} />
+            <BlocoLista titulo="Observações de tracking" itens={r.observacoesTracking} />
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-border bg-card p-4">
+        <p className="text-xs font-semibold text-muted-foreground mb-2">Histórico</p>
+        {listaQ.isLoading ? <p className="text-xs text-muted-foreground py-2">Carregando…</p>
+          : (listaQ.data ?? []).length === 0 ? <p className="text-xs text-muted-foreground py-2">Nenhum relatório gerado ainda.</p> : (
+          <div className="flex flex-col gap-1.5">
+            {(listaQ.data ?? []).map((x) => {
+              const rj = x.reportJson as Relatorio | null;
+              return (
+                <button key={x.id} onClick={() => setAberto(x.id)}
+                  className={`flex items-center gap-2 text-xs p-2 rounded-md border transition text-left ${aberto === x.id ? "border-accent bg-primary/5" : "border-border hover:border-accent/40"}`}>
+                  <span className="font-medium">{x.rangeStart} → {x.rangeEnd}</span>
+                  {rj?.origemProvavel && (
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${ORIGEM_COR[rj.origemProvavel] ?? ORIGEM_COR.indeterminado}`}>
+                      {ORIGEM_LABEL[rj.origemProvavel] ?? rj.origemProvavel}
+                    </span>
+                  )}
+                  <span className="ml-auto text-muted-foreground">{x.autorNome ?? "—"} · {new Date(x.createdAt).toLocaleDateString("pt-BR")}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Diz na cara quais fontes o relatório teve — é o que separa diagnóstico de chute. */
+function FontesBadges({ f }: { f: Fontes }) {
+  const item = (ok: boolean, label: string, detalhe?: string) => (
+    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${ok ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600" : "border-border text-muted-foreground"}`}>
+      {ok ? "✓" : "✕"} {label}{detalhe ? ` · ${detalhe}` : ""}
+    </span>
+  );
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {item(f.midia, "Mídia paga")}
+      {item(f.clarity, "Clarity", f.clarity ? `${f.diasClarity} de ${f.diasPeriodo} dias` : undefined)}
+      {item(f.contexto, "Contexto")}
+      {item(f.notas, "Notas")}
+    </div>
+  );
+}
+
+function BlocoLista({ titulo, itens }: { titulo: string; itens: string[] }) {
+  if (!itens.length) return null;
+  return (
+    <div>
+      <p className="text-xs font-semibold text-muted-foreground mb-1">{titulo}</p>
+      <ul className="flex flex-col gap-1">
+        {itens.map((x, i) => (
+          <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
+            <span className="text-accent flex-shrink-0">·</span><span>{x}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Carregando() {
+  return (
+    <div className="flex items-center gap-2 py-12 justify-center text-sm text-muted-foreground">
+      <Loader2 className="w-4 h-4 animate-spin" /> Carregando…
     </div>
   );
 }
