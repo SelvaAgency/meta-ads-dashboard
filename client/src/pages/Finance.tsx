@@ -13,7 +13,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Wallet, Plus, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight, ArrowLeftRight, Users, TrendingDown, AlertTriangle, CalendarClock, Repeat, Lock, Unlock } from "lucide-react";
-import { ResponsiveContainer, ComposedChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ReferenceLine } from "recharts";
+import { ResponsiveContainer, ComposedChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ReferenceLine, PieChart, Pie } from "recharts";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -240,12 +240,14 @@ function MixChart({ pontos }: { pontos: SeriePoint[] }) {
     </div>
   );
 }
-function MrrChart({ pontos, campo = "mrr" }: { pontos: SeriePoint[]; campo?: "mrr" | "pontual" }) {
+function MrrChart({ pontos, campo = "mrr", destaque }: { pontos: SeriePoint[]; campo?: "mrr" | "pontual"; destaque?: string }) {
   const conf = campo === "pontual"
     ? { key: "Pontual", color: "#EF701B", val: (t: SeriePoint) => t.pontualCents }
     : { key: "MRR", color: "#3B54E6", val: (t: SeriePoint) => t.mrrCents };
   let lastConf = -1;
   pontos.forEach((t, i) => { if (isPeriodoConfirmado(t.periodo)) lastConf = i; });
+  const marcador = destaque ? pontos.find((t) => t.periodo === destaque) : undefined;
+  const marcadorLbl = marcador ? fmtPeriodo(marcador.periodo, marcador.parcial) : undefined;
   const d = pontos.map((t, i) => ({ lbl: fmtPeriodo(t.periodo, t.parcial), [conf.key]: i <= lastConf ? conf.val(t) / 100 : null, [`${conf.key} prev`]: i >= lastConf ? conf.val(t) / 100 : null }));
   return (
     <div>
@@ -254,11 +256,79 @@ function MrrChart({ pontos, campo = "mrr" }: { pontos: SeriePoint[]; campo?: "mr
           <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
           <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
           <Tooltip formatter={(v: number, n: string) => [tipTxt(v), String(n).replace(" prev", " (prev)")]} />
+          {marcadorLbl && <ReferenceLine x={marcadorLbl} stroke="#6366F1" strokeDasharray="2 2" label={{ value: marcadorLbl, position: "top", fontSize: 10, fill: "#6366F1" }} />}
           <Line type="linear" dataKey={conf.key} stroke={conf.color} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
           <Line type="linear" dataKey={`${conf.key} prev`} stroke={conf.color} strokeWidth={2} strokeOpacity={0.4} strokeDasharray="5 4" dot={false} connectNulls={false} />
         </ComposedChart>
       </ResponsiveContainer>
       <p className="text-[10px] text-muted-foreground text-center">{CONF_LEGEND}</p>
+    </div>
+  );
+}
+// Movimento da base: variação líquida do MRR mês a mês (novos+expansão − churn−contração).
+function MovimentoChart({ pontos, destaque }: { pontos: SeriePoint[]; destaque?: string }) {
+  const marcador = destaque ? pontos.find((t) => t.periodo === destaque) : undefined;
+  const marcadorLbl = marcador ? fmtPeriodo(marcador.periodo, marcador.parcial) : undefined;
+  const d = pontos.map((t, i) => ({ lbl: fmtPeriodo(t.periodo, t.parcial), delta: i > 0 ? (t.recorrenteCents - pontos[i - 1].recorrenteCents) / 100 : 0 }));
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={180}>
+        <BarChart data={d} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+          <XAxis dataKey="lbl" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
+          <Tooltip formatter={(v: number) => tipTxt(v)} />
+          {marcadorLbl && <ReferenceLine x={marcadorLbl} stroke="#6366F1" strokeDasharray="2 2" />}
+          <ReferenceLine y={0} stroke="#94a3b8" />
+          <Bar dataKey="delta" name="Δ MRR">{d.map((e, i) => <Cell key={i} fill={e.delta >= 0 ? "#16A34A" : "#DC2626"} />)}</Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <p className="text-[10px] text-muted-foreground text-center">variação líquida do MRR (verde = cresceu · vermelho = encolheu)</p>
+    </div>
+  );
+}
+// Donut de concentração da receita por cliente (top fatias + "demais").
+const DONUT_CORES = ["#3B54E6", "#16A34A", "#EF701B", "#9333EA", "#0EA5E9", "#94a3b8"];
+function ConcentracaoDonut({ data }: { data: { nome: string; totalCents: number }[] }) {
+  const total = data.reduce((s, x) => s + x.totalCents, 0);
+  const top = data.slice(0, 5);
+  const demais = data.slice(5).reduce((s, x) => s + x.totalCents, 0);
+  const fatias = [...top.map((x, i) => ({ nome: x.nome, v: x.totalCents / 100, cor: DONUT_CORES[i] })), ...(demais > 0 ? [{ nome: "Demais", v: demais / 100, cor: DONUT_CORES[5] }] : [])];
+  const top3pct = total > 0 ? Math.round((data.slice(0, 3).reduce((s, x) => s + x.totalCents, 0) / total) * 100) : 0;
+  if (total === 0) return <div className="h-[200px] flex items-center justify-center text-sm text-muted-foreground">Sem receita no período.</div>;
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <div className="relative" style={{ width: 160, height: 160 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie data={fatias} dataKey="v" nameKey="nome" innerRadius={52} outerRadius={76} paddingAngle={1} strokeWidth={0}>
+              {fatias.map((f, i) => <Cell key={i} fill={f.cor} />)}
+            </Pie>
+            <Tooltip formatter={(v: number) => tipTxt(v)} />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <span className="text-lg font-bold tabular-nums">{top3pct}%</span>
+          <span className="text-[10px] text-muted-foreground">top 3</span>
+        </div>
+      </div>
+      <div className="flex-1 min-w-[140px] space-y-1">
+        {fatias.map((f, i) => (
+          <div key={i} className="flex items-center justify-between gap-2 text-xs">
+            <span className="inline-flex items-center gap-1.5 min-w-0"><span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: f.cor }} /><span className="truncate">{f.nome}</span></span>
+            <span className="tabular-nums text-muted-foreground">{Math.round((f.v * 100 / (total / 100)))}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+// Mini-barra visual (para Média/mês na tabela de qualidade).
+function MiniBar({ value, max }: { value: number; max: number }) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  return (
+    <div className="flex items-center gap-2 justify-end">
+      <span className="tabular-nums font-medium">{centsToBRL(value)}</span>
+      <span className="h-1.5 w-14 rounded-full bg-muted overflow-hidden hidden sm:inline-block"><span className="block h-full bg-accent" style={{ width: `${pct}%` }} /></span>
     </div>
   );
 }
@@ -797,10 +867,15 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
   const qualQ = trpc.finance.analytics.qualidadeClientes.useQuery(escopo === "periodo" ? { mesFrom: from, mesTo: to } : {}, { enabled: escopo === "vitalicio" || MES_RE.test(from) });
   const recQ = trpc.finance.recorrencia.list.useQuery();
   const contratosQ = trpc.finance.contratosAtivos.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
+  const concentracaoQ = trpc.finance.pnl.receitaPorCliente.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) });
+  const overviewQ = trpc.finance.overview.resumo.useQuery({ mesFrom: refMonth, mesTo: refMonth }, { enabled: MES_RE.test(refMonth) });
   const mesesFechadosQ = trpc.finance.meses.list.useQuery();
   const refClosed = (mesesFechadosQ.data ?? []).includes(refMonth);
   const m = mrrQ.data;
   const ch = churnQ.data;
+  const ov = overviewQ.data;
+  const curMes = agencyCurrentMonthCli();
+  const destaqueSerie = serieGran === "anual" ? curMes.slice(0, 4) : curMes;
   const summary = qualQ.data?.summary;
   const encerradas = (recQ.data ?? []).filter((rec) => rec.natureza !== "DESPESA" && !rec.ativo);
 
@@ -866,6 +941,7 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
     });
     return rows;
   }, [qualQ.data, sortKey, sortDir]);
+  const maxMedia = Math.max(1, ...qualRows.map((r) => r.mediaCents));
 
   const sortHead = (key: keyof QualRow, label: string, align?: string) => (
     <TableHead className={`cursor-pointer select-none ${align ?? ""}`} onClick={() => { if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc")); else { setSortKey(key); setSortDir("desc"); } }}>
@@ -894,7 +970,31 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
         </div>
       </div>
 
-      {/* TOPO — contratos/projetos ativos no mês (Recorrente | Pontual) */}
+      {/* TOPO — 2 blocos: (A) contratos ativos em destaque · (B) concentração */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card><CardContent className="p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Contratos ativos · {formatMes(refMonth)}</p>
+          <div className="flex items-end gap-3 mt-1">
+            <span className="text-4xl font-bold tabular-nums text-emerald-600">{recorrentesRows.length}</span>
+            <span className="text-sm text-muted-foreground mb-1">recorrentes{pontuaisRows.length > 0 ? ` · ${pontuaisRows.length} pontuais` : ""}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3 mt-3">
+            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">MRR</p><p className="text-sm font-semibold tabular-nums">{centsToBRL(m?.mrrCents ?? 0)}</p><span className={`text-[11px] font-medium ${(m?.deltaCents ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>{(m?.deltaCents ?? 0) >= 0 ? "▲" : "▼"} {centsToBRL(Math.abs(m?.deltaCents ?? 0))}</span></div>
+            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Novos</p><p className="text-sm font-semibold tabular-nums text-emerald-600">{centsToBRL(m?.novosCents ?? 0)}</p></div>
+            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Churn</p><p className="text-sm font-semibold tabular-nums text-red-600">-{centsToBRL(m?.churnCents ?? 0)}</p></div>
+          </div>
+          <div className="mt-3">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Recebimento de {formatMes(refMonth)}</p>
+            <StatusBar pago={ov?.receitaStatus.pagoCents ?? 0} aVencer={ov?.receitaStatus.aVencerCents ?? 0} atrasado={ov?.receitaStatus.atrasadoCents ?? 0} />
+          </div>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Concentração da receita · {periodLabel(period, from, to)}</p>
+          <ConcentracaoDonut data={(concentracaoQ.data ?? []).map((x) => ({ nome: x.nome, totalCents: x.totalCents }))} />
+        </CardContent></Card>
+      </div>
+
+      {/* Contratos ativos no mês (Recorrente | Pontual) */}
       <Card><CardContent className="p-4">
         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <p className="text-sm font-semibold flex items-center gap-2"><Repeat className="w-4 h-4" /> Contratos ativos · {formatMes(refMonth)}</p>
@@ -918,37 +1018,40 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
         )}
       </CardContent></Card>
 
-      {/* MEIO — MRR + movimento */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Stat label={`MRR (${formatMes(refMonth)})`} value={centsToBRL(m?.mrrCents ?? 0)} />
-        <Stat label="Δ vs mês anterior" value={centsToBRL(m?.deltaCents ?? 0)} tone={(m?.deltaCents ?? 0) >= 0 ? "pos" : "neg"} />
-        <Stat label="Novos" value={centsToBRL(m?.novosCents ?? 0)} tone="pos" />
-        <Stat label="Expansão" value={centsToBRL(m?.expansaoCents ?? 0)} tone="pos" />
-        <Stat label="Contração" value={`-${centsToBRL(m?.contracaoCents ?? 0)}`} tone="neg" />
-        <Stat label="Churn (mês)" value={`-${centsToBRL(m?.churnCents ?? 0)}`} tone="neg" />
+      {/* ── Divisor: Análise da base (histórico/vitalício, não do mês) ────────── */}
+      <div className="flex items-center gap-3 pt-2">
+        <div className="h-px flex-1 bg-border" />
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1"><Users className="w-3.5 h-3.5" /> Análise da base — histórico</span>
+        <div className="h-px flex-1 bg-border" />
       </div>
-      <Card><CardContent className="p-3">
-        <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
-          <p className="text-xs font-semibold text-muted-foreground">{serieView === "pontual" ? "Receita pontual" : "MRR (recorrente)"}{serieGran === "anual" ? " — anual = média mensal do ano" : " ao longo dos meses"}</p>
-          <div className="flex items-center gap-2">
-            <div className="inline-flex rounded-md border border-border overflow-hidden text-xs">
-              <button onClick={() => setSerieView("recorrente")} className={`px-3 py-1 ${serieView === "recorrente" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Recorrente</button>
-              <button onClick={() => setSerieView("pontual")} className={`px-3 py-1 border-l border-border ${serieView === "pontual" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Pontual</button>
-            </div>
-            <SerieControls janela={serieJanela} setJanela={setSerieJanela} gran={serieGran} setGran={setSerieGran} />
-          </div>
-        </div>
-        {serieQ.data ? <MrrChart pontos={serieQ.data.pontos} campo={serieView === "pontual" ? "pontual" : "mrr"} /> : <div className="h-[200px]" />}
-      </CardContent></Card>
 
-      {/* Churn — headline do PERÍODO + timeline */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat label="Clientes ativos" value={String(ch?.ativos ?? 0)} tone="pos" />
         <Stat label={`MRR perdido · ${periodLabel(period, from, to)}`} value={centsToBRL(ch?.periodoPerdidoCents ?? 0)} tone="neg" />
-        <Stat label="Clientes ativos" value={String(ch?.ativos ?? 0)} tone="pos" hint={ch ? `recorrente em ${formatMes(ch.mesReferencia)}` : ""} />
         <Stat label="Churned (histórico)" value={String(ch?.churnedCount ?? 0)} tone="neg" />
         <Stat label="Churn rate" value={ch ? `${Math.round(ch.taxa * 100)}%` : "—"} tone="warn" />
       </div>
-      <Card><CardContent className="p-3"><p className="text-xs font-semibold mb-1 text-muted-foreground">MRR perdido por mês (últimos 12 meses)</p>{ch ? <ChurnBarChart serie={ch.serie} /> : <div className="h-[180px]" />}</CardContent></Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card><CardContent className="p-3">
+          <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+            <p className="text-xs font-semibold text-muted-foreground">{serieView === "pontual" ? "Receita pontual" : "MRR (recorrente)"} ao longo dos meses</p>
+            <div className="flex items-center gap-2">
+              <div className="inline-flex rounded-md border border-border overflow-hidden text-xs">
+                <button onClick={() => setSerieView("recorrente")} className={`px-3 py-1 ${serieView === "recorrente" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Recorrente</button>
+                <button onClick={() => setSerieView("pontual")} className={`px-3 py-1 border-l border-border ${serieView === "pontual" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Pontual</button>
+              </div>
+              <SerieControls janela={serieJanela} setJanela={setSerieJanela} gran={serieGran} setGran={setSerieGran} />
+            </div>
+          </div>
+          {serieView === "recorrente" && (m?.deltaCents != null) && <p className="text-[11px] text-accent mb-1">{formatMes(refMonth)}: MRR {(m.deltaCents >= 0 ? "▲ +" : "▼ -")}{centsToBRL(Math.abs(m.deltaCents))} vs mês anterior.</p>}
+          {serieQ.data ? <MrrChart pontos={serieQ.data.pontos} campo={serieView === "pontual" ? "pontual" : "mrr"} destaque={destaqueSerie} /> : <div className="h-[200px]" />}
+        </CardContent></Card>
+        <Card><CardContent className="p-3">
+          <p className="text-xs font-semibold mb-1 text-muted-foreground">Movimento da base — variação líquida do MRR por mês</p>
+          {serieQ.data ? <MovimentoChart pontos={serieQ.data.pontos} destaque={destaqueSerie} /> : <div className="h-[180px]" />}
+        </CardContent></Card>
+      </div>
       {ch?.mesIncompleto && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -987,7 +1090,7 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
                   <TableCell>{r.clienteId ? <ClientTag cliente={{ id: r.clienteId, nome: r.nome, cor: r.cor, ativo: true }} /> : <span className="text-muted-foreground text-xs">{r.nome}</span>}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.mesesAtivos}</TableCell>
                   <TableCell className="text-right whitespace-nowrap tabular-nums">{centsToBRL(r.totalCents)}</TableCell>
-                  <TableCell className="text-right whitespace-nowrap font-medium tabular-nums">{centsToBRL(r.mediaCents)}</TableCell>
+                  <TableCell className="text-right whitespace-nowrap"><MiniBar value={r.mediaCents} max={maxMedia} /></TableCell>
                   <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatMes(r.primeiroMes)}</TableCell>
                   <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatMes(r.ultimoMes)}</TableCell>
                   <TableCell>{statusBadge(r.status)}</TableCell>
