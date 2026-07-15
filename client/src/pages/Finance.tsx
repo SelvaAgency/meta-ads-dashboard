@@ -364,9 +364,10 @@ function SerieControls({ janela, setJanela, gran, setGran }: { janela: Janela; s
     </div>
   );
 }
-function DespesaStackChart({ serie }: { serie: { mes: string; recorrenteCents: number; impostoCents: number; pontualCents: number }[] }) {
+function DespesaStackChart({ serie, destaque }: { serie: { mes: string; recorrenteCents: number; impostoCents: number; pontualCents: number }[]; destaque?: string }) {
   const cur = agencyCurrentMonthCli();
   const d = serie.map((s) => ({ mes: formatMes(s.mes), Recorrente: s.recorrenteCents / 100, Imposto: s.impostoCents / 100, Pontual: s.pontualCents / 100, conf: s.mes < cur }));
+  const marcadorLbl = destaque ? serie.find((s) => s.mes === destaque)?.mes : undefined;
   return (
     <div>
       <ResponsiveContainer width="100%" height={230}>
@@ -374,6 +375,7 @@ function DespesaStackChart({ serie }: { serie: { mes: string; recorrenteCents: n
           <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
           <XAxis dataKey="mes" tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={40} />
           <Tooltip formatter={(v: number) => tipTxt(v)} /><Legend wrapperStyle={{ fontSize: 12 }} />
+          {marcadorLbl && <ReferenceLine x={formatMes(marcadorLbl)} stroke="#6366F1" strokeDasharray="2 2" label={{ value: formatMes(marcadorLbl), position: "top", fontSize: 10, fill: "#6366F1" }} />}
           <Bar dataKey="Recorrente" stackId="d" fill="#DC2626">{d.map((e, i) => <Cell key={i} fillOpacity={e.conf ? 1 : 0.4} />)}</Bar>
           <Bar dataKey="Imposto" stackId="d" fill="#D97706">{d.map((e, i) => <Cell key={i} fillOpacity={e.conf ? 1 : 0.4} />)}</Bar>
           <Bar dataKey="Pontual" stackId="d" fill="#9333EA">{d.map((e, i) => <Cell key={i} fillOpacity={e.conf ? 1 : 0.4} />)}</Bar>
@@ -1249,8 +1251,11 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
   const refClosed = (mesesFechadosQ.data ?? []).includes(refMonth);
   const recQ = trpc.finance.recorrencia.list.useQuery();
   const despesasQ = trpc.finance.despesasAtivos.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
+  const overviewQ = trpc.finance.overview.resumo.useQuery({ mesFrom: refMonth, mesTo: refMonth }, { enabled: MES_RE.test(refMonth) });
+  const concentracaoQ = trpc.finance.analytics.despesaPorFornecedor.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) });
   const encerradas = (recQ.data ?? []).filter((r) => r.natureza === "DESPESA" && !r.ativo);
   const p = q.data?.periodo;
+  const ov = overviewQ.data;
   const total = p?.totalCents ?? 0;
   const pct = (c: number) => (total > 0 ? `${Math.round((c / total) * 100)}%` : "—");
   const cur = agencyCurrentMonthCli();
@@ -1279,19 +1284,20 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
     return <span>{fmtVenc(venc)}{remarc && <Badge className="ml-1 bg-amber-500/15 text-amber-600 border-amber-500/30 text-[9px] px-1">Remarcado</Badge>}</span>;
   };
   const recRow = (d: NonNullable<typeof despesasQ.data>["recorrentes"][number]): HubRow => ({
-    key: `r${d.recorrenciaId}`,
+    key: d.entryId != null ? `e${d.entryId}` : `r${d.recorrenciaId}`,
     nome: d.descricao,
-    sub: !d.gerado ? "não gerado neste mês" : d.estimativa ? "estimativa" : undefined,
+    sub: d.projetado ? "projetado da recorrência" : d.estimativa ? "estimativa" : undefined,
     valorCents: d.valorCents,
     vencInfo: vencCell(d.vencimento, d.vencimentoOriginal, d.diaVencimento), vencimento: d.vencimento,
     status: d.status,
+    estadoChip: d.projetado ? <Badge className="bg-blue-500/15 text-blue-600 border-blue-500/30">Previsto</Badge> : undefined,
     locked: refClosed,
     onToggle: d.entryId ? () => setStatusM.mutate({ id: d.entryId!, status: d.status === "pago" ? "pendente" : "pago" }) : undefined,
     actions: (
       <div className="inline-flex items-center gap-1">
         {d.entryId && <button onClick={() => setRemarcar({ id: d.entryId!, venc: d.vencimento ?? "" })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Mudar data de pagamento"><CalendarClock className="w-4 h-4" /></button>}
-        <button onClick={() => setAjuste({ recorrenciaId: d.recorrenciaId, nome: d.descricao, valor: centsToInput(d.valorCents), aplicarGerados: false })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Ajustar valor"><Pencil className="w-4 h-4" /></button>
-        <button onClick={() => { if (confirm(`Encerrar "${d.descricao}"? Remove os meses futuros pendentes (não mexe nos pagos).`)) marcarSaida.mutate({ recorrenciaId: d.recorrenciaId, mes: cur }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Encerrar recorrência"><TrendingDown className="w-4 h-4" /></button>
+        {d.recorrenciaId != null && <button onClick={() => setAjuste({ recorrenciaId: d.recorrenciaId!, nome: d.descricao, valor: centsToInput(d.valorCents), aplicarGerados: false })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Ajustar valor"><Pencil className="w-4 h-4" /></button>}
+        {d.recorrenciaId != null && <button onClick={() => { if (confirm(`Encerrar "${d.descricao}"? Remove os meses futuros pendentes (não mexe nos pagos).`)) marcarSaida.mutate({ recorrenciaId: d.recorrenciaId!, mes: cur }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Encerrar recorrência"><TrendingDown className="w-4 h-4" /></button>}
       </div>
     ),
   });
@@ -1323,14 +1329,31 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
         <PeriodBar period={period} setPeriod={setPeriod} months={months} from={from} to={to} />
         {refClosed && <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 gap-1"><Lock className="w-3 h-3" /> {formatMes(refMonth)} fechado</Badge>}
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Recorrente" value={centsToBRL(p?.recorrenteCents ?? 0)} hint={`${pct(p?.recorrenteCents ?? 0)} · inclui folha`} tone="neg" />
-        <Stat label="Imposto" value={centsToBRL(p?.impostoCents ?? 0)} hint={pct(p?.impostoCents ?? 0)} tone="neg" />
-        <Stat label="Pontual" value={centsToBRL(p?.pontualCents ?? 0)} hint={pct(p?.pontualCents ?? 0)} tone="neg" />
-        <Stat label="Total despesa" value={centsToBRL(total)} tone="neg" />
+      {/* TOPO — 2 blocos: (A) despesa em destaque · (B) concentração de custo */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card><CardContent className="p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Despesa · {periodLabel(period, from, to)}</p>
+          <div className="flex items-end gap-3 mt-1 flex-wrap">
+            <span className="text-3xl font-bold tabular-nums text-red-600">{centsToBRL(total)}</span>
+            <span className="mb-1"><Delta value={total} media={ov?.despesaMedia6Cents ?? 0} higherIsBetter={false} /></span>
+          </div>
+          <div className="grid grid-cols-3 gap-3 mt-3">
+            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Recorrente</p><p className="text-sm font-semibold tabular-nums">{centsToBRL(p?.recorrenteCents ?? 0)}</p><span className="text-[10px] text-muted-foreground">{pct(p?.recorrenteCents ?? 0)} · folha</span></div>
+            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Imposto</p><p className="text-sm font-semibold tabular-nums">{centsToBRL(p?.impostoCents ?? 0)}</p><span className="text-[10px] text-muted-foreground">{pct(p?.impostoCents ?? 0)}</span></div>
+            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Pontual</p><p className="text-sm font-semibold tabular-nums">{centsToBRL(p?.pontualCents ?? 0)}</p><span className="text-[10px] text-muted-foreground">{pct(p?.pontualCents ?? 0)}</span></div>
+          </div>
+          <div className="mt-3">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Pagamento de {formatMes(refMonth)}</p>
+            <StatusBar pago={ov?.despesaStatus.pagoCents ?? 0} aVencer={ov?.despesaStatus.aVencerCents ?? 0} atrasado={ov?.despesaStatus.atrasadoCents ?? 0} />
+          </div>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Concentração de custo · {periodLabel(period, from, to)}</p>
+          <ConcentracaoDonut data={(concentracaoQ.data ?? []).map((x) => ({ nome: x.nome, totalCents: x.totalCents }))} />
+        </CardContent></Card>
       </div>
 
-      {/* TOPO — despesas do mês (Recorrente | Imposto | Pontual) */}
+      {/* Despesas do mês (Recorrente | Imposto | Pontual) */}
       <Card><CardContent className="p-4">
         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <p className="text-sm font-semibold flex items-center gap-2"><Repeat className="w-4 h-4" /> Despesas · {formatMes(refMonth)}</p>
@@ -1366,10 +1389,15 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
         <p className="text-xs text-muted-foreground mt-2">Impostos replicados são <span className="font-medium">estimativa</span>. Encerrar mantém o histórico pago e limpa apenas os meses futuros pendentes.</p>
       </CardContent></Card>
 
-      {/* Gráfico por categoria — depois da lista (espelha o hub de receita) */}
+      {/* ── Divisor: Análise de custo (histórico) ────────────────────────────── */}
+      <div className="flex items-center gap-3 pt-2">
+        <div className="h-px flex-1 bg-border" />
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1"><TrendingDown className="w-3.5 h-3.5" /> Análise de custo — histórico</span>
+        <div className="h-px flex-1 bg-border" />
+      </div>
       <Card><CardContent className="p-3">
-        <p className="text-xs font-semibold mb-1 text-muted-foreground">Despesa por categoria — últimos 12 meses (recorrente inclui folha da equipe)</p>
-        {q.data ? <DespesaStackChart serie={q.data.serie} /> : <div className="h-[240px]" />}
+        <p className="text-xs font-semibold mb-1 text-muted-foreground">Despesa por categoria ao longo dos meses (recorrente inclui folha da equipe)</p>
+        {q.data ? <DespesaStackChart serie={q.data.serie} destaque={agencyCurrentMonthCli()} /> : <div className="h-[240px]" />}
       </CardContent></Card>
 
       {/* Dialog ajustar valor */}

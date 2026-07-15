@@ -3048,30 +3048,54 @@ export async function financeDespesasAtivos(mes: string) {
     db.select().from(financeRecorrencia).where(eq(financeRecorrencia.natureza, "DESPESA")),
     db.select().from(financePnlEntries).where(eq(financePnlEntries.mes, mes)),
   ]);
-  const entryByRec = new Map<number, typeof entries[number]>();
-  const pontualEntries: typeof entries = [];
+  // Recorrência ativa por descrição (casa entry↔recorrência por descrição+mês, não por recorrenciaId).
+  const activeRecByDesc = new Map<string, typeof recs[number]>();
+  for (const r of recs) if (r.ativo && r.descricao) activeRecByDesc.set(r.descricao, r);
+  const descComRec = new Set<string>();
+  const recorrentes: DespesaRec[] = [];
   for (const e of entries) {
-    if ((e.tipo === "DESPESA_RECORRENTE" || e.tipo === "DESPESA_IMPOSTO") && e.origem === "RECORRENCIA" && e.recorrenciaId) entryByRec.set(e.recorrenciaId, e);
-    else if (e.tipo === "DESPESA_PONTUAL") pontualEntries.push(e);
+    if (e.tipo !== "DESPESA_RECORRENTE" && e.tipo !== "DESPESA_IMPOSTO") continue;
+    descComRec.add(e.descricao);
+    const rec = activeRecByDesc.get(e.descricao);
+    recorrentes.push({
+      recorrenciaId: rec?.id ?? null, descricao: e.descricao, valorCents: e.valorCents,
+      tipoEntry: e.tipo === "DESPESA_IMPOSTO" ? "DESPESA_IMPOSTO" : "DESPESA_RECORRENTE",
+      estimativa: rec ? !!rec.estimativa : e.tipo === "DESPESA_IMPOSTO", diaVencimento: rec?.diaVencimento ?? null,
+      entryId: e.id, status: e.status, vencimento: e.vencimento ?? null, vencimentoOriginal: e.vencimentoOriginal ?? null, projetado: false,
+    });
   }
-  const recorrentes: DespesaRec[] = recs
-    .filter((r) => r.ativo && r.mesInicio <= mes)
-    .map((r) => {
-      const e = entryByRec.get(r.id);
-      return {
-        recorrenciaId: r.id, descricao: r.descricao ?? "Despesa", valorCents: e?.valorCents ?? r.valorCents,
-        tipoEntry: (r.tipoEntry === "DESPESA_IMPOSTO" ? "DESPESA_IMPOSTO" : "DESPESA_RECORRENTE") as "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO",
-        estimativa: !!r.estimativa, diaVencimento: r.diaVencimento ?? null,
-        entryId: e?.id ?? null, status: e?.status ?? null, vencimento: e?.vencimento ?? null, vencimentoOriginal: e?.vencimentoOriginal ?? null, gerado: !!e,
-      };
-    })
-    .sort((a, b) => b.valorCents - a.valorCents);
-  const pontuais: DespesaPon[] = pontualEntries
+  // Projeção: recorrência ativa cobrindo o mês sem entry desta descrição → "Previsto".
+  for (const r of recs) {
+    if (!r.ativo || r.mesInicio > mes || (r.descricao && descComRec.has(r.descricao))) continue;
+    const vencMes = r.vencimentoMesSeguinte ? addMonthsSrv(mes, 1) : mes;
+    const venc = r.diaVencimento ? `${vencMes}-${pad2s(clampDay(vencMes, r.diaVencimento))}` : null;
+    recorrentes.push({
+      recorrenciaId: r.id, descricao: r.descricao ?? "Despesa", valorCents: r.valorCents,
+      tipoEntry: r.tipoEntry === "DESPESA_IMPOSTO" ? "DESPESA_IMPOSTO" : "DESPESA_RECORRENTE",
+      estimativa: !!r.estimativa, diaVencimento: r.diaVencimento ?? null, entryId: null, status: null,
+      vencimento: venc, vencimentoOriginal: venc, projetado: true,
+    });
+  }
+  recorrentes.sort((a, b) => b.valorCents - a.valorCents);
+  const pontuais: DespesaPon[] = entries
+    .filter((e) => e.tipo === "DESPESA_PONTUAL")
     .map((e) => ({ entryId: e.id, descricao: e.descricao, valorCents: e.valorCents, vencimento: e.vencimento ?? null, vencimentoOriginal: e.vencimentoOriginal ?? null, status: e.status, reembolsoPendente: !!e.reembolsoPendente }))
     .sort((a, b) => b.valorCents - a.valorCents);
   return { recorrentes, pontuais };
 }
-type DespesaRec = { recorrenciaId: number; descricao: string; valorCents: number; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; estimativa: boolean; diaVencimento: number | null; entryId: number | null; status: "pago" | "pendente" | null; vencimento: string | null; vencimentoOriginal: string | null; gerado: boolean };
+/** Despesa por fornecedor/descrição no período (para o donut de concentração de custo). */
+export async function financeDespesaPorFornecedor(f: { mesFrom?: string; mesTo?: string } = {}) {
+  const db = await getDb();
+  if (!db) return [] as { nome: string; totalCents: number }[];
+  const conds = [DESPESA_TIPOS];
+  if (f.mesFrom) conds.push(gte(financePnlEntries.mes, f.mesFrom));
+  if (f.mesTo) conds.push(lte(financePnlEntries.mes, f.mesTo));
+  const rows = await db.select({ descricao: financePnlEntries.descricao, v: financePnlEntries.valorCents }).from(financePnlEntries).where(and(...conds));
+  const agg = new Map<string, number>();
+  for (const r of rows) agg.set(r.descricao, (agg.get(r.descricao) ?? 0) + r.v);
+  return Array.from(agg.entries()).map(([nome, totalCents]) => ({ nome, totalCents })).sort((a, b) => b.totalCents - a.totalCents);
+}
+type DespesaRec = { recorrenciaId: number | null; descricao: string; valorCents: number; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; estimativa: boolean; diaVencimento: number | null; entryId: number | null; status: "pago" | "pendente" | null; vencimento: string | null; vencimentoOriginal: string | null; projetado: boolean };
 type DespesaPon = { entryId: number; descricao: string; valorCents: number; vencimento: string | null; vencimentoOriginal: string | null; status: "pago" | "pendente"; reembolsoPendente: boolean };
 
 type ContratoRec = { recorrenciaId: number | null; clienteId: number | null; clienteNome: string; cor: string | null; valorCents: number; diaVencimento: number | null; entryId: number | null; status: "pago" | "pendente" | null; vencimento: string | null; vencimentoOriginal: string | null; projetado: boolean };

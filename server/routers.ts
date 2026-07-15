@@ -266,6 +266,7 @@ import {
   financeOverviewResumo,
   financeContratosAtivos,
   financeDespesasAtivos,
+  financeDespesaPorFornecedor,
   financeSerieHistorica,
   listMesesFechados,
   fecharMes,
@@ -696,6 +697,7 @@ const financeRouter = router({
     qualidadeClientes: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional() }).optional()).query(({ input }) => financeQualidadeClientes(input ?? {})),
     aReceber: adminProcedure.input(z.object({ mesTo: MES.optional() }).optional()).query(({ input }) => financeAReceberVenc(input?.mesTo)),
     despesaPorCategoria: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional(), limitMonths: z.number().int().min(1).max(36).optional() }).optional()).query(({ input }) => financeDespesaCategoria(input ?? {})),
+    despesaPorFornecedor: adminProcedure.input(z.object({ mesFrom: MES.optional(), mesTo: MES.optional() }).optional()).query(({ input }) => financeDespesaPorFornecedor(input ?? {})),
     serieHistorica: adminProcedure
       .input(z.object({ granularidade: z.enum(["mensal", "anual"]).default("mensal"), janela: z.enum(["12m", "24m", "vitalicio"]).default("12m") }))
       .query(({ input }) => financeSerieHistorica(input.granularidade, input.janela)),
