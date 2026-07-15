@@ -13,7 +13,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Wallet, Plus, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight, ArrowLeftRight, Users, TrendingDown, AlertTriangle, CalendarClock, Repeat, Lock, Unlock } from "lucide-react";
-import { ResponsiveContainer, ComposedChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ReferenceLine, PieChart, Pie } from "recharts";
+import { ResponsiveContainer, ComposedChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ReferenceLine, PieChart, Pie, ScatterChart, Scatter, ZAxis } from "recharts";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -346,6 +346,39 @@ function MiniBar({ value, max }: { value: number; max: number }) {
     <div className="flex items-center gap-2 justify-end">
       <span className="tabular-nums font-medium">{centsToBRL(value)}</span>
       <span className="h-1.5 w-14 rounded-full bg-muted overflow-hidden hidden sm:inline-block"><span className="block h-full bg-accent" style={{ width: `${pct}%` }} /></span>
+    </div>
+  );
+}
+// Quadrante de qualidade: X=tempo de casa (meses) · Y=média/mês · bolha=total · cor=status.
+type QuadPoint = { clienteId: number | null; nome: string; cor: string | null; mesesAtivos: number; totalCents: number; mediaCents: number; status: "ativo" | "churned" | "pontual" };
+const QUAD_COR: Record<QuadPoint["status"], string> = { ativo: "#16A34A", churned: "#94a3b8", pontual: "#D97706" };
+function QuadranteQualidade({ rows, onSelect }: { rows: QuadPoint[]; onSelect: (r: QuadPoint) => void }) {
+  const top = [...rows].sort((a, b) => b.totalCents - a.totalCents).slice(0, 15);
+  const toPt = (r: QuadPoint) => ({ x: r.mesesAtivos, y: r.mediaCents / 100, z: r.totalCents / 100, r });
+  const grupos: { status: QuadPoint["status"]; label: string }[] = [{ status: "ativo", label: "Ativo" }, { status: "churned", label: "Churned" }, { status: "pontual", label: "Pontual" }];
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={280}>
+        <ScatterChart margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+          <XAxis type="number" dataKey="x" name="Meses de casa" tick={{ fontSize: 11 }} label={{ value: "meses de casa →", position: "insideBottomRight", fontSize: 10, offset: -2, fill: "#94a3b8" }} />
+          <YAxis type="number" dataKey="y" name="Média/mês" tickFormatter={axisFmt} tick={{ fontSize: 11 }} width={42} />
+          <ZAxis type="number" dataKey="z" range={[60, 620]} name="Total" />
+          <Tooltip cursor={{ strokeDasharray: "3 3" }} wrapperStyle={{ zIndex: 60 }} content={({ active, payload }) => {
+            if (!active || !payload?.length) return null;
+            const p = (payload[0].payload as { r: QuadPoint }).r;
+            return (
+              <div className="rounded-md border border-border bg-popover px-2.5 py-1.5 shadow-lg text-xs">
+                <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: QUAD_COR[p.status] }} /><span className="font-medium text-foreground">{p.nome}</span></div>
+                <div className="text-muted-foreground tabular-nums mt-0.5">{p.mesesAtivos} meses · média {centsToBRL(p.mediaCents)}/mês · total {centsToBRL(p.totalCents)}</div>
+              </div>
+            );
+          }} />
+          {grupos.map((g) => <Scatter key={g.status} name={g.label} data={top.filter((r) => r.status === g.status).map(toPt)} fill={QUAD_COR[g.status]} fillOpacity={0.75} onClick={(e) => e?.r && onSelect(e.r)} className="cursor-pointer" />)}
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+        </ScatterChart>
+      </ResponsiveContainer>
+      <p className="text-[10px] text-muted-foreground text-center">bolha = total gerado · canto superior direito = ↑ melhores (mais tempo de casa + maior média) · top 15 por total</p>
     </div>
   );
 }
@@ -916,6 +949,10 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
   const mrrQ = trpc.finance.analytics.mrr.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
   const churnQ = trpc.finance.analytics.churn.useQuery({ mesFrom: from, mesTo: to, limitMonths: 12 }, { enabled: MES_RE.test(from) });
   const qualQ = trpc.finance.analytics.qualidadeClientes.useQuery(escopo === "periodo" ? { mesFrom: from, mesTo: to } : {}, { enabled: escopo === "vitalicio" || MES_RE.test(from) });
+  const qualVitQ = trpc.finance.analytics.qualidadeClientes.useQuery({}); // vitalício p/ quadrante + pizza
+  const [showTabela, setShowTabela] = useState(false);
+  const [showSaidas, setShowSaidas] = useState(false);
+  const [detalheCliente, setDetalheCliente] = useState<QuadPoint | null>(null);
   const recQ = trpc.finance.recorrencia.list.useQuery();
   const contratosQ = trpc.finance.contratosAtivos.useQuery({ mes: refMonth }, { enabled: MES_RE.test(refMonth) });
   const concentracaoQ = trpc.finance.pnl.receitaPorCliente.useQuery({ mesFrom: from, mesTo: to }, { enabled: MES_RE.test(from) });
@@ -927,7 +964,6 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
   const ov = overviewQ.data;
   const curMes = agencyCurrentMonthCli();
   const destaqueSerie = serieGran === "anual" ? curMes.slice(0, 4) : curMes;
-  const summary = qualQ.data?.summary;
   const encerradas = (recQ.data ?? []).filter((rec) => rec.natureza !== "DESPESA" && !rec.ativo);
 
   const onErr = (e: { message: string }) => toast.error(e.message);
@@ -1078,11 +1114,17 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
         <div className="h-px flex-1 bg-border" />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Clientes ativos" value={String(ch?.ativos ?? 0)} tone="pos" />
-        <Stat label={`MRR perdido · ${periodLabel(period, from, to)}`} value={centsToBRL(ch?.periodoPerdidoCents ?? 0)} tone="neg" />
-        <Stat label="Churned (histórico)" value={String(ch?.churnedCount ?? 0)} tone="neg" />
-        <Stat label="Churn rate" value={ch ? `${Math.round(ch.taxa * 100)}%` : "—"} tone="warn" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Card><CardContent className="p-4">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">MRR perdido · {formatMes(refMonth)}</p>
+          <p className="text-2xl font-bold tabular-nums text-red-600">{centsToBRL(ch?.mrrPerdidoMesCents ?? 0)}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">média 12m: <span className="font-medium tabular-nums">{centsToBRL(ch?.mrrPerdidoMedia12mCents ?? 0)}</span>/mês</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Churn rate · {formatMes(refMonth)}</p>
+          <p className="text-2xl font-bold tabular-nums text-amber-600">{ch ? `${ch.churnRateMesPct}%` : "—"}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">média 12m: <span className="font-medium tabular-nums">{ch ? `${ch.churnRateMedia12mPct}%` : "—"}</span></p>
+        </CardContent></Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1112,69 +1154,115 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
         </div>
       )}
 
-      {/* Qualidade por cliente */}
+      {/* Qualidade por cliente — quadrante + pizza vitalício */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card><CardContent className="p-3">
+          <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+            <p className="text-xs font-semibold text-muted-foreground flex items-center gap-2"><Users className="w-3.5 h-3.5" /> Qualidade por cliente <span className="font-normal">· ↑ melhores</span></p>
+            {qualVitQ.data?.summary && <span className="text-[11px] text-muted-foreground">Ativos <strong className="text-emerald-600">{qualVitQ.data.summary.ativos}</strong> · Churned <strong className="text-muted-foreground">{qualVitQ.data.summary.churned}</strong> · Pontual <strong className="text-amber-600">{qualVitQ.data.summary.pontual}</strong></span>}
+          </div>
+          {qualVitQ.data ? <QuadranteQualidade rows={qualVitQ.data.rows as QuadPoint[]} onSelect={setDetalheCliente} /> : <div className="h-[280px]" />}
+          <div className="text-right mt-1"><button onClick={() => setShowTabela(true)} className="text-xs text-accent hover:underline">ver lista completa →</button></div>
+        </CardContent></Card>
+        <Card><CardContent className="p-3">
+          <p className="text-xs font-semibold text-muted-foreground mb-2">Faturamento vitalício por cliente</p>
+          <ConcentracaoDonut data={(qualVitQ.data?.rows ?? []).map((x) => ({ nome: x.nome, totalCents: x.totalCents }))} />
+        </CardContent></Card>
+      </div>
+
+      {/* Saídas recentes (últimos 12 meses) */}
       <Card><CardContent className="p-4">
         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-          <p className="text-sm font-semibold flex items-center gap-2"><Users className="w-4 h-4" /> Qualidade por cliente</p>
-          <div className="flex items-center gap-3">
-            {summary && <span className="text-xs text-muted-foreground">Ativos <strong className="text-emerald-600">{summary.ativos}</strong> · Churned <strong className="text-red-600">{summary.churned}</strong> · Pontual <strong>{summary.pontual}</strong></span>}
+          <p className="text-sm font-semibold flex items-center gap-2"><TrendingDown className="w-4 h-4" /> Saídas recentes · últimos 12 meses</p>
+          <button onClick={() => setShowSaidas(true)} className="text-xs text-accent hover:underline">ver todos ({ch?.churned.length ?? 0}) →</button>
+        </div>
+        {(() => {
+          const recentes = (ch?.churned ?? []).filter((c) => c.mesesDesde <= 12).sort((a, b) => b.ultimoMes.localeCompare(a.ultimoMes));
+          if (recentes.length === 0) return <p className="text-xs text-muted-foreground">Nenhuma saída nos últimos 12 meses.</p>;
+          return (
+            <div className="flex flex-col divide-y divide-border">
+              {recentes.map((c, i) => (
+                <div key={i} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                  <span className="inline-flex items-center gap-2 min-w-0"><span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: c.cor ?? "#64748b" }} /><span className="truncate">{c.nome}</span></span>
+                  <span className="flex items-center gap-3 whitespace-nowrap"><span className="text-xs text-muted-foreground">saiu {formatMes(c.ultimoMes)}</span><span className="tabular-nums font-medium text-red-600">-{centsToBRL(c.valorMensalCents)}/mês</span></span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+      </CardContent></Card>
+
+      {/* Dialog cliente detalhe (bolha do quadrante) */}
+      <Dialog open={!!detalheCliente} onOpenChange={(o) => !o && setDetalheCliente(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle className="flex items-center gap-2">{detalheCliente && <span className="w-3 h-3 rounded-full" style={{ background: QUAD_COR[detalheCliente.status] }} />}{detalheCliente?.nome}</DialogTitle></DialogHeader>
+          {detalheCliente && (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div><p className="text-[11px] uppercase text-muted-foreground">Status</p><p>{statusBadge(detalheCliente.status)}</p></div>
+              <div><p className="text-[11px] uppercase text-muted-foreground">Meses de casa</p><p className="font-medium tabular-nums">{detalheCliente.mesesAtivos}</p></div>
+              <div><p className="text-[11px] uppercase text-muted-foreground">Total gerado</p><p className="font-medium tabular-nums">{centsToBRL(detalheCliente.totalCents)}</p></div>
+              <div><p className="text-[11px] uppercase text-muted-foreground">Média / mês</p><p className="font-medium tabular-nums">{centsToBRL(detalheCliente.mediaCents)}</p></div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog lista completa (tabela ordenável) */}
+      <Dialog open={showTabela} onOpenChange={setShowTabela}>
+        <DialogContent className="max-w-3xl w-[95vw]">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Users className="w-4 h-4" /> Qualidade por cliente — lista completa</DialogTitle></DialogHeader>
+          <div className="flex items-center justify-end mb-1">
             <Select value={escopo} onValueChange={(v) => setEscopo(v as "vitalicio" | "periodo")}>
               <SelectTrigger className="h-8 w-[150px]"><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="vitalicio">Vitalício</SelectItem><SelectItem value="periodo">No período</SelectItem></SelectContent>
             </Select>
           </div>
-        </div>
-        <div className="max-h-96 overflow-y-auto rounded-md border border-border">
-          <Table>
-            <TableHeader><TableRow>
-              {sortHead("nome", "Cliente")}
-              {sortHead("mesesAtivos", "Meses", "text-right")}
-              {sortHead("totalCents", "Total", "text-right")}
-              {sortHead("mediaCents", "Média/mês", "text-right")}
-              {sortHead("primeiroMes", "Primeiro")}
-              {sortHead("ultimoMes", "Último")}
-              {sortHead("status", "Status")}
-            </TableRow></TableHeader>
-            <TableBody>
-              {qualQ.isLoading && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
-              {!qualQ.isLoading && qualRows.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">Sem clientes no escopo.</TableCell></TableRow>}
-              {qualRows.map((r, i) => (
-                <TableRow key={i}>
-                  <TableCell>{r.clienteId ? <ClientTag cliente={{ id: r.clienteId, nome: r.nome, cor: r.cor, ativo: true }} /> : <span className="text-muted-foreground text-xs">{r.nome}</span>}</TableCell>
-                  <TableCell className="text-right tabular-nums">{r.mesesAtivos}</TableCell>
-                  <TableCell className="text-right whitespace-nowrap tabular-nums">{centsToBRL(r.totalCents)}</TableCell>
-                  <TableCell className="text-right whitespace-nowrap"><MiniBar value={r.mediaCents} max={maxMedia} /></TableCell>
-                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatMes(r.primeiroMes)}</TableCell>
-                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatMes(r.ultimoMes)}</TableCell>
-                  <TableCell>{statusBadge(r.status)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent></Card>
+          <div className="max-h-[65vh] overflow-y-auto rounded-md border border-border">
+            <Table>
+              <TableHeader><TableRow>
+                {sortHead("nome", "Cliente")}{sortHead("mesesAtivos", "Meses", "text-right")}{sortHead("totalCents", "Total", "text-right")}{sortHead("mediaCents", "Média/mês", "text-right")}{sortHead("primeiroMes", "Primeiro")}{sortHead("ultimoMes", "Último")}{sortHead("status", "Status")}
+              </TableRow></TableHeader>
+              <TableBody>
+                {qualQ.isLoading && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</TableCell></TableRow>}
+                {qualRows.map((r, i) => (
+                  <TableRow key={i}>
+                    <TableCell>{r.clienteId ? <ClientTag cliente={{ id: r.clienteId, nome: r.nome, cor: r.cor, ativo: true }} /> : <span className="text-muted-foreground text-xs">{r.nome}</span>}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.mesesAtivos}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap tabular-nums">{centsToBRL(r.totalCents)}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap"><MiniBar value={r.mediaCents} max={maxMedia} /></TableCell>
+                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatMes(r.primeiroMes)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatMes(r.ultimoMes)}</TableCell>
+                    <TableCell>{statusBadge(r.status)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-      {/* Churned — histórico acumulado (referência) */}
-      <Card><CardContent className="p-4">
-        <p className="text-sm font-semibold mb-1 flex items-center gap-2"><TrendingDown className="w-4 h-4" /> Churned — histórico acumulado (referência)</p>
-        <p className="text-[11px] text-muted-foreground mb-2">Todas as saídas de recorrente desde o início, por último valor mensal. É histórico — o número de destaque é o MRR perdido do período acima.</p>
-        <div className="max-h-64 overflow-y-auto">
-          <Table>
-            <TableHeader><TableRow><TableHead>Cliente</TableHead><TableHead>Último mês</TableHead><TableHead className="text-right">Valor mensal</TableHead><TableHead className="text-right">Meses fora</TableHead></TableRow></TableHeader>
-            <TableBody>
-              {(ch?.churned ?? []).map((c, i) => (
-                <TableRow key={i}>
-                  <TableCell><span className="inline-flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: c.cor ?? "#64748b" }} />{c.nome}</span></TableCell>
-                  <TableCell className="whitespace-nowrap">{formatMes(c.ultimoMes)}</TableCell>
-                  <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(c.valorMensalCents)}</TableCell>
-                  <TableCell className="text-right">{c.mesesDesde}</TableCell>
-                </TableRow>
-              ))}
-              {(ch?.churned.length ?? 0) === 0 && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">Nenhum churn.</TableCell></TableRow>}
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent></Card>
+      {/* Dialog churned completo */}
+      <Dialog open={showSaidas} onOpenChange={setShowSaidas}>
+        <DialogContent className="max-w-2xl w-[95vw]">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><TrendingDown className="w-4 h-4" /> Churned — histórico completo</DialogTitle></DialogHeader>
+          <div className="max-h-[65vh] overflow-y-auto rounded-md border border-border">
+            <Table>
+              <TableHeader><TableRow><TableHead>Cliente</TableHead><TableHead>Último mês</TableHead><TableHead className="text-right">Valor mensal</TableHead><TableHead className="text-right">Meses fora</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {(ch?.churned ?? []).map((c, i) => (
+                  <TableRow key={i}>
+                    <TableCell><span className="inline-flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: c.cor ?? "#64748b" }} />{c.nome}</span></TableCell>
+                    <TableCell className="whitespace-nowrap">{formatMes(c.ultimoMes)}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap font-medium">{centsToBRL(c.valorMensalCents)}</TableCell>
+                    <TableCell className="text-right">{c.mesesDesde}</TableCell>
+                  </TableRow>
+                ))}
+                {(ch?.churned.length ?? 0) === 0 && <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">Nenhum churn.</TableCell></TableRow>}
+              </TableBody>
+            </Table>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog ajustar valor recorrente */}
       <Dialog open={!!ajuste} onOpenChange={(o) => !o && setAjuste(null)}>

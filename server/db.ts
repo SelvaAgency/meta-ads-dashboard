@@ -2404,7 +2404,7 @@ export async function financeMrr(mesRef: string) {
 /** Churn / retenção de clientes (recorrente). Ref = último mês com receita. */
 export async function financeChurn(f: { mesFrom?: string; mesTo?: string; limitMonths?: number } = {}) {
   const db = await getDb();
-  const empty = { mesReferencia: "", ativos: 0, churnedCount: 0, mrrPerdidoLifetimeCents: 0, periodoPerdidoCents: 0, taxa: 0, mesIncompleto: false, serie: [] as { mes: string; mrrPerdidoCents: number }[], churned: [] as { clienteId: number | null; nome: string; cor: string | null; ultimoMes: string; valorMensalCents: number; mesesDesde: number }[] };
+  const empty = { mesReferencia: "", ativos: 0, churnedCount: 0, mrrPerdidoLifetimeCents: 0, periodoPerdidoCents: 0, taxa: 0, mesIncompleto: false, serie: [] as { mes: string; mrrPerdidoCents: number }[], churned: [] as { clienteId: number | null; nome: string; cor: string | null; ultimoMes: string; valorMensalCents: number; mesesDesde: number }[], mrrPerdidoMesCents: 0, mrrPerdidoMedia12mCents: 0, churnRateMesPct: 0, churnRateMedia12mPct: 0 };
   if (!db) return empty;
   const [recRows, clientes, recDefs] = await Promise.all([
     db.select().from(financePnlEntries).where(RECEITA_TIPOS),
@@ -2470,7 +2470,22 @@ export async function financeChurn(f: { mesFrom?: string; mesTo?: string; limitM
   const counts = Array.from(recCountByMonth.entries()).filter(([m]) => m < refMonth).map(([, n]) => n);
   const avg = counts.length ? counts.reduce((s, n) => s + n, 0) / counts.length : 0;
   const mesIncompleto = avg > 0 && (recCountByMonth.get(refMonth) ?? 0) < avg * 0.6;
-  return { mesReferencia: refMonth, ativos, churnedCount: churned.length, mrrPerdidoLifetimeCents: mrrPerdidoLifetime, periodoPerdidoCents: periodoPerdido, taxa: total > 0 ? churned.length / total : 0, mesIncompleto, serie, churned };
+  // KPIs de churn: mês selecionado × média/taxa dos últimos 12 meses.
+  const mrrByMonth = new Map<string, number>();
+  monthClienteValue.forEach((mv, m) => { let s = 0; mv.forEach((v) => (s += v)); mrrByMonth.set(m, s); });
+  const rateAt = (m: string) => { const base = mrrByMonth.get(addMonthsSrv(m, -1)) ?? 0; return base > 0 ? (churnByMonth.get(m) ?? 0) / base : 0; };
+  const mesRef = f.mesTo && f.mesTo <= refMonth ? f.mesTo : refMonth;
+  const mrrPerdidoMes = churnByMonth.get(mesRef) ?? 0;
+  const churnRateMes = rateAt(mesRef);
+  const win = serie.map((s) => s.mes);
+  const mrrPerdidoMedia12m = win.length ? Math.round(win.reduce((s, m) => s + (churnByMonth.get(m) ?? 0), 0) / win.length) : 0;
+  const ratesWin = win.map((m) => rateAt(m)).filter((_, i) => (mrrByMonth.get(addMonthsSrv(win[i], -1)) ?? 0) > 0);
+  const churnRateMedia12m = ratesWin.length ? ratesWin.reduce((s, x) => s + x, 0) / ratesWin.length : 0;
+  return {
+    mesReferencia: refMonth, ativos, churnedCount: churned.length, mrrPerdidoLifetimeCents: mrrPerdidoLifetime,
+    periodoPerdidoCents: periodoPerdido, taxa: total > 0 ? churned.length / total : 0, mesIncompleto, serie, churned,
+    mrrPerdidoMesCents: mrrPerdidoMes, mrrPerdidoMedia12mCents: mrrPerdidoMedia12m, churnRateMesPct: Math.round(churnRateMes * 100), churnRateMedia12mPct: Math.round(churnRateMedia12m * 100),
+  };
 }
 
 /** Qualidade por cliente: tempo de casa + rendimento + status (ativo/churned/pontual). */
