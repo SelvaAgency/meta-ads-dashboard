@@ -8,20 +8,20 @@
  *
  *  Robustez:
  *   · Sem dangerouslySetInnerHTML, sem tokens/credenciais na URL.
- *   · Spinner enquanto carrega; se não carregar (bloqueio/erro), cai num
- *     fallback elegante com botão "Abrir em nova aba".
- *   · O app externo NÃO é alterado — só é embutido via iframe.
+ *   · Spinner enquanto carrega; se não carregar, cai num fallback com
+ *     "Tentar de novo" — e não mais com "Abrir em nova aba", que era a porta
+ *     de fuga para rodar o app solto fora do shell. Como o iframe é do MESMO
+ *     deploy e mesma origem, "não carregou" aqui é lentidão, não bloqueio.
+ *   · O app embutido NÃO é alterado — só é embutido via iframe.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, Loader2, MonitorX } from "lucide-react";
+import { Loader2, MonitorX, RotateCw } from "lucide-react";
 import { HubShell } from "./HubShell";
 
 type Status = "loading" | "loaded" | "fallback";
 
-// Se o iframe não sinalizar carregamento nesse tempo, assumimos bloqueio/erro
-// e mostramos o fallback. (Bloqueio cross-origin não é detectável de forma
-// confiável pelo pai; o botão "Abrir em nova aba" cobre os demais casos.)
+// Se o iframe não sinalizar carregamento nesse tempo, mostramos o fallback.
 const LOAD_TIMEOUT_MS = 12000;
 
 interface HubIntegratedAppProps {
@@ -29,15 +29,14 @@ interface HubIntegratedAppProps {
   title: string;
   /** URL embutida no iframe. */
   src: string;
-  /** URL usada nos botões "Abrir em nova aba" / fallback. */
-  externalUrl: string;
 }
 
-export function HubIntegratedApp({ title, src, externalUrl }: HubIntegratedAppProps) {
+export function HubIntegratedApp({ title, src }: HubIntegratedAppProps) {
   const [status, setStatus] = useState<Status>("loading");
+  const [tentativa, setTentativa] = useState(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reinicia o estado sempre que a URL embutida muda.
+  // Reinicia o estado sempre que a URL embutida muda (ou ao tentar de novo).
   useEffect(() => {
     setStatus("loading");
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -47,7 +46,7 @@ export function HubIntegratedApp({ title, src, externalUrl }: HubIntegratedAppPr
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [src]);
+  }, [src, tentativa]);
 
   return (
     <HubShell>
@@ -60,22 +59,13 @@ export function HubIntegratedApp({ title, src, externalUrl }: HubIntegratedAppPr
               app integrado
             </span>
           </div>
-          <a
-            href={externalUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            Abrir em nova aba
-          </a>
         </div>
 
         {/* Área do app */}
         <div className="relative flex-1 min-h-0 bg-secondary/40">
           {status !== "fallback" && (
             <iframe
-              key={src}
+              key={`${src}#${tentativa}`}
               src={src}
               title={title}
               className="absolute inset-0 w-full h-full border-0"
@@ -103,18 +93,16 @@ export function HubIntegratedApp({ title, src, externalUrl }: HubIntegratedAppPr
                 </span>
                 <h2 className="text-lg font-bold mb-1">{title}</h2>
                 <p className="text-sm text-muted-foreground mb-5">
-                  Não foi possível carregar este app aqui dentro do SELVA Spaces. Você pode abri-lo
-                  em uma nova aba.
+                  Este app demorou mais que o esperado para carregar. Normalmente é lentidão de
+                  conexão — tentar de novo costuma resolver.
                 </p>
-                <a
-                  href={externalUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  onClick={() => setTentativa((t) => t + 1)}
                   className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 hover:opacity-90 transition-opacity"
                 >
-                  <ExternalLink className="w-4 h-4" />
-                  Abrir em nova aba
-                </a>
+                  <RotateCw className="w-4 h-4" />
+                  Tentar de novo
+                </button>
               </div>
             </div>
           )}

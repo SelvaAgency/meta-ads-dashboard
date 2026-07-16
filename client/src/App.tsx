@@ -38,6 +38,7 @@ import TrelloCallback from "./pages/hub/TrelloCallback";
 import SpacesPage from "./pages/hub/SpacesPage";
 import { AdminOnly } from "./pages/hub/AdminOnly";
 import { isEmbedded } from "./pages/hub/embed";
+import { urlDoShellPara } from "./pages/hub/trackerRoutes";
 
 function RedirectTo({ to }: { to: string }) {
   const [, navigate] = useLocation();
@@ -45,8 +46,22 @@ function RedirectTo({ to }: { to: string }) {
   return null;
 }
 
+/**
+ * Rota crua do Tracker. Dentro do iframe renderiza normalmente; no topo,
+ * manda para o shell do Spaces levando a rota e a query junto — é o que impede
+ * o Tracker de funcionar como app solto sem perder os deep-links de alerta.
+ */
+function Interna({ children }: { children: React.ReactNode }) {
+  const [location, navigate] = useLocation();
+  const embutido = isEmbedded();
+  useEffect(() => {
+    if (!embutido) navigate(urlDoShellPara(location, window.location.search), { replace: true });
+  }, [embutido, location, navigate]);
+  return embutido ? <>{children}</> : null;
+}
+
 // Rotas compartilhadas (mesmo deploy): no TOPO renderizam o Selva Spaces; dentro
-// do iframe do Spaces (?embedded=1) renderizam a página crua do dashboard.
+// do iframe do Spaces renderizam a página crua do dashboard (ver embed.ts).
 const Root = () => (isEmbedded() ? <SuggestionsHub /> : <Hub />);
 const TrackerRoute = () => (isEmbedded() ? <SuggestionsHub /> : <HubApp />);
 const ReportsRoute = () => (isEmbedded() ? <Reports /> : <HubApp />);
@@ -82,21 +97,23 @@ function Router() {
       <Route path="/hub/settings" component={() => <RedirectTo to="/settings" />} />
       <Route path="/hub/acessos" component={() => <RedirectTo to="/access" />} />
 
-      {/* ── Dashboard (Tracker) — rotas internas cruas ───────────────────────── */}
-      <Route path="/overview" component={SuggestionsHub} />
-      <Route path="/dashboard" component={Dashboard} />
-      <Route path="/campaigns" component={Campaigns} />
-      <Route path="/alerts" component={AlertsPage} />
-      <Route path="/site" component={Site} />
+      {/* ── Dashboard (Tracker) — rotas internas ──────────────────────────────
+          Renderizam cru só dentro do iframe. No topo, <Interna> manda para o
+          shell do Spaces preservando a query (ver trackerRoutes.ts).          */}
+      <Route path="/overview" component={() => <Interna><SuggestionsHub /></Interna>} />
+      <Route path="/dashboard" component={() => <Interna><Dashboard /></Interna>} />
+      <Route path="/campaigns" component={() => <Interna><Campaigns /></Interna>} />
+      <Route path="/alerts" component={() => <Interna><AlertsPage /></Interna>} />
+      <Route path="/site" component={() => <Interna><Site /></Interna>} />
       {/* Alertas antigos apontam para /clarity — preserva o destino deles. */}
-      <Route path="/clarity" component={Site} />
-      <Route path="/suggestions" component={Suggestions} />
+      <Route path="/clarity" component={() => <Interna><Site /></Interna>} />
+      <Route path="/suggestions" component={() => <Interna><Suggestions /></Interna>} />
       <Route path="/suggestions-hub" component={() => <RedirectTo to="/overview" />} />
-      <Route path="/admin" component={Admin} />
-      <Route path="/google-ads" component={GoogleAds} />
-      <Route path="/social-networks" component={SocialNetworks} />
-      <Route path="/experiments" component={Experiments} />
-      <Route path="/experiments/:id" component={ExperimentDetail} />
+      <Route path="/admin" component={() => <Interna><Admin /></Interna>} />
+      <Route path="/google-ads" component={() => <Interna><GoogleAds /></Interna>} />
+      <Route path="/social-networks" component={() => <Interna><SocialNetworks /></Interna>} />
+      <Route path="/experiments" component={() => <Interna><Experiments /></Interna>} />
+      <Route path="/experiments/:id" component={() => <Interna><ExperimentDetail /></Interna>} />
       {/* Redirects for removed nav items */}
       <Route path="/anomalies" component={() => <RedirectTo to="/alerts" />} />
       <Route path="/404" component={NotFound} />

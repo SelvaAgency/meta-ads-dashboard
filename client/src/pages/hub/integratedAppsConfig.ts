@@ -16,23 +16,26 @@
 export interface IntegratedApp {
   id: string;
   label: string;
-  /** Rota interna do Selva Spaces (ex.: /hub/reports). */
+  /** Rota interna do Selva Spaces. É também o que o iframe carrega. */
   route: string;
-  /** URL embutida no iframe e usada no "Abrir em nova aba". */
-  externalUrl: string;
-  /** Só o Tracker suporta flyout de clientes por enquanto. */
+  /** Só o Tracker suporta flyout de clientes e deep-link por `?rota=`. */
   supportsClientFlyout?: boolean;
 }
 
 // Rotas diretas (sem prefixo /hub). São páginas DESTE mesmo deploy: a rota é
 // compartilhada e resolvida por contexto — no topo renderiza o Selva Spaces,
-// dentro do iframe (`?embedded=1`) renderiza a página crua do dashboard
-// (ver embed.ts). URLs relativas: funcionam igual em qualquer domínio.
+// dentro do iframe renderiza a página crua do dashboard (ver embed.ts). Por
+// isso o iframe carrega a MESMA rota: quem decide o que renderizar é o
+// contexto, não a URL. URLs relativas: funcionam igual em qualquer domínio.
+//
+// Não existe mais `externalUrl`: o "Abrir em nova aba" era a porta de fuga que
+// deixava o Tracker rodar solto, fora do shell. Foi removido por decisão de
+// produto — nada interno funciona como app avulso.
 export const INTEGRATED_APPS: IntegratedApp[] = [
-  { id: "tracker", label: "Tracker", route: "/tracker", externalUrl: "/tracker?embedded=1", supportsClientFlyout: true },
-  { id: "reports", label: "Relatórios", route: "/reports", externalUrl: "/reports?embedded=1" },
-  { id: "contracts", label: "Contratos", route: "/contracts", externalUrl: "/contracts?embedded=1" },
-  { id: "finance", label: "Financeiro", route: "/finance", externalUrl: "/finance?embedded=1" },
+  { id: "tracker", label: "Tracker", route: "/tracker", supportsClientFlyout: true },
+  { id: "reports", label: "Relatórios", route: "/reports" },
+  { id: "contracts", label: "Contratos", route: "/contracts" },
+  { id: "finance", label: "Financeiro", route: "/finance" },
 ];
 
 /** Rota interna → app integrado (query string já vem removida pelo wouter). */

@@ -14,6 +14,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+    // client/ entra aqui para a lógica pura (rotas, formatação) ser testável.
+    // Componentes precisariam de jsdom — quando houver, criar um projeto à parte.
+    include: ["server/**/*.test.ts", "server/**/*.spec.ts", "client/**/*.test.ts"],
   },
 });

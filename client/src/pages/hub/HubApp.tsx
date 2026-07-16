@@ -2,22 +2,25 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *  Selva Spaces — HubApp (roteador de apps integrados)
  * ─────────────────────────────────────────────────────────────────────────────
- *  Página única para TODAS as rotas de app integrado (/hub/tracker,
- *  /hub/reports, /hub/contracts). Resolve o app pela rota via config central
- *  (integratedAppsConfig) e delega o render ao HubIntegratedApp.
+ *  Página única para TODAS as rotas de app integrado. Resolve o app pela rota
+ *  via config central (integratedAppsConfig) e delega o render ao
+ *  HubIntegratedApp.
  *
- *  Tracker (supportsClientFlyout): se vier `?client=<slug>`, ajusta o TÍTULO
- *  para dar contexto visual. O iframe, porém, segue carregando o Tracker GERAL
- *  até existir um entrypoint real por cliente no app (o Tracker seleciona
- *  cliente por id numérico interno, não por URL). Ver trackerConfig →
- *  TODO url-por-cliente.
+ *  `?rota=` — deep-link para uma rota interna do Tracker. Quem chega em
+ *  /site?account=4 no topo é redirecionado para /tracker?rota=/site&account=4
+ *  (ver trackerRoutes.ts) e é aqui que a rota volta a virar o src do iframe,
+ *  com a query preservada. Sem isso, todo alerta abriria o Tracker genérico.
+ *
+ *  `?client=<slug>` — ajusta o título E é repassado ao iframe, que seleciona o
+ *  cliente lá dentro. O iframe é outro documento: a URL é o único canal.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useLocation, useSearchParams } from "wouter";
 import { HubShell } from "./HubShell";
 import { HubIntegratedApp } from "./HubIntegratedApp";
 import { integratedAppByRoute } from "./integratedAppsConfig";
-import { trackerClientBySlug, trackerUrlForClient } from "./trackerConfig";
+import { trackerClientBySlug } from "./trackerConfig";
+import { rotaInternaSegura, urlEmbutidaPara } from "./trackerRoutes";
 
 export default function HubApp() {
   const [location] = useLocation();
@@ -35,17 +38,19 @@ export default function HubApp() {
     );
   }
 
+  const busca = typeof window !== "undefined" ? window.location.search : "";
   let title = app.label;
-  let src = app.externalUrl;
 
-  // Contexto visual por cliente (apenas título; iframe segue no app geral).
-  if (app.supportsClientFlyout) {
-    const client = trackerClientBySlug(searchParams.get("client"));
-    if (client) {
-      title = `${app.label} · ${client.name}`;
-      src = trackerUrlForClient(client.slug);
-    }
-  }
+  // Deep-link: /tracker?rota=/site&account=4 → iframe abre /site?account=4.
+  // rotaInternaSegura recusa qualquer coisa fora da allowlist — o valor vira
+  // src de iframe e não pode virar um site de terceiro.
+  const rota = app.supportsClientFlyout ? rotaInternaSegura(searchParams.get("rota")) : null;
+  // Sem `rota`, o iframe abre a própria rota do app. A query passa nos dois
+  // casos — é por ela que `client` (flyout) e `account`/`aba` (alertas) entram.
+  const src = urlEmbutidaPara(rota ?? app.route, busca);
 
-  return <HubIntegratedApp title={title} src={src} externalUrl={app.externalUrl} />;
+  const client = app.supportsClientFlyout ? trackerClientBySlug(searchParams.get("client")) : undefined;
+  if (client) title = `${app.label} · ${client.name}`;
+
+  return <HubIntegratedApp title={title} src={src} />;
 }
