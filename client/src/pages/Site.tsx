@@ -28,22 +28,52 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import { canManageContent } from "@shared/permissions";
 
-const fmtNum = (n: number | null | undefined) =>
-  n === null || n === undefined ? "—" : n.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
-const fmtSeg = (s: number | null | undefined) => {
-  if (s === null || s === undefined) return "—";
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Formatadores da seção Site — nenhum assume que o número existe
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Toda métrica daqui sai de `metricsJson`: um blob de JSON que o TypeScript
+ *  não valida. O `as Metricas` abaixo é uma promessa que o banco não fez — a
+ *  chave pode simplesmente não estar lá (snapshot antigo, provider que não
+ *  mede aquilo, API que devolveu vazio). Ou seja: `undefined` é valor
+ *  ESPERADO, não bug.
+ *
+ *  Por isso o guarda tem que ser `Number.isFinite`, nunca `!== null`:
+ *  `undefined !== null` é true e leva direto ao `undefined.toFixed()`.
+ *  Number.isFinite ainda barra NaN e Infinity, que JSON também produz.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+type Talvez = number | null | undefined;
+
+const ehNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+const fmtNum = (n: Talvez, vazio = "—") =>
+  ehNum(n) ? n.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) : vazio;
+/** Casas decimais fixas — o único lugar que pode chamar toFixed. */
+const fmtDec = (n: Talvez, casas = 2, vazio = "—") => (ehNum(n) ? n.toFixed(casas) : vazio);
+const fmtInt = (n: Talvez, vazio = "—") => (ehNum(n) ? String(Math.round(n)) : vazio);
+/** Score 0–100 do Lighthouse ou da segurança. */
+const fmtScore = (n: Talvez, vazio = "—") => (ehNum(n) ? String(Math.round(n)) : vazio);
+const fmtSeg = (s: Talvez, vazio = "—") => {
+  if (!ehNum(s)) return vazio;
   const m = Math.floor(s / 60);
   return m > 0 ? `${m}m ${Math.round(s % 60)}s` : `${Math.round(s)}s`;
 };
-const fmtPct = (n: number | null | undefined) => (n === null || n === undefined ? "—" : `${Math.round(n)}%`);
+const fmtPct = (n: Talvez, vazio = "—") => (ehNum(n) ? `${Math.round(n)}%` : vazio);
+const fmtDias = (n: Talvez, vazio = "—") => (ehNum(n) ? `${Math.round(n)}d` : vazio);
 
+/**
+ * Os campos são opcionais de propósito: é o que o banco realmente garante.
+ * Declarar `sessions: number | null` mentiria para o compilador e esconderia
+ * exatamente a classe de bug que derrubou esta tela.
+ */
 type Metricas = {
-  sessions: number | null; botSessions: number | null; users: number | null;
-  pagesPerSession: number | null; averageScrollDepth: number | null;
-  averageSessionDuration: number | null; deadClicks: number | null;
-  rageClicks: number | null; quickBacks: number | null;
-  javascriptErrors: number | null; errorClicks: number | null;
-  excessiveScroll: number | null;
+  sessions?: Talvez; botSessions?: Talvez; users?: Talvez;
+  pagesPerSession?: Talvez; averageScrollDepth?: Talvez;
+  averageSessionDuration?: Talvez; deadClicks?: Talvez;
+  rageClicks?: Talvez; quickBacks?: Talvez;
+  javascriptErrors?: Talvez; errorClicks?: Talvez;
+  excessiveScroll?: Talvez;
 };
 
 export default function Site() {
@@ -194,7 +224,7 @@ export default function Site() {
               <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <Card icone={<Users className="w-3.5 h-3.5" />} label="Sessões" valor={fmtNum(m.sessions)}
-                    hint={m.botSessions !== null ? `${fmtNum(m.botSessions)} de bots` : undefined} />
+                    hint={ehNum(m.botSessions) ? `${fmtNum(m.botSessions)} de bots` : undefined} />
                   <Card icone={<Eye className="w-3.5 h-3.5" />} label="Usuários" valor={fmtNum(m.users)} />
                   <Card icone={<Clock className="w-3.5 h-3.5" />} label="Tempo médio" valor={fmtSeg(m.averageSessionDuration)} />
                   <Card icone={<TrendingUp className="w-3.5 h-3.5" />} label="Páginas por sessão" valor={fmtNum(m.pagesPerSession)} />
@@ -831,9 +861,9 @@ function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clar
         >
           {pm && (
             <div className="grid grid-cols-2 gap-2">
-              <Mini label="Score" valor={pm.performanceScore !== null ? String(pm.performanceScore) : "—"} alerta={(pm.performanceScore ?? 100) < 50} />
+              <Mini label="Score" valor={fmtScore(pm.performanceScore)} alerta={(pm.performanceScore ?? 100) < 50} />
               <Mini label="LCP" valor={fmtMs(pm.lcp)} alerta={(pm.lcp ?? 0) > 2500} />
-              <Mini label="CLS" valor={pm.cls !== null ? pm.cls.toFixed(2) : "—"} alerta={(pm.cls ?? 0) > 0.1} />
+              <Mini label="CLS" valor={fmtDec(pm.cls, 2)} alerta={(pm.cls ?? 0) > 0.1} />
               <Mini label="TBT" valor={fmtMs(pm.tbt)} alerta={(pm.tbt ?? 0) > 200} />
             </div>
           )}
@@ -849,10 +879,10 @@ function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clar
         >
           {seg && (
             <div className="grid grid-cols-2 gap-2">
-              <Mini label="Nota" valor={`${seg.score}/100`} alerta={seg.status !== "bom"} />
-              <Mini label="HTTPS" valor={seg.https ? "Ativo" : "Ausente"} alerta={!seg.https} />
-              <Mini label="Certificado" valor={seg.sslValido === null ? "—" : seg.sslValido ? "Válido" : "Inválido"} alerta={seg.sslValido === false} />
-              <Mini label="Expira em" valor={seg.daysToSslExpiry !== null ? `${seg.daysToSslExpiry}d` : "—"} alerta={(seg.daysToSslExpiry ?? 999) <= 30} />
+              <Mini label="Nota" valor={ehNum(seg.score) ? `${fmtScore(seg.score)}/100` : "—"} alerta={!!seg.status && seg.status !== "bom"} />
+              <Mini label="HTTPS" valor={seg.https === undefined ? "—" : seg.https ? "Ativo" : "Ausente"} alerta={seg.https === false} />
+              <Mini label="Certificado" valor={seg.sslValido === null || seg.sslValido === undefined ? "—" : seg.sslValido ? "Válido" : "Inválido"} alerta={seg.sslValido === false} />
+              <Mini label="Expira em" valor={fmtDias(seg.daysToSslExpiry)} alerta={(seg.daysToSslExpiry ?? 999) <= 30} />
             </div>
           )}
         </CardResumo>
@@ -865,8 +895,8 @@ function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clar
         >
           {up && (
             <div className="grid grid-cols-2 gap-2">
-              <Mini label="Status" valor={UP_LABEL[up.status] ?? "—"} alerta={up.status === "fora_do_ar" || up.status === "erro"} />
-              <Mini label="Resposta" valor={up.responseTimeMs !== null ? fmtMs(up.responseTimeMs) : "—"} alerta={(up.responseTimeMs ?? 0) > 3000} />
+              <Mini label="Status" valor={(up.status && UP_LABEL[up.status]) ?? "—"} alerta={up.status === "fora_do_ar" || up.status === "erro"} />
+              <Mini label="Resposta" valor={fmtMs(up.responseTimeMs)} alerta={(up.responseTimeMs ?? 0) > 3000} />
             </div>
           )}
         </CardResumo>
@@ -943,22 +973,23 @@ function Pastilha({ ok, label, onClick }: { ok: boolean; label: string; onClick?
 // ─── Performance técnica ─────────────────────────────────────────────────────
 
 type PerfMetricas = {
-  performanceScore: number | null; lcp: number | null; cls: number | null;
-  tbt: number | null; speedIndex: number | null; fcp: number | null; tti: number | null;
-  fullyLoaded: number | null; pageSizeBytes: number | null; requests: number | null;
-  structureScore: null;
+  performanceScore?: Talvez; lcp?: Talvez; cls?: Talvez;
+  tbt?: Talvez; speedIndex?: Talvez; fcp?: Talvez; tti?: Talvez;
+  fullyLoaded?: Talvez; pageSizeBytes?: Talvez; requests?: Talvez;
+  accessibilityScore?: Talvez; bestPracticesScore?: Talvez; seoScore?: Talvez;
+  structureScore?: null;
 };
 
-const fmtMs = (ms: number | null | undefined) => {
-  if (ms === null || ms === undefined) return "—";
+const fmtMs = (ms: Talvez, vazio = "—") => {
+  if (!ehNum(ms)) return vazio;
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
 };
-const fmtKb = (b: number | null | undefined) => {
-  if (b === null || b === undefined) return "—";
+const fmtKb = (b: Talvez, vazio = "—") => {
+  if (!ehNum(b)) return vazio;
   return b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.round(b / 1024)} KB`;
 };
 /** Faixas do próprio Lighthouse — não invento limiar. */
-const corScore = (s: number | null) => s === null ? "text-muted-foreground" : s >= 90 ? "text-emerald-600" : s >= 50 ? "text-amber-600" : "text-red-600";
+const corScore = (s: Talvez) => !ehNum(s) ? "text-muted-foreground" : s >= 90 ? "text-emerald-600" : s >= 50 ? "text-amber-600" : "text-red-600";
 
 function AbaPerformance({ accountId, podeConfigurar }: { accountId: number; podeConfigurar: boolean }) {
   const utils = trpc.useUtils();
@@ -986,7 +1017,7 @@ function AbaPerformance({ accountId, podeConfigurar }: { accountId: number; pode
   const urlVal = url ?? cfg?.performanceUrl ?? (cfg?.domain ? `https://${cfg.domain.replace(/^https?:\/\//, "")}` : "");
   const snap = snapQ.data;
   const m = (snap?.metricsJson ?? null) as PerfMetricas | null;
-  const recs = (snap?.recommendationsJson ?? []) as { titulo: string; descricao: string; economiaMs: number | null }[];
+  const recs = (Array.isArray(snap?.recommendationsJson) ? snap.recommendationsJson : []) as { titulo: string; descricao: string; economiaMs?: Talvez }[];
   const erro = cfg?.perfLastSyncStatus === "erro";
 
   return (
@@ -1064,18 +1095,18 @@ function AbaPerformance({ accountId, podeConfigurar }: { accountId: number; pode
 
           <div className="rounded-xl border border-border bg-card p-5 flex items-center gap-5 flex-wrap">
             <div className="text-center">
-              <p className={`text-5xl font-bold tabular-nums ${corScore(m.performanceScore)}`}>{m.performanceScore ?? "—"}</p>
+              <p className={`text-5xl font-bold tabular-nums ${corScore(m.performanceScore)}`}>{fmtScore(m.performanceScore)}</p>
               <p className="text-[11px] text-muted-foreground mt-1">Performance</p>
             </div>
             <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3 min-w-[280px]">
               <Card icone={<Zap className="w-3.5 h-3.5" />} label="LCP" valor={fmtMs(m.lcp)} tom={(m.lcp ?? 0) > 4000 ? "critico" : (m.lcp ?? 0) > 2500 ? "alerta" : undefined} hint="carregamento" />
-              <Card icone={<Activity className="w-3.5 h-3.5" />} label="CLS" valor={m.cls !== null ? m.cls.toFixed(3) : "—"} tom={(m.cls ?? 0) > 0.25 ? "critico" : (m.cls ?? 0) > 0.1 ? "alerta" : undefined} hint="estabilidade" />
+              <Card icone={<Activity className="w-3.5 h-3.5" />} label="CLS" valor={fmtDec(m.cls, 3)} tom={(m.cls ?? 0) > 0.25 ? "critico" : (m.cls ?? 0) > 0.1 ? "alerta" : undefined} hint="estabilidade" />
               <Card icone={<Clock className="w-3.5 h-3.5" />} label="TBT" valor={fmtMs(m.tbt)} tom={(m.tbt ?? 0) > 600 ? "critico" : (m.tbt ?? 0) > 200 ? "alerta" : undefined} hint="travamento" />
               <Card icone={<Gauge className="w-3.5 h-3.5" />} label="Speed Index" valor={fmtMs(m.speedIndex)} />
               <Card icone={<Clock className="w-3.5 h-3.5" />} label="FCP" valor={fmtMs(m.fcp)} />
               <Card icone={<Clock className="w-3.5 h-3.5" />} label="Carregado" valor={fmtMs(m.fullyLoaded)} />
               <Card icone={<FileText className="w-3.5 h-3.5" />} label="Peso" valor={fmtKb(m.pageSizeBytes)} />
-              <Card icone={<FileText className="w-3.5 h-3.5" />} label="Requisições" valor={m.requests !== null ? String(m.requests) : "—"} />
+              <Card icone={<FileText className="w-3.5 h-3.5" />} label="Requisições" valor={fmtInt(m.requests)} />
             </div>
           </div>
 
@@ -1087,7 +1118,7 @@ function AbaPerformance({ accountId, podeConfigurar }: { accountId: number; pode
                   <div key={i} className="border-b border-border/50 last:border-b-0 pb-2 last:pb-0">
                     <div className="flex items-start gap-2">
                       <p className="text-xs font-medium flex-1">{r.titulo}</p>
-                      {r.economiaMs !== null && r.economiaMs > 0 && (
+                      {ehNum(r.economiaMs) && r.economiaMs > 0 && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 flex-shrink-0">
                           −{fmtMs(r.economiaMs)}
                         </span>
@@ -1115,9 +1146,10 @@ function AbaPerformance({ accountId, podeConfigurar }: { accountId: number; pode
 // site de fora. NÃO é auditoria de segurança — a tela diz isso.
 
 type MetSeg = {
-  status: "bom" | "atencao" | "critico"; score: number; https: boolean;
-  redirecionaParaHttps: boolean | null; sslValido: boolean | null;
-  certificateExpiresAt: string | null; daysToSslExpiry: number | null; emissor: string | null;
+  status?: "bom" | "atencao" | "critico"; score?: Talvez; https?: boolean;
+  redirecionaParaHttps?: boolean | null; sslValido?: boolean | null;
+  certificateExpiresAt?: string | null; daysToSslExpiry?: Talvez; emissor?: string | null;
+  headers?: HeaderCheck[]; achados?: string[]; recomendacoes?: string[];
 };
 type HeaderCheck = { nome: string; presente: boolean; valor: string | null; peso: number; recomendacao: string };
 
@@ -1138,8 +1170,9 @@ function AbaSeguranca({ accountId, podeConfigurar }: { accountId: number; podeCo
   if (q.isLoading) return <Carregando />;
   const snap = q.data?.seguranca;
   const m = (snap?.metricsJson ?? null) as MetSeg | null;
-  const issues = (snap?.issuesJson ?? null) as { achados: string[]; headers: HeaderCheck[] } | null;
-  const recs = (snap?.recommendationsJson ?? []) as string[];
+  // Mesmo cuidado das métricas: o JSON pode não trazer as listas.
+  const issues = (snap?.issuesJson ?? null) as { achados?: string[]; headers?: HeaderCheck[] } | null;
+  const recs = (Array.isArray(snap?.recommendationsJson) ? snap.recommendationsJson : []) as string[];
   const temDominio = !!(cfgQ.data?.domain || cfgQ.data?.performanceUrl);
 
   if (!temDominio) {
@@ -1168,14 +1201,14 @@ function AbaSeguranca({ accountId, podeConfigurar }: { accountId: number; podeCo
         <>
           <div className="rounded-xl border border-border bg-card p-5 flex items-center gap-5 flex-wrap">
             <div className="text-center">
-              <p className={`text-5xl font-bold tabular-nums ${CorStatus[m.status]}`}>{m.score}</p>
-              <p className={`text-[11px] mt-1 font-medium ${CorStatus[m.status]}`}>{LabelStatus[m.status]}</p>
+              <p className={`text-5xl font-bold tabular-nums ${(m.status && CorStatus[m.status]) || "text-muted-foreground"}`}>{fmtScore(m.score)}</p>
+              <p className={`text-[11px] mt-1 font-medium ${(m.status && CorStatus[m.status]) || "text-muted-foreground"}`}>{(m.status && LabelStatus[m.status]) || "Não verificado"}</p>
             </div>
             <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-3 min-w-[260px]">
               <Card icone={<Lock className="w-3.5 h-3.5" />} label="HTTPS" valor={m.https ? "Ativo" : "Ausente"} tom={m.https ? undefined : "critico"} />
               <Card icone={<ShieldCheck className="w-3.5 h-3.5" />} label="Certificado" valor={m.sslValido === null ? "—" : m.sslValido ? "Válido" : "Inválido"} tom={m.sslValido === false ? "critico" : undefined} />
               <Card icone={<Clock className="w-3.5 h-3.5" />} label="Expira em"
-                valor={m.daysToSslExpiry !== null ? `${m.daysToSslExpiry} dias` : "—"}
+                valor={ehNum(m.daysToSslExpiry) ? `${fmtInt(m.daysToSslExpiry)} dias` : "—"}
                 tom={(m.daysToSslExpiry ?? 999) <= 7 ? "critico" : (m.daysToSslExpiry ?? 999) <= 30 ? "alerta" : undefined}
                 hint={m.emissor ?? undefined} />
               <Card icone={<ArrowRight className="w-3.5 h-3.5" />} label="http → https"
@@ -1235,9 +1268,9 @@ function AbaSeguranca({ accountId, podeConfigurar }: { accountId: number; podeCo
 // ─── Uptime ──────────────────────────────────────────────────────────────────
 
 type MetUp = {
-  status: "no_ar" | "lento" | "bloqueado" | "erro" | "fora_do_ar";
-  statusCode: number | null; responseTimeMs: number | null; finalUrl: string | null;
-  redirects: number; errorMessage: string | null; checkedAt: string;
+  status?: "no_ar" | "lento" | "bloqueado" | "erro" | "fora_do_ar";
+  statusCode?: Talvez; responseTimeMs?: Talvez; finalUrl?: string | null;
+  redirects?: Talvez; errorMessage?: string | null; checkedAt?: string;
 };
 
 const UP_LABEL: Record<string, string> = {
@@ -1291,14 +1324,14 @@ function AbaUptime({ accountId, podeConfigurar }: { accountId: number; podeConfi
         <>
           <div className="rounded-xl border border-border bg-card p-5 flex items-center gap-6 flex-wrap">
             <div>
-              <p className={`text-2xl font-bold ${UP_COR[m.status]}`}>{UP_LABEL[m.status]}</p>
+              <p className={`text-2xl font-bold ${(m.status && UP_COR[m.status]) || "text-muted-foreground"}`}>{(m.status && UP_LABEL[m.status]) || "Não verificado"}</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
                 {m.statusCode ? `HTTP ${m.statusCode}` : m.errorMessage ?? "sem resposta"}
               </p>
             </div>
             <div className="flex-1 grid grid-cols-3 gap-3 min-w-[240px]">
               <Card icone={<Zap className="w-3.5 h-3.5" />} label="Tempo de resposta"
-                valor={m.responseTimeMs !== null ? fmtMs(m.responseTimeMs) : "—"}
+                valor={fmtMs(m.responseTimeMs)}
                 tom={(m.responseTimeMs ?? 0) > 3000 ? "alerta" : undefined} />
               <Card icone={<ArrowRight className="w-3.5 h-3.5" />} label="Redirects" valor={String(m.redirects)} />
               <Card icone={<Globe className="w-3.5 h-3.5" />} label="Destino final" valor={m.finalUrl ? new URL(m.finalUrl).hostname : "—"} />
@@ -1322,7 +1355,7 @@ function AbaUptime({ accountId, podeConfigurar }: { accountId: number; podeConfi
               <p className="text-xs font-semibold text-muted-foreground mb-2">Últimos {serie.length} dias</p>
               <div className="flex gap-1 flex-wrap">
                 {serie.slice().reverse().map((s) => (
-                  <div key={s.dia} title={`${s.dia} · ${UP_LABEL[s.m?.status] ?? "?"} · ${s.m?.responseTimeMs ?? "?"}ms`}
+                  <div key={s.dia} title={`${s.dia} · ${(s.m?.status && UP_LABEL[s.m.status]) || "?"} · ${fmtMs(s.m?.responseTimeMs, "?")}`}
                     className={`h-8 flex-1 min-w-[10px] rounded ${
                       s.m?.status === "no_ar" ? "bg-emerald-500/70"
                         : s.m?.status === "lento" ? "bg-amber-500/70"

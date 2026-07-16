@@ -4084,11 +4084,22 @@ export async function salvarSiteSnapshot(s: InsertClientSiteSnapshot) {
   await db.insert(clientSiteSnapshots).values(s).onDuplicateKeyUpdate({ set: resto });
 }
 
+/**
+ * Providers de PERFORMANCE. A mesma tabela guarda também `security_check` e
+ * `uptime_check`, que têm outro formato de metricsJson. Sem este filtro, "o
+ * último snapshot da conta" devolve o check de segurança para a aba de
+ * performance — que então lê `cls` de um objeto que nunca teve `cls`.
+ */
+const PERF_PROVIDERS = ["pagespeed", "gtmetrix", "manual"] as const;
+
 export async function ultimoSiteSnapshot(accountId: number) {
   const db = await getDb();
   if (!db) return null;
   const r = await db.select().from(clientSiteSnapshots)
-    .where(eq(clientSiteSnapshots.accountId, accountId))
+    .where(and(
+      eq(clientSiteSnapshots.accountId, accountId),
+      inArray(clientSiteSnapshots.provider, PERF_PROVIDERS as unknown as string[]),
+    ))
     .orderBy(desc(clientSiteSnapshots.dia), desc(clientSiteSnapshots.id)).limit(1);
   return r[0] ?? null;
 }
@@ -4096,8 +4107,13 @@ export async function ultimoSiteSnapshot(accountId: number) {
 export async function serieSiteSnapshots(accountId: number, limite = 30) {
   const db = await getDb();
   if (!db) return [];
+  // Mesmo motivo do ultimoSiteSnapshot: o gráfico de performance não pode
+  // plotar pontos que vieram do check de segurança/uptime.
   return db.select().from(clientSiteSnapshots)
-    .where(eq(clientSiteSnapshots.accountId, accountId))
+    .where(and(
+      eq(clientSiteSnapshots.accountId, accountId),
+      inArray(clientSiteSnapshots.provider, PERF_PROVIDERS as unknown as string[]),
+    ))
     .orderBy(desc(clientSiteSnapshots.dia)).limit(limite);
 }
 
