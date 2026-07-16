@@ -182,6 +182,11 @@ export function registerOAuthRoutes(app: Express) {
     // para validar credenciais e para decidir create vs. update sem sobrescrever.
     const existing = await db.getUserByOpenId(openId);
 
+    // Usuário excluído nunca volta — nem pelo atalho do admin de ambiente, que
+    // não passa por senha. Na prática o openId dele já muda na exclusão, mas
+    // esta guarda torna a garantia explícita em vez de acidental.
+    if (existing?.deletedAt) return fail("E-mail ou senha incorretos.");
+
     if (isEnvAdmin) {
       // Admin de ambiente: role "admin" só serve para o BOOTSTRAP (primeiro
       // acesso). Se o usuário já existe, respeitamos o role definido no admin.

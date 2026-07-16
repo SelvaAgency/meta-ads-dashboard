@@ -645,6 +645,16 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · daily_digest_settings / daily_digest_overrides garantidas");
 
+    // 22) Exclusão permanente de usuário (anônima — ver users.deletedAt no schema).
+    if (!(await columnExists(conn, "users", "deletedAt"))) {
+      await conn.query("ALTER TABLE `users` ADD COLUMN `deletedAt` TIMESTAMP NULL");
+      console.log("[ensure-schema] ok  · users.deletedAt adicionada");
+    }
+    if (!(await columnExists(conn, "user_audit_logs", "targetEmail"))) {
+      await conn.query("ALTER TABLE `user_audit_logs` ADD COLUMN `targetEmail` VARCHAR(320) NULL");
+      console.log("[ensure-schema] ok  · user_audit_logs.targetEmail adicionada");
+    }
+
     // 20) Alertas de site (Clarity): domínio SITE + tipos novos.
     const [domCol2] = await conn.query(
       "SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'alerts' AND column_name = 'dominio'",

@@ -277,7 +277,7 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
-import { getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat } from "./db";
+import { excluirUsuarioPermanente, getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat } from "./db";
 import { sincronizarClarity } from "./clarityJobs";
 import { gerarSiteReport, siteReportMarkdown } from "./services/siteReportService";
 import { obterBriefingDoDia } from "./services/briefingService";
@@ -909,6 +909,28 @@ export const appRouter = router({
 
         const { passwordHash: _omit, ...safe } = updated;
         return safe;
+      }),
+
+    /**
+     * Exclusão PERMANENTE (anônima). Ver excluirUsuarioPermanente em db.ts para
+     * o porquê de não ser DELETE físico. Exige o email digitado: é irreversível
+     * e não pode acontecer por clique errado.
+     */
+    excluir: adminProcedure
+      .input(z.object({ id: z.number().int(), confirmarEmail: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const alvo = await getUserById(input.id);
+        if (!alvo) throw new TRPCError({ code: "NOT_FOUND" });
+        // Confere no BACKEND: o front não é segurança.
+        if ((alvo.email ?? "").toLowerCase() !== input.confirmarEmail.trim().toLowerCase()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "O e-mail digitado não confere com o do usuário." });
+        }
+        try {
+          const r = await excluirUsuarioPermanente(input.id, ctx.user.id);
+          return { success: true, ...r } as const;
+        } catch (e) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+        }
       }),
 
     resetPassword: adminProcedure

@@ -121,7 +121,9 @@ export async function touchExistingUserLogin(openId: string): Promise<void> {
 export async function countActiveAdmins(): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
-  const rows = await db.select({ id: users.id }).from(users).where(and(eq(users.role, "admin"), eq(users.active, true)));
+  // isNull(deletedAt): um admin excluído não pode contar como "ativo" — senão a
+  // proteção do último admin acharia que ainda há dois e deixaria remover o real.
+  const rows = await db.select({ id: users.id }).from(users).where(and(eq(users.role, "admin"), eq(users.active, true), isNull(users.deletedAt)));
   return rows.length;
 }
 
@@ -145,7 +147,8 @@ export async function getUserByOpenId(openId: string) {
 export async function getAllUsers() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(users).orderBy(users.name);
+  // Excluído não aparece na lista — a linha só existe para o histórico não quebrar.
+  return db.select().from(users).where(isNull(users.deletedAt)).orderBy(users.name);
 }
 
 export async function getUserById(id: number) {
@@ -3285,7 +3288,7 @@ async function destinatariosPara(tipo: NotifTipo, canal: "inApp" | "email", modo
   const def = notifTipoDef(tipo);
   if (!def) return [];
   const ativos = await db.select({ id: users.id, email: users.email, name: users.name, role: users.role })
-    .from(users).where(eq(users.active, true));
+    .from(users).where(and(eq(users.active, true), isNull(users.deletedAt)));
   // O catálogo diz quem cada tipo serve. Sem isto, tipo sem conta espalhava para
   // TODO MUNDO — era assim que o developer recebia relatório de mídia paga.
   let elegiveis = ativos.filter((u) => tipoServeRole(def, u.role));
@@ -3475,7 +3478,7 @@ export async function aniversariantesDe(dia: number, mes: number) {
   if (!db) return [];
   return db.select({ id: users.id, name: users.name, jobTitle: users.jobTitle })
     .from(users)
-    .where(and(eq(users.active, true), eq(users.birthdayDay, dia), eq(users.birthdayMonth, mes)));
+    .where(and(eq(users.active, true), isNull(users.deletedAt), eq(users.birthdayDay, dia), eq(users.birthdayMonth, mes)));
 }
 
 /** Resolve o público de um comunicado em userIds concretos. */
@@ -3488,7 +3491,7 @@ export async function resolverPublico(
   const db = await getDb();
   if (!db) return [];
   const ativos = await db.select({ id: users.id, role: users.role, operationalRole: users.operationalRole })
-    .from(users).where(eq(users.active, true));
+    .from(users).where(and(eq(users.active, true), isNull(users.deletedAt)));
   if (publico === "TODOS") return ativos.map((u) => u.id);
   if (publico === "ROLE") return ativos.filter((u) => u.role === alvoRole).map((u) => u.id);
   if (publico === "FUNCAO") return ativos.filter((u) => u.operationalRole === alvoFuncao).map((u) => u.id);
@@ -3570,7 +3573,7 @@ export async function usuariosAtivosComEmail() {
   const db = await getDb();
   if (!db) return [];
   const rows = await db.select({ id: users.id, name: users.name, email: users.email })
-    .from(users).where(and(eq(users.active, true), isNotNull(users.email)));
+    .from(users).where(and(eq(users.active, true), isNull(users.deletedAt), isNotNull(users.email)));
   return rows as { id: number; name: string | null; email: string }[];
 }
 
@@ -3664,6 +3667,7 @@ export async function coordenadoresDaConta(accountId: number): Promise<number[]>
     .where(and(
       eq(clientCoordinators.accountId, accountId),
       eq(users.active, true),
+      isNull(users.deletedAt),
       eq(users.operationalRole, "coordinator"),
     ));
   return rows.map((r) => r.userId);
@@ -3697,7 +3701,7 @@ export async function getNotificationRecipientsForClient(input: { accountId: num
   const tecnico = input.tipo === "OPERACIONAL" || input.tipo === "SITE_TRACKING_PROBLEM";
   const roles: ("admin" | "developer")[] = tecnico ? ["admin", "developer"] : ["admin"];
   const porRole = await db.select({ id: users.id }).from(users)
-    .where(and(eq(users.active, true), inArray(users.role, roles)));
+    .where(and(eq(users.active, true), isNull(users.deletedAt), inArray(users.role, roles)));
 
   const coords = await coordenadoresDaConta(input.accountId);
   return Array.from(new Set([...porRole.map((r) => r.id), ...coords]));
@@ -3978,4 +3982,69 @@ export async function setDigestOverride(dia: string, v: { enabled?: boolean; tim
   await db.insert(dailyDigestOverrides)
     .values({ dia, ...patch, createdByUserId: actorUserId })
     .onDuplicateKeyUpdate({ set: patch });
+}
+
+/**
+ * EXCLUSÃO PERMANENTE — anônima, não física.
+ *
+ * O banco não tem FK física (verificado: zero em information_schema), então um
+ * DELETE físico *funcionaria* — e é justamente por isso que é perigoso: nada
+ * impediria, e ficariam ~700 referências órfãs em silêncio (489 alerts, 218
+ * logs de acesso, 43 briefings, auditoria). Nome de autor viraria "—" em
+ * comunicados e relatórios antigos, e a auditoria perderia o alvo.
+ *
+ * Então excluir = tirar tudo que é da PESSOA e manter o que é da EMPRESA:
+ *   · acesso: senha e login zerados, active=false, deletedAt marcado
+ *   · pessoais: nome, email, cargo, aniversário, avatar
+ *   · operacionais: alertas por cliente, preferências, integrações (tokens!)
+ *   · preservado: id, auditoria, alerts antigos, comunicados, relatórios
+ *
+ * O openId vira um sentinela único para não colidir no índice unique nem
+ * permitir login. Reversível? Não — é o que "permanente" significa.
+ */
+export async function excluirUsuarioPermanente(id: number, actorUserId: number): Promise<{ email: string; nome: string; vinculos: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+
+  const u = await getUserById(id);
+  if (!u) throw new Error("Usuário não encontrado.");
+  if (u.deletedAt) throw new Error("Este usuário já foi excluído.");
+  if (id === actorUserId) throw new Error("Você não pode excluir a si mesmo.");
+  if (u.role === "admin" && u.active && (await countActiveAdmins()) <= 1) {
+    throw new Error("Não é possível excluir o último administrador ativo.");
+  }
+
+  const email = u.email ?? "";
+  const nome = u.name ?? "";
+
+  // 1) Vínculos operacionais somem — inclusive tokens, que não podem sobreviver.
+  const vinculos = await clearCoordinatorAccounts(id);
+  await db.delete(notificationPrefs).where(eq(notificationPrefs.userId, id));
+  await db.delete(notificationSettings).where(eq(notificationSettings.userId, id));
+  await db.delete(userIntegrations).where(eq(userIntegrations.userId, id));
+
+  // 2) Acesso e dados pessoais. openId sentinela: único (não colide) e
+  //    impossível de logar (ninguém autentica com este valor).
+  await db.update(users).set({
+    name: "Usuário excluído",
+    email: null,
+    openId: `deleted+${id}@selva.local`,
+    passwordHash: null,
+    loginMethod: null,
+    jobTitle: null,
+    birthdayDay: null,
+    birthdayMonth: null,
+    avatarKey: null,
+    operationalRole: "collaborator",
+    active: false,
+    deletedAt: new Date(),
+  }).where(eq(users.id, id));
+
+  // 3) Auditoria guarda quem era — o snapshot sobrevive à anonimização.
+  await createUserAudit({
+    actorUserId, targetUserId: id, targetEmail: email,
+    action: "user_deleted", previousValue: nome, newValue: null,
+    metadataJson: { vinculosRemovidos: vinculos, roleAnterior: u.role },
+  });
+  return { email, nome, vinculos };
 }

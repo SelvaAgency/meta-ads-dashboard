@@ -38,6 +38,14 @@ export const users = mysqlTable("users", {
   // Primeiro acesso / segurança
   mustChangePassword: boolean("mustChangePassword").default(false).notNull(),
   active: boolean("active").default(true).notNull(),
+  /**
+   * Exclusão permanente. A LINHA sobrevive porque 79 colunas apontam para
+   * users.id sem FK física — apagar fisicamente deixaria centenas de
+   * referências órfãs em silêncio (489 alerts, 218 logs de acesso, auditoria).
+   * Excluir = perder acesso, perder dados pessoais, sumir da lista. O id fica
+   * para o histórico continuar legível.
+   */
+  deletedAt: timestamp("deletedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -155,6 +163,8 @@ export const userAuditLogs = mysqlTable("user_audit_logs", {
   id: int("id").autoincrement().primaryKey(),
   actorUserId: int("actorUserId").notNull(),   // quem fez a alteração
   targetUserId: int("targetUserId").notNull(), // usuário afetado
+  /** Quem era o alvo — sobrevive à exclusão, quando o nome já foi anonimizado. */
+  targetEmail: varchar("targetEmail", { length: 320 }),
   action: varchar("action", { length: 40 }).notNull(), // role_changed | user_deactivated | user_reactivated | profile_updated
   previousValue: varchar("previousValue", { length: 255 }),
   newValue: varchar("newValue", { length: 255 }),
