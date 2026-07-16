@@ -20,6 +20,7 @@ import {
   Lightbulb,
   TrendingUp,
   Activity,
+  Globe,
   Settings,
   AlertTriangle,
   Info,
@@ -144,7 +145,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
     { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
-    { path: "/clarity", label: "Clarity", icon: Activity },
+    { path: "/site", label: "Site", icon: Globe },
   ];
 
   // ── Loading / Auth guards ──────────────────────────────────────────────────

@@ -13,7 +13,7 @@
 import { useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, Bell, CalendarClock, Cake, CheckCheck, DollarSign,
-  Loader2, Megaphone, Pin, Send, TrendingUp, Users, X,
+  Loader2, Megaphone, Pin, Send, TrendingUp, Users, X, Mail, Sunrise,
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -63,6 +63,7 @@ export default function NotificacoesPage() {
   const [dominio, setDominio] = useState<NotifDominio | null>(null);
   const [status, setStatus] = useState<"nova" | "lida" | null>("nova");
   const [compor, setCompor] = useState(false);
+  const [disparar, setDisparar] = useState(false);
 
   const listQ = trpc.alerts.listAll.useQuery({
     ...(dominio ? { dominio } : {}),
@@ -104,6 +105,8 @@ export default function NotificacoesPage() {
               </button>
             )}
           </header>
+
+          {isAdmin && <BannerResumoDiario onDisparar={() => setDisparar(true)} />}
 
           {isAdmin && (
             <div className="flex gap-1 border-b border-border">
@@ -201,6 +204,7 @@ export default function NotificacoesPage() {
       </main>
 
       {compor && <ComporComunicado onClose={() => setCompor(false)} />}
+      {disparar && <DispararResumo onClose={() => setDisparar(false)} />}
     </HubShell>
   );
 }
@@ -397,6 +401,147 @@ function ComporComunicado({ onClose }: { onClose: () => void }) {
             disabled={!podeEnviar}
             className="text-sm px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-50 flex items-center gap-2">
             {enviar.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Enviar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Resumo diário: banner + disparo manual ──────────────────────────────────
+// O automático continua sendo a rotina. Isto é o controle excepcional — revisar
+// e mandar na mão, tirando quem está de folga.
+
+function BannerResumoDiario({ onDisparar }: { onDisparar: () => void }) {
+  const cfgQ = trpc.notifications.digestSettings.useQuery();
+  if (cfgQ.isLoading || !cfgQ.data) return null;
+  const d = cfgQ.data;
+  const hojeOff = !d.hoje.enabled;
+  const horario = d.hoje.timeOverride ?? d.defaultTime;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-3 flex items-center gap-3 flex-wrap">
+      <span className="w-8 h-8 rounded-lg bg-primary/15 text-accent flex items-center justify-center flex-shrink-0">
+        <Sunrise className="w-4 h-4" />
+      </span>
+      <div className="flex-1 min-w-[200px]">
+        <p className="text-sm font-medium">Resumo diário</p>
+        <p className="text-[11px] text-muted-foreground">
+          {!d.autoEnabled ? "Envio automático desligado."
+            : hojeOff ? `Hoje não vai sair (desligado só para hoje). Volta amanhã às ${horario}.`
+            : `Próximo envio automático: hoje às ${horario}.`}
+          {d.email.dryRun && " · Modo de teste: nenhum email real sai."}
+        </p>
+      </div>
+      <button onClick={onDisparar}
+        className="h-8 px-3 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5">
+        <Send className="w-3.5 h-3.5" /> Revisar e disparar
+      </button>
+    </div>
+  );
+}
+
+function DispararResumo({ onClose }: { onClose: () => void }) {
+  const utils = trpc.useUtils();
+  const [canal, setCanal] = useState<"inapp" | "email" | "ambos">("ambos");
+  const [excluidos, setExcluidos] = useState<number[]>([]);
+  const previewQ = trpc.notifications.previewResumo.useQuery({ excluirUserIds: excluidos });
+  const pessoasQ = trpc.people.list.useQuery();
+
+  const disparar = trpc.notifications.dispararResumo.useMutation({
+    onSuccess: (r) => {
+      utils.alerts.listAll.invalidate(); utils.alerts.unreadByDominio.invalidate();
+      toast.success(
+        r.dryRun
+          ? `Modo de teste: ${r.inapp} no app · ${r.emails} email(s) simulado(s).`
+          : `Enviado — ${r.inapp} no app · ${r.emails} email(s).`,
+      );
+      onClose();
+    },
+    onError: (e) => {
+      // CONFLICT = já saiu hoje. Perguntar antes de mandar de novo.
+      if (e.data?.code === "CONFLICT") {
+        if (confirm("Esse resumo já foi enviado hoje. Deseja reenviar?")) {
+          disparar.mutate({ canal, excluirUserIds: excluidos, confirmarReenvio: true });
+        }
+        return;
+      }
+      toast.error(e.message);
+    },
+  });
+
+  const p = previewQ.data;
+  const pessoas = (pessoasQ.data ?? []).filter((x) => x.active);
+  const nInApp = canal === "email" ? 0 : (p?.inapp.length ?? 0);
+  const nEmail = canal === "inapp" ? 0 : (p?.email.length ?? 0);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-card border border-border rounded-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 p-4 border-b border-border">
+          <Sunrise className="w-4 h-4 text-accent" />
+          <p className="text-sm font-semibold flex-1">Disparar resumo diário</p>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="p-4 flex flex-col gap-4">
+          <div>
+            <label className="text-[11px] text-muted-foreground">Canal</label>
+            <div className="flex gap-1.5 mt-1 flex-wrap">
+              {([["ambos", "No app + email"], ["inapp", "Somente no app"], ["email", "Somente email"]] as const).map(([v, lbl]) => (
+                <Chip key={v} on={canal === v} onClick={() => setCanal(v)}>{lbl}</Chip>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[11px] text-muted-foreground">Não enviar hoje para <span className="opacity-60">(férias, folga)</span></label>
+            <div className="flex flex-wrap gap-1.5 mt-1 max-h-32 overflow-auto">
+              {pessoas.map((x) => {
+                const fora = excluidos.includes(x.id);
+                return (
+                  <Chip key={x.id} on={fora} onClick={() => setExcluidos((prev) => fora ? prev.filter((i) => i !== x.id) : [...prev, x.id])}>
+                    {fora ? "✕ " : ""}{x.name}
+                  </Chip>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Prévia: quem recebe, por onde, e se é real ou teste */}
+          <div className="rounded-lg border border-border bg-muted/30 p-3 flex flex-col gap-1.5">
+            <p className="text-[11px] font-semibold text-muted-foreground">Prévia</p>
+            {previewQ.isLoading ? <p className="text-xs text-muted-foreground">Calculando…</p> : (
+              <>
+                <p className="text-xs"><span className="font-semibold tabular-nums">{nInApp}</span> pessoa(s) recebem no app</p>
+                <p className="text-xs flex items-center gap-1.5">
+                  <Mail className="w-3 h-3 text-muted-foreground" />
+                  <span className="font-semibold tabular-nums">{nEmail}</span> email(s)
+                  {p?.dryRun && <span className="text-amber-600">· simulados (modo de teste)</span>}
+                  {!p?.emailConfigurado && <span className="text-amber-600">· SMTP não configurado</span>}
+                </p>
+                {excluidos.length > 0 && <p className="text-xs text-muted-foreground">{excluidos.length} pessoa(s) fora hoje</p>}
+                {p?.jaEnviadoHoje && canal !== "inapp" && (
+                  <p className="text-[11px] text-amber-700 bg-amber-500/10 rounded p-1.5 mt-1">
+                    O resumo de hoje já foi enviado. Disparar de novo vai pedir confirmação.
+                  </p>
+                )}
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  {canal === "inapp" ? "Somente no app: nenhum email sai."
+                    : canal === "email" ? "Somente email: não aparece no sino."
+                    : "Aparece no sino e chega por email."}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 p-4 border-t border-border">
+          <button onClick={onClose} className="text-sm px-4 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground">Cancelar</button>
+          <button onClick={() => disparar.mutate({ canal, excluirUserIds: excluidos, confirmarReenvio: false })}
+            disabled={disparar.isPending || (nInApp === 0 && nEmail === 0)}
+            className="text-sm px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50 flex items-center gap-2">
+            {disparar.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Enviar agora
           </button>
         </div>
       </div>

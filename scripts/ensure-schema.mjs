@@ -563,6 +563,40 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · client_clarity_settings / client_clarity_snapshots garantidas");
 
+    // Performance técnica do site (PageSpeed/GTmetrix) — aditivo.
+    for (const col of [
+      { name: "performanceEnabled", ddl: "ADD COLUMN `performanceEnabled` BOOLEAN NOT NULL DEFAULT FALSE" },
+      { name: "performanceProvider", ddl: "ADD COLUMN `performanceProvider` VARCHAR(20) NULL DEFAULT 'pagespeed'" },
+      { name: "performanceUrl", ddl: "ADD COLUMN `performanceUrl` VARCHAR(500) NULL" },
+      { name: "perfLastSyncAt", ddl: "ADD COLUMN `perfLastSyncAt` TIMESTAMP NULL" },
+      { name: "perfLastSyncStatus", ddl: "ADD COLUMN `perfLastSyncStatus` VARCHAR(16) NULL" },
+      { name: "perfLastSyncError", ddl: "ADD COLUMN `perfLastSyncError` VARCHAR(255) NULL" },
+    ]) {
+      if (!(await columnExists(conn, "client_clarity_settings", col.name))) {
+        await conn.query(`ALTER TABLE \`client_clarity_settings\` ${col.ddl}`);
+        console.log(`[ensure-schema] ok  · client_clarity_settings.${col.name} adicionada`);
+      }
+    }
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`client_site_snapshots\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`accountId\` INT NOT NULL,
+        \`provider\` VARCHAR(20) NOT NULL,
+        \`url\` VARCHAR(500) NOT NULL,
+        \`estrategia\` VARCHAR(10) NOT NULL DEFAULT 'mobile',
+        \`dia\` VARCHAR(10) NOT NULL,
+        \`metricsJson\` JSON NULL,
+        \`recommendationsJson\` JSON NULL,
+        \`issuesJson\` JSON NULL,
+        \`externalReportUrl\` VARCHAR(500) NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uq_site_snap\` (\`accountId\`, \`provider\`, \`url\`, \`estrategia\`, \`dia\`),
+        KEY \`idx_site_snap_conta\` (\`accountId\`, \`dia\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · client_site_snapshots garantida");
+
     // 19) Contexto manual, notas e relatórios de site por cliente.
     await conn.query(`
       CREATE TABLE IF NOT EXISTS \`client_context\` (
@@ -643,7 +677,18 @@ async function main() {
         PRIMARY KEY (\`id\`),
         UNIQUE KEY \`uq_digest_override_dia\` (\`dia\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
-    console.log("[ensure-schema] ok  · daily_digest_settings / daily_digest_overrides garantidas");
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`daily_digest_recipients\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`dedupKey\` VARCHAR(180) NOT NULL,
+        \`userId\` INT NOT NULL,
+        \`email\` VARCHAR(320) NULL,
+        \`status\` VARCHAR(12) NOT NULL DEFAULT 'sent',
+        \`sentAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uq_digest_recipient\` (\`dedupKey\`, \`userId\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · daily_digest_settings / overrides / recipients garantidas");
 
     // 22) Exclusão permanente de usuário (anônima — ver users.deletedAt no schema).
     if (!(await columnExists(conn, "users", "deletedAt"))) {

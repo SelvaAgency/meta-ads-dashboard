@@ -215,6 +215,16 @@ export const clientClaritySettings = mysqlTable("client_clarity_settings", {
   // Cota da API: 10 req/projeto/dia. Contamos para não estourar.
   apiCallsDate: varchar("apiCallsDate", { length: 10 }),
   apiCallsCount: int("apiCallsCount").default(0).notNull(),
+  // Performance técnica (PageSpeed hoje; GTmetrix pluga depois). Fica aqui e não
+  // numa tabela nova porque é config do SITE do mesmo cliente — domínio e URLs
+  // importantes são compartilhados, e duplicá-los criaria duas verdades.
+  performanceEnabled: boolean("performanceEnabled").default(false).notNull(),
+  performanceProvider: varchar("performanceProvider", { length: 20 }).default("pagespeed"),
+  /** URL testada. Sem isto, cai no `domain`. */
+  performanceUrl: varchar("performanceUrl", { length: 500 }),
+  perfLastSyncAt: timestamp("perfLastSyncAt"),
+  perfLastSyncStatus: varchar("perfLastSyncStatus", { length: 16 }),
+  perfLastSyncError: varchar("perfLastSyncError", { length: 255 }),
   // Diagnóstico do último sync (mensagem nunca contém token).
   lastSyncAt: timestamp("lastSyncAt"),
   lastSyncStatus: varchar("lastSyncStatus", { length: 16 }),
@@ -254,6 +264,31 @@ export const clientClaritySnapshots = mysqlTable("client_clarity_snapshots", {
 }));
 export type ClientClaritySnapshot = typeof clientClaritySnapshots.$inferSelect;
 export type InsertClientClaritySnapshot = typeof clientClaritySnapshots.$inferInsert;
+
+/**
+ * Snapshot de performance técnica. Provider-agnóstico: `provider` diz de onde
+ * veio, `metricsJson` guarda o formato normalizado (não o bruto do fornecedor).
+ * Dedup por (conta, provider, url, estrategia, dia) — re-testar o dia atualiza.
+ */
+export const clientSiteSnapshots = mysqlTable("client_site_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  provider: varchar("provider", { length: 20 }).notNull(),
+  url: varchar("url", { length: 500 }).notNull(),
+  estrategia: varchar("estrategia", { length: 10 }).default("mobile").notNull(),
+  dia: varchar("dia", { length: 10 }).notNull(),
+  metricsJson: json("metricsJson"),
+  recommendationsJson: json("recommendationsJson"),
+  issuesJson: json("issuesJson"),
+  externalReportUrl: varchar("externalReportUrl", { length: 500 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqSnap: uniqueIndex("uq_site_snap").on(table.accountId, table.provider, table.url, table.estrategia, table.dia),
+  idxConta: index("idx_site_snap_conta").on(table.accountId, table.dia),
+}));
+export type ClientSiteSnapshot = typeof clientSiteSnapshots.$inferSelect;
+export type InsertClientSiteSnapshot = typeof clientSiteSnapshots.$inferInsert;
 
 // ─── Contexto manual, notas e relatórios de site por cliente ─────────────────
 // O que a máquina não sabe: objetivo, oferta, público, o que já foi testado.
@@ -366,6 +401,23 @@ export const dailyDigestOverrides = mysqlTable("daily_digest_overrides", {
   uqDia: uniqueIndex("uq_digest_override_dia").on(table.dia),
 }));
 export type DailyDigestOverride = typeof dailyDigestOverrides.$inferSelect;
+
+/**
+ * Recibo de envio do resumo. Existe porque o canal "somente email" não cria
+ * alert — e sem alert não havia onde gravar emailSentAt, então o mesmo resumo
+ * podia ser reenviado a cada clique. Este registro é independente do alert.
+ */
+export const dailyDigestRecipients = mysqlTable("daily_digest_recipients", {
+  id: int("id").autoincrement().primaryKey(),
+  dedupKey: varchar("dedupKey", { length: 180 }).notNull(),
+  userId: int("userId").notNull(),
+  email: varchar("email", { length: 320 }),
+  status: varchar("status", { length: 12 }).default("sent").notNull(), // sent | failed | dry_run
+  sentAt: timestamp("sentAt").defaultNow().notNull(),
+}, (table) => ({
+  uqEnvio: uniqueIndex("uq_digest_recipient").on(table.dedupKey, table.userId),
+}));
+export type DailyDigestRecipient = typeof dailyDigestRecipients.$inferSelect;
 
 // ─── Configurações simples (key-value) — ex.: slide "Você prefere?" da SELVA TV ─
 export const appSettings = mysqlTable("app_settings", {

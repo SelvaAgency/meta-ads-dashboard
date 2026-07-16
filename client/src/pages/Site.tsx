@@ -1,9 +1,11 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Clarity — comportamento no site, por cliente
+ *  Site — tudo sobre o site do cliente
  * ─────────────────────────────────────────────────────────────────────────────
  *  Aba do Tracker (irmã de Dashboard/Campanhas/Relatórios), lendo o cliente
- *  ativo do ActiveAccountContext.
+ *  ativo do ActiveAccountContext. Clarity é UMA das partes, não o todo:
+ *  comportamento (Clarity) + performance técnica (PageSpeed) + relatórios +
+ *  contexto + chat.
  *
  *  A API do Clarity só devolve os últimos 1–3 dias — por isso o que aparece aqui
  *  vem dos SNAPSHOTS que tiramos todo dia, e não de uma consulta ao vivo. Dia
@@ -17,6 +19,7 @@ import {
   Activity, AlertTriangle, ExternalLink, Eye, Loader2, MousePointerClick,
   RefreshCw, Settings2, TrendingUp, Users, X, Clock, ArrowDownWideNarrow,
   FileText, NotebookPen, Sparkles, Copy, Trash2, Check, MessageSquare, Send,
+  Globe, Gauge, LayoutDashboard, Zap, ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
@@ -43,7 +46,7 @@ type Metricas = {
   excessiveScroll: number | null;
 };
 
-export default function Clarity() {
+export default function Site() {
   const { user } = useAuth();
   const podeConfigurar = canManageContent((user as { role?: string } | null)?.role);
   const { activeAccountId, activeAccount, setActiveAccountId } = useActiveAccount();
@@ -56,7 +59,10 @@ export default function Clarity() {
     const alvo = Number(new URLSearchParams(window.location.search).get("account"));
     if (alvo && alvo !== activeAccountId) setActiveAccountId(alvo);
   }, [activeAccountId, setActiveAccountId]);
-  const [aba, setAba] = useState<"site" | "contexto" | "relatorios" | "chat">("site");
+  type Aba = "visao" | "clarity" | "perf" | "relatorios" | "contexto" | "chat";
+  // ?aba=clarity vem do deep-link do alerta — abre direto onde o problema está.
+  const abaInicial = (new URLSearchParams(window.location.search).get("aba") ?? "visao") as Aba;
+  const [aba, setAba] = useState<Aba>(["visao","clarity","perf","relatorios","contexto","chat"].includes(abaInicial) ? abaInicial : "visao");
 
   const enabled = !!activeAccountId;
   const cfgQ = trpc.clarity.settings.useQuery({ accountId: activeAccountId! }, { enabled });
@@ -73,7 +79,7 @@ export default function Clarity() {
 
   if (!activeAccountId) {
     return (
-      <MetaDashboardLayout title="Clarity">
+      <MetaDashboardLayout title="Site">
         <Vazio icone={<Activity className="w-8 h-8" />} titulo="Selecione um cliente"
           texto="Escolha um cliente na barra lateral para ver o comportamento no site." />
       </MetaDashboardLayout>
@@ -87,15 +93,15 @@ export default function Clarity() {
   const erroSync = cfg?.lastSyncStatus === "erro";
 
   return (
-    <MetaDashboardLayout title="Clarity">
+    <MetaDashboardLayout title="Site">
       <div className="p-6 md:p-8 flex flex-col gap-5 max-w-6xl">
         <header className="flex items-start gap-3 flex-wrap">
           <div className="flex-1 min-w-[200px]">
             <h1 className="text-xl font-semibold flex items-center gap-2">
-              <Activity className="w-5 h-5 text-accent" /> Site & Jornada
+              <Globe className="w-5 h-5 text-accent" /> Site
             </h1>
             <p className="text-sm text-muted-foreground">
-              {activeAccount?.accountName ?? "Cliente"} · Microsoft Clarity
+              {activeAccount?.accountName ?? "Cliente"}
             </p>
           </div>
           {cfg?.projectId && (
@@ -121,7 +127,7 @@ export default function Clarity() {
         </header>
 
         <div className="flex gap-1 border-b border-border">
-          {([["site", "Comportamento", Activity], ["contexto", "Contexto", NotebookPen], ["relatorios", "Relatórios", FileText], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
+          {([["visao", "Visão geral", LayoutDashboard], ["clarity", "Clarity", Activity], ["perf", "Performance técnica", Gauge], ["relatorios", "Relatórios", FileText], ["contexto", "Contexto", NotebookPen], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
             <button key={v} onClick={() => setAba(v)}
               className={`px-4 py-2 text-sm transition border-b-2 -mb-px flex items-center gap-1.5 ${aba === v ? "border-accent text-accent font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
               <Ic className="w-3.5 h-3.5" /> {lbl}
@@ -129,11 +135,13 @@ export default function Clarity() {
           ))}
         </div>
 
+        {aba === "visao" && <AbaVisaoGeral accountId={activeAccountId} onIr={setAba} />}
+        {aba === "perf" && <AbaPerformance accountId={activeAccountId} podeConfigurar={podeConfigurar} />}
         {aba === "contexto" && <AbaContexto accountId={activeAccountId} podeEditar={podeConfigurar} />}
         {aba === "relatorios" && <AbaRelatorios accountId={activeAccountId} podeGerar={podeConfigurar} />}
         {aba === "chat" && <AbaChat accountId={activeAccountId} nome={activeAccount?.accountName ?? "este cliente"} podeLimpar={podeConfigurar} />}
 
-        {aba === "site" && <>
+        {aba === "clarity" && <>
         {/* ESTADO 1 — sem Clarity configurado */}
         {!cfgQ.isLoading && !configurado && (
           <Vazio icone={<Activity className="w-8 h-8" />} titulo="Clarity ainda não configurado para este cliente"
@@ -212,7 +220,7 @@ export default function Clarity() {
 
         </>}
 
-        {aba === "site" && (cfgQ.isLoading || snapQ.isLoading) && (
+        {aba === "clarity" && (cfgQ.isLoading || snapQ.isLoading) && (
           <div className="flex items-center gap-2 py-12 justify-center text-sm text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" /> Carregando…
           </div>
@@ -756,6 +764,299 @@ function AbaChat({ accountId, nome, podeLimpar }: { accountId: number; nome: str
       <p className="text-[10px] text-muted-foreground">
         Sugere, não executa. Nenhuma resposta altera dado — as ações continuam sendo suas.
       </p>
+    </div>
+  );
+}
+
+// ─── Visão geral ─────────────────────────────────────────────────────────────
+// Responde "como está o site deste cliente?" numa olhada, e manda para o detalhe.
+
+function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clarity" | "perf" | "relatorios" | "contexto") => void }) {
+  const cfgQ = trpc.clarity.settings.useQuery({ accountId });
+  const clarityQ = trpc.clarity.ultimo.useQuery({ accountId });
+  const perfQ = trpc.clarity.perfUltimo.useQuery({ accountId });
+  const ctxQ = trpc.siteDiag.contexto.useQuery({ accountId });
+  const repQ = trpc.siteDiag.relatorios.useQuery({ accountId });
+
+  if (cfgQ.isLoading) return <Carregando />;
+  const cfg = cfgQ.data;
+  const clarityOn = !!cfg?.enabled && !!cfg?.hasToken;
+  const perfOn = !!cfg?.performanceEnabled;
+  const m = (clarityQ.data?.metricsJson ?? null) as Metricas | null;
+  const pm = (perfQ.data?.metricsJson ?? null) as PerfMetricas | null;
+  const ctx = ctxQ.data;
+  const temCtx = !!(ctx?.objective || ctx?.offer || ctx?.audience);
+
+  // Estado 1 da spec: site não configurado (nem Clarity, nem performance).
+  if (!clarityOn && !perfOn) {
+    return (
+      <Vazio icone={<Globe className="w-8 h-8" />} titulo="Site ainda não configurado para este cliente"
+        texto="Conecte o Clarity para ver o comportamento das pessoas no site, e ative a performance técnica para medir o carregamento." />
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Comportamento */}
+        <CardResumo
+          titulo="Comportamento" icone={<Activity className="w-4 h-4" />}
+          ligado={clarityOn} semDados={clarityOn && !clarityQ.data}
+          textoOff="Clarity não conectado." textoSemDados="Sem snapshot ainda — o primeiro sai amanhã de manhã."
+          onIr={() => onIr("clarity")}
+        >
+          {m && (
+            <div className="grid grid-cols-2 gap-2">
+              <Mini label="Sessões" valor={fmtNum(m.sessions)} />
+              <Mini label="Scroll médio" valor={fmtPct(m.averageScrollDepth)} />
+              <Mini label="Erros de JS" valor={fmtNum(m.javascriptErrors)} alerta={(m.javascriptErrors ?? 0) > 0} />
+              <Mini label="Cliques mortos" valor={fmtNum(m.deadClicks)} alerta={(m.deadClicks ?? 0) > 0} />
+            </div>
+          )}
+        </CardResumo>
+
+        {/* Performance técnica */}
+        <CardResumo
+          titulo="Performance técnica" icone={<Gauge className="w-4 h-4" />}
+          ligado={perfOn} semDados={perfOn && !perfQ.data}
+          textoOff="Performance técnica não configurada." textoSemDados="Nenhum teste rodado ainda."
+          onIr={() => onIr("perf")}
+        >
+          {pm && (
+            <div className="grid grid-cols-2 gap-2">
+              <Mini label="Score" valor={pm.performanceScore !== null ? String(pm.performanceScore) : "—"} alerta={(pm.performanceScore ?? 100) < 50} />
+              <Mini label="LCP" valor={fmtMs(pm.lcp)} alerta={(pm.lcp ?? 0) > 2500} />
+              <Mini label="CLS" valor={pm.cls !== null ? pm.cls.toFixed(2) : "—"} alerta={(pm.cls ?? 0) > 0.1} />
+              <Mini label="TBT" valor={fmtMs(pm.tbt)} alerta={(pm.tbt ?? 0) > 200} />
+            </div>
+          )}
+        </CardResumo>
+      </div>
+
+      {/* O que falta para o diagnóstico ficar bom */}
+      <div className="rounded-xl border border-border bg-card p-4">
+        <p className="text-xs font-semibold text-muted-foreground mb-2">Diagnóstico deste cliente</p>
+        <div className="flex flex-wrap gap-1.5">
+          <Pastilha ok={clarityOn} label="Clarity" />
+          <Pastilha ok={perfOn} label="Performance técnica" />
+          <Pastilha ok={temCtx} label="Contexto" onClick={() => onIr("contexto")} />
+          <Pastilha ok={(repQ.data ?? []).length > 0} label={`${(repQ.data ?? []).length} relatório(s)`} onClick={() => onIr("relatorios")} />
+        </div>
+        {!temCtx && (
+          <p className="text-[11px] text-muted-foreground mt-2">
+            Sem o contexto, o relatório descreve números mas não interpreta —
+            <button onClick={() => onIr("contexto")} className="text-accent hover:underline ml-1">preencher agora</button>.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CardResumo({ titulo, icone, ligado, semDados, textoOff, textoSemDados, onIr, children }: {
+  titulo: string; icone: React.ReactNode; ligado: boolean; semDados: boolean;
+  textoOff: string; textoSemDados: string; onIr: () => void; children?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span className="text-accent">{icone}</span>
+        <p className="text-sm font-semibold flex-1">{titulo}</p>
+        <span className={`text-[10px] px-2 py-0.5 rounded-full ${ligado ? "bg-emerald-500/15 text-emerald-600" : "bg-muted text-muted-foreground"}`}>
+          {ligado ? "conectado" : "não configurado"}
+        </span>
+      </div>
+      {!ligado ? <p className="text-xs text-muted-foreground py-2">{textoOff}</p>
+        : semDados ? <p className="text-xs text-muted-foreground py-2">{textoSemDados}</p>
+        : children}
+      <button onClick={onIr} className="text-[11px] text-accent hover:underline self-start flex items-center gap-1 mt-1">
+        Ver detalhes <ArrowRight className="w-3 h-3" />
+      </button>
+    </div>
+  );
+}
+
+function Mini({ label, valor, alerta }: { label: string; valor: string; alerta?: boolean }) {
+  return (
+    <div>
+      <p className="text-[10px] text-muted-foreground">{label}</p>
+      <p className={`text-base font-semibold tabular-nums ${alerta ? "text-amber-600" : ""}`}>{valor}</p>
+    </div>
+  );
+}
+
+function Pastilha({ ok, label, onClick }: { ok: boolean; label: string; onClick?: () => void }) {
+  const cls = `text-[10px] px-2 py-0.5 rounded-full border ${ok ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600" : "border-border text-muted-foreground"}`;
+  return onClick ? <button onClick={onClick} className={`${cls} hover:border-accent/40`}>{ok ? "✓" : "○"} {label}</button>
+    : <span className={cls}>{ok ? "✓" : "○"} {label}</span>;
+}
+
+// ─── Performance técnica ─────────────────────────────────────────────────────
+
+type PerfMetricas = {
+  performanceScore: number | null; lcp: number | null; cls: number | null;
+  tbt: number | null; speedIndex: number | null; fcp: number | null; tti: number | null;
+  fullyLoaded: number | null; pageSizeBytes: number | null; requests: number | null;
+  structureScore: null;
+};
+
+const fmtMs = (ms: number | null | undefined) => {
+  if (ms === null || ms === undefined) return "—";
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
+};
+const fmtKb = (b: number | null | undefined) => {
+  if (b === null || b === undefined) return "—";
+  return b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.round(b / 1024)} KB`;
+};
+/** Faixas do próprio Lighthouse — não invento limiar. */
+const corScore = (s: number | null) => s === null ? "text-muted-foreground" : s >= 90 ? "text-emerald-600" : s >= 50 ? "text-amber-600" : "text-red-600";
+
+function AbaPerformance({ accountId, podeConfigurar }: { accountId: number; podeConfigurar: boolean }) {
+  const utils = trpc.useUtils();
+  const q = trpc.clarity.perfSettings.useQuery({ accountId });
+  const snapQ = trpc.clarity.perfUltimo.useQuery({ accountId });
+  const [url, setUrl] = useState<string | null>(null);
+
+  const set = trpc.clarity.setPerf.useMutation({
+    onSuccess: () => { utils.clarity.perfSettings.invalidate(); utils.clarity.settings.invalidate(); setUrl(null); toast.success("Performance técnica configurada."); },
+    onError: (e) => toast.error(e.message),
+  });
+  const sync = trpc.clarity.perfSync.useMutation({
+    onSuccess: (r) => {
+      utils.clarity.perfUltimo.invalidate(); utils.clarity.perfSettings.invalidate();
+      if (r.ok) toast.success(`Teste concluído — score ${r.score ?? "?"}.`);
+      else toast.error(r.mensagem);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  if (q.isLoading) return <Carregando />;
+  const cfg = q.data?.cfg;
+  const providerPronto = q.data?.providerPronto ?? false;
+  const ligado = !!cfg?.performanceEnabled;
+  const urlVal = url ?? cfg?.performanceUrl ?? (cfg?.domain ? `https://${cfg.domain.replace(/^https?:\/\//, "")}` : "");
+  const snap = snapQ.data;
+  const m = (snap?.metricsJson ?? null) as PerfMetricas | null;
+  const recs = (snap?.recommendationsJson ?? []) as { titulo: string; descricao: string; economiaMs: number | null }[];
+  const erro = cfg?.perfLastSyncStatus === "erro";
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* A key é de ambiente: dizer isso evita o "por que não funciona?" */}
+      {!providerPronto && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 flex gap-2">
+          <Zap className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-700">
+            <p className="font-medium">PageSpeed sem chave de API</p>
+            <p className="text-muted-foreground mt-0.5">
+              A medição usa a API do Google, que exige uma chave gratuita (<span className="font-mono">PAGESPEED_API_KEY</span>).
+              Sem ela o Google recusa por cota. Dá para configurar a URL agora — os testes passam a rodar assim que a chave existir.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {podeConfigurar && (
+        <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={ligado} onChange={(e) => set.mutate({ accountId, performanceEnabled: e.target.checked })} />
+            Medir a performance técnica deste site
+          </label>
+          {ligado && (
+            <div className="flex items-end gap-2 flex-wrap">
+              <div className="flex flex-col gap-1 flex-1 min-w-[240px]">
+                <label className="text-[11px] text-muted-foreground">URL testada</label>
+                <input value={urlVal} onChange={(e) => setUrl(e.target.value)} placeholder="https://exemplo.com.br/"
+                  className="text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary" />
+              </div>
+              {url !== null && url !== (cfg?.performanceUrl ?? "") && (
+                <button onClick={() => set.mutate({ accountId, performanceUrl: url.trim() || null })}
+                  className="h-9 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-medium">Salvar URL</button>
+              )}
+              <button onClick={() => sync.mutate({ accountId })} disabled={sync.isPending || !providerPronto}
+                title={!providerPronto ? "Precisa da PAGESPEED_API_KEY" : "Roda um teste real (10–30s)"}
+                className="h-9 px-3 rounded-lg border border-border text-xs flex items-center gap-1.5 text-muted-foreground hover:text-foreground disabled:opacity-50">
+                {sync.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                {sync.isPending ? "Testando…" : "Testar agora"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!ligado && <Vazio icone={<Gauge className="w-8 h-8" />} titulo="Performance técnica não configurada"
+        texto={podeConfigurar ? "Ative acima e informe a URL principal do site." : "Peça a um administrador para ativar."} />}
+
+      {ligado && erro && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 flex gap-3">
+          <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+          <div><p className="text-sm font-medium text-red-700">Falha no último teste</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{cfg?.perfLastSyncError}</p></div>
+        </div>
+      )}
+
+      {ligado && !snap && !erro && (
+        <Vazio icone={<Gauge className="w-8 h-8" />} titulo="Nenhum teste rodado ainda"
+          texto="O teste diário roda de manhã — ou clique em Testar agora." />
+      )}
+
+      {ligado && snap && m && (
+        <>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+            <span className="truncate">{snap.url}</span>
+            <span>· {snap.estrategia === "mobile" ? "celular" : "desktop"}</span>
+            {cfg?.perfLastSyncAt && <span>· testado em {new Date(cfg.perfLastSyncAt).toLocaleString("pt-BR")}</span>}
+            {snap.externalReportUrl && (
+              <a href={snap.externalReportUrl} target="_blank" rel="noopener noreferrer" className="ml-auto text-accent hover:underline flex items-center gap-1">
+                Ver no PageSpeed <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-5 flex items-center gap-5 flex-wrap">
+            <div className="text-center">
+              <p className={`text-5xl font-bold tabular-nums ${corScore(m.performanceScore)}`}>{m.performanceScore ?? "—"}</p>
+              <p className="text-[11px] text-muted-foreground mt-1">Performance</p>
+            </div>
+            <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3 min-w-[280px]">
+              <Card icone={<Zap className="w-3.5 h-3.5" />} label="LCP" valor={fmtMs(m.lcp)} tom={(m.lcp ?? 0) > 4000 ? "critico" : (m.lcp ?? 0) > 2500 ? "alerta" : undefined} hint="carregamento" />
+              <Card icone={<Activity className="w-3.5 h-3.5" />} label="CLS" valor={m.cls !== null ? m.cls.toFixed(3) : "—"} tom={(m.cls ?? 0) > 0.25 ? "critico" : (m.cls ?? 0) > 0.1 ? "alerta" : undefined} hint="estabilidade" />
+              <Card icone={<Clock className="w-3.5 h-3.5" />} label="TBT" valor={fmtMs(m.tbt)} tom={(m.tbt ?? 0) > 600 ? "critico" : (m.tbt ?? 0) > 200 ? "alerta" : undefined} hint="travamento" />
+              <Card icone={<Gauge className="w-3.5 h-3.5" />} label="Speed Index" valor={fmtMs(m.speedIndex)} />
+              <Card icone={<Clock className="w-3.5 h-3.5" />} label="FCP" valor={fmtMs(m.fcp)} />
+              <Card icone={<Clock className="w-3.5 h-3.5" />} label="Carregado" valor={fmtMs(m.fullyLoaded)} />
+              <Card icone={<FileText className="w-3.5 h-3.5" />} label="Peso" valor={fmtKb(m.pageSizeBytes)} />
+              <Card icone={<FileText className="w-3.5 h-3.5" />} label="Requisições" valor={m.requests !== null ? String(m.requests) : "—"} />
+            </div>
+          </div>
+
+          {recs.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <p className="text-xs font-semibold text-muted-foreground mb-2">Recomendações (maior ganho primeiro)</p>
+              <div className="flex flex-col gap-2">
+                {recs.map((r, i) => (
+                  <div key={i} className="border-b border-border/50 last:border-b-0 pb-2 last:pb-0">
+                    <div className="flex items-start gap-2">
+                      <p className="text-xs font-medium flex-1">{r.titulo}</p>
+                      {r.economiaMs !== null && r.economiaMs > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 flex-shrink-0">
+                          −{fmtMs(r.economiaMs)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{r.descricao}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="text-[11px] text-muted-foreground">
+            Medição do PageSpeed Insights (Lighthouse), em conexão de celular simulada.
+            Structure score e waterfall não aparecem aqui — são do GTmetrix, que pode ser plugado depois.
+          </p>
+        </>
+      )}
     </div>
   );
 }

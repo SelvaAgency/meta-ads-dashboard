@@ -29,7 +29,7 @@ import ExperimentDetail from "./pages/ExperimentDetail";
 import Hub from "./pages/hub/Hub";
 import HubAccess from "./pages/hub/HubAccess";
 import NotificacoesPage from "./pages/hub/NotificacoesPage";
-import Clarity from "./pages/Clarity";
+import Site from "./pages/Site";
 import HubApp from "./pages/hub/HubApp";
 import HubSettings from "./pages/hub/HubSettings";
 import PeoplePage from "./pages/hub/PeoplePage";
@@ -87,7 +87,9 @@ function Router() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/campaigns" component={Campaigns} />
       <Route path="/alerts" component={AlertsPage} />
-      <Route path="/clarity" component={Clarity} />
+      <Route path="/site" component={Site} />
+      {/* Alertas antigos apontam para /clarity — preserva o destino deles. */}
+      <Route path="/clarity" component={Site} />
       <Route path="/suggestions" component={Suggestions} />
       <Route path="/suggestions-hub" component={() => <RedirectTo to="/overview" />} />
       <Route path="/admin" component={Admin} />

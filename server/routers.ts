@@ -277,10 +277,12 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
-import { excluirUsuarioPermanente, getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat } from "./db";
-import { sincronizarClarity } from "./clarityJobs";
+import { excluirUsuarioPermanente, getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, upsertPerfSettings, ultimoSiteSnapshot, serieSiteSnapshots, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat } from "./db";
+import { sincronizarClarity, sincronizarPerformance } from "./clarityJobs";
+import { isPageSpeedConfigured } from "./services/sitePerformanceService";
 import { gerarSiteReport, siteReportMarkdown } from "./services/siteReportService";
 import { obterBriefingDoDia } from "./services/briefingService";
+import { dispararResumoManual, previewResumoManual } from "./notificationJobs";
 import { emailMode } from "./emailService";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
 import { entregarComunicado } from "./notificationJobs";
@@ -1918,6 +1920,31 @@ export const appRouter = router({
         return { success: true } as const;
       }),
 
+    /** Prévia do disparo manual: alcance e avisos antes de mandar. */
+    previewResumo: adminProcedure
+      .input(z.object({ excluirUserIds: z.array(z.number().int()).default([]) }))
+      .query(({ input }) => previewResumoManual(input.excluirUserIds)),
+
+    /**
+     * Disparo manual assistido. Reenvio no mesmo dia exige `confirmarReenvio`
+     * — o front pergunta antes; o backend não confia nisso e checa também.
+     */
+    dispararResumo: adminProcedure
+      .input(z.object({
+        canal: z.enum(["inapp", "email", "ambos"]),
+        excluirUserIds: z.array(z.number().int()).default([]),
+        confirmarReenvio: z.boolean().default(false),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const prev = await previewResumoManual(input.excluirUserIds);
+        if (prev.jaEnviadoHoje && !input.confirmarReenvio && input.canal !== "inapp") {
+          throw new TRPCError({ code: "CONFLICT", message: "Esse resumo já foi enviado hoje. Confirme o reenvio." });
+        }
+        const r = await dispararResumoManual({ canal: input.canal, excluirUserIds: input.excluirUserIds, atorId: ctx.user.id });
+        if (!r.conteudo) throw new TRPCError({ code: "BAD_REQUEST", message: "Não há resumo para hoje — não foi possível gerar o briefing." });
+        return r;
+      }),
+
     /** Exceção de um dia: feriado, folga geral. Não desliga a rotina. */
     setDigestHoje: adminProcedure
       .input(z.object({
@@ -2836,6 +2863,40 @@ export const appRouter = router({
     serie: protectedProcedure
       .input(z.object({ accountId: z.number().int(), limite: z.number().int().min(1).max(90).default(30) }))
       .query(({ input }) => serieClaritySnapshots(input.accountId, input.limite)),
+
+    // ── Performance técnica ───────────────────────────────────────────────────
+    perfSettings: protectedProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(async ({ input }) => {
+        const cfg = await getClaritySettings(input.accountId);
+        return { cfg, providerPronto: isPageSpeedConfigured() };
+      }),
+
+    setPerf: contentProcedure
+      .input(z.object({
+        accountId: z.number().int(),
+        performanceEnabled: z.boolean().optional(),
+        performanceProvider: z.enum(["pagespeed", "gtmetrix", "manual"]).optional(),
+        performanceUrl: z.string().max(500).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { accountId, ...v } = input;
+        try { await upsertPerfSettings(accountId, v, ctx.user.id); return { success: true } as const; }
+        catch (e) { throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message }); }
+      }),
+
+    perfUltimo: protectedProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(({ input }) => ultimoSiteSnapshot(input.accountId)),
+
+    perfSerie: protectedProcedure
+      .input(z.object({ accountId: z.number().int(), limite: z.number().int().min(1).max(90).default(30) }))
+      .query(({ input }) => serieSiteSnapshots(input.accountId, input.limite)),
+
+    /** Teste real de carregamento: 10–30s. */
+    perfSync: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .mutation(({ input }) => sincronizarPerformance(input.accountId)),
 
     /** Sync manual — gasta até 3 das 10 requisições do dia. */
     sync: contentProcedure

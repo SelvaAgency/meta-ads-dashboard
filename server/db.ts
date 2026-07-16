@@ -1880,8 +1880,9 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
+import { isDryRun } from "./emailService";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 
 export async function getAccountThresholds(accountId: number) {
@@ -4047,4 +4048,87 @@ export async function excluirUsuarioPermanente(id: number, actorUserId: number):
     metadataJson: { vinculosRemovidos: vinculos, roleAnterior: u.role },
   });
   return { email, nome, vinculos };
+}
+
+// ─── Performance técnica do site ─────────────────────────────────────────────
+
+export async function upsertPerfSettings(accountId: number, v: {
+  performanceEnabled?: boolean; performanceProvider?: string | null; performanceUrl?: string | null;
+}, actorUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const conta = await db.select({ id: metaAdAccounts.id }).from(metaAdAccounts)
+    .where(eq(metaAdAccounts.id, accountId)).limit(1);
+  if (conta.length === 0) throw new Error("Cliente não encontrado.");
+  const patch = { ...v, updatedByUserId: actorUserId };
+  await db.insert(clientClaritySettings).values({ accountId, ...patch } as InsertClientClaritySettings)
+    .onDuplicateKeyUpdate({ set: patch });
+}
+
+export async function registrarSyncPerf(accountId: number, status: "ok" | "erro", erro?: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(clientClaritySettings).set({
+    perfLastSyncAt: new Date(), perfLastSyncStatus: status,
+    perfLastSyncError: status === "erro" ? (erro ?? "").slice(0, 255) : null,
+  }).where(eq(clientClaritySettings.accountId, accountId));
+}
+
+export async function salvarSiteSnapshot(s: InsertClientSiteSnapshot) {
+  const db = await getDb();
+  if (!db) return;
+  const { accountId, provider, url, estrategia, dia, ...resto } = s;
+  await db.insert(clientSiteSnapshots).values(s).onDuplicateKeyUpdate({ set: resto });
+}
+
+export async function ultimoSiteSnapshot(accountId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(clientSiteSnapshots)
+    .where(eq(clientSiteSnapshots.accountId, accountId))
+    .orderBy(desc(clientSiteSnapshots.dia), desc(clientSiteSnapshots.id)).limit(1);
+  return r[0] ?? null;
+}
+
+export async function serieSiteSnapshots(accountId: number, limite = 30) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(clientSiteSnapshots)
+    .where(eq(clientSiteSnapshots.accountId, accountId))
+    .orderBy(desc(clientSiteSnapshots.dia)).limit(limite);
+}
+
+/** Clientes com performance ligada e URL — base do job diário. */
+export async function contasComPerformance(): Promise<{ accountId: number; nome: string | null; url: string; provider: string }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    accountId: clientClaritySettings.accountId, nome: metaAdAccounts.accountName,
+    url: clientClaritySettings.performanceUrl, domain: clientClaritySettings.domain,
+    provider: clientClaritySettings.performanceProvider,
+  }).from(clientClaritySettings)
+    .innerJoin(metaAdAccounts, eq(clientClaritySettings.accountId, metaAdAccounts.id))
+    .where(and(eq(clientClaritySettings.performanceEnabled, true), eq(metaAdAccounts.isActive, true)));
+  // Sem URL específica, cai no domínio principal.
+  return rows
+    .map((r) => ({ ...r, url: r.url || (r.domain ? `https://${r.domain.replace(/^https?:\/\//, "")}` : "") }))
+    .filter((r) => !!r.url)
+    .map((r) => ({ accountId: r.accountId, nome: r.nome, url: r.url, provider: r.provider ?? "pagespeed" }));
+}
+
+/** Recibo do resumo por (dedupKey, usuário) — ver dailyDigestRecipients. */
+export async function registrarEnvioDigest(userId: number, dedupKey: string, email: string | null) {
+  const db = await getDb();
+  if (!db) return;
+  const status = isDryRun() ? "dry_run" : "sent";
+  await db.insert(dailyDigestRecipients).values({ dedupKey, userId, email, status })
+    .onDuplicateKeyUpdate({ set: { status, sentAt: new Date() } });
+}
+
+export async function emailDigestJaEnviado(userId: number, dedupKey: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const r = await db.select({ id: dailyDigestRecipients.id }).from(dailyDigestRecipients)
+    .where(and(eq(dailyDigestRecipients.userId, userId), eq(dailyDigestRecipients.dedupKey, dedupKey))).limit(1);
+  return r.length > 0;
 }

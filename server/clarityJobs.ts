@@ -15,8 +15,10 @@ import { logger } from "./logger";
 import {
   contasComClarity, getClarityToken, reservarCotaClarity, ajustarCotaClarity,
   registrarSyncClarity, salvarClaritySnapshot,
+  contasComPerformance, salvarSiteSnapshot, registrarSyncPerf,
 } from "./db";
 import { coletarSnapshot, ClarityAuthError, ClarityRateLimitError } from "./services/clarityService";
+import { coletarPerformance, PerfConfigError, PerfQuotaError, type SiteProvider } from "./services/sitePerformanceService";
 
 const REQS_POR_SNAPSHOT = 3; // geral + por URL + por Source
 
@@ -92,5 +94,55 @@ export async function runClaritySnapshots(): Promise<{ contas: number; ok: numbe
     await new Promise((res) => setTimeout(res, 500)); // respiro entre projetos
   }
   logger.info(`[Clarity] Ciclo completo — ${ok} ok · ${falhas} falha(s) de ${contas.length} cliente(s).`);
+  return { contas: contas.length, ok, falhas };
+}
+
+// ─── Performance técnica (PageSpeed) ─────────────────────────────────────────
+// Um teste é um carregamento real: 10–30s. Por isso é sequencial e espaçado —
+// e por isso o resultado é snapshotado, não consultado ao vivo pela tela.
+
+export type ResultadoPerf =
+  | { ok: true; score: number | null; url: string }
+  | { ok: false; motivo: "sem_config" | "cota" | "erro"; mensagem: string };
+
+export async function sincronizarPerformance(accountId: number, provider = "pagespeed", url?: string): Promise<ResultadoPerf> {
+  const dia = hojeLocal();
+  const alvo = url ?? (await contasComPerformance()).find((c) => c.accountId === accountId)?.url;
+  if (!alvo) return { ok: false, motivo: "sem_config", mensagem: "Nenhuma URL configurada para testar." };
+
+  try {
+    const snap = await coletarPerformance(provider as SiteProvider, alvo, "mobile");
+    await salvarSiteSnapshot({
+      accountId, provider: snap.provider, url: snap.url, estrategia: snap.estrategia, dia,
+      metricsJson: snap.metricas,
+      recommendationsJson: snap.recomendacoes,
+      externalReportUrl: snap.externalReportUrl,
+    });
+    await registrarSyncPerf(accountId, "ok");
+    return { ok: true, score: snap.metricas.performanceScore, url: snap.url };
+  } catch (e) {
+    const msg = (e as Error).message; // o service garante que não contém a key
+    const motivo = e instanceof PerfConfigError ? "sem_config" : e instanceof PerfQuotaError ? "cota" : "erro";
+    await registrarSyncPerf(accountId, "erro", msg);
+    return { ok: false, motivo, mensagem: msg };
+  }
+}
+
+/** Job diário. Isolado por cliente: um site fora do ar não derruba os outros. */
+export async function runPerformanceSnapshots(): Promise<{ contas: number; ok: number; falhas: number }> {
+  const contas = await contasComPerformance();
+  if (contas.length === 0) {
+    logger.info("[Perf] Nenhum cliente com performance técnica configurada.");
+    return { contas: 0, ok: 0, falhas: 0 };
+  }
+  let ok = 0, falhas = 0;
+  for (const c of contas) {
+    const nome = c.nome ?? `#${c.accountId}`;
+    const r = await sincronizarPerformance(c.accountId, c.provider, c.url);
+    if (r.ok) { ok++; logger.info(`[Perf] ✓ ${nome}: score ${r.score ?? "?"} · ${r.url}`); }
+    else { falhas++; logger.error(`[Perf] ✗ ${nome}: ${r.mensagem}`); }
+    await new Promise((res) => setTimeout(res, 2000)); // respiro: teste é pesado
+  }
+  logger.info(`[Perf] Ciclo completo — ${ok} ok · ${falhas} falha(s) de ${contas.length}.`);
   return { contas: contas.length, ok, falhas };
 }

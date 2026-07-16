@@ -12,12 +12,12 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { logger } from "./logger";
-import { isEmailConfigured, sendEmail } from "./emailService";
+import { isEmailConfigured, sendEmail, isDryRun } from "./emailService";
 import {
-  createNotification, destinatariosEmail, emailJaEnviado, marcarEmailEnviado,
+  createNotification, destinatariosInApp, destinatariosEmail, emailJaEnviado, marcarEmailEnviado,
   financeAtrasos,
   usuariosComTrello, aniversariantesDe, pendentesDoDigest, marcarEmailEnviadoIds,
-  usuariosAtivosComEmail, emailModoDe,
+  usuariosAtivosComEmail, emailModoDe, registrarEnvioDigest, emailDigestJaEnviado,
 } from "./db";
 import { decryptSecret } from "./_core/integrationsCrypto";
 import { isTrelloConfigured, listMyCards, TrelloAuthError } from "./trelloService";
@@ -160,6 +160,89 @@ function parseBriefing(raw: string): { resumo: string; positivo: string; atencao
   } catch {
     return { resumo: raw.slice(0, 1000), positivo: "", atencao: "", critico: "" };
   }
+}
+
+/**
+ * Disparo MANUAL do resumo diário, com ajustes do admin.
+ *
+ * O automático continua sendo a rotina; isto é o controle excepcional: dá para
+ * tirar quem está de férias, escolher o canal e ver o alcance antes de mandar.
+ *
+ * `canal` decide o que acontece:
+ *   in-app  → cria alerts, não manda email
+ *   email   → manda email, NÃO cria alerts (não entra no sino)
+ *   ambos   → os dois
+ */
+export async function dispararResumoManual(opts: {
+  canal: "inapp" | "email" | "ambos";
+  excluirUserIds?: number[];
+  atorId: number;
+}): Promise<{ conteudo: boolean; inapp: number; emails: number; pulados: number; dryRun: boolean }> {
+  const dia = hojeAgencia();
+  const dedupKey = `RELATORIO_DIARIO:global:${dia}`;
+  const conteudo = await obterBriefingDoDia(dia);
+  if (!conteudo) return { conteudo: false, inapp: 0, emails: 0, pulados: 0, dryRun: isDryRun() };
+
+  const excluidos = new Set(opts.excluirUserIds ?? []);
+  const { resumo, positivo, atencao, critico } = parseBriefing(conteudo);
+  const titulo = `Relatório diário · ${fmtData(dia)}`;
+  const texto = [resumo, positivo && `✅ ${positivo}`, atencao && `⚠️ ${atencao}`, critico && `🚨 ${critico}`].filter(Boolean).join("\n");
+
+  let inapp = 0;
+  if (opts.canal !== "email") {
+    const elegiveis = (await destinatariosInApp("RELATORIO_DIARIO")).filter((d) => !excluidos.has(d.id));
+    const criados = await createNotification({
+      tipo: "RELATORIO_DIARIO", alertType: "DAILY_BRIEFING", severity: "INFO",
+      title: titulo, message: texto, referencia: "global", dia,
+      apenas: elegiveis.map((d) => d.id),
+    });
+    inapp = criados.length;
+  }
+
+  let emails = 0;
+  if (opts.canal !== "inapp") {
+    // No canal "somente email" não existe alert — então não há linha onde gravar
+    // emailSentAt. Sem um registro próprio, o sistema esqueceria que enviou e
+    // reenviaria o mesmo resumo a cada clique. O recibo resolve isso.
+    const bloco = (emoji: string, txt: string, cor: string) => txt ? `<p style="margin:8px 0;font-size:14px;color:${cor}">${emoji} ${txt}</p>` : "";
+    const html = layout(titulo, `<p style="margin:0 0 8px;font-size:14px;color:#333">${resumo}</p>${bloco("✅", positivo, "#16A34A")}${bloco("⚠️", atencao, "#D97706")}${bloco("🚨", critico, "#DC2626")}`);
+    const elegiveis = (await destinatariosEmail("RELATORIO_DIARIO", "hora")).filter((d) => !excluidos.has(d.id));
+    for (const d of elegiveis) {
+      if (!d.email) continue;
+      if (await emailDigestJaEnviado(d.id, dedupKey)) continue; // não duplica no mesmo dia
+      const ok = await sendEmail({ to: d.email, subject: `[SELVA] ${titulo}`, html, text: texto });
+      if (ok) {
+        await marcarEmailEnviado(d.id, dedupKey);          // marca o alert, se existir
+        await registrarEnvioDigest(d.id, dedupKey, d.email); // recibo próprio, sempre
+        emails++;
+      }
+    }
+  }
+
+  logger.info(`[Notif] Resumo manual por #${opts.atorId} · canal=${opts.canal} · ${inapp} in-app · ${emails} email(s)${isDryRun() ? " (DRY-RUN)" : ""}`);
+  return { conteudo: true, inapp, emails, pulados: excluidos.size, dryRun: isDryRun() };
+}
+
+/** Prévia do disparo: quem recebe o quê, antes de mandar. */
+export async function previewResumoManual(excluirUserIds: number[] = []) {
+  const dia = hojeAgencia();
+  const excluidos = new Set(excluirUserIds);
+  const [inapp, email] = await Promise.all([
+    destinatariosInApp("RELATORIO_DIARIO"),
+    destinatariosEmail("RELATORIO_DIARIO", "hora"),
+  ]);
+  // Quem já recebeu hoje (o automático pode ter rodado) — reenviar exige aval.
+  const jaEnviado: number[] = [];
+  for (const d of email) if (await emailDigestJaEnviado(d.id, `RELATORIO_DIARIO:global:${dia}`)) jaEnviado.push(d.id);
+  return {
+    dia,
+    inapp: inapp.filter((d) => !excluidos.has(d.id)).map((d) => ({ id: d.id, nome: d.name })),
+    email: email.filter((d) => !excluidos.has(d.id) && d.email).map((d) => ({ id: d.id, nome: d.name, email: d.email })),
+    excluidos: Array.from(excluidos),
+    jaEnviadoHoje: jaEnviado.length > 0,
+    dryRun: isDryRun(),
+    emailConfigurado: isEmailConfigured(),
+  };
 }
 
 // ─── PERFORMANCE: relatório semanal ──────────────────────────────────────────

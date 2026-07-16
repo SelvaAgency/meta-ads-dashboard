@@ -169,8 +169,9 @@ export async function runClarityAlertas(): Promise<{ contas: number; alertas: nu
           title: `${nome}: ${p.titulo}`, message: p.detalhe,
           referencia: `${c.accountId}:${p.chave}`, dia,
           accountId: c.accountId,
-          // Destino: abre este cliente já na aba de comportamento no site.
-          suggestedAction: `/clarity?account=${c.accountId}`,
+          // Destino: abre este cliente na subaba certa de Site. Alertas antigos
+          // apontam para /clarity, que segue vivo justamente por isso.
+          suggestedAction: `/site?account=${c.accountId}&aba=clarity`,
         });
         if (criados.length) { alertas++; logger.info(`[Clarity] alerta "${p.chave}" em ${nome} → ${criados.length} pessoa(s)`); }
       }
