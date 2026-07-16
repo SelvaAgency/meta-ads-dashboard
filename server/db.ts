@@ -1924,7 +1924,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, type InsertClientSocialAccount } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { isDryRun } from "./emailService";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
@@ -4246,4 +4246,59 @@ export async function serieSnapshotsPorProvider(accountId: number, provider: str
   return db.select().from(clientSiteSnapshots)
     .where(and(eq(clientSiteSnapshots.accountId, accountId), eq(clientSiteSnapshots.provider, provider)))
     .orderBy(desc(clientSiteSnapshots.dia)).limit(limite);
+}
+
+// ─── Widgets da visão geral (preferência por pessoa) ─────────────────────────
+
+/** Só o que a pessoa mexeu. O resto vem do catálogo (shared/widgets.ts). */
+export async function getWidgetPrefs(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(dashboardWidgetPrefs).where(eq(dashboardWidgetPrefs.userId, userId));
+  return rows.map((r) => ({ widgetKey: r.widgetKey, visivel: r.visivel, ordem: r.ordem }));
+}
+
+export async function upsertWidgetPref(userId: number, widgetKey: string, visivel: boolean, ordem: number | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(dashboardWidgetPrefs).values({ userId, widgetKey, visivel, ordem })
+    .onDuplicateKeyUpdate({ set: { visivel, ordem } });
+}
+
+/** Voltar ao padrão = apagar as linhas, não gravar o default. Assim a pessoa
+ *  volta a acompanhar o catálogo se ele mudar. */
+export async function limparWidgetPrefs(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(dashboardWidgetPrefs).where(eq(dashboardWidgetPrefs.userId, userId));
+}
+
+// ─── Redes sociais por cliente ───────────────────────────────────────────────
+
+export async function listarSociaisDaConta(accountId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(clientSocialAccounts)
+    .where(eq(clientSocialAccounts.accountId, accountId))
+    .orderBy(desc(clientSocialAccounts.enabled), clientSocialAccounts.provider);
+}
+
+export async function listarTodasAsSociais() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(clientSocialAccounts).where(eq(clientSocialAccounts.enabled, true));
+}
+
+export async function salvarSocial(s: InsertClientSocialAccount) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const { accountId, provider, handle, ...resto } = s;
+  await db.insert(clientSocialAccounts).values(s)
+    .onDuplicateKeyUpdate({ set: resto });
+}
+
+export async function apagarSocial(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(clientSocialAccounts).where(eq(clientSocialAccounts.id, id));
 }

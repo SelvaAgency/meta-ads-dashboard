@@ -21,6 +21,7 @@ import {
   TrendingUp,
   Activity,
   Globe,
+  Instagram,
   Settings,
   AlertTriangle,
   Info,
@@ -146,6 +147,9 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
     { path: "/site", label: "Site", icon: Globe },
+    // A página existia e já puxava dado real do Instagram, mas não estava em
+    // lugar nenhum da navegação — só por URL direta.
+    { path: "/social-networks", label: "Redes sociais", icon: Instagram },
   ];
 
   // ── Loading / Auth guards ──────────────────────────────────────────────────

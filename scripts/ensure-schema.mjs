@@ -578,6 +578,39 @@ async function main() {
       }
     }
 
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`dashboard_widget_prefs\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`userId\` INT NOT NULL,
+        \`widgetKey\` VARCHAR(40) NOT NULL,
+        \`visivel\` BOOLEAN NOT NULL DEFAULT 1,
+        \`ordem\` INT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uq_widget_pref_user_key\` (\`userId\`, \`widgetKey\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · dashboard_widget_prefs garantida");
+
+    // Redes sociais por cliente — substitui o mapa hardcoded de pageMapping.ts.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`client_social_accounts\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`accountId\` INT NOT NULL,
+        \`provider\` VARCHAR(20) NOT NULL DEFAULT 'instagram',
+        \`handle\` VARCHAR(120) NOT NULL,
+        \`profileUrl\` VARCHAR(500) NULL,
+        \`externalId\` VARCHAR(64) NULL,
+        \`enabled\` BOOLEAN NOT NULL DEFAULT 1,
+        \`notes\` TEXT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uq_social_conta_provider\` (\`accountId\`, \`provider\`, \`handle\`),
+        KEY \`idx_social_conta\` (\`accountId\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · client_social_accounts garantida");
+
     // Relatórios modulares — aditivo. As linhas antigas ficam com estes campos
     // NULL e continuam sendo lidas pelo `tier`; as novas trazem os módulos
     // pedidos e as fontes que existiam de fato no momento da geração.

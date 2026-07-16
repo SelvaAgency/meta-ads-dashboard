@@ -13,7 +13,9 @@ import {
   CheckCircle2,
   ChevronDown,
   Flame,
+  Globe,
   RefreshCw,
+  SlidersHorizontal,
   Sparkles,
 } from "lucide-react";
 
@@ -256,6 +258,26 @@ export default function SuggestionsHub() {
   const { setActiveAccountId } = useActiveAccount();
   const [, navigate]           = useLocation();
 
+  // ── Visão modular ─────────────────────────────────────────────────────────
+  const [painelAberto, setPainelAberto] = useState(false);
+  const { data: widgets } = trpc.visao.widgets.useQuery(undefined, { refetchOnWindowFocus: false });
+  /**
+   * Enquanto a preferência não chega, mostra tudo. O contrário — esconder até
+   * saber — faria a tela piscar vazia a cada carregamento, e a maioria dos
+   * widgets é visível por padrão de qualquer forma.
+   */
+  const mostrar = (k: string) => !widgets || (widgets.find((w) => w.key === k)?.visivel ?? true);
+
+  /** Bloco de Sites → seção Site, no cliente e aba certos quando dá. */
+  const irParaSite = (accountId: number | undefined, aba: string | undefined) => {
+    if (accountId) setActiveAccountId(accountId);
+    const p = new URLSearchParams();
+    if (accountId) p.set("account", String(accountId));
+    if (aba) p.set("aba", aba);
+    const qs = p.toString();
+    navigate(qs ? `/site?${qs}` : "/site");
+  };
+
   // ── Measure briefing overflow once content arrives ────────────────────────
 
   useEffect(() => {
@@ -392,7 +414,24 @@ export default function SuggestionsHub() {
     <MetaDashboardLayout>
       <div className="max-w-4xl mx-auto pb-8">
 
+        {/* Personalizar visão — a lista de widgets sai do servidor, já filtrada
+            pelo papel de quem está olhando (ver shared/widgets.ts). */}
+        <div className="px-6 pt-6 flex justify-end">
+          <button
+            onClick={() => setPainelAberto(true)}
+            className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground transition-colors"
+            style={{ border: `0.5px solid ${BORDER_T}` }}
+          >
+            <SlidersHorizontal className="w-3 h-3" />
+            Personalizar visão
+          </button>
+        </div>
+        {painelAberto && <PainelVisao onFechar={() => setPainelAberto(false)} />}
+
+        {mostrar("sites") && <BlocoSites onIr={irParaSite} />}
+
         {/* ══ 1 — Caixa unificada: top bar + briefing + status cards ══════ */}
+        {mostrar("midia_geral") && (
         <div className="px-6 pt-6">
           <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, overflow: "hidden" }}>
 
@@ -607,8 +646,10 @@ export default function SuggestionsHub() {
 
           </div>
         </div>
+        )}
 
         {/* ══ 3 — Ações Sugeridas ════════════════════════════════════════ */}
+        {mostrar("acoes") && (
         <div className="px-6 pt-4">
           <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">Ações Sugeridas</p>
           <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, padding: 16 }}>
@@ -754,8 +795,10 @@ export default function SuggestionsHub() {
 
           </div>
         </div>
+        )}
 
         {/* ══ 4 — Separador "Panorama geral" (toggle) ════════════════════ */}
+        {mostrar("panorama") && (<>
         <button
           onClick={() => setPanoramaOpen((v) => !v)}
           className="w-full"
@@ -916,8 +959,183 @@ export default function SuggestionsHub() {
             </div>
           </div>
         </div>
+        </>)}
 
       </div>
     </MetaDashboardLayout>
+  );
+}
+
+// ─── B1: Sites do portfólio ──────────────────────────────────────────────────
+
+const COR_SEV: Record<string, { cor: string; bg: string }> = {
+  critico:   { cor: "#E24B4A", bg: "rgba(226,75,74,0.06)" },
+  atencao:   { cor: "#EF9F27", bg: "rgba(239,159,39,0.06)" },
+  info:      { cor: "rgba(0,0,0,0.45)", bg: "rgba(0,0,0,0.02)" },
+  pendencia: { cor: "rgba(0,0,0,0.45)", bg: "rgba(0,0,0,0.02)" },
+};
+
+/**
+ * Triagem, não diagnóstico: a pergunta é "algum site está com problema agora?".
+ * As pendências ("nunca testado", "sem Clarity") aparecem na mesma lista, mais
+ * apagadas — um site que ninguém mediu não pode parecer um site saudável.
+ */
+function BlocoSites({ onIr }: { onIr: (accountId: number | undefined, aba: string | undefined) => void }) {
+  const q = trpc.visao.sites.useQuery();
+
+  if (q.isLoading) {
+    return (
+      <div className="px-6 pt-4">
+        <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, padding: "14px 16px" }}>
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Sites</p>
+          <p className="text-xs text-muted-foreground mt-2">Carregando…</p>
+        </div>
+      </div>
+    );
+  }
+
+  const d = q.data;
+  if (!d || d.totalComSite === 0) {
+    return (
+      <div className="px-6 pt-4">
+        <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, padding: "14px 16px" }}>
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Sites</p>
+          <p className="text-xs text-muted-foreground mt-2">
+            Nenhum cliente com site configurado. Informe o domínio na seção Site de cada cliente.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const problemas = d.destaques.filter((x) => x.severidade === "critico" || x.severidade === "atencao");
+  const resto = d.destaques.filter((x) => x.severidade === "info" || x.severidade === "pendencia");
+
+  return (
+    <div className="px-6 pt-4">
+      <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, overflow: "hidden" }}>
+        <div className="flex items-center gap-2" style={{ padding: "10px 16px", borderBottom: `0.5px solid ${BORDER_T}` }}>
+          <Globe className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#E85BA8" }} />
+          <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "#E85BA8" }}>Sites</span>
+          <span className="text-[10px] text-muted-foreground">· {d.totalComSite} com site configurado</span>
+          <button
+            onClick={() => onIr(undefined, undefined)}
+            className="ml-auto text-[10px] font-medium"
+            style={{ color: "#E85BA8", background: "none", border: "none", cursor: "pointer" }}
+          >
+            Abrir seção Site →
+          </button>
+        </div>
+
+        <div style={{ padding: "12px 16px" }}>
+          {problemas.length === 0 && (
+            <p className="text-xs text-muted-foreground mb-2">
+              Nenhum problema ativo nos sites medidos.
+            </p>
+          )}
+          {[...problemas, ...resto].map((x) => {
+            const c = COR_SEV[x.severidade] ?? COR_SEV.info;
+            const clicavel = x.accountId !== undefined;
+            return (
+              <button
+                key={x.chave}
+                onClick={() => clicavel && onIr(x.accountId, x.aba)}
+                disabled={!clicavel}
+                title={clicavel ? "Abrir este cliente" : "Vários clientes — abra a seção Site"}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8, width: "100%",
+                  padding: "7px 9px", marginBottom: 4, borderRadius: 8,
+                  background: c.bg, border: `0.5px solid ${BORDER_T}`,
+                  cursor: clicavel ? "pointer" : "default", textAlign: "left",
+                }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: c.cor }} />
+                <span className="text-xs" style={{ color: x.severidade === "pendencia" || x.severidade === "info" ? "var(--muted-foreground)" : c.cor }}>
+                  {x.texto}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── B2: Personalizar visão ──────────────────────────────────────────────────
+
+/**
+ * Painel de widgets. Só mostra o que o papel da pessoa permite — e o backend
+ * revalida, porque esconder no cliente é decoração, não permissão.
+ *
+ * "Voltar ao padrão" APAGA as preferências em vez de gravar os defaults: assim
+ * quem nunca personalizou (ou desistiu) volta a acompanhar o catálogo quando
+ * ele mudar, em vez de congelar o padrão de hoje para sempre.
+ */
+function PainelVisao({ onFechar }: { onFechar: () => void }) {
+  const utils = trpc.useUtils();
+  const q = trpc.visao.widgets.useQuery();
+  const salvar = trpc.visao.salvarWidget.useMutation({
+    onSuccess: () => utils.visao.widgets.invalidate(),
+    onError: (e) => toast.error(e.message),
+  });
+  const resetar = trpc.visao.resetarWidgets.useMutation({
+    onSuccess: () => { utils.visao.widgets.invalidate(); toast.success("Visão restaurada ao padrão."); },
+  });
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-end"
+      style={{ background: "rgba(0,0,0,0.35)" }}
+      onClick={onFechar}
+    >
+      <div
+        className="h-full w-full max-w-sm flex flex-col"
+        style={{ background: "var(--background)", borderLeft: `0.5px solid ${BORDER_T}` }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 px-5 py-4" style={{ borderBottom: `0.5px solid ${BORDER_T}` }}>
+          <SlidersHorizontal className="w-4 h-4" />
+          <span className="text-sm font-semibold">Personalizar visão</span>
+          <button onClick={onFechar} className="ml-auto text-muted-foreground hover:text-foreground text-lg leading-none">×</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-2">
+          <p className="text-xs text-muted-foreground mb-1">
+            Escolha o que aparece na sua visão geral. Vale só para você.
+          </p>
+          {(q.data ?? []).map((w) => (
+            <label
+              key={w.key}
+              className="flex items-start gap-2.5 rounded-lg px-3 py-2.5 cursor-pointer"
+              style={{ border: `0.5px solid ${BORDER_T}`, background: w.visivel ? "rgba(232,91,168,0.05)" : "transparent" }}
+            >
+              <input
+                type="checkbox"
+                checked={w.visivel}
+                onChange={() => salvar.mutate({ key: w.key, visivel: !w.visivel, ordem: w.ordem })}
+                className="mt-0.5 cursor-pointer"
+              />
+              <span className="flex-1">
+                <span className="text-sm block">{w.nome}</span>
+                <span className="text-[11px] text-muted-foreground block">{w.descricao}</span>
+              </span>
+            </label>
+          ))}
+          {(q.data ?? []).length === 0 && !q.isLoading && (
+            <p className="text-xs text-muted-foreground">Nenhum widget disponível para o seu perfil.</p>
+          )}
+        </div>
+
+        <div className="px-5 py-4" style={{ borderTop: `0.5px solid ${BORDER_T}` }}>
+          <button
+            onClick={() => resetar.mutate()}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            Voltar ao padrão do meu perfil
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

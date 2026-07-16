@@ -288,6 +288,29 @@ import { emailMode } from "./emailService";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
 import { buildClientIntelligenceContext, contextoParaTexto, fontesDe, MODULOS, MODULOS_SITE } from "./services/clientIntelligence";
 import { gerarRelatorioModular, PRESETS, tierDe } from "./services/reportBuilder";
+import { resumoSitesPortfolio } from "./services/sitePortfolio";
+import { resolverWidgets, widgetPorKey, widgetServeRole } from "@shared/widgets";
+import type { Role } from "@shared/permissions";
+import { getWidgetPrefs, upsertWidgetPref, limparWidgetPrefs, listarSociaisDaConta, salvarSocial, apagarSocial } from "./db";
+
+/**
+ * O @ chega colado de tudo quanto é jeito: "@selva", "selva",
+ * "instagram.com/selva/", "https://www.instagram.com/selva?igsh=x". Guardar
+ * isso cru faria o cadastro virar lixo e o vínculo com a Graph API falhar.
+ */
+function normalizarHandle(bruto: string): string {
+  let h = (bruto ?? "").trim();
+  if (!h) return "";
+  const m = h.match(/^(?:https?:\/\/)?(?:www\.)?(?:instagram|linkedin|youtube)\.com\/(?:in\/|@)?([^/?#]+)/i);
+  if (m) h = m[1];
+  return h.replace(/^@+/, "").replace(/\/+$/, "").trim();
+}
+
+function urlPadraoDoPerfil(provider: string, handle: string): string {
+  if (provider === "linkedin") return `https://www.linkedin.com/in/${handle}`;
+  if (provider === "youtube") return `https://www.youtube.com/@${handle}`;
+  return `https://www.instagram.com/${handle}/`;
+}
 import { entregarComunicado } from "./notificationJobs";
 import { notifTiposFor, notifTipoDef, type EmailModo } from "../shared/notifications";
 
@@ -3082,6 +3105,76 @@ export const appRouter = router({
     limparChat: contentProcedure
       .input(z.object({ accountId: z.number().int() }))
       .mutation(async ({ input }) => { await limparChat(input.accountId); return { success: true } as const; }),
+  }),
+
+  // ─── Visão geral do Tracker: widgets, sites e redes sociais ──────────────────
+  visao: router({
+    /** Catálogo + preferência da pessoa, já resolvidos. */
+    widgets: protectedProcedure.query(async ({ ctx }) => {
+      const prefs = await getWidgetPrefs(ctx.user.id);
+      return resolverWidgets((ctx.user.role ?? "user") as Role, prefs);
+    }),
+
+    /**
+     * Grava só o que foi mexido. O backend revalida o papel: esconder no
+     * cliente não é permissão — é decoração.
+     */
+    salvarWidget: protectedProcedure
+      .input(z.object({ key: z.string(), visivel: z.boolean(), ordem: z.number().int().nullable().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const w = widgetPorKey(input.key);
+        if (!w) throw new TRPCError({ code: "BAD_REQUEST", message: "Widget desconhecido." });
+        if (!widgetServeRole(w, (ctx.user.role ?? "user") as Role)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Este widget não está disponível para o seu perfil." });
+        }
+        await upsertWidgetPref(ctx.user.id, input.key, input.visivel, input.ordem ?? null);
+        return { success: true } as const;
+      }),
+
+    /** Voltar ao padrão: apaga as linhas para voltar a seguir o catálogo. */
+    resetarWidgets: protectedProcedure.mutation(async ({ ctx }) => {
+      await limparWidgetPrefs(ctx.user.id);
+      return { success: true } as const;
+    }),
+
+    /** Resumo dos sites do portfólio — "algum site está com problema agora?". */
+    sites: protectedProcedure.query(() => resumoSitesPortfolio()),
+  }),
+
+  // ─── Redes sociais por cliente (cadastro) ────────────────────────────────────
+  social: router({
+    daConta: protectedProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(({ input }) => listarSociaisDaConta(input.accountId)),
+
+    salvar: contentProcedure
+      .input(z.object({
+        accountId: z.number().int(),
+        provider: z.enum(["instagram", "linkedin", "youtube"]).default("instagram"),
+        // O @ vem colado de tudo quanto é jeito: com @, com URL inteira, com
+        // espaço. Normalizamos aqui para o cadastro não virar lixo.
+        handle: z.string().min(1).max(120),
+        profileUrl: z.string().max(500).optional(),
+        notes: z.string().max(1000).optional(),
+        enabled: z.boolean().default(true),
+      }))
+      .mutation(async ({ input }) => {
+        const handle = normalizarHandle(input.handle);
+        if (!handle) throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o @ do perfil." });
+        await salvarSocial({
+          accountId: input.accountId,
+          provider: input.provider,
+          handle,
+          profileUrl: input.profileUrl || urlPadraoDoPerfil(input.provider, handle),
+          notes: input.notes ?? null,
+          enabled: input.enabled,
+        });
+        return { success: true, handle } as const;
+      }),
+
+    apagar: contentProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ input }) => { await apagarSocial(input.id); return { success: true } as const; }),
   }),
 
   // ─── Alerts ───────────────────────────────────────────────────────────────────────────

@@ -878,6 +878,56 @@ export type NotificationPref = typeof notificationPrefs.$inferSelect;
 export type InsertNotificationPref = typeof notificationPrefs.$inferInsert;
 
 /**
+ * Widget da visão geral do Tracker ligado/desligado por pessoa.
+ * Mesmo modelo do notification_prefs: ausência de linha = default do catálogo
+ * (shared/widgets.ts). Só gravamos o que foi mexido, então mudar o default
+ * depois vale para quem nunca personalizou — e não atropela quem personalizou.
+ */
+export const dashboardWidgetPrefs = mysqlTable("dashboard_widget_prefs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  widgetKey: varchar("widgetKey", { length: 40 }).notNull(),
+  visivel: boolean("visivel").default(true).notNull(),
+  /** NULL = usa a ordem do catálogo. */
+  ordem: int("ordem"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqUserWidget: uniqueIndex("uq_widget_pref_user_key").on(table.userId, table.widgetKey),
+}));
+export type DashboardWidgetPref = typeof dashboardWidgetPrefs.$inferSelect;
+export type InsertDashboardWidgetPref = typeof dashboardWidgetPrefs.$inferInsert;
+
+/**
+ * Perfil de rede social de um cliente. Substitui o mapa hardcoded em
+ * shared/pageMapping.ts ("Last updated: 2026-05-06"), que só era editável por
+ * deploy — quem sabe o @ do cliente é a equipe, não o repositório.
+ *
+ * `provider` já nasce aberto (instagram hoje; linkedin/youtube depois) para
+ * não precisar de outra tabela quando chegarem.
+ *
+ * `externalId` guarda o id da Graph API quando resolvido. Fica separado do
+ * handle de propósito: o @ muda, o id não.
+ */
+export const clientSocialAccounts = mysqlTable("client_social_accounts", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  provider: varchar("provider", { length: 20 }).default("instagram").notNull(),
+  handle: varchar("handle", { length: 120 }).notNull(),
+  profileUrl: varchar("profileUrl", { length: 500 }),
+  externalId: varchar("externalId", { length: 64 }),
+  enabled: boolean("enabled").default(true).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqContaProvider: uniqueIndex("uq_social_conta_provider").on(table.accountId, table.provider, table.handle),
+  idxConta: index("idx_social_conta").on(table.accountId),
+}));
+export type ClientSocialAccount = typeof clientSocialAccounts.$inferSelect;
+export type InsertClientSocialAccount = typeof clientSocialAccounts.$inferInsert;
+
+/**
  * Comunicado interno: o admin escreve uma vez aqui; a ENTREGA e o recibo de
  * leitura vivem em `alerts` (uma linha por destinatário, dedupKey
  * "COMUNICADO:<id>"). Quem leu = alerts.isRead — sem tabela de recibo separada.
