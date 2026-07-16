@@ -69,6 +69,19 @@ describe("flyout por cliente", () => {
   it("não pendura '?' quando não há query", () => {
     expect(urlEmbutidaPara("/tracker", "")).toBe("/tracker");
   });
+
+  // Cadeia completa do clique: sidebar → shell → iframe. O destino é /dashboard
+  // (a Visão Geral do cliente) e não a raiz do Tracker, que é o seletor de
+  // portfólio — abrir lá com cliente escolhido não mostraria o cliente.
+  it("clicar num cliente abre o /dashboard dele dentro do iframe", () => {
+    const shell = urlDoShellPara("/dashboard", "?client=aika");
+    expect(shell).toBe("/tracker?client=aika&rota=%2Fdashboard");
+
+    const busca = shell.slice(shell.indexOf("?"));
+    const rota = rotaInternaSegura(new URLSearchParams(busca).get("rota"));
+    expect(rota).toBe("/dashboard");
+    expect(urlEmbutidaPara(rota!, busca)).toBe("/dashboard?client=aika");
+  });
 });
 
 describe("fronteira Spaces × Tracker", () => {

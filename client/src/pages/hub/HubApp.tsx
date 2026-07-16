@@ -19,7 +19,7 @@ import { useLocation, useSearchParams } from "wouter";
 import { HubShell } from "./HubShell";
 import { HubIntegratedApp } from "./HubIntegratedApp";
 import { integratedAppByRoute } from "./integratedAppsConfig";
-import { trackerClientBySlug } from "./trackerConfig";
+import { getClientBySlug } from "@/config/clientConfig";
 import { rotaInternaSegura, urlEmbutidaPara } from "./trackerRoutes";
 
 export default function HubApp() {
@@ -49,7 +49,8 @@ export default function HubApp() {
   // casos — é por ela que `client` (flyout) e `account`/`aba` (alertas) entram.
   const src = urlEmbutidaPara(rota ?? app.route, busca);
 
-  const client = app.supportsClientFlyout ? trackerClientBySlug(searchParams.get("client")) : undefined;
+  const slug = app.supportsClientFlyout ? searchParams.get("client") : null;
+  const client = slug ? getClientBySlug(slug) : undefined;
   if (client) title = `${app.label} · ${client.name}`;
 
   return <HubIntegratedApp title={title} src={src} />;

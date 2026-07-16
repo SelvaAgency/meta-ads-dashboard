@@ -42,7 +42,8 @@ import {
 import { SelvaLogo } from "@/components/SelvaLogo";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canAccessAdmin } from "@shared/permissions";
-import { TRACKER_CLIENTS } from "./trackerConfig";
+import { useActiveAccount } from "@/contexts/ActiveAccountContext";
+import { urlDoShellPara } from "./trackerRoutes";
 import { isIntegratedAppRoute } from "./integratedAppsConfig";
 import { HubUserMenu } from "./HubUserMenu";
 
@@ -169,10 +170,23 @@ function NavRow({ item, open, active }: { item: NavItem; open: boolean; active: 
 }
 
 // ─── Item Tracker: row + flyout de clientes no hover ─────────────────────────
+/**
+ * A lista sai do contexto (clientAccounts), não do config estático: o config
+ * tem clientes que não têm conta Meta no banco, e clicar num deles abriria o
+ * Tracker sem cliente nenhum — que é justamente o que não pode acontecer
+ * quando a pessoa escolheu um cliente específico. Só entra quem tem conta.
+ *
+ * O clique vai para /dashboard, não para a raiz do Tracker: a raiz é o seletor
+ * de portfólio (lista todas as contas), então abrir lá com um cliente
+ * selecionado mostraria a mesma lista de sempre — a escolha ficaria invisível.
+ * /dashboard é a Visão Geral DAQUELE cliente, que é o que a pessoa pediu ao
+ * clicar no nome dele.
+ */
 function TrackerItem({ item, open, active }: { item: Extract<NavItem, { kind: "app" }>; open: boolean; active: boolean }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
+  const { clientAccounts, isLoading } = useActiveAccount();
 
   const openFlyout = () => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
@@ -200,20 +214,24 @@ function TrackerItem({ item, open, active }: { item: Extract<NavItem, { kind: "a
         >
           <p className="px-2 pb-1.5 pt-1 text-[11px] text-muted-foreground">Clientes · Tracker</p>
           <div className="max-h-80 overflow-y-auto flex flex-col">
-            {TRACKER_CLIENTS.filter((c) => c.enabled).map((c) => (
-              <Link key={c.slug} href={`${item.href}?client=${c.slug}`}>
+            {isLoading && <p className="px-2 py-1.5 text-xs text-muted-foreground">Carregando…</p>}
+            {!isLoading && clientAccounts.length === 0 && (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">Nenhum cliente conectado.</p>
+            )}
+            {clientAccounts.map(({ client }) => (
+              <Link key={client.slug} href={urlDoShellPara("/dashboard", `?client=${client.slug}`)}>
                 <div
                   className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 cursor-pointer hover:bg-accent/40 transition-colors"
                   onClick={() => setPos(null)}
                 >
                   <span className="w-6 h-6 rounded-md bg-primary/15 text-accent flex items-center justify-center flex-shrink-0 text-[10px] font-bold overflow-hidden">
-                    {c.logoUrl ? (
-                      <img src={c.logoUrl} alt="" className="w-full h-full object-cover" />
+                    {client.pictureUrl ? (
+                      <img src={client.pictureUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      c.initials
+                      client.shortName
                     )}
                   </span>
-                  <span className="text-sm truncate">{c.name}</span>
+                  <span className="text-sm truncate">{client.name}</span>
                 </div>
               </Link>
             ))}
