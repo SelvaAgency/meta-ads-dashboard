@@ -1348,7 +1348,7 @@ export async function getAlertsByUserId(userId: number, limit = 50) {
 export async function getAllAlertsForUser(
   userId: number,
   limit = 200,
-  filtro?: { dominio?: NotifDominio; status?: "nova" | "lida" },
+  filtro?: { dominio?: NotifDominio; status?: "nova" | "lida"; accountId?: number },
 ) {
   const db = await getDb();
   if (!db) return [];
@@ -1374,6 +1374,9 @@ export async function getAllAlertsForUser(
       eq(alerts.userId, userId),
       ...(filtro?.dominio ? [eq(alerts.dominio, filtro.dominio)] : []),
       ...(filtro?.status ? [eq(alerts.isRead, filtro.status === "lida")] : []),
+      // Filtrar por cliente esconde o que não é daquele cliente (prazo do Trello,
+      // financeiro). É intencional: o rótulo do filtro deixa isso explícito.
+      ...(filtro?.accountId ? [eq(alerts.accountId, filtro.accountId)] : []),
     ))
     .orderBy(desc(alerts.createdAt))
     .limit(limit);
@@ -4131,4 +4134,26 @@ export async function emailDigestJaEnviado(userId: number, dedupKey: string): Pr
   const r = await db.select({ id: dailyDigestRecipients.id }).from(dailyDigestRecipients)
     .where(and(eq(dailyDigestRecipients.userId, userId), eq(dailyDigestRecipients.dedupKey, dedupKey))).limit(1);
   return r.length > 0;
+}
+
+/**
+ * Clientes que aparecem nas notificações DESTA pessoa — alimenta o filtro.
+ * Só lista quem tem notificação: filtro com opção que não filtra nada é ruído.
+ */
+export async function clientesComNotificacao(userId: number, filtro?: { dominio?: NotifDominio; status?: "nova" | "lida" }) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    accountId: alerts.accountId, nome: metaAdAccounts.accountName, n: sql<number>`count(*)`,
+  }).from(alerts)
+    .innerJoin(metaAdAccounts, eq(alerts.accountId, metaAdAccounts.id))
+    .where(and(
+      eq(alerts.userId, userId),
+      isNotNull(alerts.accountId),
+      ...(filtro?.dominio ? [eq(alerts.dominio, filtro.dominio)] : []),
+      ...(filtro?.status ? [eq(alerts.isRead, filtro.status === "lida")] : []),
+    ))
+    .groupBy(alerts.accountId, metaAdAccounts.accountName)
+    .orderBy(desc(sql`count(*)`));
+  return rows.map((r) => ({ accountId: r.accountId as number, nome: r.nome ?? `#${r.accountId}`, total: Number(r.n) }));
 }

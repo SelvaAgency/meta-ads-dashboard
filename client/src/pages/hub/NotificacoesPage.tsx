@@ -35,6 +35,57 @@ const ICONE: Record<string, typeof Bell> = {
   WEEKLY_REPORT: TrendingUp,
   ANOMALY: TrendingUp,
 };
+/**
+ * Destino de cada notificação — item 7 da spec. Ponto único: sem isto, cada
+ * card inventaria o próprio link e alguns não teriam nenhum.
+ *
+ * O `suggestedAction` gravado no alerta manda quando existe (é ele que carrega o
+ * card do Trello). Sem ele, o tipo decide para onde ir.
+ */
+function destinoDe(n: { type: string; accountId: number | null; suggestedAction: string | null }): { href: string; label: string; externo?: boolean } | null {
+  const acao = n.suggestedAction ?? "";
+  if (acao.startsWith("http")) return { href: acao, label: "Abrir card", externo: true };
+  if (acao.startsWith("/")) return { href: acao, label: "Ver no Tracker" };
+
+  const q = (aba?: string) => {
+    const p = new URLSearchParams();
+    if (n.accountId) p.set("account", String(n.accountId));
+    if (aba) p.set("aba", aba);
+    const s = p.toString();
+    return s ? `?${s}` : "";
+  };
+
+  switch (n.type) {
+    case "CLARITY_ISSUE":
+      return { href: `/site${q("clarity")}`, label: "Ver comportamento no site" };
+    case "TRACKING_PROBLEM":
+      return { href: `/site${q("clarity")}`, label: "Ver o problema de tracking" };
+    case "ANOMALY":
+    case "BUDGET_WARNING":
+      return n.accountId ? { href: `/dashboard${q()}`, label: "Ver no Tracker" } : null;
+    case "SYNC_ERROR":
+    case "PAYMENT_FAILED":
+    case "AD_REJECTED":
+    case "AD_ERROR":
+    case "PIXEL_ERROR":
+    case "PAGE_UNLINKED":
+    case "INSTAGRAM_UNLINKED":
+    case "ADSET_NO_DELIVERY":
+    case "CAMPAIGN_PAUSED":
+      return n.accountId ? { href: `/dashboard${q()}`, label: "Ver a conta" } : null;
+    case "FINANCE_OVERDUE":
+      return { href: "/finance", label: "Abrir o Financeiro" };
+    case "DAILY_BRIEFING":
+    case "WEEKLY_REPORT":
+      return { href: "/overview", label: "Ver o panorama" };
+    case "COMUNICADO":
+    case "BIRTHDAY":
+      return null; // a mensagem É o conteúdo — não há para onde ir
+    default:
+      return n.accountId ? { href: `/dashboard${q()}`, label: "Ver a conta" } : null;
+  }
+}
+
 const COR_DOMINIO: Record<string, string> = {
   COMUNICADO: "bg-primary/20 text-accent",
   TAREFAS: "bg-blue-500/15 text-blue-600",
@@ -65,10 +116,17 @@ export default function NotificacoesPage() {
   const [compor, setCompor] = useState(false);
   const [disparar, setDisparar] = useState(false);
 
+  const [cliente, setCliente] = useState<number | null>(null);
   const listQ = trpc.alerts.listAll.useQuery({
     ...(dominio ? { dominio } : {}),
     ...(status ? { status } : {}),
+    ...(cliente ? { accountId: cliente } : {}),
   });
+  const clientesQ = trpc.alerts.clientesDisponiveis.useQuery({
+    ...(dominio ? { dominio } : {}),
+    ...(status ? { status } : {}),
+  });
+  const temFiltro = dominio !== null || cliente !== null || status !== "nova";
   const contagemQ = trpc.alerts.unreadByDominio.useQuery();
   const itens = listQ.data ?? [];
 
@@ -84,12 +142,14 @@ export default function NotificacoesPage() {
   }, [contagemQ.data]);
 
   const dominiosVisiveis = NOTIF_DOMINIOS.filter((d) => d.v !== "FINANCEIRO" || isAdmin);
+  // Hoje / Ontem / Esta semana / Mais antigas — período vazio nem aparece.
+  const periodos = useMemo(() => separarPorPeriodo(itens), [itens]);
 
   return (
     <HubShell>
       <main className="flex-1 overflow-auto p-6 md:p-8">
         <div className="max-w-4xl mx-auto flex flex-col gap-6">
-          <header className="flex items-center gap-3">
+          <header className="flex items-center gap-3 flex-wrap">
             <span className="w-10 h-10 rounded-xl bg-primary/20 text-accent flex items-center justify-center flex-shrink-0">
               <Bell className="w-5 h-5" />
             </span>
@@ -135,8 +195,20 @@ export default function NotificacoesPage() {
                     );
                   })}
                 </div>
-                <div className="flex items-center gap-1.5 ml-auto">
-                  {([["nova", "Novas"], ["lida", "Lidas"], [null, "Todas"]] as const).map(([v, lbl]) => (
+                <div className="flex items-center gap-1.5 ml-auto flex-wrap">
+                  {/* Filtro por cliente: só aparece quando há cliente para filtrar. */}
+                  {(clientesQ.data ?? []).length > 0 && (
+                    <select
+                      value={cliente ?? ""} onChange={(e) => setCliente(e.target.value ? Number(e.target.value) : null)}
+                      className="h-7 rounded-full border border-border bg-background px-2 text-[11px] text-muted-foreground max-w-[160px] truncate"
+                    >
+                      <option value="">Todos os clientes</option>
+                      {(clientesQ.data ?? []).map((c) => (
+                        <option key={c.accountId} value={c.accountId}>{c.nome} ({c.total})</option>
+                      ))}
+                    </select>
+                  )}
+                  {([["nova", "Não lidas"], ["lida", "Lidas"], [null, "Todas"]] as const).map(([v, lbl]) => (
                     <Chip key={String(v)} on={status === v} onClick={() => setStatus(v)}>{lbl}</Chip>
                   ))}
                   {total > 0 && (
@@ -148,54 +220,52 @@ export default function NotificacoesPage() {
                 </div>
               </div>
 
-              {listQ.isLoading ? (
+              {/* Filtrar por cliente esconde o que não tem cliente (Trello, financeiro).
+                  Dizer isso evita a sensação de que a notificação sumiu. */}
+              {cliente !== null && (
+                <p className="text-[11px] text-muted-foreground -mt-1">
+                  Mostrando só as notificações de <span className="text-foreground font-medium">{(clientesQ.data ?? []).find((c) => c.accountId === cliente)?.nome}</span>.
+                  Prazos do Trello, financeiro e comunicados não são de cliente e ficam de fora.
+                  <button onClick={() => setCliente(null)} className="text-accent hover:underline ml-1">limpar</button>
+                </p>
+              )}
+
+              {listQ.isError ? (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/5 py-12 text-center">
+                  <AlertTriangle className="w-7 h-7 mx-auto text-red-600/60 mb-2" />
+                  <p className="text-sm font-medium text-red-700">Não foi possível carregar suas notificações</p>
+                  <button onClick={() => listQ.refetch()} className="text-xs text-accent hover:underline mt-2">Tentar de novo</button>
+                </div>
+              ) : listQ.isLoading ? (
                 <div className="flex items-center gap-2 py-16 justify-center text-sm text-muted-foreground">
                   <Loader2 className="w-4 h-4 animate-spin" /> Carregando…
                 </div>
               ) : itens.length === 0 ? (
                 <div className="rounded-xl border border-border bg-card py-16 text-center">
                   <Bell className="w-8 h-8 mx-auto text-muted-foreground/40 mb-2" />
-                  <p className="text-sm text-muted-foreground">
-                    {status === "nova" ? "Nenhuma notificação nova." : "Nada por aqui."}
+                  <p className="text-sm font-medium">
+                    {temFiltro ? "Nada com esses filtros" : status === "nova" ? "Tudo em dia" : "Nenhuma notificação"}
                   </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {temFiltro ? "Tente afrouxar os filtros para ver mais." : status === "nova" ? "Você não tem notificações não lidas." : "Nada por aqui ainda."}
+                  </p>
+                  {temFiltro && (
+                    <button onClick={() => { setDominio(null); setCliente(null); setStatus("nova"); }}
+                      className="text-xs text-accent hover:underline mt-2">Limpar filtros</button>
+                  )}
                 </div>
               ) : (
-                <div className="flex flex-col gap-2">
-                  {itens.map((n) => {
-                    const Icon = ICONE[n.type] ?? Bell;
-                    const cor = COR_DOMINIO[n.dominio] ?? "bg-muted text-muted-foreground";
-                    // Aceita link externo (card do Trello) e rota interna
-                    // (/clarity?account=15) — o alerta precisa levar a algum lugar.
-                    const acao = n.suggestedAction ?? "";
-                    const link = acao.startsWith("http") ? acao : null;
-                    const rota = acao.startsWith("/") ? acao : null;
-                    return (
-                      <div key={n.id} className={`rounded-xl border p-4 flex gap-3 transition ${n.isRead ? "border-border bg-card opacity-60" : "border-accent/30 bg-primary/[0.04]"}`}>
-                        <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${cor}`}>
-                          <Icon className="w-4 h-4" />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start gap-2">
-                            <p className="text-sm font-semibold flex-1">{n.title}</p>
-                            <span className="text-[11px] text-muted-foreground flex-shrink-0">{quando(n.createdAt)}</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground whitespace-pre-line mt-0.5">{n.message}</p>
-                          <div className="flex items-center gap-2 mt-2">
-                            <Badge variant="outline" className="text-[9px]">{dominioLabel(n.dominio)}</Badge>
-                            {link && (
-                              <a href={link} target="_blank" rel="noopener noreferrer" className="text-[11px] text-accent hover:underline">Abrir</a>
-                            )}
-                            {rota && <a href={rota} className="text-[11px] text-accent hover:underline">Ver no Tracker</a>}
-                            {!n.isRead && (
-                              <button onClick={() => markRead.mutate({ alertId: n.id })} className="text-[11px] text-muted-foreground hover:text-foreground ml-auto">
-                                Marcar como lida
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="flex flex-col gap-5">
+                  {periodos.map((p) => (
+                    <div key={p.chave} className="flex flex-col gap-2">
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+                        {p.rotulo} <span className="opacity-60">· {p.itens.length}</span>
+                      </p>
+                      {agrupar(p.itens).map((g) => (
+                        <CardNotificacao key={g.chave} grupo={g} onLer={(ids) => ids.forEach((id) => markRead.mutate({ alertId: id }))} />
+                      ))}
+                    </div>
+                  ))}
                 </div>
               )}
             </>
@@ -547,4 +617,174 @@ function DispararResumo({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
+}
+
+// ─── Agrupamento ─────────────────────────────────────────────────────────────
+
+type Notif = {
+  id: number; title: string; message: string; type: string; dominio: string;
+  severity: string; isRead: boolean; createdAt: string | Date;
+  accountId: number | null; accountName: string | null; suggestedAction: string | null;
+};
+
+const inicioDoDia = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+
+/** Separa por período. Período sem item não vira seção vazia. */
+function separarPorPeriodo(itens: Notif[]): { chave: string; rotulo: string; itens: Notif[] }[] {
+  const hoje = inicioDoDia(new Date()).getTime();
+  const ontem = hoje - 86400000;
+  const semana = hoje - 7 * 86400000;
+  const baldes: Record<string, Notif[]> = { hoje: [], ontem: [], semana: [], antigas: [] };
+  for (const n of itens) {
+    const t = inicioDoDia(new Date(n.createdAt)).getTime();
+    if (t >= hoje) baldes.hoje.push(n);
+    else if (t >= ontem) baldes.ontem.push(n);
+    else if (t >= semana) baldes.semana.push(n);
+    else baldes.antigas.push(n);
+  }
+  return [
+    { chave: "hoje", rotulo: "Hoje", itens: baldes.hoje },
+    { chave: "ontem", rotulo: "Ontem", itens: baldes.ontem },
+    { chave: "semana", rotulo: "Esta semana", itens: baldes.semana },
+    { chave: "antigas", rotulo: "Mais antigas", itens: baldes.antigas },
+  ].filter((p) => p.itens.length > 0);
+}
+
+export type Grupo = { chave: string; itens: Notif[]; naoLidas: number };
+
+/**
+ * Colapsa repetidos por (tipo × cliente). É o que impede 26 cards de prazo do
+ * Trello empilhados — vira um card "26 prazos", expansível.
+ * Urgente e não lida primeiro: o que precisa de ação não pode ficar no fim.
+ */
+function agrupar(itens: Notif[]): Grupo[] {
+  const mapa = new Map<string, Notif[]>();
+  for (const n of itens) {
+    const k = `${n.type}|${n.accountId ?? "-"}`;
+    if (!mapa.has(k)) mapa.set(k, []);
+    mapa.get(k)!.push(n);
+  }
+  const peso = (n: Notif) => (n.severity === "CRITICAL" ? 0 : n.severity === "WARNING" ? 1 : 2);
+  return Array.from(mapa.entries())
+    .map(([chave, xs]) => ({ chave, itens: xs, naoLidas: xs.filter((x) => !x.isRead).length }))
+    .sort((a, b) => {
+      if ((a.naoLidas > 0) !== (b.naoLidas > 0)) return a.naoLidas > 0 ? -1 : 1;   // não lidas primeiro
+      const pa = Math.min(...a.itens.map(peso)), pb = Math.min(...b.itens.map(peso));
+      if (pa !== pb) return pa - pb;                                                // urgente antes
+      return new Date(b.itens[0].createdAt).getTime() - new Date(a.itens[0].createdAt).getTime();
+    });
+}
+
+// ─── Card ────────────────────────────────────────────────────────────────────
+
+function CardNotificacao({ grupo, onLer }: { grupo: Grupo; onLer: (ids: number[]) => void }) {
+  const [aberto, setAberto] = useState(false);
+  const n = grupo.itens[0];
+  const varios = grupo.itens.length > 1;
+  const Icon = ICONE[n.type] ?? Bell;
+  const cor = COR_DOMINIO[n.dominio] ?? "bg-muted text-muted-foreground";
+  const naoLida = grupo.naoLidas > 0;
+  const critico = grupo.itens.some((x) => x.severity === "CRITICAL");
+  const destino = destinoDe(n);
+  // Comunicado é mensagem de gente, alerta é sinal de máquina: não podem ter o
+  // mesmo peso visual.
+  const institucional = n.dominio === "COMUNICADO";
+
+  return (
+    <div className={`rounded-xl border p-4 transition ${
+      institucional && naoLida ? "border-accent/40 bg-primary/[0.07]"
+        : naoLida ? "border-accent/30 bg-primary/[0.04]"
+        : "border-border bg-card opacity-70"}`}>
+      <div className="flex gap-3">
+        <span className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${cor}`}>
+          <Icon className="w-4 h-4" />
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start gap-2">
+            <p className="text-sm font-semibold flex-1 min-w-0 break-words">
+              {varios ? `${grupo.itens.length} ${rotuloPlural(n.type)}` : n.title}
+              {n.accountName && varios && <span className="text-muted-foreground font-normal"> · {n.accountName}</span>}
+            </p>
+            {critico && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-600 flex-shrink-0">urgente</span>}
+            <span className="text-[11px] text-muted-foreground flex-shrink-0">{quando(n.createdAt)}</span>
+          </div>
+
+          {varios ? (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {grupo.naoLidas > 0 ? `${grupo.naoLidas} não lida(s) · ` : ""}mais recente: {n.title}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground whitespace-pre-line mt-0.5 break-words">{n.message}</p>
+          )}
+
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            <Badge variant="outline" className="text-[9px]">{dominioLabel(n.dominio)}</Badge>
+            {!varios && n.accountName && <span className="text-[10px] text-muted-foreground">{n.accountName}</span>}
+            {destino && (
+              destino.externo
+                ? <a href={destino.href} target="_blank" rel="noopener noreferrer" className="text-[11px] text-accent hover:underline">{destino.label}</a>
+                : <a href={destino.href} className="text-[11px] text-accent hover:underline">{destino.label}</a>
+            )}
+            {varios && (
+              <button onClick={() => setAberto((v) => !v)} className="text-[11px] text-muted-foreground hover:text-foreground">
+                {aberto ? "ocultar" : `ver as ${grupo.itens.length}`}
+              </button>
+            )}
+            {naoLida && (
+              <button onClick={() => onLer(grupo.itens.filter((x) => !x.isRead).map((x) => x.id))}
+                className="text-[11px] text-muted-foreground hover:text-foreground ml-auto">
+                {varios ? "Marcar todas como lidas" : "Marcar como lida"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Expandido: nada se perde no agrupamento — cada item continua clicável */}
+      {varios && aberto && (
+        <div className="mt-3 pt-3 border-t border-border/60 flex flex-col gap-2">
+          {grupo.itens.map((x) => {
+            const d = destinoDe(x);
+            return (
+              <div key={x.id} className={`flex items-start gap-2 text-xs ${x.isRead ? "opacity-55" : ""}`}>
+                <span className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${x.isRead ? "bg-muted-foreground/30" : "bg-accent"}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-foreground break-words">{x.title}</p>
+                  <p className="text-[11px] text-muted-foreground whitespace-pre-line break-words">{x.message}</p>
+                </div>
+                {d && (d.externo
+                  ? <a href={d.href} target="_blank" rel="noopener noreferrer" className="text-[10px] text-accent hover:underline flex-shrink-0">abrir</a>
+                  : <a href={d.href} className="text-[10px] text-accent hover:underline flex-shrink-0">abrir</a>)}
+                {!x.isRead && (
+                  <button onClick={() => onLer([x.id])} className="text-[10px] text-muted-foreground hover:text-foreground flex-shrink-0">lida</button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Rótulo do card colapsado: "26 prazos do Trello" lê melhor que "26 TRELLO_DUE". */
+function rotuloPlural(type: string): string {
+  const r: Record<string, string> = {
+    TRELLO_DUE: "prazos do Trello",
+    ANOMALY: "alertas de mídia",
+    SYNC_ERROR: "erros de sincronização",
+    BUDGET_WARNING: "avisos de orçamento",
+    AD_ERROR: "erros de anúncio",
+    AD_REJECTED: "anúncios recusados",
+    CLARITY_ISSUE: "sinais de fricção no site",
+    TRACKING_PROBLEM: "riscos de medição",
+    FINANCE_OVERDUE: "avisos de atraso",
+    PAYMENT_FAILED: "falhas de pagamento",
+    SYNC_COMPLETE: "sincronizações",
+    COMUNICADO: "comunicados",
+    BIRTHDAY: "aniversários",
+    DAILY_BRIEFING: "relatórios diários",
+    WEEKLY_REPORT: "relatórios semanais",
+  };
+  return r[type] ?? "notificações";
 }

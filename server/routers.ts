@@ -277,7 +277,7 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
-import { excluirUsuarioPermanente, getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, upsertPerfSettings, ultimoSiteSnapshot, serieSiteSnapshots, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat } from "./db";
+import { clientesComNotificacao, excluirUsuarioPermanente, getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, upsertPerfSettings, ultimoSiteSnapshot, serieSiteSnapshots, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat } from "./db";
 import { sincronizarClarity, sincronizarPerformance } from "./clarityJobs";
 import { isPageSpeedConfigured } from "./services/sitePerformanceService";
 import { gerarSiteReport, siteReportMarkdown } from "./services/siteReportService";
@@ -3041,6 +3041,7 @@ export const appRouter = router({
       .input(z.object({
         dominio: z.enum(["PERFORMANCE", "FINANCEIRO", "TAREFAS", "COMUNICADO", "SITE"]).optional(),
         status: z.enum(["nova", "lida"]).optional(),
+        accountId: z.number().int().optional(),
       }).optional())
       .query(async ({ ctx, input }) => {
         // Financeiro é admin-only: um não-admin pedindo esse domínio recebe vazio,
@@ -3049,6 +3050,14 @@ export const appRouter = router({
         if (input?.dominio === "FINANCEIRO" && ctx.user.role !== "admin") return [];
         return getAllAlertsForUser(ctx.user.id, 200, input ?? undefined);
       }),
+
+    /** Clientes presentes nas notificações desta pessoa (para o filtro). */
+    clientesDisponiveis: protectedProcedure
+      .input(z.object({
+        dominio: z.enum(["PERFORMANCE", "FINANCEIRO", "TAREFAS", "COMUNICADO", "SITE"]).optional(),
+        status: z.enum(["nova", "lida"]).optional(),
+      }).optional())
+      .query(({ ctx, input }) => clientesComNotificacao(ctx.user.id, input ?? undefined)),
 
     unreadByDominio: protectedProcedure.query(async ({ ctx }) => {
       const c = await getUnreadCountByDominio(ctx.user.id);
