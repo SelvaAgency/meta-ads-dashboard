@@ -30,6 +30,13 @@ export class PerfRequestError extends Error {}
 
 export type PerfMetricas = {
   performanceScore: number | null;   // 0–100
+  /**
+   * As outras categorias do Lighthouse. Vêm do MESMO teste, sem custo extra —
+   * o PageSpeed roda o Lighthouse completo e nós só pedíamos performance.
+   */
+  accessibilityScore: number | null;
+  bestPracticesScore: number | null;
+  seoScore: number | null;
   lcp: number | null;                // ms
   cls: number | null;                // unitless
   tbt: number | null;                // ms
@@ -39,7 +46,10 @@ export type PerfMetricas = {
   fullyLoaded: number | null;        // ms (aprox.: TTI do Lighthouse)
   pageSizeBytes: number | null;
   requests: number | null;
-  /** Não existe no PageSpeed — só o GTmetrix tem. Fica null e a UI diz isso. */
+  /**
+   * Só o GTmetrix tem. Fica null e a UI diz isso — não vale ligar um serviço
+   * pago por uma métrica quando as outras quatro já vêm de graça.
+   */
   structureScore: null;
 };
 
@@ -80,7 +90,9 @@ export async function coletarPageSpeed(url: string, estrategia: Estrategia = "mo
     throw new PerfConfigError("PageSpeed sem API key configurada (PAGESPEED_API_KEY). Sem ela o Google recusa por cota.");
   }
 
-  const qs = new URLSearchParams({ url, strategy: estrategia, category: "performance", key });
+  // Pedir as 4 categorias custa a mesma requisição: o Lighthouse já roda tudo.
+  const qs = new URLSearchParams({ url, strategy: estrategia, key });
+  for (const cat of ["performance", "accessibility", "best-practices", "seo"]) qs.append("category", cat);
   let resp: Response;
   try {
     resp = await fetch(`${API}?${qs.toString()}`, { signal: AbortSignal.timeout(60_000) });
@@ -98,9 +110,15 @@ export async function coletarPageSpeed(url: string, estrategia: Estrategia = "mo
   if (!lr?.audits) throw new PerfRequestError("Resposta do PageSpeed em formato inesperado.");
 
   const a = lr.audits;
-  const score = lr.categories?.performance?.score;
+  const cat = (k: string) => {
+    const v = lr.categories?.[k]?.score;
+    return typeof v === "number" ? Math.round(v * 100) : null;
+  };
   const metricas: PerfMetricas = {
-    performanceScore: typeof score === "number" ? Math.round(score * 100) : null,
+    performanceScore: cat("performance"),
+    accessibilityScore: cat("accessibility"),
+    bestPracticesScore: cat("best-practices"),
+    seoScore: cat("seo"),
     lcp: num(a["largest-contentful-paint"]?.numericValue),
     cls: num(a["cumulative-layout-shift"]?.numericValue),
     tbt: num(a["total-blocking-time"]?.numericValue),
@@ -141,9 +159,11 @@ export async function coletarPerformance(provider: SiteProvider, url: string, es
     case "pagespeed":
       return coletarPageSpeed(url, estrategia);
     case "gtmetrix":
-      // Preparado: GTmetrix entra aqui (Structure score, waterfall). Exige conta
-      // e API key própria, e tem plano free bem restrito (~5 testes/dia).
-      throw new PerfConfigError("GTmetrix ainda não está integrado. Use PageSpeed por enquanto.");
+      // FUTURO/OPCIONAL, por decisão de produto: o GTmetrix cobra por teste
+      // (créditos), o que não fecha com monitoramento diário. O slot fica aqui
+      // para quando alguém quiser Structure score e waterfall pontualmente.
+      // Não é erro de configuração — é uma opção que não ligamos.
+      throw new PerfConfigError("O GTmetrix é opcional e não está ligado. A medição usa o PageSpeed.");
     default:
       throw new PerfConfigError("Provider de performance não configurado.");
   }

@@ -277,8 +277,9 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
-import { clientesComNotificacao, excluirUsuarioPermanente, getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, upsertPerfSettings, ultimoSiteSnapshot, serieSiteSnapshots, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat } from "./db";
-import { sincronizarClarity, sincronizarPerformance } from "./clarityJobs";
+import { clientesComNotificacao, excluirUsuarioPermanente, getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, upsertPerfSettings, ultimoSiteSnapshot, serieSiteSnapshots, ultimoSnapshotPorProvider, serieSnapshotsPorProvider, contasComSite, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat } from "./db";
+import { sincronizarClarity, sincronizarPerformance, checarSegurancaCliente, checarUptimeCliente } from "./clarityJobs";
+import { validarUrlPublica } from "./services/urlGuard";
 import { isPageSpeedConfigured } from "./services/sitePerformanceService";
 import { gerarSiteReport, siteReportMarkdown } from "./services/siteReportService";
 import { obterBriefingDoDia } from "./services/briefingService";
@@ -2897,6 +2898,48 @@ export const appRouter = router({
     perfSync: contentProcedure
       .input(z.object({ accountId: z.number().int() }))
       .mutation(({ input }) => sincronizarPerformance(input.accountId)),
+
+    // ── Saúde do site: segurança e uptime ─────────────────────────────────────
+    saude: protectedProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(async ({ input }) => {
+        const [seguranca, uptime] = await Promise.all([
+          ultimoSnapshotPorProvider(input.accountId, "security_check"),
+          ultimoSnapshotPorProvider(input.accountId, "uptime_check"),
+        ]);
+        return { seguranca, uptime };
+      }),
+
+    uptimeSerie: protectedProcedure
+      .input(z.object({ accountId: z.number().int(), limite: z.number().int().min(1).max(90).default(14) }))
+      .query(({ input }) => serieSnapshotsPorProvider(input.accountId, "uptime_check", input.limite)),
+
+    /** Roda os dois checks agora. São leves — sem cota, sem custo. */
+    checarSite: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .mutation(async ({ input }) => {
+        const contas = await contasComSite();
+        const alvo = contas.find((c) => c.accountId === input.accountId);
+        if (!alvo) throw new TRPCError({ code: "BAD_REQUEST", message: "Configure o domínio principal do site antes de checar." });
+        // Valida ANTES de disparar qualquer requisição: URL interna nem chega a
+        // ser tentada, e o erro sobe em vez de virar "ok" silencioso.
+        try {
+          await validarUrlPublica(alvo.url);
+        } catch (e) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+        }
+        const [seg, up] = await Promise.all([
+          checarSegurancaCliente(input.accountId, alvo.url),
+          checarUptimeCliente(input.accountId, alvo.url),
+        ]);
+        // Se QUALQUER um recusou, o usuário precisa saber — antes o "ok" de um
+        // escondia o bloqueio do outro.
+        if (!seg.ok || !up.ok) {
+          const motivo = seg.motivo ?? up.motivo;
+          if (motivo) throw new TRPCError({ code: "BAD_REQUEST", message: motivo });
+        }
+        return { seguranca: seg, uptime: up };
+      }),
 
     /** Sync manual — gasta até 3 das 10 requisições do dia. */
     sync: contentProcedure

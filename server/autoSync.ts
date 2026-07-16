@@ -1,6 +1,6 @@
 import { logger } from "./logger";
 import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, runDigestDiario, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
-import { runClaritySnapshots, runPerformanceSnapshots } from "./clarityJobs";
+import { runClaritySnapshots, runPerformanceSnapshots, runSiteHealthChecks } from "./clarityJobs";
 import { runClarityAlertas } from "./services/clarityAlertService";
 import { getDigestSettings, getDigestOverride } from "./db";
 /**
@@ -1073,6 +1073,9 @@ export async function startAutoSync() {
   // Performance técnica (07:00 BRT). Depois do Clarity e antes do expediente:
   // cada teste é um carregamento real de 10–30s.
   cron.schedule("0 0 7 * * *", runPerformanceSnapshots, TZ);
+
+  // Segurança básica + uptime (07:25 BRT). Leves e sem cota: rodam todo dia.
+  cron.schedule("0 25 7 * * *", runSiteHealthChecks, TZ);
 
   // Anomalias de mídia (09:20 UTC) — depois do sync das 09:00.
   cron.schedule("0 20 9 * * *", runAnomaliasDeMidia, TZ);

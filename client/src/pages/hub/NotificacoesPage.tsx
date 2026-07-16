@@ -565,7 +565,7 @@ function DispararResumo({ onClose }: { onClose: () => void }) {
           </div>
 
           <div>
-            <label className="text-[11px] text-muted-foreground">Não enviar hoje para <span className="opacity-60">(férias, folga)</span></label>
+            <label className="text-[11px] text-muted-foreground">Não enviar hoje para</label>
             <div className="flex flex-wrap gap-1.5 mt-1 max-h-32 overflow-auto">
               {pessoas.map((x) => {
                 const fora = excluidos.includes(x.id);

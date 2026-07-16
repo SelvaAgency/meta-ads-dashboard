@@ -4157,3 +4157,36 @@ export async function clientesComNotificacao(userId: number, filtro?: { dominio?
     .orderBy(desc(sql`count(*)`));
   return rows.map((r) => ({ accountId: r.accountId as number, nome: r.nome ?? `#${r.accountId}`, total: Number(r.n) }));
 }
+
+/** Clientes com domínio/URL — base dos checks de segurança e uptime. */
+export async function contasComSite(): Promise<{ accountId: number; nome: string | null; url: string }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    accountId: clientClaritySettings.accountId, nome: metaAdAccounts.accountName,
+    url: clientClaritySettings.performanceUrl, domain: clientClaritySettings.domain,
+  }).from(clientClaritySettings)
+    .innerJoin(metaAdAccounts, eq(clientClaritySettings.accountId, metaAdAccounts.id))
+    .where(eq(metaAdAccounts.isActive, true));
+  return rows
+    .map((r) => ({ accountId: r.accountId, nome: r.nome, url: r.url || (r.domain ? `https://${r.domain.replace(/^https?:\/\//, "")}` : "") }))
+    .filter((r) => !!r.url);
+}
+
+/** Último snapshot de um provider específico (security_check, uptime_check…). */
+export async function ultimoSnapshotPorProvider(accountId: number, provider: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(clientSiteSnapshots)
+    .where(and(eq(clientSiteSnapshots.accountId, accountId), eq(clientSiteSnapshots.provider, provider)))
+    .orderBy(desc(clientSiteSnapshots.dia), desc(clientSiteSnapshots.id)).limit(1);
+  return r[0] ?? null;
+}
+
+export async function serieSnapshotsPorProvider(accountId: number, provider: string, limite = 30) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(clientSiteSnapshots)
+    .where(and(eq(clientSiteSnapshots.accountId, accountId), eq(clientSiteSnapshots.provider, provider)))
+    .orderBy(desc(clientSiteSnapshots.dia)).limit(limite);
+}

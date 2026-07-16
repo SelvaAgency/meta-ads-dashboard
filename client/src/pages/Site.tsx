@@ -19,7 +19,7 @@ import {
   Activity, AlertTriangle, ExternalLink, Eye, Loader2, MousePointerClick,
   RefreshCw, Settings2, TrendingUp, Users, X, Clock, ArrowDownWideNarrow,
   FileText, NotebookPen, Sparkles, Copy, Trash2, Check, MessageSquare, Send,
-  Globe, Gauge, LayoutDashboard, Zap, ArrowRight,
+  Globe, Gauge, LayoutDashboard, Zap, ArrowRight, ShieldCheck, Wifi, Lock, ShieldAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
@@ -59,10 +59,10 @@ export default function Site() {
     const alvo = Number(new URLSearchParams(window.location.search).get("account"));
     if (alvo && alvo !== activeAccountId) setActiveAccountId(alvo);
   }, [activeAccountId, setActiveAccountId]);
-  type Aba = "visao" | "clarity" | "perf" | "relatorios" | "contexto" | "chat";
+  type Aba = "visao" | "clarity" | "perf" | "seguranca" | "uptime" | "relatorios" | "contexto" | "chat";
   // ?aba=clarity vem do deep-link do alerta — abre direto onde o problema está.
   const abaInicial = (new URLSearchParams(window.location.search).get("aba") ?? "visao") as Aba;
-  const [aba, setAba] = useState<Aba>(["visao","clarity","perf","relatorios","contexto","chat"].includes(abaInicial) ? abaInicial : "visao");
+  const [aba, setAba] = useState<Aba>(["visao","clarity","perf","seguranca","uptime","relatorios","contexto","chat"].includes(abaInicial) ? abaInicial : "visao");
 
   const enabled = !!activeAccountId;
   const cfgQ = trpc.clarity.settings.useQuery({ accountId: activeAccountId! }, { enabled });
@@ -127,7 +127,7 @@ export default function Site() {
         </header>
 
         <div className="flex gap-1 border-b border-border">
-          {([["visao", "Visão geral", LayoutDashboard], ["clarity", "Clarity", Activity], ["perf", "Performance técnica", Gauge], ["relatorios", "Relatórios", FileText], ["contexto", "Contexto", NotebookPen], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
+          {([["visao", "Visão geral", LayoutDashboard], ["clarity", "Clarity", Activity], ["perf", "Performance técnica", Gauge], ["seguranca", "Segurança", ShieldCheck], ["uptime", "Uptime", Wifi], ["relatorios", "Relatórios", FileText], ["contexto", "Contexto", NotebookPen], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
             <button key={v} onClick={() => setAba(v)}
               className={`px-4 py-2 text-sm transition border-b-2 -mb-px flex items-center gap-1.5 ${aba === v ? "border-accent text-accent font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
               <Ic className="w-3.5 h-3.5" /> {lbl}
@@ -137,6 +137,8 @@ export default function Site() {
 
         {aba === "visao" && <AbaVisaoGeral accountId={activeAccountId} onIr={setAba} />}
         {aba === "perf" && <AbaPerformance accountId={activeAccountId} podeConfigurar={podeConfigurar} />}
+        {aba === "seguranca" && <AbaSeguranca accountId={activeAccountId} podeConfigurar={podeConfigurar} />}
+        {aba === "uptime" && <AbaUptime accountId={activeAccountId} podeConfigurar={podeConfigurar} />}
         {aba === "contexto" && <AbaContexto accountId={activeAccountId} podeEditar={podeConfigurar} />}
         {aba === "relatorios" && <AbaRelatorios accountId={activeAccountId} podeGerar={podeConfigurar} />}
         {aba === "chat" && <AbaChat accountId={activeAccountId} nome={activeAccount?.accountName ?? "este cliente"} podeLimpar={podeConfigurar} />}
@@ -771,10 +773,11 @@ function AbaChat({ accountId, nome, podeLimpar }: { accountId: number; nome: str
 // ─── Visão geral ─────────────────────────────────────────────────────────────
 // Responde "como está o site deste cliente?" numa olhada, e manda para o detalhe.
 
-function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clarity" | "perf" | "relatorios" | "contexto") => void }) {
+function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clarity" | "perf" | "seguranca" | "uptime" | "relatorios" | "contexto") => void }) {
   const cfgQ = trpc.clarity.settings.useQuery({ accountId });
   const clarityQ = trpc.clarity.ultimo.useQuery({ accountId });
   const perfQ = trpc.clarity.perfUltimo.useQuery({ accountId });
+  const saudeQ = trpc.clarity.saude.useQuery({ accountId });
   const ctxQ = trpc.siteDiag.contexto.useQuery({ accountId });
   const repQ = trpc.siteDiag.relatorios.useQuery({ accountId });
 
@@ -786,12 +789,16 @@ function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clar
   const pm = (perfQ.data?.metricsJson ?? null) as PerfMetricas | null;
   const ctx = ctxQ.data;
   const temCtx = !!(ctx?.objective || ctx?.offer || ctx?.audience);
+  const seg = (saudeQ.data?.seguranca?.metricsJson ?? null) as MetSeg | null;
+  const up = (saudeQ.data?.uptime?.metricsJson ?? null) as MetUp | null;
+  const temDominio = !!(cfg?.domain || cfg?.performanceUrl);
 
-  // Estado 1 da spec: site não configurado (nem Clarity, nem performance).
-  if (!clarityOn && !perfOn) {
+  // Site não configurado = nem domínio, nem Clarity, nem performance. Com
+  // domínio já dá para checar segurança e uptime — não precisa de mais nada.
+  if (!clarityOn && !perfOn && !temDominio) {
     return (
       <Vazio icone={<Globe className="w-8 h-8" />} titulo="Site ainda não configurado para este cliente"
-        texto="Conecte o Clarity para ver o comportamento das pessoas no site, e ative a performance técnica para medir o carregamento." />
+        texto="Informe o domínio principal para verificar segurança e disponibilidade. Conecte o Clarity para ver o comportamento das pessoas, e ative a performance técnica para medir o carregamento." />
     );
   }
 
@@ -833,17 +840,59 @@ function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clar
         </CardResumo>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <CardResumo
+          titulo="Segurança básica" icone={<ShieldCheck className="w-4 h-4" />}
+          ligado={temDominio} semDados={temDominio && !seg}
+          textoOff="Domínio não informado." textoSemDados="Ainda não verificado — roda amanhã de manhã."
+          onIr={() => onIr("seguranca")}
+        >
+          {seg && (
+            <div className="grid grid-cols-2 gap-2">
+              <Mini label="Nota" valor={`${seg.score}/100`} alerta={seg.status !== "bom"} />
+              <Mini label="HTTPS" valor={seg.https ? "Ativo" : "Ausente"} alerta={!seg.https} />
+              <Mini label="Certificado" valor={seg.sslValido === null ? "—" : seg.sslValido ? "Válido" : "Inválido"} alerta={seg.sslValido === false} />
+              <Mini label="Expira em" valor={seg.daysToSslExpiry !== null ? `${seg.daysToSslExpiry}d` : "—"} alerta={(seg.daysToSslExpiry ?? 999) <= 30} />
+            </div>
+          )}
+        </CardResumo>
+
+        <CardResumo
+          titulo="Disponibilidade" icone={<Wifi className="w-4 h-4" />}
+          ligado={temDominio} semDados={temDominio && !up}
+          textoOff="Domínio não informado." textoSemDados="Ainda não verificado — roda amanhã de manhã."
+          onIr={() => onIr("uptime")}
+        >
+          {up && (
+            <div className="grid grid-cols-2 gap-2">
+              <Mini label="Status" valor={UP_LABEL[up.status] ?? "—"} alerta={up.status === "fora_do_ar" || up.status === "erro"} />
+              <Mini label="Resposta" valor={up.responseTimeMs !== null ? fmtMs(up.responseTimeMs) : "—"} alerta={(up.responseTimeMs ?? 0) > 3000} />
+            </div>
+          )}
+        </CardResumo>
+      </div>
+
       {/* O que falta para o diagnóstico ficar bom */}
       <div className="rounded-xl border border-border bg-card p-4">
-        <p className="text-xs font-semibold text-muted-foreground mb-2">Diagnóstico deste cliente</p>
+        <p className="text-xs font-semibold text-muted-foreground mb-2">Fontes deste diagnóstico</p>
         <div className="flex flex-wrap gap-1.5">
-          <Pastilha ok={clarityOn} label="Clarity" />
-          <Pastilha ok={perfOn} label="Performance técnica" />
+          <Pastilha ok={!!seg} label="Segurança" onClick={() => onIr("seguranca")} />
+          <Pastilha ok={!!up} label="Disponibilidade" onClick={() => onIr("uptime")} />
+          <Pastilha ok={!!perfQ.data} label="Performance" onClick={() => onIr("perf")} />
+          <Pastilha ok={!!clarityQ.data} label="Clarity" onClick={() => onIr("clarity")} />
           <Pastilha ok={temCtx} label="Contexto" onClick={() => onIr("contexto")} />
           <Pastilha ok={(repQ.data ?? []).length > 0} label={`${(repQ.data ?? []).length} relatório(s)`} onClick={() => onIr("relatorios")} />
         </div>
+        {/* Nenhuma fonte é obrigatória — mas dizer o que falta é o que separa
+            "diagnóstico parcial" de "diagnóstico errado". */}
+        <p className="text-[11px] text-muted-foreground mt-2">{nivelDiagnostico({ seg: !!seg, up: !!up, perf: !!perfQ.data, clarity: !!clarityQ.data, ctx: temCtx })}</p>
+        {!clarityOn && (
+          <p className="text-[11px] text-muted-foreground mt-1">
+            O Clarity não está conectado, então não avaliamos o comportamento real de quem visita o site.
+          </p>
+        )}
         {!temCtx && (
-          <p className="text-[11px] text-muted-foreground mt-2">
+          <p className="text-[11px] text-muted-foreground mt-1">
             Sem o contexto, o relatório descreve números mas não interpreta —
             <button onClick={() => onIr("contexto")} className="text-accent hover:underline ml-1">preencher agora</button>.
           </p>
@@ -1059,4 +1108,255 @@ function AbaPerformance({ accountId, podeConfigurar }: { accountId: number; pode
       )}
     </div>
   );
+}
+
+// ─── Segurança básica ────────────────────────────────────────────────────────
+// Checagem própria (sem fornecedor, sem cota): o que dá para saber olhando o
+// site de fora. NÃO é auditoria de segurança — a tela diz isso.
+
+type MetSeg = {
+  status: "bom" | "atencao" | "critico"; score: number; https: boolean;
+  redirecionaParaHttps: boolean | null; sslValido: boolean | null;
+  certificateExpiresAt: string | null; daysToSslExpiry: number | null; emissor: string | null;
+};
+type HeaderCheck = { nome: string; presente: boolean; valor: string | null; peso: number; recomendacao: string };
+
+const CorStatus: Record<string, string> = {
+  bom: "text-emerald-600", atencao: "text-amber-600", critico: "text-red-600",
+};
+const LabelStatus: Record<string, string> = { bom: "Bom", atencao: "Atenção", critico: "Crítico" };
+
+function AbaSeguranca({ accountId, podeConfigurar }: { accountId: number; podeConfigurar: boolean }) {
+  const utils = trpc.useUtils();
+  const q = trpc.clarity.saude.useQuery({ accountId });
+  const cfgQ = trpc.clarity.settings.useQuery({ accountId });
+  const checar = trpc.clarity.checarSite.useMutation({
+    onSuccess: () => { utils.clarity.saude.invalidate(); toast.success("Site verificado."); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  if (q.isLoading) return <Carregando />;
+  const snap = q.data?.seguranca;
+  const m = (snap?.metricsJson ?? null) as MetSeg | null;
+  const issues = (snap?.issuesJson ?? null) as { achados: string[]; headers: HeaderCheck[] } | null;
+  const recs = (snap?.recommendationsJson ?? []) as string[];
+  const temDominio = !!(cfgQ.data?.domain || cfgQ.data?.performanceUrl);
+
+  if (!temDominio) {
+    return <Vazio icone={<ShieldCheck className="w-8 h-8" />} titulo="Domínio do site não configurado"
+      texto="Informe o domínio principal em Performance técnica ou na configuração do Clarity para verificar a segurança." />;
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <p className="text-xs text-muted-foreground flex-1">
+          {snap ? `Verificado em ${new Date(snap.updatedAt ?? snap.createdAt).toLocaleString("pt-BR")} · ${snap.url}` : "Ainda não verificado."}
+        </p>
+        {podeConfigurar && (
+          <button onClick={() => checar.mutate({ accountId })} disabled={checar.isPending}
+            className="h-8 px-3 rounded-lg border border-border text-xs flex items-center gap-1.5 text-muted-foreground hover:text-foreground disabled:opacity-60">
+            {checar.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Verificar agora
+          </button>
+        )}
+      </div>
+
+      {!snap ? (
+        <Vazio icone={<ShieldCheck className="w-8 h-8" />} titulo="Nenhuma verificação ainda"
+          texto="A verificação roda todo dia de manhã — ou clique em Verificar agora." />
+      ) : m && (
+        <>
+          <div className="rounded-xl border border-border bg-card p-5 flex items-center gap-5 flex-wrap">
+            <div className="text-center">
+              <p className={`text-5xl font-bold tabular-nums ${CorStatus[m.status]}`}>{m.score}</p>
+              <p className={`text-[11px] mt-1 font-medium ${CorStatus[m.status]}`}>{LabelStatus[m.status]}</p>
+            </div>
+            <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-3 min-w-[260px]">
+              <Card icone={<Lock className="w-3.5 h-3.5" />} label="HTTPS" valor={m.https ? "Ativo" : "Ausente"} tom={m.https ? undefined : "critico"} />
+              <Card icone={<ShieldCheck className="w-3.5 h-3.5" />} label="Certificado" valor={m.sslValido === null ? "—" : m.sslValido ? "Válido" : "Inválido"} tom={m.sslValido === false ? "critico" : undefined} />
+              <Card icone={<Clock className="w-3.5 h-3.5" />} label="Expira em"
+                valor={m.daysToSslExpiry !== null ? `${m.daysToSslExpiry} dias` : "—"}
+                tom={(m.daysToSslExpiry ?? 999) <= 7 ? "critico" : (m.daysToSslExpiry ?? 999) <= 30 ? "alerta" : undefined}
+                hint={m.emissor ?? undefined} />
+              <Card icone={<ArrowRight className="w-3.5 h-3.5" />} label="http → https"
+                valor={m.redirecionaParaHttps === null ? "—" : m.redirecionaParaHttps ? "Sim" : "Não"}
+                tom={m.redirecionaParaHttps === false ? "alerta" : undefined} />
+            </div>
+          </div>
+
+          {issues?.headers && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <p className="text-xs font-semibold text-muted-foreground mb-2">Headers de segurança</p>
+              <div className="flex flex-col gap-1.5">
+                {issues.headers.map((h) => (
+                  <div key={h.nome} className="flex items-start gap-2 text-xs border-b border-border/40 last:border-b-0 pb-1.5 last:pb-0">
+                    <span className={`mt-0.5 flex-shrink-0 ${h.presente ? "text-emerald-600" : "text-muted-foreground/50"}`}>
+                      {h.presente ? "✓" : "✕"}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className={h.presente ? "text-foreground" : "text-muted-foreground"}>{h.nome}</p>
+                      {h.presente ? (
+                        <p className="text-[10px] text-muted-foreground font-mono break-words">{h.valor}</p>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground">{h.recomendacao}</p>
+                      )}
+                    </div>
+                    {!h.presente && <span className="text-[10px] text-muted-foreground flex-shrink-0">−{h.peso}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {recs.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <p className="text-xs font-semibold text-muted-foreground mb-2">O que fazer</p>
+              <ul className="flex flex-col gap-1.5">
+                {recs.map((r, i) => (
+                  <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
+                    <span className="text-accent flex-shrink-0">·</span><span>{r}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Escopo honesto: dizer o que isto NÃO é evita falsa sensação de segurança. */}
+          <p className="text-[11px] text-muted-foreground">
+            Esta análise verifica configurações públicas básicas, como HTTPS, certificado e headers de segurança.
+            Não substitui auditoria de segurança completa.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Uptime ──────────────────────────────────────────────────────────────────
+
+type MetUp = {
+  status: "no_ar" | "lento" | "bloqueado" | "erro" | "fora_do_ar";
+  statusCode: number | null; responseTimeMs: number | null; finalUrl: string | null;
+  redirects: number; errorMessage: string | null; checkedAt: string;
+};
+
+const UP_LABEL: Record<string, string> = {
+  no_ar: "No ar", lento: "No ar, mas lento", bloqueado: "Acesso bloqueado",
+  erro: "Respondeu com erro", fora_do_ar: "Fora do ar",
+};
+const UP_COR: Record<string, string> = {
+  no_ar: "text-emerald-600", lento: "text-amber-600", bloqueado: "text-muted-foreground",
+  erro: "text-amber-600", fora_do_ar: "text-red-600",
+};
+
+function AbaUptime({ accountId, podeConfigurar }: { accountId: number; podeConfigurar: boolean }) {
+  const utils = trpc.useUtils();
+  const q = trpc.clarity.saude.useQuery({ accountId });
+  const serieQ = trpc.clarity.uptimeSerie.useQuery({ accountId, limite: 14 });
+  const cfgQ = trpc.clarity.settings.useQuery({ accountId });
+  const checar = trpc.clarity.checarSite.useMutation({
+    onSuccess: () => { utils.clarity.saude.invalidate(); utils.clarity.uptimeSerie.invalidate(); toast.success("Site verificado."); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  if (q.isLoading) return <Carregando />;
+  const snap = q.data?.uptime;
+  const m = (snap?.metricsJson ?? null) as MetUp | null;
+  const temDominio = !!(cfgQ.data?.domain || cfgQ.data?.performanceUrl);
+  const serie = (serieQ.data ?? []).map((s) => ({ dia: s.dia, m: s.metricsJson as MetUp }));
+
+  if (!temDominio) {
+    return <Vazio icone={<Wifi className="w-8 h-8" />} titulo="Domínio do site não configurado"
+      texto="Informe o domínio principal para monitorar se o site está no ar." />;
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <p className="text-xs text-muted-foreground flex-1">
+          {snap ? `Verificado em ${new Date(snap.updatedAt ?? snap.createdAt).toLocaleString("pt-BR")}` : "Ainda não verificado."}
+        </p>
+        {podeConfigurar && (
+          <button onClick={() => checar.mutate({ accountId })} disabled={checar.isPending}
+            className="h-8 px-3 rounded-lg border border-border text-xs flex items-center gap-1.5 text-muted-foreground hover:text-foreground disabled:opacity-60">
+            {checar.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Verificar agora
+          </button>
+        )}
+      </div>
+
+      {!snap ? (
+        <Vazio icone={<Wifi className="w-8 h-8" />} titulo="Nenhuma verificação ainda"
+          texto="A verificação roda todo dia de manhã — ou clique em Verificar agora." />
+      ) : m && (
+        <>
+          <div className="rounded-xl border border-border bg-card p-5 flex items-center gap-6 flex-wrap">
+            <div>
+              <p className={`text-2xl font-bold ${UP_COR[m.status]}`}>{UP_LABEL[m.status]}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {m.statusCode ? `HTTP ${m.statusCode}` : m.errorMessage ?? "sem resposta"}
+              </p>
+            </div>
+            <div className="flex-1 grid grid-cols-3 gap-3 min-w-[240px]">
+              <Card icone={<Zap className="w-3.5 h-3.5" />} label="Tempo de resposta"
+                valor={m.responseTimeMs !== null ? fmtMs(m.responseTimeMs) : "—"}
+                tom={(m.responseTimeMs ?? 0) > 3000 ? "alerta" : undefined} />
+              <Card icone={<ArrowRight className="w-3.5 h-3.5" />} label="Redirects" valor={String(m.redirects)} />
+              <Card icone={<Globe className="w-3.5 h-3.5" />} label="Destino final" valor={m.finalUrl ? new URL(m.finalUrl).hostname : "—"} />
+            </div>
+          </div>
+
+          {/* 403/401 é WAF, não queda: dizer isso evita caça a fantasma. */}
+          {m.status === "bloqueado" && (
+            <div className="rounded-xl border border-border bg-muted/30 p-3 flex gap-2">
+              <ShieldAlert className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground">
+                O site respondeu <span className="font-medium text-foreground">HTTP {m.statusCode}</span> à nossa verificação.
+                Normalmente é proteção contra robôs (WAF) ou área restrita — não significa que o site esteja fora do ar
+                para quem visita. Não geramos alerta neste caso.
+              </p>
+            </div>
+          )}
+
+          {serie.length > 1 && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <p className="text-xs font-semibold text-muted-foreground mb-2">Últimos {serie.length} dias</p>
+              <div className="flex gap-1 flex-wrap">
+                {serie.slice().reverse().map((s) => (
+                  <div key={s.dia} title={`${s.dia} · ${UP_LABEL[s.m?.status] ?? "?"} · ${s.m?.responseTimeMs ?? "?"}ms`}
+                    className={`h-8 flex-1 min-w-[10px] rounded ${
+                      s.m?.status === "no_ar" ? "bg-emerald-500/70"
+                        : s.m?.status === "lento" ? "bg-amber-500/70"
+                        : s.m?.status === "bloqueado" ? "bg-muted-foreground/30"
+                        : "bg-red-500/70"}`} />
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1.5">
+                Cada barra é um dia. Verde = no ar · âmbar = lento · vermelho = fora do ar · cinza = bloqueado.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Diz o que dá para concluir com o que existe. Nenhuma fonte é obrigatória —
+ * a frase muda conforme o que está conectado, em vez de exigir tudo.
+ */
+function nivelDiagnostico(f: { seg: boolean; up: boolean; perf: boolean; clarity: boolean; ctx: boolean }): string {
+  const tem: string[] = [];
+  if (f.perf) tem.push("performance");
+  if (f.seg) tem.push("segurança básica");
+  if (f.up) tem.push("disponibilidade");
+  if (f.clarity) tem.push("comportamento no site");
+  if (!tem.length) return "Nenhuma verificação rodou ainda — informe o domínio para começar.";
+
+  const lista = tem.length > 1 ? `${tem.slice(0, -1).join(", ")} e ${tem[tem.length - 1]}` : tem[0];
+  const base = f.clarity && f.perf ? "Diagnóstico de jornada disponível"
+    : f.clarity ? "Diagnóstico de comportamento disponível"
+    : f.perf || f.seg || f.up ? "Diagnóstico técnico disponível"
+    : "Diagnóstico parcial";
+  return `${base} com ${lista}.${f.ctx ? "" : " O contexto do cliente melhora a interpretação, mas não é obrigatório."}`;
 }

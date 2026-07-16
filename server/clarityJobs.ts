@@ -15,10 +15,12 @@ import { logger } from "./logger";
 import {
   contasComClarity, getClarityToken, reservarCotaClarity, ajustarCotaClarity,
   registrarSyncClarity, salvarClaritySnapshot,
-  contasComPerformance, salvarSiteSnapshot, registrarSyncPerf,
+  contasComPerformance, contasComSite, salvarSiteSnapshot, registrarSyncPerf,
 } from "./db";
 import { coletarSnapshot, ClarityAuthError, ClarityRateLimitError } from "./services/clarityService";
 import { coletarPerformance, PerfConfigError, PerfQuotaError, type SiteProvider } from "./services/sitePerformanceService";
+import { checarSeguranca, checarUptime } from "./services/siteHealthService";
+import { runSiteHealthAlertas } from "./services/siteHealthAlerts";
 
 const REQS_POR_SNAPSHOT = 3; // geral + por URL + por Source
 
@@ -145,4 +147,79 @@ export async function runPerformanceSnapshots(): Promise<{ contas: number; ok: n
   }
   logger.info(`[Perf] Ciclo completo — ${ok} ok · ${falhas} falha(s) de ${contas.length}.`);
   return { contas: contas.length, ok, falhas };
+}
+
+// ─── Saúde do site: segurança básica e uptime (checks próprios) ──────────────
+// Leves e sem cota — dá para rodar diário sem pensar. Vão para a mesma tabela
+// de snapshots, com provider diferente.
+
+export type ResultadoCheck = { ok: boolean; motivo?: string; resumo?: string };
+
+export async function checarSegurancaCliente(accountId: number, url: string): Promise<ResultadoCheck> {
+  const dia = hojeLocal();
+  try {
+    const s = await checarSeguranca(url);
+    await salvarSiteSnapshot({
+      accountId, provider: "security_check", url, estrategia: "mobile", dia,
+      metricsJson: {
+        status: s.status, score: s.score, https: s.https,
+        redirecionaParaHttps: s.redirecionaParaHttps, sslValido: s.sslValido,
+        certificateExpiresAt: s.certificateExpiresAt?.toISOString() ?? null,
+        daysToSslExpiry: s.daysToSslExpiry, emissor: s.emissor,
+      },
+      issuesJson: { achados: s.achados, headers: s.headers },
+      recommendationsJson: s.recomendacoes,
+    });
+    return { ok: true, resumo: `${s.status} · ${s.score}/100` };
+  } catch (e) {
+    return { ok: false, motivo: (e as Error).message };
+  }
+}
+
+export async function checarUptimeCliente(accountId: number, url: string): Promise<ResultadoCheck> {
+  const dia = hojeLocal();
+  // URL recusada pelo guard lança e vira { ok: false } — não vira snapshot nem
+  // status verde. O erro precisa chegar em quem configurou.
+  try {
+    const u = await checarUptime(url);
+    await salvarSiteSnapshot({
+      accountId, provider: "uptime_check", url, estrategia: "mobile", dia,
+      metricsJson: {
+        status: u.status, statusCode: u.statusCode, responseTimeMs: u.responseTimeMs,
+        finalUrl: u.finalUrl, redirects: u.redirects, errorMessage: u.errorMessage,
+        checkedAt: u.checkedAt.toISOString(),
+      },
+    });
+    return { ok: true, resumo: `${u.status} · HTTP ${u.statusCode ?? "—"} · ${u.responseTimeMs ?? "?"}ms` };
+  } catch (e) {
+    return { ok: false, motivo: (e as Error).message };
+  }
+}
+
+/** URL a checar: a de performance, senão o domínio principal. */
+async function urlDoCliente(): Promise<{ accountId: number; nome: string | null; url: string }[]> {
+  const contas = await contasComSite();
+  return contas;
+}
+
+export async function runSiteHealthChecks(): Promise<{ contas: number; ok: number; falhas: number; alertas: number }> {
+  const contas = await urlDoCliente();
+  if (contas.length === 0) {
+    logger.info("[SiteHealth] Nenhum cliente com domínio configurado.");
+    return { contas: 0, ok: 0, falhas: 0, alertas: 0 };
+  }
+  let ok = 0, falhas = 0;
+  for (const c of contas) {
+    const nome = c.nome ?? `#${c.accountId}`;
+    const [seg, up] = await Promise.all([
+      checarSegurancaCliente(c.accountId, c.url),
+      checarUptimeCliente(c.accountId, c.url),
+    ]);
+    if (seg.ok && up.ok) { ok++; logger.info(`[SiteHealth] ✓ ${nome}: segurança ${seg.resumo} · uptime ${up.resumo}`); }
+    else { falhas++; logger.error(`[SiteHealth] ✗ ${nome}: ${seg.motivo ?? ""} ${up.motivo ?? ""}`.trim()); }
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  const alertas = await runSiteHealthAlertas();
+  logger.info(`[SiteHealth] Ciclo completo — ${ok} ok · ${falhas} falha(s) · ${alertas} alerta(s).`);
+  return { contas: contas.length, ok, falhas, alertas };
 }
