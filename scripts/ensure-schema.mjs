@@ -577,6 +577,20 @@ async function main() {
         console.log(`[ensure-schema] ok  · client_clarity_settings.${col.name} adicionada`);
       }
     }
+
+    // Relatórios modulares — aditivo. As linhas antigas ficam com estes campos
+    // NULL e continuam sendo lidas pelo `tier`; as novas trazem os módulos
+    // pedidos e as fontes que existiam de fato no momento da geração.
+    for (const col of [
+      { name: "modulesJson", ddl: "ADD COLUMN `modulesJson` JSON NULL" },
+      { name: "fontesJson", ddl: "ADD COLUMN `fontesJson` JSON NULL" },
+      { name: "markdown", ddl: "ADD COLUMN `markdown` TEXT NULL" },
+    ]) {
+      if (!(await columnExists(conn, "report_snapshots", col.name))) {
+        await conn.query(`ALTER TABLE \`report_snapshots\` ${col.ddl}`);
+        console.log(`[ensure-schema] ok  · report_snapshots.${col.name} adicionada`);
+      }
+    }
     await conn.query(`
       CREATE TABLE IF NOT EXISTS \`client_site_snapshots\` (
         \`id\` INT NOT NULL AUTO_INCREMENT,

@@ -591,6 +591,25 @@ function AbaRelatorios({ accountId, podeGerar }: { accountId: number; podeGerar:
         </div>
       )}
 
+      {/* O gerador modular mora em Relatórios; aqui só pré-configuramos os
+          módulos de Site. Uma segunda cópia do gerador seria uma segunda
+          verdade sobre o mesmo cliente. */}
+      {podeGerar && (
+        <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3 flex-wrap">
+          <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+          <p className="text-xs text-muted-foreground flex-1 min-w-[220px]">
+            Precisa de um relatório para o cliente, escolhendo o que entra (mídia, Clarity, performance,
+            segurança)? O gerador completo fica em Relatórios.
+          </p>
+          <a
+            href={`/reports?modulos=site,clarity,pagespeed,seguranca,uptime&account=${accountId}`}
+            className="h-8 px-3 rounded-lg border border-border text-xs flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Gerar relatório com dados de Site
+          </a>
+        </div>
+      )}
+
       {aberto && detalheQ.isLoading && <Carregando />}
 
       {aberto && r && (

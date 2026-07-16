@@ -929,6 +929,9 @@ export type InsertAccountContext = typeof accountContext.$inferInsert;
 export const reportSnapshots = mysqlTable("report_snapshots", {
   id: int("id").autoincrement().primaryKey(),
   accountId: int("accountId").notNull(),
+  // Legado: o relatório era escolhido por "nível". Agora é por módulos
+  // (modulesJson). Fica para as linhas antigas continuarem legíveis; nas novas
+  // é derivado da quantidade de módulos, só para a listagem ter um resumo.
   tier: mysqlEnum("tier", ["CURTO", "MEDIO", "COMPLETO"]).notNull(),
   publicToken: varchar("publicToken", { length: 64 }).notNull().unique(),
   periodStart: date("periodStart", { mode: "string" }).notNull(),
@@ -936,6 +939,17 @@ export const reportSnapshots = mysqlTable("report_snapshots", {
   contextNotes: text("contextNotes"),
   dataSnapshot: text("dataSnapshot"),
   narrative: text("narrative"),
+  /** Módulos pedidos por quem gerou. NULL = relatório antigo, por tier. */
+  modulesJson: json("modulesJson"),
+  /**
+   * Quais fontes existiam de fato no momento da geração, e por que faltaram as
+   * que faltaram. Sem isto, um relatório magro é indistinguível de um cliente
+   * saudável seis meses depois — é o registro de que ninguém olhou, não de que
+   * estava tudo bem.
+   */
+  fontesJson: json("fontesJson"),
+  /** Markdown pronto para colar (WhatsApp/e-mail). */
+  markdown: text("markdown"),
   generatedAt: timestamp("generatedAt").defaultNow().notNull(),
   generatedByUserId: int("generatedByUserId"),
   isActive: boolean("isActive").default(true).notNull(),

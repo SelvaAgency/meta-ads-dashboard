@@ -286,7 +286,8 @@ import { obterBriefingDoDia } from "./services/briefingService";
 import { dispararResumoManual, previewResumoManual } from "./notificationJobs";
 import { emailMode } from "./emailService";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
-import { buildClientIntelligenceContext, contextoParaTexto, MODULOS_SITE } from "./services/clientIntelligence";
+import { buildClientIntelligenceContext, contextoParaTexto, fontesDe, MODULOS, MODULOS_SITE } from "./services/clientIntelligence";
+import { gerarRelatorioModular, PRESETS, tierDe } from "./services/reportBuilder";
 import { entregarComunicado } from "./notificationJobs";
 import { notifTiposFor, notifTipoDef, type EmailModo } from "../shared/notifications";
 
@@ -3220,11 +3221,17 @@ export const appRouter = router({
         if (!snapshot || !snapshot.isActive) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Relatório não encontrado" });
         }
+        // `modulos` distingue os dois formatos: relatório modular tem outra
+        // forma de narrative (fatos/hipóteses/pendências) e não tem
+        // dataSnapshot. Sem esta marca, a página renderizaria o modular como
+        // se fosse legado — e sairia quase em branco no link do cliente.
         return {
           tier: snapshot.tier,
           period: { start: snapshot.periodStart, end: snapshot.periodEnd },
           data: JSON.parse(snapshot.dataSnapshot ?? "{}"),
           narrative: JSON.parse(snapshot.narrative ?? "null"),
+          modulos: (snapshot.modulesJson ?? null) as string[] | null,
+          fontes: (snapshot.fontesJson ?? null) as { rotulo: string; presente: boolean; porque?: string }[] | null,
         };
       }),
 
@@ -3241,7 +3248,65 @@ export const appRouter = router({
           periodEnd: r.periodEnd,
           generatedAt: r.generatedAt,
           isActive: r.isActive,
+          // NULL nos relatórios antigos (eram por tier). A tela cai no tier.
+          modulos: (r.modulesJson ?? null) as string[] | null,
+          fontes: (r.fontesJson ?? null) as { rotulo: string; presente: boolean }[] | null,
+          geradoPor: r.generatedByUserId,
+          temMarkdown: !!r.markdown,
         }));
+      }),
+
+    /** Catálogo de módulos + o que ESTE cliente tem de fato. Sem LLM. */
+    opcoes: protectedProcedure
+      .input(z.object({ accountId: z.number(), inicio: z.string(), fim: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const conta = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const ctxCliente = await buildClientIntelligenceContext(
+          input.accountId,
+          conta.accountName ?? conta.accountId,
+          { inicio: input.inicio, fim: input.fim },
+        );
+        return { presets: PRESETS, fontes: fontesDe(ctxCliente) };
+      }),
+
+    /**
+     * Geração modular. Marcar um módulo que o cliente não tem NÃO é erro: a
+     * seção é omitida e a ausência vira pendência declarada no relatório.
+     */
+    gerarModular: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        inicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        fim: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        modulos: z.array(z.enum(MODULOS)).min(1),
+        notas: z.string().max(2000).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const conta = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const nome = conta.accountName ?? conta.accountId;
+        const periodo = { inicio: input.inicio, fim: input.fim };
+
+        const { relatorio, fontes, markdown } = await gerarRelatorioModular(
+          input.accountId, nome, periodo, input.modulos, input.notas,
+        );
+
+        const publicToken = nanoid(24);
+        await createReportSnapshot({
+          accountId: input.accountId,
+          tier: tierDe(input.modulos),
+          publicToken,
+          periodStart: input.inicio,
+          periodEnd: input.fim,
+          contextNotes: input.notas ?? null,
+          dataSnapshot: null,
+          narrative: JSON.stringify(relatorio),
+          modulesJson: input.modulos,
+          fontesJson: fontes,
+          markdown,
+          generatedByUserId: ctx.user.id,
+        });
+
+        return { publicToken, relatorio, fontes, markdown };
       }),
 
      create: protectedProcedure

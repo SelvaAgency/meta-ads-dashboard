@@ -9,14 +9,32 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileText, Link2, Copy, Loader2, CheckCircle2, Clock, ExternalLink, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-const TIERS = [
-  { value: "CURTO", label: "Curto", available: true },
-  { value: "MEDIO", label: "Médio (em breve)", available: false },
-  { value: "COMPLETO", label: "Completo (em breve)", available: false },
-];
+/**
+ * Rótulo de cada módulo. A disponibilidade NÃO vem daqui — vem do servidor,
+ * por cliente: só ele sabe se este cliente tem Clarity, PageSpeed etc.
+ */
+const MODULO_LABEL: Record<string, string> = {
+  midia: "Mídia paga",
+  campanhas: "Campanhas",
+  site: "Site",
+  clarity: "Clarity",
+  pagespeed: "Performance técnica",
+  seguranca: "Segurança básica",
+  uptime: "Uptime",
+  contexto: "Contexto manual",
+  alertas: "Alertas recentes",
+  relatorios: "Histórico/comparativo",
+};
+const ORDEM_MODULOS = Object.keys(MODULO_LABEL);
+/** Módulo → chave da fonte que o alimenta (para avisar o que vai faltar). */
+const FONTE_DO_MODULO: Record<string, string> = {
+  midia: "midia", campanhas: "campanhas", clarity: "clarity", pagespeed: "pagespeed",
+  seguranca: "seguranca", uptime: "uptime", contexto: "contexto", alertas: "alertas",
+  relatorios: "relatorios",
+};
 
 function todayStr() {
   const d = new Date();
@@ -42,16 +60,38 @@ export default function Reports() {
 
   const [periodStart, setPeriodStart] = useState(daysAgoStr(14));
   const [periodEnd, setPeriodEnd] = useState(todayStr());
-  const [tier, setTier] = useState("CURTO");
   const [contextNotes, setContextNotes] = useState("");
   const [lastGeneratedUrl, setLastGeneratedUrl] = useState<string | null>(null);
+  const [modulos, setModulos] = useState<string[]>(["midia", "campanhas"]);
+
+  // Deep-link da seção Site: /reports?modulos=site,pagespeed,... já marca os
+  // módulos. O gerador mora aqui; a seção Site apenas pré-configura.
+  const [jaLeuUrl, setJaLeuUrl] = useState(false);
+  useEffect(() => {
+    if (jaLeuUrl) return;
+    const p = new URLSearchParams(window.location.search);
+    const m = p.get("modulos");
+    if (m) {
+      const pedidos = m.split(",").filter((x) => ORDEM_MODULOS.includes(x));
+      if (pedidos.length) setModulos(pedidos);
+    }
+    setJaLeuUrl(true);
+  }, [jaLeuUrl]);
 
   const listQuery = trpc.reports.listSnapshots.useQuery(
     { accountId: accountId ?? 0 },
     { enabled: !!accountId }
   );
 
-  const generateMutation = trpc.reports.generate.useMutation({
+  // O que ESTE cliente tem, no período escolhido. Sem LLM — é só leitura.
+  const opcoesQuery = trpc.reports.opcoes.useQuery(
+    { accountId: accountId ?? 0, inicio: periodStart, fim: periodEnd },
+    { enabled: !!accountId }
+  );
+  const fontes = opcoesQuery.data?.fontes ?? [];
+  const temFonte = (chave: string) => fontes.find((f) => f.chave === chave);
+
+  const generateMutation = trpc.reports.gerarModular.useMutation({
     onSuccess: (data) => {
       const url = `${window.location.origin}/r/${data.publicToken}`;
       setLastGeneratedUrl(url);
@@ -63,18 +103,30 @@ export default function Reports() {
     },
   });
 
+  const toggle = (m: string) =>
+    setModulos((atual) => (atual.includes(m) ? atual.filter((x) => x !== m) : [...atual, m]));
+
+  // Módulos marcados cujo dado não existe: viram aviso, não bloqueio.
+  const marcadosSemDado = modulos
+    .map((m) => ({ m, f: temFonte(FONTE_DO_MODULO[m] ?? m) }))
+    .filter((x) => x.f && !x.f.presente);
+
   function handleGenerate() {
     if (!accountId) {
       toast.error("Selecione uma conta primeiro");
       return;
     }
+    if (modulos.length === 0) {
+      toast.error("Escolha pelo menos um módulo");
+      return;
+    }
     setLastGeneratedUrl(null);
     generateMutation.mutate({
       accountId,
-      periodStart,
-      periodEnd,
-      tier: tier as "CURTO" | "MEDIO" | "COMPLETO",
-      contextNotes: contextNotes.trim() || undefined,
+      inicio: periodStart,
+      fim: periodEnd,
+      modulos: modulos as never[],
+      notas: contextNotes.trim() || undefined,
     });
   }
 
@@ -115,19 +167,19 @@ export default function Reports() {
                 </Select>
               </div>
               <div>
-                <Label>Nível</Label>
-                <Select value={tier} onValueChange={setTier}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIERS.map((t) => (
-                      <SelectItem key={t.value} value={t.value} disabled={!t.available}>
-                        {t.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Atalhos</Label>
+                <div className="flex gap-1.5 flex-wrap mt-1.5">
+                  {(opcoesQuery.data?.presets ?? []).map((p) => (
+                    <button
+                      key={p.id}
+                      title={p.descricao}
+                      onClick={() => setModulos(p.modulos)}
+                      className="px-2.5 py-1 rounded-md border border-border text-xs hover:bg-accent/40 transition-colors"
+                    >
+                      {p.nome}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -141,6 +193,53 @@ export default function Reports() {
                 <Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} className="mt-1" />
               </div>
             </div>
+
+            {/* Módulos — o que entra no relatório. A etiqueta "sem dado" vem do
+                servidor e é por cliente: marcar mesmo assim é permitido, a seção
+                só é omitida e a ausência vira pendência declarada. */}
+            <div>
+              <Label>O que incluir</Label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 mt-1.5">
+                {ORDEM_MODULOS.map((m) => {
+                  const f = temFonte(FONTE_DO_MODULO[m] ?? m);
+                  const semDado = f && !f.presente;
+                  const marcado = modulos.includes(m);
+                  return (
+                    <label
+                      key={m}
+                      title={semDado ? f?.porque : undefined}
+                      className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs cursor-pointer transition-colors ${
+                        marcado ? "border-primary/40 bg-primary/5" : "border-border hover:bg-accent/30"
+                      }`}
+                    >
+                      <input type="checkbox" checked={marcado} onChange={() => toggle(m)} className="cursor-pointer" />
+                      <span className={semDado ? "text-muted-foreground" : ""}>{MODULO_LABEL[m]}</span>
+                      {semDado && <span className="ml-auto text-[10px] text-amber-600 flex-shrink-0">sem dado</span>}
+                    </label>
+                  );
+                })}
+              </div>
+              {opcoesQuery.isLoading && (
+                <p className="text-xs text-muted-foreground mt-1.5">Verificando o que este cliente tem…</p>
+              )}
+            </div>
+
+            {/* Prévia honesta: o que sai e o que não sai, antes de gastar IA. */}
+            {marcadosSemDado.length > 0 && (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+                <p className="font-medium text-amber-700 mb-1">
+                  {marcadosSemDado.length === 1 ? "Uma seção marcada será omitida:" : `${marcadosSemDado.length} seções marcadas serão omitidas:`}
+                </p>
+                <ul className="text-muted-foreground space-y-0.5">
+                  {marcadosSemDado.map((x) => (
+                    <li key={x.m}>· <strong>{MODULO_LABEL[x.m]}</strong> — {x.f?.porque}</li>
+                  ))}
+                </ul>
+                <p className="text-muted-foreground mt-1.5">
+                  O relatório é gerado assim mesmo, declarando isso como pendência.
+                </p>
+              </div>
+            )}
 
             <div>
               <Label>Contexto adicional (opcional)</Label>
@@ -201,7 +300,8 @@ export default function Reports() {
                 return (
                   <div key={r.id} className="flex items-center justify-between gap-3 flex-wrap p-3 border border-border rounded-md">
                     <div className="flex items-center gap-2.5">
-                      <Badge variant="secondary">{r.tier}</Badge>
+                      {/* Relatório antigo não tem módulos — mostra o tier dele. */}
+                      <Badge variant="secondary">{r.modulos?.length ? `${r.modulos.length} módulos` : r.tier}</Badge>
                       <div>
                         <div className="text-sm font-semibold">
                           {fmtDateBR(r.periodStart)} — {fmtDateBR(r.periodEnd)}
@@ -209,6 +309,18 @@ export default function Reports() {
                         <div className="text-xs text-muted-foreground flex items-center gap-1">
                           <Clock className="w-3 h-3" /> gerado em {r.generatedAt ? new Date(r.generatedAt).toLocaleDateString("pt-BR") : "—"}
                         </div>
+                        {r.modulos?.length ? (
+                          <div className="text-[11px] text-muted-foreground mt-0.5">
+                            {r.modulos.map((m) => MODULO_LABEL[m] ?? m).join(" · ")}
+                          </div>
+                        ) : null}
+                        {/* Fonte que faltou fica registrada: seis meses depois,
+                            um relatório magro precisa dizer que era magro. */}
+                        {r.fontes?.some((f) => !f.presente) && (
+                          <div className="text-[11px] text-amber-600/80 mt-0.5">
+                            sem: {r.fontes.filter((f) => !f.presente).map((f) => f.rotulo).join(", ")}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-2">
