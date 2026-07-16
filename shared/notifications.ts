@@ -23,9 +23,11 @@ export type NotifTipo =
   | "FINANCE_ATRASO"
   | "TRELLO_PRAZO" | "TRELLO_RECONEXAO"
   | "COMUNICADO" | "ANIVERSARIO"
-  | "CLARITY_ISSUE" | "TRACKING_PROBLEM";
+  | "SITE_CLARITY_ISSUE" | "SITE_TRACKING_PROBLEM";
 
 export type EmailModo = "off" | "hora" | "digest";
+
+export type Papel = "admin" | "developer" | "user";
 
 export type NotifTipoDef = {
   v: NotifTipo;
@@ -39,13 +41,21 @@ export type NotifTipoDef = {
   adminOnly?: boolean;
   /** Mensagem dirigida a você: o in-app não é opcional (só o email é). */
   inAppObrigatorio?: boolean;
+  /**
+   * Quem este tipo serve. Sem isto, todo tipo sem conta espalhava para TODO
+   * MUNDO — foi assim que o developer passou a receber relatório de mídia paga
+   * de todos os clientes. Ausente = todos os papéis.
+   */
+  papeis?: Papel[];
 };
 
 export const NOTIF_TIPOS: NotifTipoDef[] = [
-  // Performance
-  { v: "RELATORIO_DIARIO", dominio: "PERFORMANCE", label: "Relatório diário", desc: "Resumo curto das contas, 1× por dia.", inApp: true, emailModo: "hora" },
-  { v: "RELATORIO_SEMANAL", dominio: "PERFORMANCE", label: "Relatório semanal", desc: "Consolidado por conta, 1× por semana.", inApp: true, emailModo: "hora" },
-  { v: "ANOMALIA", dominio: "PERFORMANCE", label: "Alertas de mídia", desc: "Queda de ROAS, spike de CPA, orçamento estourando.", inApp: true, emailModo: "off" },
+  // Performance = MÍDIA PAGA. Developer não entra: ROAS/CPA/CTR não são
+  // responsabilidade dele, e receber isso de 11 clientes era puro ruído.
+  { v: "RELATORIO_DIARIO", dominio: "PERFORMANCE", label: "Relatório diário", desc: "Resumo curto das contas, 1× por dia.", inApp: true, emailModo: "hora", papeis: ["admin", "user"] },
+  { v: "RELATORIO_SEMANAL", dominio: "PERFORMANCE", label: "Relatório semanal", desc: "Consolidado por conta, 1× por semana.", inApp: true, emailModo: "hora", papeis: ["admin", "user"] },
+  { v: "ANOMALIA", dominio: "PERFORMANCE", label: "Alertas de mídia", desc: "Queda de ROAS, spike de CPA, orçamento estourando.", inApp: true, emailModo: "off", papeis: ["admin", "user"] },
+  // Operacional é técnico (token, sync): developer entra.
   { v: "OPERACIONAL", dominio: "PERFORMANCE", label: "Operacionais", desc: "Token expirado, conta sem campanha ativa, erros de sync.", inApp: true, emailModo: "off" },
   // Financeiro (admin)
   { v: "FINANCE_ATRASO", dominio: "FINANCEIRO", label: "Contas em atraso", desc: "A receber e a pagar vencidos. Só dispara quando há atraso.", inApp: true, emailModo: "hora", adminOnly: true },
@@ -57,8 +67,8 @@ export const NOTIF_TIPOS: NotifTipoDef[] = [
   { v: "ANIVERSARIO", dominio: "COMUNICADO", label: "Aniversários", desc: "Aniversário de alguém do time.", inApp: true, emailModo: "off" },
   // Site — comportamento no site do cliente (Clarity). Separado de Performance
   // porque é outra pergunta: mídia trouxe gente, o site segurou?
-  { v: "CLARITY_ISSUE", dominio: "SITE", label: "Fricção no site", desc: "Cliques mortos, rage clicks, scroll baixo, tráfego de bot, queda de sessões.", inApp: true, emailModo: "off" },
-  { v: "TRACKING_PROBLEM", dominio: "SITE", label: "Risco de medição", desc: "Erros de JS que podem quebrar o disparo de conversão.", inApp: true, emailModo: "hora" },
+  { v: "SITE_CLARITY_ISSUE", dominio: "SITE", label: "Fricção no site", desc: "Cliques mortos, rage clicks, scroll baixo, tráfego de bot, queda de sessões.", inApp: true, emailModo: "off" },
+  { v: "SITE_TRACKING_PROBLEM", dominio: "SITE", label: "Risco de medição", desc: "Erros de JS que podem quebrar o disparo de conversão.", inApp: true, emailModo: "hora" },
 ];
 
 export const NOTIF_DOMINIOS: { v: NotifDominio; label: string }[] = [
@@ -79,9 +89,16 @@ export const notifTipoDef = (v: string): NotifTipoDef | undefined => NOTIF_TIPOS
 export const notifTipoLabel = (v: string): string => notifTipoDef(v)?.label ?? v;
 export const dominioLabel = (v: string): string => NOTIF_DOMINIOS.find((d) => d.v === v)?.label ?? v;
 
-/** Tipos visíveis para o usuário: Financeiro só para admin. */
+/** Este tipo serve a este papel? Base do fan-out e da tela de preferências. */
+export const tipoServeRole = (t: NotifTipoDef, role: string | undefined): boolean => {
+  if (t.adminOnly && role !== "admin") return false;
+  if (t.papeis && !t.papeis.includes((role ?? "user") as Papel)) return false;
+  return true;
+};
+
+/** Tipos visíveis para o usuário: financeiro só admin; mídia paga não vai p/ dev. */
 export const notifTiposFor = (role: string | undefined): NotifTipoDef[] =>
-  NOTIF_TIPOS.filter((t) => !t.adminOnly || role === "admin");
+  NOTIF_TIPOS.filter((t) => tipoServeRole(t, role));
 
 /**
  * Ponte alerts.type (técnico) → NotifTipo (produto). O que não estiver mapeado
@@ -98,8 +115,8 @@ export const ALERT_TYPE_TO_NOTIF: Record<string, NotifTipo> = {
   TRELLO_RECONNECT: "TRELLO_RECONEXAO",
   COMUNICADO: "COMUNICADO",
   BIRTHDAY: "ANIVERSARIO",
-  CLARITY_ISSUE: "CLARITY_ISSUE",
-  TRACKING_PROBLEM: "TRACKING_PROBLEM",
+  CLARITY_ISSUE: "SITE_CLARITY_ISSUE",
+  TRACKING_PROBLEM: "SITE_TRACKING_PROBLEM",
 };
 
 export const notifTipoDoAlerta = (alertType: string): NotifTipo => ALERT_TYPE_TO_NOTIF[alertType] ?? "OPERACIONAL";

@@ -277,9 +277,11 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
-import { getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat } from "./db";
+import { getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat } from "./db";
 import { sincronizarClarity } from "./clarityJobs";
 import { gerarSiteReport, siteReportMarkdown } from "./services/siteReportService";
+import { obterBriefingDoDia } from "./services/briefingService";
+import { emailMode } from "./emailService";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
 import { entregarComunicado } from "./notificationJobs";
 import { notifTiposFor, notifTipoDef, type EmailModo } from "../shared/notifications";
@@ -1875,6 +1877,38 @@ export const appRouter = router({
   }),
 
   notifications: router({
+    /** Configuração do resumo diário automático (horário/ativo). */
+    digestSettings: adminProcedure.query(async () => {
+      const cfg = await getDigestSettings();
+      const dia = new Intl.DateTimeFormat("en-CA", { timeZone: cfg.timezone }).format(new Date());
+      const excecao = await getDigestOverride(dia);
+      // O modo de email vem junto: o admin precisa saber se vai sair de verdade.
+      return { ...cfg, hoje: { dia, enabled: excecao?.enabled ?? true, timeOverride: excecao?.timeOverride ?? null }, email: emailMode() };
+    }),
+
+    setDigestSettings: adminProcedure
+      .input(z.object({
+        autoEnabled: z.boolean().optional(),
+        defaultTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Horário inválido (use HH:MM).").optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await updateDigestSettings(input, ctx.user.id);
+        return { success: true } as const;
+      }),
+
+    /** Exceção de um dia: feriado, folga geral. Não desliga a rotina. */
+    setDigestHoje: adminProcedure
+      .input(z.object({
+        dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        enabled: z.boolean().optional(),
+        timeOverride: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { dia, ...v } = input;
+        await setDigestOverride(dia, v, ctx.user.id);
+        return { success: true } as const;
+      }),
+
     // Preferências por (tipo × canal). Retorna o catálogo já resolvido com o que
     // o usuário gravou — o front não precisa saber dos defaults.
     prefs: protectedProcedure.query(async ({ ctx }) => {
@@ -2729,58 +2763,11 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    getDailyBriefing: protectedProcedure.query(async ({ ctx }) => {
-      const today = new Date().toISOString().split("T")[0];
-      const cached = await getDailyBriefing(ctx.user.id, today);
-      if (cached) return { content: cached };
-
-      // Clientes globais → briefing considera todas as contas ativas.
-      const accounts = await getAllActiveMetaAdAccountsForListing();
-      if (!accounts.length) return { content: null };
-
-      const now = new Date();
-      const d48 = new Date(now.getTime() - 48 * 60 * 60 * 1000);
-      const fmt48 = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-      const start48 = fmt48(d48);
-      const end48 = fmt48(now);
-      const metricsRows48 = await Promise.all(
-        accounts.map(a => getAccountMetricsSummary(a.id, start48, end48))
-      );
-      const ROAS_GOALS = ["SALES", "VALUE"];
-      const accountLines = accounts.map((a, idx) => {
-        const rows = metricsRows48[idx] ?? [];
-        const spend = rows.reduce((s, r) => s + Number(r.totalSpend ?? 0), 0).toFixed(2);
-        const conversions = rows.reduce((s, r) => s + Number(r.totalConversions ?? 0), 0).toFixed(0);
-        const convValue = rows.reduce((s, r) => s + Number(r.totalConversionValue ?? 0), 0);
-        const spendNum = parseFloat(spend);
-        const goal = (a as any).goalTypeOverride ?? "DEFAULT";
-        const showRoas = ROAS_GOALS.includes(goal);
-        const roas = spendNum > 0 ? (convValue / spendNum).toFixed(2) : "0.00";
-        const estado = a.aiStatusColor ? { green: "A (saudável)", yellow: "B (atenção)", red: "C (crítico)" }[a.aiStatusColor as "green"|"yellow"|"red"] : "sem análise";
-        const summary = showRoas ? (a.aiStatusSummary ?? "Sem análise") : "";
-        const roasInfo = showRoas ? `, ROAS ${roas}x` : ` (objetivo: ${goal})`;
-        const hasData = spendNum > 0;
-        const resultLabel = showRoas ? `Conversões: ${conversions}` : `Resultados (${goal}): ${conversions}`;
-        return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend}${roasInfo}, ${resultLabel}${!hasData ? " [SEM DADOS — pode estar inativa por decisão estratégica]" : ""}${summary ? ". " + summary : ""}`;
-      }).join("\n");
-      const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Retorne um JSON com exatamente 4 campos: "resumo" (frase executiva fluida descrevendo o estado geral do portfólio — tom direto, termina com ponto final, máx 120 caracteres, NÃO liste apenas contagens), "positivo" (o que está indo bem — contas saudáveis, métricas positivas, 1-2 frases), "atencao" (contas que merecem monitoramento mas não são críticas, 1-2 frases), "critico" (problemas urgentes que precisam de ação imediata, 1-2 frases). Qualquer campo exceto "resumo" pode ser null se não houver nada relevante.
-REGRAS CRÍTICAS:
-- Contas com objetivo MESSAGES, TRAFFIC, ENGAGEMENT, AWARENESS: NUNCA mencione ROAS como problema — não se aplica a esses objetivos
-- Contas marcadas como [SEM DADOS NAS ÚLTIMAS 48H]: não trate como críticas — podem estar inativas por decisão estratégica do cliente
-- Foque nos padrões reais de performance, não em ausência de métricas irrelevantes para o objetivo
-Dados (últimas 48h — hoje + ontem):
-${accountLines}
-Escreva em português brasileiro, de forma direta e profissional. Destaque padrões, o que está indo bem e o que precisa de atenção imediata. Não use markdown, listas ou tópicos — escreva em prosa corrida. Se os dados de hoje estiverem zerados, baseie-se nos dados de ontem que estão consolidados.`;
-
-      const response = await invokeLLM({ messages: [{ role: "user", content: prompt }], maxTokens: 600, responseFormat: { type: "json_object" } });
-      const rawContent = extractTextContent(response);
-      let content = rawContent;
-      try {
-        const parsed = JSON.parse(rawContent);
-        // Store as JSON string for structured rendering
-        content = JSON.stringify({ resumo: parsed.resumo ?? null, positivo: parsed.positivo ?? null, atencao: parsed.atencao ?? null, critico: parsed.critico ?? null });
-      } catch { /* keep raw text as fallback */ }
-      await saveDailyBriefing(ctx.user.id, today, content);
+    getDailyBriefing: protectedProcedure.query(async () => {
+      // Briefing é GLOBAL: mesma linha para todo mundo, gerada uma vez por dia.
+      // A lógica vive no briefingService porque o cron também precisa dela —
+      // antes estava presa aqui dentro e o job nunca conseguia gerar nada.
+      const content = await obterBriefingDoDia();
       return { content };
     }),
   }),

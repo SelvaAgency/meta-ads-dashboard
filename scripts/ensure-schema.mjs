@@ -617,6 +617,34 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · client_chat_messages garantida");
 
+    // 21) Configuração do resumo diário (horário/ativo sai do código e vai p/ o banco).
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`daily_digest_settings\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`autoEnabled\` BOOLEAN NOT NULL DEFAULT TRUE,
+        \`defaultTime\` VARCHAR(5) NOT NULL DEFAULT '09:25',
+        \`timezone\` VARCHAR(40) NOT NULL DEFAULT 'America/Sao_Paulo',
+        \`updatedByUserId\` INT NULL,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await conn.query("INSERT IGNORE INTO `daily_digest_settings` (`id`) VALUES (1)");
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`daily_digest_overrides\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`dia\` VARCHAR(10) NOT NULL,
+        \`enabled\` BOOLEAN NOT NULL DEFAULT TRUE,
+        \`timeOverride\` VARCHAR(5) NULL,
+        \`excludedUserIdsJson\` JSON NULL,
+        \`excludedClientIdsJson\` JSON NULL,
+        \`createdByUserId\` INT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uq_digest_override_dia\` (\`dia\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · daily_digest_settings / daily_digest_overrides garantidas");
+
     // 20) Alertas de site (Clarity): domínio SITE + tipos novos.
     const [domCol2] = await conn.query(
       "SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'alerts' AND column_name = 'dominio'",

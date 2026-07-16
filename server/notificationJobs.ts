@@ -15,12 +15,13 @@ import { logger } from "./logger";
 import { isEmailConfigured, sendEmail } from "./emailService";
 import {
   createNotification, destinatariosEmail, emailJaEnviado, marcarEmailEnviado,
-  financeAtrasos, getDailyBriefing, saveDailyBriefing,
+  financeAtrasos,
   usuariosComTrello, aniversariantesDe, pendentesDoDigest, marcarEmailEnviadoIds,
   usuariosAtivosComEmail, emailModoDe,
 } from "./db";
 import { decryptSecret } from "./_core/integrationsCrypto";
 import { isTrelloConfigured, listMyCards, TrelloAuthError } from "./trelloService";
+import { obterBriefingDoDia } from "./services/briefingService";
 import { type NotifTipo, notifTipoDoAlerta, dominioLabel } from "../shared/notifications";
 
 const BRL = (c: number) => "R$ " + ((c ?? 0) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
@@ -122,18 +123,18 @@ export async function runFinanceAtrasos(): Promise<{ total: number; notificados:
  * app ainda, o conteúdo não existe — este job apenas notifica o que já foi
  * gerado, e o gerador de verdade continua sendo a rota de sugestões.
  */
-export async function runBriefingDiario(gerar: (userId: number, dia: string) => Promise<string | null>): Promise<{ notificados: number; emails: number }> {
+export async function runBriefingDiario(): Promise<{ notificados: number; emails: number }> {
   const dia = hojeAgencia();
   const dedupKey = `RELATORIO_DIARIO:global:${dia}`;
-  const destinos = await destinatariosEmail("RELATORIO_DIARIO");
-  const semente = destinos[0]?.id ?? 1;
 
-  let conteudo = await getDailyBriefing(semente, dia);
+  // Gera de verdade. Antes o cron passava um stub que devolvia null e depois
+  // procurava o briefing de um usuário arbitrário — por isso o email diário
+  // nunca saiu (zero DAILY_BRIEFING no histórico).
+  const conteudo = await obterBriefingDoDia(dia);
   if (!conteudo) {
-    conteudo = await gerar(semente, dia).catch((e) => { logger.error(`[Notif] briefing falhou: ${e?.message}`); return null; });
-    if (conteudo) await saveDailyBriefing(semente, dia, conteudo);
+    logger.info("[Notif] Briefing do dia não pôde ser gerado — nada a notificar.");
+    return { notificados: 0, emails: 0 };
   }
-  if (!conteudo) return { notificados: 0, emails: 0 };
 
   const { resumo, positivo, atencao, critico } = parseBriefing(conteudo);
   const titulo = `Relatório diário · ${fmtData(dia)}`;

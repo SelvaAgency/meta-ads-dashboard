@@ -208,10 +208,25 @@ function PersonRow({ p, onTempPassword }: { p: Person; onTempPassword: (email: s
     onError: (e) => toast.error(e.message),
   });
 
+  /**
+   * Desativar é soft delete: a pessoa perde acesso e para de receber alertas,
+   * mas auditoria, histórico e vínculos ficam. O backend recusa auto-desativação
+   * e o último admin — isto aqui é só o aviso do que vai acontecer.
+   */
+  const alternarAtivo = (v: boolean) => {
+    if (!v) {
+      const temClientes = meusClientes.length > 0;
+      const msg = `Tem certeza que deseja desativar ${p.name}? A pessoa perderá acesso ao SELVA Spaces e deixará de receber notificações.`
+        + (temClientes ? `\n\nEste usuário é coordenador de ${meusClientes.length} cliente(s). Os vínculos serão preservados, mas ele não receberá alertas enquanto estiver inativo.` : "");
+      if (!confirm(msg)) return;
+    }
+    update.mutate({ id: p.id, active: v });
+  };
+
   /** Rebaixar coordenador apaga os vínculos no backend — confirmar antes. */
   const mudarFuncao = (v: "collaborator" | "coordinator") => {
     if (v === "collaborator" && meusClientes.length > 0) {
-      const ok = confirm(`${p.name} deixa de ser coordenador e perde o vínculo com ${meusClientes.length} cliente(s). Os alertas desses clientes não chegarão mais para ela. Continuar?`);
+      const ok = confirm(`Ao remover ${p.name} como coordenador, ela deixará de receber alertas dos ${meusClientes.length} cliente(s) vinculados. Deseja continuar?`);
       if (!ok) return;
     }
     update.mutate({ id: p.id, operationalRole: v });
@@ -247,8 +262,8 @@ function PersonRow({ p, onTempPassword }: { p: Person; onTempPassword: (email: s
   }
 
   return (
-    <div className="rounded-lg border border-border p-3">
-    <div className="flex flex-wrap items-center gap-3">
+    <div className={`rounded-lg border p-3 ${p.active ? "border-border" : "border-border/60 bg-muted/30"}`}>
+    <div className={`flex flex-wrap items-center gap-3 ${p.active ? "" : "opacity-60"}`}>
       <div className="flex-1 min-w-[160px]">
         <p className="text-sm font-medium">{p.name}</p>
         <p className="text-xs text-muted-foreground">{p.email}</p>
@@ -257,19 +272,20 @@ function PersonRow({ p, onTempPassword }: { p: Person; onTempPassword: (email: s
         className="h-8 rounded-md border border-border bg-input px-2 text-xs"
         value={p.role}
         onChange={(e) => update.mutate({ id: p.id, role: e.target.value as Role })}
-        title="Permissão do sistema — o que a pessoa pode fazer"
+        title="Permissão no sistema — o que a pessoa pode fazer"
       >
         {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
       </select>
-      <select
-        className="h-8 rounded-md border border-border bg-input px-2 text-xs"
-        value={p.operationalRole}
-        onChange={(e) => mudarFuncao(e.target.value as "collaborator" | "coordinator")}
-        title="Função operacional — por quais clientes a pessoa responde. Não dá permissão."
-      >
-        <option value="collaborator">Colaborador</option>
-        <option value="coordinator">Coordenador</option>
-      </select>
+      {/* Checkbox, não dropdown: dois selects lado a lado (permissão e função)
+          pareciam a mesma coisa e confundiam. Coordenador é um SIM/NÃO. */}
+      <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none" title="Responsabilidade operacional — por quais clientes responde. Não concede permissão.">
+        <input
+          type="checkbox"
+          checked={p.operationalRole === "coordinator"}
+          onChange={(e) => mudarFuncao(e.target.checked ? "coordinator" : "collaborator")}
+        />
+        <span className={p.operationalRole === "coordinator" ? "text-foreground font-medium" : "text-muted-foreground"}>É coordenador</span>
+      </label>
       {p.operationalRole === "coordinator" && (
         <button
           onClick={() => setVerClientes((v) => !v)}
@@ -281,8 +297,8 @@ function PersonRow({ p, onTempPassword }: { p: Person; onTempPassword: (email: s
       )}
       <span className="text-xs text-muted-foreground w-14 text-center" title="Aniversário">{bday}</span>
       {statusBadge(p)}
-      <div className="flex items-center gap-1" title="Ativo">
-        <Switch checked={p.active} onCheckedChange={(v) => update.mutate({ id: p.id, active: v })} />
+      <div className="flex items-center gap-1" title={p.active ? "Desativar usuário" : "Reativar usuário"}>
+        <Switch checked={p.active} onCheckedChange={(v) => alternarAtivo(v)} />
       </div>
       <button onClick={() => setEditing(true)} className="p-2 text-muted-foreground hover:text-foreground" title="Editar"><Pencil className="w-4 h-4" /></button>
       <button
@@ -312,6 +328,12 @@ export default function PeoplePage() {
   const isAdmin = canManagePeople((user as { role?: string } | null)?.role);
   const list = trpc.people.list.useQuery(undefined, { enabled: isAdmin });
   const [temp, setTemp] = useState<{ email: string; password: string } | null>(null);
+  // Inativo some por padrão: quem saiu da empresa não deve poluir a lista de
+  // quem está. Mas continua acessível — soft delete, nada é apagado.
+  const [verInativos, setVerInativos] = useState(false);
+  const todos = list.data ?? [];
+  const inativos = todos.filter((p) => !p.active).length;
+  const visiveis = verInativos ? todos : todos.filter((p) => p.active);
 
   return (
     <HubShell>
@@ -337,10 +359,16 @@ export default function PeoplePage() {
               <Card className="gap-3 py-5">
                 <div className="px-5 flex flex-col gap-2">
                   {list.isLoading && <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Carregando…</p>}
-                  {list.data?.map((p) => (
+                  {inativos > 0 && (
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer self-end">
+                      <input type="checkbox" checked={verInativos} onChange={(e) => setVerInativos(e.target.checked)} />
+                      Mostrar {inativos} desativado(s)
+                    </label>
+                  )}
+                  {visiveis.map((p) => (
                     <PersonRow key={p.id} p={p as Person} onTempPassword={(email, password) => setTemp({ email, password })} />
                   ))}
-                  {list.data?.length === 0 && <p className="text-sm text-muted-foreground">Nenhum colaborador ainda.</p>}
+                  {todos.length === 0 && <p className="text-sm text-muted-foreground">Nenhum colaborador ainda.</p>}
                 </div>
               </Card>
             </>

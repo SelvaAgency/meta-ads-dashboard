@@ -36,7 +36,7 @@ type Metricas = {
 
 export type Problema = {
   chave: string;                       // vai para o dedup: tipo:cliente:problema:dia
-  tipo: "CLARITY_ISSUE" | "TRACKING_PROBLEM";
+  tipo: "SITE_CLARITY_ISSUE" | "SITE_TRACKING_PROBLEM";
   severidade: "INFO" | "WARNING" | "CRITICAL";
   titulo: string;
   detalhe: string;
@@ -58,7 +58,7 @@ export function analisarSnapshot(m: Metricas, base: Metricas[]): Problema[] {
   const js = taxa(m.javascriptErrors, s);
   if (js !== null && js > 0.25) {
     p.push({
-      chave: "js_errors", tipo: "TRACKING_PROBLEM",
+      chave: "js_errors", tipo: "SITE_TRACKING_PROBLEM",
       severidade: js > 0.5 ? "CRITICAL" : "WARNING",
       titulo: `Erros de JavaScript em ${pct(js)} das sessões`,
       detalhe: `${m.javascriptErrors} erros em ${s} sessões. Além de quebrar a experiência, erro de JS pode impedir o disparo do evento de conversão — o que faz o CPA parecer pior do que é.`,
@@ -68,7 +68,7 @@ export function analisarSnapshot(m: Metricas, base: Metricas[]): Problema[] {
   const dead = taxa(m.deadClicks, s);
   if (dead !== null && dead > 0.20) {
     p.push({
-      chave: "dead_clicks", tipo: "CLARITY_ISSUE",
+      chave: "dead_clicks", tipo: "SITE_CLARITY_ISSUE",
       severidade: dead > 0.40 ? "WARNING" : "INFO",
       titulo: `Cliques mortos em ${pct(dead)} das sessões`,
       detalhe: `${m.deadClicks} cliques em ${s} sessões que não levaram a nada. Algo parece clicável e não é, ou o CTA confunde.`,
@@ -78,7 +78,7 @@ export function analisarSnapshot(m: Metricas, base: Metricas[]): Problema[] {
   const rage = taxa(m.rageClicks, s);
   if (rage !== null && rage > 0.05) {
     p.push({
-      chave: "rage_clicks", tipo: "CLARITY_ISSUE",
+      chave: "rage_clicks", tipo: "SITE_CLARITY_ISSUE",
       severidade: rage > 0.10 ? "WARNING" : "INFO",
       titulo: `Rage clicks em ${pct(rage)} das sessões`,
       detalhe: `${m.rageClicks} sessões com clique repetido de frustração em ${s}. Normalmente é um elemento específico que não responde.`,
@@ -88,7 +88,7 @@ export function analisarSnapshot(m: Metricas, base: Metricas[]): Problema[] {
   const qb = taxa(m.quickBacks, s);
   if (qb !== null && qb > 0.35) {
     p.push({
-      chave: "quick_backs", tipo: "CLARITY_ISSUE", severidade: "WARNING",
+      chave: "quick_backs", tipo: "SITE_CLARITY_ISSUE", severidade: "WARNING",
       titulo: `${pct(qb)} das sessões saem logo na chegada`,
       detalhe: `${m.quickBacks} quick backs em ${s} sessões. Expectativa quebrada entre o anúncio e a página, ou carregamento lento.`,
     });
@@ -96,7 +96,7 @@ export function analisarSnapshot(m: Metricas, base: Metricas[]): Problema[] {
 
   if (m.averageScrollDepth !== null && m.averageScrollDepth < 30) {
     p.push({
-      chave: "scroll_baixo", tipo: "CLARITY_ISSUE", severidade: "INFO",
+      chave: "scroll_baixo", tipo: "SITE_CLARITY_ISSUE", severidade: "INFO",
       titulo: `Scroll médio de apenas ${Math.round(m.averageScrollDepth)}%`,
       detalhe: `Em ${s} sessões, a maioria não passa do topo. A página não sustenta a intenção de quem clicou.`,
     });
@@ -105,7 +105,7 @@ export function analisarSnapshot(m: Metricas, base: Metricas[]): Problema[] {
   const bots = taxa(m.botSessions, s);
   if (bots !== null && bots > 0.30) {
     p.push({
-      chave: "bots", tipo: "CLARITY_ISSUE", severidade: "INFO",
+      chave: "bots", tipo: "SITE_CLARITY_ISSUE", severidade: "INFO",
       titulo: `${pct(bots)} do tráfego é bot`,
       detalhe: `${m.botSessions} de ${s} sessões são bots. O volume que a mídia parece entregar está inflado.`,
     });
@@ -118,7 +118,7 @@ export function analisarSnapshot(m: Metricas, base: Metricas[]): Problema[] {
     const agora = humanas(m);
     if (mediaHumanas >= MIN_SESSOES && agora < mediaHumanas * 0.5) {
       p.push({
-        chave: "queda_sessoes", tipo: "CLARITY_ISSUE", severidade: "WARNING",
+        chave: "queda_sessoes", tipo: "SITE_CLARITY_ISSUE", severidade: "WARNING",
         titulo: `Sessões qualificadas caíram ${pct(1 - agora / mediaHumanas)}`,
         detalhe: `${Math.round(agora)} sessões humanas hoje contra uma média de ${Math.round(mediaHumanas)} nos ${base.length} dias anteriores.`,
       });
@@ -129,7 +129,7 @@ export function analisarSnapshot(m: Metricas, base: Metricas[]): Problema[] {
       const mediaTempo = temposBase.reduce((a, b) => a + b, 0) / temposBase.length;
       if (mediaTempo > 0 && m.averageSessionDuration < mediaTempo * 0.5) {
         p.push({
-          chave: "engajamento_caiu", tipo: "CLARITY_ISSUE", severidade: "WARNING",
+          chave: "engajamento_caiu", tipo: "SITE_CLARITY_ISSUE", severidade: "WARNING",
           titulo: `Tempo no site caiu ${pct(1 - m.averageSessionDuration / mediaTempo)}`,
           detalhe: `${Math.round(m.averageSessionDuration)}s hoje contra ${Math.round(mediaTempo)}s de média. Se o gasto de mídia não caiu, o tráfego mudou de qualidade.`,
         });
@@ -162,8 +162,10 @@ export async function runClarityAlertas(): Promise<{ contas: number; alertas: nu
 
       const problemas = analisarSnapshot(atual, base);
       for (const p of problemas) {
+        // O tipo do catálogo é SITE_*; o alerts.type no banco segue o enum antigo.
+        const alertType = p.tipo === "SITE_TRACKING_PROBLEM" ? "TRACKING_PROBLEM" : "CLARITY_ISSUE";
         const criados = await createNotification({
-          tipo: p.tipo, alertType: p.tipo, severity: p.severidade,
+          tipo: p.tipo, alertType, severity: p.severidade,
           title: `${nome}: ${p.titulo}`, message: p.detalhe,
           referencia: `${c.accountId}:${p.chave}`, dia,
           accountId: c.accountId,

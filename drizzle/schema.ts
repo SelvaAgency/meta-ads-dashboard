@@ -322,6 +322,41 @@ export const clientChatMessages = mysqlTable("client_chat_messages", {
 export type ClientChatMessage = typeof clientChatMessages.$inferSelect;
 export type InsertClientChatMessage = typeof clientChatMessages.$inferInsert;
 
+/**
+ * Configuração do resumo diário. Linha única (id=1) — é config da agência, não
+ * de pessoa. O automático continua existindo; isto só tira o horário do código
+ * e põe na mão do admin.
+ */
+export const dailyDigestSettings = mysqlTable("daily_digest_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  autoEnabled: boolean("autoEnabled").default(true).notNull(),
+  /** "HH:MM" no fuso abaixo. Default 09:25 — depois do sync, dentro do expediente. */
+  defaultTime: varchar("defaultTime", { length: 5 }).default("09:25").notNull(),
+  timezone: varchar("timezone", { length: 40 }).default("America/Sao_Paulo").notNull(),
+  updatedByUserId: int("updatedByUserId"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type DailyDigestSettings = typeof dailyDigestSettings.$inferSelect;
+
+/**
+ * Exceção de um dia: feriado, folga, cliente pausado. Sem linha = segue o padrão.
+ * `enabled=false` é o "amanhã não manda" sem desligar a rotina inteira.
+ */
+export const dailyDigestOverrides = mysqlTable("daily_digest_overrides", {
+  id: int("id").autoincrement().primaryKey(),
+  dia: varchar("dia", { length: 10 }).notNull(),      // YYYY-MM-DD local
+  enabled: boolean("enabled").default(true).notNull(),
+  timeOverride: varchar("timeOverride", { length: 5 }),
+  excludedUserIdsJson: json("excludedUserIdsJson"),
+  excludedClientIdsJson: json("excludedClientIdsJson"),
+  createdByUserId: int("createdByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqDia: uniqueIndex("uq_digest_override_dia").on(table.dia),
+}));
+export type DailyDigestOverride = typeof dailyDigestOverrides.$inferSelect;
+
 // ─── Configurações simples (key-value) — ex.: slide "Você prefere?" da SELVA TV ─
 export const appSettings = mysqlTable("app_settings", {
   settingKey: varchar("settingKey", { length: 191 }).primaryKey(),

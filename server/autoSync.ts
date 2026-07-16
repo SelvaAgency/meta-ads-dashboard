@@ -2,6 +2,7 @@ import { logger } from "./logger";
 import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, runDigestDiario, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
 import { runClaritySnapshots } from "./clarityJobs";
 import { runClarityAlertas } from "./services/clarityAlertService";
+import { getDigestSettings, getDigestOverride } from "./db";
 /**
  * autoSync.ts — Cron job para sincronização automática diária de todas as contas Meta Ads.
  *
@@ -455,6 +456,31 @@ async function runAnomaliasDeMidia() {
  * Notificações do dia: financeiro (atrasos) + briefing + semanal (segunda).
  * Idempotente por dedup — reexecutar não duplica.
  */
+/**
+ * Porteiro do resumo diário: confere a configuração (ativo? que horas?) e a
+ * exceção do dia (feriado/folga) antes de deixar o ciclo rodar. Idempotente por
+ * natureza — o dedup dos gatilhos impede repetição se rodar duas vezes.
+ */
+async function runNotificacoesSeForHora() {
+  try {
+    const cfg = await getDigestSettings();
+    if (!cfg.autoEnabled) return;
+
+    const agora = new Intl.DateTimeFormat("en-GB", { timeZone: cfg.timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
+    const dia = new Intl.DateTimeFormat("en-CA", { timeZone: cfg.timezone }).format(new Date());
+    const excecao = await getDigestOverride(dia);
+    if (excecao && !excecao.enabled) return; // admin desligou o de hoje
+
+    const alvo = excecao?.timeOverride ?? cfg.defaultTime;
+    if (agora !== alvo) return;
+
+    logger.info(`[Notif] Disparando o ciclo diário (${alvo} ${cfg.timezone}).`);
+    await runNotificacoesDiarias();
+  } catch (err) {
+    logger.error(`[Notif] Porteiro do diário falhou: ${(err as Error)?.message}`);
+  }
+}
+
 async function runNotificacoesDiarias() {
   // Cada gatilho é isolado: um falhando não derruba os outros nem o digest.
   const passo = async (nome: string, fn: () => Promise<unknown>) => {
@@ -465,7 +491,7 @@ async function runNotificacoesDiarias() {
   await passo("Clarity", runClarityAlertas);
   await passo("Trello", runTrelloPrazos);
   await passo("Aniversários", runAniversarios);
-  await passo("Briefing", () => runBriefingDiario(async () => null));
+  await passo("Briefing", runBriefingDiario);
   await passo("Semanal", async () => {
     const hoje = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", weekday: "short" }).format(new Date());
     if (hoje === "Mon") await runRelatorioSemanalDeContas();
@@ -1047,8 +1073,10 @@ export async function startAutoSync() {
   // Anomalias de mídia (09:20 UTC) — depois do sync das 09:00.
   cron.schedule("0 20 9 * * *", runAnomaliasDeMidia, TZ);
 
-  // Notificações do dia: financeiro + briefing + semanal (09:25 UTC).
-  cron.schedule("0 25 9 * * *", runNotificacoesDiarias, TZ);
+  // Notificações do dia. Roda de minuto em minuto e o próprio job decide se é a
+  // hora — porque o horário mora no banco (o admin muda em Configurações) e um
+  // cron fixo não conseguiria acompanhar sem reiniciar o processo.
+  cron.schedule("0 * * * * *", runNotificacoesSeForHora, TZ);
 
   // Daily cleanup of old read anomalies (09:05 UTC)
   cron.schedule("0 5 6 * * *", async () => {

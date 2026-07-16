@@ -1877,9 +1877,9 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
-import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta } from "../shared/notifications";
+import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 
 export async function getAccountThresholds(accountId: number) {
   const db = await getDb();
@@ -3286,7 +3286,9 @@ async function destinatariosPara(tipo: NotifTipo, canal: "inApp" | "email", modo
   if (!def) return [];
   const ativos = await db.select({ id: users.id, email: users.email, name: users.name, role: users.role })
     .from(users).where(eq(users.active, true));
-  let elegiveis = ativos.filter((u) => (def.adminOnly ? u.role === "admin" : true));
+  // O catálogo diz quem cada tipo serve. Sem isto, tipo sem conta espalhava para
+  // TODO MUNDO — era assim que o developer recebia relatório de mídia paga.
+  let elegiveis = ativos.filter((u) => tipoServeRole(def, u.role));
   if (apenas) elegiveis = elegiveis.filter((u) => apenas.includes(u.id));
   if (elegiveis.length === 0) return [];
   const prefs = await db.select().from(notificationPrefs).where(and(
@@ -3690,7 +3692,9 @@ export async function getNotificationRecipientsForClient(input: { accountId: num
 
   // Técnico = interessa também a quem cuida da infra. Risco de medição entra:
   // erro de JS que quebra conversão é problema de código, não de mídia.
-  const tecnico = input.tipo === "OPERACIONAL" || input.tipo === "TRACKING_PROBLEM";
+  // Técnico = também é problema de quem cuida do código (erro de JS pode quebrar
+  // o disparo de conversão). Mídia paga NUNCA vai para developer.
+  const tecnico = input.tipo === "OPERACIONAL" || input.tipo === "SITE_TRACKING_PROBLEM";
   const roles: ("admin" | "developer")[] = tecnico ? ["admin", "developer"] : ["admin"];
   const porRole = await db.select({ id: users.id }).from(users)
     .where(and(eq(users.active, true), inArray(users.role, roles)));
@@ -3934,4 +3938,44 @@ export async function limparChat(accountId: number) {
   const db = await getDb();
   if (!db) return;
   await db.delete(clientChatMessages).where(eq(clientChatMessages.accountId, accountId));
+}
+
+// ─── Configuração do resumo diário ───────────────────────────────────────────
+
+export async function getDigestSettings() {
+  const db = await getDb();
+  const padrao = { id: 1, autoEnabled: true, defaultTime: "09:25", timezone: "America/Sao_Paulo", updatedByUserId: null, updatedAt: new Date() };
+  if (!db) return padrao;
+  const r = await db.select().from(dailyDigestSettings).limit(1);
+  return r[0] ?? padrao;
+}
+
+export async function updateDigestSettings(v: { autoEnabled?: boolean; defaultTime?: string }, actorUserId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(dailyDigestSettings)
+    .values({ id: 1, ...v, updatedByUserId: actorUserId })
+    .onDuplicateKeyUpdate({ set: { ...v, updatedByUserId: actorUserId } });
+}
+
+/** Exceção do dia (feriado, folga). Sem linha = segue o padrão. */
+export async function getDigestOverride(dia: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(dailyDigestOverrides).where(eq(dailyDigestOverrides.dia, dia)).limit(1);
+  return r[0] ?? null;
+}
+
+export async function setDigestOverride(dia: string, v: { enabled?: boolean; timeOverride?: string | null; excludedUserIds?: number[] | null; excludedClientIds?: number[] | null }, actorUserId: number) {
+  const db = await getDb();
+  if (!db) return;
+  const patch = {
+    ...(v.enabled !== undefined ? { enabled: v.enabled } : {}),
+    ...(v.timeOverride !== undefined ? { timeOverride: v.timeOverride } : {}),
+    ...(v.excludedUserIds !== undefined ? { excludedUserIdsJson: v.excludedUserIds } : {}),
+    ...(v.excludedClientIds !== undefined ? { excludedClientIdsJson: v.excludedClientIds } : {}),
+  };
+  await db.insert(dailyDigestOverrides)
+    .values({ dia, ...patch, createdByUserId: actorUserId })
+    .onDuplicateKeyUpdate({ set: patch });
 }
