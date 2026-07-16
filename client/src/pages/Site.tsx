@@ -695,9 +695,8 @@ function Carregando() {
 // Responde só com o que o Spaces tem deste cliente. Quando falta dado, diz que
 // falta — é isso que separa a ferramenta de um chute bem escrito.
 
-const FONTE_LABEL: Record<string, string> = {
-  midia: "Mídia paga", clarity: "Clarity", contexto: "Contexto", notas: "Notas",
-};
+// O rótulo de cada fonte vem do servidor (clientIntelligence → ROTULO): a lista
+// de fontes muda conforme o cliente, e duplicá-la aqui garantiria divergência.
 
 function AbaChat({ accountId, nome, podeLimpar }: { accountId: number; nome: string; podeLimpar: boolean }) {
   const utils = trpc.useUtils();
@@ -720,18 +719,25 @@ function AbaChat({ accountId, nome, podeLimpar }: { accountId: number; nome: str
 
   return (
     <div className="flex flex-col gap-4">
-      {/* O que ele sabe deste cliente — expectativa alinhada antes da pergunta */}
-      {f && (
+      {/* O que ele sabe deste cliente — expectativa alinhada ANTES da pergunta.
+          A lista vem do servidor: fonte que falta aparece apagada, com o motivo
+          no tooltip. É pendência, não erro. */}
+      {f && f.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap text-[11px]">
           <span className="text-muted-foreground">Responde com base em:</span>
-          {(["midia", "clarity", "contexto", "notas"] as const).map((k) => (
-            <span key={k} className={`px-2 py-0.5 rounded-full border ${f[k] ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600" : "border-border text-muted-foreground line-through opacity-60"}`}>
-              {FONTE_LABEL[k]}
+          {f.map((x) => (
+            <span
+              key={x.chave}
+              title={x.presente ? `${x.rotulo}: disponível` : x.porque}
+              className={`px-2 py-0.5 rounded-full border cursor-help ${
+                x.presente
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
+                  : "border-border text-muted-foreground line-through opacity-60"
+              }`}
+            >
+              {x.rotulo}
             </span>
           ))}
-          <span className={`px-2 py-0.5 rounded-full border ${f.relatorios > 0 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600" : "border-border text-muted-foreground line-through opacity-60"}`}>
-            {f.relatorios > 0 ? `${f.relatorios} relatório(s)` : "Relatórios"}
-          </span>
           {podeLimpar && msgs.length > 0 && (
             <button onClick={() => { if (confirm("Limpar toda a conversa deste cliente?")) limpar.mutate({ accountId }); }}
               className="ml-auto text-muted-foreground hover:text-destructive flex items-center gap-1">
@@ -739,6 +745,13 @@ function AbaChat({ accountId, nome, podeLimpar }: { accountId: number; nome: str
             </button>
           )}
         </div>
+      )}
+      {/* O que falta, por extenso — o tooltip some no toque, e no celular a
+          pastilha apagada sozinha não explica nada. */}
+      {f && f.some((x) => !x.presente) && (
+        <p className="text-[11px] text-muted-foreground -mt-2">
+          Não usa: {f.filter((x) => !x.presente).map((x) => x.rotulo).join(", ")} — passe o mouse para ver por quê.
+        </p>
       )}
 
       <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3 min-h-[280px]">

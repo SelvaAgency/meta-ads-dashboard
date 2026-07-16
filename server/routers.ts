@@ -286,6 +286,7 @@ import { obterBriefingDoDia } from "./services/briefingService";
 import { dispararResumoManual, previewResumoManual } from "./notificationJobs";
 import { emailMode } from "./emailService";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
+import { buildClientIntelligenceContext, contextoParaTexto, MODULOS_SITE } from "./services/clientIntelligence";
 import { entregarComunicado } from "./notificationJobs";
 import { notifTiposFor, notifTipoDef, type EmailModo } from "../shared/notifications";
 
@@ -500,11 +501,21 @@ const contextRouter = router({
       startDate.setDate(startDate.getDate() - 30);
       const toLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 
-      const [accountCtx, agencyCtx, metrics, suggestions] = await Promise.all([
+      const conta = await getMetaAdAccountById(input.accountId);
+      const [accountCtx, agencyCtx, metrics, suggestions, site] = await Promise.all([
         getAccountContext(input.accountId),
         getAgencyContext((ctx.user as any).id),
         getCampaignPerformanceSummary(input.accountId, toLocal(startDate), toLocal(endDate)),
         getSuggestionsByAccountId(input.accountId),
+        // Site vem do MESMO builder que alimenta o robô e o relatório. Só os
+        // módulos técnicos: mídia e contexto este chat já tem, dos próprios
+        // blocos abaixo (benchmarks, regras, aprendizados) — que o robô não tem.
+        buildClientIntelligenceContext(
+          input.accountId,
+          conta?.accountName ?? String(input.accountId),
+          { inicio: toLocal(startDate), fim: toLocal(endDate) },
+          MODULOS_SITE,
+        ),
       ]);
 
       const perfLines = metrics.map((m: any) => {
@@ -532,9 +543,14 @@ const contextRouter = router({
         accountCtx?.learnings ? `APRENDIZADOS HISTÓRICOS:\n${accountCtx.learnings}` : "",
         perfLines ? `PERFORMANCE DOS ÚLTIMOS 30 DIAS:\n${perfLines}` : "",
         pendingSuggestions ? `SUGESTÕES PENDENTES DA IA:\n${pendingSuggestions}` : "",
+        // O que acontece DEPOIS do clique. Sem isto, este chat recomendava mexer
+        // na campanha sem saber que a página demora 14s para abrir.
+        `SITE E COMPORTAMENTO (fonte única, mesma do robô e dos relatórios):\n${contextoParaTexto(site, false)}`,
       ].filter(Boolean).join("\n\n");
 
-      const systemPrompt = `Você é um estrategista sênior de Meta Ads da SELVA Agency, operando dentro do BIT — Brand Intelligence Tracker, um dashboard interno de gestão de Meta Ads. Você tem acesso completo e em tempo real aos dados desta conta através do sistema: métricas de campanhas, conjuntos, criativos, sugestões geradas, ações em monitoramento, contexto da conta e aprendizados históricos. O sistema sincroniza dados diariamente às 9h automaticamente via Meta Graph API. IMPORTANTE: nunca diga que não tem acesso a dados ou APIs — você já tem tudo disponível no contexto abaixo. Seja direto, preciso e acionável.
+      const systemPrompt = `Você é um estrategista sênior de Meta Ads da SELVA Agency, operando dentro do BIT — Brand Intelligence Tracker, um dashboard interno de gestão de Meta Ads. Você tem acesso aos dados desta conta através do sistema: métricas de campanhas, conjuntos, criativos, sugestões geradas, ações em monitoramento, contexto da conta, aprendizados históricos e dados do site do cliente. O sistema sincroniza dados diariamente às 9h automaticamente via Meta Graph API. Seja direto, preciso e acionável.
+
+USE SOMENTE O CONTEXTO ABAIXO. Não invente número, campanha ou métrica. Quando um bloco disser "SEM DADOS", isso significa que ninguém mediu aquilo — NÃO que está tudo bem. Diga que falta o dado e qual seria necessário; não preencha com suposição apresentada como fato. Você enxerga a jornada inteira: mídia paga → site → comportamento → conversão. Se o site pode explicar o resultado da mídia, diga.
 
 FORMATAÇÃO: Responda em parágrafos separados por quebra de linha. Sem asteriscos, sem hashtags, sem traços. Se houver decisões estratégicas rastreáveis a sugerir (pausar algo, realocar orçamento, criar algo), coloque-as no final sob o marcador exato "AÇÕES:" — uma por linha numerada. Inclua APENAS decisões de negócio monitoráveis, não passos de execução como "acessar o gerenciador" ou "registrar horário". Exemplo: AÇÕES:\n1. Pausar conjunto X\n2. Realocar R$500 de Y para Z
 
@@ -3034,8 +3050,9 @@ export const appRouter = router({
     chat: protectedProcedure
       .input(z.object({ accountId: z.number().int() }))
       .query(async ({ input }) => {
+        const conta = await getMetaAdAccountById(input.accountId);
         const msgs = await listChatMessages(input.accountId, 50);
-        const { fontes } = await montarFontesChat(input.accountId);
+        const { fontes } = await montarFontesChat(input.accountId, conta?.accountName ?? "");
         return { mensagens: msgs, sugestoes: sugestoesPara(fontes), fontes };
       }),
 

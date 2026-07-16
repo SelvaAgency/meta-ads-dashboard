@@ -1,5 +1,5 @@
 import { logger } from "./logger";
-import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -1390,6 +1390,47 @@ export async function getAlertsByAccountId(userId: number, accountId: number, li
     .where(and(eq(alerts.userId, userId), eq(alerts.accountId, accountId), eq(alerts.isRead, false)))
     .orderBy(desc(alerts.createdAt))
     .limit(limit);
+}
+
+/**
+ * Alertas recentes de uma conta, sem recorte por destinatário.
+ *
+ * A tabela guarda uma linha POR PESSOA que recebeu o alerta. Filtrar por userId
+ * aqui faria o robô e o relatório dizerem coisas diferentes conforme quem
+ * perguntou — um artefato compartilhado não pode depender de quem clicou.
+ * Então deduplica por dedupKey e devolve o alerta em si.
+ *
+ * FINANCEIRO fica de fora: é o único domínio que não é sobre a conta de mídia,
+ * e não pode vazar para dentro de um relatório de cliente.
+ * SYNC_COMPLETE também: são ~200 linhas de robô avisando que sincronizou, que
+ * afogariam o contexto sem explicar nada sobre o cliente.
+ */
+export async function alertasRecentesDaConta(accountId: number, dias = 14, limite = 25) {
+  const db = await getDb();
+  if (!db) return [];
+  const desde = new Date(Date.now() - dias * 86400000);
+  const rows = await db
+    .select()
+    .from(alerts)
+    .where(and(
+      eq(alerts.accountId, accountId),
+      gte(alerts.createdAt, desde),
+      ne(alerts.dominio, "FINANCEIRO"),
+      ne(alerts.type, "SYNC_COMPLETE"),
+    ))
+    .orderBy(desc(alerts.createdAt))
+    .limit(limite * 8); // folga: o mesmo alerta aparece uma vez por destinatário
+
+  const vistos = new Set<string>();
+  const unicos: typeof rows = [];
+  for (const a of rows) {
+    const chave = a.dedupKey ?? `${a.type}:${a.title}`;
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+    unicos.push(a);
+    if (unicos.length >= limite) break;
+  }
+  return unicos;
 }
 
 export async function getUnreadAlertsCount(userId: number) {
