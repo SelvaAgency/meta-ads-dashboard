@@ -16,16 +16,44 @@ const GA4_BASE = "https://analyticsdata.googleapis.com/v1beta";
 const GA4_ADMIN_BASE = "https://analyticsadmin.googleapis.com/v1beta";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
-// ─── Fallback config (used when env vars not available in production) ────────
-const FALLBACK_GOOGLE_CLIENT_ID = "393310096196-9t1hvoredv2ta0jb1080ng14bs61ekir.apps.googleusercontent.com";
-const FALLBACK_GOOGLE_CLIENT_SECRET = "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";
+// ─────────────────────────────────────────────────────────────────────────────
+//  INCIDENTE — credencial exposta (2026-07-16)
+// ─────────────────────────────────────────────────────────────────────────────
+//  Aqui existiam FALLBACK_GOOGLE_CLIENT_ID e FALLBACK_GOOGLE_CLIENT_SECRET com
+//  as credenciais reais do app Google, hardcoded e commitadas — a MESMA dupla
+//  que estava em googleOAuthCallback.ts. O repositório é público: considere o
+//  secret comprometido. Apagar daqui não o revoga; só a rotação no Google Cloud
+//  Console resolve.
+//
+//  As credenciais agora vêm só do ambiente, e falta de env falha alto. O
+//  fallback silencioso é justamente o que manteve esse segredo vivo no código
+//  sem ninguém notar — e o que faria a rotação parecer não ter efeito.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Duas responsabilidades separadas de propósito:
+ *  · temCredenciaisGoogle() — PERGUNTA. Devolve boolean, nunca lança. É o que
+ *    isGA4Configured() usa; um "está configurado?" que explode não responde
+ *    nada, e ainda derruba quem só queria mostrar a tela de "não configurado".
+ *  · credencialGoogle()     — EXIGE. Lança quando a credencial vai ser usada
+ *    de verdade, com a mensagem dizendo o que configurar.
+ */
+function temCredenciaisGoogle(): boolean {
+  return !!(process.env.GOOGLE_ADS_CLIENT_ID && process.env.GOOGLE_ADS_CLIENT_SECRET);
+}
+
+function credencialGoogle(nome: "GOOGLE_ADS_CLIENT_ID" | "GOOGLE_ADS_CLIENT_SECRET"): string {
+  const v = process.env[nome];
+  if (!v) throw new Error(`${nome} não configurada. Defina no ambiente (Railway) para usar o GA4.`);
+  return v;
+}
 
 function getGoogleClientId(): string {
-  return process.env.GOOGLE_ADS_CLIENT_ID || FALLBACK_GOOGLE_CLIENT_ID;
+  return credencialGoogle("GOOGLE_ADS_CLIENT_ID");
 }
 
 function getGoogleClientSecret(): string {
-  return process.env.GOOGLE_ADS_CLIENT_SECRET || FALLBACK_GOOGLE_CLIENT_SECRET;
+  return credencialGoogle("GOOGLE_ADS_CLIENT_SECRET");
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -486,7 +514,7 @@ export async function getGA4Conversions(
  * Check if GA4 is configured (OAuth credentials present).
  */
 export function isGA4Configured(): boolean {
-  return !!(getGoogleClientId() && getGoogleClientSecret());
+  return temCredenciaisGoogle();
 }
 
 /**

@@ -7,15 +7,37 @@ import { ENV } from "./_core/env";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
-const FALLBACK_CLIENT_ID = "393310096196-9t1hvoredv2ta0jb1080ng14bs61ekir.apps.googleusercontent.com";
-const FALLBACK_CLIENT_SECRET = "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";
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  INCIDENTE — credencial exposta (2026-07-16)
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Aqui existiam FALLBACK_CLIENT_ID e FALLBACK_CLIENT_SECRET com o client id e
+ *  o CLIENT SECRET reais do app Google, hardcoded e commitados. O repositório é
+ *  público, então o secret esteve exposto no histórico do git — considere-o
+ *  comprometido: apagar daqui NÃO o revoga, e reescrever histórico de repo
+ *  público não é confiável. Só a rotação no Google Cloud Console resolve.
+ *
+ *  Agora as credenciais vêm exclusivamente do ambiente e a rota falha alto se
+ *  faltarem. Falhar alto é proposital: o fallback silencioso é o que permitiu
+ *  o segredo viver aqui por tanto tempo sem ninguém perceber que ele existia.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/** Lê a credencial ou explica exatamente o que configurar. Nunca loga o valor. */
+function credencialObrigatoria(nome: "GOOGLE_ADS_CLIENT_ID" | "GOOGLE_ADS_CLIENT_SECRET"): string {
+  const v = process.env[nome];
+  if (!v) throw new Error(`${nome} não configurada. Defina no ambiente (Railway) antes de usar o OAuth do Google.`);
+  return v;
+}
 
 export function registerGoogleOAuthRoutes(app: Express) {
   // Step 1: Redirect user to Google consent screen
   app.get("/api/google/auth", (req: Request, res: Response) => {
-    const clientId = process.env.GOOGLE_ADS_CLIENT_ID || FALLBACK_CLIENT_ID;
-    if (!clientId) {
-      return res.status(500).json({ error: "GOOGLE_ADS_CLIENT_ID not configured" });
+    let clientId: string;
+    try {
+      clientId = credencialObrigatoria("GOOGLE_ADS_CLIENT_ID");
+    } catch (e) {
+      return res.status(500).json({ error: (e as Error).message });
     }
 
     const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || `${ENV.appUrl}/api/google/callback`;
@@ -64,13 +86,14 @@ export function registerGoogleOAuthRoutes(app: Express) {
       `);
     }
 
-    const clientId = process.env.GOOGLE_ADS_CLIENT_ID || FALLBACK_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || FALLBACK_CLIENT_SECRET;
-    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || `${ENV.appUrl}/api/google/callback`;
-
-    if (!clientId || !clientSecret) {
-      return res.status(500).json({ error: "Google OAuth credentials not configured" });
+    let clientId: string, clientSecret: string;
+    try {
+      clientId = credencialObrigatoria("GOOGLE_ADS_CLIENT_ID");
+      clientSecret = credencialObrigatoria("GOOGLE_ADS_CLIENT_SECRET");
+    } catch (e) {
+      return res.status(500).json({ error: (e as Error).message });
     }
+    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || `${ENV.appUrl}/api/google/callback`;
 
     try {
       const tokenResp = await fetch(GOOGLE_TOKEN_URL, {
