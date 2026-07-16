@@ -14,7 +14,7 @@
  *  trocar a fonte, este componente não muda).
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { Newspaper } from "lucide-react";
+import { IconeJornalzinho } from "./IconeJornalzinho";
 import type { NewsItem } from "./hubMocks";
 
 export function NewsTicker({ items, celebration }: { items: NewsItem[]; celebration?: string }) {
@@ -24,8 +24,8 @@ export function NewsTicker({ items, celebration }: { items: NewsItem[]; celebrat
       <div className="selva-ticker selva-ticker--pinned" role="status">
         <style>{TICKER_CSS}</style>
         <div className="selva-ticker__label">
-          <Newspaper className="w-3.5 h-3.5" />
-          <span>Selva News</span>
+          <IconeJornalzinho />
+          <span>Jornalzinho</span>
         </div>
         <div className="selva-ticker__pinned-msg">🎉 {celebration}</div>
       </div>
@@ -59,8 +59,8 @@ export function NewsTicker({ items, celebration }: { items: NewsItem[]; celebrat
       <style>{TICKER_CSS}</style>
 
       <div className="selva-ticker__label">
-        <Newspaper className="w-3.5 h-3.5" />
-        <span>Selva News</span>
+        <IconeJornalzinho />
+        <span>Jornalzinho</span>
       </div>
 
       <div className="selva-ticker__viewport">

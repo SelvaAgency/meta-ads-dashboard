@@ -13,7 +13,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useMemo, useState } from "react";
-import { Users, Plus, KeyRound, Pencil, Check, X, Loader2, Copy, Search, Briefcase, Trash2, AlertTriangle } from "lucide-react";
+import { Users, Plus, KeyRound, Pencil, Check, X, Loader2, Copy, Search, Briefcase, Trash2, AlertTriangle, Cake } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -303,7 +303,12 @@ function PersonRow({ p, onTempPassword }: { p: Person; onTempPassword: (email: s
           {meusClientes.length} cliente{meusClientes.length === 1 ? "" : "s"}
         </button>
       )}
-      <span className="text-xs text-muted-foreground w-14 text-center" title="Aniversário">{bday}</span>
+      {/* Bolinho só quando há data: com "—", ele viraria enfeite anunciando
+          um campo vazio. A largura fixa é a mesma, para a coluna não dançar. */}
+      <span className="text-xs text-muted-foreground w-14 flex items-center justify-center gap-1" title="Aniversário">
+        {bday !== "—" && <Cake className="w-3 h-3 flex-shrink-0 opacity-70" />}
+        {bday}
+      </span>
       {statusBadge(p)}
       <div className="flex items-center gap-1" title={p.active ? "Desativar usuário" : "Reativar usuário"}>
         <Switch checked={p.active} onCheckedChange={(v) => alternarAtivo(v)} />

@@ -15,7 +15,11 @@ import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
 import { HubSidebar } from "./HubSidebar";
+
+/** De quanto em quanto a aba aberta avisa que a pessoa está viva. */
+const PING_MS = 60_000;
 
 export function HubShell({ children }: { children: ReactNode }) {
   const { user, loading, isAuthenticated } = useAuth({ redirectOnUnauthenticated: true });
@@ -26,6 +30,29 @@ export function HubShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isAuthenticated && mustChange) navigate("/change-password", { replace: true });
   }, [isAuthenticated, mustChange, navigate]);
+
+  /**
+   * Presença: a aba aberta bate no servidor de minuto em minuto. Fica na shell
+   * porque é o único ponto por onde todo mundo logado passa, em qualquer página.
+   *
+   * `document.hidden` corta o ping da aba esquecida em segundo plano: sem isso,
+   * quem deixou o Spaces aberto na sexta apareceria "online" no domingo — e o
+   * indicador viraria piada, não informação.
+   *
+   * Falha em silêncio de propósito: presença é enfeite. Se o ping quebrar, nada
+   * na tela pode parar por causa disso.
+   */
+  const ping = trpc.presenca.ping.useMutation({ onError: () => {} });
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const bater = () => { if (!document.hidden) ping.mutate(); };
+    bater();
+    const t = setInterval(bater, PING_MS);
+    const aoVoltar = () => { if (!document.hidden) bater(); };
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", aoVoltar); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
 
   if (loading || !isAuthenticated || mustChange) {
     return (

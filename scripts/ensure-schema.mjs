@@ -28,6 +28,7 @@ const COLUMNS = [
   { name: "birthdayMonth",      ddl: "ADD COLUMN `birthdayMonth` INT NULL" },
   { name: "mustChangePassword", ddl: "ADD COLUMN `mustChangePassword` BOOLEAN NOT NULL DEFAULT 0" },
   { name: "active",             ddl: "ADD COLUMN `active` BOOLEAN NOT NULL DEFAULT 1" },
+  { name: "lastSeenAt",         ddl: "ADD COLUMN `lastSeenAt` TIMESTAMP NULL" },
   { name: "avatarKey",          ddl: "ADD COLUMN `avatarKey` VARCHAR(512) NULL" },
 ];
 

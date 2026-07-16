@@ -238,7 +238,7 @@ function NewsAdminSection() {
   const ids = (list.data ?? []).map((n) => n.id);
 
   return (
-    <SectionCard icon={Newspaper} title="News bar" description="Mensagens que passam na faixa da Home (visíveis a todos).">
+    <SectionCard icon={Newspaper} title="Jornalzinho" description="Mensagens que passam na faixa da Home (visíveis a todos).">
       <div className="flex items-center gap-2 mb-3">
         <Input value={text} placeholder="Nova notícia" onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && text.trim()) { create.mutate({ text: text.trim() }); setText(""); } }} />

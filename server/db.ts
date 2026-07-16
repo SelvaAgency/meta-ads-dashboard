@@ -4302,3 +4302,36 @@ export async function apagarSocial(id: number) {
   if (!db) return;
   await db.delete(clientSocialAccounts).where(eq(clientSocialAccounts.id, id));
 }
+
+// ─── Presença ────────────────────────────────────────────────────────────────
+
+/**
+ * Sinal de vida. Chamado pela aba aberta, não pelo login: lastSignedIn pode ser
+ * de segunda-feira enquanto a pessoa trabalha há seis horas na mesma sessão.
+ */
+export async function registrarPresenca(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, userId));
+}
+
+/**
+ * Quem está por aí. Só gente de verdade: exclui inativos e excluídos — contar
+ * uma pessoa que saiu da empresa como "offline" seria lembrá-la todo dia.
+ */
+export async function listarPresenca(minutos = 5) {
+  const db = await getDb();
+  if (!db) return { online: [], offline: [] as { id: number; name: string | null }[] };
+  const corte = new Date(Date.now() - minutos * 60000);
+  const rows = await db
+    .select({ id: users.id, name: users.name, lastSeenAt: users.lastSeenAt })
+    .from(users)
+    .where(and(eq(users.active, true), isNull(users.deletedAt)));
+
+  const online: { id: number; name: string | null }[] = [];
+  const offline: { id: number; name: string | null }[] = [];
+  for (const u of rows) {
+    (u.lastSeenAt && u.lastSeenAt >= corte ? online : offline).push({ id: u.id, name: u.name });
+  }
+  return { online, offline };
+}

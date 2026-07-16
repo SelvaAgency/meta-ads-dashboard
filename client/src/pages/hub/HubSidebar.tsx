@@ -31,6 +31,9 @@ import {
   LayoutGrid,
   Boxes,
   FileText,
+  Lock,
+  PanelLeftClose,
+  PanelLeftOpen,
   Scissors,
   DollarSign,
   FileSignature,
@@ -43,6 +46,7 @@ import { SelvaLogo } from "@/components/SelvaLogo";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canAccessAdmin } from "@shared/permissions";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
+import { trpc } from "@/lib/trpc";
 import { urlDoShellPara } from "./trackerRoutes";
 import { isIntegratedAppRoute } from "./integratedAppsConfig";
 import { HubUserMenu } from "./HubUserMenu";
@@ -169,6 +173,30 @@ function NavRow({ item, open, active }: { item: NavItem; open: boolean; active: 
   );
 }
 
+/**
+ * Item de área restrita: mesma forma da linha normal, apagada, sem link e sem
+ * hover. Não é <Link> nem <button> de propósito — não há para onde ir, e um
+ * clique que "não faz nada" parece bug. O visual comunica bloqueio, não erro.
+ */
+function LinhaBloqueada({ item, open }: { item: NavItem; open: boolean }) {
+  const Icon = item.icon;
+  return (
+    <div
+      className={`flex items-center gap-2.5 rounded-lg cursor-not-allowed select-none ${open ? "px-3 py-2" : "px-0 py-2 justify-center"}`}
+      style={{ color: "rgba(255,255,255,0.22)" }}
+      title="Área restrita para administradores"
+    >
+      <Icon className="w-4 h-4 flex-shrink-0" />
+      {open && (
+        <>
+          <span className="text-sm truncate">{item.label}</span>
+          <Lock className="w-3 h-3 flex-shrink-0 ml-auto" />
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Item Tracker: row + flyout de clientes no hover ─────────────────────────
 /**
  * A lista sai do contexto (clientAccounts), não do config estático: o config
@@ -242,19 +270,48 @@ function TrackerItem({ item, open, active }: { item: Extract<NavItem, { kind: "a
   );
 }
 
+/**
+ * Preferência de recolhida. localStorage porque é decisão de máquina, não de
+ * conta: quem usa notebook pequeno e monitor grande quer estados diferentes
+ * nos dois — gravar no banco levaria a escolha do notebook para o monitor.
+ */
+const CHAVE_RECOLHIDA = "spaces_sidebar_recolhida";
+
+function lerRecolhida(): boolean {
+  try {
+    return localStorage.getItem(CHAVE_RECOLHIDA) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function HubSidebar() {
   const [location] = useLocation();
   const { user } = useAuth();
   const isAdmin = canAccessAdmin((user as { role?: string } | null)?.role);
-  const groups = NAV_GROUPS.filter((g) => !g.adminOnly || isAdmin);
+  // Administrativo não some mais para não-admin: aparece com cadeado. Saber que
+  // a área existe (e que não é para você) é diferente de achar que ela não existe.
+  const groups = NAV_GROUPS;
   const [hovering, setHovering] = useState(false);
+  const [recolhida, setRecolhida] = useState(lerRecolhida);
   const leaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Colapso inteligente (sem botão manual):
-  //  · Home / páginas simples → expandida.
+  const alternarRecolhida = () => {
+    setRecolhida((v) => {
+      const novo = !v;
+      try { localStorage.setItem(CHAVE_RECOLHIDA, novo ? "1" : "0"); } catch { /* sessão só */ }
+      return novo;
+    });
+  };
+
+  // Colapso:
   //  · App integrado          → colapsada automaticamente; hover expande.
+  //  · Recolhida pela pessoa  → colapsada; hover expande (igual ao app mode).
+  //  · Resto                  → expandida.
+  // O hover continua valendo nos dois casos colapsados: recolher é para ganhar
+  // espaço, não para perder o acesso à navegação.
   const appMode = isIntegratedAppRoute(location);
-  const open = appMode ? hovering : true;
+  const open = appMode || recolhida ? hovering : true;
 
   const isActive = (item: NavItem) => {
     if (item.kind === "app") return location === item.href;
@@ -264,7 +321,7 @@ export function HubSidebar() {
 
   return (
     <aside
-      className={`${open ? "w-64" : "w-16"} flex-shrink-0 flex flex-col hidden md:flex transition-all duration-200`}
+      className={`${open ? "w-64" : "w-16"} flex-shrink-0 flex flex-col hidden md:flex transition-all duration-200 group/side`}
       style={{ background: "#0A0A0A", borderRight: "1px solid rgba(255,255,255,0.06)" }}
       onMouseEnter={() => {
         if (leaveTimeout.current) clearTimeout(leaveTimeout.current);
@@ -274,19 +331,35 @@ export function HubSidebar() {
         leaveTimeout.current = setTimeout(() => setHovering(false), 300);
       }}
     >
-      {/* Logo / nome visual (fixo no topo) */}
-      <div className={`flex-shrink-0 pt-5 pb-3 ${open ? "px-3" : "px-2"}`}>
-        <div className={`flex items-center gap-3 mb-1 min-h-[32px] ${open ? "px-1" : "justify-center"}`}>
-          <SelvaLogo size={52} />
+      {/* Logo / nome (fixo no topo). Área maior e logo maior — o header estava
+          apertado demais para a marca. O botão de recolher mora aqui, discreto:
+          aparece de verdade só no hover, para não competir com a identidade. */}
+      <div
+        className={`flex-shrink-0 pt-6 pb-4 ${open ? "px-3" : "px-2"}`}
+        style={{ borderBottom: DIVIDER }}
+      >
+        <div className={`flex items-center gap-3 min-h-[56px] ${open ? "px-1" : "justify-center"}`}>
+          <SelvaLogo size={open ? 64 : 40} />
           {open && (
-            <div className="overflow-hidden min-w-0">
-              <p className="text-xs font-semibold truncate" style={{ letterSpacing: "0.04em", color: "#FDFFED" }}>
+            <div className="overflow-hidden min-w-0 flex-1">
+              <p className="text-[15px] font-semibold truncate leading-tight" style={{ letterSpacing: "0.02em", color: "#FDFFED" }}>
                 SELVA Spaces
               </p>
-              <p className="text-[10px] truncate" style={{ color: TEXT_DIM }}>
+              <p className="text-[11px] truncate mt-0.5" style={{ color: TEXT_DIM }}>
                 Portal interno
               </p>
             </div>
+          )}
+          {open && (
+            <button
+              onClick={alternarRecolhida}
+              title={recolhida ? "Fixar sidebar aberta" : "Recolher sidebar"}
+              aria-label={recolhida ? "Fixar sidebar aberta" : "Recolher sidebar"}
+              className="flex-shrink-0 rounded-md p-1 transition-opacity opacity-0 group-hover/side:opacity-100 focus:opacity-100"
+              style={{ color: TEXT_DIM }}
+            >
+              {recolhida ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+            </button>
           )}
         </div>
       </div>
@@ -301,17 +374,35 @@ export function HubSidebar() {
         </div>
 
         {/* Grupos de produtos */}
-        {groups.map((group) => (
+        {groups.map((group) => {
+          // Grupo restrito e você não é admin: aparece, com cadeado, sem clique.
+          // O bloqueio real é do backend (adminProcedure + AdminOnly na rota);
+          // isto aqui é só para a pessoa saber que a área existe.
+          const bloqueado = !!group.adminOnly && !isAdmin;
+          return (
           <div key={group.label} className="mt-2">
             <div style={{ borderTop: DIVIDER, margin: "8px 4px 2px" }} />
             {open && (
               <p
-                className="text-[10px] font-bold uppercase tracking-[0.1em] mb-1 px-3 py-1"
+                className="text-[10px] font-bold uppercase tracking-[0.1em] mb-1 px-3 py-1 flex items-center gap-1.5"
                 style={{ color: "rgba(255,255,255,0.28)" }}
+                title={bloqueado ? "Área restrita para administradores" : undefined}
               >
                 {group.label}
+                {bloqueado && <Lock className="w-2.5 h-2.5 flex-shrink-0" />}
               </p>
             )}
+            {bloqueado ? (
+              <div
+                className="flex flex-col gap-0.5"
+                title="Área restrita para administradores"
+                aria-disabled="true"
+              >
+                {group.items.map((item) => (
+                  <LinhaBloqueada key={item.label} item={item} open={open} />
+                ))}
+              </div>
+            ) : (
             <div className="flex flex-col gap-0.5">
               {group.items.map((item) =>
                 item.kind === "app" && item.flyout ? (
@@ -321,14 +412,85 @@ export function HubSidebar() {
                 )
               )}
             </div>
+            )}
           </div>
-        ))}
+          );
+        })}
       </nav>
+
+      {/* Quem está por aí — acima do perfil, que é o vizinho natural */}
+      <Presenca open={open} />
 
       {/* Conta logada — menu global fixo no rodapé (perfil, configurações, sair) */}
       <div style={{ borderTop: DIVIDER }} className="flex-shrink-0 p-2">
         <HubUserMenu open={open} />
       </div>
     </aside>
+  );
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Presença — quem está por aí
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Piada interna com dado real: "online" é quem deu sinal de vida nos últimos
+ *  5 minutos com a aba em foco (ver HubShell → ping). Quem só está com o Spaces
+ *  aberto e esquecido não conta — senão o indicador vira decoração.
+ *
+ *  A brincadeira só funciona quando o número está certo. Por isso o tooltip
+ *  lista quem está online: se alguém aparecer como "vagabundo" estando à mesa,
+ *  a piada morre na hora — e vira reclamação, com razão.
+ *
+ *  O servidor devolve só id e nome. Presença não é lugar de expor e-mail.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+function Presenca({ open }: { open: boolean }) {
+  // 60s: o mesmo compasso do ping. Mais rápido que isso só mostraria o mesmo
+  // número de novo.
+  const q = trpc.presenca.lista.useQuery(undefined, {
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+
+  // Presença é enfeite: enquanto não carrega (ou se falhar), simplesmente não
+  // aparece. Nada na sidebar pode depender disto.
+  if (!q.data) return null;
+
+  const online = q.data.online.length;
+  const offline = q.data.offline.length;
+  const nomes = q.data.online.map((u) => u.name ?? "alguém").join("\n");
+
+  const titulo = online > 0
+    ? `Online agora:\n${nomes}`
+    : "Ninguém online nos últimos 5 minutos.";
+
+  if (!open) {
+    return (
+      <div className="flex-shrink-0 flex justify-center py-2" style={{ borderTop: DIVIDER }} title={titulo}>
+        <span className="flex items-center gap-1 text-[10px]" style={{ color: TEXT_DIM }}>
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: online > 0 ? "#1D9E75" : TEXT_DIM }} />
+          {online}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-shrink-0 px-3 py-2" style={{ borderTop: DIVIDER }}>
+      <p className="text-[11px] cursor-help leading-relaxed" style={{ color: TEXT_DIM }} title={titulo}>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: online > 0 ? "#1D9E75" : TEXT_DIM }} />
+          <span style={{ color: online > 0 ? "rgba(255,255,255,0.55)" : TEXT_DIM }}>
+            {online} {online === 1 ? "colaborador online" : "colaboradores online"}
+          </span>
+        </span>
+        {offline > 0 && (
+          <>
+            <span className="mx-1 opacity-40">·</span>
+            <span>{offline} {offline === 1 ? "vagabundo offline" : "vagabundos offline"}</span>
+          </>
+        )}
+      </p>
+    </div>
   );
 }

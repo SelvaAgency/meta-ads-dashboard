@@ -291,7 +291,7 @@ import { gerarRelatorioModular, PRESETS, tierDe } from "./services/reportBuilder
 import { resumoSitesPortfolio } from "./services/sitePortfolio";
 import { resolverWidgets, widgetPorKey, widgetServeRole } from "@shared/widgets";
 import type { Role } from "@shared/permissions";
-import { getWidgetPrefs, upsertWidgetPref, limparWidgetPrefs, listarSociaisDaConta, salvarSocial, apagarSocial } from "./db";
+import { getWidgetPrefs, upsertWidgetPref, limparWidgetPrefs, listarSociaisDaConta, salvarSocial, apagarSocial, registrarPresenca, listarPresenca } from "./db";
 
 /**
  * O @ chega colado de tudo quanto é jeito: "@selva", "selva",
@@ -3175,6 +3175,18 @@ export const appRouter = router({
     apagar: contentProcedure
       .input(z.object({ id: z.number().int() }))
       .mutation(async ({ input }) => { await apagarSocial(input.id); return { success: true } as const; }),
+  }),
+
+  // ─── Presença ────────────────────────────────────────────────────────────────
+  presenca: router({
+    /** A aba aberta bate aqui de tempos em tempos. Barato de propósito. */
+    ping: protectedProcedure.mutation(async ({ ctx }) => {
+      await registrarPresenca(ctx.user.id);
+      return { ok: true } as const;
+    }),
+
+    /** Só id e nome — presença não é lugar de expor e-mail nem papel. */
+    lista: protectedProcedure.query(() => listarPresenca()),
   }),
 
   // ─── Alerts ───────────────────────────────────────────────────────────────────────────

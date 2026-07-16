@@ -49,6 +49,13 @@ export const users = mysqlTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  /**
+   * Última vez que a pessoa deu sinal de vida com a aba aberta. Diferente de
+   * lastSignedIn, que só é tocado no login: alguém pode estar trabalhando há
+   * seis horas com a mesma sessão e o login continuar sendo de segunda-feira.
+   * NULL = nunca pingou (sessão antiga ou conta que nunca abriu o Spaces).
+   */
+  lastSeenAt: timestamp("lastSeenAt"),
 });
 
 export type User = typeof users.$inferSelect;
