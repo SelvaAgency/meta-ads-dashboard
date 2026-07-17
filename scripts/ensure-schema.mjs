@@ -612,6 +612,27 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · client_social_accounts garantida");
 
+    // Google Ads: a tabela existia em prod via db:push, mas sem migration —
+    // some em ambiente novo. CREATE IF NOT EXISTS a garante. O refreshToken
+    // guarda o token CRIPTOGRAFADO (por conta, obtido via OAuth).
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`google_ad_accounts\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`userId\` INT NOT NULL,
+        \`customerId\` VARCHAR(20) NOT NULL,
+        \`accountName\` VARCHAR(255) NULL,
+        \`refreshToken\` TEXT NOT NULL,
+        \`currency\` VARCHAR(8) NULL DEFAULT 'BRL',
+        \`timezone\` VARCHAR(64) NULL DEFAULT 'America/Sao_Paulo',
+        \`isActive\` BOOLEAN NOT NULL DEFAULT 1,
+        \`lastSyncAt\` TIMESTAMP NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_google_ad_user\` (\`userId\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · google_ad_accounts garantida");
+
     // Relatórios modulares — aditivo. As linhas antigas ficam com estes campos
     // NULL e continuam sendo lidas pelo `tier`; as novas trazem os módulos
     // pedidos e as fontes que existiam de fato no momento da geração.

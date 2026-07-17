@@ -15,6 +15,8 @@ import {
   Trash2,
   AlertCircle,
   CheckCircle2,
+  Link2,
+  RefreshCw,
   Loader2,
   Search,
   ShoppingCart,
@@ -22,6 +24,7 @@ import {
   Video,
   Layers,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -99,7 +102,12 @@ const PERIODS = [
 
 // ─── Not Configured State ───────────────────────────────────────────────────
 
-function NotConfigured() {
+function NotConfigured({ faltando }: { faltando?: string[] }) {
+  // O refresh token NÃO entra mais aqui — é por conta, via OAuth. Só as
+  // credenciais do app da agência são env, e mostramos exatamente qual falta.
+  const envs = faltando && faltando.length > 0
+    ? faltando
+    : ["GOOGLE_ADS_DEVELOPER_TOKEN", "GOOGLE_ADS_CLIENT_ID", "GOOGLE_ADS_CLIENT_SECRET"];
   return (
     <MetaDashboardLayout title="Google Ads">
       <div className="flex flex-col items-center justify-center py-20 gap-6">
@@ -109,21 +117,76 @@ function NotConfigured() {
         <div className="text-center max-w-md">
           <h2 className="text-xl font-bold text-foreground mb-2">Google Ads Não Configurado</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Para usar a integração Google Ads, configure as variáveis de ambiente no servidor:
+            Falta{envs.length === 1 ? "" : "m"} a{envs.length === 1 ? "" : "s"} credencial{envs.length === 1 ? "" : "is"} do app no
+            servidor (Railway). O refresh token NÃO precisa ser configurado à mão — ele é obtido por
+            conta, via o botão "Conectar Google Ads", depois que isto estiver pronto.
             <code className="block mt-3 text-xs bg-muted/50 rounded-lg p-3 text-left font-mono">
-              GOOGLE_ADS_DEVELOPER_TOKEN<br />
-              GOOGLE_ADS_CLIENT_ID<br />
-              GOOGLE_ADS_CLIENT_SECRET<br />
-              GOOGLE_ADS_REFRESH_TOKEN<br />
-              GOOGLE_ADS_LOGIN_CUSTOMER_ID
+              {envs.map((e) => <span key={e}>{e}<br /></span>)}
             </code>
           </p>
           <p className="text-xs text-muted-foreground mt-4">
-            Consulte <strong>docs/GOOGLE_ADS_SETUP.md</strong> para o guia completo.
+            No Railway, uma variável pode existir <strong>vazia</strong> — confira se cada uma tem valor.
           </p>
         </div>
       </div>
     </MetaDashboardLayout>
+  );
+}
+
+// ─── Conectar Google Ads (OAuth) ─────────────────────────────────────────────
+// Abre o consentimento do Google; o callback salva o refresh token
+// criptografado (ver googleOAuthCallback). Depois, "Descobrir contas" cria um
+// registro por cliente sob o MCC. Sensível → admin/developer.
+function ConectarGoogleAds({ oauthConectado, onMudou }: { oauthConectado: boolean; onMudou: () => void }) {
+  const descobrir = trpc.googleAds.descobrirContas.useMutation({
+    onSuccess: (r) => { toast.success(r.criadas > 0 ? `${r.criadas} conta(s) conectada(s).` : "Nenhuma conta nova encontrada."); onMudou(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const desconectar = trpc.googleAds.desconectarOAuth.useMutation({
+    onSuccess: () => { toast.success("Google Ads desconectado."); onMudou(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  if (!oauthConectado) {
+    return (
+      <div className="bg-card border border-border rounded-xl p-5 flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h3 className="text-sm font-bold text-foreground mb-1">Conectar Google Ads</h3>
+          <p className="text-xs text-muted-foreground max-w-md">
+            Autorize com a conta do Google que administra o MCC. O acesso é salvo criptografado —
+            você não precisa colar refresh token em lugar nenhum.
+          </p>
+        </div>
+        <a
+          href="/api/google/auth?state=googleads"
+          className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-1.5 flex-shrink-0"
+        >
+          <Link2 className="w-4 h-4" /> Conectar Google Ads
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+        <div>
+          <h3 className="text-sm font-bold text-foreground">Google Ads conectado</h3>
+          <p className="text-xs text-muted-foreground">Descubra as contas sob o MCC ou reconecte com outra conta.</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <Button size="sm" className="h-9 gap-1.5" onClick={() => descobrir.mutate()} disabled={descobrir.isPending}>
+          {descobrir.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+          Descobrir contas
+        </Button>
+        <button onClick={() => desconectar.mutate()} disabled={desconectar.isPending}
+          className="h-9 px-3 rounded-lg border border-border text-xs text-muted-foreground hover:text-destructive">
+          Desconectar
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -405,12 +468,16 @@ function AccountDashboard({ account, days }: { account: any; days: number }) {
 export default function GoogleAds() {
   const [selectedDays, setSelectedDays] = useState(7);
   const utils = trpc.useUtils();
-  const { selectedAccountId } = useSelectedAccount();
+  const { selectedAccountId, accounts: metaAccounts } = useSelectedAccount();
 
-  // Derive active client from sidebar selection
-  const activeClient = selectedAccountId
-    ? getClientByMetaAccountId(selectedAccountId)
-    : null;
+  // Cliente ativo: selectedAccountId é o id do BANCO; getClientByMetaAccountId
+  // espera o accountId string da Meta. Resolve pela lista de contas Meta antes
+  // — era o bug id-vs-accountId (activeClient sempre undefined).
+  const activeClient = (() => {
+    if (!selectedAccountId) return null;
+    const acc = metaAccounts?.find((a: any) => a.id === selectedAccountId);
+    return acc ? getClientByMetaAccountId(acc.accountId) : null;
+  })();
 
   const { data: configStatus, isLoading: checkingConfig } = trpc.googleAds.isConfigured.useQuery();
   const { data: accounts, isLoading: loadingAccounts } = trpc.googleAds.accounts.useQuery(
@@ -453,7 +520,7 @@ export default function GoogleAds() {
   }
 
   if (!configStatus?.configured) {
-    return <NotConfigured />;
+    return <NotConfigured faltando={configStatus?.faltando} />;
   }
 
   return (
@@ -490,8 +557,16 @@ export default function GoogleAds() {
           </div>
         </div>
 
-        {/* Connect new account */}
-        <ConnectAccountForm onSuccess={() => utils.googleAds.accounts.invalidate()} />
+        {/* Conectar via OAuth (admin/dev) + descobrir contas */}
+        <ConectarGoogleAds
+          oauthConectado={!!configStatus?.oauthConectado}
+          onMudou={() => { utils.googleAds.isConfigured.invalidate(); utils.googleAds.accounts.invalidate(); }}
+        />
+
+        {/* Adicionar conta manualmente por customerId (usa o token OAuth salvo) */}
+        {configStatus?.oauthConectado && (
+          <ConnectAccountForm onSuccess={() => utils.googleAds.accounts.invalidate()} />
+        )}
 
         {/* Connected accounts */}
         {loadingAccounts ? (

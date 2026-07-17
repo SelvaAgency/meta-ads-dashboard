@@ -4,6 +4,9 @@
  */
 import type { Express, Request, Response } from "express";
 import { ENV } from "./_core/env";
+import { sdk } from "./_core/sdk";
+import { upsertUserIntegration } from "./db";
+import { encryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
@@ -133,21 +136,44 @@ export function registerGoogleOAuthRoutes(app: Express) {
         `);
       }
 
-      // Show success page with token info for manual connection
-      // In a production flow, we'd auto-create the account record
+      // Google Ads: salva o refresh token CRIPTOGRAFADO na integração do
+      // usuário, em vez de mostrar num textarea para copiar à mão. É o token do
+      // login do MCC — as contas de cliente vão carregá-lo (também criptografado)
+      // quando forem conectadas. Nunca vira env global.
+      if (state === "googleads") {
+        try {
+          const user = await sdk.authenticateRequest(req);
+          if (!isEncryptionConfigured()) throw new Error("INTEGRATIONS_ENCRYPTION_KEY ausente — não dá para guardar o token com segurança.");
+          await upsertUserIntegration({
+            userId: user.id,
+            provider: "google_ads",
+            refreshTokenEncrypted: encryptSecret(refreshToken),
+            accessTokenEncrypted: accessToken ? encryptSecret(accessToken) : null,
+            scopes: "https://www.googleapis.com/auth/adwords",
+            active: true,
+          });
+        } catch (e) {
+          return res.status(400).send(`
+            <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
+              <h2 style="color:#dc2626;">Não foi possível salvar a conexão</h2>
+              <p>${(e as Error).message}</p>
+              <p><a href="/google-ads" style="color:#2563eb;">← Voltar ao Google Ads</a></p>
+            </body></html>
+          `);
+        }
+        // Sucesso → volta para a tela, que agora descobre/lista as contas.
+        return res.redirect("/google-ads?conectado=1");
+      }
+
+      // GA4 (fluxo legado): segue mostrando o token para configuração manual.
       return res.send(`
         <html><body style="font-family:sans-serif;padding:40px;max-width:700px;margin:0 auto;">
           <h2 style="color:#16a34a;">✅ Google Authorization Successful</h2>
-          <p>Service: <strong>${state === "googleads" ? "Google Ads" : "GA4 Analytics"}</strong></p>
+          <p>Service: <strong>GA4 Analytics</strong></p>
           <div style="background:#f1f5f9;padding:16px;border-radius:8px;margin:16px 0;">
             <p style="margin:0 0 8px;font-size:14px;color:#64748b;">Refresh Token (save this!):</p>
             <textarea readonly style="width:100%;height:80px;font-family:monospace;font-size:12px;border:1px solid #cbd5e1;border-radius:4px;padding:8px;">${refreshToken}</textarea>
           </div>
-          <div style="background:#f1f5f9;padding:16px;border-radius:8px;margin:16px 0;">
-            <p style="margin:0 0 8px;font-size:14px;color:#64748b;">Access Token (temporary):</p>
-            <textarea readonly style="width:100%;height:80px;font-family:monospace;font-size:12px;border:1px solid #cbd5e1;border-radius:4px;padding:8px;">${accessToken}</textarea>
-          </div>
-          <p style="color:#64748b;font-size:14px;">You can now use the refresh token to connect this account in the dashboard settings.</p>
           <p><a href="/" style="color:#2563eb;">← Back to Dashboard</a></p>
         </body></html>
       `);

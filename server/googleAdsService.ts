@@ -445,19 +445,34 @@ export async function getGoogleAdsAccountSummary(
 }
 
 /**
- * Check if Google Ads is configured (all required env vars present).
+ * "Configurado" = as credenciais do APP da agência existem (developer token,
+ * client id, client secret). O refresh token NÃO entra aqui: ele é por conta de
+ * cliente, obtido via OAuth e salvo criptografado no banco — não uma env global.
+ *
+ * Antes exigia GOOGLE_ADS_REFRESH_TOKEN global, o que forçava um único token
+ * para todos os clientes (ruim) e travava a tela em "não configurado" mesmo com
+ * o app pronto para conectar.
  */
 export function isGoogleAdsConfigured(): boolean {
   return !!(
     process.env.GOOGLE_ADS_DEVELOPER_TOKEN &&
     process.env.GOOGLE_ADS_CLIENT_ID &&
-    process.env.GOOGLE_ADS_CLIENT_SECRET &&
-    process.env.GOOGLE_ADS_REFRESH_TOKEN
+    process.env.GOOGLE_ADS_CLIENT_SECRET
   );
 }
 
+/** Quais credenciais de app faltam — para a tela dizer exatamente o quê. */
+export function googleAdsEnvFaltando(): string[] {
+  const faltam: string[] = [];
+  if (!process.env.GOOGLE_ADS_DEVELOPER_TOKEN) faltam.push("GOOGLE_ADS_DEVELOPER_TOKEN");
+  if (!process.env.GOOGLE_ADS_CLIENT_ID) faltam.push("GOOGLE_ADS_CLIENT_ID");
+  if (!process.env.GOOGLE_ADS_CLIENT_SECRET) faltam.push("GOOGLE_ADS_CLIENT_SECRET");
+  return faltam;
+}
+
 /**
- * Get config from env vars.
+ * Config do app. O refreshToken aqui é só o fallback global legado (pode ser
+ * vazio) — o token real vem por conta, injetado pelo router (accountConfig).
  */
 export function getGoogleAdsConfig(): GoogleAdsConfig | null {
   if (!isGoogleAdsConfigured()) return null;
@@ -465,7 +480,28 @@ export function getGoogleAdsConfig(): GoogleAdsConfig | null {
     developerToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
     clientId: process.env.GOOGLE_ADS_CLIENT_ID!,
     clientSecret: process.env.GOOGLE_ADS_CLIENT_SECRET!,
-    refreshToken: process.env.GOOGLE_ADS_REFRESH_TOKEN!,
+    refreshToken: process.env.GOOGLE_ADS_REFRESH_TOKEN ?? "",
     loginCustomerId: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID,
   };
+}
+
+/**
+ * Contas acessíveis pelo refresh token (do login do MCC). GET simples ao
+ * listAccessibleCustomers. Precisa do developer token — se ele faltar, a
+ * chamada falha e o fluxo cai no cadastro manual do customer ID.
+ */
+export async function listarContasAcessiveis(refreshToken: string): Promise<string[]> {
+  const cfg = getGoogleAdsConfig();
+  if (!cfg) throw new Error("Google Ads não configurado (faltam credenciais do app).");
+  const accessToken = await getAccessToken({ ...cfg, refreshToken });
+  const resp = await fetch("https://googleads.googleapis.com/v17/customers:listAccessibleCustomers", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "developer-token": cfg.developerToken,
+    },
+  });
+  if (!resp.ok) throw new Error(`listAccessibleCustomers falhou (${resp.status})`);
+  const json = (await resp.json()) as { resourceNames?: string[] };
+  // "customers/1234567890" → "1234567890"
+  return (json.resourceNames ?? []).map((r) => r.split("/").pop() ?? "").filter(Boolean);
 }

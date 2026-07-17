@@ -181,6 +181,8 @@ import { invokeLLM, extractTextContent } from "./_core/llm";
 import {
   getGoogleAdsConfig,
   isGoogleAdsConfigured,
+  googleAdsEnvFaltando,
+  listarContasAcessiveis,
   getGoogleAdsCampaigns,
   getGoogleAdsAdGroups,
   getGoogleAdsAds,
@@ -310,6 +312,25 @@ function urlPadraoDoPerfil(provider: string, handle: string): string {
   if (provider === "linkedin") return `https://www.linkedin.com/in/${handle}`;
   if (provider === "youtube") return `https://www.youtube.com/@${handle}`;
   return `https://www.instagram.com/${handle}/`;
+}
+
+/** Conectar integração de anúncios é ação sensível — admin ou developer. */
+function podeConectarGoogleAds(role: string | undefined): boolean {
+  return role === "admin" || role === "developer";
+}
+
+/**
+ * Token de refresh de uma conta Google Ads, decriptado. As contas novas guardam
+ * o token CRIPTOGRAFADO; um valor legado (texto plano, ou o global antigo) que
+ * não decripta é devolvido como veio — o try/catch cobre a transição sem
+ * derrubar quem já tinha conta conectada.
+ */
+function tokenDaConta(refreshTokenGuardado: string): string {
+  try {
+    return decryptSecret(refreshTokenGuardado);
+  } catch {
+    return refreshTokenGuardado;
+  }
 }
 import { entregarComunicado } from "./notificationJobs";
 import { notifTiposFor, notifTipoDef, tipoEditavelPor, type EmailModo } from "../shared/notifications";
@@ -4191,8 +4212,18 @@ export const appRouter = router({
   // ─── Google Ads ──────────────────────────────────────────────────────────
   googleAds: router({
     // Check if Google Ads is configured
-    isConfigured: publicProcedure.query(() => {
-      return { configured: isGoogleAdsConfigured() };
+    /**
+     * Configurado = credenciais do APP presentes. Devolve também o que falta
+     * (para a tela dizer exatamente qual env preencher) e se o usuário já
+     * conectou o OAuth do Google Ads. O refresh token NÃO é mais requisito.
+     */
+    isConfigured: protectedProcedure.query(async ({ ctx }) => {
+      const oauth = await getUserIntegration(ctx.user.id, "google_ads");
+      return {
+        configured: isGoogleAdsConfigured(),
+        faltando: googleAdsEnvFaltando(),
+        oauthConectado: !!(oauth?.active && oauth.refreshTokenEncrypted),
+      };
     }),
 
     // List Google Ads accounts for current user
@@ -4200,25 +4231,72 @@ export const appRouter = router({
       return getGoogleAdAccountsByUserId(ctx.user.id);
     }),
 
-    // Connect a new Google Ads account
+    /**
+     * Desconecta o OAuth: apaga o token do MCC. As contas já conectadas seguem
+     * com o token próprio (cada uma guarda o seu), mas novas conexões exigem
+     * reconectar. Admin/developer.
+     */
+    desconectarOAuth: protectedProcedure.mutation(async ({ ctx }) => {
+      if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para conectar integrações." });
+      await deactivateUserIntegration(ctx.user.id, "google_ads");
+      return { success: true } as const;
+    }),
+
+    /**
+     * Descobre as contas acessíveis pelo login conectado (listAccessibleCustomers)
+     * e cria/atualiza um registro por conta, cada um com o refresh token
+     * criptografado. Precisa do developer token — se ele faltar, explica.
+     */
+    descobrirContas: protectedProcedure.mutation(async ({ ctx }) => {
+      if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para conectar integrações." });
+      const oauth = await getUserIntegration(ctx.user.id, "google_ads");
+      if (!oauth?.refreshTokenEncrypted) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Conecte o Google Ads primeiro." });
+      const refreshToken = decryptSecret(oauth.refreshTokenEncrypted);
+
+      let customerIds: string[];
+      try {
+        customerIds = await listarContasAcessiveis(refreshToken);
+      } catch (e) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Não consegui listar as contas: ${(e as Error).message}. Confirme se o developer token está preenchido no Railway.` });
+      }
+      if (customerIds.length === 0) return { criadas: 0, contas: [] as string[] };
+
+      // Guarda o token criptografado em CADA conta — o read path decripta.
+      const tokenCripto = encryptSecret(refreshToken);
+      const jaExistem = await getGoogleAdAccountsByUserId(ctx.user.id);
+      const existentes = new Set(jaExistem.map((a) => a.customerId));
+      const novas: string[] = [];
+      for (const cid of customerIds) {
+        if (existentes.has(cid)) continue;
+        await createGoogleAdAccount({
+          userId: ctx.user.id,
+          customerId: cid,
+          accountName: `Google Ads ${cid}`,
+          refreshToken: tokenCripto,
+        });
+        novas.push(cid);
+      }
+      return { criadas: novas.length, contas: customerIds };
+    }),
+
+    // Conecta uma conta manualmente por customerId (usa o token OAuth salvo).
     connectAccount: protectedProcedure
       .input(z.object({
         customerId: z.string().min(3),
         accountName: z.string().optional(),
-        refreshToken: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const config = getGoogleAdsConfig();
-        if (!config) throw new Error("Google Ads API not configured. Set environment variables.");
-        // Use per-account refreshToken if provided, otherwise fall back to global
-        const token = input.refreshToken || config.refreshToken;
-        if (!token) throw new Error("No refresh token available");
+        if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para conectar integrações." });
+        if (!isGoogleAdsConfigured()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Google Ads não configurado (faltam credenciais do app)." });
+        const oauth = await getUserIntegration(ctx.user.id, "google_ads");
+        if (!oauth?.refreshTokenEncrypted) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Conecte o Google Ads primeiro (OAuth)." });
 
+        // O token da conta é o mesmo do OAuth, guardado criptografado por conta.
         const id = await createGoogleAdAccount({
           userId: ctx.user.id,
           customerId: input.customerId.replace(/-/g, ""),
           accountName: input.accountName ?? `Google Ads ${input.customerId}`,
-          refreshToken: token,
+          refreshToken: oauth.refreshTokenEncrypted, // já criptografado
         });
         return { success: true, id };
       }),
@@ -4243,7 +4321,7 @@ export const appRouter = router({
         const config = getGoogleAdsConfig();
         if (!config) throw new Error("Google Ads API not configured");
         // Override with per-account token
-        const accountConfig = { ...config, refreshToken: account.refreshToken };
+        const accountConfig = { ...config, refreshToken: tokenDaConta(account.refreshToken) };
         const { startDate, endDate } = getDateRange(input.days);
         return getGoogleAdsAccountSummary(accountConfig, account.customerId, startDate, endDate);
       }),
@@ -4260,7 +4338,7 @@ export const appRouter = router({
         if (!account) throw new Error("Google Ads account not found");
         const config = getGoogleAdsConfig();
         if (!config) throw new Error("Google Ads API not configured");
-        const accountConfig = { ...config, refreshToken: account.refreshToken };
+        const accountConfig = { ...config, refreshToken: tokenDaConta(account.refreshToken) };
         const { startDate, endDate } = getDateRange(input.days);
         return getGoogleAdsCampaigns(accountConfig, account.customerId, startDate, endDate, input.activeOnly);
       }),
@@ -4277,7 +4355,7 @@ export const appRouter = router({
         if (!account) throw new Error("Google Ads account not found");
         const config = getGoogleAdsConfig();
         if (!config) throw new Error("Google Ads API not configured");
-        const accountConfig = { ...config, refreshToken: account.refreshToken };
+        const accountConfig = { ...config, refreshToken: tokenDaConta(account.refreshToken) };
         const { startDate, endDate } = getDateRange(input.days);
         return getGoogleAdsAdGroups(accountConfig, account.customerId, input.campaignId, startDate, endDate);
       }),
@@ -4294,7 +4372,7 @@ export const appRouter = router({
         if (!account) throw new Error("Google Ads account not found");
         const config = getGoogleAdsConfig();
         if (!config) throw new Error("Google Ads API not configured");
-        const accountConfig = { ...config, refreshToken: account.refreshToken };
+        const accountConfig = { ...config, refreshToken: tokenDaConta(account.refreshToken) };
         const { startDate, endDate } = getDateRange(input.days);
         return getGoogleAdsAds(accountConfig, account.customerId, input.campaignId, startDate, endDate);
       }),
