@@ -12,8 +12,8 @@ import {
   Bell,
   CheckCircle2,
   ChevronDown,
+  ChevronUp,
   Flame,
-  GripVertical,
   RefreshCw,
   SlidersHorizontal,
   Sparkles,
@@ -277,6 +277,14 @@ export default function SuggestionsHub() {
    * widgets é visível por padrão de qualquer forma.
    */
   const mostrar = (k: string) => !widgets || (widgets.find((w) => w.key === k)?.visivel ?? true);
+  // A landing renderiza os blocos em ordem FIXA no JSX. Para a ordem escolhida
+  // em Personalizar visão valer aqui, aplico CSS `order` no wrapper de cada
+  // bloco — reordena sem reestruturar centenas de linhas de JSX. Sem preferência
+  // ainda, cai no índice do catálogo (a ordem em que já aparecem).
+  const ordemWidget = (k: string) => {
+    const i = (widgets ?? []).findIndex((w) => w.key === k);
+    return i < 0 ? 99 : i;
+  };
 
   /** Bloco de Sites → seção Site, no cliente e aba certos quando dá. */
   const irParaSite = (accountId: number | undefined, aba: string | undefined) => {
@@ -424,11 +432,14 @@ export default function SuggestionsHub() {
 
   return (
     <MetaDashboardLayout>
-      <div className="max-w-4xl mx-auto pb-8">
+      {/* flex-col + CSS order = a ordem escolhida em Personalizar visão vale
+          aqui sem reestruturar o JSX (ver ordemWidget). */}
+      <div className="max-w-4xl mx-auto pb-8 flex flex-col">
 
         {/* Personalizar visão — a lista de widgets sai do servidor, já filtrada
-            pelo papel de quem está olhando (ver shared/widgets.ts). */}
-        <div className="px-6 pt-6 flex justify-end">
+            pelo papel de quem está olhando (ver shared/widgets.ts). order:-1
+            mantém o botão sempre no topo, acima dos blocos reordenáveis. */}
+        <div className="px-6 pt-6 flex justify-end" style={{ order: -1 }}>
           <button
             onClick={() => setPainelAberto(true)}
             className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground transition-colors"
@@ -442,7 +453,7 @@ export default function SuggestionsHub() {
 
         {/* ══ 1 — Caixa unificada: top bar + briefing + status cards ══════ */}
         {mostrar("midia_geral") && (
-        <div className="px-6 pt-6">
+        <div className="px-6 pt-6" style={{ order: ordemWidget("midia_geral") }}>
           <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, overflow: "hidden" }}>
 
             {/* Top bar */}
@@ -670,7 +681,7 @@ export default function SuggestionsHub() {
 
         {/* ══ 3 — Ações Sugeridas ════════════════════════════════════════ */}
         {mostrar("acoes") && (
-        <div className="px-6 pt-4">
+        <div className="px-6 pt-4" style={{ order: ordemWidget("acoes") }}>
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Ações Sugeridas</p>
             {/* Filtro de origem: mídia paga vs. site. "Todos" mistura os dois.
@@ -871,8 +882,11 @@ export default function SuggestionsHub() {
         </div>
         )}
 
-        {/* ══ 4 — Separador "Panorama geral" (toggle) ════════════════════ */}
-        {mostrar("panorama") && (<>
+        {/* ══ 4 — Separador "Panorama geral" (toggle) ════════════════════
+            Envolto num div (não fragment) para o CSS order tratar os dois
+            filhos — separador + tabela — como um bloco só. */}
+        {mostrar("panorama") && (
+        <div style={{ order: ordemWidget("panorama") }}>
         <button
           onClick={() => setPanoramaOpen((v) => !v)}
           className="w-full"
@@ -1033,7 +1047,8 @@ export default function SuggestionsHub() {
             </div>
           </div>
         </div>
-        </>)}
+        </div>
+        )}
 
       </div>
     </MetaDashboardLayout>
@@ -1059,10 +1074,9 @@ function PainelVisao({ onFechar }: { onFechar: () => void }) {
     onSuccess: () => { setLista(null); utils.visao.widgets.invalidate(); toast.success("Visão restaurada ao padrão."); },
   });
 
-  // Cópia local para o arrasto responder na hora, sem esperar o round-trip.
+  // Cópia local para a UI responder na hora, sem esperar o round-trip.
   // Enquanto ela existe, ela manda; some no reset para voltar a seguir o server.
   const [lista, setLista] = useState<WidgetView[] | null>(null);
-  const arrastando = useRef<number | null>(null);
   const view: WidgetView[] = lista ?? (q.data ?? []);
 
   // Persiste a ordem atual: numera 10,20,30… e grava cada widget preservando o
@@ -1074,13 +1088,13 @@ function PainelVisao({ onFechar }: { onFechar: () => void }) {
     } catch { /* o onError do mutation já avisou */ }
   };
 
-  const soltarEm = (destino: number) => {
-    const origem = arrastando.current;
-    arrastando.current = null;
-    if (origem === null || origem === destino) return;
+  // Subir/descer no lugar do drag and drop: para uma tela interna, dois botões
+  // são mais confiáveis que HTML5 DnD (que brigava com o checkbox e não movia).
+  const mover = (i: number, delta: -1 | 1) => {
+    const j = i + delta;
+    if (j < 0 || j >= view.length) return;
     const novo = [...view];
-    const [movido] = novo.splice(origem, 1);
-    novo.splice(destino, 0, movido);
+    [novo[i], novo[j]] = [novo[j], novo[i]];
     setLista(novo);
     persistirOrdem(novo);
   };
@@ -1110,22 +1124,14 @@ function PainelVisao({ onFechar }: { onFechar: () => void }) {
 
         <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-2">
           <p className="text-xs text-muted-foreground mb-1">
-            Escolha o que aparece e arraste para reordenar. Vale só para você.
+            Escolha o que aparece e use as setas para reordenar. Vale só para você.
           </p>
           {view.map((w, i) => (
             <div
               key={w.key}
-              draggable
-              onDragStart={() => { arrastando.current = i; }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => soltarEm(i)}
               className="flex items-center gap-2.5 rounded-lg px-3 py-2.5"
               style={{ border: `0.5px solid ${BORDER_T}`, background: w.visivel ? "rgba(232,91,168,0.05)" : "transparent" }}
             >
-              {/* Alça de arrasto — o cursor de "mover" só neste ícone deixa
-                  claro o que é arrastável, sem transformar a linha toda numa
-                  área de arraste que atrapalha o clique no checkbox. */}
-              <GripVertical className="w-3.5 h-3.5 flex-shrink-0 cursor-grab text-muted-foreground/50" />
               <input
                 type="checkbox"
                 checked={w.visivel}
@@ -1136,6 +1142,28 @@ function PainelVisao({ onFechar }: { onFechar: () => void }) {
                 <span className="text-sm block">{w.nome}</span>
                 <span className="text-[11px] text-muted-foreground block">{w.descricao}</span>
               </span>
+              {/* Subir / descer. Primeiro item sem subir, último sem descer —
+                  disabled com opacidade, para a borda da lista ficar óbvia. */}
+              <div className="flex flex-col flex-shrink-0">
+                <button
+                  onClick={() => mover(i, -1)}
+                  disabled={i === 0}
+                  title="Subir"
+                  aria-label={`Subir ${w.nome}`}
+                  className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-default leading-none"
+                >
+                  <ChevronUp className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => mover(i, 1)}
+                  disabled={i === view.length - 1}
+                  title="Descer"
+                  aria-label={`Descer ${w.nome}`}
+                  className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-default leading-none"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           ))}
           {view.length === 0 && !q.isLoading && (
