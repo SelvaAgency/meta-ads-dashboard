@@ -3399,9 +3399,28 @@ export const appRouter = router({
         const nome = conta.accountName ?? conta.accountId;
         const periodo = { inicio: input.inicio, fim: input.fim };
 
-        const { relatorio, fontes, markdown } = await gerarRelatorioModular(
+        const { relatorio, fontes, markdown, dadosSite } = await gerarRelatorioModular(
           input.accountId, nome, periodo, input.modulos, input.notas,
         );
+
+        // Visual de mídia (KPIs com comparação, gráfico de 8 semanas, criativos
+        // com thumbnail) só quando o módulo de mídia entra — reusa o
+        // assembleReportData do relatório legado. Um relatório Técnico não paga
+        // esse fetch nem mostra cards de investimento vazios.
+        const querMidia = input.modulos.includes("midia") || input.modulos.includes("campanhas");
+        let dadosMidia: Awaited<ReturnType<typeof assembleReportData>> | null = null;
+        if (querMidia) {
+          try {
+            dadosMidia = await assembleReportData(input.accountId, input.inicio, input.fim);
+          } catch (e) {
+            // Sem mídia o relatório continua — vira pendência, não erro.
+            logger.warn?.(`[Relatório] Sem dados visuais de mídia (conta ${input.accountId}): ${(e as Error).message}`);
+          }
+        }
+
+        // dataSnapshot passa a existir (era o bug): estruturado, para a vista
+        // pública montar cards e gráfico em vez de só texto.
+        const dataSnapshot = JSON.stringify({ midia: dadosMidia, site: dadosSite });
 
         const publicToken = nanoid(24);
         await createReportSnapshot({
@@ -3411,7 +3430,7 @@ export const appRouter = router({
           periodStart: input.inicio,
           periodEnd: input.fim,
           contextNotes: input.notas ?? null,
-          dataSnapshot: null,
+          dataSnapshot,
           narrative: JSON.stringify(relatorio),
           modulesJson: input.modulos,
           fontesJson: fontes,

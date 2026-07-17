@@ -67,16 +67,37 @@ REGRAS INEGOCIÁVEIS:
 Responda APENAS com JSON válido neste formato:
 {"resumoExecutivo":"...","fatos":["..."],"interpretacoes":["..."],"hipoteses":["..."],"recomendacoes":[{"acao":"...","porque":"...","prioridade":"alta|media|baixa"}],"pendencias":["..."]}`;
 
+/**
+ * Dados de SITE já estruturados para virarem cards no relatório visual —
+ * extraídos dos blocos do contexto (só os presentes). Separado da narrativa
+ * porque card é número, não prosa: o LCP vira um número grande, não uma frase.
+ */
+export type DadosSite = {
+  pagespeed?: Record<string, unknown>;
+  seguranca?: Record<string, unknown>;
+  uptime?: Record<string, unknown>;
+  clarity?: Record<string, unknown>;
+};
+
 export async function gerarRelatorioModular(
   accountId: number,
   nome: string,
   periodo: Periodo,
   modulos: readonly Modulo[],
   notasDeQuemGerou?: string,
-): Promise<{ relatorio: RelatorioModular; fontes: FontesUsadas; markdown: string }> {
+): Promise<{ relatorio: RelatorioModular; fontes: FontesUsadas; markdown: string; dadosSite: DadosSite }> {
   const ctx = await buildClientIntelligenceContext(accountId, nome, periodo, modulos);
   const fontes = fontesDe(ctx);
   const dossie = contextoParaTexto(ctx);
+
+  // Cards de site: só os blocos que existem viram dados. Ausente não vira card
+  // vazio — vira pendência, lá embaixo.
+  const dadosSite: DadosSite = {
+    pagespeed: ctx.pagespeed.presente ? (ctx.pagespeed.dados as { metricas?: Record<string, unknown> })?.metricas : undefined,
+    seguranca: ctx.seguranca.presente ? (ctx.seguranca.dados as { metricas?: Record<string, unknown> })?.metricas : undefined,
+    uptime: ctx.uptime.presente ? (ctx.uptime.dados as { metricas?: Record<string, unknown> })?.metricas : undefined,
+    clarity: ctx.clarity.presente ? (ctx.clarity.dados as Record<string, unknown>) : undefined,
+  };
 
   const nenhumaFonte = fontes.every((f) => !f.presente);
   if (nenhumaFonte) {
@@ -90,7 +111,7 @@ export async function gerarRelatorioModular(
       recomendacoes: [],
       pendencias: fontes.map((f) => `${f.rotulo}: ${f.porque}`),
     };
-    return { relatorio, fontes, markdown: paraMarkdown(nome, periodo, relatorio, fontes) };
+    return { relatorio, fontes, markdown: paraMarkdown(nome, periodo, relatorio, fontes), dadosSite };
   }
 
   const extra = notasDeQuemGerou?.trim()
@@ -134,7 +155,7 @@ export async function gerarRelatorioModular(
     }
   }
 
-  return { relatorio, fontes, markdown: paraMarkdown(nome, periodo, relatorio, fontes) };
+  return { relatorio, fontes, markdown: paraMarkdown(nome, periodo, relatorio, fontes), dadosSite };
 }
 
 /** Markdown para colar no WhatsApp/e-mail. */

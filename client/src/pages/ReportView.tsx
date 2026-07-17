@@ -229,6 +229,33 @@ export default function ReportView() {
  * é indistinguível de um cliente saudável quando alguém reabre o link meses
  * depois. É o que separa "está tudo bem" de "ninguém mediu".
  */
+// ── Relatório modular: helpers de site ────────────────────────────────────────
+
+const ehNumRV = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const fmtMsRV = (v: unknown) => (ehNumRV(v) ? (v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${Math.round(v)}ms`) : "—");
+const fmtScoreRV = (v: unknown) => (ehNumRV(v) ? String(Math.round(v)) : "—");
+const corScoreRV = (v: unknown) => (!ehNumRV(v) ? "#666a66" : v >= 90 ? "#1D9E75" : v >= 50 ? "#EF9F27" : "#E24B4A");
+
+type DadosMidia = {
+  account?: { name?: string };
+  resultLabel?: string;
+  metrics?: Record<Metric, { current: number | null; previous: number | null }>;
+  weeklyTrend?: Record<Metric, Array<{ week: string; value: number | null }>>;
+  creatives?: Array<{ adId: string; adName: string; ctr?: number; costPerResult?: number | null; thumbnailUrl?: string | null; status?: string; managerUrl?: string }>;
+};
+type DadosSiteRV = {
+  pagespeed?: Record<string, unknown>;
+  seguranca?: Record<string, unknown>;
+  uptime?: Record<string, unknown>;
+  clarity?: Record<string, unknown>;
+};
+
+/**
+ * Vista do relatório MODULAR — visual, não parede de texto (D2.13).
+ * Cada seção é condicional ao módulo: um relatório Técnico não mostra cards de
+ * investimento vazios; um de mídia não inventa cards de site. O que falta vira
+ * "O que não foi medido" no rodapé — visível, sem dominar.
+ */
 function RelatorioModularView({ result }: {
   result: {
     period?: { start: string; end: string };
@@ -241,22 +268,39 @@ function RelatorioModularView({ result }: {
       pendencias?: string[];
     } | null;
     fontes?: { rotulo: string; presente: boolean; porque?: string }[] | null;
-    data?: { account?: { name?: string } };
+    data?: { midia?: DadosMidia | null; site?: DadosSiteRV | null };
   };
 }) {
   const n = result.narrative;
   const usadas = (result.fontes ?? []).filter((f) => f.presente);
   const faltando = (result.fontes ?? []).filter((f) => !f.presente);
+  const midia = result.data?.midia ?? null;
+  const site = result.data?.site ?? null;
+  const nomeConta = midia?.account?.name ?? "";
+  const resultLabel = midia?.resultLabel ?? "Resultados";
 
-  const Lista = ({ titulo, itens }: { titulo: string; itens?: string[] }) =>
-    itens && itens.length > 0 ? (
-      <section className="rv-card" style={{ marginTop: 16 }}>
-        <h2 className="rv-h">{titulo}</h2>
-        <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
-          {itens.map((x, i) => <li key={i}>{x}</li>)}
-        </ul>
-      </section>
-    ) : null;
+  const [metric, setMetric] = useState<Metric>("investment");
+  const serie = midia?.weeklyTrend?.[metric] ?? [];
+  const chart = serie.length ? { ...buildChartPath(serie.map((p) => p.value ?? 0)), weeks: serie.map((p) => p.week) } : null;
+
+  const METRIC_TABS: Array<{ key: Metric; label: string }> = [
+    { key: "investment", label: "Investimento" },
+    { key: "reach", label: "Alcance" },
+    { key: "conversions", label: resultLabel },
+    { key: "costPerConversion", label: "Custo/resultado" },
+  ];
+
+  // KPIs só quando há métrica de mídia — condicional ao módulo.
+  const m = midia?.metrics;
+  const kpis = m ? [
+    { label: "Investimento", val: fmtBRL(m.investment.current), delta: pctDelta(m.investment.current ?? 0, m.investment.previous ?? 0) },
+    { label: "Alcance", val: fmtNum(m.reach.current), delta: pctDelta(m.reach.current ?? 0, m.reach.previous ?? 0) },
+    { label: resultLabel, val: fmtNum(m.conversions.current), delta: pctDelta(m.conversions.current ?? 0, m.conversions.previous ?? 0) },
+    { label: `Custo/${resultLabel.toLowerCase()}`, val: fmtBRL(m.costPerConversion.current), delta: pctDelta(m.costPerConversion.current ?? 0, m.costPerConversion.previous ?? 0) },
+  ] : [];
+
+  const ps = (site?.pagespeed ?? null) as Record<string, unknown> | null;
+  const seg = (site?.seguranca ?? null) as Record<string, unknown> | null;
 
   return (
     <div className="report-view">
@@ -264,7 +308,7 @@ function RelatorioModularView({ result }: {
         <div className="rv-topbar-inner">
           <div className="rv-brand"><div className="rv-mark">S</div><span>Selva Agency</span></div>
           <div className="rv-meta">
-            <b>{result.data?.account?.name ?? ""}</b> · {result.period?.start} a {result.period?.end}
+            <b>{nomeConta}</b> · {result.period?.start} a {result.period?.end}
           </div>
         </div>
       </header>
@@ -280,29 +324,130 @@ function RelatorioModularView({ result }: {
           </div>
         )}
 
-        <Lista titulo="Fatos" itens={n?.fatos} />
-        <Lista titulo="O que os dados sugerem" itens={n?.interpretacoes} />
-        <Lista titulo="Hipóteses a confirmar" itens={n?.hipoteses} />
+        {/* KPIs de mídia com comparação vs. período anterior */}
+        {kpis.length > 0 && (
+          <div className="rv-metric-grid">
+            {kpis.map((k) => (
+              <div key={k.label} className="rv-metric">
+                <small>{k.label}</small>
+                <span className="num">{k.val}</span>
+                <span className={k.delta.cls}>{k.delta.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
-        {n?.recomendacoes && n.recomendacoes.length > 0 && (
+        {/* Gráfico de 8 semanas, com abas por métrica */}
+        {chart && (
+          <div className="rv-card">
+            <h3>Comparativo semanal</h3>
+            <div className="rv-tabs">
+              {METRIC_TABS.map((t) => (
+                <button key={t.key} className={`rv-tab ${metric === t.key ? "active" : ""}`} onClick={() => setMetric(t.key)}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <svg viewBox={`0 0 ${chart.w} ${chart.h}`} width="100%">
+              <path d={chart.area} fill="rgba(23,63,59,.12)" />
+              <path d={chart.line} fill="none" stroke="#173f3b" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+              {chart.pts.map((p, i) => (
+                <circle key={i} cx={p[0]} cy={p[1]} r={i === chart.pts.length - 1 ? 6 : 4}
+                  fill={i === chart.pts.length - 1 ? "#f4368c" : "#173f3b"} stroke="#fffdfa" strokeWidth={2.5} />
+              ))}
+            </svg>
+            <div className="rv-axis">{chart.weeks.map((w) => <span key={w}>{w}</span>)}</div>
+          </div>
+        )}
+
+        {/* Criativos com thumbnail */}
+        {midia?.creatives && midia.creatives.length > 0 && (
+          <div className="rv-card">
+            <h3>Criativos em destaque</h3>
+            <div className="rv-creative-grid">
+              {midia.creatives.map((c) => (
+                <div key={c.adId} className="rv-creative-card">
+                  <div className="rv-thumb" style={c.thumbnailUrl ? { backgroundImage: `url(${c.thumbnailUrl})` } : undefined} />
+                  <div className="rv-creative-info">
+                    <p className="fmt">{c.adName}</p>
+                    <div className="rv-stat"><span>CTR</span><span>{ehNumRV(c.ctr) ? `${c.ctr.toFixed(2)}%` : "—"}</span></div>
+                    <div className="rv-stat"><span>Custo/resultado</span><span>{fmtBRL(c.costPerResult)}</span></div>
+                    <span className={`rv-pill ${c.status ?? "neutral"}`}>
+                      {c.status === "good" ? "Performando bem" : c.status === "warn" ? "Atenção" : "Estável"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Site: performance técnica e segurança em cards */}
+        {(ps || seg) && (
+          <div className="rv-card">
+            <h3>Site</h3>
+            <div className="rv-metric-grid">
+              {ps && (
+                <>
+                  <div className="rv-metric"><small>Performance</small><span className="num" style={{ color: corScoreRV(ps.performanceScore) }}>{fmtScoreRV(ps.performanceScore)}</span></div>
+                  <div className="rv-metric"><small>LCP</small><span className="num">{fmtMsRV(ps.lcp)}</span></div>
+                </>
+              )}
+              {seg && (
+                <>
+                  <div className="rv-metric"><small>Segurança</small><span className="num" style={{ color: corScoreRV(seg.score) }}>{fmtScoreRV(seg.score)}</span></div>
+                  <div className="rv-metric"><small>HTTPS</small><span className="num">{seg.https ? "OK" : "—"}</span></div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Diagnóstico em blocos: fatos e interpretações lado a lado */}
+        {(n?.fatos?.length || n?.interpretacoes?.length) ? (
+          <div className="rv-status-grid">
+            {n?.fatos && n.fatos.length > 0 && (
+              <div className="rv-status-card positivo">
+                <h4>Fatos</h4>
+                <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.7 }}>{n.fatos.map((x, i) => <li key={i}>{x}</li>)}</ul>
+              </div>
+            )}
+            {n?.interpretacoes && n.interpretacoes.length > 0 && (
+              <div className="rv-status-card atencao">
+                <h4>O que os dados sugerem</h4>
+                <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.7 }}>{n.interpretacoes.map((x, i) => <li key={i}>{x}</li>)}</ul>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {n?.hipoteses && n.hipoteses.length > 0 && (
           <section className="rv-card" style={{ marginTop: 16 }}>
-            <h2 className="rv-h">Recomendações</h2>
-            <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+            <h3>Hipóteses a confirmar</h3>
+            <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>{n.hipoteses.map((x, i) => <li key={i}>{x}</li>)}</ul>
+          </section>
+        )}
+
+        {/* Recomendações — clicáveis para o Manager quando o criativo tem link */}
+        {n?.recomendacoes && n.recomendacoes.length > 0 && (
+          <div className="rv-next">
+            <h3>Recomendações</h3>
+            <ol>
               {n.recomendacoes.map((r, i) => (
                 <li key={i}>
                   <b>[{r.prioridade}]</b> {r.acao}
                   {r.porque && <div style={{ opacity: 0.7, fontSize: "0.92em" }}>{r.porque}</div>}
                 </li>
               ))}
-            </ul>
-          </section>
+            </ol>
+          </div>
         )}
 
         {(n?.pendencias?.length || faltando.length > 0) && (
           <section className="rv-card" style={{ marginTop: 16 }}>
-            <h2 className="rv-h">O que não foi medido</h2>
-            <p style={{ opacity: 0.75, marginBottom: 8 }}>
-              Os itens abaixo não entraram na análise. Ausência de dado não significa ausência de problema.
+            <h3>O que não foi medido</h3>
+            <p style={{ opacity: 0.75, marginBottom: 8, fontSize: 13 }}>
+              Ausência de dado não significa ausência de problema.
             </p>
             <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
               {(n?.pendencias ?? []).map((x, i) => <li key={i}>{x}</li>)}
