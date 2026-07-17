@@ -4,7 +4,6 @@ import { trpc } from "@/lib/trpc";
 import { useState, useEffect } from "react";
 import { ContextPanel } from "@/components/ContextPanel";
 import { toast } from "sonner";
-import { EMAIL_MODOS, dominioLabel } from "@shared/notifications";
 import {
   Settings2, Check, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
   CreditCard, Wallet, Key, ExternalLink, Link2, ChevronRight, Zap,
@@ -454,145 +453,6 @@ function TokenSection() {
   );
 }
 
-// ─── Resumo diário (admin) ────────────────────────────────────────────────────
-// O automático continua sendo a rotina. Isto só tira o horário do código e põe
-// na mão de quem decide — e deixa desligar o de amanhã sem matar a rotina.
-function ResumoDiarioSection() {
-  const utils = trpc.useUtils();
-  const q = trpc.notifications.digestSettings.useQuery(undefined, { retry: false });
-  const set = trpc.notifications.setDigestSettings.useMutation({
-    onSuccess: () => { utils.notifications.digestSettings.invalidate(); toast.success("Resumo diário atualizado."); },
-    onError: (e) => toast.error(e.message),
-  });
-  const setHoje = trpc.notifications.setDigestHoje.useMutation({
-    onSuccess: () => { utils.notifications.digestSettings.invalidate(); toast.success("Envio de hoje atualizado."); },
-    onError: (e) => toast.error(e.message),
-  });
-  const [hora, setHora] = useState<string | null>(null);
-
-  if (q.isLoading || !q.data) return null;
-  const d = q.data;
-  const horaVal = hora ?? d.defaultTime;
-
-  return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden mb-4">
-      <div className="flex items-center justify-between gap-4 p-4 border-b border-border/50">
-        <div>
-          <p className="text-sm text-foreground">Envio automático</p>
-          <p className="text-xs text-muted-foreground">O resumo sai sozinho todo dia no horário abaixo.</p>
-        </div>
-        <button onClick={() => set.mutate({ autoEnabled: !d.autoEnabled })}
-          className={`relative rounded-full transition-colors flex-shrink-0 ${d.autoEnabled ? "bg-primary" : "bg-muted-foreground/30"}`} style={{ height: "18px", width: "32px" }}>
-          <span className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-all ${d.autoEnabled ? "left-[14px]" : "left-0.5"}`} />
-        </button>
-      </div>
-
-      <div className="flex items-center justify-between gap-4 p-4 border-b border-border/50">
-        <div>
-          <p className="text-sm text-foreground">Horário</p>
-          <p className="text-xs text-muted-foreground">Horário de Brasília.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <input type="time" value={horaVal} onChange={(e) => setHora(e.target.value)}
-            className="text-sm border border-border rounded-md px-2 py-1.5 bg-background text-foreground" />
-          {hora && hora !== d.defaultTime && (
-            <button onClick={() => { set.mutate({ defaultTime: hora }); setHora(null); }}
-              className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground font-medium">Salvar</button>
-          )}
-        </div>
-      </div>
-
-      {/* Exceção de hoje: feriado, folga geral. Não desliga a rotina. */}
-      <div className="flex items-center justify-between gap-4 p-4">
-        <div>
-          <p className="text-sm text-foreground">Enviar hoje ({d.hoje.dia.split("-").reverse().slice(0, 2).join("/")})</p>
-          <p className="text-xs text-muted-foreground">
-            {d.hoje.enabled ? "Vai sair normalmente." : "Desligado só para hoje — a rotina continua ativa."}
-          </p>
-        </div>
-        <button onClick={() => setHoje.mutate({ dia: d.hoje.dia, enabled: !d.hoje.enabled })}
-          className={`relative rounded-full transition-colors flex-shrink-0 ${d.hoje.enabled ? "bg-primary" : "bg-muted-foreground/30"}`} style={{ height: "18px", width: "32px" }}>
-          <span className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-all ${d.hoje.enabled ? "left-[14px]" : "left-0.5"}`} />
-        </button>
-      </div>
-
-      {/* Só sai email de verdade em produção com SMTP: dizer isso evita o susto. */}
-      {(d.email.dryRun || !d.email.configured || d.email.testRecipient) && (
-        <div className="px-4 py-2.5 bg-amber-500/10 border-t border-amber-500/20">
-          <p className="text-[11px] text-amber-700">
-            {!d.email.configured ? "SMTP não configurado — nenhum email sai; só notificação no app."
-              : d.email.testRecipient ? `Modo de teste: todo email vai para ${d.email.testRecipient}.`
-              : "Modo de teste (dry-run): nenhum email real é enviado; o app registra quem receberia."}
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Preferências de notificação (tipo × canal) ───────────────────────────────
-// Cada usuário escolhe o que recebe e por onde. O backend resolve os defaults do
-// catálogo — aqui só mostramos o que veio pronto. Financeiro só chega p/ admin.
-function NotifPrefsSection() {
-  const utils = trpc.useUtils();
-  const { data: prefs, isLoading } = trpc.notifications.prefs.useQuery();
-  const setPref = trpc.notifications.setPref.useMutation({
-    onSuccess: () => utils.notifications.prefs.invalidate(),
-    onError: (e) => toast.error(e.message),
-  });
-  const emailOn = !!(prefs ?? []).length;
-  if (isLoading) return <div className="text-sm text-muted-foreground">Carregando...</div>;
-  if (!emailOn) return null;
-
-  const Toggle = ({ on, onClick }: { on: boolean; onClick: () => void }) => (
-    <button onClick={onClick} className={`relative rounded-full transition-colors flex-shrink-0 ${on ? "bg-primary" : "bg-muted-foreground/30"}`} style={{ height: "18px", width: "32px" }}>
-      <span className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-all ${on ? "left-[14px]" : "left-0.5"}`} />
-    </button>
-  );
-
-  const dominios = ["COMUNICADO", "TAREFAS", "PERFORMANCE", "FINANCEIRO"] as const;
-  return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden mb-4">
-      <div className="flex items-center gap-4 px-4 py-2 border-b border-border/50 bg-muted/30">
-        <p className="text-[11px] text-muted-foreground font-medium flex-1">O que você recebe</p>
-        <span className="text-[11px] text-muted-foreground w-12 text-center">No app</span>
-        <span className="text-[11px] text-muted-foreground w-44 text-center">Email</span>
-      </div>
-      {dominios.map((dom) => {
-        const linhas = (prefs ?? []).filter((p) => p.dominio === dom);
-        if (linhas.length === 0) return null;
-        return (
-          <div key={dom}>
-            <p className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">{dominioLabel(dom)}</p>
-            {linhas.map((p) => (
-              <div key={p.tipo} className="flex items-center gap-4 p-4 border-b border-border/50 last:border-b-0">
-                <div className="flex-1">
-                  <p className="text-sm text-foreground">{p.label}</p>
-                  <p className="text-xs text-muted-foreground">{p.desc}</p>
-                </div>
-                <div className="w-12 flex justify-center">
-                  {/* Mensagem dirigida (comunicado, reconexão) sempre chega no app. */}
-                  {p.inAppObrigatorio
-                    ? <span className="text-[10px] text-muted-foreground" title="Mensagens dirigidas a você sempre aparecem no app">sempre</span>
-                    : <Toggle on={p.inApp} onClick={() => setPref.mutate({ tipo: p.tipo, inApp: !p.inApp })} />}
-                </div>
-                <div className="w-44 flex justify-center gap-1">
-                  {EMAIL_MODOS.map((m) => (
-                    <button key={m.v} onClick={() => setPref.mutate({ tipo: p.tipo, emailModo: m.v })} title={m.desc}
-                      className={`px-2 py-1 rounded-md text-[10px] border transition ${p.emailModo === m.v ? "border-primary bg-primary/10 text-accent font-medium" : "border-border text-muted-foreground hover:text-foreground"}`}>
-                      {m.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ─── Notifications section ────────────────────────────────────────────────────
 function NotificationsSection() {
   const utils = trpc.useUtils();
@@ -897,14 +757,16 @@ export default function Settings() {
         </section>
 
 
-        {/* Alertas */}
+        {/* Limites de alerta de mídia (CPA/ROAS/orçamento). As PREFERÊNCIAS
+            pessoais de notificação (o que cada pessoa recebe e por onde, o
+            resumo diário) foram para Configurações do Spaces — são da vida da
+            pessoa na empresa, não desta conta de mídia. Aqui fica só o que é
+            mecânica de mídia: quando o alerta dispara. */}
         <section>
           <div className="flex items-center gap-2 mb-3">
             <Bell className="w-3.5 h-3.5 text-muted-foreground" />
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Alertas e notificações</h2>
+            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Limites de alerta de mídia</h2>
           </div>
-          <ResumoDiarioSection />
-          <NotifPrefsSection />
           <NotificationsSection />
         </section>
 

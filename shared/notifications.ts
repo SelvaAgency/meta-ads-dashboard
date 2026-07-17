@@ -42,6 +42,13 @@ export type NotifTipoDef = {
   /** Mensagem dirigida a você: o in-app não é opcional (só o email é). */
   inAppObrigatorio?: boolean;
   /**
+   * Institucional: o usuário comum NÃO desliga. Aniversário e comunicado são
+   * da vida da empresa, não preferência pessoal — deixar alguém silenciar o
+   * aniversário do colega, ou um aviso da administração, esvaziaria o canal.
+   * Aparece na tela como "sempre ativo", sem toggle, para não-admin.
+   */
+  institucional?: boolean;
+  /**
    * Quem este tipo serve. Sem isto, todo tipo sem conta espalhava para TODO
    * MUNDO — foi assim que o developer passou a receber relatório de mídia paga
    * de todos os clientes. Ausente = todos os papéis.
@@ -62,9 +69,9 @@ export const NOTIF_TIPOS: NotifTipoDef[] = [
   // Tarefas (Trello) — prazo é do seu dia de trabalho: no app, sem interromper.
   { v: "TRELLO_PRAZO", dominio: "TAREFAS", label: "Prazos do Trello", desc: "Cards seus que venceram, vencem hoje ou amanhã.", inApp: true, emailModo: "off" },
   { v: "TRELLO_RECONEXAO", dominio: "TAREFAS", label: "Trello desconectado", desc: "O acesso ao Trello expira a cada 30 dias e precisa ser reconectado.", inApp: true, emailModo: "hora", inAppObrigatorio: true },
-  // Comunicados — mensagem dirigida: sempre chega no app.
-  { v: "COMUNICADO", dominio: "COMUNICADO", label: "Comunicados", desc: "Avisos enviados pela administração.", inApp: true, emailModo: "hora", inAppObrigatorio: true },
-  { v: "ANIVERSARIO", dominio: "COMUNICADO", label: "Aniversários", desc: "Aniversário de alguém do time.", inApp: true, emailModo: "off" },
+  // Comunicados e aniversários — institucionais: o usuário comum não desliga.
+  { v: "COMUNICADO", dominio: "COMUNICADO", label: "Comunicados", desc: "Avisos enviados pela administração.", inApp: true, emailModo: "hora", inAppObrigatorio: true, institucional: true },
+  { v: "ANIVERSARIO", dominio: "COMUNICADO", label: "Aniversários", desc: "Aniversário de alguém do time.", inApp: true, emailModo: "off", institucional: true },
   // Site — comportamento no site do cliente (Clarity). Separado de Performance
   // porque é outra pergunta: mídia trouxe gente, o site segurou?
   { v: "SITE_CLARITY_ISSUE", dominio: "SITE", label: "Fricção no site", desc: "Cliques mortos, rage clicks, scroll baixo, tráfego de bot, queda de sessões.", inApp: true, emailModo: "off" },
@@ -99,6 +106,14 @@ export const tipoServeRole = (t: NotifTipoDef, role: string | undefined): boolea
 /** Tipos visíveis para o usuário: financeiro só admin; mídia paga não vai p/ dev. */
 export const notifTiposFor = (role: string | undefined): NotifTipoDef[] =>
   NOTIF_TIPOS.filter((t) => tipoServeRole(t, role));
+
+/**
+ * Este papel pode EDITAR a preferência deste tipo? Institucional é travado para
+ * não-admin — aparece, mas sem toggle. O backend também recusa a gravação (a
+ * checagem no cliente é só para a UI não oferecer o que não vale).
+ */
+export const tipoEditavelPor = (t: NotifTipoDef, role: string | undefined): boolean =>
+  !(t.institucional && role !== "admin");
 
 /**
  * Ponte alerts.type (técnico) → NotifTipo (produto). O que não estiver mapeado

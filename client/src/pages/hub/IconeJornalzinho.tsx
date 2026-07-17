@@ -2,17 +2,14 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *  Ícone do Jornalzinho
  * ─────────────────────────────────────────────────────────────────────────────
- *  O SVG mora em client/public/icons/computador-selva.svg — servido como
- *  arquivo estático, referenciado por URL. Não é import de módulo porque o
- *  projeto não tem svgr configurado, e adicionar um plugin de build para um
- *  ícone só não se paga.
+ *  O SVG (computador-selva) é mais ALTO que largo (177×194). Forçá-lo numa
+ *  caixa quadrada com object-contain o encolhia para caber na dimensão maior —
+ *  aparecia pequeno e "cortado". A correção: mandar pela ALTURA e deixar a
+ *  largura automática, preservando a proporção sem recorte.
  *
- *  Enquanto o arquivo não existir, cai no ícone da lucide. O fallback é por
- *  `onError` e não por checagem prévia: não dá para saber se um arquivo
- *  estático existe sem tentar buscá-lo, e um 404 no console é melhor que um
- *  espaço vazio na tela — ou que uma imagem quebrada.
- *
- *  Quando o arquivo for adicionado, nada aqui muda: ele simplesmente aparece.
+ *  O arquivo mora em client/public/icons/computador-selva.svg (estático). Cai
+ *  no ícone da lucide por onError enquanto não existir — 404 no console é melhor
+ *  que imagem quebrada. Quando o arquivo chega, nada aqui muda.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useState } from "react";
@@ -20,17 +17,22 @@ import { Newspaper } from "lucide-react";
 
 export const CAMINHO_ICONE = "/icons/computador-selva.svg";
 
-export function IconeJornalzinho({ className = "w-3.5 h-3.5" }: { className?: string }) {
+/**
+ * `altura` em px. A largura sai da proporção do SVG — nunca distorce, nunca
+ * corta. O fallback lucide usa uma caixa quadrada dessa mesma altura.
+ */
+export function IconeJornalzinho({ altura = 20 }: { altura?: number }) {
   const [falhou, setFalhou] = useState(false);
 
-  if (falhou) return <Newspaper className={className} />;
+  if (falhou) return <Newspaper style={{ width: altura, height: altura }} className="flex-shrink-0" />;
 
   return (
     <img
       src={CAMINHO_ICONE}
       alt=""
       aria-hidden="true"
-      className={`${className} object-contain`}
+      className="flex-shrink-0"
+      style={{ height: altura, width: "auto", objectFit: "contain" }}
       onError={() => setFalhou(true)}
     />
   );

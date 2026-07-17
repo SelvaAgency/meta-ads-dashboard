@@ -312,7 +312,7 @@ function urlPadraoDoPerfil(provider: string, handle: string): string {
   return `https://www.instagram.com/${handle}/`;
 }
 import { entregarComunicado } from "./notificationJobs";
-import { notifTiposFor, notifTipoDef, type EmailModo } from "../shared/notifications";
+import { notifTiposFor, notifTipoDef, tipoEditavelPor, type EmailModo } from "../shared/notifications";
 
 // ─── Helper: computeNextRun ─────────────────────────────────────────────────
 /** Calcula o próximo disparo de um agendamento de relatório. */
@@ -2011,6 +2011,10 @@ export const appRouter = router({
           inApp: p?.inApp ?? t.inApp,
           emailModo: (p?.emailModo as EmailModo) ?? t.emailModo,
           inAppObrigatorio: !!t.inAppObrigatorio,
+          // Travado para este usuário? (institucional e não-admin) — a UI
+          // mostra "sempre ativo" sem toggle.
+          editavel: tipoEditavelPor(t, ctx.user.role),
+          institucional: !!t.institucional,
         };
       });
     }),
@@ -2020,6 +2024,10 @@ export const appRouter = router({
         const def = notifTipoDef(input.tipo);
         if (!def) throw new TRPCError({ code: "BAD_REQUEST", message: "Tipo de notificação desconhecido." });
         if (def.adminOnly && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Sem acesso a notificações financeiras." });
+        // Institucional (aniversário/comunicado) não é preferência pessoal do
+        // usuário comum — a UI não oferece o toggle, e o backend recusa também,
+        // porque esconder no cliente não é permissão.
+        if (!tipoEditavelPor(def, ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Este aviso é institucional e não pode ser desativado." });
         await upsertNotificationPref(ctx.user.id, input.tipo, { inApp: input.inApp, emailModo: input.emailModo });
         return { success: true } as const;
       }),

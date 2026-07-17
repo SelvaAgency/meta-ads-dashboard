@@ -12,6 +12,7 @@ import {
   User as UserIcon,
   ShieldCheck,
   Newspaper,
+  Bell,
   Image as ImageIcon,
   Plus,
   Trash2,
@@ -33,7 +34,8 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { HubShell } from "./HubShell";
 import { VocePrefereSlide } from "./VocePrefereSlide";
-import { canManageContent, ROLE_LABELS, type Role } from "@shared/permissions";
+import { canManageContent, canAccessAdmin, ROLE_LABELS, type Role } from "@shared/permissions";
+import { NotifPrefsSection, ResumoDiarioSection } from "@/components/NotificacoesPrefs";
 
 function SectionCard({
   icon: Icon,
@@ -528,6 +530,7 @@ function FixedSlidesAdminSection() {
 export default function HubSettings() {
   const { user } = useAuth();
   const canContent = canManageContent((user as { role?: string } | null)?.role);
+  const isAdmin = canAccessAdmin((user as { role?: string } | null)?.role);
   const storage = trpc.storage.status.useQuery(undefined, { enabled: canContent, retry: false });
 
   return (
@@ -545,6 +548,22 @@ export default function HubSettings() {
           </header>
 
           <ProfileSection />
+
+          {/* Notificações — moradia certa: é da vida da pessoa no Spaces, não
+              de uma conta de mídia. Veio do Settings do Tracker (D1.4). */}
+          <SectionCard icon={Bell} title="Notificações" description="O que você recebe e por onde. Avisos institucionais (aniversário, comunicado) são sempre ativos.">
+            <NotifPrefsSection />
+            {/* Resumo diário: a rotina de envio é global, e o backend a trava em
+                adminProcedure. Só mostro para admin — senão o developer veria um
+                controle que o servidor recusaria. */}
+            {isAdmin && (
+              <>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2 mb-2">Resumo diário</p>
+                <ResumoDiarioSection />
+              </>
+            )}
+          </SectionCard>
+
           <IntegrationsSection />
 
           {canContent && (
