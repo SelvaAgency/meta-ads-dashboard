@@ -18,7 +18,6 @@ import type { Role } from "./permissions";
 
 export type WidgetKey =
   | "midia_geral"
-  | "sites"
   | "acoes"
   | "panorama";
 
@@ -52,19 +51,14 @@ export const WIDGETS: Widget[] = [
     padraoPara: ["admin", "user", "developer"],
     ordem: 10,
   },
-  {
-    key: "sites",
-    nome: "Sites",
-    descricao: "Performance, segurança e disponibilidade dos sites dos clientes.",
-    // Developer vê site por padrão: é o técnico dele. Gestor liga se quiser.
-    padraoPara: ["admin", "developer"],
-    ordem: 20,
-  },
+  // O widget "sites" isolado saiu: virava bloco dominante no topo. Os dados de
+  // site foram dissolvidos — resumo no Resumo do Dia, ações no bloco de Ações
+  // com filtro Mídia/Site. Acompanhar sem dominar (decisão do D1.2).
   {
     key: "acoes",
     nome: "Ações sugeridas",
-    descricao: "O que a IA sugere fazer hoje, por conta.",
-    padraoPara: ["admin", "user"],
+    descricao: "O que fazer hoje — mídia e site, com filtro por origem.",
+    padraoPara: ["admin", "user", "developer"],
     ordem: 30,
   },
   {

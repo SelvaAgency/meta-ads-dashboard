@@ -13,7 +13,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Flame,
-  Globe,
+  GripVertical,
   RefreshCw,
   SlidersHorizontal,
   Sparkles,
@@ -254,6 +254,16 @@ export default function SuggestionsHub() {
   const { data: todayMetrics }  = trpc.accounts.todayMetrics.useQuery(undefined, { refetchOnWindowFocus: false });
   const { data: urgentAlerts }  = trpc.alerts.listUrgent.useQuery(undefined, { refetchOnWindowFocus: false });
   const { data: briefingData, isLoading: briefingLoading } = trpc.suggestions.getDailyBriefing.useQuery(undefined, { refetchOnWindowFocus: false });
+  // Site dissolvido nos blocos existentes (D1.2): resumo no Resumo do Dia,
+  // ações no bloco de Ações com filtro. A query fica no topo para alimentar os
+  // dois lugares a partir de uma fonte só.
+  const { data: sitesData } = trpc.visao.sites.useQuery(undefined, { refetchOnWindowFocus: false });
+  // Ações de site = o que exige ação (crítico/atenção). Pendências e "não é
+  // queda" (info) ficam de fora daqui — são para o Resumo, não para a fila.
+  const siteAcoes = (sitesData?.destaques ?? []).filter((d) => d.severidade === "critico" || d.severidade === "atencao");
+  const siteResumo = (sitesData?.destaques ?? []).filter((d) => d.severidade === "pendencia" || d.severidade === "info");
+  // Filtro de origem das ações. "todos" mistura mídia + site (default).
+  const [origemFiltro, setOrigemFiltro] = useState<"todos" | "midia" | "site">("todos");
   const syncAccount = trpc.accounts.sync.useMutation();
   const { setActiveAccountId, trocarDeCliente } = useActiveAccount();
   const [, navigate]           = useLocation();
@@ -430,8 +440,6 @@ export default function SuggestionsHub() {
         </div>
         {painelAberto && <PainelVisao onFechar={() => setPainelAberto(false)} />}
 
-        {mostrar("sites") && <BlocoSites onIr={irParaSite} />}
-
         {/* ══ 1 — Caixa unificada: top bar + briefing + status cards ══════ */}
         {mostrar("midia_geral") && (
         <div className="px-6 pt-6">
@@ -481,6 +489,16 @@ export default function SuggestionsHub() {
                   {briefingParsed.resumo && (
                     <p style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary, var(--foreground))", lineHeight: 1.55, marginBottom: briefingExpanded ? 10 : 0 }}>
                       {linkifyAccounts(briefingParsed.resumo, accounts ?? [], handleSelectAccount)}
+                    </p>
+                  )}
+                  {/* Panorama dos sites — junto do resumo, não em box separado.
+                      Só os agregados (pendências e "não é queda"); o que exige
+                      ação vai para o bloco de Ações abaixo. */}
+                  {siteResumo.length > 0 && (
+                    <p className="text-[11px] mt-1.5" style={{ color: "var(--muted-foreground)" }}>
+                      <button onClick={() => irParaSite(undefined, undefined)} className="font-semibold hover:underline" style={{ color: "#E85BA8" }}>Sites</button>
+                      {" · "}
+                      {siteResumo.map((d) => d.texto).join(" · ")}
                     </p>
                   )}
                   {/* Seções expandidas */}
@@ -653,9 +671,62 @@ export default function SuggestionsHub() {
         {/* ══ 3 — Ações Sugeridas ════════════════════════════════════════ */}
         {mostrar("acoes") && (
         <div className="px-6 pt-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">Ações Sugeridas</p>
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Ações Sugeridas</p>
+            {/* Filtro de origem: mídia paga vs. site. "Todos" mistura os dois.
+                Aparece só quando há site medido — sem isso, o filtro "Site"
+                estaria sempre vazio e pareceria quebrado. */}
+            {(siteAcoes.length > 0 || (sitesData?.totalComSite ?? 0) > 0) && (
+              <div className="flex items-center gap-1">
+                {([["todos", "Todos"], ["midia", "Mídia"], ["site", "Site"]] as const).map(([v, label]) => (
+                  <button
+                    key={v}
+                    onClick={() => setOrigemFiltro(v)}
+                    className="text-[10px] font-medium px-2 py-0.5 rounded-md transition-colors"
+                    style={origemFiltro === v
+                      ? { background: "rgba(232,91,168,0.12)", color: "#E85BA8", border: "0.5px solid rgba(232,91,168,0.4)" }
+                      : { color: "var(--muted-foreground)", border: `0.5px solid ${BORDER_T}` }}
+                  >
+                    {label}
+                    {v === "site" && siteAcoes.length > 0 && <span className="ml-1 opacity-70">{siteAcoes.length}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, padding: 16 }}>
 
+            {/* Ações de SITE — lista com tag de origem. Some quando o filtro é
+                "Mídia". A tag [Site] deixa a origem explícita ao lado da de
+                mídia, como pedido. */}
+            {origemFiltro !== "midia" && siteAcoes.length > 0 && (
+              <div className="flex flex-col gap-1.5 mb-4">
+                {siteAcoes.map((d) => {
+                  const critico = d.severidade === "critico";
+                  const cor = critico ? "#E24B4A" : "#EF9F27";
+                  return (
+                    <button
+                      key={d.chave}
+                      onClick={() => d.accountId !== undefined && irParaSite(d.accountId, d.aba)}
+                      disabled={d.accountId === undefined}
+                      title={d.accountId === undefined ? "Vários clientes — abra a seção Site" : "Abrir este cliente"}
+                      className="flex items-center gap-2 text-left rounded-lg px-2.5 py-2"
+                      style={{ background: `${cor}0f`, border: `0.5px solid ${cor}30`, cursor: d.accountId !== undefined ? "pointer" : "default" }}
+                    >
+                      <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: `${cor}22`, color: cor }}>Site</span>
+                      <span className="text-xs" style={{ color: cor }}>{d.texto}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Mídia: some quando o filtro é "Site". Quando "Site" está ativo e
+                não há ação de site, mostra um vazio honesto. */}
+            {origemFiltro === "site" && siteAcoes.length === 0 && (
+              <p className="text-xs text-muted-foreground">Nenhuma ação de site pendente.</p>
+            )}
+            {origemFiltro !== "site" && (<>
             {/* Stats — 4 cards compactos */}
             <div className="grid grid-cols-4 gap-2">
               {statCards.map(({ label, value, color, icon: Icon, subtitle, tab }) => (
@@ -794,6 +865,7 @@ export default function SuggestionsHub() {
                 )
               )}
             </div>
+            </>)}
 
           </div>
         </div>
@@ -967,103 +1039,6 @@ export default function SuggestionsHub() {
     </MetaDashboardLayout>
   );
 }
-
-// ─── B1: Sites do portfólio ──────────────────────────────────────────────────
-
-const COR_SEV: Record<string, { cor: string; bg: string }> = {
-  critico:   { cor: "#E24B4A", bg: "rgba(226,75,74,0.06)" },
-  atencao:   { cor: "#EF9F27", bg: "rgba(239,159,39,0.06)" },
-  info:      { cor: "rgba(0,0,0,0.45)", bg: "rgba(0,0,0,0.02)" },
-  pendencia: { cor: "rgba(0,0,0,0.45)", bg: "rgba(0,0,0,0.02)" },
-};
-
-/**
- * Triagem, não diagnóstico: a pergunta é "algum site está com problema agora?".
- * As pendências ("nunca testado", "sem Clarity") aparecem na mesma lista, mais
- * apagadas — um site que ninguém mediu não pode parecer um site saudável.
- */
-function BlocoSites({ onIr }: { onIr: (accountId: number | undefined, aba: string | undefined) => void }) {
-  const q = trpc.visao.sites.useQuery();
-
-  if (q.isLoading) {
-    return (
-      <div className="px-6 pt-4">
-        <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, padding: "14px 16px" }}>
-          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Sites</p>
-          <p className="text-xs text-muted-foreground mt-2">Carregando…</p>
-        </div>
-      </div>
-    );
-  }
-
-  const d = q.data;
-  if (!d || d.totalComSite === 0) {
-    return (
-      <div className="px-6 pt-4">
-        <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, padding: "14px 16px" }}>
-          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Sites</p>
-          <p className="text-xs text-muted-foreground mt-2">
-            Nenhum cliente com site configurado. Informe o domínio na seção Site de cada cliente.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const problemas = d.destaques.filter((x) => x.severidade === "critico" || x.severidade === "atencao");
-  const resto = d.destaques.filter((x) => x.severidade === "info" || x.severidade === "pendencia");
-
-  return (
-    <div className="px-6 pt-4">
-      <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, overflow: "hidden" }}>
-        <div className="flex items-center gap-2" style={{ padding: "10px 16px", borderBottom: `0.5px solid ${BORDER_T}` }}>
-          <Globe className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#E85BA8" }} />
-          <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "#E85BA8" }}>Sites</span>
-          <span className="text-[10px] text-muted-foreground">· {d.totalComSite} com site configurado</span>
-          <button
-            onClick={() => onIr(undefined, undefined)}
-            className="ml-auto text-[10px] font-medium"
-            style={{ color: "#E85BA8", background: "none", border: "none", cursor: "pointer" }}
-          >
-            Abrir seção Site →
-          </button>
-        </div>
-
-        <div style={{ padding: "12px 16px" }}>
-          {problemas.length === 0 && (
-            <p className="text-xs text-muted-foreground mb-2">
-              Nenhum problema ativo nos sites medidos.
-            </p>
-          )}
-          {[...problemas, ...resto].map((x) => {
-            const c = COR_SEV[x.severidade] ?? COR_SEV.info;
-            const clicavel = x.accountId !== undefined;
-            return (
-              <button
-                key={x.chave}
-                onClick={() => clicavel && onIr(x.accountId, x.aba)}
-                disabled={!clicavel}
-                title={clicavel ? "Abrir este cliente" : "Vários clientes — abra a seção Site"}
-                style={{
-                  display: "flex", alignItems: "center", gap: 8, width: "100%",
-                  padding: "7px 9px", marginBottom: 4, borderRadius: 8,
-                  background: c.bg, border: `0.5px solid ${BORDER_T}`,
-                  cursor: clicavel ? "pointer" : "default", textAlign: "left",
-                }}
-              >
-                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: c.cor }} />
-                <span className="text-xs" style={{ color: x.severidade === "pendencia" || x.severidade === "info" ? "var(--muted-foreground)" : c.cor }}>
-                  {x.texto}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── B2: Personalizar visão ──────────────────────────────────────────────────
 
 /**
@@ -1074,16 +1049,47 @@ function BlocoSites({ onIr }: { onIr: (accountId: number | undefined, aba: strin
  * quem nunca personalizou (ou desistiu) volta a acompanhar o catálogo quando
  * ele mudar, em vez de congelar o padrão de hoje para sempre.
  */
+type WidgetView = { key: string; nome: string; descricao: string; visivel: boolean; ordem: number };
+
 function PainelVisao({ onFechar }: { onFechar: () => void }) {
   const utils = trpc.useUtils();
   const q = trpc.visao.widgets.useQuery();
-  const salvar = trpc.visao.salvarWidget.useMutation({
-    onSuccess: () => utils.visao.widgets.invalidate(),
-    onError: (e) => toast.error(e.message),
-  });
+  const salvar = trpc.visao.salvarWidget.useMutation({ onError: (e) => toast.error(e.message) });
   const resetar = trpc.visao.resetarWidgets.useMutation({
-    onSuccess: () => { utils.visao.widgets.invalidate(); toast.success("Visão restaurada ao padrão."); },
+    onSuccess: () => { setLista(null); utils.visao.widgets.invalidate(); toast.success("Visão restaurada ao padrão."); },
   });
+
+  // Cópia local para o arrasto responder na hora, sem esperar o round-trip.
+  // Enquanto ela existe, ela manda; some no reset para voltar a seguir o server.
+  const [lista, setLista] = useState<WidgetView[] | null>(null);
+  const arrastando = useRef<number | null>(null);
+  const view: WidgetView[] = lista ?? (q.data ?? []);
+
+  // Persiste a ordem atual: numera 10,20,30… e grava cada widget preservando o
+  // visível. Uma invalidação só no fim, para a lista não piscar a cada gravação.
+  const persistirOrdem = async (arr: WidgetView[]) => {
+    try {
+      await Promise.all(arr.map((w, i) => salvar.mutateAsync({ key: w.key, visivel: w.visivel, ordem: (i + 1) * 10 })));
+      utils.visao.widgets.invalidate();
+    } catch { /* o onError do mutation já avisou */ }
+  };
+
+  const soltarEm = (destino: number) => {
+    const origem = arrastando.current;
+    arrastando.current = null;
+    if (origem === null || origem === destino) return;
+    const novo = [...view];
+    const [movido] = novo.splice(origem, 1);
+    novo.splice(destino, 0, movido);
+    setLista(novo);
+    persistirOrdem(novo);
+  };
+
+  const alternarVisivel = (w: WidgetView) => {
+    const novo = view.map((x) => (x.key === w.key ? { ...x, visivel: !x.visivel } : x));
+    setLista(novo);
+    salvar.mutate({ key: w.key, visivel: !w.visivel, ordem: w.ordem }, { onSuccess: () => utils.visao.widgets.invalidate() });
+  };
 
   return (
     <div
@@ -1104,27 +1110,35 @@ function PainelVisao({ onFechar }: { onFechar: () => void }) {
 
         <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-2">
           <p className="text-xs text-muted-foreground mb-1">
-            Escolha o que aparece na sua visão geral. Vale só para você.
+            Escolha o que aparece e arraste para reordenar. Vale só para você.
           </p>
-          {(q.data ?? []).map((w) => (
-            <label
+          {view.map((w, i) => (
+            <div
               key={w.key}
-              className="flex items-start gap-2.5 rounded-lg px-3 py-2.5 cursor-pointer"
+              draggable
+              onDragStart={() => { arrastando.current = i; }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => soltarEm(i)}
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2.5"
               style={{ border: `0.5px solid ${BORDER_T}`, background: w.visivel ? "rgba(232,91,168,0.05)" : "transparent" }}
             >
+              {/* Alça de arrasto — o cursor de "mover" só neste ícone deixa
+                  claro o que é arrastável, sem transformar a linha toda numa
+                  área de arraste que atrapalha o clique no checkbox. */}
+              <GripVertical className="w-3.5 h-3.5 flex-shrink-0 cursor-grab text-muted-foreground/50" />
               <input
                 type="checkbox"
                 checked={w.visivel}
-                onChange={() => salvar.mutate({ key: w.key, visivel: !w.visivel, ordem: w.ordem })}
-                className="mt-0.5 cursor-pointer"
+                onChange={() => alternarVisivel(w)}
+                className="cursor-pointer flex-shrink-0"
               />
-              <span className="flex-1">
+              <span className="flex-1 min-w-0">
                 <span className="text-sm block">{w.nome}</span>
                 <span className="text-[11px] text-muted-foreground block">{w.descricao}</span>
               </span>
-            </label>
+            </div>
           ))}
-          {(q.data ?? []).length === 0 && !q.isLoading && (
+          {view.length === 0 && !q.isLoading && (
             <p className="text-xs text-muted-foreground">Nenhum widget disponível para o seu perfil.</p>
           )}
         </div>
