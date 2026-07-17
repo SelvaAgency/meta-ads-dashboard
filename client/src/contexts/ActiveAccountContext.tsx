@@ -41,6 +41,40 @@ function guardar(id: number | null) {
   }
 }
 
+/**
+ * Seções por-cliente onde "trocar de cliente" deve MANTER a tela: só o cliente
+ * muda. Fora desta lista (landing de portfólio, telas do Spaces), a troca cai
+ * para /dashboard — a rota não faz sentido para o cliente novo.
+ *
+ * /experiments/:id fica de fora de propósito: o id é de um experimento do
+ * cliente ANTIGO; manter a rota levaria a um 404. A lista /experiments (sem id)
+ * entra normalmente.
+ */
+const SECOES_POR_CLIENTE = new Set([
+  "/dashboard", "/campaigns", "/alerts", "/suggestions", "/experiments",
+  "/reports", "/site", "/clarity", "/google-ads", "/social-networks",
+]);
+
+/**
+ * Para onde ir ao trocar de cliente manualmente. Pura de propósito — a decisão
+ * de rota é testável sem React. Preserva a aba (?aba=) e atualiza o ?account=
+ * quando ele existe (deep-link de Site), para o exemplo do produto valer:
+ *   /site?account=UMA&aba=seguranca  →  /site?account=SCAFFOLD&aba=seguranca
+ */
+export function rotaAoTrocarCliente(location: string, novoAccountId: number): string {
+  const [pathname] = location.split("?");
+  if (!SECOES_POR_CLIENTE.has(pathname)) return "/dashboard";
+
+  // A query mora em window.location.search (wouter só dá o pathname aqui).
+  const busca = typeof window !== "undefined" ? window.location.search : "";
+  const p = new URLSearchParams(busca);
+  // Só reescreve account se ele já estava lá — as telas que leem por estado
+  // (Campanhas, Dashboard) não devem ganhar um param que não usam.
+  if (p.has("account")) p.set("account", String(novoAccountId));
+  const qs = p.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
+
 interface AdAccount {
   id: number;
   accountId: string;
@@ -100,7 +134,7 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
   // conferido abaixo, depois que a lista carrega.
   const [activeAccountId, setActiveAccountIdState] = useState<number | null>(lerGuardado);
   const [searchParams] = useSearchParams();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const slugDaUrl = searchParams.get("client");
 
   // Enrich accounts with displayName from clientConfig
@@ -149,11 +183,13 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
     }
   };
 
-  // Troca manual → seleciona E vai para a Visão Geral. navigate("/dashboard")
-  // dentro do iframe do Tracker navega o próprio Tracker; no topo, idem.
+  // Troca manual → seleciona e PRESERVA a seção atual, trocando só o cliente.
+  // Estava em Site do cliente A, troca para B → continua em Site, agora de B.
+  // Cai para /dashboard só quando a rota atual não faz sentido para o novo
+  // cliente (a landing de portfólio, ou uma tela específica do cliente antigo).
   const trocarDeCliente = (accountId: number) => {
     setActiveAccountId(accountId);
-    navigate("/dashboard");
+    navigate(rotaAoTrocarCliente(location, accountId));
   };
   const trocarDeClientePorSlug = (slug: string) => {
     const ca = clientAccounts.find(c => c.client.slug === slug);
