@@ -2,7 +2,7 @@ import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
 import { Input } from "@/components/ui/input";
-import { Search, Film, Image, LayoutGrid, ShoppingBag, Loader2, Link2, Zap, Calendar, ChevronDown, ChevronRight, Circle, ExternalLink } from "lucide-react";
+import { Search, Film, Image, LayoutGrid, ShoppingBag, Loader2, Link2, Zap, Calendar, ChevronDown, ChevronRight, Circle, ExternalLink, TrendingUp } from "lucide-react";
 import React, { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
@@ -512,6 +512,9 @@ export default function Campaigns() {
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [selectedMetaCampaignId, setSelectedMetaCampaignId] = useState<string | null>(null);
+  // Plataforma: Meta Ads (atual) ou Google Ads. Período e cliente são
+  // compartilhados — trocar de plataforma não reseta o filtro.
+  const [plataforma, setPlataforma] = useState<"meta" | "google">("meta");
   const [sortKey, setSortKey] = useState<"spend" | "conversions" | "cpa" | "ctr" | "reach">("spend");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
@@ -686,6 +689,29 @@ export default function Campaigns() {
           </div>
         </div>
 
+        {/* ── Plataforma: Meta Ads / Google Ads ── */}
+        <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+          {([["meta", "Meta Ads"], ["google", "Google Ads"]] as const).map(([v, label]) => (
+            <button
+              key={v}
+              onClick={() => setPlataforma(v)}
+              style={{
+                padding: "8px 14px", fontSize: 13, fontWeight: 500, cursor: "pointer",
+                background: "none", border: "none",
+                color: plataforma === v ? "#D4537E" : "var(--color-text-secondary)",
+                borderBottom: plataforma === v ? "2px solid #D4537E" : "2px solid transparent",
+                marginBottom: -0.5,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Google Ads — estado dedicado; nunca mistura com dados da Meta. */}
+        {plataforma === "google" && <PainelGoogleAds accountId={selectedAccountId ?? null} periodLabel={periodLabel} />}
+
+        {plataforma === "meta" && (<>
         {/* ── KPI Section ── */}
         <div style={{ ...panel, marginBottom: 14 }}>
           <div style={panelHeaderAccent}>
@@ -789,8 +815,78 @@ export default function Campaigns() {
             </table>
           </div>
         </div>
+        </>)}
 
       </div>
     </MetaDashboardLayout>
+  );
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Subaba Google Ads na tela de Campanhas
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  D2.10 é a ESTRUTURA das subabas. A integração real (D2.9) depende do
+ *  developer token do Google, que ainda não existe. Então aqui o caminho
+ *  honesto é: se não está configurado, um estado vazio que EXPLICA — não um
+ *  spinner infinito nem uma tabela vazia fingindo que é só falta de dado.
+ *
+ *  Quando o token chegar e as contas forem conectadas, a mesma tela passa a
+ *  listar as campanhas. Nunca mistura com a Meta: é outra plataforma, outra
+ *  aba, dados separados e identificados.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+function PainelGoogleAds({ accountId, periodLabel }: { accountId: number | null; periodLabel: string }) {
+  const cfg = trpc.googleAds.isConfigured.useQuery(undefined, { retry: false });
+
+  const painel: React.CSSProperties = {
+    background: "var(--color-background-primary, var(--card))",
+    border: "0.5px solid var(--color-border-tertiary)",
+    borderRadius: 12, padding: 28, textAlign: "center",
+  };
+
+  if (cfg.isLoading) {
+    return (
+      <div style={painel}>
+        <Loader2 className="w-5 h-5 animate-spin" style={{ margin: "0 auto", color: "var(--color-text-secondary)" }} />
+      </div>
+    );
+  }
+
+  // Sem developer token / sem conta conectada: estado vazio que explica.
+  if (!cfg.data?.configured) {
+    return (
+      <div style={painel}>
+        <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(232,91,168,0.1)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+          <TrendingUp className="w-5 h-5" style={{ color: "#E85BA8" }} />
+        </div>
+        <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Google Ads ainda não está conectado</p>
+        <p style={{ fontSize: 13, color: "var(--color-text-secondary)", maxWidth: 460, margin: "0 auto", lineHeight: 1.6 }}>
+          A integração com o Google Ads depende de um token de desenvolvedor aprovado pelo Google e das
+          contas dos clientes vinculadas. Enquanto isso não está pronto, esta aba fica reservada — sem
+          dados falsos e sem misturar com a Meta.
+        </p>
+        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", opacity: 0.7, marginTop: 12 }}>
+          Período selecionado: {periodLabel}
+        </p>
+      </div>
+    );
+  }
+
+  // Configurado: por ora encaminha para a tela dedicada. A listagem inline de
+  // campanhas Google entra no D2.9, quando houver dado real para exibir.
+  return (
+    <div style={painel}>
+      <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Google Ads conectado</p>
+      <p style={{ fontSize: 13, color: "var(--color-text-secondary)", maxWidth: 460, margin: "0 auto 14px", lineHeight: 1.6 }}>
+        As campanhas do Google Ads deste cliente estão na tela dedicada.
+      </p>
+      <a
+        href={accountId ? `/google-ads?account=${accountId}` : "/google-ads"}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500, color: "#D4537E", textDecoration: "none", border: "0.5px solid rgba(212,83,126,0.4)", borderRadius: 8, padding: "8px 14px" }}
+      >
+        Abrir Google Ads <ExternalLink className="w-3.5 h-3.5" />
+      </a>
+    </div>
   );
 }
