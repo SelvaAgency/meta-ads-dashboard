@@ -18,7 +18,7 @@
 import { trpc } from "@/lib/trpc";
 import { CLIENTS, ClientConfig, getClientByMetaAccountId, getIntegrationStatus, ClientIntegrationStatus } from "@/config/clientConfig";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "wouter";
+import { useSearchParams, useLocation } from "wouter";
 
 const CHAVE = "meta_active_account_id";
 
@@ -69,6 +69,15 @@ interface ActiveAccountContextValue {
   activeClient: ClientConfig | null;
   clientAccounts: ClientWithAccounts[];
   setActiveClient: (slug: string) => void;
+  /**
+   * TROCA MANUAL de cliente — seleciona e leva para a Visão Geral dele.
+   * Diferente de setActiveAccountId (que só seleciona): quem troca de cliente
+   * de propósito espera começar do começo, não continuar na tela em que estava
+   * olhando o cliente anterior. Deep-link de alerta NÃO usa isto — usa
+   * setActiveAccountId puro, para respeitar a rota/aba pedida.
+   */
+  trocarDeCliente: (accountId: number) => void;
+  trocarDeClientePorSlug: (slug: string) => void;
 }
 
 const ActiveAccountContext = createContext<ActiveAccountContextValue>({
@@ -81,6 +90,8 @@ const ActiveAccountContext = createContext<ActiveAccountContextValue>({
   activeClient: null,
   clientAccounts: [],
   setActiveClient: () => {},
+  trocarDeCliente: () => {},
+  trocarDeClientePorSlug: () => {},
 });
 
 export function ActiveAccountProvider({ children }: { children: React.ReactNode }) {
@@ -89,6 +100,7 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
   // conferido abaixo, depois que a lista carrega.
   const [activeAccountId, setActiveAccountIdState] = useState<number | null>(lerGuardado);
   const [searchParams] = useSearchParams();
+  const [, navigate] = useLocation();
   const slugDaUrl = searchParams.get("client");
 
   // Enrich accounts with displayName from clientConfig
@@ -135,6 +147,17 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
     if (ca && ca.accounts.length > 0) {
       setActiveAccountId(ca.accounts[0].id);
     }
+  };
+
+  // Troca manual → seleciona E vai para a Visão Geral. navigate("/dashboard")
+  // dentro do iframe do Tracker navega o próprio Tracker; no topo, idem.
+  const trocarDeCliente = (accountId: number) => {
+    setActiveAccountId(accountId);
+    navigate("/dashboard");
+  };
+  const trocarDeClientePorSlug = (slug: string) => {
+    const ca = clientAccounts.find(c => c.client.slug === slug);
+    if (ca && ca.accounts.length > 0) trocarDeCliente(ca.accounts[0].id);
   };
 
   /**
@@ -184,6 +207,8 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
         activeClient,
         clientAccounts,
         setActiveClient,
+        trocarDeCliente,
+        trocarDeClientePorSlug,
       }}
     >
       {children}

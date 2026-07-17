@@ -255,7 +255,7 @@ export default function SuggestionsHub() {
   const { data: urgentAlerts }  = trpc.alerts.listUrgent.useQuery(undefined, { refetchOnWindowFocus: false });
   const { data: briefingData, isLoading: briefingLoading } = trpc.suggestions.getDailyBriefing.useQuery(undefined, { refetchOnWindowFocus: false });
   const syncAccount = trpc.accounts.sync.useMutation();
-  const { setActiveAccountId } = useActiveAccount();
+  const { setActiveAccountId, trocarDeCliente } = useActiveAccount();
   const [, navigate]           = useLocation();
 
   // ── Visão modular ─────────────────────────────────────────────────────────
@@ -359,11 +359,13 @@ export default function SuggestionsHub() {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
+  // Clicar no cliente = troca manual → Visão Geral dele (via contexto).
   const handleSelectAccount = (accountId: number) => {
-    setActiveAccountId(accountId);
-    navigate("/dashboard");
+    trocarDeCliente(accountId);
   };
 
+  // "Ver ações" é intenção explícita de ir para o Plano de Ação — não é troca
+  // simples de cliente, então mantém o destino /suggestions.
   const handleGoToSuggestions = (accountId: number) => {
     setActiveAccountId(accountId);
     navigate("/suggestions");

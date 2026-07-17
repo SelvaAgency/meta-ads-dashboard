@@ -294,12 +294,20 @@ export function HubSidebar() {
   const groups = NAV_GROUPS;
   const [hovering, setHovering] = useState(false);
   const [recolhida, setRecolhida] = useState(lerRecolhida);
+  // Ao clicar em recolher, o mouse AINDA está sobre a sidebar, então hovering
+  // continua true e ela não fecharia — parece que o clique não fez nada (foi o
+  // que o chefe reclamou). `acabouDeRecolher` ignora o hover atual até o mouse
+  // sair e entrar de novo: aí sim a expansão por hover volta.
+  const [acabouDeRecolher, setAcabouDeRecolher] = useState(false);
   const leaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const alternarRecolhida = () => {
     setRecolhida((v) => {
       const novo = !v;
       try { localStorage.setItem(CHAVE_RECOLHIDA, novo ? "1" : "0"); } catch { /* sessão só */ }
+      // Só ao FECHAR precisamos suprimir o hover; ao abrir, a sidebar já fica
+      // aberta e não há o que suprimir.
+      if (novo) setAcabouDeRecolher(true);
       return novo;
     });
   };
@@ -308,10 +316,11 @@ export function HubSidebar() {
   //  · App integrado          → colapsada automaticamente; hover expande.
   //  · Recolhida pela pessoa  → colapsada; hover expande (igual ao app mode).
   //  · Resto                  → expandida.
-  // O hover continua valendo nos dois casos colapsados: recolher é para ganhar
-  // espaço, não para perder o acesso à navegação.
+  // Exceção: logo após clicar em recolher, o hover é ignorado (acabouDeRecolher),
+  // para o clique fechar de verdade mesmo com o mouse ainda em cima.
   const appMode = isIntegratedAppRoute(location);
-  const open = appMode || recolhida ? hovering : true;
+  const colapsavel = appMode || recolhida;
+  const open = colapsavel ? hovering && !acabouDeRecolher : true;
 
   const isActive = (item: NavItem) => {
     if (item.kind === "app") return location === item.href;
@@ -328,6 +337,9 @@ export function HubSidebar() {
         setHovering(true);
       }}
       onMouseLeave={() => {
+        // O mouse saiu: o próximo hover volta a expandir normalmente. É aqui que
+        // a supressão do clique-recolher se encerra.
+        setAcabouDeRecolher(false);
         leaveTimeout.current = setTimeout(() => setHovering(false), 300);
       }}
     >
@@ -477,19 +489,20 @@ function Presenca({ open }: { open: boolean }) {
 
   return (
     <div className="flex-shrink-0 px-3 py-2" style={{ borderTop: DIVIDER }}>
-      <p className="text-[11px] cursor-help leading-relaxed" style={{ color: TEXT_DIM }} title={titulo}>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: online > 0 ? "#1D9E75" : TEXT_DIM }} />
-          <span style={{ color: online > 0 ? "rgba(255,255,255,0.55)" : TEXT_DIM }}>
-            {online} {online === 1 ? "colaborador online" : "colaboradores online"}
-          </span>
-        </span>
-        {offline > 0 && (
-          <>
-            <span className="mx-1 opacity-40">·</span>
-            <span>{offline} {offline === 1 ? "vagabundo offline" : "vagabundos offline"}</span>
-          </>
-        )}
+      {/* Uma linha só: "N online · N offline". O texto antigo ("colaboradores
+          online · vagabundos offline") quebrava na largura de 256px e perdia a
+          leitura de relance. A brincadeira migrou para o tooltip, que lista quem
+          está online — no texto principal, número seco. whitespace-nowrap
+          garante que nunca mais quebre. */}
+      <p
+        className="text-[11px] cursor-help flex items-center gap-1.5 whitespace-nowrap"
+        style={{ color: TEXT_DIM }}
+        title={titulo}
+      >
+        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: online > 0 ? "#1D9E75" : TEXT_DIM }} />
+        <span style={{ color: online > 0 ? "rgba(255,255,255,0.55)" : TEXT_DIM }}>{online} online</span>
+        <span className="opacity-40">·</span>
+        <span>{offline} offline</span>
       </p>
     </div>
   );

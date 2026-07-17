@@ -28,8 +28,6 @@ import {
   Loader2,
   Sparkles,
   Wallet,
-  ShieldCheck,
-  Lock,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -75,7 +73,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     activeAccountId,
     activeClient,
     clientAccounts,
-    setActiveClient,
+    trocarDeClientePorSlug,
     clearActiveAccount,
   } = useActiveAccount();
 
@@ -90,7 +88,6 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   );
 
   const [notifOpen, setNotifOpen] = useState(false);
-  const [showAdminModal, setShowAdminModal] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
 
   const [notifDominio, setNotifDominio] = useState<"PERFORMANCE" | "FINANCEIRO" | null>(null);
@@ -250,22 +247,10 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             );
           })()}
 
-          {/* ADMINISTRATIVO — visivel para todos, clicavel apenas para admins */}
-          {(() => {
-            const isAdmin = (user as any)?.role === "admin";
-            const isActive = location.startsWith("/admin");
-            return (
-              <div
-                onClick={() => { if (isAdmin) { window.location.href = "/admin"; } else { setShowAdminModal(true); } }}
-                className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
-                style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
-              >
-                <ShieldCheck className="w-4 h-4 flex-shrink-0" />
-                {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Administrativo</span>}
-                {sidebarOpen && !isAdmin && <Lock className="w-3 h-3 flex-shrink-0 opacity-40" />}
-              </div>
-            );
-          })()}
+          {/* Administrativo NÃO fica aqui: é área do Spaces, não do Tracker.
+              Ele vive na sidebar principal do Spaces (HubSidebar), lá sim
+              visível-com-cadeado para não-admin. Duplicar aqui criava uma
+              segunda porta administrativa dentro do Tracker. */}
           {/* Alertas — always accessible, badge shows total across all accounts */}
           {(() => {
             const isActive = location === "/alerts";
@@ -390,10 +375,11 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                     <DropdownMenuItem
                       key={ca.client.slug}
                       onClick={() => {
-                        const accountPages = ["/dashboard", "/campaigns", "/alerts", "/suggestions", "/experiments", "/reports"];
-                        const isOnAccountPage = accountPages.some(p => location === p || location.startsWith(p + "/"));
-                        setActiveClient(ca.client.slug);
-                        navigate(isOnAccountPage ? location : "/dashboard");
+                        // Troca manual = sempre volta para a Visão Geral do
+                        // cliente novo. Antes, mantinha a página atual (ficava
+                        // em Site/Campanhas do cliente anterior), que era
+                        // justamente a confusão relatada.
+                        trocarDeClientePorSlug(ca.client.slug);
                       }}
                       className="flex items-center gap-2.5 cursor-pointer py-2"
                     >
@@ -647,38 +633,6 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           {children}
         </main>
       </div>
-
-      {showAdminModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
-          onClick={() => setShowAdminModal(false)}
-        >
-          <div
-            className="rounded-xl border border-border bg-card p-6 shadow-xl max-w-sm w-full mx-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-content-center flex-shrink-0">
-                <Lock className="w-4 h-4 text-muted-foreground" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold">Acesso restrito</p>
-                <p className="text-xs text-muted-foreground">Área administrativa</p>
-              </div>
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">
-              Esta seção é acessível apenas para administradores da SELVA. Fale com o Gui ou o Nathan para solicitar acesso.
-            </p>
-            <button
-              onClick={() => setShowAdminModal(false)}
-              className="w-full text-sm font-medium py-2 px-4 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-            >
-              Entendido
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
