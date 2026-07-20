@@ -162,8 +162,13 @@ function PassoConectar({ oauthConectado, contaConectada, onMudou }: {
               Autorize com a conta do Google que administra o MCC. O acesso é salvo criptografado —
               você não precisa colar refresh token em lugar nenhum.
             </p>
+            {/* target="_top": o Google BLOQUEIA o consentimento dentro de iframe
+                (proteção contra clickjacking → 403). Esta tela roda no iframe do
+                Spaces, então o OAuth precisa navegar o top-level window, fora do
+                iframe. O iframe não tem sandbox, então _top funciona. */}
             <a
               href="/api/google/auth?state=googleads"
+              target="_top"
               className="inline-flex h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium items-center gap-1.5"
             >
               <Link2 className="w-4 h-4" /> Conectar Google Ads

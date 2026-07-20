@@ -177,8 +177,10 @@ export function registerGoogleOAuthRoutes(app: Express) {
             </body></html>
           `);
         }
-        // Sucesso → volta para a tela, que agora descobre/lista as contas.
-        return res.redirect("/google-ads?conectado=1");
+        // Sucesso → volta para o SHELL do Spaces com o Google Ads embutido.
+        // O OAuth rodou no top-level (target="_top"), então voltamos para a
+        // rota do shell, não para /google-ads cru — que ficaria fora do iframe.
+        return res.redirect("/tracker?rota=/google-ads&conectado=1");
       }
 
       // GA4 (fluxo legado): segue mostrando o token para configuração manual.
