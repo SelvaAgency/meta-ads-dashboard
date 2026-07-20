@@ -184,6 +184,8 @@ import {
   googleAdsEnvFaltando,
   listarContasAcessiveis,
   listarContasDoMcc,
+  nomeDaConta,
+  diagnosticarCampanhas,
   formatarCustomerId,
   getGoogleAdsCampaigns,
   getGoogleAdsAdGroups,
@@ -4270,6 +4272,38 @@ export const appRouter = router({
         return { success: true } as const;
       }),
 
+    /**
+     * Diagnóstico da consulta de campanhas — admin/dev. Roda a MESMA query da
+     * tela e devolve o que aconteceu: customerId, loginCustomerId, período,
+     * query, linhas, status HTTP, erro e requestId.
+     *
+     * Existe porque erro da API e "sem campanhas" eram indistinguíveis: a
+     * query falhava e a tela dizia "nenhuma campanha encontrada".
+     */
+    diagnosticoCampanhas: protectedProcedure
+      .input(z.object({ accountId: z.number().int(), days: z.number().min(1).max(90).default(7) }))
+      .query(async ({ ctx, input }) => {
+        if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: MSG_SEM_PERMISSAO_GADS });
+        const conta = await getGoogleAdAccountById(input.accountId);
+        if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta Google Ads não encontrada." });
+        const config = getGoogleAdsConfig();
+        if (!config) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Google Ads não configurado." });
+
+        // Período no FUSO DA CONTA quando conhecido: o Google Ads reporta no
+        // fuso dela, e calcular em São Paulo pode pedir um dia a mais/menos.
+        const { startDate, endDate } = getDateRange(input.days);
+        const d = await diagnosticarCampanhas(
+          { ...config, refreshToken: tokenDaConta(conta.refreshToken) },
+          conta.customerId, startDate, endDate,
+        );
+        return {
+          ...d,
+          contaNome: conta.accountName,
+          fusoDaConta: conta.timezone ?? null,
+          clienteVinculado: conta.linkedAccountId,
+        };
+      }),
+
     /** Marca conta velha como ignorada (some da gestão, sem apagar). Admin/dev. */
     ignorarConta: protectedProcedure
       .input(z.object({ id: z.number().int(), ignored: z.boolean() }))
@@ -4331,12 +4365,26 @@ export const appRouter = router({
 
       for (const c of contas) {
         const existente = porCustomerId.get(c.customerId);
-        const nome = c.nome ?? `Google Ads ${c.customerId}`;
+
+        // Fallback: quando a listagem do MCC não traz descriptive_name (conta
+        // sob sub-gerenciadora, ou permissão que não expõe o nome na listagem),
+        // pergunta à PRÓPRIA conta. Só assim para de aparecer "Google Ads <id>".
+        let nomeReal = c.nome;
+        let moeda = c.moeda;
+        let fuso = c.fusoHorario;
+        if (!nomeReal) {
+          const proprio = await nomeDaConta(refreshToken, c.customerId);
+          nomeReal = proprio.nome;
+          moeda = moeda ?? proprio.moeda;
+          fuso = fuso ?? proprio.fusoHorario;
+        }
+        const nome = nomeReal ?? `Google Ads ${c.customerId}`;
+
         if (existente) {
           // Já descoberta antes (com nome genérico): atualiza o nome real sem
           // tocar no vínculo nem no "ignorada" que o admin já configurou.
-          if (c.nome && existente.accountName !== c.nome) {
-            await renomearContaGoogle(existente.id, c.nome);
+          if (nomeReal && existente.accountName !== nomeReal) {
+            await renomearContaGoogle(existente.id, nomeReal);
             renomeadas++;
           }
           continue;
@@ -4346,8 +4394,8 @@ export const appRouter = router({
           customerId: c.customerId,
           accountName: nome,
           refreshToken: tokenCripto,
-          currency: c.moeda ?? undefined,
-          timezone: c.fusoHorario ?? undefined,
+          currency: moeda ?? undefined,
+          timezone: fuso ?? undefined,
         });
         criadas++;
       }
@@ -4462,7 +4510,9 @@ export const appRouter = router({
         const results = [];
         for (const acct of accounts) {
           try {
-            const accountConfig = { ...config, refreshToken: acct.refreshToken };
+            // tokenDaConta: os tokens agora são criptografados — usar o valor
+            // cru aqui fazia o diagnose falhar em toda conta.
+            const accountConfig = { ...config, refreshToken: tokenDaConta(acct.refreshToken) };
             const { startDate, endDate } = getDateRange(1);
             const summary = await getGoogleAdsAccountSummary(accountConfig, acct.customerId, startDate, endDate);
             results.push({

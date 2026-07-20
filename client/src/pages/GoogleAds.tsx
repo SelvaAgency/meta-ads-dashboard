@@ -403,7 +403,7 @@ function CampaignRow({ campaign, accountId, days }: {
 
 // ─── Account Dashboard ──────────────────────────────────────────────────────
 
-function AccountDashboard({ account, days }: { account: any; days: number }) {
+function AccountDashboard({ account, days, podeGerenciar }: { account: any; days: number; podeGerenciar?: boolean }) {
   const utils = trpc.useUtils();
 
   const { data: summary, isLoading: loadingSummary } = trpc.googleAds.summary.useQuery(
@@ -411,10 +411,13 @@ function AccountDashboard({ account, days }: { account: any; days: number }) {
     { refetchInterval: 120000 }
   );
 
-  const { data: campaigns, isLoading: loadingCampaigns } = trpc.googleAds.campaigns.useQuery(
-    { accountId: account.id, days },
-    { refetchInterval: 120000 }
-  );
+  // `error` capturado: sem isso, falha de API e "sem dados" eram idênticos na
+  // tela — a query quebrava e aparecia "nenhuma campanha encontrada".
+  const { data: campaigns, isLoading: loadingCampaigns, error: erroCampanhas } =
+    trpc.googleAds.campaigns.useQuery(
+      { accountId: account.id, days },
+      { refetchInterval: 120000, retry: false }
+    );
 
   const disconnectMutation = trpc.googleAds.disconnectAccount.useMutation({
     onSuccess: () => utils.googleAds.accounts.invalidate(),
@@ -504,8 +507,20 @@ function AccountDashboard({ account, days }: { account: any; days: number }) {
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-12 gap-2">
-            <AlertCircle className="w-6 h-6 text-muted-foreground/50" />
-            <p className="text-sm text-muted-foreground">Nenhuma campanha com dados neste período.</p>
+            <AlertCircle className={`w-6 h-6 ${erroCampanhas ? "text-red-500" : "text-muted-foreground/50"}`} />
+            {erroCampanhas ? (
+              <div className="text-center max-w-lg px-4">
+                <p className="text-sm font-medium text-red-600">A consulta ao Google Ads falhou</p>
+                <p className="text-xs text-muted-foreground mt-1 break-words">{erroCampanhas.message}</p>
+                <p className="text-[11px] text-muted-foreground/70 mt-2">
+                  Isto não é "sem campanhas" — a API recusou a chamada. Use o diagnóstico abaixo.
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Nenhuma campanha com dados neste período.</p>
+            )}
+            {/* Só admin/dev: mostra o que foi perguntado ao Google e o que voltou. */}
+            {podeGerenciar && <DiagnosticoCampanhas accountId={account.id} days={days} />}
           </div>
         )}
       </div>
@@ -649,7 +664,7 @@ export default function GoogleAds() {
           </div>
         ) : contasVisiveis.length > 0 ? (
           contasVisiveis.map((account: any) => (
-            <AccountDashboard key={account.id} account={account} days={selectedDays} />
+            <AccountDashboard key={account.id} account={account} days={selectedDays} podeGerenciar={podeGerenciar} />
           ))
         ) : (
           <div className="flex flex-col items-center justify-center py-12 gap-3 bg-card border border-border rounded-xl">
@@ -769,6 +784,83 @@ function TabelaVinculos({ contas, clientes, onMudou }: {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─── Diagnóstico da consulta (admin/dev) ─────────────────────────────────────
+/**
+ * Mostra EXATAMENTE o que foi perguntado ao Google e o que voltou. Existe
+ * porque "nenhuma campanha" pode significar três coisas muito diferentes:
+ * a conta não tem campanha, o período está errado, ou a API recusou a chamada.
+ * Sem isto, as três parecem iguais na tela.
+ */
+function DiagnosticoCampanhas({ accountId, days }: { accountId: number; days: number }) {
+  const [aberto, setAberto] = useState(false);
+  const q = trpc.googleAds.diagnosticoCampanhas.useQuery(
+    { accountId, days },
+    { enabled: aberto, retry: false },
+  );
+
+  if (!aberto) {
+    return (
+      <button onClick={() => setAberto(true)}
+        className="text-[11px] text-muted-foreground hover:text-foreground underline self-start">
+        Diagnóstico da consulta
+      </button>
+    );
+  }
+
+  const d = q.data;
+  const linha = (rotulo: string, valor: React.ReactNode) => (
+    <div className="flex gap-2 text-[11px] py-0.5">
+      <span className="text-muted-foreground w-32 flex-shrink-0">{rotulo}</span>
+      <span className="font-mono break-all">{valor}</span>
+    </div>
+  );
+
+  return (
+    <div className="bg-muted/30 border border-border rounded-lg p-3 mt-2">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold">Diagnóstico da consulta</span>
+        <button onClick={() => setAberto(false)} className="text-[11px] text-muted-foreground hover:text-foreground">fechar</button>
+      </div>
+
+      {q.isLoading && <p className="text-[11px] text-muted-foreground">Consultando o Google…</p>}
+      {q.error && <p className="text-[11px] text-red-600">{q.error.message}</p>}
+
+      {d && (
+        <>
+          {linha("Customer ID", d.customerId)}
+          {linha("Login (MCC)", d.loginCustomerId ?? "— não definido —")}
+          {linha("Período", `${d.periodo.inicio} a ${d.periodo.fim}`)}
+          {linha("Fuso da conta", d.fusoDaConta ?? "— desconhecido —")}
+          {linha("Conta", d.contaNome ?? "—")}
+          {linha("Cliente vinculado", d.clienteVinculado ?? "— sem vínculo —")}
+          {linha("HTTP", d.status ?? "—")}
+          {linha("Linhas devolvidas", d.linhas)}
+          {d.requestId && linha("Request ID", d.requestId)}
+
+          {d.erro && (
+            <div className="mt-2">
+              <p className="text-[11px] font-semibold text-red-600 mb-1">Erro da API</p>
+              <pre className="text-[10px] bg-background border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap">{d.erro}</pre>
+            </div>
+          )}
+
+          <details className="mt-2">
+            <summary className="text-[11px] text-muted-foreground cursor-pointer">Query GAQL enviada</summary>
+            <pre className="text-[10px] bg-background border border-border rounded p-2 mt-1 overflow-x-auto whitespace-pre-wrap">{d.query}</pre>
+          </details>
+
+          {d.linhas > 0 && (
+            <details className="mt-1">
+              <summary className="text-[11px] text-muted-foreground cursor-pointer">Amostra da resposta ({d.linhas} linha(s))</summary>
+              <pre className="text-[10px] bg-background border border-border rounded p-2 mt-1 overflow-x-auto whitespace-pre-wrap">{JSON.stringify(d.amostra, null, 2)}</pre>
+            </details>
+          )}
+        </>
+      )}
     </div>
   );
 }

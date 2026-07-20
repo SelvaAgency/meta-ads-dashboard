@@ -168,8 +168,16 @@ async function executeGaql(
 
   if (!resp.ok) {
     const errBody = await resp.text();
-    console.error(`[GoogleAds] GAQL query failed (${resp.status}):`, errBody);
-    throw new Error(`Google Ads API error ${resp.status}: ${errBody.substring(0, 300)}`);
+    // request-id ajuda o suporte do Google a rastrear a chamada exata.
+    const requestId = resp.headers.get("request-id") ?? resp.headers.get("x-request-id") ?? null;
+    console.error(`[GoogleAds] GAQL query failed (${resp.status}) req=${requestId}:`, errBody);
+    const err = new Error(`Google Ads API error ${resp.status}: ${errBody.substring(0, 300)}`) as Error & {
+      status?: number; corpo?: string; requestId?: string | null;
+    };
+    err.status = resp.status;
+    err.corpo = errBody;
+    err.requestId = requestId;
+    throw err;
   }
 
   const results = await resp.json() as Array<{ results: any[] }>;
@@ -178,6 +186,40 @@ async function executeGaql(
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
+
+/**
+ * A query de campanhas — uma função só, para o diagnóstico rodar EXATAMENTE o
+ * que a tela roda. Duas cópias divergiriam, e o diagnóstico passaria a mentir.
+ *
+ * segments.date só no WHERE (não no SELECT): filtra o período sem segmentar por
+ * dia, então cada campanha volta em UMA linha com as métricas somadas.
+ */
+function queryCampanhas(startDate: string, endDate: string, incluirRemovidas: boolean): string {
+  const statusFilter = incluirRemovidas ? "" : `AND campaign.status != 'REMOVED'`;
+  return `
+    SELECT
+      campaign.id,
+      campaign.name,
+      campaign.status,
+      campaign.advertising_channel_type,
+      campaign.bidding_strategy_type,
+      campaign_budget.amount_micros,
+      campaign_budget.type,
+      metrics.cost_micros,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.conversions,
+      metrics.conversions_value,
+      metrics.ctr,
+      metrics.average_cpc,
+      metrics.average_cpm,
+      metrics.cost_per_conversion
+    FROM campaign
+    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+      ${statusFilter}
+    ORDER BY metrics.cost_micros DESC
+  `;
+}
 
 /**
  * Fetch active campaigns with performance metrics for a date range.
@@ -196,34 +238,7 @@ export async function getGoogleAdsCampaigns(
    * quando o primeiro deixava passar. Resultado: conta com gasto real aparecia
    * como "nenhuma campanha".
    */
-  const statusFilter = incluirRemovidas ? "" : `AND campaign.status != 'REMOVED'`;
-
-  const query = `
-    SELECT
-      campaign.id,
-      campaign.name,
-      campaign.status,
-      campaign.advertising_channel_type,
-      campaign.bidding_strategy_type,
-      campaign_budget.amount_micros,
-      campaign_budget.type,
-      metrics.cost_micros,
-      metrics.impressions,
-      metrics.clicks,
-      metrics.conversions,
-      metrics.conversions_value,
-      metrics.ctr,
-      metrics.average_cpc,
-      metrics.average_cpm,
-      metrics.cost_per_conversion,
-      metrics.search_impression_share
-    FROM campaign
-    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
-      ${statusFilter}
-    ORDER BY metrics.cost_micros DESC
-  `;
-
-  const rows = await executeGaql(config, customerId, query);
+  const rows = await executeGaql(config, customerId, queryCampanhas(startDate, endDate, incluirRemovidas));
 
   return rows.map((row) => {
     const c = row.campaign;
@@ -598,4 +613,86 @@ export async function listarContasDoMcc(refreshToken: string): Promise<ContaMcc[
 export function formatarCustomerId(id: string): string {
   const n = (id ?? "").replace(/\D/g, "");
   return n.length === 10 ? `${n.slice(0, 3)}-${n.slice(3, 6)}-${n.slice(6)}` : id;
+}
+
+/**
+ * Nome da conta consultando ELA MESMA. Fallback para quando
+ * customer_client.descriptive_name vem vazio na listagem do MCC — acontece com
+ * contas sob sub-gerenciadoras, ou quando a permissão do MCC não expõe o nome
+ * na listagem mas expõe na própria conta.
+ */
+export async function nomeDaConta(
+  refreshToken: string,
+  customerId: string,
+): Promise<{ nome: string | null; moeda: string | null; fusoHorario: string | null }> {
+  const cfg = getGoogleAdsConfig();
+  if (!cfg) return { nome: null, moeda: null, fusoHorario: null };
+  try {
+    const rows = await executeGaql({ ...cfg, refreshToken }, customerId, `
+      SELECT customer.descriptive_name, customer.currency_code, customer.time_zone
+      FROM customer
+      LIMIT 1
+    `);
+    const c = rows[0]?.customer ?? {};
+    return {
+      nome: c.descriptiveName ?? null,
+      moeda: c.currencyCode ?? null,
+      fusoHorario: c.timeZone ?? null,
+    };
+  } catch {
+    // Conta sem acesso/desativada — mantém o nome genérico em vez de quebrar
+    // a descoberta inteira por causa de uma conta.
+    return { nome: null, moeda: null, fusoHorario: null };
+  }
+}
+
+export type DiagnosticoCampanhas = {
+  customerId: string;
+  loginCustomerId: string | null;
+  periodo: { inicio: string; fim: string };
+  query: string;
+  linhas: number;
+  status: number | null;
+  erro: string | null;
+  requestId: string | null;
+  amostra: unknown;
+};
+
+/**
+ * Roda a MESMA query de campanhas, mas sem lançar: devolve o que aconteceu.
+ * Existe porque erro da API e "nenhuma campanha" eram indistinguíveis na tela —
+ * a query falhava e o usuário via "nenhuma campanha encontrada".
+ */
+export async function diagnosticarCampanhas(
+  config: GoogleAdsConfig,
+  customerId: string,
+  startDate: string,
+  endDate: string,
+): Promise<DiagnosticoCampanhas> {
+  const query = queryCampanhas(startDate, endDate, false);
+  const base: DiagnosticoCampanhas = {
+    customerId: customerId.replace(/-/g, ""),
+    loginCustomerId: config.loginCustomerId?.replace(/-/g, "") ?? null,
+    periodo: { inicio: startDate, fim: endDate },
+    query: query.trim(),
+    linhas: 0, status: null, erro: null, requestId: null, amostra: null,
+  };
+  try {
+    const rows = await executeGaql(config, customerId, query);
+    return {
+      ...base,
+      linhas: rows.length,
+      status: 200,
+      // Amostra sem token: só os campos da própria resposta do Google.
+      amostra: rows.slice(0, 2),
+    };
+  } catch (e) {
+    const err = e as Error & { status?: number; corpo?: string; requestId?: string | null };
+    return {
+      ...base,
+      status: err.status ?? null,
+      erro: (err.corpo ?? err.message ?? "").slice(0, 600),
+      requestId: err.requestId ?? null,
+    };
+  }
 }
