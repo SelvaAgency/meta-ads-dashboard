@@ -4407,3 +4407,10 @@ export async function contaGooglePorCustomerId(customerId: string) {
     .where(eq(googleAdAccounts.customerId, customerId)).limit(1);
   return r[0] ?? null;
 }
+
+/** Atualiza só o nome da conta Google (descoberta pode achar o nome depois). */
+export async function renomearContaGoogle(id: number, accountName: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(googleAdAccounts).set({ accountName }).where(eq(googleAdAccounts.id, id));
+}

@@ -183,6 +183,8 @@ import {
   isGoogleAdsConfigured,
   googleAdsEnvFaltando,
   listarContasAcessiveis,
+  listarContasDoMcc,
+  formatarCustomerId,
   getGoogleAdsCampaigns,
   getGoogleAdsAdGroups,
   getGoogleAdsAds,
@@ -198,6 +200,7 @@ import {
   contaGoogleDoCliente,
   vincularContaGoogle,
   ignorarContaGoogle,
+  renomearContaGoogle,
   deleteGoogleAdAccount,
   updateGoogleAdAccountSync,
 } from "./db";
@@ -4303,16 +4306,19 @@ export const appRouter = router({
       if (!oauth?.refreshTokenEncrypted) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Conecte o Google Ads primeiro." });
       const refreshToken = decryptSecret(oauth.refreshTokenEncrypted);
 
-      let customerIds: string[];
+      let contas: Awaited<ReturnType<typeof listarContasDoMcc>>;
       try {
-        customerIds = await listarContasAcessiveis(refreshToken);
+        // listarContasDoMcc (não listarContasAcessiveis): traz o NOME real da
+        // conta. O endpoint de IDs só devolve números, e as contas apareciam
+        // como "Google Ads 8184107035" em vez de "Play by Scaffold".
+        contas = await listarContasDoMcc(refreshToken);
       } catch (e) {
         // A mensagem do service já diz a causa certa (versão da API, token
         // ausente, acesso recusado) — repassar cegamente "confira o token"
         // mandava procurar no lugar errado.
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Não consegui listar as contas: ${(e as Error).message}` });
       }
-      if (customerIds.length === 0) return { criadas: 0, contas: [] as string[] };
+      if (contas.length === 0) return { criadas: 0, renomeadas: 0, contas: [] as string[] };
 
       // Guarda o token criptografado em CADA conta — o read path decripta.
       const tokenCripto = encryptSecret(refreshToken);
@@ -4320,19 +4326,32 @@ export const appRouter = router({
       // independentemente de qual admin rodou a descoberta — senão cada admin
       // criaria uma cópia da mesma conta.
       const jaExistem = await listarTodasContasGoogle();
-      const existentes = new Set(jaExistem.map((a) => a.customerId));
-      const novas: string[] = [];
-      for (const cid of customerIds) {
-        if (existentes.has(cid)) continue;
+      const porCustomerId = new Map(jaExistem.map((a) => [a.customerId, a]));
+      let criadas = 0, renomeadas = 0;
+
+      for (const c of contas) {
+        const existente = porCustomerId.get(c.customerId);
+        const nome = c.nome ?? `Google Ads ${c.customerId}`;
+        if (existente) {
+          // Já descoberta antes (com nome genérico): atualiza o nome real sem
+          // tocar no vínculo nem no "ignorada" que o admin já configurou.
+          if (c.nome && existente.accountName !== c.nome) {
+            await renomearContaGoogle(existente.id, c.nome);
+            renomeadas++;
+          }
+          continue;
+        }
         await createGoogleAdAccount({
           userId: ctx.user.id,
-          customerId: cid,
-          accountName: `Google Ads ${cid}`,
+          customerId: c.customerId,
+          accountName: nome,
           refreshToken: tokenCripto,
+          currency: c.moeda ?? undefined,
+          timezone: c.fusoHorario ?? undefined,
         });
-        novas.push(cid);
+        criadas++;
       }
-      return { criadas: novas.length, contas: customerIds };
+      return { criadas, renomeadas, contas: contas.map((c) => c.customerId) };
     }),
 
     // Conecta uma conta manualmente por customerId (usa o token OAuth salvo).

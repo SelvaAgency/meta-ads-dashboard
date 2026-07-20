@@ -40,6 +40,12 @@ function formatNumber(value: number): string {
   return value.toLocaleString("pt-BR");
 }
 
+/** "8184107035" → "818-410-7035", como o Google Ads mostra. */
+function fmtCustomerId(id: string): string {
+  const n = (id ?? "").replace(/\D/g, "");
+  return n.length === 10 ? `${n.slice(0, 3)}-${n.slice(3, 6)}-${n.slice(6)}` : id;
+}
+
 function formatPercent(value: number): string {
   return value.toFixed(2) + "%";
 }
@@ -313,6 +319,14 @@ function CampaignRow({ campaign, accountId, days }: {
               <span className="text-sm font-medium text-foreground truncate max-w-[250px]" title={campaign.name}>
                 {campaign.name}
               </span>
+              {/* Agora que pausadas aparecem, o status precisa ser explícito —
+                  senão não dá para saber por que uma campanha não gasta. */}
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
+                style={campaign.status === "ENABLED"
+                  ? { background: "rgba(29,158,117,0.12)", color: "#1D9E75" }
+                  : { background: "rgba(0,0,0,0.06)", color: "var(--muted-foreground)" }}>
+                {campaign.status === "ENABLED" ? "Ativa" : campaign.status === "PAUSED" ? "Pausada" : campaign.status}
+              </span>
             </div>
           </div>
         </td>
@@ -398,7 +412,7 @@ function AccountDashboard({ account, days }: { account: any; days: number }) {
   );
 
   const { data: campaigns, isLoading: loadingCampaigns } = trpc.googleAds.campaigns.useQuery(
-    { accountId: account.id, days, activeOnly: true },
+    { accountId: account.id, days },
     { refetchInterval: 120000 }
   );
 
@@ -453,7 +467,7 @@ function AccountDashboard({ account, days }: { account: any; days: number }) {
       {/* Campaigns table */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-5 py-3 border-b border-border flex items-center justify-between">
-          <h3 className="text-sm font-bold text-foreground">Campanhas Ativas</h3>
+          <h3 className="text-sm font-bold text-foreground">Campanhas no período</h3>
           {campaigns && (
             <span className="text-xs text-muted-foreground">{campaigns.length} campanha{campaigns.length !== 1 ? "s" : ""}</span>
           )}
@@ -491,7 +505,7 @@ function AccountDashboard({ account, days }: { account: any; days: number }) {
         ) : (
           <div className="flex flex-col items-center justify-center py-12 gap-2">
             <AlertCircle className="w-6 h-6 text-muted-foreground/50" />
-            <p className="text-sm text-muted-foreground">Nenhuma campanha ativa encontrada.</p>
+            <p className="text-sm text-muted-foreground">Nenhuma campanha com dados neste período.</p>
           </div>
         )}
       </div>
@@ -719,10 +733,19 @@ function TabelaVinculos({ contas, clientes, onMudou }: {
           <div key={c.id}
             className="flex items-center gap-3 rounded-lg border border-border px-3 py-2 flex-wrap"
             style={c.ignored ? { opacity: 0.5 } : undefined}>
-            <div className="flex-1 min-w-[140px]">
-              <p className="text-xs font-medium text-foreground">{c.accountName ?? c.customerId}</p>
-              <p className="text-[11px] text-muted-foreground font-mono">{c.customerId}</p>
+            <div className="flex-1 min-w-[180px]">
+              <p className="text-xs font-medium text-foreground">{c.accountName ?? fmtCustomerId(c.customerId)}</p>
+              <p className="text-[11px] text-muted-foreground font-mono">{fmtCustomerId(c.customerId)}</p>
             </div>
+            {/* Status do vínculo — de relance, o que ainda falta configurar. */}
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
+              style={c.ignored
+                ? { background: "rgba(0,0,0,0.06)", color: "var(--muted-foreground)" }
+                : c.linkedAccountId
+                  ? { background: "rgba(29,158,117,0.12)", color: "#1D9E75" }
+                  : { background: "rgba(239,159,39,0.14)", color: "#BA7517" }}>
+              {c.ignored ? "ignorada" : c.linkedAccountId ? "vinculada" : "sem vínculo"}
+            </span>
 
             <select
               value={c.linkedAccountId ?? ""}

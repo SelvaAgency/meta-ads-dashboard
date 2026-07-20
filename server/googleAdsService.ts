@@ -187,11 +187,16 @@ export async function getGoogleAdsCampaigns(
   customerId: string,
   startDate: string,
   endDate: string,
-  activeOnly = true
+  incluirRemovidas = false
 ): Promise<GoogleAdsCampaign[]> {
-  const statusFilter = activeOnly
-    ? `AND campaign.status = 'ENABLED'`
-    : `AND campaign.status IN ('ENABLED', 'PAUSED')`;
+  /**
+   * Tudo menos REMOVED — é o padrão do próprio Google Ads, que mostra ativas e
+   * pausadas juntas. Antes filtrava status='ENABLED' E serving_status='SERVING':
+   * campanha pausada não está "serving", então o segundo filtro a matava mesmo
+   * quando o primeiro deixava passar. Resultado: conta com gasto real aparecia
+   * como "nenhuma campanha".
+   */
+  const statusFilter = incluirRemovidas ? "" : `AND campaign.status != 'REMOVED'`;
 
   const query = `
     SELECT
@@ -215,7 +220,6 @@ export async function getGoogleAdsCampaigns(
     FROM campaign
     WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
       ${statusFilter}
-      AND campaign.serving_status = 'SERVING'
     ORDER BY metrics.cost_micros DESC
   `;
 
@@ -283,7 +287,7 @@ export async function getGoogleAdsAdGroups(
     FROM ad_group
     WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
       AND campaign.id = ${campaignId}
-      AND ad_group.status = 'ENABLED'
+      AND ad_group.status != 'REMOVED'
     ORDER BY metrics.cost_micros DESC
   `;
 
@@ -350,7 +354,7 @@ export async function getGoogleAdsAds(
     FROM ad_group_ad
     WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
       AND campaign.id = ${campaignId}
-      AND ad_group_ad.status = 'ENABLED'
+      AND ad_group_ad.status != 'REMOVED'
     ORDER BY metrics.cost_micros DESC
   `;
 
@@ -438,7 +442,7 @@ export async function getGoogleAdsAccountSummary(
   // Count active campaigns
   const campQuery = `
     SELECT campaign.id FROM campaign
-    WHERE campaign.status = 'ENABLED' AND campaign.serving_status = 'SERVING'
+    WHERE campaign.status != 'REMOVED'
   `;
   const campRows = await executeGaql(config, customerId, campQuery);
 
@@ -530,4 +534,68 @@ export async function listarContasAcessiveis(refreshToken: string): Promise<stri
   const json = (await resp.json()) as { resourceNames?: string[] };
   // "customers/1234567890" → "1234567890"
   return (json.resourceNames ?? []).map((r) => r.split("/").pop() ?? "").filter(Boolean);
+}
+
+/** Conta do MCC com o nome real que aparece no Google Ads. */
+export type ContaMcc = {
+  customerId: string;
+  nome: string | null;
+  gerenciadora: boolean;
+  status: string | null;
+  moeda: string | null;
+  fusoHorario: string | null;
+};
+
+/**
+ * Contas sob o MCC COM NOME. O listAccessibleCustomers só devolve IDs — daí as
+ * contas apareciam como "Google Ads 8184107035" em vez de "Play by Scaffold".
+ * O nome real está em customer_client.descriptive_name, que exige uma consulta
+ * GAQL na conta gerenciadora.
+ *
+ * Só contas-filhas (level > 0) e não-gerenciadoras entram: o próprio MCC não é
+ * uma conta de anúncios para vincular a cliente.
+ */
+export async function listarContasDoMcc(refreshToken: string): Promise<ContaMcc[]> {
+  const cfg = getGoogleAdsConfig();
+  if (!cfg) throw new Error("Google Ads não configurado (faltam credenciais do app).");
+
+  // Sem MCC declarado, cai nas contas diretamente acessíveis pelo login.
+  const mcc = cfg.loginCustomerId?.replace(/-/g, "");
+  if (!mcc) {
+    const ids = await listarContasAcessiveis(refreshToken);
+    return ids.map((customerId) => ({ customerId, nome: null, gerenciadora: false, status: null, moeda: null, fusoHorario: null }));
+  }
+
+  const query = `
+    SELECT
+      customer_client.id,
+      customer_client.descriptive_name,
+      customer_client.manager,
+      customer_client.status,
+      customer_client.currency_code,
+      customer_client.time_zone,
+      customer_client.level
+    FROM customer_client
+    WHERE customer_client.status != 'CLOSED'
+  `;
+  const rows = await executeGaql({ ...cfg, refreshToken }, mcc, query);
+
+  return rows
+    .map((r) => r.customerClient ?? {})
+    .filter((c) => String(c.id ?? "") !== mcc) // o próprio MCC não é conta de cliente
+    .map((c) => ({
+      customerId: String(c.id ?? ""),
+      nome: c.descriptiveName ?? null,
+      gerenciadora: !!c.manager,
+      status: c.status ?? null,
+      moeda: c.currencyCode ?? null,
+      fusoHorario: c.timeZone ?? null,
+    }))
+    .filter((c) => c.customerId && !c.gerenciadora); // sub-MCCs não viram cliente
+}
+
+/** "8184107035" → "818-410-7035" (como o Google Ads mostra). */
+export function formatarCustomerId(id: string): string {
+  const n = (id ?? "").replace(/\D/g, "");
+  return n.length === 10 ? `${n.slice(0, 3)}-${n.slice(3, 6)}-${n.slice(6)}` : id;
 }
