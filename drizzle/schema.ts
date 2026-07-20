@@ -715,6 +715,15 @@ export type DashboardReport = typeof dashboardReports.$inferSelect;
 export type InsertDashboardReport = typeof dashboardReports.$inferInsert;
 
 // ─── Google Ads Accounts ──────────────────────────────────────────────────────
+/**
+ * Conta do Google Ads descoberta no MCC. O MCC tem MUITO mais conta que o
+ * Spaces tem cliente (23 × ~10), incluindo contas antigas — por isso a lista
+ * crua nunca é mostrada a usuário comum.
+ *
+ * `linkedAccountId` é o vínculo com o cliente do Tracker (meta_ad_accounts.id).
+ * Sem vínculo, a conta existe mas não aparece para ninguém além do admin.
+ * `ignored` marca as contas velhas que não queremos nem ver na gestão.
+ */
 export const googleAdAccounts = mysqlTable("google_ad_accounts", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
@@ -723,6 +732,10 @@ export const googleAdAccounts = mysqlTable("google_ad_accounts", {
   refreshToken: text("refreshToken").notNull(),
   currency: varchar("currency", { length: 8 }).default("BRL"),
   timezone: varchar("timezone", { length: 64 }).default("America/Sao_Paulo"),
+  /** Cliente do Tracker a que esta conta pertence (meta_ad_accounts.id). */
+  linkedAccountId: int("linkedAccountId"),
+  /** Conta velha/sem uso: some da gestão sem precisar apagar. */
+  ignored: boolean("ignored").default(false).notNull(),
   isActive: boolean("isActive").default(true).notNull(),
   lastSyncAt: timestamp("lastSyncAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

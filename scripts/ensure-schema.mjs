@@ -633,6 +633,19 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · google_ad_accounts garantida");
 
+    // Vínculo conta Google ↔ cliente do Tracker + marcar conta velha como
+    // ignorada. Aditivo: linhas existentes ficam sem vínculo (invisíveis para
+    // usuário comum até um admin vincular).
+    for (const col of [
+      { name: "linkedAccountId", ddl: "ADD COLUMN `linkedAccountId` INT NULL" },
+      { name: "ignored", ddl: "ADD COLUMN `ignored` BOOLEAN NOT NULL DEFAULT 0" },
+    ]) {
+      if (!(await columnExists(conn, "google_ad_accounts", col.name))) {
+        await conn.query(`ALTER TABLE \`google_ad_accounts\` ${col.ddl}`);
+        console.log(`[ensure-schema] ok  · google_ad_accounts.${col.name} adicionada`);
+      }
+    }
+
     // Relatórios modulares — aditivo. As linhas antigas ficam com estes campos
     // NULL e continuam sendo lidas pelo `tier`; as novas trazem os módulos
     // pedidos e as fontes que existiam de fato no momento da geração.

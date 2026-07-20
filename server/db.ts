@@ -4335,3 +4335,75 @@ export async function listarPresenca(minutos = 5) {
   }
   return { online, offline };
 }
+
+// ─── Google Ads: conexão da agência e vínculo com clientes ───────────────────
+
+/**
+ * A conexão OAuth do Google Ads é da AGÊNCIA, não de uma pessoa. Se o Guilherme
+ * conecta e o Nathan clica em "descobrir", o Nathan tem que usar a mesma
+ * conexão — senão cada admin precisaria reconectar, e a integração viraria
+ * propriedade de quem chegou primeiro. Só admin/dev criam, então qualquer
+ * conexão ativa aqui é confiável.
+ */
+export async function getConexaoGoogleAdsAgencia() {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(userIntegrations)
+    .where(and(
+      eq(userIntegrations.provider, "google_ads"),
+      eq(userIntegrations.active, true),
+      isNotNull(userIntegrations.refreshTokenEncrypted),
+    ))
+    .orderBy(desc(userIntegrations.updatedAt))
+    .limit(1);
+  return r[0] ?? null;
+}
+
+/** Todas as contas descobertas — visão de GESTÃO (admin/dev). */
+export async function listarTodasContasGoogle() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(googleAdAccounts)
+    .where(eq(googleAdAccounts.isActive, true))
+    .orderBy(desc(googleAdAccounts.createdAt));
+}
+
+/**
+ * A conta Google vinculada a um cliente do Tracker. É o que usuário comum vê —
+ * nunca a lista do MCC inteiro. Ignoradas ficam de fora.
+ */
+export async function contaGoogleDoCliente(linkedAccountId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(googleAdAccounts)
+    .where(and(
+      eq(googleAdAccounts.linkedAccountId, linkedAccountId),
+      eq(googleAdAccounts.isActive, true),
+      eq(googleAdAccounts.ignored, false),
+    ))
+    .limit(1);
+  return r[0] ?? null;
+}
+
+/** Vincula (ou desvincula, com null) uma conta Google a um cliente. */
+export async function vincularContaGoogle(id: number, linkedAccountId: number | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(googleAdAccounts).set({ linkedAccountId }).where(eq(googleAdAccounts.id, id));
+}
+
+/** Marca/desmarca a conta como ignorada (some da gestão sem apagar). */
+export async function ignorarContaGoogle(id: number, ignored: boolean) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(googleAdAccounts).set({ ignored }).where(eq(googleAdAccounts.id, id));
+}
+
+/** Já existe registro para este customerId? (evita duplicar na descoberta) */
+export async function contaGooglePorCustomerId(customerId: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(googleAdAccounts)
+    .where(eq(googleAdAccounts.customerId, customerId)).limit(1);
+  return r[0] ?? null;
+}

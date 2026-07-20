@@ -193,6 +193,11 @@ import {
   getAllActiveGoogleAdAccounts,
   getGoogleAdAccountById,
   createGoogleAdAccount,
+  getConexaoGoogleAdsAgencia,
+  listarTodasContasGoogle,
+  contaGoogleDoCliente,
+  vincularContaGoogle,
+  ignorarContaGoogle,
   deleteGoogleAdAccount,
   updateGoogleAdAccountSync,
 } from "./db";
@@ -318,6 +323,10 @@ function urlPadraoDoPerfil(provider: string, handle: string): string {
 function podeConectarGoogleAds(role: string | undefined): boolean {
   return role === "admin" || role === "developer";
 }
+
+/** Diz QUEM pode, não só que você não pode — evita a caça ao tesouro. */
+const MSG_SEM_PERMISSAO_GADS =
+  "Apenas administradores e desenvolvedores podem descobrir e vincular contas do Google Ads.";
 
 /**
  * Token de refresh de uma conta Google Ads, decriptado. As contas novas guardam
@@ -4218,16 +4227,56 @@ export const appRouter = router({
      * conectou o OAuth do Google Ads. O refresh token NÃO é mais requisito.
      */
     isConfigured: protectedProcedure.query(async ({ ctx }) => {
-      const oauth = await getUserIntegration(ctx.user.id, "google_ads");
+      const oauth = await getConexaoGoogleAdsAgencia();
       return {
         configured: isGoogleAdsConfigured(),
         faltando: googleAdsEnvFaltando(),
         oauthConectado: !!(oauth?.active && oauth.refreshTokenEncrypted),
         contaConectada: oauth?.providerAccountEmail ?? null,
+        // A UI esconde conectar/descobrir/vincular de quem não pode. O backend
+        // recusa de qualquer forma — isto é só para não oferecer o que não vale.
+        podeGerenciar: podeConectarGoogleAds(ctx.user.role),
       };
     }),
 
-    // List Google Ads accounts for current user
+    /**
+     * GESTÃO: todas as contas descobertas no MCC, com o vínculo. Só admin/dev —
+     * o MCC tem ~23 contas (muitas velhas) para ~10 clientes ativos, e essa
+     * lista crua não é para usuário comum.
+     */
+    contasParaGerenciar: protectedProcedure.query(async ({ ctx }) => {
+      if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: MSG_SEM_PERMISSAO_GADS });
+      return listarTodasContasGoogle();
+    }),
+
+    /**
+     * A conta Google DO CLIENTE selecionado — é o que usuário comum enxerga.
+     * Sem vínculo devolve null, e a tela diz "ainda não vinculado" em vez de
+     * mostrar conta de outro cliente.
+     */
+    contaDoCliente: protectedProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(({ input }) => contaGoogleDoCliente(input.accountId)),
+
+    /** Vincula/desvincula uma conta Google a um cliente do Tracker. Admin/dev. */
+    vincularConta: protectedProcedure
+      .input(z.object({ id: z.number().int(), linkedAccountId: z.number().int().nullable() }))
+      .mutation(async ({ ctx, input }) => {
+        if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: MSG_SEM_PERMISSAO_GADS });
+        await vincularContaGoogle(input.id, input.linkedAccountId);
+        return { success: true } as const;
+      }),
+
+    /** Marca conta velha como ignorada (some da gestão, sem apagar). Admin/dev. */
+    ignorarConta: protectedProcedure
+      .input(z.object({ id: z.number().int(), ignored: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: MSG_SEM_PERMISSAO_GADS });
+        await ignorarContaGoogle(input.id, input.ignored);
+        return { success: true } as const;
+      }),
+
+    // Compat: lista as contas do usuário (usada por telas antigas).
     accounts: protectedProcedure.query(async ({ ctx }) => {
       return getGoogleAdAccountsByUserId(ctx.user.id);
     }),
@@ -4238,7 +4287,7 @@ export const appRouter = router({
      * reconectar. Admin/developer.
      */
     desconectarOAuth: protectedProcedure.mutation(async ({ ctx }) => {
-      if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para conectar integrações." });
+      if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: MSG_SEM_PERMISSAO_GADS });
       await deactivateUserIntegration(ctx.user.id, "google_ads");
       return { success: true } as const;
     }),
@@ -4249,8 +4298,8 @@ export const appRouter = router({
      * criptografado. Precisa do developer token — se ele faltar, explica.
      */
     descobrirContas: protectedProcedure.mutation(async ({ ctx }) => {
-      if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para conectar integrações." });
-      const oauth = await getUserIntegration(ctx.user.id, "google_ads");
+      if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: MSG_SEM_PERMISSAO_GADS });
+      const oauth = await getConexaoGoogleAdsAgencia();
       if (!oauth?.refreshTokenEncrypted) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Conecte o Google Ads primeiro." });
       const refreshToken = decryptSecret(oauth.refreshTokenEncrypted);
 
@@ -4267,7 +4316,10 @@ export const appRouter = router({
 
       // Guarda o token criptografado em CADA conta — o read path decripta.
       const tokenCripto = encryptSecret(refreshToken);
-      const jaExistem = await getGoogleAdAccountsByUserId(ctx.user.id);
+      // Dedup por customerId GLOBAL, não por usuário: a conta do MCC é a mesma
+      // independentemente de qual admin rodou a descoberta — senão cada admin
+      // criaria uma cópia da mesma conta.
+      const jaExistem = await listarTodasContasGoogle();
       const existentes = new Set(jaExistem.map((a) => a.customerId));
       const novas: string[] = [];
       for (const cid of customerIds) {
@@ -4290,9 +4342,9 @@ export const appRouter = router({
         accountName: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para conectar integrações." });
+        if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: MSG_SEM_PERMISSAO_GADS });
         if (!isGoogleAdsConfigured()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Google Ads não configurado (faltam credenciais do app)." });
-        const oauth = await getUserIntegration(ctx.user.id, "google_ads");
+        const oauth = await getConexaoGoogleAdsAgencia();
         if (!oauth?.refreshTokenEncrypted) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Conecte o Google Ads primeiro (OAuth)." });
 
         // O token da conta é o mesmo do OAuth, guardado criptografado por conta.

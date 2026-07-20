@@ -516,15 +516,23 @@ export default function GoogleAds() {
   })();
 
   const { data: configStatus, isLoading: checkingConfig } = trpc.googleAds.isConfigured.useQuery();
-  const { data: accounts, isLoading: loadingAccounts } = trpc.googleAds.accounts.useQuery(
-    undefined,
-    { enabled: configStatus?.configured === true }
+  const podeGerenciar = configStatus?.podeGerenciar ?? false;
+
+  // Usuário comum vê SÓ a conta vinculada ao cliente selecionado. O MCC tem ~23
+  // contas (muitas velhas) para ~10 clientes — a lista crua é de gestão, não de
+  // consumo, e mostrar tudo faria alguém abrir a conta do cliente errado.
+  const { data: contaDoCliente, isLoading: loadingConta } = trpc.googleAds.contaDoCliente.useQuery(
+    { accountId: selectedAccountId ?? 0 },
+    { enabled: !!selectedAccountId && configStatus?.configured === true }
   );
 
-  // Filter Google Ads accounts based on selected client
-  // clientConfig may define googleAdsCustomerId in the future; for now show all accounts
-  // but contextualize to the selected client
-  const filteredAccounts = accounts;
+  // Gestão (admin/dev): todas as contas descobertas, para vincular.
+  const { data: contasGestao } = trpc.googleAds.contasParaGerenciar.useQuery(
+    undefined,
+    { enabled: podeGerenciar && configStatus?.configured === true }
+  );
+
+  const contasVisiveis = contaDoCliente ? [contaDoCliente] : [];
 
   if (!selectedAccountId) {
     return (
@@ -593,46 +601,151 @@ export default function GoogleAds() {
           </div>
         </div>
 
-        {/* Passo 1 — Conectar via OAuth (admin/dev). Enquanto não conecta, é o
-            único passo; o resto aparece depois, para a ordem ficar clara. */}
-        <PassoConectar
-          oauthConectado={!!configStatus?.oauthConectado}
-          contaConectada={configStatus?.contaConectada}
-          onMudou={() => { utils.googleAds.isConfigured.invalidate(); utils.googleAds.accounts.invalidate(); }}
-        />
-
-        {/* Passo 2 — Descobrir contas / adicionar Customer ID (só após conectar) */}
-        {configStatus?.oauthConectado && (
+        {/* ── GESTÃO (admin/dev) — conectar, descobrir e vincular ──────────
+            Some por completo para usuário comum: ele não precisa saber que o
+            MCC tem 23 contas, só ver o cliente dele. */}
+        {podeGerenciar && (
           <>
-            <PassoDescobrir onMudou={() => utils.googleAds.accounts.invalidate()} />
-            <ConnectAccountForm onSuccess={() => utils.googleAds.accounts.invalidate()} />
+            <PassoConectar
+              oauthConectado={!!configStatus?.oauthConectado}
+              contaConectada={configStatus?.contaConectada}
+              onMudou={() => { utils.googleAds.isConfigured.invalidate(); utils.googleAds.contasParaGerenciar.invalidate(); }}
+            />
+            {configStatus?.oauthConectado && (
+              <>
+                <PassoDescobrir onMudou={() => utils.googleAds.contasParaGerenciar.invalidate()} />
+                <TabelaVinculos
+                  contas={contasGestao ?? []}
+                  clientes={metaAccounts ?? []}
+                  onMudou={() => {
+                    utils.googleAds.contasParaGerenciar.invalidate();
+                    utils.googleAds.contaDoCliente.invalidate();
+                  }}
+                />
+              </>
+            )}
           </>
         )}
 
-        {/* Connected accounts */}
-        {loadingAccounts ? (
+        {/* ── DADOS DO CLIENTE SELECIONADO — o que todo mundo vê ──────────── */}
+        {loadingConta ? (
           <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
             <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">Carregando contas...</span>
+            <span className="text-sm">Carregando conta do cliente...</span>
           </div>
-        ) : filteredAccounts && filteredAccounts.length > 0 ? (
-          filteredAccounts.map((account: any) => (
+        ) : contasVisiveis.length > 0 ? (
+          contasVisiveis.map((account: any) => (
             <AccountDashboard key={account.id} account={account} days={selectedDays} />
           ))
         ) : (
           <div className="flex flex-col items-center justify-center py-12 gap-3 bg-card border border-border rounded-xl">
-            <CheckCircle2 className="w-8 h-8 text-emerald-500/50" />
-            <div className="text-center">
-              <p className="text-sm font-medium text-foreground">API configurada com sucesso</p>
+            <Link2 className="w-8 h-8 text-muted-foreground/40" />
+            <div className="text-center max-w-sm">
+              <p className="text-sm font-medium text-foreground">
+                Google Ads ainda não vinculado {activeClient ? `para ${activeClient.name}` : "para este cliente"}
+              </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {activeClient
-                  ? `Nenhuma conta Google Ads conectada para ${activeClient.shortName}. Conecte acima para começar.`
-                  : "Conecte uma conta Google Ads acima para começar."}
+                {podeGerenciar
+                  ? "Descubra as contas do MCC acima e vincule uma delas a este cliente."
+                  : "Peça a um administrador para vincular a conta do Google Ads deste cliente."}
               </p>
             </div>
           </div>
         )}
       </div>
     </MetaDashboardLayout>
+  );
+}
+
+// ─── Gestão: vincular conta do MCC ao cliente do Tracker ─────────────────────
+/**
+ * O MCC tem ~23 contas para ~10 clientes ativos — muitas são antigas. Esta
+ * tabela é a ponte: cada conta descoberta recebe um cliente, ou é marcada como
+ * ignorada e some da gestão (sem apagar, porque apagar perderia o histórico
+ * de que ela existe no MCC).
+ *
+ * Só admin/dev chegam aqui; o backend recusa de qualquer forma.
+ */
+function TabelaVinculos({ contas, clientes, onMudou }: {
+  contas: any[];
+  clientes: any[];
+  onMudou: () => void;
+}) {
+  const [mostrarIgnoradas, setMostrarIgnoradas] = useState(false);
+  const vincular = trpc.googleAds.vincularConta.useMutation({
+    onSuccess: () => { toast.success("Vínculo atualizado."); onMudou(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const ignorar = trpc.googleAds.ignorarConta.useMutation({
+    onSuccess: () => onMudou(),
+    onError: (e) => toast.error(e.message),
+  });
+
+  const visiveis = mostrarIgnoradas ? contas : contas.filter((c) => !c.ignored);
+  const qtdIgnoradas = contas.filter((c) => c.ignored).length;
+  const semVinculo = contas.filter((c) => !c.ignored && !c.linkedAccountId).length;
+
+  if (contas.length === 0) {
+    return (
+      <div className="bg-card border border-border rounded-xl p-5">
+        <h3 className="text-sm font-bold text-foreground mb-1">Vincular contas aos clientes</h3>
+        <p className="text-xs text-muted-foreground">
+          Nenhuma conta descoberta ainda. Use "Descobrir contas" acima.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <div>
+          <h3 className="text-sm font-bold text-foreground">Vincular contas aos clientes</h3>
+          <p className="text-xs text-muted-foreground">
+            {contas.length} conta(s) no MCC · {semVinculo > 0 ? `${semVinculo} sem vínculo` : "todas vinculadas"}
+            {qtdIgnoradas > 0 && ` · ${qtdIgnoradas} ignorada(s)`}
+          </p>
+        </div>
+        {qtdIgnoradas > 0 && (
+          <button onClick={() => setMostrarIgnoradas((v) => !v)}
+            className="text-xs text-muted-foreground hover:text-foreground underline">
+            {mostrarIgnoradas ? "Ocultar ignoradas" : `Mostrar ignoradas (${qtdIgnoradas})`}
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        {visiveis.map((c) => (
+          <div key={c.id}
+            className="flex items-center gap-3 rounded-lg border border-border px-3 py-2 flex-wrap"
+            style={c.ignored ? { opacity: 0.5 } : undefined}>
+            <div className="flex-1 min-w-[140px]">
+              <p className="text-xs font-medium text-foreground">{c.accountName ?? c.customerId}</p>
+              <p className="text-[11px] text-muted-foreground font-mono">{c.customerId}</p>
+            </div>
+
+            <select
+              value={c.linkedAccountId ?? ""}
+              onChange={(e) => vincular.mutate({ id: c.id, linkedAccountId: e.target.value ? Number(e.target.value) : null })}
+              disabled={c.ignored}
+              className="text-xs border border-border rounded-md px-2 py-1.5 bg-background min-w-[180px]"
+            >
+              <option value="">— sem vínculo —</option>
+              {clientes.map((cl: any) => (
+                <option key={cl.id} value={cl.id}>{cl.displayName ?? cl.accountName}</option>
+              ))}
+            </select>
+
+            <button
+              onClick={() => ignorar.mutate({ id: c.id, ignored: !c.ignored })}
+              title={c.ignored ? "Voltar a considerar esta conta" : "Conta antiga/sem uso — ocultar da gestão"}
+              className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border flex-shrink-0"
+            >
+              {c.ignored ? "Restaurar" : "Ignorar"}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
