@@ -48,6 +48,9 @@ export function registerGoogleOAuthRoutes(app: Express) {
       "https://www.googleapis.com/auth/analytics.readonly",
       "https://www.googleapis.com/auth/analytics",
       "https://www.googleapis.com/auth/adwords",
+      // email: para mostrar "conectado como <email>" na tela (ponto 7).
+      "openid",
+      "https://www.googleapis.com/auth/userinfo.email",
     ].join(" ");
 
     const state = (req.query.state as string) || "ga4"; // "ga4" or "googleads"
@@ -144,9 +147,22 @@ export function registerGoogleOAuthRoutes(app: Express) {
         try {
           const user = await sdk.authenticateRequest(req);
           if (!isEncryptionConfigured()) throw new Error("INTEGRATIONS_ENCRYPTION_KEY ausente — não dá para guardar o token com segurança.");
+          // Email da conta Google que autorizou — vem no id_token (JWT) quando
+          // o escopo openid é pedido. Só o payload, sem verificar assinatura:
+          // é rótulo de UI, não decisão de segurança.
+          let email: string | null = null;
+          try {
+            const idToken = (tokenData as { id_token?: string }).id_token;
+            if (idToken) {
+              const payload = JSON.parse(Buffer.from(idToken.split(".")[1], "base64").toString("utf8"));
+              email = payload.email ?? null;
+            }
+          } catch { /* sem email; a tela mostra "conectado" genérico */ }
+
           await upsertUserIntegration({
             userId: user.id,
             provider: "google_ads",
+            providerAccountEmail: email,
             refreshTokenEncrypted: encryptSecret(refreshToken),
             accessTokenEncrypted: accessToken ? encryptSecret(accessToken) : null,
             scopes: "https://www.googleapis.com/auth/adwords",

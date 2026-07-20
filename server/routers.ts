@@ -4223,6 +4223,7 @@ export const appRouter = router({
         configured: isGoogleAdsConfigured(),
         faltando: googleAdsEnvFaltando(),
         oauthConectado: !!(oauth?.active && oauth.refreshTokenEncrypted),
+        contaConectada: oauth?.providerAccountEmail ?? null,
       };
     }),
 
