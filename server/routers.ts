@@ -4258,7 +4258,10 @@ export const appRouter = router({
       try {
         customerIds = await listarContasAcessiveis(refreshToken);
       } catch (e) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Não consegui listar as contas: ${(e as Error).message}. Confirme se o developer token está preenchido no Railway.` });
+        // A mensagem do service já diz a causa certa (versão da API, token
+        // ausente, acesso recusado) — repassar cegamente "confira o token"
+        // mandava procurar no lugar errado.
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Não consegui listar as contas: ${(e as Error).message}` });
       }
       if (customerIds.length === 0) return { criadas: 0, contas: [] as string[] };
 

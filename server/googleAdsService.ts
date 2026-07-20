@@ -1,7 +1,8 @@
 /**
  * Google Ads API Service
  *
- * Integrates with Google Ads API v17 (REST) to fetch campaigns, ad groups, ads and metrics.
+ * Integrates with the Google Ads API (REST) to fetch campaigns, ad groups, ads and metrics.
+ * A versão é configurável — ver GOOGLE_ADS_API_VERSION abaixo.
  * Uses OAuth2 refresh tokens for authentication.
  *
  * Required ENV vars:
@@ -12,7 +13,17 @@
  *   GOOGLE_ADS_LOGIN_CUSTOMER_ID - MCC account ID (if using MCC, no dashes)
  */
 
-const GOOGLE_ADS_API_VERSION = "v17";
+/**
+ * Versão da API. O Google aposenta cada versão em ~12 meses e devolve 404 nas
+ * mortas — a v17 daqui ficou morta por muito tempo sem ninguém notar, e o
+ * sintoma (404) parecia erro de credencial. Sondagem em jul/2026: v17–v19
+ * mortas, v20–v25 vivas.
+ *
+ * Configurável por env para poder subir a versão sem deploy quando esta
+ * aposentar. Confira as datas em:
+ * https://developers.google.com/google-ads/api/docs/sunset-dates
+ */
+const GOOGLE_ADS_API_VERSION = process.env.GOOGLE_ADS_API_VERSION || "v24";
 const GOOGLE_ADS_BASE = `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}`;
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
@@ -494,13 +505,28 @@ export async function listarContasAcessiveis(refreshToken: string): Promise<stri
   const cfg = getGoogleAdsConfig();
   if (!cfg) throw new Error("Google Ads não configurado (faltam credenciais do app).");
   const accessToken = await getAccessToken({ ...cfg, refreshToken });
-  const resp = await fetch("https://googleads.googleapis.com/v17/customers:listAccessibleCustomers", {
+  // GOOGLE_ADS_BASE (não hardcoded): senão a versão diverge do resto do serviço.
+  const resp = await fetch(`${GOOGLE_ADS_BASE}/customers:listAccessibleCustomers`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "developer-token": cfg.developerToken,
     },
   });
-  if (!resp.ok) throw new Error(`listAccessibleCustomers falhou (${resp.status})`);
+  if (!resp.ok) {
+    // A causa muda conforme o status — dizer "confira o developer token" para
+    // um 404 manda a pessoa procurar no lugar errado.
+    if (resp.status === 404) {
+      throw new Error(`a versão ${GOOGLE_ADS_API_VERSION} da API do Google Ads não existe mais (404). Atualize GOOGLE_ADS_API_VERSION.`);
+    }
+    if (resp.status === 401 || resp.status === 403) {
+      const corpo = await resp.text().catch(() => "");
+      const semToken = !cfg.developerToken;
+      throw new Error(semToken
+        ? "o developer token não está preenchido no Railway (GOOGLE_ADS_DEVELOPER_TOKEN)."
+        : `o Google recusou o acesso (${resp.status}). Confira se o developer token é válido e se as contas estão sob o MCC. ${corpo.slice(0, 160)}`);
+    }
+    throw new Error(`listAccessibleCustomers falhou (${resp.status})`);
+  }
   const json = (await resp.json()) as { resourceNames?: string[] };
   // "customers/1234567890" → "1234567890"
   return (json.resourceNames ?? []).map((r) => r.split("/").pop() ?? "").filter(Boolean);
