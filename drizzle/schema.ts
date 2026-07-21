@@ -811,7 +811,10 @@ export const ga4Accounts = mysqlTable("ga4_accounts", {
   lastSyncAt: timestamp("lastSyncAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  /** A mesma propriedade não pode virar duas linhas ao redescobrir. */
+  uqProperty: uniqueIndex("uq_ga4_property").on(table.propertyId),
+}));
 export type GA4Account = typeof ga4Accounts.$inferSelect;
 export type InsertGA4Account = typeof ga4Accounts.$inferInsert;
 

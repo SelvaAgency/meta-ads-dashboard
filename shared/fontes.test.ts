@@ -101,8 +101,22 @@ describe("classificação de fontes", () => {
       expect(pegar(base(), "ga4").status).toBe("ausente");
     });
 
-    it("com vínculo fica ok", () => {
-      expect(pegar(base({ ga4Vinculado: true }), "ga4").status).toBe("ok");
+    it("vinculado, com OAuth e já lido fica ok", () => {
+      const f = pegar(base({ ga4Vinculado: true, ga4OauthAtivo: true, ga4UltimoSync: diasAtras(0) }), "ga4");
+      expect(f.status).toBe("ok");
+      expect(f.porque).toMatch(/Última leitura/);
+    });
+
+    it("vinculado mas nunca lido é atenção — parece conectado e não está", () => {
+      const f = pegar(base({ ga4Vinculado: true, ga4OauthAtivo: true, ga4UltimoSync: null }), "ga4");
+      expect(f.status).toBe("atencao");
+      expect(f.porque).toMatch(/nenhuma leitura/i);
+    });
+
+    it("vinculado sem OAuth da agência é erro — não consegue ler nada", () => {
+      const f = pegar(base({ ga4Vinculado: true, ga4OauthAtivo: false }), "ga4");
+      expect(f.status).toBe("erro");
+      expect(f.porque).toMatch(/agência não está conectada/);
     });
 
     it("cadastro legado sem vínculo no banco NÃO conta como conectado", () => {

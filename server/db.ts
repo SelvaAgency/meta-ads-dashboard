@@ -1742,6 +1742,73 @@ export async function listarTodasContasGA4() {
   return db.select().from(ga4Accounts).where(eq(ga4Accounts.isActive, true)).orderBy(desc(ga4Accounts.createdAt));
 }
 
+/**
+ * A conexão GA4 da AGÊNCIA. Como no Google Ads, o OAuth é único e vale para
+ * todas as propriedades — não é por usuário.
+ */
+export async function getConexaoGA4Agencia() {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(userIntegrations).where(and(
+    eq(userIntegrations.provider, "ga4"),
+    eq(userIntegrations.active, true),
+    isNotNull(userIntegrations.refreshTokenEncrypted),
+  )).orderBy(desc(userIntegrations.connectedAt)).limit(1);
+  return r[0] ?? null;
+}
+
+/**
+ * Grava as propriedades descobertas.
+ *
+ * Redescobrir ATUALIZA nome e URL e PRESERVA o vínculo — quem já ligou uma
+ * propriedade a um cliente não pode perder isso por clicar em "descobrir" de
+ * novo. Dedup por propertyId, reforçado por índice único no banco.
+ *
+ * Nada é vinculado automaticamente: nem por nome parecido, nem por domínio.
+ */
+export async function gravarPropriedadesGA4(
+  userId: number,
+  tokenCifrado: string,
+  props: { propertyId: string; propertyName?: string | null; websiteUrl?: string | null; currency?: string | null; timezone?: string | null }[],
+): Promise<{ criadas: number; atualizadas: number }> {
+  const db = await getDb();
+  if (!db) return { criadas: 0, atualizadas: 0 };
+
+  const existentes = await db.select({ id: ga4Accounts.id, propertyId: ga4Accounts.propertyId }).from(ga4Accounts);
+  const porProperty = new Map(existentes.map((e) => [e.propertyId, e.id]));
+
+  let criadas = 0, atualizadas = 0;
+  const vistos = new Set<string>();
+  for (const p of props) {
+    if (!p.propertyId || vistos.has(p.propertyId)) continue;  // dedup dentro do lote
+    vistos.add(p.propertyId);
+    const id = porProperty.get(p.propertyId);
+    if (id) {
+      // Sem tocar em linkedAccountId nem em isActive — o vínculo é do humano.
+      await db.update(ga4Accounts).set({
+        propertyName: p.propertyName ?? null,
+        websiteUrl: p.websiteUrl ?? null,
+        refreshTokenEncrypted: tokenCifrado,
+      }).where(eq(ga4Accounts.id, id));
+      atualizadas++;
+    } else {
+      await db.insert(ga4Accounts).values({
+        userId,
+        propertyId: p.propertyId,
+        propertyName: p.propertyName ?? null,
+        websiteUrl: p.websiteUrl ?? null,
+        linkedAccountId: null,                 // nunca automático
+        refreshToken: null,
+        refreshTokenEncrypted: tokenCifrado,
+        currency: p.currency ?? "BRL",
+        timezone: p.timezone ?? "America/Sao_Paulo",
+      });
+      criadas++;
+    }
+  }
+  return { criadas, atualizadas };
+}
+
 /** Vincula (ou desvincula, com null) uma propriedade GA4 a um cliente. */
 export async function vincularGA4(id: number, linkedAccountId: number | null) {
   const db = await getDb();

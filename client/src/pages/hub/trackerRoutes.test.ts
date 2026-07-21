@@ -12,6 +12,19 @@
 import { describe, expect, it } from "vitest";
 import { ehRotaInterna, rotaInternaSegura, urlDoShellPara, urlEmbutidaPara } from "./trackerRoutes";
 
+/**
+ * O callback do OAuth do Google Analytics volta para /tracker?rota=/ga4. Se a
+ * rota não estiver na allowlist, o retorno cai em tela vazia depois do
+ * consentimento — e o usuário não tem como saber se conectou ou não.
+ */
+describe("rota do Google Analytics", () => {
+  it("/ga4 é rota interna válida", async () => {
+    const { ehRotaInterna, rotaInternaSegura } = await import("./trackerRoutes");
+    expect(ehRotaInterna("/ga4")).toBe(true);
+    expect(rotaInternaSegura("/ga4")).toBe("/ga4");
+  });
+});
+
 describe("deep-link de alerta", () => {
   it("preserva a query ao mandar para o shell", () => {
     expect(urlDoShellPara("/site", "?account=4&aba=seguranca")).toBe(

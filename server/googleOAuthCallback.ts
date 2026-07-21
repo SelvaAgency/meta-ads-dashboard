@@ -3,6 +3,7 @@
  * Exchanges authorization code for refresh_token (GA4 + Google Ads)
  */
 import type { Express, Request, Response } from "express";
+import { canManageContent } from "../shared/permissions";
 import { ENV } from "./_core/env";
 import { sdk } from "./_core/sdk";
 import { upsertUserIntegration } from "./db";
@@ -44,16 +45,29 @@ export function registerGoogleOAuthRoutes(app: Express) {
     }
 
     const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || `${ENV.appUrl}/api/google/callback`;
-    const scope = [
-      "https://www.googleapis.com/auth/analytics.readonly",
-      "https://www.googleapis.com/auth/analytics",
-      "https://www.googleapis.com/auth/adwords",
-      // email: para mostrar "conectado como <email>" na tela (ponto 7).
-      "openid",
-      "https://www.googleapis.com/auth/userinfo.email",
-    ].join(" ");
 
-    const state = (req.query.state as string) || "ga4"; // "ga4" or "googleads"
+    /**
+     * O `state` decide o fluxo — e agora é EXPLÍCITO. O default era "ga4", então
+     * uma chamada sem parâmetro caía no fluxo do Analytics por acidente.
+     */
+    const state = req.query.state === "googleads" ? "googleads" : req.query.state === "ga4" ? "ga4" : null;
+    if (!state) {
+      return res.status(400).json({ error: "Informe state=ga4 ou state=googleads." });
+    }
+
+    /**
+     * Escopo por fluxo, o mínimo de cada um. Antes os dois pediam a mesma lista,
+     * que incluía `analytics` de ESCRITA — permissão de alterar a conta de
+     * Analytics do cliente, que nunca usamos. Pedir o que não se usa é dívida:
+     * aumenta o estrago de um vazamento e é mais difícil de justificar ao
+     * cliente na tela de consentimento.
+     *
+     * `openid` + `userinfo.email` ficam nos dois: é o "conectado como <email>".
+     */
+    const escopoDoFluxo = state === "googleads"
+      ? ["https://www.googleapis.com/auth/adwords"]
+      : ["https://www.googleapis.com/auth/analytics.readonly"];
+    const scope = [...escopoDoFluxo, "openid", "https://www.googleapis.com/auth/userinfo.email"].join(" ");
 
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     authUrl.searchParams.set("client_id", clientId);
@@ -71,7 +85,7 @@ export function registerGoogleOAuthRoutes(app: Express) {
   app.get("/api/google/callback", async (req: Request, res: Response) => {
     const code = req.query.code as string;
     const error = req.query.error as string;
-    const state = req.query.state as string || "ga4";
+    const state = req.query.state as string || "googleads";
 
     if (error) {
       return res.status(400).send(`
@@ -183,16 +197,56 @@ export function registerGoogleOAuthRoutes(app: Express) {
         return res.redirect("/tracker?rota=/google-ads&conectado=1");
       }
 
-      // GA4 (fluxo legado): segue mostrando o token para configuração manual.
-      return res.send(`
-        <html><body style="font-family:sans-serif;padding:40px;max-width:700px;margin:0 auto;">
-          <h2 style="color:#16a34a;">✅ Google Authorization Successful</h2>
-          <p>Service: <strong>GA4 Analytics</strong></p>
-          <div style="background:#f1f5f9;padding:16px;border-radius:8px;margin:16px 0;">
-            <p style="margin:0 0 8px;font-size:14px;color:#64748b;">Refresh Token (save this!):</p>
-            <textarea readonly style="width:100%;height:80px;font-family:monospace;font-size:12px;border:1px solid #cbd5e1;border-radius:4px;padding:8px;">${refreshToken}</textarea>
-          </div>
-          <p><a href="/" style="color:#2563eb;">← Back to Dashboard</a></p>
+      /**
+       * GA4: mesmo tratamento do Google Ads. Antes este ramo exibia o refresh
+       * token cru numa <textarea> para copiar à mão — o segredo aparecia na
+       * tela, ia para o histórico do navegador e dependia de alguém colar no
+       * lugar certo. Agora é gravado criptografado e ninguém vê.
+       */
+      if (state === "ga4") {
+        try {
+          const user = await sdk.authenticateRequest(req);
+          if (!canManageContent(user.role)) {
+            throw new Error("Apenas administradores e desenvolvedores podem conectar o Google Analytics.");
+          }
+          if (!isEncryptionConfigured()) throw new Error("INTEGRATIONS_ENCRYPTION_KEY ausente — não dá para guardar o token com segurança.");
+
+          let email: string | null = null;
+          try {
+            const idToken = (tokenData as { id_token?: string }).id_token;
+            if (idToken) {
+              const payload = JSON.parse(Buffer.from(idToken.split(".")[1], "base64").toString("utf8"));
+              email = payload.email ?? null;
+            }
+          } catch { /* sem email; a tela mostra "conectado" genérico */ }
+
+          await upsertUserIntegration({
+            userId: user.id,
+            provider: "ga4",
+            providerAccountEmail: email,
+            refreshTokenEncrypted: encryptSecret(refreshToken),
+            accessTokenEncrypted: accessToken ? encryptSecret(accessToken) : null,
+            scopes: "https://www.googleapis.com/auth/analytics.readonly",
+            active: true,
+          });
+        } catch (e) {
+          return res.status(400).send(`
+            <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
+              <h2 style="color:#dc2626;">Não foi possível salvar a conexão</h2>
+              <p>${(e as Error).message}</p>
+              <p><a href="/tracker?rota=/ga4" style="color:#2563eb;">← Voltar ao Google Analytics</a></p>
+            </body></html>
+          `);
+        }
+        // Volta para o SHELL, não para a rota crua: o OAuth roda em top-level
+        // (target="_top") e /ga4 sozinho ficaria fora do Spaces.
+        return res.redirect("/tracker?rota=/ga4&conectado=1");
+      }
+
+      return res.status(400).send(`
+        <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
+          <h2 style="color:#dc2626;">Fluxo desconhecido</h2>
+          <p>Nenhuma integração corresponde a "${state}".</p>
         </body></html>
       `);
     } catch (err: any) {

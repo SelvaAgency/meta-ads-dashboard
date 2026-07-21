@@ -30,6 +30,7 @@ import Hub from "./pages/hub/Hub";
 import HubAccess from "./pages/hub/HubAccess";
 import NotificacoesPage from "./pages/hub/NotificacoesPage";
 import Site from "./pages/Site";
+import Analytics from "@/pages/Analytics";
 import HubApp from "./pages/hub/HubApp";
 import HubSettings from "./pages/hub/HubSettings";
 import PeoplePage from "./pages/hub/PeoplePage";
@@ -104,6 +105,7 @@ function Router() {
       <Route path="/dashboard" component={() => <Interna><Dashboard /></Interna>} />
       <Route path="/campaigns" component={() => <Interna><Campaigns /></Interna>} />
       <Route path="/alerts" component={() => <Interna><AlertsPage /></Interna>} />
+      <Route path="/ga4" component={() => <Interna><Analytics /></Interna>} />
       <Route path="/site" component={() => <Interna><Site /></Interna>} />
       {/* Alertas antigos apontam para /clarity — preserva o destino deles. */}
       <Route path="/clarity" component={() => <Interna><Site /></Interna>} />

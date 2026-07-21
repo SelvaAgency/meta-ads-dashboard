@@ -33,6 +33,7 @@ export const ROTAS_INTERNAS = [
   "/suggestions",
   "/admin",
   "/google-ads",
+  "/ga4",
   "/social-networks",
   "/experiments",
 ] as const;

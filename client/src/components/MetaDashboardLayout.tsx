@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { canManageContent } from "@shared/permissions";
 import { type Fonte, type StatusFonte, type ChaveFonte } from "@shared/fontes";
 import { isEmbedded } from "@/pages/hub/embed";
 import { getLoginUrl } from "@/const";
@@ -180,6 +181,9 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
     { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
+    // Gestão de propriedades GA4 é de admin/dev; usuário comum consome os
+    // dados na seção Site e não precisa da tela de vínculo.
+    ...(canManageContent(user?.role) ? [{ path: "/ga4", label: "Google Analytics", icon: BarChart3 }] : []),
     { path: "/site", label: "Site", icon: Globe },
     // A página existia e já puxava dado real do Instagram, mas não estava em
     // lugar nenhum da navegação — só por URL direta.

@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { canManageContent } from "../shared/permissions";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { execSync } from "node:child_process";
@@ -287,6 +288,7 @@ import {
   fecharMes,
   reabrirMes,
   listarTodasContasGA4, vincularGA4, ga4DoCliente, tokenDaContaGA4,
+  getConexaoGA4Agencia, gravarPropriedadesGA4,
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
@@ -5104,6 +5106,49 @@ export const appRouter = router({
    */
   ga4: router({
     isConfigured: protectedProcedure.query(() => ({ configured: isGA4Configured() })),
+
+    /** Estado da conexão da agência — espelha googleAds.isConfigured. */
+    statusConexao: protectedProcedure.query(async ({ ctx }) => {
+      const conexao = await getConexaoGA4Agencia();
+      const contas = canManageContent(ctx.user.role) ? await listarTodasContasGA4() : [];
+      return {
+        configured: isGA4Configured(),
+        faltando: isGA4Configured() ? [] : ["GOOGLE_ADS_CLIENT_ID", "GOOGLE_ADS_CLIENT_SECRET"].filter((v) => !process.env[v]),
+        oauthConectado: !!conexao,
+        conectadoComo: conexao?.providerAccountEmail ?? null,
+        propriedades: contas.length,
+        vinculadas: contas.filter((c) => c.linkedAccountId != null).length,
+        podeGerenciar: canManageContent(ctx.user.role),
+      };
+    }),
+
+    /**
+     * Descobre as propriedades da conexão da agência e grava as novas SEM
+     * vínculo. Redescobrir atualiza nome/URL e preserva o vínculo existente.
+     */
+    descobrirPropriedades: contentProcedure.mutation(async ({ ctx }) => {
+      const conexao = await getConexaoGA4Agencia();
+      if (!conexao?.refreshTokenEncrypted) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Conecte o Google Analytics antes de descobrir propriedades." });
+      }
+      let token: string;
+      try { token = decryptSecret(conexao.refreshTokenEncrypted); }
+      catch { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "A credencial guardada não pôde ser lida. Reconecte o Google Analytics." }); }
+
+      const props = await listGA4Properties(getGA4Config(token));
+      const r = await gravarPropriedadesGA4(ctx.user.id, conexao.refreshTokenEncrypted, props.map((p) => ({
+        propertyId: p.propertyId, propertyName: p.displayName ?? null,
+        websiteUrl: p.websiteUrl ?? null, currency: p.currencyCode ?? null, timezone: p.timeZone ?? null,
+      })));
+      return { ...r, total: props.length };
+    }),
+
+    /** Desconecta o OAuth da agência. As propriedades e vínculos permanecem. */
+    desconectarOAuth: contentProcedure.mutation(async () => {
+      const conexao = await getConexaoGA4Agencia();
+      if (conexao) await deactivateUserIntegration(conexao.userId, "ga4");
+      return { success: true } as const;
+    }),
 
     /** Conexões e seus vínculos — tela de gestão. */
     contasParaGerenciar: contentProcedure.query(() => listarTodasContasGA4()),

@@ -16,7 +16,7 @@
  *  um dropdown.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, inArray } from "drizzle-orm";
 import { getDb } from "../db";
 import {
   metaAdAccounts, googleAdAccounts, ga4Accounts, clientClaritySettings, userIntegrations,
@@ -43,7 +43,7 @@ export async function fontesDeTodasAsContas(apenas?: number[]): Promise<FontesDa
     }).from(metaAdAccounts),
     db.select({ linkedAccountId: googleAdAccounts.linkedAccountId, ignored: googleAdAccounts.ignored })
       .from(googleAdAccounts).where(isNotNull(googleAdAccounts.linkedAccountId)),
-    db.select({ linkedAccountId: ga4Accounts.linkedAccountId, isActive: ga4Accounts.isActive })
+    db.select({ linkedAccountId: ga4Accounts.linkedAccountId, isActive: ga4Accounts.isActive, lastSyncAt: ga4Accounts.lastSyncAt })
       .from(ga4Accounts).where(isNotNull(ga4Accounts.linkedAccountId)),
     db.select({
       accountId: clientClaritySettings.accountId,
@@ -55,19 +55,20 @@ export async function fontesDeTodasAsContas(apenas?: number[]): Promise<FontesDa
       domain: clientClaritySettings.domain,
       performanceUrl: clientClaritySettings.performanceUrl,
     }).from(clientClaritySettings),
-    db.select({ id: userIntegrations.id }).from(userIntegrations).where(and(
-      eq(userIntegrations.provider, "google_ads"),
+    db.select({ id: userIntegrations.id, provider: userIntegrations.provider }).from(userIntegrations).where(and(
+      inArray(userIntegrations.provider, ["google_ads", "ga4"]),
       eq(userIntegrations.active, true),
       isNotNull(userIntegrations.refreshTokenEncrypted),
-    )).limit(1),
+    )),
   ]);
 
   // O OAuth do Google Ads é da AGÊNCIA, não do cliente: uma conexão vale para
   // todos os vínculos. Por isso é um booleano só, fora do laço.
-  const googleAdsOauthAtivo = oauthGoogle.length > 0;
+  const googleAdsOauthAtivo = oauthGoogle.some((o) => o.provider === "google_ads");
+  const ga4OauthAtivo = oauthGoogle.some((o) => o.provider === "ga4");
 
   const comGads = new Set(gads.filter((g) => !g.ignored).map((g) => g.linkedAccountId!));
-  const comGa4 = new Set(ga4s.filter((g) => g.isActive).map((g) => g.linkedAccountId!));
+  const ga4PorConta = new Map(ga4s.filter((g) => g.isActive).map((g) => [g.linkedAccountId!, g]));
   const porConta = new Map(claritys.map((c) => [c.accountId, c]));
 
   const alvo = apenas ? new Set(apenas) : null;
@@ -82,7 +83,9 @@ export async function fontesDeTodasAsContas(apenas?: number[]): Promise<FontesDa
         tokenExpiraEm: a.tokenExpiresAt ?? null,
         googleAdsVinculado: comGads.has(a.id),
         googleAdsOauthAtivo,
-        ga4Vinculado: comGa4.has(a.id),
+        ga4Vinculado: ga4PorConta.has(a.id),
+        ga4UltimoSync: ga4PorConta.get(a.id)?.lastSyncAt ?? null,
+        ga4OauthAtivo,
         clarityLigado: !!s?.enabled && !!s?.hasToken,
         claritySyncStatus: s?.lastSyncStatus ?? null,
         pagespeedLigado: !!s?.performanceEnabled,

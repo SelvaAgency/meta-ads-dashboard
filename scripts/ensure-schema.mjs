@@ -826,6 +826,14 @@ async function main() {
         console.log("[ensure-schema] ok  · ga4_accounts.refreshTokenEncrypted adicionada");
       }
       await conn.query("ALTER TABLE `ga4_accounts` MODIFY COLUMN `refreshToken` TEXT NULL");
+      // Índice único: a mesma propriedade não pode virar duas linhas. Criado
+      // agora, com a tabela vazia — depois de conectar já não seria seguro.
+      const [ix] = await conn.query(
+        "SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ga4_accounts' AND INDEX_NAME='uq_ga4_property' LIMIT 1");
+      if (ix.length === 0) {
+        await conn.query("ALTER TABLE `ga4_accounts` ADD UNIQUE KEY `uq_ga4_property` (`propertyId`)");
+        console.log("[ensure-schema] ok  · ga4_accounts.propertyId único");
+      }
     }
 
     // 22) Exclusão permanente de usuário (anônima — ver users.deletedAt no schema).

@@ -65,6 +65,9 @@ export type ConexaoBruta = {
   googleAdsOauthAtivo: boolean;
   /** GA4 */
   ga4Vinculado: boolean;
+  ga4UltimoSync?: Date | null;
+  /** OAuth da agência ativo? Vinculada sem OAuth não consegue ler nada. */
+  ga4OauthAtivo?: boolean;
   /** Clarity */
   clarityLigado: boolean;
   claritySyncStatus: string | null;
@@ -126,7 +129,16 @@ export function classificarFontes(c: ConexaoBruta, agora: Date = new Date()): Fo
 
   // ── GA4 ───────────────────────────────────────────────────────────────────
   const ga4 = ((): Fonte => {
-    if (c.ga4Vinculado) return f("ga4", "ok");
+    if (c.ga4Vinculado) {
+      if (c.ga4OauthAtivo === false) {
+        return f("ga4", "erro", "Propriedade vinculada, mas a agência não está conectada ao Google Analytics.");
+      }
+      // A data da última leitura entra no rótulo: propriedade vinculada que
+      // nunca sincronizou parece conectada e não é.
+      return c.ga4UltimoSync
+        ? f("ga4", "ok", `Última leitura em ${formatarData(c.ga4UltimoSync)}.`)
+        : f("ga4", "atencao", "Propriedade vinculada, mas nenhuma leitura foi feita ainda.");
+    }
     return c.legado?.ga4
       ? f("ga4", "atencao", "Propriedade no cadastro antigo, sem vínculo no banco.")
       : f("ga4", "ausente", "Google Analytics ainda não conectado.");
