@@ -83,8 +83,11 @@ export async function sincronizarPropriedade(conta: {
       const inicio = dia(janela), fim = dia(0);
 
       // Em paralelo: são chamadas independentes da mesma propriedade.
+      // Período anterior de mesmo tamanho: 7d compara com os 7 dias antes dele.
+      const anterior = { startDate: dia(janela * 2), endDate: dia(janela + 1) };
+
       const [resumo, canais, origens, landing, paginas, eventos, temEcom] = await Promise.all([
-        getGA4Overview(config, conta.propertyId, inicio, fim),
+        getGA4Overview(config, conta.propertyId, inicio, fim, anterior),
         getGA4Channels(config, conta.propertyId, inicio, fim).catch(() => []),
         getGA4TrafficSources(config, conta.propertyId, inicio, fim, 10).catch(() => []),
         getGA4LandingPages(config, conta.propertyId, inicio, fim).catch(() => []),
@@ -116,6 +119,21 @@ export async function sincronizarPropriedade(conta: {
           eventCount: resumo.eventCount,
           // Só o booleano. Receita e funil são etapa própria.
           ecommerceDetectado: temEcom,
+          // null quando a API não devolveu o período anterior — a tela mostra
+          // o número sem variação em vez de inventar uma.
+          anterior: resumo.anterior
+            ? {
+                inicio: anterior.startDate, fim: anterior.endDate,
+                sessions: resumo.anterior.sessions,
+                users: resumo.anterior.totalUsers,
+                newUsers: resumo.anterior.newUsers,
+                pageviews: resumo.anterior.pageviews,
+                engagedSessions: resumo.anterior.engagedSessions,
+                engagementRate: resumo.anterior.engagementRate,
+                avgEngagementDuration: resumo.anterior.avgSessionDuration,
+                bounceRate: resumo.anterior.bounceRate,
+              }
+            : null,
         },
         issuesJson: {
           canais,

@@ -287,7 +287,7 @@ import {
   listMesesFechados,
   fecharMes,
   reabrirMes,
-  listarTodasContasGA4, vincularGA4, ga4DoCliente, tokenDaContaGA4,
+  listarTodasContasGA4, vincularGA4, ga4DoCliente, tokenDaContaGA4, ga4SnapshotsDoCliente,
   getConexaoGA4Agencia, gravarPropriedadesGA4,
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
@@ -3145,6 +3145,11 @@ export const appRouter = router({
   // ─── Contexto, notas e Relatório de Site & Jornada ──────────────────────────
   siteDiag: router({
     /** Contexto manual do cliente. Todo mundo lê; admin/dev escrevem. */
+    /** Snapshots do GA4 já gravados — a tela não chama a API do Google. */
+    ga4Snapshot: protectedProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(({ input }) => ga4SnapshotsDoCliente(input.accountId)),
+
     contexto: protectedProcedure
       .input(z.object({ accountId: z.number().int() }))
       .query(({ input }) => getClientContext(input.accountId)),

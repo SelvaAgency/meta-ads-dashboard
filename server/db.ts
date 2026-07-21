@@ -4370,6 +4370,22 @@ export async function objetivosDasCampanhas(accountId: number): Promise<string[]
   return rows.map((r) => r.g).filter((g): g is string => !!g);
 }
 
+/** Snapshots GA4 de um cliente — o 7d e o 30d mais recentes de cada janela. */
+export async function ga4SnapshotsDoCliente(accountId: number) {
+  const db = await getDb();
+  if (!db) return { d7: null, d30: null };
+  const busca = async (estrategia: string) => {
+    const r = await db.select().from(clientSiteSnapshots).where(and(
+      eq(clientSiteSnapshots.accountId, accountId),
+      eq(clientSiteSnapshots.provider, "ga4"),
+      eq(clientSiteSnapshots.estrategia, estrategia),
+    )).orderBy(desc(clientSiteSnapshots.dia)).limit(1);
+    return r[0] ?? null;
+  };
+  const [d7, d30] = await Promise.all([busca("7d"), busca("30d")]);
+  return { d7, d30 };
+}
+
 // ─── Auditoria de envio de email ─────────────────────────────────────────────
 
 export type EnvioEmailRegistro = {

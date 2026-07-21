@@ -28,6 +28,10 @@ import { trpc } from "@/lib/trpc";
 import { Secao, FonteAusente } from "@/components/Secao";
 import { destinoDaAba, type AbaSite, type SecaoSite } from "./site/abasSite";
 import { acoesDoResumo, positivosDoResumo, type AcaoResumo } from "./site/resumoSite";
+import {
+  cardsDeTrafego, listasDe, contexto30d, amostraPequena, semTrafego,
+  type MetricasGA4, type ListasGA4, type CardGA4, type Lista as ListaGA4,
+} from "./site/ga4Performance";
 import { type Fonte, type StatusFonte } from "@shared/fontes";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
@@ -1450,22 +1454,34 @@ function AbaPerformanceSite({ accountId, podeConfigurar, onConfigurar, destaque 
   const cfgQ = trpc.clarity.settings.useQuery({ accountId });
   const snapQ = trpc.clarity.ultimo.useQuery({ accountId });
   const fontesQ = trpc.fontes.doCliente.useQuery({ accountId });
+  const ga4Q = trpc.siteDiag.ga4Snapshot.useQuery({ accountId });
 
-  if (cfgQ.isLoading) return <Carregando />;
+  if (cfgQ.isLoading || ga4Q.isLoading) return <Carregando />;
   const cfg = cfgQ.data;
   const configurado = !!cfg?.enabled && !!cfg?.hasToken;
   const snap = snapQ.data;
   const m = (snap?.metricsJson ?? null) as Metricas | null;
   const fonteClarity = fontesQ.data?.find((f) => f.chave === "clarity");
+  const fonteGa4 = fontesQ.data?.find((f) => f.chave === "ga4");
   const erroSync = fonteClarity?.status === "erro";
   const sessoes = m?.sessions ?? 0;
 
-  if (!configurado) {
+  const g7 = (ga4Q.data?.d7?.metricsJson ?? null) as MetricasGA4 | null;
+  const g30 = (ga4Q.data?.d30?.metricsJson ?? null) as MetricasGA4 | null;
+  const gListas = (ga4Q.data?.d7?.issuesJson ?? null) as ListasGA4 | null;
+  const temGa4 = !!g7;
+
+  /**
+   * A porta é "Clarity OU GA4". Antes era só Clarity — e quatro clientes com
+   * GA4 lido com sucesso (Ultra Malhas, BAESH, MNBR, ELWING) viam "Clarity não
+   * configurado" e nada mais. Fonte nova não pode ficar refém da antiga.
+   */
+  if (!configurado && !temGa4) {
     return (
-      <Vazio icone={<Activity className="w-8 h-8" />} titulo="Clarity ainda não configurado para este cliente"
+      <Vazio icone={<Activity className="w-8 h-8" />} titulo="Nenhuma fonte de performance conectada"
         texto={podeConfigurar
-          ? "Configure o token do projeto para começar a acompanhar o comportamento no site."
-          : "Peça a um administrador para configurar o Clarity deste cliente."}
+          ? "Conecte o Microsoft Clarity para ver comportamento, ou vincule uma propriedade do Google Analytics para ver tráfego e aquisição."
+          : "Peça a um administrador para conectar o Clarity ou o Google Analytics deste cliente."}
         acao={podeConfigurar ? <button onClick={onConfigurar} className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-medium">Configurar Clarity</button> : undefined} />
     );
   }
@@ -1477,13 +1493,15 @@ function AbaPerformanceSite({ accountId, podeConfigurar, onConfigurar, destaque 
   return (
     <div className="flex flex-col gap-3">
       {/* Erro não esconde o histórico: avisa em âmbar e mantém os dados abaixo. */}
-      {erroSync && (
+      {configurado && erroSync && (
         <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
           <AlertTriangle className="w-3.5 h-3.5" /> {fonteClarity?.porque} Os números abaixo são do último snapshot que deu certo.
         </p>
       )}
 
-      <Secao id="comportamento" titulo="Comportamento" icone={<Activity className="w-4 h-4" />}
+      {temGa4 && <BlocosGA4 m7={g7} m30={g30} listas={gListas} fonteErro={fonteGa4?.status === "erro" ? fonteGa4.porque : undefined} />}
+
+      {configurado && <Secao id="comportamento" titulo="Comportamento" icone={<Activity className="w-4 h-4" />}
         estado={estadoComportamento} aberta destaque={destaque === "comportamento"}>
         {!snap ? (
           <FonteAusente texto="Nenhum snapshot foi tirado deste cliente ainda." />
@@ -1502,9 +1520,9 @@ function AbaPerformanceSite({ accountId, podeConfigurar, onConfigurar, destaque 
             <Card icone={<AlertTriangle className="w-3.5 h-3.5" />} label="Erros de JS" valor={fmtNum(m?.javascriptErrors)} tom={(m?.javascriptErrors ?? 0) > 0 ? "critico" : undefined} />
           </div>
         )}
-      </Secao>
+      </Secao>}
 
-      {snap && sessoes > 0 && (
+      {configurado && snap && sessoes > 0 && (
         <Secao id="paginas" titulo="Páginas e origens" icone={<Globe className="w-4 h-4" />}
           estado="De onde vem o tráfego e onde ele para." destaque={destaque === "paginas"}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1517,7 +1535,7 @@ function AbaPerformanceSite({ accountId, podeConfigurar, onConfigurar, destaque 
       )}
 
       <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap pt-1">
-        {cfg?.lastSyncAt && <span>Último sync: {new Date(cfg.lastSyncAt).toLocaleString("pt-BR")}</span>}
+        {configurado && cfg?.lastSyncAt && <span>Clarity · último sync: {new Date(cfg.lastSyncAt).toLocaleString("pt-BR")}</span>}
         {snap && <span>Período: últimas {snap.dias * 24}h</span>}
         <span className="ml-auto">Cota hoje: {cfg?.apiCallsCount ?? 0}/10</span>
       </div>
@@ -1525,6 +1543,97 @@ function AbaPerformanceSite({ accountId, podeConfigurar, onConfigurar, destaque 
         Gravações e mapas de calor não aparecem aqui: a API de exportação do Clarity não os disponibiliza.
       </p>
     </div>
+  );
+}
+
+/**
+ * Blocos do Google Analytics na aba Performance.
+ *
+ * GA4 responde "quantos, de onde vieram, para onde foram" — volume e aquisição.
+ * O Clarity, logo abaixo, responde "como se comportaram". São perguntas
+ * diferentes e por isso ficam em blocos separados, cada um dizendo sua fonte.
+ *
+ * NUNCA lado a lado como se medissem a mesma coisa: na UMA o GA4 marca 8.572
+ * sessões em 7 dias e o Clarity 649 em ~24h, com amostragem própria. Números
+ * juntos fariam o time discutir qual está certo em vez de usar os dois.
+ */
+function BlocosGA4({ m7, m30, listas, fonteErro }: {
+  m7: MetricasGA4 | null; m30: MetricasGA4 | null; listas: ListasGA4 | null; fonteErro?: string;
+}) {
+  const cards = cardsDeTrafego(m7);
+  const blocos = listasDe(listas);
+  const contexto = contexto30d(m7, m30);
+  const vazio = semTrafego(m7);
+  const pouco = amostraPequena(m7);
+
+  const Variacao = ({ v }: { v: CardGA4["variacao"] }) => {
+    if (!v) return null;
+    const cor = v.sobe ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400";
+    return <span className={`text-[11px] ${cor}`}>{v.sobe ? "▲" : "▼"} {Math.abs(v.pct).toFixed(0)}%</span>;
+  };
+
+  return (
+    <Secao id="ga4" titulo="Tráfego e aquisição" icone={<Globe className="w-4 h-4" />}
+      estado={vazio ? "Google Analytics conectado, sem tráfego no período." : (contexto ?? "Dados do Google Analytics.")}
+      alerta={fonteErro ? "última leitura falhou" : undefined} aberta>
+      {/* Erro não esconde o histórico: avisa e mantém o que foi lido antes. */}
+      {fonteErro && (
+        <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">{fonteErro} Os números abaixo são da última leitura que deu certo.</p>
+      )}
+
+      {vazio ? (
+        <FonteAusente texto="A propriedade respondeu, mas não houve sessões no período. Se não era esperado, vale conferir se a tag do Analytics está no site." />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            {cards.map((c) => (
+              <div key={c.chave} className="rounded-lg border border-border bg-background px-3 py-2.5">
+                <p className="text-[11px] text-muted-foreground">{c.rotulo}</p>
+                <div className="flex items-baseline gap-1.5 mt-0.5">
+                  <span className="text-lg font-medium text-foreground">{c.valor}</span>
+                  <Variacao v={c.variacao} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Amostra pequena avisa em vez de deixar alguém concluir de 31 sessões. */}
+          {pouco && (
+            <p className="text-[11px] text-muted-foreground mt-2.5">
+              Volume baixo no período — percentuais oscilam bastante com poucas sessões. Leia como indício, não como tendência.
+            </p>
+          )}
+
+          {blocos.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+              {blocos.map((b: ListaGA4) => (
+                <div key={b.titulo} className="rounded-lg border border-border overflow-hidden">
+                  <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+                    <p className="text-xs font-medium text-foreground">{b.titulo}</p>
+                    <span className="text-[10px] text-muted-foreground/70">{b.fonte}</span>
+                  </div>
+                  <ul>
+                    {b.itens.map((i) => (
+                      <li key={i.rotulo} className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs border-b border-border/40 last:border-0">
+                        <span className="text-muted-foreground truncate" title={i.rotulo}>{i.rotulo}</span>
+                        <span className="text-foreground flex-shrink-0">{i.valor}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {b.restantes > 0 && (
+                    <p className="px-3 py-1.5 text-[11px] text-muted-foreground/70">e mais {b.restantes}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {(listas?.limitacoes ?? []).map((l) => (
+        <p key={l} className="text-[11px] text-muted-foreground/70 mt-3">{l}</p>
+      ))}
+    </Secao>
   );
 }
 

@@ -256,10 +256,18 @@ export async function getGA4Overview(
   config: GA4Config,
   propertyId: string,
   startDate: string,
-  endDate: string
-): Promise<GA4Overview & { engagedSessions: number; conversoesIndisponiveis?: string }> {
+  endDate: string,
+  /**
+   * Período anterior para comparação. A Data API aceita dois dateRanges na
+   * MESMA chamada — comparar não custa requisição extra. Sem ele, ou se a API
+   * devolver só uma linha, `anterior` vem null e a tela segue sem variação.
+   */
+  anterior?: { startDate: string; endDate: string },
+): Promise<GA4Overview & { engagedSessions: number; conversoesIndisponiveis?: string; anterior: GA4Overview & { engagedSessions: number } | null }> {
   const report = await runReport(config, propertyId, {
-    dateRanges: [{ startDate, endDate }],
+    dateRanges: anterior
+      ? [{ startDate, endDate }, { startDate: anterior.startDate, endDate: anterior.endDate }]
+      : [{ startDate, endDate }],
     metrics: [
       { name: "sessions" },
       { name: "totalUsers" },
@@ -273,28 +281,38 @@ export async function getGA4Overview(
     ],
   });
 
-  const vals = report.rows?.[0]?.metricValues ?? [];
-  const base = {
-    sessions: parseInt(vals[0]?.value ?? "0"),
-    totalUsers: parseInt(vals[1]?.value ?? "0"),
-    newUsers: parseInt(vals[2]?.value ?? "0"),
-    pageviews: parseInt(vals[3]?.value ?? "0"),
-    bounceRate: parseFloat(vals[4]?.value ?? "0") * 100,
-    avgSessionDuration: parseFloat(vals[5]?.value ?? "0"),
-    engagementRate: parseFloat(vals[6]?.value ?? "0") * 100,
-    eventCount: parseInt(vals[7]?.value ?? "0"),
-    engagedSessions: parseInt(vals[8]?.value ?? "0"),
+  // Com dois dateRanges a API devolve uma linha por período, na ordem pedida.
+  const linha = (i: number) => {
+    const v = report.rows?.[i]?.metricValues;
+    if (!v) return null;
+    return {
+      sessions: parseInt(v[0]?.value ?? "0"),
+      totalUsers: parseInt(v[1]?.value ?? "0"),
+      newUsers: parseInt(v[2]?.value ?? "0"),
+      pageviews: parseInt(v[3]?.value ?? "0"),
+      bounceRate: parseFloat(v[4]?.value ?? "0") * 100,
+      avgSessionDuration: parseFloat(v[5]?.value ?? "0"),
+      engagementRate: parseFloat(v[6]?.value ?? "0") * 100,
+      eventCount: parseInt(v[7]?.value ?? "0"),
+      engagedSessions: parseInt(v[8]?.value ?? "0"),
+      conversions: 0,
+    };
   };
+  const base = linha(0) ?? {
+    sessions: 0, totalUsers: 0, newUsers: 0, pageviews: 0, bounceRate: 0,
+    avgSessionDuration: 0, engagementRate: 0, eventCount: 0, engagedSessions: 0, conversions: 0,
+  };
+  const anteriorLido = anterior ? linha(1) : null;
 
   // keyEvents é o nome novo; conversions, o antigo. Tenta os dois e desiste em
   // silêncio — sem conversão o snapshot ainda vale.
   for (const nome of ["keyEvents", "conversions"]) {
     try {
       const r = await runReport(config, propertyId, { dateRanges: [{ startDate, endDate }], metrics: [{ name: nome }] });
-      return { ...base, conversions: parseInt(r.rows?.[0]?.metricValues?.[0]?.value ?? "0") };
+      return { ...base, conversions: parseInt(r.rows?.[0]?.metricValues?.[0]?.value ?? "0"), anterior: anteriorLido };
     } catch { /* tenta o próximo */ }
   }
-  return { ...base, conversions: 0, conversoesIndisponiveis: "A propriedade não expõe keyEvents nem conversions." };
+  return { ...base, conversions: 0, anterior: anteriorLido, conversoesIndisponiveis: "A propriedade não expõe keyEvents nem conversions." };
 }
 
 /** Canais de aquisição (Organic Search, Paid Social…). */
