@@ -23,6 +23,8 @@
  * aposentar. Confira as datas em:
  * https://developers.google.com/google-ads/api/docs/sunset-dates
  */
+import { logger } from "./logger";
+
 const GOOGLE_ADS_API_VERSION = process.env.GOOGLE_ADS_API_VERSION || "v24";
 const GOOGLE_ADS_BASE = `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}`;
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -149,22 +151,56 @@ async function executeGaql(
   const cleanCustomerId = customerId.replace(/-/g, "");
 
   const url = `${GOOGLE_ADS_BASE}/customers/${cleanCustomerId}/googleAds:searchStream`;
+  const mcc = config.loginCustomerId?.replace(/-/g, "");
 
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
-    "developer-token": config.developerToken,
-    "Content-Type": "application/json",
+  const montarHeaders = (comLogin: boolean): Record<string, string> => {
+    const h: Record<string, string> = {
+      Authorization: `Bearer ${accessToken}`,
+      "developer-token": config.developerToken,
+      "Content-Type": "application/json",
+    };
+    if (comLogin && mcc) h["login-customer-id"] = mcc;
+    return h;
   };
 
-  if (config.loginCustomerId) {
-    headers["login-customer-id"] = config.loginCustomerId.replace(/-/g, "");
-  }
+  /**
+   * ─── Por que a ordem das tentativas é esta ─────────────────────────────────
+   *
+   * `login-customer-id` diz "estou acessando esta conta ATRAVÉS deste gerente".
+   * A documentação do Google o trata como necessário para contas de cliente —
+   * mas ele só vale quando o vínculo gerente→cliente existe DE FATO para a
+   * conta Google autenticada.
+   *
+   * Medido em produção (21/07/2026), com o Developer Token já aprovado, nas
+   * três contas vinculadas:
+   *
+   *     com login-customer-id → 403 USER_PERMISSION_DENIED  (as três)
+   *     sem login-customer-id → 200 OK                      (as três)
+   *
+   * A conta contato@selva.agency enxerga essas contas DIRETAMENTE; o caminho
+   * pelo MCC 9284868244 não é válido para ela. Mandar o cabeçalho estava
+   * transformando um acesso que funciona num 403 — e o 403 parecia problema de
+   * developer token, que foi onde perdemos semanas.
+   *
+   * Então: acesso direto primeiro, MCC como segunda tentativa. A ordem cobre as
+   * duas topologias sem exigir que alguém acerte a configuração — e se um dia
+   * uma conta só for alcançável pelo gerente, a segunda tentativa resolve.
+   *
+   * Consulta contra o PRÓPRIO MCC (listar contas filhas) continua mandando o
+   * cabeçalho de primeira: ali ele é o caminho certo.
+   */
+  const consultarMcc = !!mcc && cleanCustomerId === mcc;
+  const tentativas = consultarMcc ? [true] : [false, true];
 
-  const resp = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ query }),
-  });
+  let resp!: Response;
+  for (const comLogin of tentativas) {
+    resp = await fetch(url, { method: "POST", headers: montarHeaders(comLogin), body: JSON.stringify({ query }) });
+    if (resp.ok) break;
+    // Só vale repetir quando o motivo é permissão; erro de query não muda.
+    if (resp.status !== 403) break;
+    if (comLogin === tentativas[tentativas.length - 1]) break;
+    logger.info(`[GoogleAds] ${cleanCustomerId}: acesso direto recusado, tentando via gerente ${mcc}.`);
+  }
 
   if (!resp.ok) {
     const errBody = await resp.text();
