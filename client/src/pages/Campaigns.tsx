@@ -709,7 +709,7 @@ export default function Campaigns() {
         </div>
 
         {/* Google Ads — estado dedicado; nunca mistura com dados da Meta. */}
-        {plataforma === "google" && <PainelGoogleAds accountId={selectedAccountId ?? null} periodLabel={periodLabel} />}
+        {plataforma === "google" && <PainelGoogleAds accountId={selectedAccountId ?? null} periodLabel={periodLabel} dias={dateParams.days || 30} />}
 
         {plataforma === "meta" && (<>
         {/* ── KPI Section ── */}
@@ -826,67 +826,160 @@ export default function Campaigns() {
  * ─────────────────────────────────────────────────────────────────────────────
  *  Subaba Google Ads na tela de Campanhas
  * ─────────────────────────────────────────────────────────────────────────────
- *  D2.10 é a ESTRUTURA das subabas. A integração real (D2.9) depende do
- *  developer token do Google, que ainda não existe. Então aqui o caminho
- *  honesto é: se não está configurado, um estado vazio que EXPLICA — não um
- *  spinner infinito nem uma tabela vazia fingindo que é só falta de dado.
+ *  Esta aba dizia "Google Ads ainda não está conectado" mesmo com a conta do
+ *  cliente vinculada e trazendo dados na tela dedicada. O motivo era a FONTE do
+ *  status: ela perguntava `googleAds.isConfigured`, que responde sobre o
+ *  AMBIENTE (credenciais do app presentes), não sobre ESTE cliente.
  *
- *  Quando o token chegar e as contas forem conectadas, a mesma tela passa a
- *  listar as campanhas. Nunca mistura com a Meta: é outra plataforma, outra
- *  aba, dados separados e identificados.
+ *  Um status global não sabe responder "este cliente tem Google Ads?" — e a
+ *  resposta errada mandava o usuário conectar algo que já estava conectado.
+ *
+ *  Agora a pergunta é por cliente, na mesma fonte que a página dedicada e o
+ *  resolvedor de fontes usam: existe conta vinculada, não ignorada, com OAuth
+ *  da agência ativo. Só isso conta como conectado.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-function PainelGoogleAds({ accountId, periodLabel }: { accountId: number | null; periodLabel: string }) {
+function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number | null; periodLabel: string; dias: number }) {
   const cfg = trpc.googleAds.isConfigured.useQuery(undefined, { retry: false });
+  const conta = trpc.googleAds.contaDoCliente.useQuery(
+    { accountId: accountId! },
+    { enabled: !!accountId, retry: false },
+  );
+  const campanhas = trpc.googleAds.campaigns.useQuery(
+    { accountId: conta.data?.id!, days: Math.min(Math.max(dias || 30, 1), 90), activeOnly: false },
+    { enabled: !!conta.data?.id, retry: false },
+  );
 
   const painel: React.CSSProperties = {
     background: "var(--color-background-primary, var(--card))",
     border: "0.5px solid var(--color-border-tertiary)",
     borderRadius: 12, padding: 28, textAlign: "center",
   };
+  const sec = "var(--color-text-secondary)";
 
-  if (cfg.isLoading) {
-    return (
-      <div style={painel}>
-        <Loader2 className="w-5 h-5 animate-spin" style={{ margin: "0 auto", color: "var(--color-text-secondary)" }} />
-      </div>
-    );
-  }
-
-  // Sem developer token / sem conta conectada: estado vazio que explica.
-  if (!cfg.data?.configured) {
-    return (
-      <div style={painel}>
-        <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(232,91,168,0.1)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
-          <TrendingUp className="w-5 h-5" style={{ color: "#E85BA8" }} />
-        </div>
-        <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Google Ads ainda não está conectado</p>
-        <p style={{ fontSize: 13, color: "var(--color-text-secondary)", maxWidth: 460, margin: "0 auto", lineHeight: 1.6 }}>
-          A integração com o Google Ads depende de um token de desenvolvedor aprovado pelo Google e das
-          contas dos clientes vinculadas. Enquanto isso não está pronto, esta aba fica reservada — sem
-          dados falsos e sem misturar com a Meta.
-        </p>
-        <p style={{ fontSize: 12, color: "var(--color-text-secondary)", opacity: 0.7, marginTop: 12 }}>
-          Período selecionado: {periodLabel}
-        </p>
-      </div>
-    );
-  }
-
-  // Configurado: por ora encaminha para a tela dedicada. A listagem inline de
-  // campanhas Google entra no D2.9, quando houver dado real para exibir.
-  return (
+  const Vazio = ({ titulo, texto, acao }: { titulo: string; texto: string; acao?: React.ReactNode }) => (
     <div style={painel}>
-      <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Google Ads conectado</p>
-      <p style={{ fontSize: 13, color: "var(--color-text-secondary)", maxWidth: 460, margin: "0 auto 14px", lineHeight: 1.6 }}>
-        As campanhas do Google Ads deste cliente estão na tela dedicada.
-      </p>
-      <a
-        href={accountId ? `/google-ads?account=${accountId}` : "/google-ads"}
-        style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500, color: "#D4537E", textDecoration: "none", border: "0.5px solid rgba(212,83,126,0.4)", borderRadius: 8, padding: "8px 14px" }}
-      >
-        Abrir Google Ads <ExternalLink className="w-3.5 h-3.5" />
-      </a>
+      <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(232,91,168,0.1)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+        <TrendingUp className="w-5 h-5" style={{ color: "#E85BA8" }} />
+      </div>
+      <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>{titulo}</p>
+      <p style={{ fontSize: 13, color: sec, maxWidth: 460, margin: "0 auto", lineHeight: 1.6 }}>{texto}</p>
+      {acao && <div style={{ marginTop: 14 }}>{acao}</div>}
+      <p style={{ fontSize: 12, color: sec, opacity: 0.7, marginTop: 12 }}>Período selecionado: {periodLabel}</p>
+    </div>
+  );
+
+  const linkDedicada = (
+    <a href={accountId ? `/google-ads?account=${accountId}` : "/google-ads"}
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500, color: "#D4537E", textDecoration: "none", border: "0.5px solid rgba(212,83,126,0.4)", borderRadius: 8, padding: "8px 14px" }}>
+      Abrir Google Ads <ExternalLink className="w-3.5 h-3.5" />
+    </a>
+  );
+
+  if (cfg.isLoading || conta.isLoading) {
+    return <div style={painel}><Loader2 className="w-5 h-5 animate-spin" style={{ margin: "0 auto", color: sec }} /></div>;
+  }
+
+  // Credenciais do app ausentes: problema de ambiente, não deste cliente.
+  if (!cfg.data?.configured) {
+    return <Vazio titulo="Google Ads não configurado no sistema"
+      texto="Faltam credenciais do aplicativo Google. Um administrador precisa configurá-las antes de qualquer cliente usar a integração." />;
+  }
+
+  // Agência não conectada: nenhum cliente consegue ler, por mais vinculado que esteja.
+  if (!cfg.data?.oauthConectado) {
+    return <Vazio titulo="Agência não conectada ao Google Ads"
+      texto="A conexão do Google Ads é única para a agência e ainda não foi autorizada."
+      acao={linkDedicada} />;
+  }
+
+  // Cliente sem conta vinculada: AQUI sim é caso de vincular.
+  if (!conta.data) {
+    return <Vazio titulo="Nenhuma conta do Google Ads vinculada a este cliente"
+      texto="A agência está conectada, mas este cliente ainda não tem uma conta de anúncios vinculada. O vínculo é feito na tela dedicada."
+      acao={linkDedicada} />;
+  }
+
+  if (campanhas.isLoading) {
+    return <div style={painel}><Loader2 className="w-5 h-5 animate-spin" style={{ margin: "0 auto", color: sec }} /></div>;
+  }
+
+  // Erro real da API — inclusive a recusa de conta gerenciadora, que vem com a
+  // explicação pronta do servidor. Nunca virar "conectar": mandaria refazer uma
+  // conexão que existe e está certa.
+  if (campanhas.isError) {
+    return (
+      <div style={{ ...painel, textAlign: "left", borderColor: "rgba(226,75,74,0.35)" }}>
+        <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 6, color: "#C0312F" }}>Não foi possível ler as campanhas do Google Ads</p>
+        <p style={{ fontSize: 13, color: sec, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{campanhas.error.message}</p>
+        <p style={{ fontSize: 12, color: sec, opacity: 0.75, marginTop: 10 }}>
+          Conta {conta.data.customerId}{conta.data.accountName ? ` · ${conta.data.accountName}` : ""} · período: {periodLabel}
+        </p>
+      </div>
+    );
+  }
+
+  const lista = campanhas.data ?? [];
+
+  // Conectado e sem dados NO PERÍODO. Estado diferente de "não conectado" —
+  // confundir os dois faz o time reconectar uma integração que está saudável.
+  if (lista.length === 0) {
+    return <Vazio titulo="Google Ads conectado, mas sem dados no período selecionado"
+      texto={`A conta ${conta.data.customerId} está vinculada e respondendo. Não houve campanhas com veiculação no período escolhido.`}
+      acao={linkDedicada} />;
+  }
+
+  const t = lista.reduce((a, c) => ({
+    spend: a.spend + Number(c.spend ?? 0), clicks: a.clicks + Number(c.clicks ?? 0),
+    impressions: a.impressions + Number(c.impressions ?? 0), conversions: a.conversions + Number(c.conversions ?? 0),
+  }), { spend: 0, clicks: 0, impressions: 0, conversions: 0 });
+  const brl = (n: number) => "R$ " + n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const int = (n: number) => n.toLocaleString("pt-BR");
+
+  return (
+    <div style={{ ...painel, textAlign: "left", padding: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderBottom: "0.5px solid var(--color-border-tertiary)", flexWrap: "wrap" }}>
+        <div>
+          <p style={{ fontSize: 13, fontWeight: 600 }}>Google Ads · {conta.data.accountName ?? conta.data.customerId}</p>
+          <p style={{ fontSize: 12, color: sec }}>
+            {lista.length} campanha(s) · {brl(t.spend)} · {int(t.clicks)} cliques · {int(t.impressions)} impressões · {int(t.conversions)} conversões
+          </p>
+        </div>
+        {linkDedicada}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ textAlign: "left", color: sec, fontSize: 11 }}>
+              <th style={{ padding: "8px 18px", fontWeight: 500 }}>Campanha</th>
+              <th style={{ padding: "8px 10px", fontWeight: 500 }}>Status</th>
+              <th style={{ padding: "8px 10px", fontWeight: 500, textAlign: "right" }}>Investimento</th>
+              <th style={{ padding: "8px 10px", fontWeight: 500, textAlign: "right" }}>Cliques</th>
+              <th style={{ padding: "8px 10px", fontWeight: 500, textAlign: "right" }}>Impressões</th>
+              <th style={{ padding: "8px 18px", fontWeight: 500, textAlign: "right" }}>Conversões</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lista.map((c) => (
+              <tr key={c.id} style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+                <td style={{ padding: "9px 18px" }}>{c.name}</td>
+                <td style={{ padding: "9px 10px" }}>
+                  <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 99,
+                    background: c.status === "ENABLED" ? "rgba(29,158,117,0.12)" : "rgba(0,0,0,0.06)",
+                    color: c.status === "ENABLED" ? "#1D9E75" : sec }}>
+                    {c.status === "ENABLED" ? "Ativa" : "Pausada"}
+                  </span>
+                </td>
+                <td style={{ padding: "9px 10px", textAlign: "right" }}>{brl(Number(c.spend ?? 0))}</td>
+                <td style={{ padding: "9px 10px", textAlign: "right" }}>{int(Number(c.clicks ?? 0))}</td>
+                <td style={{ padding: "9px 10px", textAlign: "right" }}>{int(Number(c.impressions ?? 0))}</td>
+                <td style={{ padding: "9px 18px", textAlign: "right" }}>{int(Number(c.conversions ?? 0))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p style={{ fontSize: 11, color: sec, opacity: 0.7, padding: "10px 18px" }}>Período: {periodLabel}</p>
     </div>
   );
 }

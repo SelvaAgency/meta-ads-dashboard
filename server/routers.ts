@@ -4397,9 +4397,23 @@ export const appRouter = router({
      * Sem vínculo devolve null, e a tela diz "ainda não vinculado" em vez de
      * mostrar conta de outro cliente.
      */
+    /**
+     * A conta vinculada a este cliente — SEM o refresh token.
+     *
+     * `contaGoogleDoCliente` faz select de tudo, e devolver a linha inteira
+     * mandava a credencial para o navegador. Nenhuma tela precisa dela: as duas
+     * consumidoras usam só id, customerId e accountName.
+     */
     contaDoCliente: protectedProcedure
       .input(z.object({ accountId: z.number().int() }))
-      .query(({ input }) => contaGoogleDoCliente(input.accountId)),
+      .query(async ({ input }) => {
+        const c = await contaGoogleDoCliente(input.accountId);
+        if (!c) return null;
+        return {
+          id: c.id, customerId: c.customerId, accountName: c.accountName,
+          linkedAccountId: c.linkedAccountId, lastSyncAt: c.lastSyncAt,
+        };
+      }),
 
     /** Vincula/desvincula uma conta Google a um cliente do Tracker. Admin/dev. */
     vincularConta: protectedProcedure
