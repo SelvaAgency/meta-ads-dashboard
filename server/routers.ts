@@ -298,6 +298,7 @@ import { obterBriefingDoDia } from "./services/briefingService";
 import { dispararResumoManual, previewResumoManual, hojeAgencia } from "./notificationJobs";
 import { emailMode, destinatariosDeTeste, transporteAtivo } from "./emailService";
 import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
+import { fontesDoCliente, fontesDeTodasAsContas } from "./services/fontesDoCliente";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
 import { buildClientIntelligenceContext, contextoParaTexto, fontesDe, MODULOS, MODULOS_SITE } from "./services/clientIntelligence";
 import { gerarRelatorioModular, PRESETS, tierDe } from "./services/reportBuilder";
@@ -4336,6 +4337,23 @@ export const appRouter = router({
       }
     }),
   }),
+  /**
+   * Fontes de dados por cliente — o que está conectado, lido do BANCO.
+   *
+   * Os chips liam um arquivo hardcoded no frontend: "Meta Ads" era verde fixo
+   * (mesmo em conta sem sincronizar há sete semanas) e Google Ads estava
+   * apagado para todos (mesmo com quatro contas vinculadas de verdade).
+   */
+  fontes: router({
+    /** Do cliente selecionado. */
+    doCliente: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(({ input }) => fontesDoCliente(input.accountId)),
+
+    /** De todos — o seletor de clientes desenha chips de uma vez só. */
+    todas: protectedProcedure.query(() => fontesDeTodasAsContas()),
+  }),
+
   // ─── Google Ads ──────────────────────────────────────────────────────────
   googleAds: router({
     // Check if Google Ads is configured

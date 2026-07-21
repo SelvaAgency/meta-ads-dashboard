@@ -790,6 +790,14 @@ export const ga4Accounts = mysqlTable("ga4_accounts", {
   propertyId: varchar("propertyId", { length: 20 }).notNull(), // GA4 property ID
   propertyName: varchar("propertyName", { length: 255 }),
   websiteUrl: varchar("websiteUrl", { length: 512 }),
+  /**
+   * Cliente (meta_ad_accounts.id) dono desta propriedade. NULL = descoberta mas
+   * ainda não vinculada — o vínculo é sempre manual, como no google_ad_accounts.
+   *
+   * Sem esta coluna não há como dizer "esta propriedade é deste cliente", e o
+   * GA4 não tem como virar fonte confiável no dashboard.
+   */
+  linkedAccountId: int("linkedAccountId"),
   refreshToken: text("refreshToken").notNull(),
   currency: varchar("currency", { length: 8 }).default("BRL"),
   timezone: varchar("timezone", { length: 64 }).default("America/Sao_Paulo"),

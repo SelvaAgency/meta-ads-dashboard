@@ -1,6 +1,15 @@
 /**
- * Client Configuration
- * Maps Meta Ads account IDs to clients and defines client metadata.
+ * Identidade visual dos clientes — nome, cor, avatar, agrupamento de contas Meta.
+ *
+ * ATENÇÃO: este arquivo NÃO é mais a fonte de verdade sobre o que está
+ * conectado. Quem responde isso é `server/services/fontesDoCliente.ts`, lendo o
+ * banco. A precedência é: banco > legado daqui > ausente.
+ *
+ * Por que mudou (medido em 21/07/2026): o chip "Meta Ads" era verde fixo, mesmo
+ * na ARKA — sete semanas sem sincronizar e com token expirado. E como NENHUM
+ * dos 11 clientes preenchia `ga4PropertyId` ou `googleAdsCustomerId`, o chip do
+ * Google Ads ficava apagado para todos, enquanto quatro contas estavam
+ * vinculadas de verdade no banco.
  */
 
 export interface ClientConfig {
@@ -10,7 +19,9 @@ export interface ClientConfig {
   color: string;
   metaAccountIds: string[];
   pictureUrl?: string;
+  /** @deprecated Legado. O vínculo real vive em `ga4_accounts.linkedAccountId`. */
   ga4PropertyId?: string;
+  /** @deprecated Legado. O vínculo real vive em `google_ad_accounts.linkedAccountId`. */
   googleAdsCustomerId?: string;
 }
 
@@ -108,6 +119,7 @@ export interface ClientIntegrationStatus {
   googleAds: boolean;
 }
 
+/** @deprecated Use `trpc.fontes.doCliente` — esta função só enxerga o cadastro estático. */
 export function getIntegrationStatus(client: ClientConfig): ClientIntegrationStatus {
   return {
     meta: client.metaAccountIds.length > 0,

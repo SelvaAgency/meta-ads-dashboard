@@ -40,6 +40,14 @@ async function columnExists(conn, table, column) {
   return rows.length > 0;
 }
 
+async function tableExists(conn, table) {
+  const [rows] = await conn.query(
+    "SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1",
+    [table],
+  );
+  return rows.length > 0;
+}
+
 async function main() {
   const conn = await mysql.createConnection(url);
   try {
@@ -800,6 +808,15 @@ async function main() {
       await conn.query("ALTER TABLE `email_send_log` ADD COLUMN `blocos` VARCHAR(160) NULL");
     }
     console.log("[ensure-schema] ok  · email_send_log garantida");
+
+    // 21c) Vínculo propriedade GA4 → cliente. Aditivo e nullable: nenhum registro
+    // existente muda, e o vínculo continua sendo manual.
+    if (await tableExists(conn, "ga4_accounts")) {
+      if (!(await columnExists(conn, "ga4_accounts", "linkedAccountId"))) {
+        await conn.query("ALTER TABLE `ga4_accounts` ADD COLUMN `linkedAccountId` INT NULL");
+        console.log("[ensure-schema] ok  · ga4_accounts.linkedAccountId adicionada");
+      }
+    }
 
     // 22) Exclusão permanente de usuário (anônima — ver users.deletedAt no schema).
     if (!(await columnExists(conn, "users", "deletedAt"))) {

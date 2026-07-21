@@ -1,9 +1,9 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { type Fonte, type StatusFonte, type ChaveFonte } from "@shared/fontes";
 import { isEmbedded } from "@/pages/hub/embed";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
-import { getIntegrationStatus } from "@/config/clientConfig";
 import {
   Users,
   BarChart3,
@@ -57,7 +57,44 @@ const TEXT_NORMAL = "rgba(255,255,255,0.55)";
 const TEXT_DIM    = "rgba(255,255,255,0.35)";
 const DIVIDER     = "0.5px solid rgba(255,255,255,0.08)";
 
+/**
+ * Mini-chip de fonte no seletor de clientes. Mesma verdade do AccountHeader:
+ * as duas telas leem o mesmo resolvedor, então não podem divergir sobre o que
+ * "conectado" significa.
+ */
+const TOM_FONTE: Record<StatusFonte, string> = {
+  ok:      "bg-emerald-500/15 text-emerald-400",
+  atencao: "bg-amber-500/15 text-amber-400",
+  erro:    "bg-red-500/15 text-red-400",
+  ausente: "",
+};
+
+function ChipsDeFonte({ fontes }: { fontes: Fonte[] | undefined }) {
+  const visiveis = (fontes ?? []).filter((f) => f.status !== "ausente");
+  if (visiveis.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1 mt-0.5">
+      {visiveis.map((f) => (
+        <span key={f.chave} title={f.porque ?? f.rotulo}
+          className={`text-[9px] px-1 rounded ${TOM_FONTE[f.status]}`}>
+          {ROTULO_CURTO[f.chave] ?? f.rotulo}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+const ROTULO_CURTO: Partial<Record<ChaveFonte, string>> = {
+  meta: "Meta", google_ads: "Ads", ga4: "GA4", clarity: "Clarity", pagespeed: "Speed", site: "Site",
+};
+
 export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProps) {
+  // Em lote: o seletor desenha chips de TODOS os clientes. Uma consulta por
+  // cliente seria N+1 na abertura de um dropdown.
+  const { data: fontesPorConta } = trpc.fontes.todas.useQuery(undefined, { staleTime: 60_000 });
+  const fontesDe = (id: number | undefined) =>
+    id == null ? undefined : fontesPorConta?.find((f) => f.accountId === id)?.fontes;
+
   const { user, loading, isAuthenticated, logout } = useAuth();
   // Embutido no Selva Spaces (iframe) → conta/logout ficam na sidebar do Spaces.
   const embedded = isEmbedded();
@@ -335,15 +372,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                         {activeClient?.name ?? "Selecionar cliente"}
                       </p>
                       {activeClient && (
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span className="text-[9px] px-1 rounded" style={{ background: "rgba(59,130,246,0.15)", color: "#60a5fa" }}>Meta</span>
-                          {activeClient.ga4PropertyId && (
-                            <span className="text-[9px] px-1 rounded" style={{ background: "rgba(16,185,129,0.15)", color: "#34d399" }}>GA4</span>
-                          )}
-                          {activeClient.googleAdsCustomerId && (
-                            <span className="text-[9px] px-1 rounded" style={{ background: "rgba(245,158,11,0.15)", color: "#fbbf24" }}>Ads</span>
-                          )}
-                        </div>
+                        <ChipsDeFonte fontes={fontesDe(activeAccountId ?? undefined)} />
                       )}
                     </div>
                     <ChevronDown className="w-3 h-3 flex-shrink-0" style={{ color: TEXT_DIM }} />
@@ -370,7 +399,6 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 <DropdownMenuSeparator />
                 {clientAccounts.map((ca) => {
                   const isActiveCa = activeClient?.slug === ca.client.slug;
-                  const integrations = getIntegrationStatus(ca.client);
                   return (
                     <DropdownMenuItem
                       key={ca.client.slug}
@@ -390,11 +418,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                       </div>
                       <div className="flex-1 overflow-hidden">
                         <p className="text-xs font-medium truncate">{ca.client.name}</p>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          {integrations.meta && <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-400">Meta</span>}
-                          {integrations.ga4 && <span className="text-[9px] px-1 rounded bg-emerald-500/15 text-emerald-400">GA4</span>}
-                          {integrations.googleAds && <span className="text-[9px] px-1 rounded bg-amber-500/15 text-amber-400">Ads</span>}
-                        </div>
+                        <ChipsDeFonte fontes={fontesDe(ca.accounts[0]?.id)} />
                       </div>
                       {isActiveCa && <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />}
                     </DropdownMenuItem>

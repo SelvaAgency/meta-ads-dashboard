@@ -16,6 +16,8 @@ export default defineConfig({
     environment: "node",
     // client/ entra aqui para a lógica pura (rotas, formatação) ser testável.
     // Componentes precisariam de jsdom — quando houver, criar um projeto à parte.
-    include: ["server/**/*.test.ts", "server/**/*.spec.ts", "client/**/*.test.ts"],
+    // `shared/` também: é onde vivem as regras que servidor e cliente compartilham
+    // (matriz de papéis, classificação de fontes). Ficavam fora da suíte.
+    include: ["server/**/*.test.ts", "server/**/*.spec.ts", "client/**/*.test.ts", "shared/**/*.test.ts"],
   },
 });

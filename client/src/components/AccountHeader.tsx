@@ -1,12 +1,50 @@
 import { trpc } from "@/lib/trpc";
 import { ContextPanel } from "@/components/ContextPanel";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
-import { getClientByMetaAccountId, getIntegrationStatus } from "@/config/clientConfig";
+import { getClientByMetaAccountId } from "@/config/clientConfig";
 import { RefreshCw, ChevronDown, ChevronUp, Check, Brain, Eye, CheckCircle2 } from "lucide-react";
 import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { KPI_CONFIGS, getDayStatus, type GoalType } from "@/lib/kpiConfig";
+import { type Fonte, type StatusFonte, type ChaveFonte } from "@shared/fontes";
+
+/**
+ * Cores por status. Antes o chip "Meta Ads" era a string fixa "● Meta Ads" —
+ * verde mesmo na ARKA, sete semanas sem sincronizar. Verde só quando é verdade.
+ */
+/**
+ * A F1 mantém os MESMOS três chips de antes — só que dizendo a verdade. As
+ * outras três fontes (Clarity, PageSpeed, Site) já vêm do resolvedor e entram
+ * na faixa de fontes da F2; criar seis chips agora seria mudança de layout.
+ */
+const CHIPS_NO_HEADER: ChaveFonte[] = ["meta", "google_ads", "ga4"];
+
+const CORES_FONTE: Record<StatusFonte, { cor: string; fundo: string; borda: string; op: number; marca: string }> = {
+  ok:      { cor: "#1D9E75", fundo: "rgba(29,158,117,0.1)",  borda: "rgba(29,158,117,0.25)",  op: 1,    marca: "●" },
+  atencao: { cor: "#B97D10", fundo: "rgba(239,159,39,0.12)", borda: "rgba(239,159,39,0.3)",   op: 1,    marca: "▲" },
+  erro:    { cor: "#C0312F", fundo: "rgba(226,75,74,0.12)",  borda: "rgba(226,75,74,0.3)",    op: 1,    marca: "▲" },
+  ausente: { cor: "#8a8a8a", fundo: "rgba(0,0,0,0.04)",      borda: "rgba(0,0,0,0.1)",        op: 0.45, marca: "○" },
+};
+
+/** Pastilha de fonte. `title` carrega o motivo — discreto, sem virar card. */
+function ChipFonte({ fonte }: { fonte: Fonte }) {
+  const c = CORES_FONTE[fonte.status];
+  const alerta = fonte.status === "atencao" || fonte.status === "erro";
+  return (
+    <span
+      title={fonte.porque ? `${fonte.rotulo}${alerta ? " · atenção" : ""}\n${fonte.porque}` : fonte.rotulo}
+      style={{
+        fontSize: 10, fontWeight: 500, color: c.cor, opacity: c.op,
+        padding: "1px 7px", borderRadius: 99, background: c.fundo,
+        border: `1px solid ${c.borda}`, whiteSpace: "nowrap",
+        cursor: fonte.porque ? "help" : "default",
+      }}
+    >
+      {c.marca} {fonte.rotulo}
+    </span>
+  );
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -105,10 +143,6 @@ export function AccountHeader({
     () => activeAccount ? getClientByMetaAccountId(activeAccount.accountId) : null,
     [activeAccount]
   );
-  const integrations = useMemo(
-    () => activeClient ? getIntegrationStatus(activeClient) : null,
-    [activeClient]
-  );
 
   const today     = toIsoLocal(new Date());
   const yesterday = toIsoLocal(new Date(Date.now() - 86_400_000));
@@ -120,6 +154,15 @@ export function AccountHeader({
   const { data: yestData } = trpc.dashboard.overview.useQuery(
     { accountId: selectedAccountId!, startDate: yesterday, endDate: yesterday },
     { enabled: !!selectedAccountId, staleTime: 60_000 }
+  );
+
+  /**
+   * Fontes do cliente, do banco. O `integrations` do clientConfig continua
+   * existindo para identidade visual, mas não decide mais o que está conectado.
+   */
+  const { data: fontes } = trpc.fontes.doCliente.useQuery(
+    { accountId: selectedAccountId! },
+    { enabled: !!selectedAccountId },
   );
 
   const { data: suggestions } = trpc.suggestions.list.useQuery(
@@ -304,35 +347,11 @@ export function AccountHeader({
           </div>
         )}
 
-        {/* Platform pills */}
+        {/* Fontes conectadas — lidas do BANCO, não do clientConfig hardcoded. */}
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
-          <span style={{
-            fontSize: 10, fontWeight: 500, color: "#1D9E75",
-            padding: "1px 7px", borderRadius: 99,
-            background: "rgba(29,158,117,0.1)", border: "1px solid rgba(29,158,117,0.25)",
-          }}>
-            ● Meta Ads
-          </span>
-          <span style={{
-            fontSize: 10, fontWeight: 500,
-            color: integrations?.ga4 ? "#60a5fa" : muted,
-            opacity: integrations?.ga4 ? 1 : 0.45,
-            padding: "1px 7px", borderRadius: 99,
-            background: integrations?.ga4 ? "rgba(96,165,250,0.1)" : "rgba(0,0,0,0.04)",
-            border: `1px solid ${integrations?.ga4 ? "rgba(96,165,250,0.25)" : "rgba(0,0,0,0.1)"}`,
-          }}>
-            {integrations?.ga4 ? "●" : "○"} GA4
-          </span>
-          <span style={{
-            fontSize: 10, fontWeight: 500,
-            color: integrations?.googleAds ? "#fbbf24" : muted,
-            opacity: integrations?.googleAds ? 1 : 0.45,
-            padding: "1px 7px", borderRadius: 99,
-            background: integrations?.googleAds ? "rgba(251,191,36,0.1)" : "rgba(0,0,0,0.04)",
-            border: `1px solid ${integrations?.googleAds ? "rgba(251,191,36,0.25)" : "rgba(0,0,0,0.1)"}`,
-          }}>
-            {integrations?.googleAds ? "●" : "○"} Google Ads
-          </span>
+          {(fontes ?? []).filter((f) => CHIPS_NO_HEADER.includes(f.chave)).map((f) => (
+            <ChipFonte key={f.chave} fonte={f} />
+          ))}
         </div>
 
         {/* Contexto button */}
