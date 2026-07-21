@@ -289,14 +289,14 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
-import { clientesComNotificacao, excluirUsuarioPermanente, getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, upsertPerfSettings, ultimoSiteSnapshot, serieSiteSnapshots, ultimoSnapshotPorProvider, serieSnapshotsPorProvider, contasComSite, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat } from "./db";
+import { clientesComNotificacao, excluirUsuarioPermanente, getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, upsertPerfSettings, ultimoSiteSnapshot, serieSiteSnapshots, ultimoSnapshotPorProvider, serieSnapshotsPorProvider, contasComSite, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat, resumoEnviosEmail, ultimosEnviosEmail } from "./db";
 import { sincronizarClarity, sincronizarPerformance, checarSegurancaCliente, checarUptimeCliente } from "./clarityJobs";
 import { validarUrlPublica } from "./services/urlGuard";
 import { isPageSpeedConfigured } from "./services/sitePerformanceService";
 import { gerarSiteReport, siteReportMarkdown } from "./services/siteReportService";
 import { obterBriefingDoDia } from "./services/briefingService";
 import { dispararResumoManual, previewResumoManual } from "./notificationJobs";
-import { emailMode } from "./emailService";
+import { emailMode, destinatariosDeTeste, transporteAtivo } from "./emailService";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
 import { buildClientIntelligenceContext, contextoParaTexto, fontesDe, MODULOS, MODULOS_SITE } from "./services/clientIntelligence";
 import { gerarRelatorioModular, PRESETS, tierDe } from "./services/reportBuilder";
@@ -1995,6 +1995,59 @@ export const appRouter = router({
         await updateDigestSettings(input, ctx.user.id);
         return { success: true } as const;
       }),
+
+    /**
+     * Diagnóstico de email para admin/dev.
+     *
+     * Existe porque o sintoma "não chegou" não tinha onde ser investigado: o erro
+     * do SMTP morria num console.error que o Railway apaga a cada deploy. Agora a
+     * verdade fica no banco e aparece aqui.
+     */
+    diagnosticoEmail: adminProcedure
+      .input(z.object({ dias: z.number().int().min(1).max(30).default(7), limite: z.number().int().min(1).max(200).default(30) }).default({ dias: 7, limite: 30 }))
+      .query(async ({ input }) => {
+        const [resumo, ultimos, cfg] = await Promise.all([
+          resumoEnviosEmail(input.dias),
+          ultimosEnviosEmail(input.limite),
+          getDigestSettings(),
+        ]);
+        return {
+          modo: emailMode(),
+          resumo,
+          ultimos,
+          proximoEnvio: cfg.autoEnabled ? `${cfg.defaultTime} ${cfg.timezone}` : null,
+          autoLigado: cfg.autoEnabled,
+        };
+      }),
+
+    /**
+     * Teste de envio — SEMPRE restrito. Manda só para EMAIL_TEST_RECIPIENT; sem
+     * essa variável definida, recusa em vez de cair na lista real. Uma regra de
+     * produto ("teste não vai para colaborador") que só vive no front é uma regra
+     * que alguém contorna sem querer.
+     */
+    testarEnvioEmail: adminProcedure.mutation(async ({ ctx }) => {
+      const destinos = destinatariosDeTeste();
+      if (destinos.length === 0) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Defina EMAIL_TEST_RECIPIENT antes de testar — sem ela o teste iria para os destinatários reais.",
+        });
+      }
+      const quando = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" }).format(new Date());
+      const envio = await sendEmail({
+        to: destinos,
+        subject: `Teste de envio · ${quando}`,
+        html: `<div style="font:14px Arial,sans-serif;color:#333">
+          <p>Teste de envio do SELVA Spaces.</p>
+          <p style="color:#666;font-size:12px">Transporte: <strong>${transporteAtivo()}</strong> · disparado por ${ctx.user.name ?? ctx.user.id} em ${quando}.</p>
+        </div>`,
+        text: `Teste de envio do SELVA Spaces. Transporte: ${transporteAtivo()}. Disparado por ${ctx.user.name ?? ctx.user.id} em ${quando}.`,
+        tipo: "teste",
+        userId: ctx.user.id,
+      });
+      return { ...envio, transporte: transporteAtivo(), destinos };
+    }),
 
     /** Prévia do disparo manual: alcance e avisos antes de mandar. */
     previewResumo: adminProcedure

@@ -1,13 +1,26 @@
 import { logger } from "./logger";
 /**
- * emailService.ts — Serviço de envio de email via SMTP (nodemailer).
+ * emailService.ts — Envio de email.
  *
- * Usa variáveis de ambiente:
- *   SMTP_HOST     (default: smtp.gmail.com)
- *   SMTP_PORT     (default: 587)
- *   SMTP_USER     (ex: dashboard@selva.agency)
- *   SMTP_PASS     (app password do Google Workspace)
- *   SMTP_FROM     (default: SMTP_USER)
+ * ─── Por que existem DOIS transportes ───────────────────────────────────────
+ * O Railway BLOQUEIA porta SMTP de saída (25/465/587/2525 dão timeout; HTTPS
+ * passa normalmente). Comprovado por teste TCP dentro do container em 21/07/26.
+ * Foi por isso que o email nunca chegou em produção — um dia sequer — enquanto a
+ * mesma credencial funcionava do terminal, que não passa pela rede do Railway.
+ *
+ * Então:
+ *   produção  → Resend, API sobre HTTPS (é o que a plataforma deixa sair)
+ *   local/dev → SMTP, que continua útil e não depende de chave nenhuma
+ *
+ * A escolha é automática: havendo RESEND_API_KEY, usa Resend. É deliberado que
+ * SMTP continue como alternativa — se um dia a plataforma mudar, ou o envio
+ * rodar fora do Railway, o caminho ainda está aqui.
+ *
+ * Variáveis:
+ *   RESEND_API_KEY   chave da API (produção)
+ *   EMAIL_FROM       remetente; default SMTP_FROM. Precisa ser de domínio
+ *                    verificado no Resend, senão a API recusa.
+ *   SMTP_HOST/PORT/USER/PASS/FROM   caminho SMTP (local)
  */
 
 import nodemailer from "nodemailer";
@@ -18,6 +31,17 @@ const SMTP_PORT = Number(process.env.SMTP_PORT || "587");
 const SMTP_USER = process.env.SMTP_USER || "";
 const SMTP_PASS = process.env.SMTP_PASS || "";
 const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
+
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const EMAIL_FROM = process.env.EMAIL_FROM || SMTP_FROM;
+
+export type Transporte = "resend" | "smtp" | "nenhum";
+
+export function transporteAtivo(): Transporte {
+  if (RESEND_API_KEY) return "resend";
+  if (SMTP_USER && SMTP_PASS) return "smtp";
+  return "nenhum";
+}
 
 /**
  * ─── Trava de segurança de envio ────────────────────────────────────────────
@@ -54,8 +78,11 @@ export function destinatariosDeTeste(): string[] {
 }
 
 /** Como o envio está configurado agora — a UI mostra isso antes de disparar. */
-export function emailMode(): { dryRun: boolean; testRecipients: string[]; configured: boolean } {
-  return { dryRun: isDryRun(), testRecipients: destinatariosDeTeste(), configured: isEmailConfigured() };
+export function emailMode(): { dryRun: boolean; testRecipients: string[]; configured: boolean; transporte: Transporte; remetente: string } {
+  return {
+    dryRun: isDryRun(), testRecipients: destinatariosDeTeste(),
+    configured: isEmailConfigured(), transporte: transporteAtivo(), remetente: EMAIL_FROM,
+  };
 }
 
 let transporter: nodemailer.Transporter | null = null;
@@ -116,6 +143,31 @@ function marcarCorpoDeTeste(html: string, destinoOriginal: string): string {
 }
 
 /**
+ * Entrega para UM endereço e devolve o id da mensagem. LANÇA em caso de falha —
+ * quem chama registra o erro. Nunca engolir aqui: era exatamente isso que
+ * escondia o bloqueio de SMTP do Railway.
+ */
+async function entregar(para: string, assunto: string, html: string, text?: string): Promise<string> {
+  if (RESEND_API_KEY) {
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: EMAIL_FROM, to: [para], subject: assunto, html, ...(text ? { text } : {}) }),
+    });
+    const corpo = await resp.text();
+    if (!resp.ok) {
+      // A mensagem do Resend é específica e útil ("domain not verified",
+      // "from must be a verified domain") — vale propagar inteira.
+      throw new Error(`Resend ${resp.status}: ${corpo.slice(0, 300)}`);
+    }
+    try { return (JSON.parse(corpo) as { id?: string }).id ?? "sem-id"; } catch { return "sem-id"; }
+  }
+
+  const info = await getTransporter().sendMail({ from: EMAIL_FROM, to: para, subject: assunto, html, text });
+  return info.messageId;
+}
+
+/**
  * Envia e DEVOLVE O QUE ACONTECEU.
  *
  * Antes esta função capturava a falha do SMTP e devolvia `false`, sem gravar o
@@ -158,18 +210,13 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
     }
 
     try {
-      const info = await getTransporter().sendMail({
-        from: SMTP_FROM,
-        to: para,
-        subject: assunto,
-        html: redirecionado ? marcarCorpoDeTeste(opts.html, destinoOriginal) : opts.html,
-        text: opts.text,
-      });
-      logger.info(`[EmailService] ✓ ${tipo} → ${para}${redirecionado ? ` (original: ${destinoOriginal})` : ""} · ${info.messageId}`);
-      entregas.push({ ...base, ok: true, messageId: info.messageId });
+      const corpo = redirecionado ? marcarCorpoDeTeste(opts.html, destinoOriginal) : opts.html;
+      const messageId = await entregar(para, assunto, corpo, opts.text);
+      logger.info(`[EmailService] ✓ ${tipo} → ${para}${redirecionado ? ` (original: ${destinoOriginal})` : ""} · ${transporteAtivo()} · ${messageId}`);
+      entregas.push({ ...base, ok: true, messageId });
       await registrarEnvioEmail({
         tipo, assunto, destinatarioOriginal: destinoOriginal, destinatarioFinal: para,
-        redirecionado, status: "sent", messageId: info.messageId, userId: opts.userId,
+        redirecionado, status: "sent", messageId, userId: opts.userId,
       });
     } catch (err) {
       const msg = (err as Error)?.message ?? String(err);
@@ -191,7 +238,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
 }
 
 export function isEmailConfigured(): boolean {
-  return !!(SMTP_USER && SMTP_PASS);
+  return transporteAtivo() !== "nenhum";
 }
 
 /** Destinatários padrão do report diário SELVA */
