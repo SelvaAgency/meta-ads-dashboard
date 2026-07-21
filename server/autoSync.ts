@@ -854,12 +854,13 @@ async function runDailyReport() {
       console.error("[DailyReport] No report data returned:", JSON.stringify(json).slice(0, 500));
       return;
     }
-    const sent = await sendEmail({
+    const envio = await sendEmail({
       to: DAILY_REPORT_RECIPIENTS,
       subject: data.subject,
       html: data.html,
       text: data.plainText,
     });
+    const sent = envio.ok;
     if (sent) {
       console.log(`[DailyReport] ✓ Report sent: ${data.subject} → ${DAILY_REPORT_RECIPIENTS.length} recipients`);
     } else {
@@ -887,12 +888,13 @@ async function runDailyProgress() {
       return;
     }
     console.log(`[DailyProgress] Generated report: ${data.commitCount ?? 0} commits, dataSourceFailed=${data.dataSourceFailed ?? false}`);
-    const sent = await sendEmail({
+    const envio = await sendEmail({
       to: DAILY_REPORT_RECIPIENTS,
       subject: data.subject,
       html: data.html,
       text: data.plainText,
     });
+    const sent = envio.ok;
     if (sent) {
       console.log(`[DailyProgress] ✓ Progress report sent: ${data.subject} → ${DAILY_REPORT_RECIPIENTS.length} recipients`);
     } else {

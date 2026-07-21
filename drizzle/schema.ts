@@ -426,6 +426,40 @@ export const dailyDigestRecipients = mysqlTable("daily_digest_recipients", {
 }));
 export type DailyDigestRecipient = typeof dailyDigestRecipients.$inferSelect;
 
+/**
+ * Auditoria de TODO envio de email — uma linha por destinatário final.
+ *
+ * Existe porque `sendEmail` engolia a falha num `return false`: o job registrava
+ * sucesso, o email não chegava, e o único vestígio era um console.error que o
+ * Railway apaga a cada deploy. Sem registro durável, ninguém consegue responder
+ * "por que não chegou?".
+ *
+ * Uma linha POR DESTINATÁRIO (nunca CC/BCC): se um endereço falha e o outro
+ * entrega, os dois aparecem, com o motivo de quem falhou.
+ */
+export const emailSendLog = mysqlTable("email_send_log", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Rótulo do envio: digest, financeiro, comunicado, teste… — agrupa o diagnóstico. */
+  tipo: varchar("tipo", { length: 40 }).default("outro").notNull(),
+  assunto: varchar("assunto", { length: 255 }).notNull(),
+  /** Para quem o sistema QUIS mandar. */
+  destinatarioOriginal: varchar("destinatarioOriginal", { length: 320 }).notNull(),
+  /** Para quem realmente foi (difere quando EMAIL_TEST_RECIPIENT desvia). */
+  destinatarioFinal: varchar("destinatarioFinal", { length: 320 }).notNull(),
+  redirecionado: boolean("redirecionado").default(false).notNull(),
+  /** sent | failed | dry_run */
+  status: varchar("status", { length: 12 }).notNull(),
+  /** Mensagem real do SMTP quando falha — o que faltava para diagnosticar. */
+  erro: text("erro"),
+  userId: int("userId"),
+  messageId: varchar("messageId", { length: 255 }),
+  criadoEm: timestamp("criadoEm").defaultNow().notNull(),
+}, (table) => ({
+  idxCriado: index("idx_email_log_criado").on(table.criadoEm),
+  idxTipo: index("idx_email_log_tipo").on(table.tipo, table.criadoEm),
+}));
+export type EmailSendLogRow = typeof emailSendLog.$inferSelect;
+
 // ─── Configurações simples (key-value) — ex.: slide "Você prefere?" da SELVA TV ─
 export const appSettings = mysqlTable("app_settings", {
   settingKey: varchar("settingKey", { length: 191 }).primaryKey(),

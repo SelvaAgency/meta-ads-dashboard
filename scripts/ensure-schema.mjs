@@ -772,6 +772,26 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · daily_digest_settings / overrides / recipients garantidas");
 
+    // 21b) Auditoria de envio de email — sem isto a falha do SMTP some com o deploy.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`email_send_log\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`tipo\` VARCHAR(40) NOT NULL DEFAULT 'outro',
+        \`assunto\` VARCHAR(255) NOT NULL,
+        \`destinatarioOriginal\` VARCHAR(320) NOT NULL,
+        \`destinatarioFinal\` VARCHAR(320) NOT NULL,
+        \`redirecionado\` BOOLEAN NOT NULL DEFAULT FALSE,
+        \`status\` VARCHAR(12) NOT NULL,
+        \`erro\` TEXT NULL,
+        \`userId\` INT NULL,
+        \`messageId\` VARCHAR(255) NULL,
+        \`criadoEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_email_log_criado\` (\`criadoEm\`),
+        KEY \`idx_email_log_tipo\` (\`tipo\`, \`criadoEm\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · email_send_log garantida");
+
     // 22) Exclusão permanente de usuário (anônima — ver users.deletedAt no schema).
     if (!(await columnExists(conn, "users", "deletedAt"))) {
       await conn.query("ALTER TABLE `users` ADD COLUMN `deletedAt` TIMESTAMP NULL");

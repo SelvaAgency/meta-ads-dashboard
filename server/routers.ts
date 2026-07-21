@@ -4012,8 +4012,14 @@ export const appRouter = router({
       return { subject, html, plainText, date: dateStr, accountCount: activeAccounts.length, accountsWithData: accountsWithData.length };
     }),
 
-    // ─── Public endpoint to trigger daily report email (for testing & cron) ───
-    sendDailyReport: publicProcedure.query(async () => {
+    /**
+     * Dispara o relatório diário por email.
+     *
+     * Era `publicProcedure`: qualquer pessoa na internet, sem login, disparava
+     * email para cinco colaboradores. Agora exige admin — o cron chama a função
+     * interna direto, não passa por aqui.
+     */
+    sendDailyReport: adminProcedure.query(async () => {
       if (!isEmailConfigured()) {
         return { success: false, error: "SMTP not configured. Set SMTP_USER and SMTP_PASS env vars." };
       }
@@ -4026,13 +4032,15 @@ export const appRouter = router({
         if (!data?.html || !data?.subject) {
           return { success: false, error: "Failed to generate report data", debug: JSON.stringify(json).slice(0, 500) };
         }
-        const sent = await sendEmail({
+        const envio = await sendEmail({
           to: DAILY_REPORT_RECIPIENTS,
           subject: data.subject,
           html: data.html,
           text: data.plainText,
         });
-        return { success: sent, subject: data.subject, recipients: DAILY_REPORT_RECIPIENTS, accountCount: data.accountCount, accountsWithData: data.accountsWithData };
+        return { success: envio.ok, erro: envio.erro, dryRun: envio.dryRun, redirecionado: envio.redirecionado,
+          subject: data.subject, recipients: DAILY_REPORT_RECIPIENTS, entregas: envio.entregas,
+          accountCount: data.accountCount, accountsWithData: data.accountsWithData };
       } catch (err: any) {
         return { success: false, error: err.message ?? String(err) };
       }
@@ -4200,7 +4208,7 @@ export const appRouter = router({
     }),
 
     // ─── Public endpoint to trigger progress report email ───
-    sendDailyProgress: publicProcedure.query(async () => {
+    sendDailyProgress: adminProcedure.query(async () => {
       if (!isEmailConfigured()) {
         return { success: false, error: "SMTP not configured." };
       }
@@ -4211,13 +4219,15 @@ export const appRouter = router({
         if (!data?.html || !data?.subject) {
           return { success: false, error: "Failed to generate progress report", debug: JSON.stringify(json).slice(0, 500) };
         }
-        const sent = await sendEmail({
+        const envio = await sendEmail({
           to: DAILY_REPORT_RECIPIENTS,
           subject: data.subject,
           html: data.html,
           text: data.plainText,
         });
-        return { success: sent, subject: data.subject, recipients: DAILY_REPORT_RECIPIENTS, commitCount: data.commitCount };
+        return { success: envio.ok, erro: envio.erro, dryRun: envio.dryRun, redirecionado: envio.redirecionado,
+          subject: data.subject, recipients: DAILY_REPORT_RECIPIENTS, entregas: envio.entregas,
+          commitCount: data.commitCount };
       } catch (err: any) {
         return { success: false, error: err.message ?? String(err) };
       }

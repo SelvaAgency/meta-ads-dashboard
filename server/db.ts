@@ -1924,9 +1924,8 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, type InsertClientSocialAccount } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, type InsertClientSocialAccount } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
-import { isDryRun } from "./emailService";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 
 export async function getAccountThresholds(accountId: number) {
@@ -4177,12 +4176,84 @@ export async function contasComPerformance(): Promise<{ accountId: number; nome:
 }
 
 /** Recibo do resumo por (dedupKey, usuário) — ver dailyDigestRecipients. */
-export async function registrarEnvioDigest(userId: number, dedupKey: string, email: string | null) {
+/**
+ * `status` vem de quem chama, não de `isDryRun()` aqui dentro. Era esse import
+ * que criava o ciclo db ↔ emailService — e o ciclo impedia o emailService de
+ * gravar a própria auditoria, que é justamente o que faltava.
+ */
+export async function registrarEnvioDigest(userId: number, dedupKey: string, email: string | null, status: "sent" | "failed" | "dry_run" = "sent") {
   const db = await getDb();
   if (!db) return;
-  const status = isDryRun() ? "dry_run" : "sent";
   await db.insert(dailyDigestRecipients).values({ dedupKey, userId, email, status })
     .onDuplicateKeyUpdate({ set: { status, sentAt: new Date() } });
+}
+
+// ─── Auditoria de envio de email ─────────────────────────────────────────────
+
+export type EnvioEmailRegistro = {
+  tipo: string;
+  assunto: string;
+  destinatarioOriginal: string;
+  destinatarioFinal: string;
+  redirecionado: boolean;
+  status: "sent" | "failed" | "dry_run";
+  erro?: string | null;
+  userId?: number | null;
+  messageId?: string | null;
+};
+
+/**
+ * Grava UMA tentativa de entrega. Nunca lança: se a auditoria falhar, o envio
+ * não pode cair junto — mas o erro vai para o console em voz alta, porque um
+ * log de envio que some em silêncio é exatamente o problema que estamos
+ * consertando.
+ */
+export async function registrarEnvioEmail(r: EnvioEmailRegistro): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) { console.error("[EmailLog] sem banco — envio NÃO auditado:", r.tipo, r.destinatarioFinal, r.status); return; }
+    await db.insert(emailSendLog).values({
+      tipo: r.tipo.slice(0, 40),
+      assunto: r.assunto.slice(0, 255),
+      destinatarioOriginal: r.destinatarioOriginal.slice(0, 320),
+      destinatarioFinal: r.destinatarioFinal.slice(0, 320),
+      redirecionado: r.redirecionado,
+      status: r.status,
+      erro: r.erro ? String(r.erro).slice(0, 4000) : null,
+      userId: r.userId ?? null,
+      messageId: r.messageId ?? null,
+    });
+  } catch (e) {
+    console.error("[EmailLog] falhou ao gravar auditoria de envio:", (e as Error)?.message, r);
+  }
+}
+
+/** Últimos envios, do mais novo para o mais velho — alimenta o painel do admin. */
+export async function ultimosEnviosEmail(limite = 50, tipo?: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const q = db.select().from(emailSendLog);
+  const rows = tipo
+    ? await q.where(eq(emailSendLog.tipo, tipo)).orderBy(desc(emailSendLog.criadoEm)).limit(limite)
+    : await q.orderBy(desc(emailSendLog.criadoEm)).limit(limite);
+  return rows;
+}
+
+/** Placar dos últimos N dias: quantos saíram, quantos falharam, quantos foram dry-run. */
+export async function resumoEnviosEmail(dias = 7) {
+  const db = await getDb();
+  if (!db) return { sent: 0, failed: 0, dry_run: 0, ultimoSucesso: null as Date | null, ultimaFalha: null as Date | null, ultimoErro: null as string | null };
+  const desde = new Date(Date.now() - dias * 86400000);
+  const rows = await db.select().from(emailSendLog).where(gte(emailSendLog.criadoEm, desde));
+  const conta = (st: string) => rows.filter((r) => r.status === st).length;
+  const maisNovo = (st: string) => rows.filter((r) => r.status === st).sort((a, b) => +b.criadoEm - +a.criadoEm)[0] ?? null;
+  const falha = maisNovo("failed");
+  return {
+    sent: conta("sent"), failed: conta("failed"), dry_run: conta("dry_run"),
+    ultimoSucesso: maisNovo("sent")?.criadoEm ?? null,
+    ultimaFalha: falha?.criadoEm ?? null,
+    ultimoErro: falha?.erro ?? null,
+  };
 }
 
 export async function emailDigestJaEnviado(userId: number, dedupKey: string): Promise<boolean> {

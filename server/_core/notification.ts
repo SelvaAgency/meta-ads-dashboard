@@ -77,8 +77,8 @@ export async function notifyOwner(payload: NotificationPayload): Promise<boolean
 </div>`;
 
   try {
-    const sent = await sendEmail({ to, subject: title, html, text: content });
-    return sent;
+    const envio = await sendEmail({ to, subject: title, html, text: content, tipo: "owner" });
+    return envio.ok;
   } catch (err) {
     console.warn("[Notification] Failed to send owner email:", err);
     return false;

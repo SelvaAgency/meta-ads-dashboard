@@ -60,7 +60,7 @@ async function enviarEmails(tipo: NotifTipo, dedupKey: string, subject: string, 
   for (const d of destinos) {
     if (!d.email) continue;
     if (await emailJaEnviado(d.id, dedupKey)) continue;
-    const ok = await sendEmail({ to: d.email, subject, html, text });
+    const { ok } = await sendEmail({ to: d.email, subject, html, text, tipo, userId: d.id });
     if (ok) { await marcarEmailEnviado(d.id, dedupKey); enviados++; }
   }
   return enviados;
@@ -210,10 +210,10 @@ export async function dispararResumoManual(opts: {
     for (const d of elegiveis) {
       if (!d.email) continue;
       if (await emailDigestJaEnviado(d.id, dedupKey)) continue; // não duplica no mesmo dia
-      const ok = await sendEmail({ to: d.email, subject: `[SELVA] ${titulo}`, html, text: texto });
+      const { ok } = await sendEmail({ to: d.email, subject: `[SELVA] ${titulo}`, html, text: texto, tipo: "resumo_manual", userId: d.id });
       if (ok) {
         await marcarEmailEnviado(d.id, dedupKey);          // marca o alert, se existir
-        await registrarEnvioDigest(d.id, dedupKey, d.email); // recibo próprio, sempre
+        await registrarEnvioDigest(d.id, dedupKey, d.email, isDryRun() ? "dry_run" : "sent"); // recibo próprio, sempre
         emails++;
       }
     }
@@ -465,7 +465,7 @@ export async function runDigestDiario(): Promise<{ enviados: number }> {
     const titulo = `Seu resumo do dia · ${fmtData(dia)}`;
     const html = layout(titulo, `<p style="margin:0;font-size:14px;color:#333">${doDigest.length} novidade(s) desde ontem.</p>${secoes}`);
     const texto = doDigest.map((i) => `• ${i.title}`).join("\n");
-    const ok = await sendEmail({ to: p.email, subject: `[SELVA] ${titulo}`, html, text: texto });
+    const { ok } = await sendEmail({ to: p.email, subject: `[SELVA] ${titulo}`, html, text: texto, tipo: "digest", userId: p.id });
     if (ok) { await marcarEmailEnviadoIds(doDigest.map((i) => i.id)); enviados++; }
   }
   logger.info(`[Notif] Digest diário: ${enviados} email(s)`);

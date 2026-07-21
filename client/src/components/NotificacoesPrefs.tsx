@@ -93,11 +93,11 @@ export function ResumoDiarioSection() {
       </div>
 
       {/* Só sai email de verdade em produção com SMTP: dizer isso evita o susto. */}
-      {(d.email.dryRun || !d.email.configured || d.email.testRecipient) && (
+      {(d.email.dryRun || !d.email.configured || d.email.testRecipients.length > 0) && (
         <div className="px-4 py-2.5 bg-amber-500/10 border-t border-amber-500/20">
           <p className="text-[11px] text-amber-700">
             {!d.email.configured ? "SMTP não configurado — nenhum email sai; só notificação no app."
-              : d.email.testRecipient ? `Modo de teste: todo email vai para ${d.email.testRecipient}.`
+              : d.email.testRecipients.length > 0 ? `Modo de teste: todo email é desviado para ${d.email.testRecipients.join(" e ")}.`
               : "Modo de teste (dry-run): nenhum email real é enviado; o app registra quem receberia."}
           </p>
         </div>
