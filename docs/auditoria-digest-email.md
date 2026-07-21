@@ -188,3 +188,45 @@ SMTP_PORT=587                SMTP_USER=contato@selva.agency
 daily_digest_settings: autoEnabled=1, defaultTime=07:30, tz=America/Sao_Paulo
 usuários ativos: 2 admin · 1 developer · 8 user (todos com e-mail)
 ```
+
+---
+
+## RESOLVIDO — a causa real (21/07, teste dentro do container de produção)
+
+Acessei o container de produção via `railway ssh` e testei a rede de dentro.
+
+```
+CONTROLE https googleapis          → 204          ✅ a saída funciona
+tcp www.googleapis.com:443 (v4)    → CONECTOU     ✅
+tcp smtp.gmail.com:587  (v4)       → TIMEOUT      ❌
+tcp smtp.gmail.com:465  (v4)       → TIMEOUT      ❌
+tcp smtp.gmail.com:25   (v4)       → TIMEOUT      ❌
+tcp smtp.gmail.com:2525 (v4)       → TIMEOUT      ❌
+tcp smtp-relay.gmail.com:587 (v4)  → TIMEOUT      ❌
+```
+
+**O Railway bloqueia portas SMTP de saída.** É política da plataforma contra
+abuso de spam. HTTPS sai normalmente — por isso Meta, Google Ads e Clarity
+sempre funcionaram, e só o e-mail nunca funcionou.
+
+Isso explica cada fato da auditoria sem sobrar nada:
+
+- a credencial autentica **de fora** do Railway (meu ambiente) — e falha dentro;
+- **dois jobs independentes** falham no mesmo ponto;
+- os únicos 6 e-mails da história são de 15/07, disparados **do terminal**, fora
+  do Railway — exatamente o que estava sendo chamado de "teste do SMTP funciona".
+
+Um detalhe secundário apareceu junto: o container não tem rota IPv6, e o Node
+resolve `smtp.gmail.com` para IPv6 primeiro — daí o `ENETUNREACH`. Mesmo
+forçando IPv4 o resultado é timeout, então o bloqueio de porta é a causa
+dominante; o IPv6 só mascarava a mensagem.
+
+### Consequência
+
+**Nenhuma correção de código faz o SMTP sair do Railway.** O envio precisa
+trocar de transporte: uma API de e-mail sobre **HTTPS**, que é o que a
+plataforma deixa passar.
+
+Todo o trabalho da E1 continua válido — `email_send_log`, uma entrega por
+destinatário, erro real registrado, `[TESTE]` e desvio por lista. Só a última
+milha (`nodemailer` → SMTP) é que precisa virar chamada HTTPS.
