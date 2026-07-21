@@ -1,9 +1,10 @@
 import { logger } from "./logger";
+import { resolverTipoDaConta } from "./alertProfiles";
 import { runDailyDigestJob } from "./services/dailyDigestService";
 import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, hojeAgencia, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
 import { runClaritySnapshots, runPerformanceSnapshots, runSiteHealthChecks } from "./clarityJobs";
 import { runClarityAlertas } from "./services/clarityAlertService";
-import { getDigestSettings, getDigestOverride } from "./db";
+import { getDigestSettings, getDigestOverride, objetivosDasCampanhas } from "./db";
 /**
  * autoSync.ts — Cron job para sincronização automática diária de todas as contas Meta Ads.
  *
@@ -437,7 +438,13 @@ async function runAnomaliasDeMidia() {
       if (!a7 || !a14 || !a30) continue;
       // Menos de 30 dias de série = thresholds dobrados no detector.
       const hist = await getAccountMetricsSummary(account.id, dia(30), hoje);
-      const anomalias = detectAnomalies(atual, a7, a14, a30, { hasLimitedHistory: hist.length < 14 });
+      // O tipo da conta decide QUAIS regras valem e com que peso. Override
+      // manual vence a detecção — ver resolverTipoDaConta.
+      // Só consulta campanhas quando não há override — na maioria das contas
+      // o override existe e a consulta seria desperdício.
+      const objetivos = account.goalTypeOverride ? [] : await objetivosDasCampanhas(account.id).catch(() => []);
+      const tipo = resolverTipoDaConta(account, objetivos);
+      const anomalias = detectAnomalies(atual, a7, a14, a30, { hasLimitedHistory: hist.length < 14, tipo });
       for (const an of anomalias) {
         achadas.push({
           accountId: account.id, accountName: account.accountName ?? account.accountId,

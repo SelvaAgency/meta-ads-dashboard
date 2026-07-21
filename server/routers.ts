@@ -174,6 +174,7 @@ import {
   getPortfolioPages,
 } from "./metaAdsService";
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
+import { resolverTipoDaConta } from "./alertProfiles";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
 import { assembleReportData, generateReportNarrative } from "./reportService";
 import { nanoid } from "nanoid";
@@ -289,7 +290,7 @@ import {
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
 import { startAutoSync, syncAccount, syncAlertsForUser, syncAllForUser } from "./autoSync";
-import { clientesComNotificacao, excluirUsuarioPermanente, getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, upsertPerfSettings, ultimoSiteSnapshot, serieSiteSnapshots, ultimoSnapshotPorProvider, serieSnapshotsPorProvider, contasComSite, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat, resumoEnviosEmail, ultimosEnviosEmail } from "./db";
+import { clientesComNotificacao, excluirUsuarioPermanente, getDigestSettings, updateDigestSettings, getDigestOverride, setDigestOverride, getUnreadCountByDominio, getNotificationPrefs, upsertNotificationPref, listarComunicados, recibosComunicado, resolverPublico, criarComunicado, setComunicadoEnviados, setComunicadoFixado, setCoordinatorAccounts, clearCoordinatorAccounts, listCoordinatorLinks, getClaritySettings, upsertClaritySettings, ultimoClaritySnapshot, serieClaritySnapshots, upsertPerfSettings, ultimoSiteSnapshot, serieSiteSnapshots, ultimoSnapshotPorProvider, serieSnapshotsPorProvider, contasComSite, getClientContext, upsertClientContext, listClientNotes, criarClientNote, apagarClientNote, salvarSiteReport, listarSiteReports, getSiteReport, listChatMessages, salvarChatMessage, limparChat, resumoEnviosEmail, ultimosEnviosEmail, objetivosDasCampanhas } from "./db";
 import { sincronizarClarity, sincronizarPerformance, checarSegurancaCliente, checarUptimeCliente } from "./clarityJobs";
 import { validarUrlPublica } from "./services/urlGuard";
 import { isPageSpeedConfigured } from "./services/sitePerformanceService";
@@ -2856,7 +2857,10 @@ export const appRouter = router({
             cpa: Number(avgPrev.cpa),
             ctr: Number(avgPrev.ctr),
             spend: Number(avgPrev.spend),
-          }
+          },
+          // Mesmo tipo de conta que o cron usa — os dois caminhos não podem
+          // divergir sobre o que é alerta relevante para este cliente.
+          { tipo: resolverTipoDaConta(account, account.goalTypeOverride ? [] : await objetivosDasCampanhas(input.accountId).catch(() => [])) }
         );
 
         for (const anomaly of detected) {

@@ -29,6 +29,8 @@ import {
 } from "./db";
 import type { CampaignMetrics } from "../drizzle/schema";
 import { getObjectiveProfile, detectDominantObjective } from "./campaignObjectives";
+import { regraVale, ajustarSeveridade, type Severidade } from "./alertProfiles";
+import type { GoalType } from "../shared/goalTypes";
 
 // ─── Anomaly Detection ────────────────────────────────────────────────────────
 
@@ -99,7 +101,12 @@ export function detectAnomalies(
   avg7: PeriodMetrics,
   avg14: PeriodMetrics,
   avg30: PeriodMetrics,
-  options?: { isLearningPhase?: boolean; hasLimitedHistory?: boolean }
+  /**
+   * `tipo` é OPCIONAL de propósito: sem ele o detector se comporta exatamente
+   * como antes da F3. Só há mudança onde o tipo é informado e o perfil difere
+   * do DEFAULT.
+   */
+  options?: { isLearningPhase?: boolean; hasLimitedHistory?: boolean; tipo?: GoalType | string | null }
 ): Array<{
   type: string;
   severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
@@ -116,13 +123,15 @@ export function detectAnomalies(
   if (options?.isLearningPhase) return [];
 
   const detected: ReturnType<typeof detectAnomalies> = [];
+  // 1ª trava: a regra nem é avaliada quando não vale para o tipo da conta.
+  const tipo = options?.tipo ?? null;
 
   // Multiplicador de threshold para histórico limitado (<7 dias)
   const limitedMult = options?.hasLimitedHistory ? 2 : 1;
 
   // ── ROAS DROP (performance) ──────────────────────────────────────────────
   const currRoas = Number(current.roas ?? 0);
-  if (currRoas > 0 || (Number(avg7.roas ?? 0) > 0)) {
+  if (regraVale("ROAS_DROP", tipo) && (currRoas > 0 || (Number(avg7.roas ?? 0) > 0))) {
     const t = MULTI_PERIOD_THRESHOLDS.performance;
     const v = validateMultiPeriod(
       currRoas,
@@ -151,7 +160,7 @@ export function detectAnomalies(
 
   // ── CPA SPIKE (cost) ─────────────────────────────────────────────────────
   const currCpa = Number(current.cpa ?? 0);
-  if (currCpa > 0) {
+  if (regraVale("CPA_SPIKE", tipo) && currCpa > 0) {
     const t = MULTI_PERIOD_THRESHOLDS.cost;
     const v = validateMultiPeriod(
       currCpa,
@@ -180,7 +189,7 @@ export function detectAnomalies(
 
   // ── CTR DROP (performance) ───────────────────────────────────────────────
   const currCtr = Number(current.ctr ?? 0);
-  if (Number(avg7.ctr ?? 0) > 0) {
+  if (regraVale("CTR_DROP", tipo) && Number(avg7.ctr ?? 0) > 0) {
     const t = MULTI_PERIOD_THRESHOLDS.performance;
     const v = validateMultiPeriod(
       currCtr,
@@ -208,7 +217,7 @@ export function detectAnomalies(
 
   // ── IMPRESSIONS DROP (delivery) ──────────────────────────────────────────
   const currImpressions = Number(current.impressions ?? 0);
-  if (Number(avg7.impressions ?? 0) > 0) {
+  if (regraVale("PERFORMANCE_DROP", tipo) && Number(avg7.impressions ?? 0) > 0) {
     const t = MULTI_PERIOD_THRESHOLDS.delivery;
     const v = validateMultiPeriod(
       currImpressions,
@@ -236,7 +245,7 @@ export function detectAnomalies(
 
   // ── RESULTS DROP ─────────────────────────────────────────────────────────
   const currConversions = Number(current.conversions ?? 0);
-  if (Number(avg7.conversions ?? 0) > 0) {
+  if (regraVale("RESULTS_DROP", tipo) && Number(avg7.conversions ?? 0) > 0) {
     const t = MULTI_PERIOD_THRESHOLDS.results;
     const v = validateMultiPeriod(
       currConversions,
@@ -264,7 +273,7 @@ export function detectAnomalies(
 
   // ── FREQUENCY HIGH (valor absoluto — sem multi-período) ──────────────────
   const currFreq = Number(current.frequency ?? 0);
-  if (currFreq >= FREQUENCY_MEDIUM) {
+  if (regraVale("FREQUENCY_HIGH", tipo) && currFreq >= FREQUENCY_MEDIUM) {
     const isHigh = currFreq >= FREQUENCY_HIGH;
     detected.push({
       type: "FREQUENCY_HIGH",
@@ -280,7 +289,17 @@ export function detectAnomalies(
     });
   }
 
-  return detected;
+  /**
+   * 2ª trava: rebaixa métrica secundária e sobe a que é o produto daquele tipo.
+   * Redundante com a lista de permissão de propósito — se um tipo novo entrar
+   * sem perfil, isto ainda mantém o alerta longe do crítico.
+   */
+  return detected
+    .map((a) => {
+      const sev = ajustarSeveridade(a.severity as Severidade, a.type as never, tipo);
+      return sev ? { ...a, severity: sev } : null;
+    })
+    .filter((a): a is NonNullable<typeof a> => a !== null);
 }
 
 // ─── AI Suggestions Generator ─────────────────────────────────────────────────

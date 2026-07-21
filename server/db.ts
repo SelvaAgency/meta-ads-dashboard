@@ -4224,6 +4224,19 @@ export async function alertasDoDia(
   });
 }
 
+/**
+ * Objetivos de otimização das campanhas de uma conta — base da detecção
+ * automática de tipo quando não há override manual.
+ */
+export async function objetivosDasCampanhas(accountId: number): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ g: campaigns.optimizationGoal })
+    .from(campaigns)
+    .where(and(eq(campaigns.accountId, accountId), isNotNull(campaigns.optimizationGoal)));
+  return rows.map((r) => r.g).filter((g): g is string => !!g);
+}
+
 // ─── Auditoria de envio de email ─────────────────────────────────────────────
 
 export type EnvioEmailRegistro = {

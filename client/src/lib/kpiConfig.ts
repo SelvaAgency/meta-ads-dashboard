@@ -4,9 +4,11 @@ import {
   Users, Eye, MessageCircle, Target, Play, Heart, BarChart3,
 } from "lucide-react";
 
-export type GoalType =
-  | "SALES" | "VALUE" | "LEADS" | "MESSAGES" | "ENGAGEMENT" | "FOLLOWERS"
-  | "AWARENESS" | "TRAFFIC" | "VIDEO" | "APP" | "DEFAULT";
+// O tipo e o mapa vivem em shared/ desde a F3: o motor de alertas (servidor)
+// precisa deles, e este arquivo importa React/lucide. Reexportado para que
+// nada que já importava daqui precise mudar.
+export { mapGoalToType, GOAL_TYPES, type GoalType } from "@shared/goalTypes";
+import type { GoalType } from "@shared/goalTypes";
 
 export interface KpiDef {
   key: string;
@@ -33,31 +35,6 @@ export function fmtNumber(n: number | null | undefined) {
 }
 export function fmtPercent(n: number | null | undefined) { return `${Number(n ?? 0).toFixed(2)}%`; }
 export function fmtMultiplier(n: number | null | undefined) { return `${Number(n ?? 0).toFixed(2)}x`; }
-
-export function mapGoalToType(dominantGoal: string | undefined): GoalType {
-  if (!dominantGoal) return "DEFAULT";
-  const map: Record<string, GoalType> = {
-    OFFSITE_CONVERSIONS: "SALES",
-    ONSITE_CONVERSIONS: "SALES",
-    VALUE: "VALUE",
-    LEAD_GENERATION: "LEADS",
-    QUALITY_LEAD: "LEADS",
-    REPLIES: "MESSAGES",
-    CONVERSATIONS: "MESSAGES",
-    LINK_CLICKS: "TRAFFIC",
-    LANDING_PAGE_VIEWS: "TRAFFIC",
-    REACH: "AWARENESS",
-    IMPRESSIONS: "AWARENESS",
-    POST_ENGAGEMENT: "ENGAGEMENT",
-    PAGE_LIKES: "FOLLOWERS",
-    VIDEO_VIEWS: "VIDEO",
-    THRUPLAY: "VIDEO",
-    APP_INSTALLS: "APP",
-    VISIT_INSTAGRAM_PROFILE: "TRAFFIC",
-    INSTAGRAM_PROFILE_REACH: "AWARENESS",
-  };
-  return map[dominantGoal] ?? "DEFAULT";
-}
 
 export const GOAL_LABELS: Record<GoalType, { label: string; emoji: string }> = {
   SALES: { label: "Compras no site", emoji: "🛍" },
