@@ -20,10 +20,15 @@ import {
   RefreshCw, Settings2, TrendingUp, Users, X, Clock, ArrowDownWideNarrow,
   FileText, NotebookPen, Sparkles, Copy, Trash2, Check, MessageSquare, Send,
   Globe, Gauge, LayoutDashboard, Zap, ArrowRight, ShieldCheck, Wifi, Lock, ShieldAlert,
+  CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
+import { Secao, FonteAusente } from "@/components/Secao";
+import { destinoDaAba, type AbaSite, type SecaoSite } from "./site/abasSite";
+import { acoesDoResumo, positivosDoResumo, type AcaoResumo } from "./site/resumoSite";
+import { type Fonte, type StatusFonte } from "@shared/fontes";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import { canManageContent } from "@shared/permissions";
@@ -89,10 +94,14 @@ export default function Site() {
     const alvo = Number(new URLSearchParams(window.location.search).get("account"));
     if (alvo && alvo !== activeAccountId) setActiveAccountId(alvo);
   }, [activeAccountId, setActiveAccountId]);
-  type Aba = "visao" | "clarity" | "perf" | "seguranca" | "uptime" | "relatorios" | "contexto" | "chat";
-  // ?aba=clarity vem do deep-link do alerta — abre direto onde o problema está.
-  const abaInicial = (new URLSearchParams(window.location.search).get("aba") ?? "visao") as Aba;
-  const [aba, setAba] = useState<Aba>(["visao","clarity","perf","seguranca","uptime","relatorios","contexto","chat"].includes(abaInicial) ? abaInicial : "visao");
+  /**
+   * O `?aba=` do deep-link passa pelo mapa de aliases: os alertas gravados no
+   * banco ainda dizem "clarity" e "seguranca", nomes de abas que não existem
+   * mais. O mapa leva ao lugar novo com a seção certa já aberta.
+   */
+  const destino = destinoDaAba(new URLSearchParams(window.location.search).get("aba"));
+  const [aba, setAba] = useState<AbaSite>(destino.aba);
+  const [secaoDestaque, setSecaoDestaque] = useState<SecaoSite | undefined>(destino.secao);
 
   const enabled = !!activeAccountId;
   const cfgQ = trpc.clarity.settings.useQuery({ accountId: activeAccountId! }, { enabled });
@@ -157,106 +166,21 @@ export default function Site() {
         </header>
 
         <div className="flex gap-1 border-b border-border">
-          {([["visao", "Visão geral", LayoutDashboard], ["clarity", "Clarity", Activity], ["perf", "Performance técnica", Gauge], ["seguranca", "Segurança", ShieldCheck], ["uptime", "Uptime", Wifi], ["relatorios", "Relatórios", FileText], ["contexto", "Contexto", NotebookPen], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
-            <button key={v} onClick={() => setAba(v)}
+          {([["resumo", "Resumo", LayoutDashboard], ["performance", "Performance", Activity], ["tecnico", "Técnico", Gauge], ["relatorios", "Relatórios", FileText], ["contexto", "Contexto", NotebookPen], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
+            <button key={v} onClick={() => { setAba(v); setSecaoDestaque(undefined); }}
               className={`px-4 py-2 text-sm transition border-b-2 -mb-px flex items-center gap-1.5 ${aba === v ? "border-accent text-accent font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
               <Ic className="w-3.5 h-3.5" /> {lbl}
             </button>
           ))}
         </div>
 
-        {aba === "visao" && <AbaVisaoGeral accountId={activeAccountId} onIr={setAba} />}
-        {aba === "perf" && <AbaPerformance accountId={activeAccountId} podeConfigurar={podeConfigurar} />}
-        {aba === "seguranca" && <AbaSeguranca accountId={activeAccountId} podeConfigurar={podeConfigurar} />}
-        {aba === "uptime" && <AbaUptime accountId={activeAccountId} podeConfigurar={podeConfigurar} />}
+        {aba === "resumo" && <AbaResumo accountId={activeAccountId} onIr={setAba} />}
+        {aba === "performance" && <AbaPerformanceSite accountId={activeAccountId} podeConfigurar={podeConfigurar} onConfigurar={() => setConfig(true)} destaque={secaoDestaque} />}
+        {aba === "tecnico" && <AbaTecnico accountId={activeAccountId} podeConfigurar={podeConfigurar} destaque={secaoDestaque} />}
         {aba === "contexto" && <AbaContexto accountId={activeAccountId} podeEditar={podeConfigurar} />}
         {aba === "relatorios" && <AbaRelatorios accountId={activeAccountId} podeGerar={podeConfigurar} />}
         {aba === "chat" && <AbaChat accountId={activeAccountId} nome={activeAccount?.accountName ?? "este cliente"} podeLimpar={podeConfigurar} />}
 
-        {aba === "clarity" && <>
-        {/* ESTADO 1 — sem Clarity configurado */}
-        {!cfgQ.isLoading && !configurado && (
-          <Vazio icone={<Activity className="w-8 h-8" />} titulo="Clarity ainda não configurado para este cliente"
-            texto={podeConfigurar
-              ? "Configure o token do projeto para começar a acompanhar o comportamento no site."
-              : "Peça a um administrador para configurar o Clarity deste cliente."}
-            acao={podeConfigurar ? <button onClick={() => setConfig(true)} className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-medium">Configurar Clarity</button> : undefined} />
-        )}
-
-        {/* ESTADO 4 — erro de conexão/token */}
-        {configurado && erroSync && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 flex gap-3">
-            <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-red-700">Falha no último sync</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{cfg?.lastSyncError}</p>
-            </div>
-          </div>
-        )}
-
-        {configurado && (
-          <>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-              <span className={`inline-flex items-center gap-1.5 ${erroSync ? "text-red-600" : "text-emerald-600"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${erroSync ? "bg-red-500" : "bg-emerald-500"}`} />
-                {erroSync ? "Com erro" : "Conectado"}
-              </span>
-              {cfg?.lastSyncAt && <span>Último sync: {new Date(cfg.lastSyncAt).toLocaleString("pt-BR")}</span>}
-              {snap && <span>Período: últimas {snap.dias * 24}h (até {new Date(snap.rangeEnd ?? snap.createdAt).toLocaleString("pt-BR")})</span>}
-              <span className="ml-auto">Cota hoje: {cfg?.apiCallsCount ?? 0}/10</span>
-            </div>
-
-            {/* ESTADO 2 — configurado, sem dados ainda */}
-            {!snapQ.isLoading && !snap && (
-              <Vazio icone={<RefreshCw className="w-8 h-8" />} titulo="Sem dados ainda"
-                texto="Nenhum snapshot foi tirado deste cliente. O primeiro sai automaticamente amanhã de manhã — ou clique em Sincronizar."
-              />
-            )}
-
-            {/* ESTADO 5 — snapshot existe, mas o período veio vazio */}
-            {snap && (m?.sessions ?? 0) === 0 && (
-              <Vazio icone={<Eye className="w-8 h-8" />} titulo="Nenhuma sessão no período"
-                texto="O Clarity respondeu, mas não houve tráfego registrado nas últimas horas. Se isso não era esperado, vale conferir se o script está instalado no site." />
-            )}
-
-            {/* ESTADO 3 — dados */}
-            {snap && (m?.sessions ?? 0) > 0 && m && (
-              <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <Card icone={<Users className="w-3.5 h-3.5" />} label="Sessões" valor={fmtNum(m.sessions)}
-                    hint={ehNum(m.botSessions) ? `${fmtNum(m.botSessions)} de bots` : undefined} />
-                  <Card icone={<Eye className="w-3.5 h-3.5" />} label="Usuários" valor={fmtNum(m.users)} />
-                  <Card icone={<Clock className="w-3.5 h-3.5" />} label="Tempo médio" valor={fmtSeg(m.averageSessionDuration)} />
-                  <Card icone={<TrendingUp className="w-3.5 h-3.5" />} label="Páginas por sessão" valor={fmtNum(m.pagesPerSession)} />
-                  <Card icone={<ArrowDownWideNarrow className="w-3.5 h-3.5" />} label="Scroll médio" valor={fmtPct(m.averageScrollDepth)} />
-                  <Card icone={<MousePointerClick className="w-3.5 h-3.5" />} label="Cliques mortos" valor={fmtNum(m.deadClicks)} tom={(m.deadClicks ?? 0) > 0 ? "alerta" : undefined} />
-                  <Card icone={<MousePointerClick className="w-3.5 h-3.5" />} label="Rage clicks" valor={fmtNum(m.rageClicks)} tom={(m.rageClicks ?? 0) > 0 ? "alerta" : undefined} />
-                  <Card icone={<AlertTriangle className="w-3.5 h-3.5" />} label="Erros de JS" valor={fmtNum(m.javascriptErrors)} tom={(m.javascriptErrors ?? 0) > 0 ? "critico" : undefined} />
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <Lista titulo="Páginas mais vistas" itens={((snap.topPagesJson ?? []) as { url: string; sessions: number | null }[]).map((p) => ({ rotulo: p.url, valor: fmtNum(p.sessions) }))}
-                    vazio="A API não retornou páginas neste período." />
-                  <Lista titulo="Origens do tráfego" itens={((snap.sourcesJson ?? []) as { fonte: string; sessions: number | null }[]).map((s) => ({ rotulo: s.fonte, valor: fmtNum(s.sessions) }))}
-                    vazio="A API não retornou origens neste período." />
-                </div>
-
-                <p className="text-[11px] text-muted-foreground">
-                  Gravações e mapas de calor não aparecem aqui: a API de exportação do Clarity não os disponibiliza —
-                  só o painel do próprio Clarity mostra.
-                </p>
-              </>
-            )}
-          </>
-        )}
-
-        </>}
-
-        {aba === "clarity" && (cfgQ.isLoading || snapQ.isLoading) && (
-          <div className="flex items-center gap-2 py-12 justify-center text-sm text-muted-foreground">
-            <Loader2 className="w-4 h-4 animate-spin" /> Carregando…
-          </div>
-        )}
       </div>
 
       {config && activeAccountId && (
@@ -835,13 +759,23 @@ function AbaChat({ accountId, nome, podeLimpar }: { accountId: number; nome: str
 // ─── Visão geral ─────────────────────────────────────────────────────────────
 // Responde "como está o site deste cliente?" numa olhada, e manda para o detalhe.
 
-function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clarity" | "perf" | "seguranca" | "uptime" | "relatorios" | "contexto") => void }) {
+/**
+ * Resumo do CLIENTE SELECIONADO — não confundir com a Visão geral do Tracker,
+ * que é o painel cross-client e não é tocada aqui.
+ *
+ * Responde, nesta ordem: como estão as fontes, o que precisa de ação, o que
+ * está bem, qual o próximo passo. Os quatro cards de sempre continuam, mas
+ * depois disso — um resumo que começa por métrica obriga quem lê a deduzir se
+ * precisa fazer algo.
+ */
+function AbaResumo({ accountId, onIr }: { accountId: number; onIr: (a: AbaSite) => void }) {
   const cfgQ = trpc.clarity.settings.useQuery({ accountId });
   const clarityQ = trpc.clarity.ultimo.useQuery({ accountId });
   const perfQ = trpc.clarity.perfUltimo.useQuery({ accountId });
   const saudeQ = trpc.clarity.saude.useQuery({ accountId });
   const ctxQ = trpc.siteDiag.contexto.useQuery({ accountId });
   const repQ = trpc.siteDiag.relatorios.useQuery({ accountId });
+  const fontesQ = trpc.fontes.doCliente.useQuery({ accountId });
 
   if (cfgQ.isLoading) return <Carregando />;
   const cfg = cfgQ.data;
@@ -864,15 +798,70 @@ function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clar
     );
   }
 
+  const fontes = fontesQ.data ?? [];
+  const acoes = acoesDoResumo({ fontes, m, pm, seg, up, temCtx });
+  const positivos = positivosDoResumo({ fontes, m, pm, seg, up });
+
   return (
     <div className="flex flex-col gap-4">
+      {/* 1 — Estado das fontes deste cliente (resolvedor da F1) */}
+      {fontes.length > 0 && (
+        <div className="rounded-lg border border-border bg-card p-3">
+          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Fontes deste cliente</p>
+          <div className="flex flex-wrap gap-1.5">
+            {fontes.map((f) => <PastilhaFonte key={f.chave} fonte={f} />)}
+          </div>
+        </div>
+      )}
+
+      {/* 2 — O que precisa de ação. Só existe quando há o que fazer. */}
+      {acoes.length > 0 && (
+        <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.04] p-3">
+          <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-2">Precisa de ação</p>
+          <ul className="flex flex-col gap-1.5">
+            {acoes.map((a: AcaoResumo, i: number) => (
+              <li key={i} className="flex items-start gap-2 text-sm">
+                <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.grave ? "bg-red-500" : "bg-amber-500"}`} />
+                <span className="flex-1 text-foreground">{a.texto}</span>
+                {a.ir && (
+                  <button onClick={() => onIr(a.ir!)} className="text-xs text-accent hover:underline flex-shrink-0">
+                    abrir
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* 3 — O que está bem. Omitido quando não há nada de bom a dizer. */}
+      {positivos.length > 0 && (
+        <div className="rounded-lg border border-border bg-card p-3">
+          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Está bem</p>
+          <ul className="flex flex-col gap-1">
+            {positivos.map((t: string, i: number) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 mt-0.5 flex-shrink-0" />{t}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* 4 — Próximo passo: uma frase, a mais urgente. */}
+      <p className="text-sm text-muted-foreground px-1">
+        <span className="font-medium text-foreground">Próximo passo: </span>
+        {acoes[0]?.proximoPasso ?? "Nada urgente por aqui. Vale registrar o contexto do cliente para o robô ficar mais preciso."}
+      </p>
+
+      {/* 5 — Os quatro cards de sempre */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Comportamento */}
         <CardResumo
           titulo="Comportamento" icone={<Activity className="w-4 h-4" />}
           ligado={clarityOn} semDados={clarityOn && !clarityQ.data}
           textoOff="Clarity não conectado." textoSemDados="Sem snapshot ainda — o primeiro sai amanhã de manhã."
-          onIr={() => onIr("clarity")}
+          onIr={() => onIr("performance")}
         >
           {m && (
             <div className="grid grid-cols-2 gap-2">
@@ -889,7 +878,7 @@ function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clar
           titulo="Performance técnica" icone={<Gauge className="w-4 h-4" />}
           ligado={perfOn} semDados={perfOn && !perfQ.data}
           textoOff="Performance técnica não configurada." textoSemDados="Nenhum teste rodado ainda."
-          onIr={() => onIr("perf")}
+          onIr={() => onIr("tecnico")}
         >
           {pm && (
             <div className="grid grid-cols-2 gap-2">
@@ -907,7 +896,7 @@ function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clar
           titulo="Segurança básica" icone={<ShieldCheck className="w-4 h-4" />}
           ligado={temDominio} semDados={temDominio && !seg}
           textoOff="Domínio não informado." textoSemDados="Ainda não verificado — roda amanhã de manhã."
-          onIr={() => onIr("seguranca")}
+          onIr={() => onIr("tecnico")}
         >
           {seg && (
             <div className="grid grid-cols-2 gap-2">
@@ -923,7 +912,7 @@ function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clar
           titulo="Disponibilidade" icone={<Wifi className="w-4 h-4" />}
           ligado={temDominio} semDados={temDominio && !up}
           textoOff="Domínio não informado." textoSemDados="Ainda não verificado — roda amanhã de manhã."
-          onIr={() => onIr("uptime")}
+          onIr={() => onIr("tecnico")}
         >
           {up && (
             <div className="grid grid-cols-2 gap-2">
@@ -938,10 +927,10 @@ function AbaVisaoGeral({ accountId, onIr }: { accountId: number; onIr: (a: "clar
       <div className="rounded-xl border border-border bg-card p-4">
         <p className="text-xs font-semibold text-muted-foreground mb-2">Fontes deste diagnóstico</p>
         <div className="flex flex-wrap gap-1.5">
-          <Pastilha ok={!!seg} label="Segurança" onClick={() => onIr("seguranca")} />
-          <Pastilha ok={!!up} label="Disponibilidade" onClick={() => onIr("uptime")} />
-          <Pastilha ok={!!perfQ.data} label="Performance" onClick={() => onIr("perf")} />
-          <Pastilha ok={!!clarityQ.data} label="Clarity" onClick={() => onIr("clarity")} />
+          <Pastilha ok={!!seg} label="Segurança" onClick={() => onIr("tecnico")} />
+          <Pastilha ok={!!up} label="Disponibilidade" onClick={() => onIr("tecnico")} />
+          <Pastilha ok={!!perfQ.data} label="Performance" onClick={() => onIr("tecnico")} />
+          <Pastilha ok={!!clarityQ.data} label="Clarity" onClick={() => onIr("performance")} />
           <Pastilha ok={temCtx} label="Contexto" onClick={() => onIr("contexto")} />
           <Pastilha ok={(repQ.data ?? []).length > 0} label={`${(repQ.data ?? []).length} relatório(s)`} onClick={() => onIr("relatorios")} />
         </div>
@@ -1424,4 +1413,179 @@ function nivelDiagnostico(f: { seg: boolean; up: boolean; perf: boolean; clarity
     : f.perf || f.seg || f.up ? "Diagnóstico técnico disponível"
     : "Diagnóstico parcial";
   return `${base} com ${lista}.${f.ctx ? "" : " O contexto do cliente melhora a interpretação, mas não é obrigatório."}`;
+}
+
+/**
+ * Pastilha de fonte no Resumo. Cinza quando ausente, âmbar quando precisa de
+ * ação — nunca banner vermelho: o objetivo é informar sem dominar a página.
+ * O motivo vai no title, não em card próprio.
+ */
+const TOM_PASTILHA: Record<StatusFonte, string> = {
+  ok:      "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
+  atencao: "bg-amber-500/12 text-amber-700 dark:text-amber-400",
+  erro:    "bg-amber-500/15 text-amber-800 dark:text-amber-300",
+  ausente: "bg-muted text-muted-foreground/60",
+};
+
+function PastilhaFonte({ fonte }: { fonte: Fonte }) {
+  const marca = fonte.status === "ok" ? "●" : fonte.status === "ausente" ? "○" : "▲";
+  return (
+    <span title={fonte.porque ?? fonte.rotulo}
+      className={`text-[11px] px-2 py-0.5 rounded-full ${TOM_PASTILHA[fonte.status]}`}
+      style={{ cursor: fonte.porque ? "help" : "default" }}>
+      {marca} {fonte.rotulo}
+    </span>
+  );
+}
+
+// ─── Aba Performance ─────────────────────────────────────────────────────────
+
+/**
+ * Comportamento e acesso do site. Hoje só Clarity; o slot de GA4 fica pronto e
+ * OCULTO — fonte não conectada não vira card vazio (regra da F1).
+ */
+function AbaPerformanceSite({ accountId, podeConfigurar, onConfigurar, destaque }: {
+  accountId: number; podeConfigurar: boolean; onConfigurar: () => void; destaque?: SecaoSite;
+}) {
+  const cfgQ = trpc.clarity.settings.useQuery({ accountId });
+  const snapQ = trpc.clarity.ultimo.useQuery({ accountId });
+  const fontesQ = trpc.fontes.doCliente.useQuery({ accountId });
+
+  if (cfgQ.isLoading) return <Carregando />;
+  const cfg = cfgQ.data;
+  const configurado = !!cfg?.enabled && !!cfg?.hasToken;
+  const snap = snapQ.data;
+  const m = (snap?.metricsJson ?? null) as Metricas | null;
+  const fonteClarity = fontesQ.data?.find((f) => f.chave === "clarity");
+  const erroSync = fonteClarity?.status === "erro";
+  const sessoes = m?.sessions ?? 0;
+
+  if (!configurado) {
+    return (
+      <Vazio icone={<Activity className="w-8 h-8" />} titulo="Clarity ainda não configurado para este cliente"
+        texto={podeConfigurar
+          ? "Configure o token do projeto para começar a acompanhar o comportamento no site."
+          : "Peça a um administrador para configurar o Clarity deste cliente."}
+        acao={podeConfigurar ? <button onClick={onConfigurar} className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-medium">Configurar Clarity</button> : undefined} />
+    );
+  }
+
+  const estadoComportamento = !snap ? "Sem snapshot ainda — o primeiro sai amanhã de manhã."
+    : sessoes === 0 ? "Nenhuma sessão registrada no período."
+    : `${fmtNum(m?.sessions)} sessões · ${fmtNum(m?.users)} usuários · ${fmtPct(m?.averageScrollDepth)} de scroll médio.`;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Erro não esconde o histórico: avisa em âmbar e mantém os dados abaixo. */}
+      {erroSync && (
+        <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5" /> {fonteClarity?.porque} Os números abaixo são do último snapshot que deu certo.
+        </p>
+      )}
+
+      <Secao id="comportamento" titulo="Comportamento" icone={<Activity className="w-4 h-4" />}
+        estado={estadoComportamento} aberta destaque={destaque === "comportamento"}>
+        {!snap ? (
+          <FonteAusente texto="Nenhum snapshot foi tirado deste cliente ainda." />
+        ) : sessoes === 0 ? (
+          <FonteAusente texto="O Clarity respondeu, mas não houve tráfego no período. Se não era esperado, vale conferir se o script está instalado." />
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card icone={<Users className="w-3.5 h-3.5" />} label="Sessões" valor={fmtNum(m?.sessions)}
+              hint={ehNum(m?.botSessions) ? `${fmtNum(m?.botSessions)} de bots` : undefined} />
+            <Card icone={<Eye className="w-3.5 h-3.5" />} label="Usuários" valor={fmtNum(m?.users)} />
+            <Card icone={<Clock className="w-3.5 h-3.5" />} label="Tempo médio" valor={fmtSeg(m?.averageSessionDuration)} />
+            <Card icone={<TrendingUp className="w-3.5 h-3.5" />} label="Páginas por sessão" valor={fmtNum(m?.pagesPerSession)} />
+            <Card icone={<ArrowDownWideNarrow className="w-3.5 h-3.5" />} label="Scroll médio" valor={fmtPct(m?.averageScrollDepth)} />
+            <Card icone={<MousePointerClick className="w-3.5 h-3.5" />} label="Cliques mortos" valor={fmtNum(m?.deadClicks)} tom={(m?.deadClicks ?? 0) > 0 ? "alerta" : undefined} />
+            <Card icone={<MousePointerClick className="w-3.5 h-3.5" />} label="Rage clicks" valor={fmtNum(m?.rageClicks)} tom={(m?.rageClicks ?? 0) > 0 ? "alerta" : undefined} />
+            <Card icone={<AlertTriangle className="w-3.5 h-3.5" />} label="Erros de JS" valor={fmtNum(m?.javascriptErrors)} tom={(m?.javascriptErrors ?? 0) > 0 ? "critico" : undefined} />
+          </div>
+        )}
+      </Secao>
+
+      {snap && sessoes > 0 && (
+        <Secao id="paginas" titulo="Páginas e origens" icone={<Globe className="w-4 h-4" />}
+          estado="De onde vem o tráfego e onde ele para." destaque={destaque === "paginas"}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Lista titulo="Páginas mais vistas" itens={((snap.topPagesJson ?? []) as { url: string; sessions: number | null }[]).map((p) => ({ rotulo: p.url, valor: fmtNum(p.sessions) }))}
+              vazio="A API não retornou páginas neste período." />
+            <Lista titulo="Origens do tráfego" itens={((snap.sourcesJson ?? []) as { fonte: string; sessions: number | null }[]).map((x) => ({ rotulo: x.fonte, valor: fmtNum(x.sessions) }))}
+              vazio="A API não retornou origens neste período." />
+          </div>
+        </Secao>
+      )}
+
+      <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap pt-1">
+        {cfg?.lastSyncAt && <span>Último sync: {new Date(cfg.lastSyncAt).toLocaleString("pt-BR")}</span>}
+        {snap && <span>Período: últimas {snap.dias * 24}h</span>}
+        <span className="ml-auto">Cota hoje: {cfg?.apiCallsCount ?? 0}/10</span>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Gravações e mapas de calor não aparecem aqui: a API de exportação do Clarity não os disponibiliza.
+      </p>
+    </div>
+  );
+}
+
+// ─── Aba Técnico ─────────────────────────────────────────────────────────────
+
+/**
+ * Junta as três abas técnicas antigas em seções. Os painéis internos NÃO foram
+ * reescritos — são os mesmos componentes de antes, agora recolhíveis. Reescrever
+ * painel que funciona é o retrabalho que esta frente existe para evitar.
+ */
+function AbaTecnico({ accountId, podeConfigurar, destaque }: {
+  accountId: number; podeConfigurar: boolean; destaque?: SecaoSite;
+}) {
+  const cfgQ = trpc.clarity.settings.useQuery({ accountId });
+  const perfQ = trpc.clarity.perfUltimo.useQuery({ accountId });
+  const saudeQ = trpc.clarity.saude.useQuery({ accountId });
+  const fontesQ = trpc.fontes.doCliente.useQuery({ accountId });
+
+  if (cfgQ.isLoading) return <Carregando />;
+  const cfg = cfgQ.data;
+  const temDominio = !!(cfg?.domain || cfg?.performanceUrl);
+  const perfOn = !!cfg?.performanceEnabled;
+
+  if (!temDominio && !perfOn) {
+    return (
+      <Vazio icone={<Globe className="w-8 h-8" />} titulo="Site ainda não configurado para este cliente"
+        texto="Informe o domínio principal para verificar segurança e disponibilidade, e ative a performance técnica para medir o carregamento." />
+    );
+  }
+
+  const pm = (perfQ.data?.metricsJson ?? null) as PerfMetricas | null;
+  const seg = (saudeQ.data?.seguranca?.metricsJson ?? null) as MetSeg | null;
+  const up = (saudeQ.data?.uptime?.metricsJson ?? null) as MetUp | null;
+  const fonte = (c: string) => fontesQ.data?.find((f) => f.chave === c);
+  const erroPageSpeed = fonte("pagespeed")?.status === "erro" ? fonte("pagespeed")?.porque : undefined;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Secao id="carregamento" titulo="Carregamento" icone={<Gauge className="w-4 h-4" />}
+        estado={ehNum(pm?.performanceScore) ? `Nota ${fmtScore(pm?.performanceScore)} · LCP ${fmtMs(pm?.lcp)} · CLS ${fmtDec(pm?.cls)}` : "Nenhum teste de performance rodado ainda."}
+        alerta={erroPageSpeed ? "última medição falhou" : undefined}
+        aberta={destaque !== "seguranca" && destaque !== "disponibilidade"} destaque={destaque === "carregamento"}>
+        <AbaPerformance accountId={accountId} podeConfigurar={podeConfigurar} />
+      </Secao>
+
+      <Secao id="seguranca" titulo="Segurança" icone={<ShieldCheck className="w-4 h-4" />}
+        estado={ehNum(seg?.score) ? `Nota ${fmtScore(seg?.score)} · ${seg?.https ? "HTTPS ativo" : "sem HTTPS"}${ehNum(seg?.daysToSslExpiry) ? ` · certificado expira em ${seg?.daysToSslExpiry}d` : ""}` : "Nenhuma verificação de segurança ainda."}
+        destaque={destaque === "seguranca"}>
+        <AbaSeguranca accountId={accountId} podeConfigurar={podeConfigurar} />
+      </Secao>
+
+      <Secao id="disponibilidade" titulo="Disponibilidade" icone={<Wifi className="w-4 h-4" />}
+        estado={up?.status ? `${UP_LABEL[up.status] ?? up.status}${ehNum(up?.responseTimeMs) ? ` · resposta em ${fmtMs(up?.responseTimeMs)}` : ""}` : "Nenhuma verificação de disponibilidade ainda."}
+        destaque={destaque === "disponibilidade"}>
+        <AbaUptime accountId={accountId} podeConfigurar={podeConfigurar} />
+      </Secao>
+
+      <p className="text-[11px] text-muted-foreground">
+        Core Web Vitals disponíveis: LCP e CLS (TBT entra como referência de laboratório).
+        INP depende de dados de campo do CrUX, que ainda não coletamos.
+      </p>
+    </div>
+  );
 }
