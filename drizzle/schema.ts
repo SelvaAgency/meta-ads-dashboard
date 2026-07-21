@@ -798,7 +798,13 @@ export const ga4Accounts = mysqlTable("ga4_accounts", {
    * GA4 não tem como virar fonte confiável no dashboard.
    */
   linkedAccountId: int("linkedAccountId"),
-  refreshToken: text("refreshToken").notNull(),
+  /**
+   * @deprecated Texto puro. Mantida nullable só para não quebrar registro
+   * anterior à criptografia — nada novo escreve aqui.
+   */
+  refreshToken: text("refreshToken"),
+  /** AES-256-GCM, mesmo padrão de user_integrations.refreshTokenEncrypted. */
+  refreshTokenEncrypted: text("refreshTokenEncrypted"),
   currency: varchar("currency", { length: 8 }).default("BRL"),
   timezone: varchar("timezone", { length: 64 }).default("America/Sao_Paulo"),
   isActive: boolean("isActive").default(true).notNull(),

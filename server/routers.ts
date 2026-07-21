@@ -286,6 +286,7 @@ import {
   listMesesFechados,
   fecharMes,
   reabrirMes,
+  listarTodasContasGA4, vincularGA4, ga4DoCliente, tokenDaContaGA4,
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
@@ -5080,198 +5081,143 @@ export const appRouter = router({
   }),
 
   // ─── GA4 Analytics ─────────────────────────────────────────────────────────
+  /**
+   * ─── GA4 Analytics ───────────────────────────────────────────────────────
+   *
+   * Reescrito na F4 por três falhas de segurança, todas encontradas antes de
+   * qualquer propriedade ser conectada:
+   *
+   *  1. `isConfigured` era publicProcedure — respondia sem login.
+   *  2. As leituras recebiam o id da linha de ga4_accounts e só conferiam
+   *     EXISTÊNCIA, nunca dono. Enquanto `accounts` listava por usuário, um
+   *     inteiro chutado abria a propriedade de qualquer outro.
+   *  3. `properties` recebia o refresh token COMO INPUT — o segredo trafegava
+   *     do navegador para o servidor a cada chamada.
+   *
+   * O desenho novo elimina a classe do problema em vez de remendar: a leitura
+   * é sempre por CLIENTE (meta_ad_accounts.id) e a conexão é resolvida no
+   * servidor. Não existe id de conexão para chutar, e o token nunca sai do
+   * banco — nem para o cliente, nem de volta.
+   *
+   * Gestão (conectar, vincular, desconectar) é admin/dev. Leitura segue o
+   * mesmo nível do resto dos dados de cliente no Tracker.
+   */
   ga4: router({
-    isConfigured: publicProcedure.query(() => {
-      return { configured: isGA4Configured() };
-    }),
+    isConfigured: protectedProcedure.query(() => ({ configured: isGA4Configured() })),
 
-    accounts: protectedProcedure.query(async ({ ctx }) => {
-      return getGA4AccountsByUserId(ctx.user.id);
-    }),
+    /** Conexões e seus vínculos — tela de gestão. */
+    contasParaGerenciar: contentProcedure.query(() => listarTodasContasGA4()),
 
-    connectAccount: protectedProcedure
+    /** Vincula (ou desvincula, com null) uma propriedade a um cliente. */
+    vincularConta: contentProcedure
+      .input(z.object({ id: z.number(), linkedAccountId: z.number().nullable() }))
+      .mutation(async ({ input }) => {
+        await vincularGA4(input.id, input.linkedAccountId);
+        return { success: true } as const;
+      }),
+
+    /** A conexão do cliente selecionado — sem token, nunca. */
+    contaDoCliente: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ input }) => {
+        const c = await ga4DoCliente(input.accountId);
+        if (!c) return null;
+        return { id: c.id, propertyId: c.propertyId, propertyName: c.propertyName, websiteUrl: c.websiteUrl, lastSyncAt: c.lastSyncAt };
+      }),
+
+    connectAccount: contentProcedure
       .input(z.object({
         propertyId: z.string().min(1),
         propertyName: z.string().optional(),
         websiteUrl: z.string().optional(),
         refreshToken: z.string().min(1),
+        linkedAccountId: z.number().nullable().optional(),
         currency: z.string().optional(),
         timezone: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        // O token é criptografado dentro de createGA4Account e nunca volta.
         const id = await createGA4Account({
           userId: ctx.user.id,
           propertyId: input.propertyId,
           propertyName: input.propertyName ?? null,
           websiteUrl: input.websiteUrl ?? null,
           refreshToken: input.refreshToken,
+          linkedAccountId: input.linkedAccountId ?? null,
           currency: input.currency ?? "BRL",
           timezone: input.timezone ?? "America/Sao_Paulo",
         });
         return { success: true, id };
       }),
 
-    disconnectAccount: protectedProcedure
+    disconnectAccount: contentProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteGA4Account(input.id);
-        return { success: true };
+        return { success: true } as const;
       }),
 
-    properties: protectedProcedure
+    /**
+     * Lista as propriedades de um refresh token. Continua recebendo o token
+     * porque o OAuth próprio do GA4 ainda não existe (o callback com
+     * `state=ga4` só exibe o token numa textarea). Restrito a admin/dev até
+     * lá — quando o OAuth entrar, o parâmetro sai.
+     */
+    properties: contentProcedure
       .input(z.object({ refreshToken: z.string().min(1) }))
-      .query(async ({ input }) => {
-        const config = getGA4Config(input.refreshToken);
-        return listGA4Properties(config);
-      }),
+      .query(({ input }) => listGA4Properties(getGA4Config(input.refreshToken))),
 
-    overview: protectedProcedure
+    /** Métricas do cliente. Devolve null quando não há GA4 vinculado. */
+    dados: protectedProcedure
       .input(z.object({
         accountId: z.number(),
+        bloco: z.enum(["overview", "daily", "sources", "pages", "devices", "geo", "conversions"]),
         days: z.number().min(1).max(365).default(30),
+        limit: z.number().min(1).max(50).default(10),
       }))
       .query(async ({ input }) => {
-        const acct = await getGA4AccountById(input.accountId);
-        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
-        const config = getGA4Config(acct.refreshToken);
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - input.days);
-        const fmt = (d: Date) => d.toISOString().split("T")[0];
-        const data = await getGA4Overview(config, acct.propertyId, fmt(start), fmt(end));
+        const acct = await ga4DoCliente(input.accountId);
+        if (!acct) return null;                       // sem GA4 = sem card, não erro
+        const token = tokenDaContaGA4(acct);
+        if (!token) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Conexão do GA4 sem credencial utilizável. Reconecte a propriedade." });
+
+        const config = getGA4Config(token);
+        // Datas no fuso da agência — nunca toISOString sobre "agora".
+        const dia = (d: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() - d * 86400000));
+        const inicio = dia(input.days), fim = dia(0);
+
+        const r = await (async () => {
+          switch (input.bloco) {
+            case "overview": return getGA4Overview(config, acct.propertyId, inicio, fim);
+            case "daily": return getGA4DailyMetrics(config, acct.propertyId, inicio, fim);
+            case "sources": return getGA4TrafficSources(config, acct.propertyId, inicio, fim, input.limit);
+            case "pages": return getGA4TopPages(config, acct.propertyId, inicio, fim, input.limit);
+            case "devices": return getGA4DeviceBreakdown(config, acct.propertyId, inicio, fim);
+            case "geo": return getGA4GeoBreakdown(config, acct.propertyId, inicio, fim, input.limit);
+            case "conversions": return getGA4Conversions(config, acct.propertyId, inicio, fim);
+          }
+        })();
         await updateGA4AccountSync(acct.id);
-        return data;
+        return r;
       }),
 
-    dailyMetrics: protectedProcedure
-      .input(z.object({
-        accountId: z.number(),
-        days: z.number().min(1).max(365).default(30),
-      }))
-      .query(async ({ input }) => {
-        const acct = await getGA4AccountById(input.accountId);
-        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
-        const config = getGA4Config(acct.refreshToken);
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - input.days);
-        const fmt = (d: Date) => d.toISOString().split("T")[0];
-        return getGA4DailyMetrics(config, acct.propertyId, fmt(start), fmt(end));
-      }),
-
-    trafficSources: protectedProcedure
-      .input(z.object({
-        accountId: z.number(),
-        days: z.number().min(1).max(365).default(30),
-        limit: z.number().min(1).max(50).default(10),
-      }))
-      .query(async ({ input }) => {
-        const acct = await getGA4AccountById(input.accountId);
-        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
-        const config = getGA4Config(acct.refreshToken);
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - input.days);
-        const fmt = (d: Date) => d.toISOString().split("T")[0];
-        return getGA4TrafficSources(config, acct.propertyId, fmt(start), fmt(end), input.limit);
-      }),
-
-    topPages: protectedProcedure
-      .input(z.object({
-        accountId: z.number(),
-        days: z.number().min(1).max(365).default(30),
-        limit: z.number().min(1).max(50).default(10),
-      }))
-      .query(async ({ input }) => {
-        const acct = await getGA4AccountById(input.accountId);
-        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
-        const config = getGA4Config(acct.refreshToken);
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - input.days);
-        const fmt = (d: Date) => d.toISOString().split("T")[0];
-        return getGA4TopPages(config, acct.propertyId, fmt(start), fmt(end), input.limit);
-      }),
-
-    devices: protectedProcedure
-      .input(z.object({
-        accountId: z.number(),
-        days: z.number().min(1).max(365).default(30),
-      }))
-      .query(async ({ input }) => {
-        const acct = await getGA4AccountById(input.accountId);
-        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
-        const config = getGA4Config(acct.refreshToken);
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - input.days);
-        const fmt = (d: Date) => d.toISOString().split("T")[0];
-        return getGA4DeviceBreakdown(config, acct.propertyId, fmt(start), fmt(end));
-      }),
-
-    geo: protectedProcedure
-      .input(z.object({
-        accountId: z.number(),
-        days: z.number().min(1).max(365).default(30),
-        limit: z.number().min(1).max(50).default(10),
-      }))
-      .query(async ({ input }) => {
-        const acct = await getGA4AccountById(input.accountId);
-        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
-        const config = getGA4Config(acct.refreshToken);
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - input.days);
-        const fmt = (d: Date) => d.toISOString().split("T")[0];
-        return getGA4GeoBreakdown(config, acct.propertyId, fmt(start), fmt(end), input.limit);
-      }),
-
-    conversions: protectedProcedure
-      .input(z.object({
-        accountId: z.number(),
-        days: z.number().min(1).max(365).default(30),
-      }))
-      .query(async ({ input }) => {
-        const acct = await getGA4AccountById(input.accountId);
-        if (!acct) throw new TRPCError({ code: "NOT_FOUND", message: "GA4 account not found" });
-        const config = getGA4Config(acct.refreshToken);
-        const end = new Date();
-        const start = new Date();
-        start.setDate(start.getDate() - input.days);
-        const fmt = (d: Date) => d.toISOString().split("T")[0];
-        return getGA4Conversions(config, acct.propertyId, fmt(start), fmt(end));
-      }),
-
-    diagnose: protectedProcedure.query(async ({ ctx }) => {
-      const results: any[] = [];
-      const accounts = await getGA4AccountsByUserId(ctx.user.id);
-      for (const acct of accounts) {
+    /** Diagnóstico das conexões — admin/dev. */
+    diagnose: contentProcedure.query(async () => {
+      const contas = await listarTodasContasGA4();
+      const saida: unknown[] = [];
+      for (const acct of contas) {
+        const base = { id: acct.id, propertyId: acct.propertyId, name: acct.propertyName, vinculadaA: acct.linkedAccountId };
+        const token = tokenDaContaGA4(acct);
+        if (!token) { saida.push({ ...base, status: "ERROR", error: "Sem credencial utilizável." }); continue; }
         try {
-          const config = getGA4Config(acct.refreshToken);
-          const end = new Date();
-          const start = new Date();
-          start.setDate(start.getDate() - 7);
-          const fmt = (d: Date) => d.toISOString().split("T")[0];
-          const overview = await getGA4Overview(config, acct.propertyId, fmt(start), fmt(end));
-          results.push({
-            id: acct.id,
-            propertyId: acct.propertyId,
-            name: acct.propertyName,
-            status: "OK",
-            sessions: overview.sessions,
-            users: overview.totalUsers,
-          });
-        } catch (err: any) {
-          results.push({
-            id: acct.id,
-            propertyId: acct.propertyId,
-            name: acct.propertyName,
-            status: "ERROR",
-            error: err?.message ?? String(err),
-          });
+          const dia = (d: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() - d * 86400000));
+          const o = await getGA4Overview(getGA4Config(token), acct.propertyId, dia(7), dia(0));
+          saida.push({ ...base, status: "OK", sessions: o.sessions, users: o.totalUsers });
+        } catch (err) {
+          saida.push({ ...base, status: "ERROR", error: (err as Error)?.message ?? String(err) });
         }
       }
-      return results;
+      return saida;
     }),
   }),
 

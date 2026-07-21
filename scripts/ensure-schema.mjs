@@ -818,6 +818,16 @@ async function main() {
       }
     }
 
+    // 21d) Refresh token do GA4 criptografado. A coluna antiga vira nullable —
+    // token de integração nunca deve ficar em texto puro no banco.
+    if (await tableExists(conn, "ga4_accounts")) {
+      if (!(await columnExists(conn, "ga4_accounts", "refreshTokenEncrypted"))) {
+        await conn.query("ALTER TABLE `ga4_accounts` ADD COLUMN `refreshTokenEncrypted` TEXT NULL");
+        console.log("[ensure-schema] ok  · ga4_accounts.refreshTokenEncrypted adicionada");
+      }
+      await conn.query("ALTER TABLE `ga4_accounts` MODIFY COLUMN `refreshToken` TEXT NULL");
+    }
+
     // 22) Exclusão permanente de usuário (anônima — ver users.deletedAt no schema).
     if (!(await columnExists(conn, "users", "deletedAt"))) {
       await conn.query("ALTER TABLE `users` ADD COLUMN `deletedAt` TIMESTAMP NULL");

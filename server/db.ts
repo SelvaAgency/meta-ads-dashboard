@@ -1693,11 +1693,60 @@ export async function getGA4AccountById(id: number) {
   return rows[0] ?? null;
 }
 
-export async function createGA4Account(data: InsertGA4Account) {
+/**
+ * Cria a conexão GA4 com o refresh token CRIPTOGRAFADO.
+ *
+ * Antes o token era gravado em texto puro — qualquer dump ou consulta ao banco
+ * o entregava inteiro. O padrão certo já existia ao lado, em
+ * user_integrations.refreshTokenEncrypted; agora o GA4 usa o mesmo.
+ */
+export async function createGA4Account(data: Omit<InsertGA4Account, "refreshToken" | "refreshTokenEncrypted"> & { refreshToken: string }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(ga4Accounts).values(data);
+  const { refreshToken, ...resto } = data;
+  const result = await db.insert(ga4Accounts).values({
+    ...resto,
+    refreshToken: null,
+    refreshTokenEncrypted: encryptSecret(refreshToken),
+  });
   return (result as any)[0]?.insertId;
+}
+
+/**
+ * O token de uma conexão, pronto para uso. Aceita o formato antigo em texto
+ * puro para não quebrar registro anterior à criptografia — mesma tolerância
+ * aplicada ao Google Ads.
+ */
+export function tokenDaContaGA4(row: { refreshTokenEncrypted?: string | null; refreshToken?: string | null }): string | null {
+  if (row.refreshTokenEncrypted) {
+    try { return decryptSecret(row.refreshTokenEncrypted); } catch { return null; }
+  }
+  return row.refreshToken ?? null;
+}
+
+/** A conexão GA4 vinculada a um cliente. É por aqui que a leitura resolve. */
+export async function ga4DoCliente(linkedAccountId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(ga4Accounts).where(and(
+    eq(ga4Accounts.linkedAccountId, linkedAccountId),
+    eq(ga4Accounts.isActive, true),
+  )).limit(1);
+  return r[0] ?? null;
+}
+
+/** Todas as conexões, para a tela de vínculo (admin/dev). */
+export async function listarTodasContasGA4() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(ga4Accounts).where(eq(ga4Accounts.isActive, true)).orderBy(desc(ga4Accounts.createdAt));
+}
+
+/** Vincula (ou desvincula, com null) uma propriedade GA4 a um cliente. */
+export async function vincularGA4(id: number, linkedAccountId: number | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(ga4Accounts).set({ linkedAccountId }).where(eq(ga4Accounts.id, id));
 }
 
 export async function updateGA4AccountSync(id: number) {
