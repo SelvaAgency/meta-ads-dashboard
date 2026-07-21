@@ -451,6 +451,9 @@ export const emailSendLog = mysqlTable("email_send_log", {
   status: varchar("status", { length: 12 }).notNull(),
   /** resend | smtp | nenhum — por onde a entrega saiu (ou tentou sair). */
   transporte: varchar("transporte", { length: 12 }).default("smtp").notNull(),
+  /** Digest: papel de quem recebeu e quais blocos entraram — o "por que este conteúdo". */
+  role: varchar("role", { length: 20 }),
+  blocos: varchar("blocos", { length: 160 }),
   /** Mensagem real do SMTP quando falha — o que faltava para diagnosticar. */
   erro: text("erro"),
   userId: int("userId"),

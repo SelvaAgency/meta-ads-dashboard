@@ -3616,9 +3616,9 @@ export async function marcarEmailEnviadoIds(ids: number[]) {
 export async function usuariosAtivosComEmail() {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db.select({ id: users.id, name: users.name, email: users.email })
+  const rows = await db.select({ id: users.id, name: users.name, email: users.email, role: users.role })
     .from(users).where(and(eq(users.active, true), isNull(users.deletedAt), isNotNull(users.email)));
-  return rows as { id: number; name: string | null; email: string }[];
+  return rows as { id: number; name: string | null; email: string; role: string | null }[];
 }
 
 // ─── Coordenadores de cliente ────────────────────────────────────────────────
@@ -4188,6 +4188,42 @@ export async function registrarEnvioDigest(userId: number, dedupKey: string, ema
     .onDuplicateKeyUpdate({ set: { status, sentAt: new Date() } });
 }
 
+/**
+ * Alertas de UM dia, sem repetir o mesmo fato.
+ *
+ * A tabela `alerts` é o fan-out: o mesmo alerta vira uma linha por destinatário.
+ * Para o digest interessa o FATO, não a cópia — então agrupamos por dedupKey.
+ * Sem isso, um alerta que foi para 11 pessoas apareceria 11 vezes no e-mail.
+ */
+export async function alertasDoDia(
+  dia: string,
+  opts: { dominios?: NotifDominio[]; severidades?: ("INFO" | "WARNING" | "CRITICAL")[] } = {},
+) {
+  const db = await getDb();
+  if (!db) return [];
+  const inicio = new Date(`${dia}T00:00:00-03:00`);
+  const fim = new Date(`${dia}T23:59:59-03:00`);
+  const cond = [gte(alerts.createdAt, inicio), lte(alerts.createdAt, fim)];
+  if (opts.dominios?.length) cond.push(inArray(alerts.dominio, opts.dominios));
+  if (opts.severidades?.length) cond.push(inArray(alerts.severity, opts.severidades));
+
+  const rows = await db.select({
+    dedupKey: alerts.dedupKey, title: alerts.title, message: alerts.message,
+    type: alerts.type, severity: alerts.severity, dominio: alerts.dominio,
+    accountId: alerts.accountId, accountName: metaAdAccounts.accountName,
+  }).from(alerts)
+    .leftJoin(metaAdAccounts, eq(alerts.accountId, metaAdAccounts.id))
+    .where(and(...cond))
+    .orderBy(desc(alerts.createdAt));
+
+  const vistos = new Set<string>();
+  return rows.filter((r) => {
+    const k = r.dedupKey ?? `${r.type}:${r.title}`;
+    if (vistos.has(k)) return false;
+    vistos.add(k); return true;
+  });
+}
+
 // ─── Auditoria de envio de email ─────────────────────────────────────────────
 
 export type EnvioEmailRegistro = {
@@ -4198,6 +4234,8 @@ export type EnvioEmailRegistro = {
   redirecionado: boolean;
   status: "sent" | "failed" | "dry_run";
   transporte: string;
+  role?: string | null;
+  blocos?: string[] | null;
   erro?: string | null;
   userId?: number | null;
   messageId?: string | null;
@@ -4221,6 +4259,8 @@ export async function registrarEnvioEmail(r: EnvioEmailRegistro): Promise<void> 
       redirecionado: r.redirecionado,
       status: r.status,
       transporte: r.transporte.slice(0, 12),
+      role: r.role ?? null,
+      blocos: r.blocos?.length ? r.blocos.join(",").slice(0, 160) : null,
       erro: r.erro ? String(r.erro).slice(0, 4000) : null,
       userId: r.userId ?? null,
       messageId: r.messageId ?? null,

@@ -295,8 +295,9 @@ import { validarUrlPublica } from "./services/urlGuard";
 import { isPageSpeedConfigured } from "./services/sitePerformanceService";
 import { gerarSiteReport, siteReportMarkdown } from "./services/siteReportService";
 import { obterBriefingDoDia } from "./services/briefingService";
-import { dispararResumoManual, previewResumoManual } from "./notificationJobs";
+import { dispararResumoManual, previewResumoManual, hojeAgencia } from "./notificationJobs";
 import { emailMode, destinatariosDeTeste, transporteAtivo } from "./emailService";
+import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
 import { buildClientIntelligenceContext, contextoParaTexto, fontesDe, MODULOS, MODULOS_SITE } from "./services/clientIntelligence";
 import { gerarRelatorioModular, PRESETS, tierDe } from "./services/reportBuilder";
@@ -2048,6 +2049,55 @@ export const appRouter = router({
       });
       return { ...envio, transporte: transporteAtivo(), destinos };
     }),
+
+    // ─── Jornalzinho diário ──────────────────────────────────────────────
+    // Quem recebe o quê é decidido pelo PAPEL. Ninguém configura nada, e o
+    // financeiro não sai do círculo de admin nem por engano de configuração.
+
+    /** Quem receberia o quê hoje — sem mandar nada. */
+    previewDigest: adminProcedure
+      .input(z.object({ dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).default({}))
+      .query(({ input }) => previewDigest(input.dia ?? hojeAgencia())),
+
+    /** Matriz papel → blocos, para a tela explicar a regra em vez de esconder. */
+    matrizDigest: protectedProcedure.query(() => BLOCOS_POR_PAPEL),
+
+    /** O HTML que a pessoa receberia — a prévia visual antes de qualquer envio. */
+    previewDigestHtml: adminProcedure
+      .input(z.object({
+        papel: z.enum(["admin", "developer", "user"]).default("admin"),
+        dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      }).default({ papel: "admin" }))
+      .query(({ input }) => buildDailyDigestForRole(input.papel, input.dia ?? hojeAgencia())),
+
+    /**
+     * "Enviar digest de teste agora". Recusa sem EMAIL_TEST_RECIPIENT — a trava
+     * mora no serviço, não aqui, para nenhum caminho novo escapar dela.
+     */
+    enviarDigestTeste: adminProcedure
+      .input(z.object({ dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).default({}))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await enviarDigestDeTeste(
+            { id: ctx.user.id, name: ctx.user.name ?? null, role: ctx.user.role ?? null },
+            input.dia ?? hojeAgencia(),
+          );
+        } catch (e) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: (e as Error).message });
+        }
+      }),
+
+    /**
+     * Disparo real para todos, conforme papel. Exige confirmação explícita: um
+     * clique a mais é barato perto de um envio indevido para a empresa toda.
+     */
+    dispararDigestReal: adminProcedure
+      .input(z.object({
+        confirmar: z.literal(true),
+        forcarReenvio: z.boolean().default(false),
+        dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      }))
+      .mutation(({ input }) => runDailyDigestJob(input.dia ?? hojeAgencia(), { forcarReenvio: input.forcarReenvio })),
 
     /** Prévia do disparo manual: alcance e avisos antes de mandar. */
     previewResumo: adminProcedure

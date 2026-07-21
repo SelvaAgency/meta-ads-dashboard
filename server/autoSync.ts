@@ -1,5 +1,6 @@
 import { logger } from "./logger";
-import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, runDigestDiario, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
+import { runDailyDigestJob } from "./services/dailyDigestService";
+import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, hojeAgencia, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
 import { runClaritySnapshots, runPerformanceSnapshots, runSiteHealthChecks } from "./clarityJobs";
 import { runClarityAlertas } from "./services/clarityAlertService";
 import { getDigestSettings, getDigestOverride } from "./db";
@@ -496,8 +497,14 @@ async function runNotificacoesDiarias() {
     const hoje = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", weekday: "short" }).format(new Date());
     if (hoje === "Mon") await runRelatorioSemanalDeContas();
   });
-  // Por último: o digest junta tudo que os gatilhos acabaram de criar.
-  await passo("Digest", runDigestDiario);
+  /**
+   * Por último: o Jornalzinho. Um e-mail por pessoa, montado pelo papel dela.
+   *
+   * Substitui runDigestDiario, que dependia de cada um ter marcado "no resumo do
+   * dia" nas preferências — ninguém marcou (uma linha na tabela inteira), então
+   * ele sempre mandava zero. O papel decide agora.
+   */
+  await passo("Jornalzinho", () => runDailyDigestJob(hojeAgencia()));
 }
 
 /** Relatório semanal consolidado por conta — com métricas reais (não zeros). */

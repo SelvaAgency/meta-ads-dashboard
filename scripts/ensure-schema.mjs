@@ -793,6 +793,12 @@ async function main() {
     if (!(await columnExists(conn, "email_send_log", "transporte"))) {
       await conn.query("ALTER TABLE `email_send_log` ADD COLUMN `transporte` VARCHAR(12) NOT NULL DEFAULT 'smtp'");
     }
+    if (!(await columnExists(conn, "email_send_log", "role"))) {
+      await conn.query("ALTER TABLE `email_send_log` ADD COLUMN `role` VARCHAR(20) NULL");
+    }
+    if (!(await columnExists(conn, "email_send_log", "blocos"))) {
+      await conn.query("ALTER TABLE `email_send_log` ADD COLUMN `blocos` VARCHAR(160) NULL");
+    }
     console.log("[ensure-schema] ok  · email_send_log garantida");
 
     // 22) Exclusão permanente de usuário (anônima — ver users.deletedAt no schema).

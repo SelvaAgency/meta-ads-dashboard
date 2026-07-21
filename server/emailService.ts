@@ -133,6 +133,9 @@ export interface SendEmailOptions {
   tipo?: string;
   /** Quando o envio é dirigido a uma pessoa do sistema. */
   userId?: number;
+  /** Digest: papel de quem recebe e blocos incluídos — vão para a auditoria. */
+  role?: string;
+  blocos?: string[];
 }
 
 /**
@@ -212,7 +215,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
       entregas.push({ ...base, ok: true });
       await registrarEnvioEmail({
         tipo, assunto, destinatarioOriginal: destinoOriginal, destinatarioFinal: para,
-        redirecionado, status: "dry_run", transporte: transporteAtivo(), userId: opts.userId,
+        redirecionado, status: "dry_run", transporte: transporteAtivo(), role: opts.role, blocos: opts.blocos, userId: opts.userId,
       });
       continue;
     }
@@ -224,7 +227,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
       entregas.push({ ...base, ok: true, messageId });
       await registrarEnvioEmail({
         tipo, assunto, destinatarioOriginal: destinoOriginal, destinatarioFinal: para,
-        redirecionado, status: "sent", transporte: transporteAtivo(), messageId, userId: opts.userId,
+        redirecionado, status: "sent", transporte: transporteAtivo(), role: opts.role, blocos: opts.blocos, messageId, userId: opts.userId,
       });
     } catch (err) {
       const msg = (err as Error)?.message ?? String(err);
@@ -232,7 +235,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
       entregas.push({ ...base, ok: false, erro: msg });
       await registrarEnvioEmail({
         tipo, assunto, destinatarioOriginal: destinoOriginal, destinatarioFinal: para,
-        redirecionado, status: "failed", transporte: transporteAtivo(), erro: msg, userId: opts.userId,
+        redirecionado, status: "failed", transporte: transporteAtivo(), role: opts.role, blocos: opts.blocos, erro: msg, userId: opts.userId,
       });
     }
   }
