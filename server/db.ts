@@ -4197,6 +4197,7 @@ export type EnvioEmailRegistro = {
   destinatarioFinal: string;
   redirecionado: boolean;
   status: "sent" | "failed" | "dry_run";
+  transporte: string;
   erro?: string | null;
   userId?: number | null;
   messageId?: string | null;
@@ -4219,6 +4220,7 @@ export async function registrarEnvioEmail(r: EnvioEmailRegistro): Promise<void> 
       destinatarioFinal: r.destinatarioFinal.slice(0, 320),
       redirecionado: r.redirecionado,
       status: r.status,
+      transporte: r.transporte.slice(0, 12),
       erro: r.erro ? String(r.erro).slice(0, 4000) : null,
       userId: r.userId ?? null,
       messageId: r.messageId ?? null,

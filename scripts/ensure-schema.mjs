@@ -790,6 +790,9 @@ async function main() {
         KEY \`idx_email_log_criado\` (\`criadoEm\`),
         KEY \`idx_email_log_tipo\` (\`tipo\`, \`criadoEm\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    if (!(await columnExists(conn, "email_send_log", "transporte"))) {
+      await conn.query("ALTER TABLE `email_send_log` ADD COLUMN `transporte` VARCHAR(12) NOT NULL DEFAULT 'smtp'");
+    }
     console.log("[ensure-schema] ok  · email_send_log garantida");
 
     // 22) Exclusão permanente de usuário (anônima — ver users.deletedAt no schema).

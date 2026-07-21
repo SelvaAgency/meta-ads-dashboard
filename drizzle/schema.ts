@@ -449,6 +449,8 @@ export const emailSendLog = mysqlTable("email_send_log", {
   redirecionado: boolean("redirecionado").default(false).notNull(),
   /** sent | failed | dry_run */
   status: varchar("status", { length: 12 }).notNull(),
+  /** resend | smtp | nenhum — por onde a entrega saiu (ou tentou sair). */
+  transporte: varchar("transporte", { length: 12 }).default("smtp").notNull(),
   /** Mensagem real do SMTP quando falha — o que faltava para diagnosticar. */
   erro: text("erro"),
   userId: int("userId"),

@@ -135,10 +135,18 @@ export interface SendEmailOptions {
   userId?: number;
 }
 
-/** Etiqueta discreta no corpo, para ninguém confundir teste com envio real. */
+/**
+ * Etiqueta discreta no corpo, para ninguém confundir teste com envio real.
+ *
+ * Quando o remetente ainda é o domínio de sandbox do Resend, a etiqueta diz
+ * isso na cara: nesse modo o Resend só entrega para o dono da conta, e quem
+ * receber precisa saber por que o remetente está estranho.
+ */
 function marcarCorpoDeTeste(html: string, destinoOriginal: string): string {
+  const sandbox = /resend\.dev/i.test(EMAIL_FROM);
   return `<div style="background:#FEF3C7;border:1px solid #FCD34D;color:#92400E;padding:8px 12px;border-radius:6px;font:12px Arial,sans-serif;margin:0 0 12px">
-  Envio de teste redirecionado &middot; o destinatário real seria <strong>${destinoOriginal}</strong>.
+  Envio de teste redirecionado &middot; o destinatário real seria <strong>${destinoOriginal}</strong>.${
+    sandbox ? "<br>Envio de teste via Resend usando domínio não verificado." : ""}
 </div>${html}`;
 }
 
@@ -204,7 +212,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
       entregas.push({ ...base, ok: true });
       await registrarEnvioEmail({
         tipo, assunto, destinatarioOriginal: destinoOriginal, destinatarioFinal: para,
-        redirecionado, status: "dry_run", userId: opts.userId,
+        redirecionado, status: "dry_run", transporte: transporteAtivo(), userId: opts.userId,
       });
       continue;
     }
@@ -216,7 +224,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
       entregas.push({ ...base, ok: true, messageId });
       await registrarEnvioEmail({
         tipo, assunto, destinatarioOriginal: destinoOriginal, destinatarioFinal: para,
-        redirecionado, status: "sent", messageId, userId: opts.userId,
+        redirecionado, status: "sent", transporte: transporteAtivo(), messageId, userId: opts.userId,
       });
     } catch (err) {
       const msg = (err as Error)?.message ?? String(err);
@@ -224,7 +232,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
       entregas.push({ ...base, ok: false, erro: msg });
       await registrarEnvioEmail({
         tipo, assunto, destinatarioOriginal: destinoOriginal, destinatarioFinal: para,
-        redirecionado, status: "failed", erro: msg, userId: opts.userId,
+        redirecionado, status: "failed", transporte: transporteAtivo(), erro: msg, userId: opts.userId,
       });
     }
   }
