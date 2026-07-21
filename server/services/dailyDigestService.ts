@@ -30,13 +30,26 @@ export type BlocoDigest = "performance" | "financeiro" | "site" | "aniversarios"
 /**
  * A matriz é a regra de produto, num lugar só.
  *
- * Financeiro é o único bloco restrito, e a restrição está aqui E no montador —
- * de propósito. Regra de privacidade que existe em um lugar só é regra que a
- * próxima refatoração apaga sem perceber.
+ * Três domínios de informação, cada um com seu público:
+ *
+ *   performance (clientes/campanhas)  → admin + user
+ *   site/clarity/técnico              → admin + developer
+ *   financeiro                        → admin
+ *
+ * O developer NÃO recebe performance de cliente: ele cuida da parte técnica, e
+ * resultado de campanha não é o trabalho dele. O user NÃO recebe site técnico
+ * pela razão simétrica. Admin é o único que cruza os três.
+ *
+ * Aniversários e comunicados são institucionais e vão para todos — ninguém
+ * escolhe receber ou não.
+ *
+ * Financeiro é checado aqui E no montador, de propósito. Regra de privacidade
+ * que existe em um lugar só é regra que a próxima refatoração apaga sem
+ * perceber.
  */
 export const BLOCOS_POR_PAPEL: Record<Papel, BlocoDigest[]> = {
   admin:     ["performance", "financeiro", "site", "aniversarios", "comunicados"],
-  developer: ["performance", "site", "aniversarios", "comunicados"],
+  developer: ["site", "aniversarios", "comunicados"],
   user:      ["performance", "aniversarios", "comunicados"],
 };
 

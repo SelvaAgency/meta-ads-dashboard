@@ -139,18 +139,38 @@ export interface SendEmailOptions {
 }
 
 /**
- * Etiqueta discreta no corpo, para ninguém confundir teste com envio real.
+ * Cabeçalho de auditoria do modo teste.
  *
- * Quando o remetente ainda é o domínio de sandbox do Resend, a etiqueta diz
- * isso na cara: nesse modo o Resend só entrega para o dono da conta, e quem
- * receber precisa saber por que o remetente está estranho.
+ * Com o desvio ligado, várias versões do MESMO e-mail caem na mesma caixa — uma
+ * por destinatário original. Isso é o comportamento correto, não um bug: cada
+ * pessoa tem um conteúdo diferente e todas precisam ser conferidas. Mas sem
+ * dizer de quem é cada versão, a caixa vira um monte de e-mails iguais.
+ *
+ * Por isso o cabeçalho declara, em vez de deixar adivinhar, para quem aquele
+ * conteúdo foi montado e por quê.
  */
-function marcarCorpoDeTeste(html: string, destinoOriginal: string): string {
+function marcarCorpoDeTeste(html: string, destinoOriginal: string, destinoFinal: string, role?: string): string {
   const sandbox = /resend\.dev/i.test(EMAIL_FROM);
-  return `<div style="background:#FEF3C7;border:1px solid #FCD34D;color:#92400E;padding:8px 12px;border-radius:6px;font:12px Arial,sans-serif;margin:0 0 12px">
-  Envio de teste redirecionado &middot; o destinatário real seria <strong>${destinoOriginal}</strong>.${
-    sandbox ? "<br>Envio de teste via Resend usando domínio não verificado." : ""}
+  const linha = (k: string, v: string) =>
+    `<tr><td style="padding:1px 10px 1px 0;color:#A16207;white-space:nowrap">${k}</td><td style="padding:1px 0;color:#78350F"><strong>${v}</strong></td></tr>`;
+  return `<div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:6px;padding:10px 12px;font:12px Arial,sans-serif;margin:0 0 12px">
+  <p style="margin:0 0 6px;font-weight:bold;color:#92400E">Envio de teste redirecionado</p>
+  <table style="border-collapse:collapse;font:12px Arial,sans-serif">
+    ${linha("Destinatário original:", destinoOriginal)}
+    ${linha("Destinatário final:", destinoFinal)}
+    ${role ? linha("Role:", role) : ""}
+    ${linha("Redirecionado por EMAIL_TEST_RECIPIENT:", "sim")}
+  </table>
+  ${sandbox ? `<p style="margin:6px 0 0;color:#A16207">Envio de teste via Resend usando domínio não verificado.</p>` : ""}
 </div>${html}`;
+}
+
+/**
+ * Assunto do modo teste: diz de quem é a versão logo na lista da caixa de
+ * entrada, sem precisar abrir cada uma para descobrir.
+ */
+function assuntoDeTeste(assunto: string, destinoOriginal: string, role?: string): string {
+  return `[TESTE] ${assunto}${role ? ` — visão ${role}` : ""} — original: ${destinoOriginal}`;
 }
 
 /**
@@ -204,11 +224,12 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
     ? destinos.flatMap((orig) => teste.map((t) => ({ destinoOriginal: orig, para: t })))
     : destinos.map((d) => ({ destinoOriginal: d, para: d }));
 
-  const assunto = redirecionado ? `[TESTE] ${opts.subject}` : opts.subject;
   const entregas: EntregaEmail[] = [];
 
   for (const { destinoOriginal, para } of pares) {
     const base = { para, destinoOriginal, dryRun, redirecionado };
+    // Por par: com desvio, cada versão precisa se identificar no assunto.
+    const assunto = redirecionado ? assuntoDeTeste(opts.subject, destinoOriginal, opts.role) : opts.subject;
 
     if (dryRun) {
       logger.info(`[EmailService] DRY-RUN · ${tipo} · não enviado para ${para} · "${assunto}"`);
@@ -221,7 +242,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
     }
 
     try {
-      const corpo = redirecionado ? marcarCorpoDeTeste(opts.html, destinoOriginal) : opts.html;
+      const corpo = redirecionado ? marcarCorpoDeTeste(opts.html, destinoOriginal, para, opts.role) : opts.html;
       const messageId = await entregar(para, assunto, corpo, opts.text);
       logger.info(`[EmailService] ✓ ${tipo} → ${para}${redirecionado ? ` (original: ${destinoOriginal})` : ""} · ${transporteAtivo()} · ${messageId}`);
       entregas.push({ ...base, ok: true, messageId });

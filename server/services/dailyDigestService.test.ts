@@ -22,17 +22,30 @@ describe("matriz de blocos por papel", () => {
     expect(comFinanceiro).toEqual(["admin"]);
   });
 
-  it("todo mundo recebe o que é institucional", () => {
+  it("aniversários e comunicados são institucionais — vão para todos", () => {
     for (const p of papeis) {
       expect(BLOCOS_POR_PAPEL[p]).toContain("aniversarios");
       expect(BLOCOS_POR_PAPEL[p]).toContain("comunicados");
-      expect(BLOCOS_POR_PAPEL[p]).toContain("performance");
     }
   });
 
-  it("developer recebe site, user não", () => {
+  it("performance de cliente é de admin e user — developer não cuida disso", () => {
+    expect(BLOCOS_POR_PAPEL.admin).toContain("performance");
+    expect(BLOCOS_POR_PAPEL.user).toContain("performance");
+    expect(BLOCOS_POR_PAPEL.developer).not.toContain("performance");
+  });
+
+  it("site técnico é de admin e developer — user não recebe", () => {
+    expect(BLOCOS_POR_PAPEL.admin).toContain("site");
     expect(BLOCOS_POR_PAPEL.developer).toContain("site");
     expect(BLOCOS_POR_PAPEL.user).not.toContain("site");
+  });
+
+  it("developer e user não se sobrepõem fora do institucional", () => {
+    const institucional = new Set(["aniversarios", "comunicados"]);
+    const dev = BLOCOS_POR_PAPEL.developer.filter((b) => !institucional.has(b));
+    const usr = BLOCOS_POR_PAPEL.user.filter((b) => !institucional.has(b));
+    expect(dev.filter((b) => usr.includes(b))).toEqual([]);
   });
 
   it("admin recebe tudo que existe", () => {
