@@ -4406,6 +4406,19 @@ export const appRouter = router({
       .input(z.object({ id: z.number().int(), linkedAccountId: z.number().int().nullable() }))
       .mutation(async ({ ctx, input }) => {
         if (!podeConectarGoogleAds(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: MSG_SEM_PERMISSAO_GADS });
+        // Gerenciadora não tem métricas próprias: vinculá-la a um cliente faz a
+        // tela pedir métricas do MCC e receber REQUESTED_METRICS_FOR_MANAGER.
+        // Recusar aqui é mais barato que descobrir depois pelo erro da API.
+        if (input.linkedAccountId != null) {
+          const conta = await getGoogleAdAccountById(input.id);
+          const mcc = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID?.replace(/-/g, "");
+          if (conta && mcc && conta.customerId.replace(/-/g, "") === mcc) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Esta é a conta gerenciadora (MCC) e não tem métricas próprias. Vincule uma conta de anúncios real.",
+            });
+          }
+        }
         await vincularContaGoogle(input.id, input.linkedAccountId);
         return { success: true } as const;
       }),

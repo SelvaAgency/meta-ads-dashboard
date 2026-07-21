@@ -241,6 +241,31 @@ function queryCampanhas(startDate: string, endDate: string, incluirRemovidas: bo
 /**
  * Fetch active campaigns with performance metrics for a date range.
  */
+/**
+ * Conta gerenciadora (MCC) NÃO tem métricas próprias.
+ *
+ * Pedir métricas contra o MCC devolve INVALID_ARGUMENT /
+ * REQUESTED_METRICS_FOR_MANAGER — mensagem correta do Google, mas que chega
+ * na tela como "erro na consulta" e manda procurar no lugar errado. O MCC é o
+ * `login-customer-id` do cabeçalho; o `customerId` da query tem que ser sempre
+ * a conta do cliente.
+ *
+ * Aconteceu de verdade: o MCC 9284868244 ficou vinculado ao cliente "SELVA
+ * Agency" numa descoberta antiga, anterior ao filtro que exclui gerenciadoras.
+ * A trava vive aqui, no caminho por onde toda consulta de métrica passa, para
+ * um vínculo errado virar mensagem clara em vez de erro críptico da API.
+ */
+function recusarSeGerenciadora(config: GoogleAdsConfig, customerId: string): void {
+  const mcc = config.loginCustomerId?.replace(/-/g, "");
+  const alvo = (customerId ?? "").replace(/-/g, "");
+  if (mcc && alvo && mcc === alvo) {
+    throw new Error(
+      `A conta ${formatarCustomerId(alvo)} é a gerenciadora (MCC) e não tem métricas próprias. ` +
+      `Vincule este cliente a uma conta de anúncios real, ou marque a gerenciadora como ignorada na tela do Google Ads.`,
+    );
+  }
+}
+
 export async function getGoogleAdsCampaigns(
   config: GoogleAdsConfig,
   customerId: string,
@@ -248,6 +273,7 @@ export async function getGoogleAdsCampaigns(
   endDate: string,
   incluirRemovidas = false
 ): Promise<GoogleAdsCampaign[]> {
+  recusarSeGerenciadora(config, customerId);
   /**
    * Tudo menos REMOVED — é o padrão do próprio Google Ads, que mostra ativas e
    * pausadas juntas. Antes filtrava status='ENABLED' E serving_status='SERVING':
@@ -298,6 +324,7 @@ export async function getGoogleAdsAdGroups(
   startDate: string,
   endDate: string
 ): Promise<GoogleAdsAdGroup[]> {
+  recusarSeGerenciadora(config, customerId);
   const query = `
     SELECT
       ad_group.id,
@@ -362,6 +389,7 @@ export async function getGoogleAdsAds(
   startDate: string,
   endDate: string
 ): Promise<GoogleAdsAd[]> {
+  recusarSeGerenciadora(config, customerId);
   const query = `
     SELECT
       ad_group_ad.ad.id,
@@ -444,6 +472,7 @@ export async function getGoogleAdsAccountSummary(
   roas: number;
   activeCampaigns: number;
 }> {
+  recusarSeGerenciadora(config, customerId);
   const query = `
     SELECT
       metrics.cost_micros,
