@@ -18,6 +18,39 @@ por HTTPS**; sem ela, cai no SMTP (que funciona no ambiente local).
 [resend.com](https://resend.com) → conta gratuita.
 O plano grátis dá **3.000 e-mails/mês (100/dia)**. O uso previsto é ~15/dia.
 
+## Situação atual (21/07) — modo sandbox, DNS intocado
+
+**O transporte está validado.** Decisão do dia: não mexer em DNS nem nos MX do
+Google Workspace só para testar. Enquanto isso:
+
+```
+RESEND_API_KEY=re_…                          (definida)
+EMAIL_FROM=SELVA Spaces <onboarding@resend.dev>   remetente sandbox do Resend
+EMAIL_TEST_RECIPIENT=contato@selva.agency         dono da conta Resend
+```
+
+Provas colhidas:
+
+| Teste | Resultado |
+|---|---|
+| Resend por HTTPS de dentro do container Railway | **HTTP 200** ✅ |
+| Caminho completo do app (`sendEmail`) | **ok, status `sent`, transporte `resend`** ✅ |
+| Desvio de destinatário | destino era `felberg@`, entregou em `contato@` ✅ |
+
+Antes de trocar o remetente, o Resend recusava com a mensagem exata:
+
+```
+Resend 403: The selva.agency domain is not verified.
+```
+
+Que é o comportamento correto — e agora aparece no diagnóstico em vez de sumir.
+
+**Limite do sandbox:** com `onboarding@resend.dev` o Resend só entrega para o
+dono da conta (`contato@selva.agency`). Enviar para `felberg@` ou `dev@` neste
+modo é recusado. Por isso o desvio aponta para uma caixa só.
+
+---
+
 ## Passo 2 — verificar o domínio `selva.agency`
 
 Em **Domains → Add Domain**, informe `selva.agency`. O Resend devolve registros
@@ -75,12 +108,13 @@ mandar para a lista real.
 ### Enquanto durar a validação
 
 ```
-EMAIL_TEST_RECIPIENT=felberg@selva.agency,dev@selva.agency
+EMAIL_TEST_RECIPIENT=contato@selva.agency
 ```
 
-Está definida agora. **Todo e-mail do sistema — inclusive o automático das
-07:30 — vai só para esses dois.** Nenhum colaborador recebe nada enquanto ela
-existir.
+**Todo e-mail do sistema — inclusive o automático das 07:30 — vai só para esse
+endereço.** Nenhum colaborador recebe nada enquanto ela existir. Quando o
+domínio for verificado, passa a aceitar lista:
+`felberg@selva.agency,dev@selva.agency`.
 
 **Para valer de verdade, é preciso remover essa variável.** Enquanto ela estiver
 lá, o Jornalzinho não chega a ninguém — e é assim de propósito: o desvio é o que
