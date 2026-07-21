@@ -1,4 +1,5 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { totaisDe, insightsDe, linhaComAtencao, gastouSemConverter, rotuloDoCanal, type CampanhaGoogle } from "./campanhas/googleAdsInsights";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
 import { Input } from "@/components/ui/input";
@@ -823,6 +824,19 @@ export default function Campaigns() {
 }
 
 /**
+ * Estilos do painel do Google Ads.
+ *
+ * São cópias intencionais dos que a subaba Meta define no corpo do próprio
+ * componente. Extraí-los para reuso exigiria editar linhas dentro da Meta, e a
+ * regra desta frente é não tocar nela — cópia visível vale mais que refatoração
+ * silenciosa num componente que está funcionando.
+ */
+const gPanel: React.CSSProperties = { background: "#FFFFFF", border: "0.5px solid var(--color-border-secondary)", borderRadius: 12, overflow: "hidden" };
+const gHeader: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", borderBottom: "0.5px solid var(--color-border-tertiary)" };
+const gHeaderAccent: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", borderBottom: "3px solid #D4537E" };
+const gTh = (left?: boolean): React.CSSProperties => ({ padding: "8px 12px", textAlign: left ? "left" as const : "right" as const, fontWeight: 500, fontSize: 11, color: "var(--color-text-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)", whiteSpace: "nowrap" as const, background: "var(--color-background-secondary)" });
+
+/**
  * ─────────────────────────────────────────────────────────────────────────────
  *  Subaba Google Ads na tela de Campanhas
  * ─────────────────────────────────────────────────────────────────────────────
@@ -919,67 +933,137 @@ function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number |
     );
   }
 
-  const lista = campanhas.data ?? [];
+  const lista = (campanhas.data ?? []) as CampanhaGoogle[];
 
   // Conectado e sem dados NO PERÍODO. Estado diferente de "não conectado" —
-  // confundir os dois faz o time reconectar uma integração que está saudável.
+  // confundir os dois faz o time reconectar uma integração saudável.
   if (lista.length === 0) {
     return <Vazio titulo="Google Ads conectado, mas sem dados no período selecionado"
       texto={`A conta ${conta.data.customerId} está vinculada e respondendo. Não houve campanhas com veiculação no período escolhido.`}
       acao={linkDedicada} />;
   }
 
-  const t = lista.reduce((a, c) => ({
-    spend: a.spend + Number(c.spend ?? 0), clicks: a.clicks + Number(c.clicks ?? 0),
-    impressions: a.impressions + Number(c.impressions ?? 0), conversions: a.conversions + Number(c.conversions ?? 0),
-  }), { spend: 0, clicks: 0, impressions: 0, conversions: 0 });
-  const brl = (n: number) => "R$ " + n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const int = (n: number) => n.toLocaleString("pt-BR");
+  const t = totaisDe(lista);
+  const insights = insightsDe(lista);
+
+  /**
+   * KPIs no mesmo desenho da Meta (grid com divisórias e header accent), mas com
+   * as métricas que o Google entrega. Valor de conversão e ROAS só entram quando
+   * há receita — em conta de geração de lead, mostrar "0,00x" sugeriria fracasso
+   * onde a métrica simplesmente não se aplica.
+   */
+  const kpis: { label: string; val: string }[] = [
+    { label: "Investimento", val: fmtCurrency(t.investimento) },
+    { label: "Impressões", val: fmtNum(t.impressoes) },
+    { label: "Cliques", val: fmtNum(t.cliques) },
+    { label: "CTR", val: t.ctr === null ? "—" : fmtPct(t.ctr) },
+    { label: "Conversões", val: fmtNum(t.conversoes) },
+    { label: "Custo/conversão", val: t.cpa === null ? "—" : fmtCurrency(t.cpa) },
+    ...(t.temReceita ? [
+      { label: "Valor de conversão", val: fmtCurrency(t.valorConversao) },
+      { label: "ROAS", val: t.roas === null ? "—" : `${t.roas.toFixed(2)}x` },
+    ] : []),
+  ];
+
+  const cel: React.CSSProperties = { padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap" };
 
   return (
-    <div style={{ ...painel, textAlign: "left", padding: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderBottom: "0.5px solid var(--color-border-tertiary)", flexWrap: "wrap" }}>
-        <div>
-          <p style={{ fontSize: 13, fontWeight: 600 }}>Google Ads · {conta.data.accountName ?? conta.data.customerId}</p>
-          <p style={{ fontSize: 12, color: sec }}>
-            {lista.length} campanha(s) · {brl(t.spend)} · {int(t.clicks)} cliques · {int(t.impressions)} impressões · {int(t.conversions)} conversões
-          </p>
+    <>
+      {/* Cabeçalho da conta */}
+      <div style={{ ...gPanel, marginBottom: 14 }}>
+        <div style={{ ...gHeaderAccent, flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 500 }}>{conta.data.accountName ?? "Conta do Google Ads"}</div>
+            <div style={{ fontSize: 11, color: sec }}>{conta.data.customerId} · {periodLabel}</div>
+          </div>
+          {linkDedicada}
         </div>
-        {linkDedicada}
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${kpis.length}, 1fr)` }}>
+          {kpis.map((k, i) => (
+            <div key={k.label} style={{ padding: "14px 16px", borderRight: i < kpis.length - 1 ? "0.5px solid var(--color-border-tertiary)" : "none" }}>
+              <div style={{ fontSize: 11, color: sec, marginBottom: 4 }}>{k.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 500 }}>{k.val}</div>
+            </div>
+          ))}
+        </div>
       </div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ textAlign: "left", color: sec, fontSize: 11 }}>
-              <th style={{ padding: "8px 18px", fontWeight: 500 }}>Campanha</th>
-              <th style={{ padding: "8px 10px", fontWeight: 500 }}>Status</th>
-              <th style={{ padding: "8px 10px", fontWeight: 500, textAlign: "right" }}>Investimento</th>
-              <th style={{ padding: "8px 10px", fontWeight: 500, textAlign: "right" }}>Cliques</th>
-              <th style={{ padding: "8px 10px", fontWeight: 500, textAlign: "right" }}>Impressões</th>
-              <th style={{ padding: "8px 18px", fontWeight: 500, textAlign: "right" }}>Conversões</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lista.map((c) => (
-              <tr key={c.id} style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }}>
-                <td style={{ padding: "9px 18px" }}>{c.name}</td>
-                <td style={{ padding: "9px 10px" }}>
-                  <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 99,
-                    background: c.status === "ENABLED" ? "rgba(29,158,117,0.12)" : "rgba(0,0,0,0.06)",
-                    color: c.status === "ENABLED" ? "#1D9E75" : sec }}>
-                    {c.status === "ENABLED" ? "Ativa" : "Pausada"}
-                  </span>
-                </td>
-                <td style={{ padding: "9px 10px", textAlign: "right" }}>{brl(Number(c.spend ?? 0))}</td>
-                <td style={{ padding: "9px 10px", textAlign: "right" }}>{int(Number(c.clicks ?? 0))}</td>
-                <td style={{ padding: "9px 10px", textAlign: "right" }}>{int(Number(c.impressions ?? 0))}</td>
-                <td style={{ padding: "9px 18px", textAlign: "right" }}>{int(Number(c.conversions ?? 0))}</td>
-              </tr>
+
+      {/* Leituras rápidas — só as que se sustentam nos dados */}
+      {insights.length > 0 && (
+        <div style={{ ...gPanel, marginBottom: 14 }}>
+          <div style={gHeader}><div style={{ fontSize: 12, fontWeight: 500 }}>Leitura rápida</div></div>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(insights.length, 5)}, 1fr)` }}>
+            {insights.map((ins, i) => (
+              <div key={ins.chave} style={{ padding: "13px 16px", borderRight: i < insights.length - 1 ? "0.5px solid var(--color-border-tertiary)" : "none" }}>
+                <div style={{ fontSize: 11, color: ins.alerta ? "#C0312F" : sec, marginBottom: 3 }}>{ins.rotulo}</div>
+                <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 2 }}>{ins.valor}</div>
+                <div style={{ fontSize: 11, color: sec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={ins.detalhe}>{ins.detalhe}</div>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tabela de campanhas */}
+      <div style={gPanel}>
+        <div style={gHeader}>
+          <div style={{ fontSize: 12, fontWeight: 500 }}>Campanhas ({lista.length})</div>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={gTh(true)}>Campanha</th>
+                <th style={gTh(true)}>Tipo</th>
+                <th style={gTh(true)}>Status</th>
+                <th style={gTh()}>Custo</th>
+                <th style={gTh()}>Impressões</th>
+                <th style={gTh()}>Cliques</th>
+                <th style={gTh()}>CTR</th>
+                <th style={gTh()}>CPC</th>
+                <th style={gTh()}>Conversões</th>
+                <th style={gTh()}>CPA</th>
+                {t.temReceita && <th style={gTh()}>Valor</th>}
+                {t.temReceita && <th style={gTh()}>ROAS</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {[...lista].sort((a, b) => Number(b.spend ?? 0) - Number(a.spend ?? 0)).map((c) => {
+                const atencao = linhaComAtencao(c);
+                const sImp = Number(c.impressions ?? 0), sCliq = Number(c.clicks ?? 0), sConv = Number(c.conversions ?? 0);
+                return (
+                  <tr key={c.id} style={{ borderTop: "0.5px solid var(--color-border-tertiary)", background: atencao ? "rgba(226,75,74,0.04)" : undefined }}>
+                    <td style={{ padding: "9px 12px", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.name}>
+                      {atencao && <span title={gastouSemConverter(c) ? "Gastou sem converter" : "Ativa sem entrega"} style={{ color: "#C0312F", marginRight: 5 }}>•</span>}
+                      {c.name}
+                    </td>
+                    <td style={{ padding: "9px 12px", color: sec }}>{rotuloDoCanal(c.advertisingChannelType)}</td>
+                    <td style={{ padding: "9px 12px" }}>
+                      <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 99,
+                        background: c.status === "ENABLED" ? "rgba(29,158,117,0.12)" : "rgba(0,0,0,0.06)",
+                        color: c.status === "ENABLED" ? "#1D9E75" : sec }}>
+                        {c.status === "ENABLED" ? "Ativa" : "Pausada"}
+                      </span>
+                    </td>
+                    <td style={cel}>{fmtCurrency(Number(c.spend ?? 0))}</td>
+                    <td style={cel}>{sImp > 0 ? fmtNum(sImp) : "—"}</td>
+                    <td style={cel}>{sCliq > 0 ? fmtNum(sCliq) : "—"}</td>
+                    <td style={cel}>{sImp > 0 ? fmtPct((sCliq / sImp) * 100) : "—"}</td>
+                    <td style={cel}>{sCliq > 0 ? fmtCurrency(Number(c.spend ?? 0) / sCliq) : "—"}</td>
+                    <td style={cel}>{sConv > 0 ? fmtNum(sConv) : "—"}</td>
+                    <td style={cel}>{sConv > 0 ? fmtCurrency(Number(c.spend ?? 0) / sConv) : "—"}</td>
+                    {t.temReceita && <td style={cel}>{Number(c.conversionValue ?? 0) > 0 ? fmtCurrency(Number(c.conversionValue)) : "—"}</td>}
+                    {t.temReceita && <td style={cel}>{Number(c.conversionValue ?? 0) > 0 && Number(c.spend ?? 0) > 0 ? `${(Number(c.conversionValue) / Number(c.spend)).toFixed(2)}x` : "—"}</td>}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p style={{ fontSize: 11, color: sec, opacity: 0.7, padding: "10px 16px" }}>
+          Sem evolução por dia: a consulta atual agrega o período inteiro por campanha. Série diária entra como melhoria própria.
+        </p>
       </div>
-      <p style={{ fontSize: 11, color: sec, opacity: 0.7, padding: "10px 18px" }}>Período: {periodLabel}</p>
-    </div>
+    </>
   );
 }
