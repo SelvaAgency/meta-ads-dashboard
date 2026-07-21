@@ -168,10 +168,27 @@ async function executeGaql(
 
   if (!resp.ok) {
     const errBody = await resp.text();
-    // request-id ajuda o suporte do Google a rastrear a chamada exata.
-    const requestId = resp.headers.get("request-id") ?? resp.headers.get("x-request-id") ?? null;
+    // O request-id vem no header OU dentro do corpo JSON, dependendo do erro.
+    // É o identificador que o suporte do Google usa para rastrear a chamada.
+    let requestId = resp.headers.get("request-id") ?? resp.headers.get("x-request-id") ?? null;
+    if (!requestId) {
+      try {
+        const j = JSON.parse(errBody);
+        const e0 = Array.isArray(j) ? j[0] : j;
+        requestId = e0?.error?.details?.[0]?.requestId ?? e0?.error?.requestId ?? e0?.requestId ?? null;
+      } catch { /* corpo não-JSON */ }
+    }
     console.error(`[GoogleAds] GAQL query failed (${resp.status}) req=${requestId}:`, errBody);
-    const err = new Error(`Google Ads API error ${resp.status}: ${errBody.substring(0, 300)}`) as Error & {
+    /**
+     * PERMISSION_DENIED quase sempre é o NÍVEL do developer token, não o OAuth:
+     * token com acesso de TESTE só consulta contas de teste — contra conta de
+     * produção o Google devolve 403, mesmo com OAuth e MCC corretos. Dizer isso
+     * aqui poupa horas procurando no lugar errado.
+     */
+    const dica = resp.status === 403 && /PERMISSION_DENIED|caller does not have permission/i.test(errBody)
+      ? " — verifique o NÍVEL do developer token na Central de API do Google Ads: token com acesso de teste não lê contas de produção (é preciso o Acesso Básico aprovado)."
+      : "";
+    const err = new Error(`Google Ads API error ${resp.status}: ${errBody.substring(0, 300)}${dica}`) as Error & {
       status?: number; corpo?: string; requestId?: string | null;
     };
     err.status = resp.status;
