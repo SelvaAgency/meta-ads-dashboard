@@ -809,6 +809,10 @@ export const ga4Accounts = mysqlTable("ga4_accounts", {
   timezone: varchar("timezone", { length: 64 }).default("America/Sao_Paulo"),
   isActive: boolean("isActive").default(true).notNull(),
   lastSyncAt: timestamp("lastSyncAt"),
+  /** success | error — mesmo padrão de client_clarity_settings. */
+  lastSyncStatus: varchar("lastSyncStatus", { length: 16 }),
+  /** Mensagem real da API quando falha. Falha NÃO apaga o lastSyncAt anterior. */
+  lastSyncError: varchar("lastSyncError", { length: 500 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({

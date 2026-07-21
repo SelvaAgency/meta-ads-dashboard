@@ -66,6 +66,9 @@ export type ConexaoBruta = {
   /** GA4 */
   ga4Vinculado: boolean;
   ga4UltimoSync?: Date | null;
+  /** success | error da última leitura, e a mensagem quando falhou. */
+  ga4SyncStatus?: string | null;
+  ga4SyncErro?: string | null;
   /** OAuth da agência ativo? Vinculada sem OAuth não consegue ler nada. */
   ga4OauthAtivo?: boolean;
   /** Clarity */

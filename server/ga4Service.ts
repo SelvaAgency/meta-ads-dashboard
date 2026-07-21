@@ -243,12 +243,21 @@ export async function listGA4Properties(config: GA4Config): Promise<GA4Property[
 /**
  * Get overview metrics for a date range.
  */
+/**
+ * Resumo do período.
+ *
+ * `conversions` é OPCIONAL de propósito: o Google descontinuou essa métrica em
+ * favor de `keyEvents`, e propriedades novas a recusam. Pedi-la junto do resto
+ * fazia a chamada inteira falhar — perdendo sessões, usuários e tudo mais por
+ * causa de um número. Aqui ela vai numa segunda chamada, e o snapshot sai
+ * completo mesmo quando ela não existe.
+ */
 export async function getGA4Overview(
   config: GA4Config,
   propertyId: string,
   startDate: string,
   endDate: string
-): Promise<GA4Overview> {
+): Promise<GA4Overview & { engagedSessions: number; conversoesIndisponiveis?: string }> {
   const report = await runReport(config, propertyId, {
     dateRanges: [{ startDate, endDate }],
     metrics: [
@@ -259,15 +268,13 @@ export async function getGA4Overview(
       { name: "bounceRate" },
       { name: "averageSessionDuration" },
       { name: "engagementRate" },
-      { name: "conversions" },
       { name: "eventCount" },
+      { name: "engagedSessions" },
     ],
   });
 
-  const row = report.rows?.[0];
-  const vals = row?.metricValues ?? [];
-
-  return {
+  const vals = report.rows?.[0]?.metricValues ?? [];
+  const base = {
     sessions: parseInt(vals[0]?.value ?? "0"),
     totalUsers: parseInt(vals[1]?.value ?? "0"),
     newUsers: parseInt(vals[2]?.value ?? "0"),
@@ -275,9 +282,74 @@ export async function getGA4Overview(
     bounceRate: parseFloat(vals[4]?.value ?? "0") * 100,
     avgSessionDuration: parseFloat(vals[5]?.value ?? "0"),
     engagementRate: parseFloat(vals[6]?.value ?? "0") * 100,
-    conversions: parseInt(vals[7]?.value ?? "0"),
-    eventCount: parseInt(vals[8]?.value ?? "0"),
+    eventCount: parseInt(vals[7]?.value ?? "0"),
+    engagedSessions: parseInt(vals[8]?.value ?? "0"),
   };
+
+  // keyEvents é o nome novo; conversions, o antigo. Tenta os dois e desiste em
+  // silêncio — sem conversão o snapshot ainda vale.
+  for (const nome of ["keyEvents", "conversions"]) {
+    try {
+      const r = await runReport(config, propertyId, { dateRanges: [{ startDate, endDate }], metrics: [{ name: nome }] });
+      return { ...base, conversions: parseInt(r.rows?.[0]?.metricValues?.[0]?.value ?? "0") };
+    } catch { /* tenta o próximo */ }
+  }
+  return { ...base, conversions: 0, conversoesIndisponiveis: "A propriedade não expõe keyEvents nem conversions." };
+}
+
+/** Canais de aquisição (Organic Search, Paid Social…). */
+export async function getGA4Channels(
+  config: GA4Config, propertyId: string, startDate: string, endDate: string, limit = 10,
+): Promise<{ nome: string; sessions: number }[]> {
+  const r = await runReport(config, propertyId, {
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [{ name: "sessionDefaultChannelGroup" }],
+    metrics: [{ name: "sessions" }],
+    orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+    limit,
+  });
+  return (r.rows ?? []).map((row: any) => ({
+    nome: row.dimensionValues?.[0]?.value ?? "(não definido)",
+    sessions: parseInt(row.metricValues?.[0]?.value ?? "0"),
+  }));
+}
+
+/** Landing pages — por onde as pessoas entram no site. */
+export async function getGA4LandingPages(
+  config: GA4Config, propertyId: string, startDate: string, endDate: string, limit = 10,
+): Promise<{ url: string; sessions: number }[]> {
+  const r = await runReport(config, propertyId, {
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [{ name: "landingPage" }],
+    metrics: [{ name: "sessions" }],
+    orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+    limit,
+  });
+  return (r.rows ?? []).map((row: any) => ({
+    url: row.dimensionValues?.[0]?.value ?? "(não definido)",
+    sessions: parseInt(row.metricValues?.[0]?.value ?? "0"),
+  }));
+}
+
+/**
+ * A propriedade tem evento de compra? Só o booleano — receita, itens e funil
+ * ficam para a etapa de e-commerce. Nunca falha: ausência de dado responde não.
+ */
+export async function ga4TemEcommerce(
+  config: GA4Config, propertyId: string, startDate: string, endDate: string,
+): Promise<boolean> {
+  try {
+    const r = await runReport(config, propertyId, {
+      dateRanges: [{ startDate, endDate }],
+      dimensions: [{ name: "eventName" }],
+      metrics: [{ name: "eventCount" }],
+      dimensionFilter: { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "purchase" } } },
+      limit: 1,
+    });
+    return parseInt(r.rows?.[0]?.metricValues?.[0]?.value ?? "0") > 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -373,7 +445,9 @@ export async function getGA4TopPages(
       { name: "sessions" },
       { name: "averageSessionDuration" },
       { name: "bounceRate" },
-      { name: "entrances" },
+      // `entrances` NÃO existe na Data API do GA4 — pedi-la fazia a chamada
+      // inteira falhar com INVALID_ARGUMENT, e o .catch de quem chamava
+      // transformava isso numa lista vazia sem explicação.
     ],
     orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
     limit,
@@ -389,7 +463,7 @@ export async function getGA4TopPages(
       uniquePageviews: parseInt(vals[1]?.value ?? "0"),
       avgTimeOnPage: parseFloat(vals[2]?.value ?? "0"),
       bounceRate: parseFloat(vals[3]?.value ?? "0") * 100,
-      entrances: parseInt(vals[4]?.value ?? "0"),
+      entrances: 0,   // a API não expõe; melhor zero declarado que número falso
       exits: 0,
     };
   });
@@ -464,6 +538,13 @@ export async function getGA4GeoBreakdown(
 /**
  * Get conversion events breakdown.
  */
+/**
+ * Eventos principais da propriedade, por frequência.
+ *
+ * Antes filtrava EXATAMENTE "purchase" e só caía nos demais quando não havia
+ * compra nenhuma — então numa loja o resultado era sempre uma linha só. Para
+ * "eventos principais" o que interessa é o topo real, compra incluída.
+ */
 export async function getGA4Conversions(
   config: GA4Config,
   propertyId: string,
@@ -473,40 +554,14 @@ export async function getGA4Conversions(
   const report = await runReport(config, propertyId, {
     dateRanges: [{ startDate, endDate }],
     dimensions: [{ name: "eventName" }],
-    metrics: [{ name: "conversions" }, { name: "totalUsers" }],
-    dimensionFilter: {
-      filter: {
-        fieldName: "eventName",
-        stringFilter: {
-          matchType: "EXACT",
-          value: "purchase",
-        },
-      },
-    },
-    orderBys: [{ metric: { metricName: "conversions" }, desc: true }],
+    metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
+    orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
+    limit: 10,
   });
-
-  // If no purchase events, try getting all conversion events
-  if (!report.rows?.length) {
-    const allReport = await runReport(config, propertyId, {
-      dateRanges: [{ startDate, endDate }],
-      dimensions: [{ name: "eventName" }],
-      metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
-      orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
-      limit: 10,
-    });
-
-    return (allReport.rows ?? []).map((row: any) => ({
-      eventName: row.dimensionValues[0]?.value ?? "unknown",
-      conversions: parseInt(row.metricValues[0]?.value ?? "0"),
-      totalUsers: parseInt(row.metricValues[1]?.value ?? "0"),
-    }));
-  }
-
   return (report.rows ?? []).map((row: any) => ({
-    eventName: row.dimensionValues[0]?.value ?? "unknown",
-    conversions: parseInt(row.metricValues[0]?.value ?? "0"),
-    totalUsers: parseInt(row.metricValues[1]?.value ?? "0"),
+    eventName: row.dimensionValues?.[0]?.value ?? "(sem nome)",
+    conversions: parseInt(row.metricValues?.[0]?.value ?? "0"),
+    totalUsers: parseInt(row.metricValues?.[1]?.value ?? "0"),
   }));
 }
 

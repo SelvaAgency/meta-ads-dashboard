@@ -834,6 +834,12 @@ async function main() {
         await conn.query("ALTER TABLE `ga4_accounts` ADD UNIQUE KEY `uq_ga4_property` (`propertyId`)");
         console.log("[ensure-schema] ok  · ga4_accounts.propertyId único");
       }
+      for (const [col, ddl] of [["lastSyncStatus", "VARCHAR(16) NULL"], ["lastSyncError", "VARCHAR(500) NULL"]]) {
+        if (!(await columnExists(conn, "ga4_accounts", col))) {
+          await conn.query(`ALTER TABLE \`ga4_accounts\` ADD COLUMN \`${col}\` ${ddl}`);
+          console.log(`[ensure-schema] ok  · ga4_accounts.${col} adicionada`);
+        }
+      }
     }
 
     // 22) Exclusão permanente de usuário (anônima — ver users.deletedAt no schema).

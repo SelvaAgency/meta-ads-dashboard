@@ -34,6 +34,16 @@ export default function Analytics() {
     onError: (e) => toast.error(e.message),
   });
 
+  const sincronizar = trpc.ga4.sincronizar.useMutation({
+    onSuccess: (r) => {
+      const partes = [`${r.ok} com dados`, `${r.semDados} sem dados`, `${r.falhas} falha(s)`];
+      toast[r.falhas > 0 ? "warning" : "success"](`Sincronização: ${partes.join(" · ")}`);
+      utils.ga4.contasParaGerenciar.invalidate();
+      utils.fontes.todas.invalidate();   // os chips mudam de cor na hora
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const vincular = trpc.ga4.vincularConta.useMutation({
     onSuccess: () => {
       utils.ga4.contasParaGerenciar.invalidate();
@@ -119,15 +129,28 @@ export default function Analytics() {
               </p>
             </div>
           </div>
-          <button
-            onClick={() => descobrir.mutate()}
-            disabled={descobrir.isPending}
-            className="inline-flex h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium items-center gap-1.5 disabled:opacity-60"
-          >
-            {descobrir.isPending
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> Descobrindo…</>
-              : <><RefreshCw className="w-4 h-4" /> Descobrir propriedades</>}
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => descobrir.mutate()}
+              disabled={descobrir.isPending}
+              className="inline-flex h-9 px-4 rounded-lg border border-border text-sm font-medium items-center gap-1.5 disabled:opacity-60"
+            >
+              {descobrir.isPending
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Descobrindo…</>
+                : <><RefreshCw className="w-4 h-4" /> Descobrir propriedades</>}
+            </button>
+            {/* Só faz sentido sincronizar o que está vinculado. */}
+            <button
+              onClick={() => sincronizar.mutate({})}
+              disabled={sincronizar.isPending || st.vinculadas === 0}
+              title={st.vinculadas === 0 ? "Vincule ao menos uma propriedade a um cliente." : undefined}
+              className="inline-flex h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium items-center gap-1.5 disabled:opacity-60"
+            >
+              {sincronizar.isPending
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Sincronizando…</>
+                : <><BarChart3 className="w-4 h-4" /> Sincronizar GA4 agora</>}
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -147,7 +170,8 @@ export default function Analytics() {
                 <th className="px-5 py-2 font-medium">Propriedade</th>
                 <th className="px-3 py-2 font-medium">ID</th>
                 <th className="px-3 py-2 font-medium">Cliente</th>
-                <th className="px-5 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-5 py-2 font-medium">Última leitura</th>
               </tr>
             </thead>
             <tbody>
@@ -173,12 +197,19 @@ export default function Analytics() {
                       ))}
                     </select>
                   </td>
-                  <td className="px-5 py-2.5">
+                  <td className="px-3 py-2.5">
                     {c.linkedAccountId
                       ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/12 text-emerald-700 dark:text-emerald-400">
                           vinculada a {nomeDoCliente(c.linkedAccountId)}
                         </span>
                       : <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">sem vínculo</span>}
+                  </td>
+                  <td className="px-5 py-2.5 text-xs">
+                    {c.lastSyncStatus === "error"
+                      ? <span className="text-amber-600 dark:text-amber-400" title={c.lastSyncError ?? undefined}>falhou</span>
+                      : c.lastSyncAt
+                        ? <span className="text-muted-foreground">{new Date(c.lastSyncAt).toLocaleString("pt-BR")}</span>
+                        : <span className="text-muted-foreground/60">nunca</span>}
                   </td>
                 </tr>
               ))}

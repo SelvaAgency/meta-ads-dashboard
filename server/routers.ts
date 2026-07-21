@@ -303,6 +303,7 @@ import { dispararResumoManual, previewResumoManual, hojeAgencia } from "./notifi
 import { emailMode, destinatariosDeTeste, transporteAtivo } from "./emailService";
 import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
 import { fontesDoCliente, fontesDeTodasAsContas } from "./services/fontesDoCliente";
+import { sincronizarGA4 } from "./services/ga4Sync";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
 import { buildClientIntelligenceContext, contextoParaTexto, fontesDe, MODULOS, MODULOS_SITE } from "./services/clientIntelligence";
 import { gerarRelatorioModular, PRESETS, tierDe } from "./services/reportBuilder";
@@ -5169,6 +5170,14 @@ export const appRouter = router({
       })));
       return { ...r, total: props.length };
     }),
+
+    /**
+     * Lê as propriedades VINCULADAS pela Data API e grava snapshot. `apenas`
+     * restringe a uma propriedade — é como a validação começa, numa só.
+     */
+    sincronizar: contentProcedure
+      .input(z.object({ apenas: z.array(z.number().int()).optional() }).default({}))
+      .mutation(({ input }) => sincronizarGA4(input.apenas)),
 
     /** Desconecta o OAuth da agência. As propriedades e vínculos permanecem. */
     desconectarOAuth: contentProcedure.mutation(async () => {

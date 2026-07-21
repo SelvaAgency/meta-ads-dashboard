@@ -43,7 +43,8 @@ export async function fontesDeTodasAsContas(apenas?: number[]): Promise<FontesDa
     }).from(metaAdAccounts),
     db.select({ linkedAccountId: googleAdAccounts.linkedAccountId, ignored: googleAdAccounts.ignored })
       .from(googleAdAccounts).where(isNotNull(googleAdAccounts.linkedAccountId)),
-    db.select({ linkedAccountId: ga4Accounts.linkedAccountId, isActive: ga4Accounts.isActive, lastSyncAt: ga4Accounts.lastSyncAt })
+    db.select({ linkedAccountId: ga4Accounts.linkedAccountId, isActive: ga4Accounts.isActive, lastSyncAt: ga4Accounts.lastSyncAt,
+      lastSyncStatus: ga4Accounts.lastSyncStatus, lastSyncError: ga4Accounts.lastSyncError })
       .from(ga4Accounts).where(isNotNull(ga4Accounts.linkedAccountId)),
     db.select({
       accountId: clientClaritySettings.accountId,
@@ -85,6 +86,8 @@ export async function fontesDeTodasAsContas(apenas?: number[]): Promise<FontesDa
         googleAdsOauthAtivo,
         ga4Vinculado: ga4PorConta.has(a.id),
         ga4UltimoSync: ga4PorConta.get(a.id)?.lastSyncAt ?? null,
+        ga4SyncStatus: ga4PorConta.get(a.id)?.lastSyncStatus ?? null,
+        ga4SyncErro: ga4PorConta.get(a.id)?.lastSyncError ?? null,
         ga4OauthAtivo,
         clarityLigado: !!s?.enabled && !!s?.hasToken,
         claritySyncStatus: s?.lastSyncStatus ?? null,

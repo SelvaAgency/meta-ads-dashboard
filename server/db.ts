@@ -1809,6 +1809,23 @@ export async function gravarPropriedadesGA4(
   return { criadas, atualizadas };
 }
 
+/**
+ * Registra o resultado da última leitura de uma propriedade GA4.
+ *
+ * A falha NÃO apaga o `lastSyncAt` anterior: saber quando a propriedade foi
+ * lida pela última vez com sucesso é justamente o que importa quando ela passa
+ * a falhar. Só o sucesso move a data.
+ */
+export async function registrarSyncGA4(id: number, status: "success" | "error", erro: string | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(ga4Accounts).set({
+    ...(status === "success" ? { lastSyncAt: new Date() } : {}),
+    lastSyncStatus: status,
+    lastSyncError: status === "error" ? (erro ?? "").slice(0, 500) : null,
+  }).where(eq(ga4Accounts.id, id));
+}
+
 /** Vincula (ou desvincula, com null) uma propriedade GA4 a um cliente. */
 export async function vincularGA4(id: number, linkedAccountId: number | null) {
   const db = await getDb();
