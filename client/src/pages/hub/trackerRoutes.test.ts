@@ -25,6 +25,14 @@ describe("rota do Google Analytics", () => {
   });
 });
 
+/** O item da sidebar e o deep-link /tracker?rota=/panorama dependem disto. */
+describe("rota do Panorama de Sites", () => {
+  it("/panorama é rota interna válida", () => {
+    expect(ehRotaInterna("/panorama")).toBe(true);
+    expect(rotaInternaSegura("/panorama")).toBe("/panorama");
+  });
+});
+
 describe("deep-link de alerta", () => {
   it("preserva a query ao mandar para o shell", () => {
     expect(urlDoShellPara("/site", "?account=4&aba=seguranca")).toBe(

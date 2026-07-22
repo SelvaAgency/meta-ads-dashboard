@@ -25,6 +25,7 @@
 /** Rotas cruas do Tracker. Ver App.tsx — devem bater com as rotas registradas. */
 export const ROTAS_INTERNAS = [
   "/overview",
+  "/panorama",
   "/dashboard",
   "/campaigns",
   "/alerts",

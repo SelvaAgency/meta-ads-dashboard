@@ -32,6 +32,7 @@ import NotificacoesPage from "./pages/hub/NotificacoesPage";
 import Site from "./pages/Site";
 import Analytics from "@/pages/Analytics";
 import Lojas from "@/pages/Lojas";
+import Panorama from "@/pages/Panorama";
 import HubApp from "./pages/hub/HubApp";
 import HubSettings from "./pages/hub/HubSettings";
 import PeoplePage from "./pages/hub/PeoplePage";
@@ -103,6 +104,7 @@ function Router() {
           Renderizam cru só dentro do iframe. No topo, <Interna> manda para o
           shell do Spaces preservando a query (ver trackerRoutes.ts).          */}
       <Route path="/overview" component={() => <Interna><SuggestionsHub /></Interna>} />
+      <Route path="/panorama" component={() => <Interna><Panorama /></Interna>} />
       <Route path="/dashboard" component={() => <Interna><Dashboard /></Interna>} />
       <Route path="/campaigns" component={() => <Interna><Campaigns /></Interna>} />
       <Route path="/alerts" component={() => <Interna><AlertsPage /></Interna>} />

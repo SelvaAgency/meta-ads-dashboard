@@ -277,6 +277,22 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             );
           })()}
 
+          {/* Panorama de Sites — visão cross-client de gestão, admin/dev */}
+          {canManageContent(user?.role) && (() => {
+            const isActive = location === "/panorama";
+            return (
+              <Link href="/panorama">
+                <div
+                  className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
+                  style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
+                >
+                  <Globe className="w-4 h-4 flex-shrink-0" />
+                  {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Panorama de Sites</span>}
+                </div>
+              </Link>
+            );
+          })()}
+
           {/* Configurações — always accessible */}
           {(() => {
             const isActive = location === "/settings";

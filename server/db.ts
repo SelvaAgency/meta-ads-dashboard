@@ -4632,6 +4632,56 @@ export async function serieSnapshotsPorProvider(accountId: number, provider: str
     .orderBy(desc(clientSiteSnapshots.dia)).limit(limite);
 }
 
+// ─── Panorama de Sites (cross-client) ────────────────────────────────────────
+
+export type SnapshotPanorama = {
+  accountId: number;
+  provider: string;
+  estrategia: string | null;
+  dia: string;
+  metricsJson: unknown;
+};
+
+/**
+ * Último snapshot de CADA (conta, provider, janela), para TODAS as contas, em
+ * uma consulta — o Panorama desenha uma linha por cliente e uma consulta por
+ * cliente seria N+1 numa tela que existe para bater o olho.
+ */
+export async function snapshotsParaPanorama(): Promise<SnapshotPanorama[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const [rows] = await db.execute(sql`
+    SELECT accountId, provider, estrategia, dia, metricsJson FROM (
+      SELECT s.*, ROW_NUMBER() OVER (
+        PARTITION BY s.accountId, s.provider, s.estrategia
+        ORDER BY s.dia DESC, s.id DESC
+      ) AS rn
+      FROM client_site_snapshots s
+      WHERE s.provider IN ('pagespeed', 'security_check', 'uptime_check', 'ga4', 'woocommerce')
+    ) t WHERE t.rn = 1`);
+  return (rows as unknown as SnapshotPanorama[]).map((r) => ({
+    ...r,
+    // mysql2 devolve JSON já parseado, mas strings antigas podem escapar
+    metricsJson: typeof r.metricsJson === "string" ? JSON.parse(r.metricsJson) : r.metricsJson,
+  }));
+}
+
+/**
+ * Estado de sync das lojas para o Panorama — SÓ colunas de status. As colunas
+ * cifradas nem entram no SELECT: esta leitura alimenta uma resposta de rede.
+ */
+export async function lojasParaPanorama() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    accountId: ecommerceConnections.accountId,
+    platform: ecommerceConnections.platform,
+    lastSyncAt: ecommerceConnections.lastSyncAt,
+    lastSyncStatus: ecommerceConnections.lastSyncStatus,
+    lastSyncError: ecommerceConnections.lastSyncError,
+  }).from(ecommerceConnections).where(eq(ecommerceConnections.active, true));
+}
+
 // ─── Widgets da visão geral (preferência por pessoa) ─────────────────────────
 
 /** Só o que a pessoa mexeu. O resto vem do catálogo (shared/widgets.ts). */

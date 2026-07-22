@@ -100,6 +100,8 @@ import {
   getMetaAdAccountById,
   getMetaAdAccountsByUserId,
   getAllActiveMetaAdAccountsForListing,
+  snapshotsParaPanorama,
+  lojasParaPanorama,
   getScheduledReportsByUserId,
   getAnomaliesByAccountId,
   getSuggestionsByAccountId,
@@ -5227,6 +5229,45 @@ export const appRouter = router({
     sync: contentProcedure
       .input(z.object({ id: z.number().int() }))
       .mutation(({ input }) => sincronizarLoja(input.id)),
+  }),
+
+  /**
+   * ─── Panorama de Sites ───────────────────────────────────────────────────
+   * Visão cross-client de gestão (admin/dev): quem precisa de atenção primeiro
+   * e por quê. Este endpoint só JUNTA dados já gravados — snapshots, fontes,
+   * estado de sync das lojas. O julgamento (nível, achados, Woo vs GA4) é
+   * função pura no cliente (panoramaLogic.ts), testada sem banco.
+   */
+  panorama: router({
+    sites: contentProcedure.query(async () => {
+      const [contas, fontes, snaps, lojas] = await Promise.all([
+        getAllActiveMetaAdAccountsForListing(),
+        fontesDeTodasAsContas(),
+        snapshotsParaPanorama(),
+        lojasParaPanorama(),
+      ]);
+      const fontesPorConta = new Map(fontes.map((f) => [f.accountId, f.fontes]));
+      const lojaPorConta = new Map(lojas.map((l) => [l.accountId, l]));
+      const snap = (accountId: number, provider: string, estrategia?: string) => {
+        const s = snaps.find((x) =>
+          x.accountId === accountId && x.provider === provider &&
+          (estrategia === undefined || x.estrategia === estrategia));
+        return s ? { dia: s.dia, metricsJson: s.metricsJson } : null;
+      };
+      return contas.map((c) => ({
+        accountId: c.id,
+        nome: c.accountName ?? `Conta ${c.id}`,
+        fontes: fontesPorConta.get(c.id) ?? [],
+        loja: lojaPorConta.get(c.id) ?? null,
+        uptime: snap(c.id, "uptime_check"),
+        seguranca: snap(c.id, "security_check"),
+        pagespeed: snap(c.id, "pagespeed"),
+        ga4_7d: snap(c.id, "ga4", "7d"),
+        ga4_30d: snap(c.id, "ga4", "30d"),
+        woo_7d: snap(c.id, "woocommerce", "7d"),
+        woo_30d: snap(c.id, "woocommerce", "30d"),
+      }));
+    }),
   }),
 
   /**
