@@ -193,6 +193,7 @@ import {
   getGoogleAdsAdGroups,
   getGoogleAdsAds,
   getGoogleAdsAccountSummary,
+  getGoogleAdsDailySeries,
 } from "./googleAdsService";
 import {
   getGoogleAdAccountsByUserId,
@@ -4635,6 +4636,26 @@ export const appRouter = router({
         const accountConfig = { ...config, refreshToken: tokenDaConta(account.refreshToken) };
         const { startDate, endDate } = getDateRange(input.days);
         return getGoogleAdsCampaigns(accountConfig, account.customerId, startDate, endDate, input.activeOnly);
+      }),
+
+    /**
+     * Série diária da conta para o gráfico de evolução. Consulta PRÓPRIA —
+     * a agregada de campanhas segue intocada. Somas cruas; taxas no cliente.
+     */
+    serieDiaria: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        days: z.number().min(1).max(90).default(30),
+      }))
+      .query(async ({ input }) => {
+        const account = await getGoogleAdAccountById(input.accountId);
+        if (!account) throw new Error("Google Ads account not found");
+        const config = getGoogleAdsConfig();
+        if (!config) throw new Error("Google Ads API not configured");
+        const accountConfig = { ...config, refreshToken: tokenDaConta(account.refreshToken) };
+        const { startDate, endDate } = getDateRange(input.days);
+        const dias = await getGoogleAdsDailySeries(accountConfig, account.customerId, startDate, endDate);
+        return { inicio: startDate, fim: endDate, dias };
       }),
 
     // Ad Groups for a campaign

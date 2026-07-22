@@ -1,5 +1,6 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { totaisDe, insightsDe, linhaComAtencao, gastouSemConverter, rotuloDoCanal, type CampanhaGoogle } from "./campanhas/googleAdsInsights";
+import { montarSerie, METRICAS_GRAFICO, formatarMetrica, taxasDoDia, type MetricaGrafico } from "./campanhas/googleAdsSerie";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
 import { Input } from "@/components/ui/input";
@@ -853,6 +854,83 @@ const gTh = (left?: boolean): React.CSSProperties => ({ padding: "8px 12px", tex
  *  da agência ativo. Só isso conta como conectado.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+/**
+ * Evolução diária do Google Ads — mesmo desenho do TrendChart da Meta (barras
+ * em CSS, hover com detalhe, marcos de data), sem tocar nele: o da Meta está
+ * acoplado às queries dela, e adaptá-lo seria mexer no que funciona.
+ *
+ * Chips alternam a métrica. O tooltip do dia traz as taxas derivadas — e "—"
+ * onde não há base, porque CTR 0% num dia sem impressão é mentira com cara de
+ * dado.
+ */
+function GraficoSerieGoogle({ contaId, dias }: { contaId: number; dias: number }) {
+  const [metrica, setMetrica] = useState<MetricaGrafico>("custo");
+  const [barra, setBarra] = useState<number | null>(null);
+  const serieQ = trpc.googleAds.serieDiaria.useQuery(
+    { accountId: contaId, days: Math.min(Math.max(dias || 30, 1), 90) },
+    { retry: false },
+  );
+
+  const pontos = useMemo(() => {
+    const d = serieQ.data;
+    return d ? montarSerie(d.inicio, d.fim, d.dias) : [];
+  }, [serieQ.data]);
+
+  // Sem veiculação no período → sem painel. Eixo de zeros não é gráfico.
+  if (serieQ.isLoading || serieQ.isError || pontos.length === 0) return null;
+
+  const max = Math.max(...pontos.map((p) => p[metrica]), 1);
+  const sec = "var(--color-text-secondary)";
+  const meio = pontos[Math.floor(pontos.length / 2)];
+
+  return (
+    <div style={{ ...gPanel, marginBottom: 14 }}>
+      <div style={gHeader}>
+        <div style={{ fontSize: 12, fontWeight: 500 }}>Evolução diária</div>
+        <div style={{ display: "flex", gap: 4 }}>
+          {METRICAS_GRAFICO.map((m) => (
+            <button key={m.chave} onClick={() => setMetrica(m.chave)}
+              style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, cursor: "pointer",
+                border: metrica === m.chave ? "0.5px solid #ED93B1" : "0.5px solid var(--color-border-secondary)",
+                background: metrica === m.chave ? "#FBEAF0" : "transparent",
+                color: metrica === m.chave ? "#993556" : sec, fontWeight: metrica === m.chave ? 500 : 400 }}>
+              {m.rotulo}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ padding: "16px 20px" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 120 }}>
+          {pontos.map((p, i) => {
+            const h = Math.max(4, (p[metrica] / max) * 120);
+            const vazio = p[metrica] === 0;
+            return (
+              <div key={p.dia}
+                onMouseEnter={() => setBarra(i)}
+                onMouseLeave={() => setBarra(null)}
+                style={{ flex: 1, height: h, borderRadius: "3px 3px 0 0", minWidth: 4, cursor: "default",
+                  background: vazio ? "var(--color-border-secondary)" : "#D4537E",
+                  opacity: barra === null || barra === i ? 1 : 0.5, transition: "opacity 0.1s" }} />
+            );
+          })}
+        </div>
+        <div style={{ height: 24, marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {barra !== null && pontos[barra] ? (
+            <span style={{ fontSize: 11, fontWeight: 500, color: "var(--color-text-primary)", background: "var(--color-background-secondary)", padding: "2px 12px", borderRadius: 6, border: "0.5px solid var(--color-border-tertiary)" }}>
+              {pontos[barra].rotulo} — {formatarMetrica(metrica, pontos[barra][metrica])} · {taxasDoDia(pontos[barra])}
+            </span>
+          ) : <span style={{ fontSize: 10, color: sec }}>passe o mouse sobre o gráfico</span>}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, fontSize: 10, color: sec }}>
+          <span>{pontos[0]?.rotulo}</span>
+          <span>{meio?.rotulo}</span>
+          <span>{pontos[pontos.length - 1]?.rotulo}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number | null; periodLabel: string; dias: number }) {
   const cfg = trpc.googleAds.isConfigured.useQuery(undefined, { retry: false });
   const conta = trpc.googleAds.contaDoCliente.useQuery(
@@ -987,6 +1065,8 @@ function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number |
           ))}
         </div>
       </div>
+
+      <GraficoSerieGoogle contaId={conta.data.id} dias={dias} />
 
       {/* Leituras rápidas — só as que se sustentam nos dados */}
       {insights.length > 0 && (

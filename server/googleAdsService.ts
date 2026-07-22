@@ -691,6 +691,46 @@ export async function listarContasDoMcc(refreshToken: string): Promise<ContaMcc[
     .filter((c) => c.customerId && !c.gerenciadora); // sub-MCCs não viram cliente
 }
 
+/**
+ * Série diária da CONTA — uma linha por dia, agregada pelo próprio Google.
+ *
+ * `FROM customer` em vez de `FROM campaign` de propósito: para evolução diária
+ * da conta não interessa a quebra por campanha, e somar campanhas em JS seria
+ * refazer o que a API já faz. A query agregada de campanhas (queryCampanhas)
+ * continua intocada — esta é uma consulta NOVA, só para o gráfico.
+ *
+ * Devolve somas cruas. Taxas (CTR/CPC/CPA/ROAS) são derivadas no cliente, das
+ * somas — nunca aqui, para não viajar média de médias pela rede.
+ */
+export async function getGoogleAdsDailySeries(
+  config: GoogleAdsConfig,
+  customerId: string,
+  startDate: string,
+  endDate: string,
+): Promise<{ dia: string; custo: number; impressoes: number; cliques: number; conversoes: number; valorConversao: number }[]> {
+  recusarSeGerenciadora(config, customerId);
+  const query = `
+    SELECT
+      segments.date,
+      metrics.cost_micros,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.conversions,
+      metrics.conversions_value
+    FROM customer
+    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+  `;
+  const rows = await executeGaql(config, customerId, query);
+  return rows.map((r) => ({
+    dia: r.segments?.date ?? "",
+    custo: Number(r.metrics?.costMicros ?? 0) / 1_000_000,
+    impressoes: Number(r.metrics?.impressions ?? 0),
+    cliques: Number(r.metrics?.clicks ?? 0),
+    conversoes: Number(r.metrics?.conversions ?? 0),
+    valorConversao: Number(r.metrics?.conversionsValue ?? 0),
+  })).filter((r) => r.dia);
+}
+
 /** "8184107035" → "818-410-7035" (como o Google Ads mostra). */
 export function formatarCustomerId(id: string): string {
   const n = (id ?? "").replace(/\D/g, "");
