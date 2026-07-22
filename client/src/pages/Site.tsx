@@ -1536,7 +1536,8 @@ function AbaPerformanceSite({ accountId, podeConfigurar, onConfigurar, destaque 
 
       <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap pt-1">
         {configurado && cfg?.lastSyncAt && <span>Clarity · último sync: {new Date(cfg.lastSyncAt).toLocaleString("pt-BR")}</span>}
-        {snap && <span>Período: últimas {snap.dias * 24}h</span>}
+        {/* A data evita que dado de ontem pareça de hoje quando o sync falha. */}
+        {snap && <span>Período: últimas {snap.dias * 24}h · dados até {new Date(snap.rangeEnd ?? snap.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>}
         <span className="ml-auto">Cota hoje: {cfg?.apiCallsCount ?? 0}/10</span>
       </div>
       <p className="text-[11px] text-muted-foreground">

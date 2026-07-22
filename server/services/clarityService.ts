@@ -78,16 +78,41 @@ export type ClaritySnapshot = {
 
 // ─── HTTP ────────────────────────────────────────────────────────────────────
 
+/**
+ * Reexecuta em 5xx — e SÓ em 5xx.
+ *
+ * Em 22/07/2026 a API do Clarity respondeu 500 transitório às 06:40 para dois
+ * dos três projetos; minutos depois, 200 nos mesmos tokens. Como o cron roda
+ * uma vez por dia, um soluço custava o dia inteiro de dados.
+ *
+ * 4xx não entra: token inválido (401/403) e parâmetro recusado (400) não
+ * melhoram esperando — insistir só queimaria a cota de 10 chamadas/dia.
+ *
+ * `esperas` é parâmetro para o teste não dormir 8 segundos de verdade.
+ */
+export async function comRetry5xx(
+  fazer: () => Promise<Response>,
+  esperas: readonly number[] = [2_000, 6_000],
+): Promise<Response> {
+  let resp = await fazer();
+  for (const ms of esperas) {
+    if (resp.status < 500) return resp;
+    await new Promise((r) => setTimeout(r, ms));
+    resp = await fazer();
+  }
+  return resp;
+}
+
 async function chamar(token: string, numOfDays: number, dims: ClarityDimension[]): Promise<MetricaBruta[]> {
   const qs = new URLSearchParams({ numOfDays: String(numOfDays) });
   dims.slice(0, 3).forEach((d, i) => qs.set(`dimension${i + 1}`, d));
 
   let resp: Response;
   try {
-    resp = await fetch(`${API}?${qs.toString()}`, {
+    resp = await comRetry5xx(() => fetch(`${API}?${qs.toString()}`, {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       signal: AbortSignal.timeout(30_000),
-    });
+    }));
   } catch (e) {
     // Falha de rede/timeout — a mensagem nunca inclui o token.
     throw new ClarityRequestError(`Falha de rede ao consultar o Clarity: ${(e as Error).message}`);
@@ -97,7 +122,7 @@ async function chamar(token: string, numOfDays: number, dims: ClarityDimension[]
   if (resp.status === 403) throw new ClarityAuthError("Token sem acesso a este projeto do Clarity.");
   if (resp.status === 429) throw new ClarityRateLimitError("Cota diária do Clarity esgotada (10 requisições por projeto por dia).");
   if (resp.status === 400) throw new ClarityRequestError("Parâmetros recusados pelo Clarity.");
-  if (!resp.ok) throw new ClarityRequestError(`Clarity respondeu ${resp.status}.`);
+  if (!resp.ok) throw new ClarityRequestError(`Clarity respondeu ${resp.status} (após novas tentativas).`);
 
   const json = await resp.json().catch(() => null);
   if (!Array.isArray(json)) throw new ClarityRequestError("Resposta do Clarity em formato inesperado.");
