@@ -307,7 +307,7 @@ import { emailMode, destinatariosDeTeste, transporteAtivo } from "./emailService
 import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
 import { fontesDoCliente, fontesDeTodasAsContas } from "./services/fontesDoCliente";
 import { sincronizarGA4 } from "./services/ga4Sync";
-import { testarConexaoWoo, validarUrlDaLoja } from "./services/woocommerce";
+import { testarConexaoWoo, validarUrlDaLoja, sincronizarLoja } from "./services/woocommerce";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
 import { buildClientIntelligenceContext, contextoParaTexto, fontesDe, MODULOS, MODULOS_SITE } from "./services/clientIntelligence";
 import { gerarRelatorioModular, PRESETS, tierDe } from "./services/reportBuilder";
@@ -5219,6 +5219,14 @@ export const appRouter = router({
         await registrarTesteEcommerce(input.id, r.ok, r.ok ? null : r.erro);
         return r;
       }),
+
+    /**
+     * F5-B mínima: importa pedidos de UMA loja (30d → snapshots 7d/30d).
+     * Manual, sem cron. A resposta traz contagem — nunca credencial.
+     */
+    sync: contentProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(({ input }) => sincronizarLoja(input.id)),
   }),
 
   /**

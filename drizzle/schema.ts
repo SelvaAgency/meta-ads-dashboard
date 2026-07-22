@@ -493,6 +493,14 @@ export const ecommerceConnections = mysqlTable("ecommerce_connections", {
   /** ok | erro — o erro guardado NUNCA contém credencial. */
   lastTestStatus: varchar("lastTestStatus", { length: 8 }),
   lastTestError: varchar("lastTestError", { length: 300 }),
+  /**
+   * Sync ≠ teste: o teste diz se a credencial funciona; o sync, se a última
+   * IMPORTAÇÃO funcionou. Vão divergir — por isso são colunas separadas.
+   * Falha de sync não apaga o lastSyncAt anterior.
+   */
+  lastSyncAt: timestamp("lastSyncAt"),
+  lastSyncStatus: varchar("lastSyncStatus", { length: 8 }),
+  lastSyncError: varchar("lastSyncError", { length: 300 }),
   createdBy: int("createdBy"),
   updatedBy: int("updatedBy"),
   active: boolean("active").default(true).notNull(),

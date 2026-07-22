@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Store, Plug, Pencil, Ban, Loader2, ShieldCheck } from "lucide-react";
+import { Store, Plug, Pencil, Ban, Loader2, ShieldCheck, RefreshCw } from "lucide-react";
 
 /**
  * Lojas — conexões de e-commerce por cliente (F5-B). Admin/dev.
@@ -29,6 +29,7 @@ export default function Lojas() {
   const utils = trpc.useUtils();
   const [form, setForm] = useState<null | { id?: number; accountId: string; storeUrl: string; consumerKey: string; consumerSecret: string }>(null);
   const [testando, setTestando] = useState<number | null>(null);
+  const [sincronizando, setSincronizando] = useState<number | null>(null);
 
   const aoMudar = () => utils.ecommerce.list.invalidate();
   const criar = trpc.ecommerce.create.useMutation({
@@ -47,6 +48,11 @@ export default function Lojas() {
     onSuccess: (r) => { r.ok ? toast.success(r.detalhe) : toast.error(r.erro); aoMudar(); },
     onError: (e) => toast.error(e.message),
     onSettled: () => setTestando(null),
+  });
+  const sincronizar = trpc.ecommerce.sync.useMutation({
+    onSuccess: (r) => { r.ok ? toast.success(r.detalhe) : toast.error(r.erro); aoMudar(); },
+    onError: (e) => toast.error(e.message),
+    onSettled: () => setSincronizando(null),
   });
 
   // Guarda de conveniência; quem recusa de verdade é o servidor (contentProcedure).
@@ -184,6 +190,7 @@ export default function Lojas() {
                 <th className="px-3 py-2 font-medium">URL</th>
                 <th className="px-3 py-2 font-medium">Chave</th>
                 <th className="px-3 py-2 font-medium">Última verificação</th>
+                <th className="px-3 py-2 font-medium">Última importação</th>
                 <th className="px-5 py-2 font-medium text-right">Ações</th>
               </tr>
             </thead>
@@ -202,8 +209,25 @@ export default function Lojas() {
                       </span>
                     ) : <span className="text-muted-foreground/60">nunca testada</span>}
                   </td>
+                  <td className="px-3 py-2.5 text-xs">
+                    {c.lastSyncAt ? (
+                      // Falha de sync NÃO apaga o lastSyncAt: a data é a da última
+                      // importação BEM-SUCEDIDA; o status/erro é da última tentativa.
+                      <span className={c.lastSyncStatus === "ok" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}
+                        title={c.lastSyncError ?? undefined}>
+                        {c.lastSyncStatus === "ok" ? "ok" : "falhou"} · {new Date(c.lastSyncAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    ) : c.lastSyncStatus === "erro" ? (
+                      <span className="text-amber-600 dark:text-amber-400" title={c.lastSyncError ?? undefined}>falhou</span>
+                    ) : <span className="text-muted-foreground/60">nunca importada</span>}
+                  </td>
                   <td className="px-5 py-2.5">
                     <div className="flex items-center justify-end gap-1.5">
+                      <button onClick={() => { setSincronizando(c.id); sincronizar.mutate({ id: c.id }); }}
+                        disabled={sincronizando === c.id}
+                        className="inline-flex h-7 px-2.5 rounded-md border border-border text-xs items-center gap-1 disabled:opacity-60">
+                        {sincronizando === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Sincronizar
+                      </button>
                       <button onClick={() => { setTestando(c.id); testar.mutate({ id: c.id }); }}
                         disabled={testando === c.id}
                         className="inline-flex h-7 px-2.5 rounded-md border border-border text-xs items-center gap-1 disabled:opacity-60">
@@ -227,8 +251,9 @@ export default function Lojas() {
       </div>
 
       <p className="text-[11px] text-muted-foreground/70">
-        Nesta etapa a conexão só é validada — nenhum pedido é importado. A importação de pedidos/receita
-        abre como etapa própria depois que as lojas estiverem conectadas.
+        “Sincronizar” importa os pedidos dos últimos 30 dias da loja (receita, pedidos, ticket, produtos)
+        e grava o retrato do dia. A importação é manual — rodar de novo no mesmo dia atualiza o mesmo
+        retrato, sem duplicar. Onde esses números aparecem no painel é a próxima etapa.
       </p>
     </div>
     </MetaDashboardLayout>

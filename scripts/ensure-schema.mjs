@@ -831,6 +831,12 @@ async function main() {
         UNIQUE KEY \`uq_ecom_conta_plataforma\` (\`accountId\`, \`platform\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · ecommerce_connections garantida");
+    for (const [col, ddl] of [["lastSyncAt", "TIMESTAMP NULL"], ["lastSyncStatus", "VARCHAR(8) NULL"], ["lastSyncError", "VARCHAR(300) NULL"]]) {
+      if (!(await columnExists(conn, "ecommerce_connections", col))) {
+        await conn.query(`ALTER TABLE \`ecommerce_connections\` ADD COLUMN \`${col}\` ${ddl}`);
+        console.log(`[ensure-schema] ok  · ecommerce_connections.${col} adicionada`);
+      }
+    }
 
     // 21c) Vínculo propriedade GA4 → cliente. Aditivo e nullable: nenhum registro
     // existente muda, e o vínculo continua sendo manual.

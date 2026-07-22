@@ -4412,6 +4412,7 @@ export async function listarConexoesEcommerce() {
       id: r.id, accountId: r.accountId, platform: r.platform, storeUrl: r.storeUrl,
       status: r.status, lastTestAt: r.lastTestAt, lastTestStatus: r.lastTestStatus,
       lastTestError: r.lastTestError, keyMascarada,
+      lastSyncAt: r.lastSyncAt, lastSyncStatus: r.lastSyncStatus, lastSyncError: r.lastSyncError,
     };
   });
 }
@@ -4461,7 +4462,7 @@ export async function credenciaisDaConexao(id: number) {
   if (!r[0]) return null;
   try {
     return {
-      storeUrl: r[0].storeUrl, platform: r[0].platform,
+      accountId: r[0].accountId, storeUrl: r[0].storeUrl, platform: r[0].platform,
       consumerKey: decryptSecret(r[0].consumerKeyEncrypted),
       consumerSecret: decryptSecret(r[0].consumerSecretEncrypted),
     };
@@ -4477,6 +4478,21 @@ export async function registrarTesteEcommerce(id: number, ok: boolean, erro: str
     lastTestAt: new Date(), lastTestStatus: ok ? "ok" : "erro",
     lastTestError: ok ? null : (erro ?? "").slice(0, 300),
   }).where(eq(ecommerceConnections.id, id));
+}
+
+/**
+ * Resultado da última IMPORTAÇÃO (≠ teste de credencial). Na falha, o
+ * lastSyncAt anterior fica intacto — "quando importou pela última vez com
+ * sucesso" é a pergunta que a coluna responde.
+ */
+export async function registrarSyncEcommerce(id: number, ok: boolean, erro: string | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(ecommerceConnections).set(
+    ok
+      ? { lastSyncAt: new Date(), lastSyncStatus: "ok", lastSyncError: null }
+      : { lastSyncStatus: "erro", lastSyncError: (erro ?? "").slice(0, 300) },
+  ).where(eq(ecommerceConnections.id, id));
 }
 
 // ─── Auditoria de envio de email ─────────────────────────────────────────────
