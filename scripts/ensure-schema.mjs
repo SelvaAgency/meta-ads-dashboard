@@ -809,6 +809,29 @@ async function main() {
     }
     console.log("[ensure-schema] ok  · email_send_log garantida");
 
+    // 21e) Conexões de e-commerce (F5-B) — credenciais sempre criptografadas.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`ecommerce_connections\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`accountId\` INT NOT NULL,
+        \`platform\` VARCHAR(20) NOT NULL DEFAULT 'woocommerce',
+        \`storeUrl\` VARCHAR(500) NOT NULL,
+        \`consumerKeyEncrypted\` TEXT NOT NULL,
+        \`consumerSecretEncrypted\` TEXT NOT NULL,
+        \`status\` VARCHAR(12) NOT NULL DEFAULT 'ativa',
+        \`lastTestAt\` TIMESTAMP NULL,
+        \`lastTestStatus\` VARCHAR(8) NULL,
+        \`lastTestError\` VARCHAR(300) NULL,
+        \`createdBy\` INT NULL,
+        \`updatedBy\` INT NULL,
+        \`active\` BOOLEAN NOT NULL DEFAULT TRUE,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        UNIQUE KEY \`uq_ecom_conta_plataforma\` (\`accountId\`, \`platform\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · ecommerce_connections garantida");
+
     // 21c) Vínculo propriedade GA4 → cliente. Aditivo e nullable: nenhum registro
     // existente muda, e o vínculo continua sendo manual.
     if (await tableExists(conn, "ga4_accounts")) {

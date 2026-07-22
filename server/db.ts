@@ -2057,7 +2057,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, type InsertClientSocialAccount } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, type InsertClientSocialAccount } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 
@@ -4384,6 +4384,99 @@ export async function ga4SnapshotsDoCliente(accountId: number) {
   };
   const [d7, d30] = await Promise.all([busca("7d"), busca("30d")]);
   return { d7, d30 };
+}
+
+// ─── Conexões de e-commerce (F5-B) ───────────────────────────────────────────
+
+/** "ck_abc…1234" — o suficiente para reconhecer, nunca para usar. */
+export function mascararChave(plain: string): string {
+  if (plain.length <= 8) return "····";
+  return `${plain.slice(0, 3)}…${plain.slice(-4)}`;
+}
+
+/**
+ * Lista SEM segredo: a key volta mascarada, o secret não volta em forma
+ * nenhuma. É a única função de leitura que o router usa — não existe caminho
+ * de listagem que toque nas colunas cifradas sem mascarar.
+ */
+export async function listarConexoesEcommerce() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ecommerceConnections)
+    .where(eq(ecommerceConnections.active, true))
+    .orderBy(desc(ecommerceConnections.createdAt));
+  return rows.map((r) => {
+    let keyMascarada = "cadastrada";
+    try { keyMascarada = mascararChave(decryptSecret(r.consumerKeyEncrypted)); } catch { /* formato antigo/ilegível */ }
+    return {
+      id: r.id, accountId: r.accountId, platform: r.platform, storeUrl: r.storeUrl,
+      status: r.status, lastTestAt: r.lastTestAt, lastTestStatus: r.lastTestStatus,
+      lastTestError: r.lastTestError, keyMascarada,
+    };
+  });
+}
+
+export async function criarConexaoEcommerce(d: {
+  accountId: number; platform: string; storeUrl: string;
+  consumerKey: string; consumerSecret: string; criadoPor: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Banco indisponível");
+  await db.insert(ecommerceConnections).values({
+    accountId: d.accountId, platform: d.platform, storeUrl: d.storeUrl,
+    consumerKeyEncrypted: encryptSecret(d.consumerKey),
+    consumerSecretEncrypted: encryptSecret(d.consumerSecret),
+    createdBy: d.criadoPor, updatedBy: d.criadoPor,
+  });
+}
+
+/** Secrets são OPCIONAIS na edição: vazio = mantém as credenciais atuais. */
+export async function atualizarConexaoEcommerce(id: number, d: {
+  storeUrl?: string; consumerKey?: string; consumerSecret?: string; atualizadoPor: number;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(ecommerceConnections).set({
+    ...(d.storeUrl ? { storeUrl: d.storeUrl } : {}),
+    ...(d.consumerKey ? { consumerKeyEncrypted: encryptSecret(d.consumerKey) } : {}),
+    ...(d.consumerSecret ? { consumerSecretEncrypted: encryptSecret(d.consumerSecret) } : {}),
+    updatedBy: d.atualizadoPor,
+  }).where(eq(ecommerceConnections.id, id));
+}
+
+export async function desativarConexaoEcommerce(id: number, atualizadoPor: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(ecommerceConnections)
+    .set({ active: false, status: "inativa", updatedBy: atualizadoPor })
+    .where(eq(ecommerceConnections.id, id));
+}
+
+/** Uso interno do teste — ÚNICO lugar que decripta. Nunca exposto em router. */
+export async function credenciaisDaConexao(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(ecommerceConnections)
+    .where(and(eq(ecommerceConnections.id, id), eq(ecommerceConnections.active, true))).limit(1);
+  if (!r[0]) return null;
+  try {
+    return {
+      storeUrl: r[0].storeUrl, platform: r[0].platform,
+      consumerKey: decryptSecret(r[0].consumerKeyEncrypted),
+      consumerSecret: decryptSecret(r[0].consumerSecretEncrypted),
+    };
+  } catch {
+    return null; // credencial ilegível = reconectar, nunca vazar o payload
+  }
+}
+
+export async function registrarTesteEcommerce(id: number, ok: boolean, erro: string | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(ecommerceConnections).set({
+    lastTestAt: new Date(), lastTestStatus: ok ? "ok" : "erro",
+    lastTestError: ok ? null : (erro ?? "").slice(0, 300),
+  }).where(eq(ecommerceConnections.id, id));
 }
 
 // ─── Auditoria de envio de email ─────────────────────────────────────────────

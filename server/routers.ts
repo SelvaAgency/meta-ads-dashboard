@@ -290,6 +290,8 @@ import {
   reabrirMes,
   listarTodasContasGA4, vincularGA4, ga4DoCliente, tokenDaContaGA4, ga4SnapshotsDoCliente,
   getConexaoGA4Agencia, gravarPropriedadesGA4,
+  listarConexoesEcommerce, criarConexaoEcommerce, atualizarConexaoEcommerce,
+  desativarConexaoEcommerce, credenciaisDaConexao, registrarTesteEcommerce,
 } from "./db";
 import type { CampaignReportData } from "./analysisService";
 import { notifyOwner } from "./_core/notification";
@@ -305,6 +307,7 @@ import { emailMode, destinatariosDeTeste, transporteAtivo } from "./emailService
 import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
 import { fontesDoCliente, fontesDeTodasAsContas } from "./services/fontesDoCliente";
 import { sincronizarGA4 } from "./services/ga4Sync";
+import { testarConexaoWoo, validarUrlDaLoja } from "./services/woocommerce";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
 import { buildClientIntelligenceContext, contextoParaTexto, fontesDe, MODULOS, MODULOS_SITE } from "./services/clientIntelligence";
 import { gerarRelatorioModular, PRESETS, tierDe } from "./services/reportBuilder";
@@ -5137,6 +5140,87 @@ export const appRouter = router({
   }),
 
   // ─── GA4 Analytics ─────────────────────────────────────────────────────────
+  /**
+   * ─── Conexões de e-commerce (F5-B) ───────────────────────────────────────
+   * Gestão admin/dev. Regra que atravessa o router: create/update RECEBEM
+   * segredos e nunca os devolvem; list retorna a key mascarada e o secret não
+   * existe em resposta nenhuma. A URL passa pelo urlGuard na criação E no
+   * teste. Nenhum pedido é importado nesta etapa.
+   */
+  ecommerce: router({
+    list: contentProcedure.query(() => listarConexoesEcommerce()),
+
+    create: contentProcedure
+      .input(z.object({
+        accountId: z.number().int(),
+        platform: z.literal("woocommerce"),       // Shopify/Nuvemshop/Wix: futuros
+        storeUrl: z.string().min(8),
+        consumerKey: z.string().min(8),
+        consumerSecret: z.string().min(8),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const storeUrl = await validarUrlDaLoja(input.storeUrl).catch((e) => {
+          throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+        });
+        try {
+          await criarConexaoEcommerce({
+            accountId: input.accountId, platform: input.platform, storeUrl,
+            consumerKey: input.consumerKey, consumerSecret: input.consumerSecret,
+            criadoPor: ctx.user.id,
+          });
+        } catch (e) {
+          if (/duplicate/i.test((e as Error).message)) {
+            throw new TRPCError({ code: "CONFLICT", message: "Este cliente já tem uma conexão dessa plataforma. Edite a existente." });
+          }
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Não foi possível salvar a conexão." });
+        }
+        return { success: true } as const;
+      }),
+
+    update: contentProcedure
+      .input(z.object({
+        id: z.number().int(),
+        storeUrl: z.string().min(8).optional(),
+        // Vazios = mantém as credenciais atuais — é como a edição não exige recolar.
+        consumerKey: z.string().min(8).optional(),
+        consumerSecret: z.string().min(8).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const storeUrl = input.storeUrl
+          ? await validarUrlDaLoja(input.storeUrl).catch((e) => {
+              throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+            })
+          : undefined;
+        await atualizarConexaoEcommerce(input.id, {
+          storeUrl, consumerKey: input.consumerKey, consumerSecret: input.consumerSecret,
+          atualizadoPor: ctx.user.id,
+        });
+        return { success: true } as const;
+      }),
+
+    disable: contentProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ ctx, input }) => {
+        await desativarConexaoEcommerce(input.id, ctx.user.id);
+        return { success: true } as const;
+      }),
+
+    /** Decripta SÓ aqui, no backend, e descarta. A resposta nunca tem segredo. */
+    testConnection: contentProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ input }) => {
+        const cred = await credenciaisDaConexao(input.id);
+        if (!cred) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Conexão não encontrada ou credencial ilegível — recadastre as chaves." });
+        }
+        const r = cred.platform === "woocommerce"
+          ? await testarConexaoWoo(cred.storeUrl, cred.consumerKey, cred.consumerSecret)
+          : { ok: false as const, erro: `Teste ainda não implementado para ${cred.platform}.` };
+        await registrarTesteEcommerce(input.id, r.ok, r.ok ? null : r.erro);
+        return r;
+      }),
+  }),
+
   /**
    * ─── GA4 Analytics ───────────────────────────────────────────────────────
    *

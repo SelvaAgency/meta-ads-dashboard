@@ -107,7 +107,15 @@ export async function validarUrlPublica(bruta: string): Promise<UrlSegura> {
  */
 export async function fetchSeguro(
   urlInicial: string,
-  opts: { method?: string; timeoutMs?: number; maxRedirects?: number } = {},
+  opts: {
+    method?: string; timeoutMs?: number; maxRedirects?: number;
+    /**
+     * Headers extras (ex.: Authorization do WooCommerce). Quem manda credencial
+     * deve usar maxRedirects: 0 — seguir redirect com Authorization entregaria
+     * a credencial ao destino do redirect.
+     */
+    headers?: Record<string, string>;
+  } = {},
 ): Promise<{ resp: Response; finalUrl: string; saltos: number }> {
   const { method = "GET", timeoutMs = 15_000, maxRedirects = 5 } = opts;
   let alvo = (await validarUrlPublica(urlInicial)).url;
@@ -118,7 +126,7 @@ export async function fetchSeguro(
       method,
       redirect: "manual", // cada salto passa pela guarda
       signal: AbortSignal.timeout(timeoutMs),
-      headers: { "User-Agent": "SelvaSpaces-SiteCheck/1.0 (+https://spaces.selva.agency)" },
+      headers: { "User-Agent": "SelvaSpaces-SiteCheck/1.0 (+https://spaces.selva.agency)", ...(opts.headers ?? {}) },
     });
 
     const loc = resp.headers.get("location");

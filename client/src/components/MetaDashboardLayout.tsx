@@ -8,6 +8,7 @@ import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import {
   Users,
   BarChart3,
+  Store,
   Bell,
   ChevronDown,
   ChevronRight,
@@ -183,7 +184,11 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
     // Gestão de propriedades GA4 é de admin/dev; usuário comum consome os
     // dados na seção Site e não precisa da tela de vínculo.
-    ...(canManageContent(user?.role) ? [{ path: "/ga4", label: "Google Analytics", icon: BarChart3 }] : []),
+    ...(canManageContent(user?.role) ? [
+      { path: "/ga4", label: "Google Analytics", icon: BarChart3 },
+      // Conexões de e-commerce (F5-B) — gestão, então admin/dev.
+      { path: "/lojas", label: "Lojas", icon: Store },
+    ] : []),
     { path: "/site", label: "Site", icon: Globe },
     // A página existia e já puxava dado real do Instagram, mas não estava em
     // lugar nenhum da navegação — só por URL direta.

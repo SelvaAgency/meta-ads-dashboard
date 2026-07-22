@@ -465,6 +465,46 @@ export const emailSendLog = mysqlTable("email_send_log", {
 }));
 export type EmailSendLogRow = typeof emailSendLog.$inferSelect;
 
+/**
+ * ─── Conexões de e-commerce (F5-B) ───────────────────────────────────────────
+ *
+ * Genérica DE PROPÓSITO: `platform` começa com "woocommerce", mas Shopify,
+ * Nuvemshop e Wix entram sem migração. Nenhum cliente é fixo no código — a
+ * tela /lojas cadastra qualquer accountId.
+ *
+ * As DUAS credenciais são criptografadas (AES-256-GCM, integrationsCrypto).
+ * A consumer_key volta ao frontend só MASCARADA; o consumer_secret não volta
+ * nunca — nem na edição, que mostra "chave cadastrada".
+ *
+ * A plataforma será a FONTE PRIMÁRIA de pedidos/receita quando a importação
+ * abrir; o GA4 fica como fonte inicial/funil. Nunca somar as duas.
+ */
+export const ecommerceConnections = mysqlTable("ecommerce_connections", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Cliente do Tracker (meta_ad_accounts.id). Qualquer um — nada fixo. */
+  accountId: int("accountId").notNull(),
+  platform: varchar("platform", { length: 20 }).default("woocommerce").notNull(),
+  /** HTTPS obrigatório; valida no urlGuard na criação E no teste. */
+  storeUrl: varchar("storeUrl", { length: 500 }).notNull(),
+  consumerKeyEncrypted: text("consumerKeyEncrypted").notNull(),
+  consumerSecretEncrypted: text("consumerSecretEncrypted").notNull(),
+  status: varchar("status", { length: 12 }).default("ativa").notNull(),
+  lastTestAt: timestamp("lastTestAt"),
+  /** ok | erro — o erro guardado NUNCA contém credencial. */
+  lastTestStatus: varchar("lastTestStatus", { length: 8 }),
+  lastTestError: varchar("lastTestError", { length: 300 }),
+  createdBy: int("createdBy"),
+  updatedBy: int("updatedBy"),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  /** Uma loja por plataforma por cliente. Relaxar é fácil; voltar não é. */
+  uqContaPlataforma: uniqueIndex("uq_ecom_conta_plataforma").on(table.accountId, table.platform),
+}));
+export type EcommerceConnection = typeof ecommerceConnections.$inferSelect;
+export type InsertEcommerceConnection = typeof ecommerceConnections.$inferInsert;
+
 // ─── Configurações simples (key-value) — ex.: slide "Você prefere?" da SELVA TV ─
 export const appSettings = mysqlTable("app_settings", {
   settingKey: varchar("settingKey", { length: 191 }).primaryKey(),
