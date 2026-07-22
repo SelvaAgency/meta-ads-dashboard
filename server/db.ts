@@ -360,7 +360,7 @@ export async function getAppSetting<T = unknown>(key: string): Promise<T | null>
   const rows = await db.select().from(appSettings).where(eq(appSettings.settingKey, key)).limit(1);
   return rows.length ? (rows[0].valueJson as T) : null;
 }
-export async function setAppSetting(key: string, value: unknown, userId: number) {
+export async function setAppSetting(key: string, value: unknown, userId: number | null = null) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
   await db.insert(appSettings)

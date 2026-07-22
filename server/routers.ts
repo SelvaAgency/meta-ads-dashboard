@@ -5140,6 +5140,10 @@ export const appRouter = router({
   ga4: router({
     isConfigured: protectedProcedure.query(() => ({ configured: isGA4Configured() })),
 
+    /** Resumo do último ciclo automático — o cabeçalho da /ga4 mostra sem log. */
+    ultimoCiclo: protectedProcedure.query(() =>
+      getAppSetting<{ em: string; total: number; ok: number; semDados: number; falhas: number }>("ga4:ultimoCiclo")),
+
     /** Estado da conexão da agência — espelha googleAds.isConfigured. */
     statusConexao: protectedProcedure.query(async ({ ctx }) => {
       const conexao = await getConexaoGA4Agencia();

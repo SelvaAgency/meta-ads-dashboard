@@ -1,10 +1,11 @@
 import { logger } from "./logger";
 import { resolverTipoDaConta } from "./alertProfiles";
 import { runDailyDigestJob } from "./services/dailyDigestService";
+import { sincronizarGA4 } from "./services/ga4Sync";
 import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, hojeAgencia, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
 import { runClaritySnapshots, runPerformanceSnapshots, runSiteHealthChecks } from "./clarityJobs";
 import { runClarityAlertas } from "./services/clarityAlertService";
-import { getDigestSettings, getDigestOverride, objetivosDasCampanhas } from "./db";
+import { getDigestSettings, getDigestOverride, objetivosDasCampanhas, setAppSetting } from "./db";
 /**
  * autoSync.ts — Cron job para sincronização automática diária de todas as contas Meta Ads.
  *
@@ -407,6 +408,27 @@ function aggregateCampaignRows(rows: Awaited<ReturnType<typeof getCampaignPerfor
  * (7/14/30): a validação multi-período do detector exige 2 de 3 confirmando, e
  * passar a mesma média nas três (como faz o caller do front) desliga esse filtro.
  */
+/**
+ * Sincroniza o GA4 das propriedades vinculadas e guarda o resumo do ciclo.
+ *
+ * Só orquestra: a leitura, o dedup, o status por propriedade e o isolamento de
+ * falha já vivem em sincronizarGA4(). Aqui apenas registramos "quando rodou e
+ * como foi", para a tela /ga4 mostrar sem depender do log do Railway — que some
+ * a cada deploy.
+ */
+async function runGA4Sync() {
+  try {
+    const r = await sincronizarGA4();
+    await setAppSetting("ga4:ultimoCiclo", {
+      em: new Date().toISOString(),
+      total: r.total, ok: r.ok, semDados: r.semDados, falhas: r.falhas,
+    });
+    logger.info(`[GA4Sync] ciclo automático · ${r.ok} com dados · ${r.semDados} sem tráfego · ${r.falhas} falha(s)`);
+  } catch (err) {
+    logger.error(`[GA4Sync] ciclo automático falhou inteiro: ${(err as Error)?.message}`);
+  }
+}
+
 async function runAnomaliasDeMidia() {
   const accounts = await getAllActiveMetaAdAccounts();
   if (accounts.length === 0) return;
@@ -1085,6 +1107,11 @@ export async function startAutoSync() {
   // Snapshot do Clarity (06:40 BRT). Cedo de propósito: a API só devolve os
   // últimos 1–3 dias, então o dia não capturado se perde para sempre.
   cron.schedule("0 40 6 * * *", runClaritySnapshots, TZ);
+
+  // GA4 (06:50 BRT). Entre o Clarity e o PageSpeed, numa folga real da manhã.
+  // Antes das 07:30 (digest) de propósito: quando o GA4 alimentar o resumo, o
+  // dado já estará fresco — mudar horário depois é mais chato que acertar agora.
+  cron.schedule("0 50 6 * * *", runGA4Sync, TZ);
 
   // Performance técnica (07:00 BRT). Depois do Clarity e antes do expediente:
   // cada teste é um carregamento real de 10–30s.

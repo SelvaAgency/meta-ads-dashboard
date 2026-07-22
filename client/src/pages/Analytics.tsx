@@ -16,11 +16,24 @@ import { Link2, CheckCircle2, RefreshCw, BarChart3, AlertTriangle, Loader2 } fro
  * Nada é vinculado automaticamente — nem por nome parecido, nem por domínio.
  * Um palpite errado aqui mostraria dados de um cliente na tela de outro.
  */
+/** "hoje 06:50" quando é do dia; senão "21/07 06:50". */
+function formatarCiclo(iso: string): string {
+  const d = new Date(iso);
+  const tz = "America/Sao_Paulo";
+  const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+  const dia = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(d);
+  const hora = new Intl.DateTimeFormat("pt-BR", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(d);
+  if (dia === hoje) return `hoje ${hora}`;
+  const dm = new Intl.DateTimeFormat("pt-BR", { timeZone: tz, day: "2-digit", month: "2-digit" }).format(d);
+  return `${dm} ${hora}`;
+}
+
 export default function Analytics() {
   const { user } = useAuth();
   const podeGerenciar = canManageContent(user?.role);
 
   const statusQ = trpc.ga4.statusConexao.useQuery();
+  const cicloQ = trpc.ga4.ultimoCiclo.useQuery();
   const contasQ = trpc.ga4.contasParaGerenciar.useQuery(undefined, { enabled: podeGerenciar });
   const clientesQ = trpc.accounts.list.useQuery();
   const utils = trpc.useUtils();
@@ -127,6 +140,13 @@ export default function Analytics() {
                 {st.conectadoComo ? <>como <strong>{st.conectadoComo}</strong></> : "autorização salva"}
                 {" · "}{st.propriedades} propriedade(s), {st.vinculadas} vinculada(s)
               </p>
+              {cicloQ.data && (
+                <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                  Última sincronização automática: {formatarCiclo(cicloQ.data.em)} · {cicloQ.data.ok} com dados
+                  {cicloQ.data.semDados > 0 ? `, ${cicloQ.data.semDados} sem tráfego` : ""}
+                  {cicloQ.data.falhas > 0 ? `, ${cicloQ.data.falhas} falha(s)` : ""}
+                </p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
