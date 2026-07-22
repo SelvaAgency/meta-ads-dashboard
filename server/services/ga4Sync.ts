@@ -25,11 +25,13 @@
 import { logger } from "../logger";
 import {
   getGA4Config, getGA4Overview, getGA4TrafficSources, getGA4TopPages,
-  getGA4Conversions, getGA4Channels, getGA4LandingPages, ga4TemEcommerce,
+  getGA4Conversions, getGA4Channels, getGA4LandingPages,
+  getGA4EcommerceTotais, getGA4Funil, getGA4OrigemCompras,
 } from "../ga4Service";
 import {
   listarTodasContasGA4, tokenDaContaGA4, registrarSyncGA4, salvarSiteSnapshot,
 } from "../db";
+import { montarBlocoEcommerce } from "./ga4Funil";
 
 /** Janelas lidas a cada sync. Viram `estrategia` na chave do snapshot. */
 export const JANELAS = [7, 30] as const;
@@ -86,15 +88,24 @@ export async function sincronizarPropriedade(conta: {
       // Período anterior de mesmo tamanho: 7d compara com os 7 dias antes dele.
       const anterior = { startDate: dia(janela * 2), endDate: dia(janela + 1) };
 
-      const [resumo, canais, origens, landing, paginas, eventos, temEcom] = await Promise.all([
+      const [resumo, canais, origens, landing, paginas, eventos, ecomTotais, funil] = await Promise.all([
         getGA4Overview(config, conta.propertyId, inicio, fim, anterior),
         getGA4Channels(config, conta.propertyId, inicio, fim).catch(() => []),
         getGA4TrafficSources(config, conta.propertyId, inicio, fim, 10).catch(() => []),
         getGA4LandingPages(config, conta.propertyId, inicio, fim).catch(() => []),
         getGA4TopPages(config, conta.propertyId, inicio, fim, 10).catch(() => []),
         getGA4Conversions(config, conta.propertyId, inicio, fim).catch(() => []),
-        ga4TemEcommerce(config, conta.propertyId, inicio, fim),
+        // E-commerce (F5-A): catch próprio — falha aqui vira "indisponivel" no
+        // bloco, e sessões/canais/páginas seguem intactos.
+        getGA4EcommerceTotais(config, conta.propertyId, inicio, fim).catch(() => null),
+        getGA4Funil(config, conta.propertyId, inicio, fim).catch(() => null),
       ]);
+
+      const ecommerce = montarBlocoEcommerce({ totais: ecomTotais, funil, sessions: resumo.sessions });
+      // Origem das compras só quando HÁ compra — cliente sem loja não gasta chamada.
+      const origemCompras = ecommerce.status === "detectado"
+        ? await getGA4OrigemCompras(config, conta.propertyId, inicio, fim).catch(() => [])
+        : [];
 
       if (resumo.conversoesIndisponiveis) aviso = resumo.conversoesIndisponiveis;
       if (janela === 7) sessoesTotais = resumo.sessions;
@@ -117,8 +128,14 @@ export async function sincronizarPropriedade(conta: {
           bounceRate: resumo.bounceRate,
           conversions: resumo.conversions,
           eventCount: resumo.eventCount,
-          // Só o booleano. Receita e funil são etapa própria.
-          ecommerceDetectado: temEcom,
+          // Derivado do funil — mantido por compatibilidade com quem já lê.
+          ecommerceDetectado: ecommerce.status === "detectado",
+          /**
+           * F5-A: GA4 como FONTE INICIAL de e-commerce, nunca contábil. Quando
+           * a plataforma da loja conectar (F5-B), ela vira a fonte primária e
+           * a diferença entre as duas é divergência de medição, não erro.
+           */
+          ecommerce,
           // null quando a API não devolveu o período anterior — a tela mostra
           // o número sem variação em vez de inventar uma.
           anterior: resumo.anterior
@@ -141,6 +158,7 @@ export async function sincronizarPropriedade(conta: {
           landingPages: landing,
           paginas: paginas.map((p) => ({ url: p.pagePath, titulo: p.pageTitle, views: p.pageviews })),
           eventos: eventos.map((e) => ({ nome: e.eventName, contagem: e.conversions })),
+          ...(origemCompras.length ? { origemCompras } : {}),
           ...(aviso ? { limitacoes: [aviso] } : {}),
         },
       });

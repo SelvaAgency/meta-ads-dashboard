@@ -29,7 +29,7 @@ import { Secao, FonteAusente } from "@/components/Secao";
 import { destinoDaAba, type AbaSite, type SecaoSite } from "./site/abasSite";
 import { acoesDoResumo, positivosDoResumo, type AcaoResumo } from "./site/resumoSite";
 import {
-  cardsDeTrafego, listasDe, contexto30d, amostraPequena, semTrafego,
+  cardsDeTrafego, listasDe, contexto30d, amostraPequena, semTrafego, prepararVendas,
   type MetricasGA4, type ListasGA4, type CardGA4, type Lista as ListaGA4,
 } from "./site/ga4Performance";
 import { type Fonte, type StatusFonte } from "@shared/fontes";
@@ -1566,6 +1566,9 @@ function BlocosGA4({ m7, m30, listas, fonteErro }: {
   const contexto = contexto30d(m7, m30);
   const vazio = semTrafego(m7);
   const pouco = amostraPequena(m7);
+  // Vendas: 7d preferido, 30d quando só ele detectou (caso BAESH). Sem
+  // detecção, a seção nem existe — cliente sem loja não vê card de vendas.
+  const vendas = prepararVendas(m7?.ecommerce ?? null, m30?.ecommerce ?? null);
 
   const Variacao = ({ v }: { v: CardGA4["variacao"] }) => {
     if (!v) return null;
@@ -1629,6 +1632,50 @@ function BlocosGA4({ m7, m30, listas, fonteErro }: {
             </div>
           )}
         </>
+      )}
+
+      {/* ── Vendas (GA4 — fonte inicial) ─────────────────────────────────
+          Rótulo deliberado: GA4 mede o site, não o caixa. Quando a plataforma
+          da loja conectar, ela vira a fonte primária — e a diferença entre as
+          duas é divergência de medição, não erro. */}
+      {vendas && (
+        <div className="mt-4 rounded-lg border border-border overflow-hidden">
+          <div className="px-3 py-2 border-b border-border flex items-center justify-between flex-wrap gap-1">
+            <p className="text-xs font-medium text-foreground">
+              Vendas <span className="text-muted-foreground/70 font-normal">· GA4 — fonte inicial</span>
+            </p>
+            <span className="text-[10px] text-muted-foreground/70">
+              {vendas.janela === "30d" ? "últimos 30 dias" : "últimos 7 dias"}
+            </span>
+          </div>
+          <div className="p-3">
+            {vendas.cards.length > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+                {vendas.cards.map((c) => (
+                  <div key={c.rotulo} className="rounded-lg border border-border bg-background px-3 py-2.5">
+                    <p className="text-[11px] text-muted-foreground">{c.rotulo}</p>
+                    <p className="text-lg font-medium text-foreground mt-0.5">{c.valor}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Funil: cada etapa com a taxa de passagem vinda da anterior. */}
+            <div className="flex items-stretch gap-2">
+              {vendas.funil.map((f, i) => (
+                <div key={f.etapa} className="flex-1 rounded-lg border border-border bg-background px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">{f.etapa}</p>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-base font-medium text-foreground">{f.valor}</span>
+                    {i > 0 && <span className="text-[11px] text-muted-foreground">{f.taxa ?? "—"}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground/60 mt-2">
+              Medição do site pelo Google Analytics — não é o faturamento da loja nem a receita atribuída de mídia.
+            </p>
+          </div>
+        </div>
       )}
 
       {(listas?.limitacoes ?? []).map((l) => (

@@ -350,24 +350,82 @@ export async function getGA4LandingPages(
 }
 
 /**
- * A propriedade tem evento de compra? Só o booleano — receita, itens e funil
- * ficam para a etapa de e-commerce. Nunca falha: ausência de dado responde não.
+ * ─── E-commerce (F5-A) — GA4 como FONTE INICIAL ─────────────────────────────
+ * Não é fonte contábil: o GA4 perde compra por adblock, consentimento e
+ * atribuição. Quando a plataforma da loja estiver conectada, ela vira a fonte
+ * primária — estes números ficam como indício e funil.
  */
-export async function ga4TemEcommerce(
+
+/**
+ * Totais de receita. Cascata de nomes porque a Data API renomeia métricas:
+ * `transactions` → `ecommercePurchases` → null (indisponível). Nenhuma recusa
+ * pode derrubar o sync — quem chama trata null.
+ */
+export async function getGA4EcommerceTotais(
   config: GA4Config, propertyId: string, startDate: string, endDate: string,
-): Promise<boolean> {
+): Promise<{ receita: number; transacoes: number } | null> {
+  for (const metricaTransacao of ["transactions", "ecommercePurchases"]) {
+    try {
+      const r = await runReport(config, propertyId, {
+        dateRanges: [{ startDate, endDate }],
+        metrics: [{ name: "purchaseRevenue" }, { name: metricaTransacao }],
+      });
+      const v = r.rows?.[0]?.metricValues ?? [];
+      return {
+        receita: parseFloat(v[0]?.value ?? "0"),
+        transacoes: parseInt(v[1]?.value ?? "0"),
+      };
+    } catch { /* tenta o próximo nome */ }
+  }
+  return null;
+}
+
+/**
+ * Funil de compra: add_to_cart → begin_checkout → purchase, numa chamada só.
+ * Substitui o antigo ga4TemEcommerce — "tem compra?" agora deriva de
+ * purchases > 0, com uma chamada a menos.
+ */
+export async function getGA4Funil(
+  config: GA4Config, propertyId: string, startDate: string, endDate: string,
+): Promise<{ addToCart: number; beginCheckout: number; purchases: number } | null> {
   try {
     const r = await runReport(config, propertyId, {
       dateRanges: [{ startDate, endDate }],
       dimensions: [{ name: "eventName" }],
       metrics: [{ name: "eventCount" }],
-      dimensionFilter: { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "purchase" } } },
-      limit: 1,
+      dimensionFilter: {
+        filter: { fieldName: "eventName", inListFilter: { values: ["add_to_cart", "begin_checkout", "purchase"] } },
+      },
     });
-    return parseInt(r.rows?.[0]?.metricValues?.[0]?.value ?? "0") > 0;
+    const contagem = new Map<string, number>(
+      (r.rows ?? []).map((row: any) => [row.dimensionValues?.[0]?.value ?? "", parseInt(row.metricValues?.[0]?.value ?? "0")]),
+    );
+    return {
+      addToCart: contagem.get("add_to_cart") ?? 0,
+      beginCheckout: contagem.get("begin_checkout") ?? 0,
+      purchases: contagem.get("purchase") ?? 0,
+    };
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Canais das compras. Só é chamada quando o funil achou purchase > 0. */
+export async function getGA4OrigemCompras(
+  config: GA4Config, propertyId: string, startDate: string, endDate: string, limit = 8,
+): Promise<{ nome: string; compras: number }[]> {
+  const r = await runReport(config, propertyId, {
+    dateRanges: [{ startDate, endDate }],
+    dimensions: [{ name: "sessionDefaultChannelGroup" }],
+    metrics: [{ name: "eventCount" }],
+    dimensionFilter: { filter: { fieldName: "eventName", stringFilter: { matchType: "EXACT", value: "purchase" } } },
+    orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
+    limit,
+  });
+  return (r.rows ?? []).map((row: any) => ({
+    nome: row.dimensionValues?.[0]?.value ?? "(não definido)",
+    compras: parseInt(row.metricValues?.[0]?.value ?? "0"),
+  }));
 }
 
 /**

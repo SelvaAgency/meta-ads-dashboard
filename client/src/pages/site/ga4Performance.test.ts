@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   variacao, cardsDeTrafego, amostraPequena, semTrafego, contexto30d,
-  listaTop, listasDe, duracao, MIN_SESSOES_CONFIAVEL,
-  type MetricasGA4,
+  listaTop, listasDe, duracao, prepararVendas, MIN_SESSOES_CONFIAVEL,
+  type MetricasGA4, type EcommerceGA4,
 } from "./ga4Performance";
 
 const m = (o: Partial<MetricasGA4> = {}): MetricasGA4 => ({ sessions: 0, ...o });
@@ -164,5 +164,65 @@ describe("duração", () => {
     expect(duracao(0)).toBe("—");
     expect(duracao(null)).toBe("—");
     expect(duracao(undefined)).toBe("—");
+  });
+});
+
+describe("vendas (GA4 — fonte inicial)", () => {
+  const ecom = (o: Partial<EcommerceGA4> = {}): EcommerceGA4 => ({
+    fonte: "ga4", status: "sem_dados",
+    receita: null, transacoes: null, ticketMedio: null,
+    addToCart: null, beginCheckout: null, purchases: null,
+    taxaSessaoPurchase: null, taxaCarrinhoCheckout: null, taxaCheckoutPurchase: null,
+    ...o,
+  });
+
+  it("sem detecção em janela nenhuma, a seção não existe", () => {
+    expect(prepararVendas(ecom(), ecom())).toBeNull();
+    expect(prepararVendas(null, null)).toBeNull();
+    expect(prepararVendas(undefined, undefined)).toBeNull();
+  });
+
+  it("7d detectado tem prioridade", () => {
+    const v = prepararVendas(
+      ecom({ status: "detectado", purchases: 3, receita: 300, transacoes: 3 }),
+      ecom({ status: "detectado", purchases: 12 }),
+    )!;
+    expect(v.janela).toBe("7d");
+  });
+
+  /** BAESH: semana vazia, mês com compra — cai para 30d, rotulado. */
+  it("o caso BAESH: só o 30d detectou → usa o 30d", () => {
+    const v = prepararVendas(
+      ecom({ status: "sem_dados" }),
+      ecom({ status: "detectado", purchases: 2, addToCart: 63, beginCheckout: 60,
+             taxaCarrinhoCheckout: 95.2, taxaCheckoutPurchase: 3.3 }),
+    )!;
+    expect(v.janela).toBe("30d");
+    expect(v.funil[1].taxa).toBe("95,2%");
+    expect(v.funil[2].taxa).toBe("3,3%");
+  });
+
+  it("receita indisponível não vira R$ 0 — o card some e o funil fica", () => {
+    const v = prepararVendas(
+      ecom({ status: "detectado", purchases: 2, addToCart: 10, beginCheckout: 5, receita: null }),
+      null,
+    )!;
+    expect(v.cards.find((c) => c.rotulo.includes("Receita"))).toBeUndefined();
+    expect(v.funil[2].valor).toBe("2");
+  });
+
+  it("com receita e transações, os três cards saem", () => {
+    const v = prepararVendas(
+      ecom({ status: "detectado", purchases: 20, receita: 5000, transacoes: 20, ticketMedio: 250 }),
+      null,
+    )!;
+    expect(v.cards.map((c) => c.rotulo)).toEqual(["Receita (GA4)", "Transações", "Ticket médio"]);
+    expect(v.cards[0].valor).toBe("R$ 5.000,00");
+    expect(v.cards[2].valor).toBe("R$ 250,00");
+  });
+
+  it("etapa sem dado mostra traço, não zero", () => {
+    const v = prepararVendas(ecom({ status: "detectado", purchases: 1, addToCart: null }), null)!;
+    expect(v.funil[0].valor).toBe("—");
   });
 });

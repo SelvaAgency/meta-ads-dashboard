@@ -27,6 +27,7 @@ export type MetricasGA4 = {
   avgEngagementDuration?: number; bounceRate?: number;
   conversions?: number; eventCount?: number;
   ecommerceDetectado?: boolean;
+  ecommerce?: EcommerceGA4 | null;
   anterior?: {
     inicio?: string; fim?: string;
     sessions?: number; users?: number; newUsers?: number; pageviews?: number;
@@ -35,12 +36,27 @@ export type MetricasGA4 = {
   } | null;
 };
 
+export type EcommerceGA4 = {
+  fonte: "ga4";
+  status: "detectado" | "sem_dados" | "indisponivel";
+  receita: number | null;
+  transacoes: number | null;
+  ticketMedio: number | null;
+  addToCart: number | null;
+  beginCheckout: number | null;
+  purchases: number | null;
+  taxaSessaoPurchase: number | null;
+  taxaCarrinhoCheckout: number | null;
+  taxaCheckoutPurchase: number | null;
+};
+
 export type ListasGA4 = {
   canais?: { nome: string; sessions: number }[];
   origens?: { fonte: string; sessions: number }[];
   landingPages?: { url: string; sessions: number }[];
   paginas?: { url: string; titulo?: string; views: number }[];
   eventos?: { nome: string; contagem: number }[];
+  origemCompras?: { nome: string; compras: number }[];
   limitacoes?: string[];
 };
 
@@ -153,3 +169,50 @@ export function listasDe(l: ListasGA4 | null | undefined): Lista[] {
     listaTop("Eventos principais", l.eventos?.map((e) => ({ rotulo: e.nome, valor: e.contagem }))),
   ].filter((x): x is Lista => x !== null);
 }
+
+// ─── Vendas (GA4 — fonte inicial) ────────────────────────────────────────────
+
+export type VendasPreparadas = {
+  /** "7d" ou "30d" — de onde os números vieram. A UI rotula quando é 30d. */
+  janela: "7d" | "30d";
+  cards: { rotulo: string; valor: string }[];
+  funil: { etapa: string; valor: string; taxa: string | null }[];
+};
+
+const brl = (v: number) => "R$ " + v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pctTx = (v: number | null) => (v === null ? null : `${v.toFixed(1).replace(".", ",")}%`);
+
+/**
+ * Prefere o 7d; cai para o 30d quando SÓ ele detectou compra — o caso BAESH,
+ * loja de volume baixo onde a semana pode vir vazia e o mês não. Sem detecção
+ * em janela nenhuma, devolve null e a seção simplesmente não existe.
+ */
+export function prepararVendas(
+  e7: EcommerceGA4 | null | undefined,
+  e30: EcommerceGA4 | null | undefined,
+): VendasPreparadas | null {
+  const escolha: ["7d" | "30d", EcommerceGA4] | null =
+    e7?.status === "detectado" ? ["7d", e7]
+    : e30?.status === "detectado" ? ["30d", e30]
+    : null;
+  if (!escolha) return null;
+  const [janela, e] = escolha;
+
+  const cards: { rotulo: string; valor: string }[] = [];
+  // Receita pode vir indisponível com funil presente — o card some, não vira R$ 0.
+  if (e.receita !== null && e.receita > 0) cards.push({ rotulo: "Receita (GA4)", valor: brl(e.receita) });
+  if (e.transacoes !== null && e.transacoes > 0) cards.push({ rotulo: "Transações", valor: e.transacoes.toLocaleString("pt-BR") });
+  if (e.ticketMedio !== null) cards.push({ rotulo: "Ticket médio", valor: brl(e.ticketMedio) });
+
+  const int2 = (v: number | null) => (v === null ? "—" : v.toLocaleString("pt-BR"));
+  return {
+    janela,
+    cards,
+    funil: [
+      { etapa: "Adicionou ao carrinho", valor: int2(e.addToCart), taxa: null },
+      { etapa: "Iniciou checkout", valor: int2(e.beginCheckout), taxa: pctTx(e.taxaCarrinhoCheckout) },
+      { etapa: "Comprou", valor: int2(e.purchases), taxa: pctTx(e.taxaCheckoutPurchase) },
+    ],
+  };
+}
+
