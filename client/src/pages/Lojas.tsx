@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
@@ -51,6 +52,7 @@ export default function Lojas() {
   // Guarda de conveniência; quem recusa de verdade é o servidor (contentProcedure).
   if (!podeGerenciar) {
     return (
+      <MetaDashboardLayout title="Lojas">
       <div className="p-6">
         <div className="bg-card border border-border rounded-xl p-8 text-center">
           <Store className="w-8 h-8 mx-auto text-muted-foreground/40 mb-3" />
@@ -60,6 +62,7 @@ export default function Lojas() {
           </p>
         </div>
       </div>
+      </MetaDashboardLayout>
     );
   }
 
@@ -88,6 +91,7 @@ export default function Lojas() {
   const inp = "w-full text-sm bg-background border border-border rounded-lg px-3 py-2";
 
   return (
+    <MetaDashboardLayout title="Lojas">
     <div className="p-6 flex flex-col gap-4 max-w-5xl">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -227,5 +231,6 @@ export default function Lojas() {
         abre como etapa própria depois que as lojas estiverem conectadas.
       </p>
     </div>
+    </MetaDashboardLayout>
   );
 }

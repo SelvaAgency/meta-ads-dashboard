@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
@@ -69,6 +70,7 @@ export default function Analytics() {
   // Guarda no cliente é conveniência; quem recusa de verdade é o servidor.
   if (!podeGerenciar) {
     return (
+      <MetaDashboardLayout title="Google Analytics">
       <div className="p-6">
         <div className="bg-card border border-border rounded-xl p-8 text-center">
           <BarChart3 className="w-8 h-8 mx-auto text-muted-foreground/40 mb-3" />
@@ -79,6 +81,7 @@ export default function Analytics() {
           </p>
         </div>
       </div>
+      </MetaDashboardLayout>
     );
   }
 
@@ -89,6 +92,7 @@ export default function Analytics() {
     id == null ? null : (clientes.find((c) => c.id === id)?.accountName ?? `Cliente #${id}`);
 
   return (
+    <MetaDashboardLayout title="Google Analytics">
     <div className="p-6 flex flex-col gap-4 max-w-5xl">
       <div>
         <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
@@ -244,5 +248,6 @@ export default function Analytics() {
         </p>
       )}
     </div>
+    </MetaDashboardLayout>
   );
 }
