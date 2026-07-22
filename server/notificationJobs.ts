@@ -144,13 +144,15 @@ export async function runBriefingDiario(): Promise<{ notificados: number; emails
     tipo: "RELATORIO_DIARIO", alertType: "DAILY_BRIEFING", severity: "INFO",
     title: titulo, message: texto, referencia: "global", dia,
   });
-  const bloco = (emoji: string, txt: string, cor: string) => txt ? `<p style="margin:8px 0;font-size:14px;color:${cor}">${emoji} ${txt}</p>` : "";
-  const html = layout(titulo, `
-    <p style="margin:0 0 8px;font-size:14px;color:#333">${resumo}</p>
-    ${bloco("✅", positivo, "#16A34A")}${bloco("⚠️", atencao, "#D97706")}${bloco("🚨", critico, "#DC2626")}`);
-  const emails = await enviarEmails("RELATORIO_DIARIO", dedupKey, `[SELVA] ${titulo}`, html, texto);
-  logger.info(`[Notif] Briefing diário: ${notificados.length} in-app · ${emails} email(s)`);
-  return { notificados: notificados.length, emails };
+  /**
+   * SEM e-mail automático desde 22/07/2026 — o Jornalzinho das 07:30 monta o
+   * bloco Performance a partir DESTE MESMO briefing, e o time recebia o mesmo
+   * conteúdo duas vezes em dois formatos (10 e-mails duplicados por dia).
+   * O in-app continua; o disparo manual do admin tem caminho próprio e também
+   * continua. `dedupKey` segue sendo gravado para o manual não duplicar.
+   */
+  logger.info(`[Notif] Briefing diário: ${notificados.length} in-app (e-mail automático desativado — vai no Jornalzinho)`);
+  return { notificados: notificados.length, emails: 0 };
 }
 
 function parseBriefing(raw: string): { resumo: string; positivo: string; atencao: string; critico: string } {

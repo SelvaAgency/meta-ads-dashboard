@@ -612,10 +612,17 @@ async function runRealTimeAlerts(account: { id: number; accountId: string; acces
       });
       if (criados.length === 0) continue; // já avisado hoje (dedup) ou sem destinatário
 
-      await notifyOwner({
-        title: `⚠️ Alerta técnico: ${alert.title}`,
-        content: `Conta: ${nome}\n\n${alert.message}`,
-      });
+      /**
+       * Só CRITICAL vira e-mail imediato (política 22/07): com o Resend
+       * funcionando, cada alerta técnico virava e-mail avulso — 3 só na manhã
+       * de hoje. WARNING/INFO ficam no Spaces e no Jornalzinho.
+       */
+      if (alert.severity === "CRITICAL") {
+        await notifyOwner({
+          title: `🚨 Crítico: ${alert.title}`,
+          content: `Conta: ${nome}\n\n${alert.message}`,
+        });
+      }
     }
     if (alerts.length > 0) {
       logger.info(`[RealTimeAlerts] ✓ ${alerts.length} alerta(s) técnico(s) para "${account.accountName ?? account.accountId}"`);
@@ -1095,11 +1102,18 @@ export async function startAutoSync() {
   // Daily sync at 09:00 UTC (06:00 Brasília)
   cron.schedule("0 0 6 * * *", runAutoSync, TZ);
 
-  // Daily Meta Ads report email at 09:03 UTC (06:03 BRT) — offset from sync to avoid overlap
-  cron.schedule("0 3 6 * * *", runDailyReport, TZ);
+  /**
+   * DESATIVADO (política de e-mail, 22/07/2026): o relatório diário antigo por
+   * e-mail foi substituído pelo Jornalzinho das 07:30. A função e a tela de
+   * relatórios continuam — só o disparo automático saiu.
+   *   cron.schedule("0 3 6 * * *", runDailyReport, TZ);
+   */
 
-  // Daily development progress report at 23:00 UTC (20:00 BRT)
-  cron.schedule("0 0 20 * * *", runDailyProgress, TZ);
+  /**
+   * DESATIVADO (política de e-mail, 22/07/2026) — mesmo motivo do relatório
+   * diário: um e-mail principal por dia, o resto no Spaces.
+   *   cron.schedule("0 0 20 * * *", runDailyProgress, TZ);
+   */
 
   // Daily technical alerts check at 08:55 UTC (05:55 BRT) — runs 5min before the main sync
   cron.schedule("0 55 5 * * *", runAnomalyDetection, TZ);

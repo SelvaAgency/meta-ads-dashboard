@@ -68,14 +68,19 @@ export const NOTIF_TIPOS: NotifTipoDef[] = [
   { v: "FINANCE_ATRASO", dominio: "FINANCEIRO", label: "Contas em atraso", desc: "A receber e a pagar vencidos. Só dispara quando há atraso.", inApp: true, emailModo: "hora", adminOnly: true },
   // Tarefas (Trello) — prazo é do seu dia de trabalho: no app, sem interromper.
   { v: "TRELLO_PRAZO", dominio: "TAREFAS", label: "Prazos do Trello", desc: "Cards seus que venceram, vencem hoje ou amanhã.", inApp: true, emailModo: "off" },
-  { v: "TRELLO_RECONEXAO", dominio: "TAREFAS", label: "Trello desconectado", desc: "O acesso ao Trello expira a cada 30 dias e precisa ser reconectado.", inApp: true, emailModo: "hora", inAppObrigatorio: true },
+  // e-mail desligado (política 22/07): reconectar Trello não é crítico, e o
+  // próprio Trello já cobra. O in-app obrigatório continua.
+  { v: "TRELLO_RECONEXAO", dominio: "TAREFAS", label: "Trello desconectado", desc: "O acesso ao Trello expira a cada 30 dias e precisa ser reconectado.", inApp: true, emailModo: "off", inAppObrigatorio: true },
   // Comunicados e aniversários — institucionais: o usuário comum não desliga.
   { v: "COMUNICADO", dominio: "COMUNICADO", label: "Comunicados", desc: "Avisos enviados pela administração.", inApp: true, emailModo: "hora", inAppObrigatorio: true, institucional: true },
   { v: "ANIVERSARIO", dominio: "COMUNICADO", label: "Aniversários", desc: "Aniversário de alguém do time.", inApp: true, emailModo: "off", institucional: true },
   // Site — comportamento no site do cliente (Clarity). Separado de Performance
   // porque é outra pergunta: mídia trouxe gente, o site segurou?
   { v: "SITE_CLARITY_ISSUE", dominio: "SITE", label: "Fricção no site", desc: "Cliques mortos, rage clicks, scroll baixo, tráfego de bot, queda de sessões.", inApp: true, emailModo: "off" },
-  { v: "SITE_TRACKING_PROBLEM", dominio: "SITE", label: "Risco de medição", desc: "Erros de JS que podem quebrar o disparo de conversão.", inApp: true, emailModo: "hora" },
+  // e-mail desligado (política 22/07): headers fracos e afins são atenção, não
+  // incêndio. Os CRÍTICOS de site (fora do ar, SSL) têm e-mail imediato próprio
+  // em siteHealthAlerts — não passam por este modo.
+  { v: "SITE_TRACKING_PROBLEM", dominio: "SITE", label: "Risco de medição", desc: "Erros de JS que podem quebrar o disparo de conversão.", inApp: true, emailModo: "off" },
 ];
 
 export const NOTIF_DOMINIOS: { v: NotifDominio; label: string }[] = [
