@@ -73,15 +73,35 @@ export function isDryRun(): boolean {
   return !EM_PRODUCAO; // sem declaração: só produção envia de verdade
 }
 
+/**
+ * ─── Interruptor MESTRE de envio automático ─────────────────────────────────
+ * Fail-safe: só envia quando EMAIL_AUTOMATION_ENABLED === "true". Qualquer
+ * outro valor — inclusive ausência — deixa TUDO pausado. A trava fica antes de
+ * qualquer coisa em sendEmail, então nenhum caminho (cron, digest, alerta,
+ * financeiro, owner, teste manual) escapa, e nada é desviado para
+ * EMAIL_TEST_RECIPIENT.
+ *
+ * Por que existe: mesmo com a lógica correta e sem duplicar, em produção
+ * chegaram ~10 emails numa caixa ÚNICA de teste às 06:30/07:30 — porque
+ * EMAIL_TEST_RECIPIENT desviava todo o envio real. Enquanto Gmail API e
+ * destinatários finais não estiverem definidos, o certo é NÃO enviar nada:
+ * gerar conteúdo, logar, preview e dry-run seguem; envio real, não. Para
+ * religar, defina EMAIL_AUTOMATION_ENABLED=true (e os destinatários corretos).
+ */
+export function envioAutomaticoHabilitado(): boolean {
+  return process.env.EMAIL_AUTOMATION_ENABLED === "true";
+}
+
 export function destinatariosDeTeste(): string[] {
   return [...EMAIL_TEST_RECIPIENTS];
 }
 
 /** Como o envio está configurado agora — a UI mostra isso antes de disparar. */
-export function emailMode(): { dryRun: boolean; testRecipients: string[]; configured: boolean; transporte: Transporte; remetente: string } {
+export function emailMode(): { dryRun: boolean; testRecipients: string[]; configured: boolean; transporte: Transporte; remetente: string; automacaoHabilitada: boolean } {
   return {
     dryRun: isDryRun(), testRecipients: destinatariosDeTeste(),
     configured: isEmailConfigured(), transporte: transporteAtivo(), remetente: EMAIL_FROM,
+    automacaoHabilitada: envioAutomaticoHabilitado(),
   };
 }
 
@@ -122,6 +142,8 @@ export interface ResultadoEnvio {
   entregas: EntregaEmail[];
   /** Primeiro erro real do SMTP — o que faltava para diagnosticar. */
   erro?: string;
+  /** true quando o interruptor mestre está desligado: nada foi enviado. */
+  pausado?: boolean;
 }
 
 export interface SendEmailOptions {
@@ -212,10 +234,30 @@ async function entregar(para: string, assunto: string, html: string, text?: stri
  */
 export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio> {
   const destinos = (Array.isArray(opts.to) ? opts.to : [opts.to]).map((e) => e.trim()).filter(Boolean);
+  const tipo = opts.tipo ?? "outro";
+
+  // ── PAUSA MESTRE ──────────────────────────────────────────────────────────
+  // Antes de TUDO: se a automação de email está desligada, nada sai — nem para
+  // o destinatário real, nem desviado para EMAIL_TEST_RECIPIENT. Só registra
+  // quem TERIA recebido, para a auditoria não perder o rastro. Fail-safe: esta
+  // é a primeira coisa que roda, então nenhum caminho novo fura a pausa.
+  if (!envioAutomaticoHabilitado()) {
+    const entregas: EntregaEmail[] = [];
+    for (const destinoOriginal of destinos) {
+      logger.warn(`[EmailService] email automático pausado — envio não realizado · ${tipo} · destinatário ${destinoOriginal} · "${opts.subject}"`);
+      entregas.push({ para: destinoOriginal, destinoOriginal, ok: true, dryRun: true, redirecionado: false });
+      await registrarEnvioEmail({
+        tipo, assunto: opts.subject, destinatarioOriginal: destinoOriginal, destinatarioFinal: destinoOriginal,
+        redirecionado: false, status: "paused", transporte: transporteAtivo(),
+        role: opts.role, blocos: opts.blocos, userId: opts.userId,
+      });
+    }
+    return { ok: true, dryRun: true, redirecionado: false, pausado: true, entregas };
+  }
+
   const dryRun = isDryRun();
   const teste = destinatariosDeTeste();
   const redirecionado = teste.length > 0;
-  const tipo = opts.tipo ?? "outro";
 
   // Com desvio ligado, cada destino original vira um envio para CADA endereço de
   // teste — e cada par (original → teste) é registrado separado. Sem desvio,

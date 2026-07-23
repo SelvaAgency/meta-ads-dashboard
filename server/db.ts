@@ -4503,7 +4503,7 @@ export type EnvioEmailRegistro = {
   destinatarioOriginal: string;
   destinatarioFinal: string;
   redirecionado: boolean;
-  status: "sent" | "failed" | "dry_run";
+  status: "sent" | "failed" | "dry_run" | "paused";
   transporte: string;
   role?: string | null;
   blocos?: string[] | null;
