@@ -4453,6 +4453,20 @@ export async function desativarConexaoEcommerce(id: number, atualizadoPor: numbe
     .where(eq(ecommerceConnections.id, id));
 }
 
+/**
+ * IDs das conexões ativas, para o cron iterar. Só id + accountId + platform —
+ * nada cifrado. A decriptação continua acontecendo SÓ em credenciaisDaConexao,
+ * dentro do sincronizarLoja.
+ */
+export async function conexoesAtivasParaSync(): Promise<{ id: number; accountId: number; platform: string }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: ecommerceConnections.id, accountId: ecommerceConnections.accountId, platform: ecommerceConnections.platform,
+  }).from(ecommerceConnections).where(eq(ecommerceConnections.active, true))
+    .orderBy(ecommerceConnections.id);
+}
+
 /** Uso interno do teste — ÚNICO lugar que decripta. Nunca exposto em router. */
 export async function credenciaisDaConexao(id: number) {
   const db = await getDb();

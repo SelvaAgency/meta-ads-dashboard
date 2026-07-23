@@ -23,7 +23,7 @@
  */
 import { logger } from "../logger";
 import { fetchSeguro, validarUrlPublica, UrlBloqueadaError } from "./urlGuard";
-import { credenciaisDaConexao, registrarSyncEcommerce, salvarSiteSnapshot } from "../db";
+import { credenciaisDaConexao, registrarSyncEcommerce, salvarSiteSnapshot, conexoesAtivasParaSync } from "../db";
 
 export class LojaUrlInvalidaError extends Error {}
 
@@ -307,5 +307,59 @@ export async function sincronizarLoja(conexaoId: number): Promise<ResultadoSyncL
   await registrarSyncEcommerce(conexaoId, true, null);
   logger.info(`[Woo] sync ok para conexão #${conexaoId}: ${pedidos.length} pedidos em 30d`);
   return { ok: true, detalhe: `Importados ${pedidos.length} pedidos dos últimos 30 dias.`, pedidos30d: pedidos.length };
+}
+
+// ─── Orquestração de TODAS as lojas (cron 06:45) ─────────────────────────────
+
+export type ResultadoLojaCiclo = { conexaoId: number; accountId: number; ok: boolean; erro?: string };
+
+export type ResumoCicloWoo = {
+  total: number;
+  ok: number;
+  falhas: number;
+  /** Uma loja OK grava 2 snapshots (7d + 30d). */
+  snapshotsAtualizados: number;
+  erros: { accountId: number; erro: string }[];
+};
+
+/**
+ * Redutor PURO do ciclo — testável sem banco. Transforma os resultados por loja
+ * no resumo que vai para app_settings. Cada loja OK atualiza 2 snapshots (as
+ * duas janelas). Falha não conta snapshot e entra em `erros`.
+ */
+export function resumirCicloWoo(resultados: ResultadoLojaCiclo[]): ResumoCicloWoo {
+  const ok = resultados.filter((r) => r.ok);
+  const falhas = resultados.filter((r) => !r.ok);
+  return {
+    total: resultados.length,
+    ok: ok.length,
+    falhas: falhas.length,
+    snapshotsAtualizados: ok.length * 2,
+    erros: falhas.map((r) => ({ accountId: r.accountId, erro: r.erro ?? "erro desconhecido" })),
+  };
+}
+
+/**
+ * Sincroniza TODAS as lojas ativas, uma por vez, ISOLADA. Reaproveita
+ * `sincronizarLoja` inteiro — nenhuma lógica de Woo reimplementada. Uma loja
+ * que falha (credencial inválida, loja fora do ar) NÃO derruba as outras: o
+ * erro é capturado, registrado, e o ciclo segue.
+ */
+export async function sincronizarLojas(): Promise<ResultadoLojaCiclo[]> {
+  const conexoes = await conexoesAtivasParaSync();
+  const resultados: ResultadoLojaCiclo[] = [];
+  for (const c of conexoes) {
+    try {
+      const r = await sincronizarLoja(c.id);
+      resultados.push({ conexaoId: c.id, accountId: c.accountId, ok: r.ok, erro: r.ok ? undefined : r.erro });
+    } catch (e) {
+      // sincronizarLoja já não lança, mas o cinto-e-suspensório garante que
+      // NADA — nem um bug inesperado — contamine as lojas seguintes.
+      const erro = e instanceof Error && e.message ? e.message : "falha inesperada no sync da loja";
+      logger.error(`[Woo] exceção inesperada na conexão #${c.id}: ${erro}`);
+      resultados.push({ conexaoId: c.id, accountId: c.accountId, ok: false, erro });
+    }
+  }
+  return resultados;
 }
 

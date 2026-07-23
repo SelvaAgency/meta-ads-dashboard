@@ -2,6 +2,7 @@ import { logger } from "./logger";
 import { resolverTipoDaConta } from "./alertProfiles";
 import { runDailyDigestJob } from "./services/dailyDigestService";
 import { sincronizarGA4 } from "./services/ga4Sync";
+import { sincronizarLojas, resumirCicloWoo } from "./services/woocommerce";
 import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, hojeAgencia, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
 import { runClaritySnapshots, runPerformanceSnapshots, runSiteHealthChecks } from "./clarityJobs";
 import { runClarityAlertas } from "./services/clarityAlertService";
@@ -426,6 +427,35 @@ async function runGA4Sync() {
     logger.info(`[GA4Sync] ciclo automático · ${r.ok} com dados · ${r.semDados} sem tráfego · ${r.falhas} falha(s)`);
   } catch (err) {
     logger.error(`[GA4Sync] ciclo automático falhou inteiro: ${(err as Error)?.message}`);
+  }
+}
+
+/**
+ * Cron WooCommerce (06:45). Importa todas as lojas ativas, isoladas, e grava o
+ * resumo do ciclo em app_settings. NÃO envia e-mail, NÃO notifica — só importa
+ * e registra. O guard `rodandoWoo` impede sobreposição se um ciclo demorar.
+ */
+let rodandoWoo = false;
+async function runWooSync() {
+  if (rodandoWoo) {
+    logger.warn("[WooSync] ciclo anterior ainda rodando — pulando este disparo");
+    return;
+  }
+  rodandoWoo = true;
+  const inicio = Date.now();
+  logger.info("[WooSync] ciclo automático iniciado");
+  try {
+    const resultados = await sincronizarLojas();
+    const resumo = resumirCicloWoo(resultados);
+    const duracaoMs = Date.now() - inicio;
+    await setAppSetting("woo:ultimoCiclo", { em: new Date().toISOString(), duracaoMs, ...resumo });
+    logger.info(`[WooSync] ciclo automático · ${resumo.ok}/${resumo.total} ok · ${resumo.falhas} falha(s) · ${resumo.snapshotsAtualizados} snapshots · ${duracaoMs}ms`);
+  } catch (err) {
+    // Falha do CICLO inteiro (ex.: banco fora). As lojas já são isoladas dentro
+    // de sincronizarLojas; aqui é só a rede de segurança externa.
+    logger.error(`[WooSync] ciclo automático falhou inteiro: ${(err as Error)?.message}`);
+  } finally {
+    rodandoWoo = false;
   }
 }
 
@@ -1121,6 +1151,11 @@ export async function startAutoSync() {
   // Snapshot do Clarity (06:40 BRT). Cedo de propósito: a API só devolve os
   // últimos 1–3 dias, então o dia não capturado se perde para sempre.
   cron.schedule("0 40 6 * * *", runClaritySnapshots, TZ);
+
+  // WooCommerce (06:45 BRT). Entre o Clarity e o GA4 — forma o bloco de dados de
+  // loja/site da manhã, e fica pronto antes do digest das 07:30. Poucas lojas,
+  // sync em segundos; se crescer ou conflitar com o GA4, movemos o horário.
+  cron.schedule("0 45 6 * * *", runWooSync, TZ);
 
   // GA4 (06:50 BRT). Entre o Clarity e o PageSpeed, numa folga real da manhã.
   // Antes das 07:30 (digest) de propósito: quando o GA4 alimentar o resumo, o
