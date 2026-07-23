@@ -51,6 +51,9 @@ export type SnapGA4 = {
   };
 };
 
+export type ProdutoWoo = { nome: string; quantidade: number; receita: number };
+export type StatusPedido = { status: string; quantidade: number };
+
 export type SnapWoo = {
   dia: string;
   metricsJson: {
@@ -59,6 +62,12 @@ export type SnapWoo = {
     pedidos?: number | null;
     ticketMedio?: number | null;
     cupons?: { codigo: string; usos: number; desconto: number }[];
+    // Já chegam no payload (o router devolve o metricsJson inteiro) — só não
+    // eram tipados porque a v1 do Panorama não os lia.
+    produtos?: ProdutoWoo[];
+    pedidosPorStatus?: StatusPedido[];
+    reembolsos?: number | null;
+    cancelamentos?: number | null;
   };
 };
 
@@ -340,4 +349,163 @@ export function celulaVendas(c: ClientePanorama): Celula {
     fonte: `${v.rotuloFonte} · ${v.janela}`, dia: v.dia,
     estado: v.receita === 0 && (v.pedidos ?? 0) > 0 ? "atencao" : "ok",
   };
+}
+
+// ─── Resumo do portfólio (stat tiles + barra de saúde) ───────────────────────
+
+export type ResumoPortfolio = {
+  totalClientes: number;
+  precisamAtencao: number;
+  criticos: number;
+  atencoes: number;
+  lojasWoo: number;
+  achadosCriticos: number;
+  achadosAtencao: number;
+  /** Sempre nesta ordem — a barra empilhada não reordena por tamanho. */
+  distribuicao: { nivel: Nivel; quantidade: number }[];
+};
+
+export function resumoPortfolio(
+  avaliacoes: { nivel: Nivel; achados: Achado[] }[],
+  clientes: ClientePanorama[],
+): ResumoPortfolio {
+  const conta = (n: Nivel) => avaliacoes.filter((a) => a.nivel === n).length;
+  const achados = avaliacoes.flatMap((a) => a.achados);
+  return {
+    totalClientes: avaliacoes.length,
+    precisamAtencao: conta("critico") + conta("atencao"),
+    criticos: conta("critico"),
+    atencoes: conta("atencao"),
+    lojasWoo: clientes.filter((c) => c.loja?.platform === "woocommerce").length,
+    achadosCriticos: achados.filter((x) => x.severidade === "critico").length,
+    achadosAtencao: achados.filter((x) => x.severidade === "atencao").length,
+    distribuicao: (["critico", "atencao", "ok", "sem_dados"] as Nivel[])
+      .map((nivel) => ({ nivel, quantidade: conta(nivel) })),
+  };
+}
+
+// ─── Funil visual ────────────────────────────────────────────────────────────
+
+export type EtapaFunil = {
+  nome: string;
+  chave: "add_to_cart" | "begin_checkout" | "purchase";
+  /** Absoluto medido — null quando o GA4 não devolveu a etapa (vira "—"). */
+  valor: number | null;
+  /** Passagem da etapa ANTERIOR para esta. null na primeira e sem base. */
+  taxaPassagem: number | null;
+  /** Quantos se perderam da etapa anterior para esta. null sem base. */
+  perda: number | null;
+};
+
+export type FunilVisual = {
+  janela: "7d" | "30d";
+  dia: string;
+  /** begin_checkout < BASE_MINIMA_FUNIL — as taxas ainda valem, mas com ressalva. */
+  amostraPequena: boolean;
+  etapas: EtapaFunil[];
+};
+
+/** Passagem só com denominador real: sem base é null, nunca 0%. */
+const passagem = (atual: number | null, anterior: number | null): number | null =>
+  atual != null && anterior != null && anterior > 0 ? (atual / anterior) * 100 : null;
+
+export function funilVisual(c: ClientePanorama): FunilVisual | null {
+  const f = funilDe(c);
+  if (!f) return null;
+  const { e, janela, dia } = f;
+  const add = e.addToCart ?? null;
+  const chk = e.beginCheckout ?? null;
+  const buy = e.purchases ?? null;
+  const perda = (atual: number | null, anterior: number | null): number | null =>
+    atual != null && anterior != null ? Math.max(0, anterior - atual) : null;
+  return {
+    janela, dia,
+    amostraPequena: chk != null && chk < BASE_MINIMA_FUNIL,
+    etapas: [
+      { nome: "Carrinho", chave: "add_to_cart", valor: add, taxaPassagem: null, perda: null },
+      { nome: "Checkout", chave: "begin_checkout", valor: chk, taxaPassagem: passagem(chk, add), perda: perda(chk, add) },
+      { nome: "Compra", chave: "purchase", valor: buy, taxaPassagem: passagem(buy, chk), perda: perda(buy, chk) },
+    ],
+  };
+}
+
+// ─── Ranking de produtos e distribuição por status (Woo) ─────────────────────
+
+/** O snapshot Woo que vale para o cliente — mesma preferência de vendasDe. */
+function wooEscolhido(c: ClientePanorama): SnapWoo | null {
+  if (wooTemDado(c.woo_30d)) return c.woo_30d;
+  if (wooTemDado(c.woo_7d)) return c.woo_7d;
+  return null;
+}
+
+export type RankingProdutos = {
+  janela: "7d" | "30d";
+  medida: "receita" | "quantidade";
+  itens: (ProdutoWoo & { valor: number })[];
+  /** Ressalva honesta quando a receita foi zerada (cupom 100% — caso Scaffold). */
+  observacao?: string;
+};
+
+/**
+ * Ranking de produtos. Se toda a receita está zerada (pedidos pagos com cupom
+ * de 100%), a medida vira QUANTIDADE — barras por receita seriam todas zero,
+ * uma mentira visual. A ressalva deixa claro que os pedidos existem e são R$ 0.
+ */
+export function rankingProdutos(c: ClientePanorama, limite = 5): RankingProdutos | null {
+  const w = wooEscolhido(c);
+  const produtos = w?.metricsJson.produtos;
+  if (!w || !produtos || produtos.length === 0) return null;
+  const janela: "7d" | "30d" = w === c.woo_30d ? "30d" : "7d";
+  const receitaTotal = produtos.reduce((a, p) => a + (p.receita ?? 0), 0);
+  const usaReceita = receitaTotal > 0;
+  const medida: "receita" | "quantidade" = usaReceita ? "receita" : "quantidade";
+  const itens = produtos
+    .map((p) => ({ ...p, valor: medida === "receita" ? (p.receita ?? 0) : (p.quantidade ?? 0) }))
+    .filter((p) => p.valor > 0)            // nunca barra falsa de valor zero
+    .sort((a, b) => b.valor - a.valor)
+    .slice(0, limite);
+  if (itens.length === 0) return null;
+  return {
+    janela, medida, itens,
+    observacao: usaReceita ? undefined : "Receita zerada por desconto de 100% — ranking por quantidade vendida.",
+  };
+}
+
+const ROTULO_STATUS: Record<string, string> = {
+  completed: "Concluídos", processing: "Processando", pending: "Pendentes",
+  "on-hold": "Em espera", cancelled: "Cancelados", refunded: "Reembolsados", failed: "Falhos",
+};
+const TOM_STATUS: Record<string, "ok" | "atencao" | "critico" | "neutro"> = {
+  completed: "ok", processing: "ok", pending: "atencao", "on-hold": "atencao",
+  cancelled: "critico", refunded: "critico", failed: "critico",
+};
+
+export type DistribuicaoStatus = {
+  janela: "7d" | "30d";
+  total: number;
+  itens: { status: string; rotulo: string; quantidade: number; tom: "ok" | "atencao" | "critico" | "neutro" }[];
+};
+
+export function distribuicaoStatus(c: ClientePanorama): DistribuicaoStatus | null {
+  const w = wooEscolhido(c);
+  const lista = w?.metricsJson.pedidosPorStatus;
+  if (!w || !lista || lista.length === 0) return null;
+  const janela: "7d" | "30d" = w === c.woo_30d ? "30d" : "7d";
+  const total = lista.reduce((a, s) => a + s.quantidade, 0);
+  if (total === 0) return null;
+  return {
+    janela, total,
+    itens: [...lista]
+      .sort((a, b) => b.quantidade - a.quantidade)
+      .map((s) => ({
+        status: s.status, quantidade: s.quantidade,
+        rotulo: ROTULO_STATUS[s.status] ?? (s.status.charAt(0).toUpperCase() + s.status.slice(1)),
+        tom: TOM_STATUS[s.status] ?? "neutro",
+      })),
+  };
+}
+
+/** Clientes que entram na seção E-commerce — só quem tem base real. */
+export function temEcommerce(c: ClientePanorama): boolean {
+  return vendasDe(c) !== null;
 }

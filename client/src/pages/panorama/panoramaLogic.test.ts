@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   vendasDe, achadosDe, avaliarCliente, ordenarClientes, funilDe,
   celulaVendas, celulaSaude, celulaTrafego, celulaFunil, fmtBRL,
+  resumoPortfolio, funilVisual, rankingProdutos, distribuicaoStatus, temEcommerce,
   LIMIAR_CHECKOUT_PURCHASE, BASE_MINIMA_FUNIL,
   type ClientePanorama, type EcomGA4,
 } from "./panoramaLogic";
@@ -273,5 +274,142 @@ describe("funil — sempre GA4", () => {
 
   it("limiar do checkout é o declarado", () => {
     expect(LIMIAR_CHECKOUT_PURCHASE).toBe(30);
+  });
+});
+
+// ─── Helpers visuais (frente de escaneabilidade) ─────────────────────────────
+
+describe("resumo do portfólio", () => {
+  it("conta níveis, achados e lojas Woo; distribuição em ordem fixa", () => {
+    const clientes = [baesh, scaffold, uma, ultra, base()];
+    const avaliacoes = clientes.map((c) => {
+      const a = avaliarCliente(c);
+      return { nivel: a.nivel, achados: a.achados };
+    });
+    const r = resumoPortfolio(avaliacoes, [
+      { ...baesh, loja: { platform: "woocommerce", lastSyncAt: null, lastSyncStatus: "ok", lastSyncError: null } },
+      { ...scaffold, loja: { platform: "woocommerce", lastSyncAt: null, lastSyncStatus: "ok", lastSyncError: null } },
+      uma, ultra, base(),
+    ]);
+    expect(r.totalClientes).toBe(5);
+    expect(r.precisamAtencao).toBe(3);          // BAESH, Scaffold, UMA
+    expect(r.lojasWoo).toBe(2);
+    expect(r.distribuicao.map((d) => d.nivel)).toEqual(["critico", "atencao", "ok", "sem_dados"]);
+    expect(r.distribuicao.find((d) => d.nivel === "atencao")!.quantidade).toBe(3);
+    expect(r.distribuicao.find((d) => d.nivel === "sem_dados")!.quantidade).toBe(1);
+    expect(r.achadosAtencao).toBeGreaterThan(0);
+  });
+});
+
+describe("funil visual", () => {
+  it("BAESH: três etapas com absoluto, passagem e perda entre etapas", () => {
+    const f = funilVisual(baesh)!;
+    expect(f.janela).toBe("30d");
+    expect(f.etapas.map((e) => e.valor)).toEqual([62, 60, 4]);
+    // checkout/carrinho e compra/checkout
+    expect(f.etapas[1].taxaPassagem).toBeCloseTo(96.77, 1);
+    expect(f.etapas[2].taxaPassagem).toBeCloseTo(6.67, 1);
+    expect(f.etapas[1].perda).toBe(2);   // 62 → 60
+    expect(f.etapas[2].perda).toBe(56);  // 60 → 4
+    expect(f.etapas[0].taxaPassagem).toBeNull(); // primeira etapa não tem passagem
+  });
+
+  it("amostra pequena quando begin_checkout < 20", () => {
+    const c = base({ ga4_7d: { dia: "2026-07-22", metricsJson: { ecommerce: ecom({ addToCart: 15, beginCheckout: 12, purchases: 1 }) } } });
+    expect(funilVisual(c)!.amostraPequena).toBe(true);
+    expect(funilVisual(baesh)!.amostraPequena).toBe(false); // 60 checkouts
+  });
+
+  it("etapa sem base fica null (nunca 0%), não inventa passagem", () => {
+    const c = base({ ga4_7d: { dia: "2026-07-22", metricsJson: { ecommerce: ecom({ addToCart: null, beginCheckout: 10, purchases: 3 }) } } });
+    const f = funilVisual(c)!;
+    expect(f.etapas[0].valor).toBeNull();
+    expect(f.etapas[1].taxaPassagem).toBeNull(); // denominador (carrinho) ausente
+    expect(f.etapas[2].taxaPassagem).toBeCloseTo(30, 1); // compra/checkout ainda vale
+  });
+
+  it("sem e-commerce detectado, não há funil", () => {
+    expect(funilVisual(ultra)).toBeNull();
+    expect(funilVisual(base())).toBeNull();
+  });
+});
+
+describe("ranking de produtos", () => {
+  const comProdutos = base({
+    nome: "Loja",
+    woo_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 500, pedidos: 5, produtos: [
+      { nome: "Camisa", quantidade: 3, receita: 300 },
+      { nome: "Boné", quantidade: 5, receita: 200 },
+      { nome: "Brinde", quantidade: 2, receita: 0 },
+    ] } },
+  });
+
+  it("com receita positiva, ranking por receita e sem observação", () => {
+    const r = rankingProdutos(comProdutos)!;
+    expect(r.medida).toBe("receita");
+    expect(r.itens.map((i) => i.nome)).toEqual(["Camisa", "Boné"]); // Brinde (R$0) sai
+    expect(r.observacao).toBeUndefined();
+  });
+
+  it("Scaffold: receita toda zerada → mede por quantidade, com ressalva do cupom", () => {
+    const scaffoldR0 = base({
+      woo_7d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 0, pedidos: 2, produtos: [
+        { nome: "IA Aplicada", quantidade: 2, receita: 0 },
+      ] } },
+    });
+    const r = rankingProdutos(scaffoldR0)!;
+    expect(r.medida).toBe("quantidade");
+    expect(r.itens[0]).toMatchObject({ nome: "IA Aplicada", valor: 2 });
+    expect(r.observacao).toMatch(/100%/);
+  });
+
+  it("sem produtos, não há ranking", () => {
+    expect(rankingProdutos(base())).toBeNull();
+    expect(rankingProdutos(uma)).toBeNull(); // UMA não tem Woo
+  });
+
+  it("nunca desenha barra falsa de valor zero", () => {
+    const soZero = base({ woo_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 10, pedidos: 1, produtos: [{ nome: "X", quantidade: 0, receita: 0 }] } } });
+    // receita total 10 > 0 → mede receita; único produto tem receita 0 → filtrado → sem ranking
+    expect(rankingProdutos(soZero)).toBeNull();
+  });
+});
+
+describe("distribuição de pedidos por status", () => {
+  const comStatus = base({
+    woo_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 400, pedidos: 6, pedidosPorStatus: [
+      { status: "completed", quantidade: 4 },
+      { status: "refunded", quantidade: 1 },
+      { status: "cancelled", quantidade: 1 },
+    ] } },
+  });
+
+  it("total e tons por status; ordena por quantidade", () => {
+    const d = distribuicaoStatus(comStatus)!;
+    expect(d.total).toBe(6);
+    expect(d.itens[0]).toMatchObject({ status: "completed", quantidade: 4, tom: "ok", rotulo: "Concluídos" });
+    expect(d.itens.find((i) => i.status === "refunded")!.tom).toBe("critico");
+    expect(d.itens.find((i) => i.status === "cancelled")!.rotulo).toBe("Cancelados");
+  });
+
+  it("status desconhecido não quebra — vira neutro capitalizado", () => {
+    const c = base({ woo_30d: { dia: "2026-07-22", metricsJson: { status: "ok", pedidos: 1, pedidosPorStatus: [{ status: "trash", quantidade: 1 }] } } });
+    const d = distribuicaoStatus(c)!;
+    expect(d.itens[0]).toMatchObject({ rotulo: "Trash", tom: "neutro" });
+  });
+
+  it("sem dados de status, não há distribuição", () => {
+    expect(distribuicaoStatus(base())).toBeNull();
+    expect(distribuicaoStatus(uma)).toBeNull();
+  });
+});
+
+describe("quem entra na seção E-commerce", () => {
+  it("só clientes com base real de vendas (Woo ou GA4 detectado)", () => {
+    expect(temEcommerce(baesh)).toBe(true);   // Woo
+    expect(temEcommerce(uma)).toBe(true);      // GA4 detectado
+    expect(temEcommerce(scaffold)).toBe(true); // Woo
+    expect(temEcommerce(ultra)).toBe(false);   // GA4 sem_dados, sem Woo
+    expect(temEcommerce(base())).toBe(false);  // nada
   });
 });
