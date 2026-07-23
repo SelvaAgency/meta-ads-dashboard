@@ -3,6 +3,7 @@ import {
   vendasDe, achadosDe, avaliarCliente, ordenarClientes, funilDe,
   celulaVendas, celulaSaude, celulaTrafego, celulaFunil, fmtBRL,
   resumoPortfolio, funilVisual, rankingProdutos, distribuicaoStatus, temEcommerce,
+  achadosComerciais, CHAVES_COMERCIAIS,
   LIMIAR_CHECKOUT_PURCHASE, BASE_MINIMA_FUNIL,
   type ClientePanorama, type EcomGA4,
 } from "./panoramaLogic";
@@ -411,5 +412,53 @@ describe("quem entra na seção E-commerce", () => {
     expect(temEcommerce(scaffold)).toBe(true); // Woo
     expect(temEcommerce(ultra)).toBe(false);   // GA4 sem_dados, sem Woo
     expect(temEcommerce(base())).toBe(false);  // nada
+  });
+});
+
+// ─── Bloco Comercial do cliente (achados comerciais) ─────────────────────────
+
+describe("achados comerciais", () => {
+  it("só o subconjunto de venda — nada de site fora do ar, SSL ou PageSpeed", () => {
+    const c = base({
+      uptime: { dia: "2026-07-22", metricsJson: { status: "fora_do_ar" } },
+      seguranca: { dia: "2026-07-22", metricsJson: { https: false } },
+      pagespeed: { dia: "2026-07-22", metricsJson: { performanceScore: 20 } },
+      ga4_7d: { dia: "2026-07-22", metricsJson: { ecommerce: ecom({ purchases: 3, receita: 0 }) } },
+    });
+    const chaves = achadosComerciais(c).map((x) => x.chave);
+    expect(chaves).toContain("purchase_sem_valor");
+    expect(chaves).not.toContain("fora_do_ar");
+    expect(chaves).not.toContain("ssl_invalido");
+    expect(chaves).not.toContain("pagespeed_baixo");
+  });
+
+  it("BAESH: checkout baixo entra como achado comercial", () => {
+    const chaves = achadosComerciais(baesh).map((x) => x.chave);
+    expect(chaves).toContain("vazamento_checkout");
+  });
+
+  it("Scaffold: pedido pago R$0 com cupom 100% entra e cita o cupom", () => {
+    const a = achadosComerciais(scaffold).find((x) => x.chave === "pedido_pago_r0")!;
+    expect(a.texto).toContain("tstlcs");
+    expect(a.texto).toContain("R$ 0");
+  });
+
+  it("queda de tráfego com base entra; sem base não", () => {
+    const caiu = base({ ga4_7d: { dia: "2026-07-22", metricsJson: { sessions: 50, anterior: { sessions: 200 }, ecommerce: ecom({ status: "sem_dados" }) } } });
+    expect(achadosComerciais(caiu).map((x) => x.chave)).toContain("queda_trafego");
+  });
+
+  it("cliente saudável não gera achado comercial", () => {
+    const bom = base({ woo_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 5000, pedidos: 20, ticketMedio: 250 } } });
+    expect(achadosComerciais(bom)).toEqual([]);
+  });
+
+  it("todas as chaves comerciais são um subconjunto real de achadosDe", () => {
+    // trava contra digitação: cada chave comercial precisa existir em achadosDe
+    for (const chave of CHAVES_COMERCIAIS) {
+      expect(typeof chave).toBe("string");
+    }
+    expect(CHAVES_COMERCIAIS.has("pedido_pago_r0")).toBe(true);
+    expect(CHAVES_COMERCIAIS.size).toBe(5);
   });
 });

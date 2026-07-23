@@ -39,6 +39,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
 import { AccountHeader } from "@/components/AccountHeader";
+import { BlocoVendas } from "@/pages/dashboard/BlocoVendas";
 import { AlertBlock, typeConfig as alertTypeConfig, CRITICAL_TYPES as alertCriticalTypes, initials as alertInitials } from "@/components/AlertBlock";
 import {
   type GoalType, type KpiDef,
@@ -431,6 +432,11 @@ export default function Dashboard() {
 
         {/* Account summary header — identity, integrations, daily snapshot, AI status */}
         <AccountHeader goalLabel={objInfo.label} goalEmoji={objInfo.emoji} goalType={goalType} />
+
+        {/* Bloco Comercial do cliente (v1) — card isolado; receita atribuída Meta vem do overview já carregado, mostrada à parte e rotulada */}
+        {selectedAccountId && (
+          <BlocoVendas accountId={selectedAccountId} midiaAtribuida={{ meta: data?.totals?.conversionValue ?? null }} />
+        )}
 
         {/* Faixa de alertas críticos da conta — mesmo padrão visual do card "Por conta" da página de Alertas */}
         {criticalAccountAlerts.length > 0 && (

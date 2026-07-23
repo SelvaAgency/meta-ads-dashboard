@@ -247,6 +247,23 @@ export function achadosDe(c: ClientePanorama): Achado[] {
   return a;
 }
 
+/**
+ * Subconjunto COMERCIAL dos achados — o que o Bloco Comercial do cliente mostra.
+ * São exatamente os achados de venda que `achadosDe` já calcula por regra medida
+ * (sem IA, sem inferência): pedido pago R$0/cupom 100%, purchase sem valor,
+ * checkout baixo, carrinho vazando, queda de tráfego com possível impacto.
+ *
+ * Reusa a MESMA função — o Bloco Comercial e o Panorama nunca discordam sobre
+ * um problema de venda.
+ */
+export const CHAVES_COMERCIAIS = new Set([
+  "pedido_pago_r0", "purchase_sem_valor", "vazamento_checkout", "vazamento_carrinho", "queda_trafego",
+]);
+
+export function achadosComerciais(c: ClientePanorama): Achado[] {
+  return achadosDe(c).filter((a) => CHAVES_COMERCIAIS.has(a.chave));
+}
+
 // ─── Nível e ordenação ───────────────────────────────────────────────────────
 
 export type Nivel = "critico" | "atencao" | "ok" | "sem_dados";

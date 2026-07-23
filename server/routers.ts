@@ -102,6 +102,7 @@ import {
   getAllActiveMetaAdAccountsForListing,
   snapshotsParaPanorama,
   lojasParaPanorama,
+  snapshotsDeVendaDaConta,
   getScheduledReportsByUserId,
   getAnomaliesByAccountId,
   getSuggestionsByAccountId,
@@ -2204,6 +2205,20 @@ export const appRouter = router({
   }),
 
   dashboard: router({
+    /**
+     * Bloco Comercial do cliente (v1) — SÓ LEITURA, SÓ desta conta.
+     * Devolve os snapshots de venda (Woo/GA4) já gravados para o accountId. Não
+     * soma fontes, não faz sync, não escreve, não devolve credencial nenhuma
+     * (o db reader nem seleciona as colunas cifradas). A regra Woo>GA4, o funil
+     * e os achados comerciais rodam no cliente, com a lógica pura do Panorama.
+     */
+    vendas: protectedProcedure
+      .input(z.object({ accountId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id); // dono/permissão
+        return snapshotsDeVendaDaConta(input.accountId);
+      }),
+
     overview: protectedProcedure
       .input(z.object({
         accountId: z.number(),
