@@ -54,10 +54,11 @@ export function BlocoVendas({ accountId, midiaAtribuida }: {
     accountId, nome: "", fontes: [],
     loja: q.data.loja,
     uptime: null, seguranca: null, pagespeed: null,
+    plataformaLoja: q.data.plataformaLoja,
     ga4_7d: q.data.ga4_7d ? { dia: q.data.ga4_7d.dia, metricsJson: q.data.ga4_7d.metricsJson as any } : null,
     ga4_30d: q.data.ga4_30d ? { dia: q.data.ga4_30d.dia, metricsJson: q.data.ga4_30d.metricsJson as any } : null,
-    woo_7d: q.data.woo_7d ? { dia: q.data.woo_7d.dia, metricsJson: q.data.woo_7d.metricsJson as any } : null,
-    woo_30d: q.data.woo_30d ? { dia: q.data.woo_30d.dia, metricsJson: q.data.woo_30d.metricsJson as any } : null,
+    loja_7d: q.data.loja_7d ? { dia: q.data.loja_7d.dia, metricsJson: q.data.loja_7d.metricsJson as any } : null,
+    loja_30d: q.data.loja_30d ? { dia: q.data.loja_30d.dia, metricsJson: q.data.loja_30d.metricsJson as any } : null,
   };
 
   const v = vendasDe(c);
@@ -96,8 +97,8 @@ export function BlocoVendas({ accountId, midiaAtribuida }: {
     <Wrapper>
       {/* Cabeçalho: fonte + janela + data (+ selo de idade) */}
       <div className="flex items-center justify-between gap-2 mb-3 -mt-1">
-        <ChipStatus tom={v.fonte === "woocommerce" ? "ok" : "neutro"}
-          titulo={v.fonte === "woocommerce" ? "Receita real da loja (WooCommerce)" : "GA4 como fonte inicial — não é o caixa da loja"}>
+        <ChipStatus tom={v.fonte === "loja" ? "ok" : "neutro"}
+          titulo={v.fonte === "loja" ? "Receita real da loja" : "GA4 como fonte inicial — não é o caixa da loja"}>
           {v.rotuloFonte} · {v.janela}
         </ChipStatus>
         <SeloData dia={v.dia} />

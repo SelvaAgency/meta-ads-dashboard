@@ -23,7 +23,7 @@
  */
 import { logger } from "../logger";
 import { fetchSeguro, validarUrlPublica, UrlBloqueadaError } from "./urlGuard";
-import { credenciaisDaConexao, registrarSyncEcommerce, salvarSiteSnapshot, conexoesAtivasParaSync } from "../db";
+import { agregarPedidosNeutro, numSeguro, type PedidoNeutro, type BlocoLoja } from "./lojaAgregacao";
 
 export class LojaUrlInvalidaError extends Error {}
 
@@ -119,32 +119,14 @@ export type PedidoWoo = {
 /** completed + processing = pago. É a definição padrão de receita no Woo. */
 const STATUS_RECEITA = new Set(["completed", "processing"]);
 
-export type BlocoWoo = {
-  fonte: "woocommerce";
-  status: "ok" | "sem_dados" | "erro";
-  periodo: "7d" | "30d";
-  receita: number | null;
-  pedidos: number | null;
-  ticketMedio: number | null;
-  pedidosPorStatus: { status: string; quantidade: number }[];
-  produtos: { nome: string; quantidade: number; receita: number }[];
-  cupons: { codigo: string; usos: number; desconto: number }[];
-  reembolsos: number | null;
-  cancelamentos: number | null;
-  limitacoes: string[];
-};
-
-const num = (v: unknown): number => {
-  const n = typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : NaN;
-  return Number.isFinite(n) ? n : 0;
-};
+/** Alias de compatibilidade — o bloco de loja é o mesmo shape neutro. */
+export type BlocoWoo = BlocoLoja;
 
 /**
- * Agrega os pedidos de UMA janela. Puro e testado — é aqui que mora a regra de
- * negócio: o que conta como receita, o que conta como vendido.
- *
- * Produto de pedido cancelado/reembolsado NÃO conta como vendido; os status
- * não pagos aparecem em pedidosPorStatus mas ficam fora da receita.
+ * Agrega os pedidos do Woo de UMA janela. Mapeia o status do Woo para a
+ * semântica neutra (completed/processing = receita; cancelled/refunded fora) e
+ * delega a matemática ao núcleo compartilhado — comportamento idêntico ao de
+ * antes, agora reaproveitável pela VNDA e futuras plataformas.
  */
 export function agregarPedidos(
   pedidos: PedidoWoo[],
@@ -152,58 +134,21 @@ export function agregarPedidos(
   inicio: string,   // YYYY-MM-DD inclusivo
   fim: string,
 ): BlocoWoo {
-  const noPeriodo = pedidos.filter((p) => {
-    const dia = (p.date_created ?? "").slice(0, 10);
-    return dia >= inicio && dia <= fim;
-  });
-
-  const porStatus = new Map<string, number>();
-  for (const p of noPeriodo) porStatus.set(p.status, (porStatus.get(p.status) ?? 0) + 1);
-
-  const pagos = noPeriodo.filter((p) => STATUS_RECEITA.has(p.status));
-  const receita = pagos.reduce((a, p) => a + num(p.total), 0);
-
-  const produtosMap = new Map<string, { quantidade: number; receita: number }>();
-  const cuponsMap = new Map<string, { usos: number; desconto: number }>();
-  for (const p of pagos) {
-    for (const li of p.line_items ?? []) {
-      const atual = produtosMap.get(li.name) ?? { quantidade: 0, receita: 0 };
-      atual.quantidade += num(li.quantity);
-      atual.receita += num(li.total);
-      produtosMap.set(li.name, atual);
-    }
-    for (const c of p.coupon_lines ?? []) {
-      const atual = cuponsMap.get(c.code) ?? { usos: 0, desconto: 0 };
-      atual.usos += 1;
-      atual.desconto += num(c.discount);
-      cuponsMap.set(c.code, atual);
-    }
-  }
-
-  return {
-    fonte: "woocommerce",
-    status: noPeriodo.length > 0 ? "ok" : "sem_dados",
-    periodo: janela,
-    receita: pagos.length > 0 ? receita : noPeriodo.length > 0 ? 0 : null,
-    pedidos: pagos.length > 0 || noPeriodo.length > 0 ? pagos.length : null,
-    ticketMedio: pagos.length > 0 ? receita / pagos.length : null,
-    pedidosPorStatus: Array.from(porStatus.entries())
-      .map(([status, quantidade]) => ({ status, quantidade }))
-      .sort((a, b) => b.quantidade - a.quantidade),
-    produtos: Array.from(produtosMap.entries())
-      .map(([nome, v]) => ({ nome, ...v }))
-      .sort((a, b) => b.receita - a.receita)
-      .slice(0, 10),
-    cupons: Array.from(cuponsMap.entries())
-      .map(([codigo, v]) => ({ codigo, ...v }))
-      .sort((a, b) => b.usos - a.usos)
-      .slice(0, 10),
-    reembolsos: porStatus.get("refunded") ?? 0,
-    cancelamentos: porStatus.get("cancelled") ?? 0,
+  const neutros: PedidoNeutro[] = pedidos.map((p) => ({
+    status: p.status,
+    total: numSeguro(p.total),
+    dia: (p.date_created ?? "").slice(0, 10),
+    contaReceita: STATUS_RECEITA.has(p.status),
+    cancelado: p.status === "cancelled",
+    reembolsado: p.status === "refunded",
+    itens: (p.line_items ?? []).map((li) => ({ nome: li.name, quantidade: numSeguro(li.quantity), total: numSeguro(li.total) })),
+    cupons: (p.coupon_lines ?? []).map((c) => ({ codigo: c.code, desconto: numSeguro(c.discount) })),
+  }));
+  return agregarPedidosNeutro(neutros, "woocommerce", janela, inicio, fim, [
     // Reembolso PARCIAL (pedido completed com refund de parte do valor) não é
     // abatido nesta versão — o número é bruto de pedidos pagos, não líquido.
-    limitacoes: ["Reembolsos parciais não são abatidos da receita nesta versão."],
-  };
+    "Reembolsos parciais não são abatidos da receita nesta versão.",
+  ]);
 }
 
 /**
@@ -245,121 +190,3 @@ export async function buscarPedidos30d(
   logger.info(`[Woo] importação atingiu o teto de ${MAX_PAGINAS} páginas — resultado truncado`);
   return { pedidos, truncado: true };
 }
-
-// ─── Orquestração do sync (manual, sem cron) ─────────────────────────────────
-
-/** Data local da agência — nunca toISOString sobre "agora". */
-const diaLocal = (diasAtras = 0): string =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" })
-    .format(new Date(Date.now() - diasAtras * 86400000));
-
-export type ResultadoSyncLoja =
-  | { ok: true; detalhe: string; pedidos30d: number }
-  | { ok: false; erro: string };
-
-/**
- * Importa UMA loja: busca 30d uma vez, deriva o 7d localmente e grava um
- * snapshot por janela em client_site_snapshots (provider=woocommerce, janela
- * em `estrategia`). Rodar duas vezes no dia atualiza o mesmo registro — a
- * chave única (conta, provider, url, estrategia, dia) faz o dedup.
- *
- * A credencial é decriptada em credenciaisDaConexao, usada na chamada e
- * descartada — nunca entra em log, erro ou snapshot.
- */
-export async function sincronizarLoja(conexaoId: number): Promise<ResultadoSyncLoja> {
-  const cred = await credenciaisDaConexao(conexaoId);
-  if (!cred) {
-    return { ok: false, erro: "Conexão não encontrada ou credencial ilegível — recadastre as chaves." };
-  }
-  if (cred.platform !== "woocommerce") {
-    return { ok: false, erro: `Importação ainda não implementada para ${cred.platform}.` };
-  }
-
-  const hoje = diaLocal(0);
-  const inicio30 = diaLocal(29); // 30 dias INCLUSIVE o de hoje
-  const inicio7 = diaLocal(6);
-
-  let pedidos: PedidoWoo[];
-  let truncado: boolean;
-  try {
-    ({ pedidos, truncado } = await buscarPedidos30d(cred.storeUrl, cred.consumerKey, cred.consumerSecret, inicio30));
-  } catch (e) {
-    // Mensagem NOSSA (as de buscarPedidos30d já são) — nunca o corpo cru da loja.
-    const erro = e instanceof Error && e.message ? e.message : "A loja não respondeu durante a importação.";
-    await registrarSyncEcommerce(conexaoId, false, erro);
-    logger.warn(`[Woo] sync falhou para conexão #${conexaoId}: ${erro}`);
-    return { ok: false, erro };
-  }
-
-  for (const [janela, inicio] of [["7d", inicio7], ["30d", inicio30]] as const) {
-    const bloco = agregarPedidos(pedidos, janela, inicio, hoje);
-    if (truncado) bloco.limitacoes.push("Importação truncada em 1.000 pedidos — números do período são um piso, não o total.");
-    await salvarSiteSnapshot({
-      accountId: cred.accountId,
-      provider: "woocommerce",
-      url: cred.storeUrl,
-      estrategia: janela,
-      dia: hoje,
-      metricsJson: { ...bloco, inicio, fim: hoje },
-    });
-  }
-
-  await registrarSyncEcommerce(conexaoId, true, null);
-  logger.info(`[Woo] sync ok para conexão #${conexaoId}: ${pedidos.length} pedidos em 30d`);
-  return { ok: true, detalhe: `Importados ${pedidos.length} pedidos dos últimos 30 dias.`, pedidos30d: pedidos.length };
-}
-
-// ─── Orquestração de TODAS as lojas (cron 06:45) ─────────────────────────────
-
-export type ResultadoLojaCiclo = { conexaoId: number; accountId: number; ok: boolean; erro?: string };
-
-export type ResumoCicloWoo = {
-  total: number;
-  ok: number;
-  falhas: number;
-  /** Uma loja OK grava 2 snapshots (7d + 30d). */
-  snapshotsAtualizados: number;
-  erros: { accountId: number; erro: string }[];
-};
-
-/**
- * Redutor PURO do ciclo — testável sem banco. Transforma os resultados por loja
- * no resumo que vai para app_settings. Cada loja OK atualiza 2 snapshots (as
- * duas janelas). Falha não conta snapshot e entra em `erros`.
- */
-export function resumirCicloWoo(resultados: ResultadoLojaCiclo[]): ResumoCicloWoo {
-  const ok = resultados.filter((r) => r.ok);
-  const falhas = resultados.filter((r) => !r.ok);
-  return {
-    total: resultados.length,
-    ok: ok.length,
-    falhas: falhas.length,
-    snapshotsAtualizados: ok.length * 2,
-    erros: falhas.map((r) => ({ accountId: r.accountId, erro: r.erro ?? "erro desconhecido" })),
-  };
-}
-
-/**
- * Sincroniza TODAS as lojas ativas, uma por vez, ISOLADA. Reaproveita
- * `sincronizarLoja` inteiro — nenhuma lógica de Woo reimplementada. Uma loja
- * que falha (credencial inválida, loja fora do ar) NÃO derruba as outras: o
- * erro é capturado, registrado, e o ciclo segue.
- */
-export async function sincronizarLojas(): Promise<ResultadoLojaCiclo[]> {
-  const conexoes = await conexoesAtivasParaSync();
-  const resultados: ResultadoLojaCiclo[] = [];
-  for (const c of conexoes) {
-    try {
-      const r = await sincronizarLoja(c.id);
-      resultados.push({ conexaoId: c.id, accountId: c.accountId, ok: r.ok, erro: r.ok ? undefined : r.erro });
-    } catch (e) {
-      // sincronizarLoja já não lança, mas o cinto-e-suspensório garante que
-      // NADA — nem um bug inesperado — contamine as lojas seguintes.
-      const erro = e instanceof Error && e.message ? e.message : "falha inesperada no sync da loja";
-      logger.error(`[Woo] exceção inesperada na conexão #${c.id}: ${erro}`);
-      resultados.push({ conexaoId: c.id, accountId: c.accountId, ok: false, erro });
-    }
-  }
-  return resultados;
-}
-

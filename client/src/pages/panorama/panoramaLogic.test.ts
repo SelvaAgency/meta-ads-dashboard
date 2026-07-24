@@ -16,7 +16,7 @@ import {
 const base = (o: Partial<ClientePanorama> = {}): ClientePanorama => ({
   accountId: 1, nome: "Cliente", fontes: [], loja: null,
   uptime: null, seguranca: null, pagespeed: null,
-  ga4_7d: null, ga4_30d: null, woo_7d: null, woo_30d: null,
+  ga4_7d: null, ga4_30d: null, loja_7d: null, loja_30d: null,
   ...o,
 });
 
@@ -30,16 +30,16 @@ const ecom = (o: Partial<EcomGA4> = {}): EcomGA4 => ({
 // BAESH: Woo importado (30d com receita; 7d sem venda) + funil GA4 vazando no checkout
 const baesh = base({
   nome: "BAESH",
-  woo_7d: { dia: "2026-07-22", metricsJson: { status: "sem_dados", receita: null, pedidos: null } },
-  woo_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 2061.16, pedidos: 4, ticketMedio: 515.29 } },
+  loja_7d: { dia: "2026-07-22", metricsJson: { status: "sem_dados", receita: null, pedidos: null } },
+  loja_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 2061.16, pedidos: 4, ticketMedio: 515.29 } },
   ga4_30d: { dia: "2026-07-22", metricsJson: { sessions: 900, ecommerce: ecom({ addToCart: 62, beginCheckout: 60, purchases: 4, taxaCarrinhoCheckout: 96.8, taxaCheckoutPurchase: 6.7, receita: 2000, transacoes: 4 }) } },
 });
 
 // Scaffold: 7d com 2 pedidos "pagos" de R$0, cupom tstlcs 100%
 const scaffold = base({
   nome: "Scaffold Play",
-  woo_7d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 0, pedidos: 2, ticketMedio: 0, cupons: [{ codigo: "tstlcs", usos: 2, desconto: 398 }] } },
-  woo_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 398, pedidos: 4, ticketMedio: 99.5 } },
+  loja_7d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 0, pedidos: 2, ticketMedio: 0, cupons: [{ codigo: "tstlcs", usos: 2, desconto: 398 }] } },
+  loja_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 398, pedidos: 4, ticketMedio: 99.5 } },
   ga4_7d: { dia: "2026-07-22", metricsJson: { sessions: 500, ecommerce: ecom({ purchases: 2, receita: 0, transacoes: 2 }) } },
 });
 
@@ -61,7 +61,7 @@ const ultra = base({
 describe("Vendas — uma fonte só", () => {
   it("BAESH: Woo existe → Woo 30d, receita real da loja", () => {
     const v = vendasDe(baesh)!;
-    expect(v.fonte).toBe("woocommerce");
+    expect(v.fonte).toBe("loja");
     expect(v.janela).toBe("30d");
     expect(v.receita).toBe(2061.16);
     expect(v.rotuloFonte).toBe("Woo");
@@ -84,12 +84,32 @@ describe("Vendas — uma fonte só", () => {
   it("NUNCA Woo e GA4 ao mesmo tempo: com Woo presente, a fonte é uma só", () => {
     // Scaffold tem Woo E GA4 com e-commerce — a célula sai Woo, ponto.
     const v = vendasDe(scaffold)!;
-    expect(v.fonte).toBe("woocommerce");
+    expect(v.fonte).toBe("loja");
   });
 
   it("Woo 30d sem dado mas 7d com dado → usa o 7d", () => {
-    const c = base({ woo_7d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 100, pedidos: 1 } } });
+    const c = base({ loja_7d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 100, pedidos: 1 } } });
     expect(vendasDe(c)!.janela).toBe("7d");
+  });
+
+  it("VNDA: loja real rotulada 'VNDA', vence o GA4 fonte inicial (caso UMA futura)", () => {
+    const umaVnda = base({
+      nome: "UMA",
+      plataformaLoja: "vnda",
+      loja_30d: { dia: "2026-07-24", metricsJson: { status: "ok", receita: 24000, pedidos: 24, ticketMedio: 1000 } },
+      // GA4 ainda detecta e-commerce, mas a loja real (VNDA) tem prioridade
+      ga4_7d: { dia: "2026-07-24", metricsJson: { ecommerce: ecom({ receita: 18000, transacoes: 40, purchases: 40 }) } },
+    });
+    const v = vendasDe(umaVnda)!;
+    expect(v.fonte).toBe("loja");
+    expect(v.plataforma).toBe("vnda");
+    expect(v.rotuloFonte).toBe("VNDA");
+    expect(v.receita).toBe(24000);   // receita real da loja, não o GA4
+  });
+
+  it("plataformaLoja ausente assume Woo (compat) — rótulo 'Woo'", () => {
+    const c = base({ loja_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 500, pedidos: 5 } } });
+    expect(vendasDe(c)!.rotuloFonte).toBe("Woo");
   });
 });
 
@@ -255,7 +275,7 @@ describe("células da grade", () => {
 
   it("Scaffold: célula de vendas R$ 0 com pedidos fica em atenção, não passa por saudável", () => {
     // vendasDe prefere o 30d (R$398) — força o caso 7d-só para a célula
-    const so7d = base({ woo_7d: scaffold.woo_7d });
+    const so7d = base({ loja_7d: scaffold.loja_7d });
     const cel = celulaVendas(so7d);
     expect(cel.valor).toBe(fmtBRL(0));
     expect(cel.estado).toBe("atencao");
@@ -294,7 +314,7 @@ describe("resumo do portfólio", () => {
     ]);
     expect(r.totalClientes).toBe(5);
     expect(r.precisamAtencao).toBe(3);          // BAESH, Scaffold, UMA
-    expect(r.lojasWoo).toBe(2);
+    expect(r.lojasConectadas).toBe(2);
     expect(r.distribuicao.map((d) => d.nivel)).toEqual(["critico", "atencao", "ok", "sem_dados"]);
     expect(r.distribuicao.find((d) => d.nivel === "atencao")!.quantidade).toBe(3);
     expect(r.distribuicao.find((d) => d.nivel === "sem_dados")!.quantidade).toBe(1);
@@ -338,7 +358,7 @@ describe("funil visual", () => {
 describe("ranking de produtos", () => {
   const comProdutos = base({
     nome: "Loja",
-    woo_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 500, pedidos: 5, produtos: [
+    loja_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 500, pedidos: 5, produtos: [
       { nome: "Camisa", quantidade: 3, receita: 300 },
       { nome: "Boné", quantidade: 5, receita: 200 },
       { nome: "Brinde", quantidade: 2, receita: 0 },
@@ -354,7 +374,7 @@ describe("ranking de produtos", () => {
 
   it("Scaffold: receita toda zerada → mede por quantidade, com ressalva do cupom", () => {
     const scaffoldR0 = base({
-      woo_7d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 0, pedidos: 2, produtos: [
+      loja_7d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 0, pedidos: 2, produtos: [
         { nome: "IA Aplicada", quantidade: 2, receita: 0 },
       ] } },
     });
@@ -370,7 +390,7 @@ describe("ranking de produtos", () => {
   });
 
   it("nunca desenha barra falsa de valor zero", () => {
-    const soZero = base({ woo_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 10, pedidos: 1, produtos: [{ nome: "X", quantidade: 0, receita: 0 }] } } });
+    const soZero = base({ loja_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 10, pedidos: 1, produtos: [{ nome: "X", quantidade: 0, receita: 0 }] } } });
     // receita total 10 > 0 → mede receita; único produto tem receita 0 → filtrado → sem ranking
     expect(rankingProdutos(soZero)).toBeNull();
   });
@@ -378,7 +398,7 @@ describe("ranking de produtos", () => {
 
 describe("distribuição de pedidos por status", () => {
   const comStatus = base({
-    woo_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 400, pedidos: 6, pedidosPorStatus: [
+    loja_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 400, pedidos: 6, pedidosPorStatus: [
       { status: "completed", quantidade: 4 },
       { status: "refunded", quantidade: 1 },
       { status: "cancelled", quantidade: 1 },
@@ -394,7 +414,7 @@ describe("distribuição de pedidos por status", () => {
   });
 
   it("status desconhecido não quebra — vira neutro capitalizado", () => {
-    const c = base({ woo_30d: { dia: "2026-07-22", metricsJson: { status: "ok", pedidos: 1, pedidosPorStatus: [{ status: "trash", quantidade: 1 }] } } });
+    const c = base({ loja_30d: { dia: "2026-07-22", metricsJson: { status: "ok", pedidos: 1, pedidosPorStatus: [{ status: "trash", quantidade: 1 }] } } });
     const d = distribuicaoStatus(c)!;
     expect(d.itens[0]).toMatchObject({ rotulo: "Trash", tom: "neutro" });
   });
@@ -449,7 +469,7 @@ describe("achados comerciais", () => {
   });
 
   it("cliente saudável não gera achado comercial", () => {
-    const bom = base({ woo_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 5000, pedidos: 20, ticketMedio: 250 } } });
+    const bom = base({ loja_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 5000, pedidos: 20, ticketMedio: 250 } } });
     expect(achadosComerciais(bom)).toEqual([]);
   });
 

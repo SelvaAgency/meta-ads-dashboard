@@ -131,7 +131,7 @@ export default function Panorama() {
               <StatTile rotulo="Achados abertos" valor={resumo.achadosCriticos + resumo.achadosAtencao}
                 tom={resumo.achadosCriticos > 0 ? "critico" : resumo.achadosAtencao > 0 ? "atencao" : "ok"}
                 detalhe={`${resumo.achadosCriticos} crítico${resumo.achadosCriticos === 1 ? "" : "s"} · ${resumo.achadosAtencao} atenção`} />
-              <StatTile rotulo="Lojas Woo" valor={resumo.lojasWoo} detalhe="conectadas" />
+              <StatTile rotulo="Lojas conectadas" valor={resumo.lojasConectadas} detalhe="Woo / VNDA" />
             </div>
 
             <div className="bg-card border border-border rounded-xl p-5">
@@ -245,7 +245,7 @@ export default function Panorama() {
                           <p className="text-sm font-bold text-foreground">
                             <LinkSite accountId={c.accountId}>{l.nome}</LinkSite>
                           </p>
-                          <ChipStatus tom={v.fonte === "woocommerce" ? "ok" : "neutro"} titulo={v.fonte === "woocommerce" ? "Receita real da loja" : "GA4 como fonte inicial — não é o caixa da loja"}>
+                          <ChipStatus tom={v.fonte === "loja" ? "ok" : "neutro"} titulo={v.fonte === "loja" ? "Receita real da loja" : "GA4 como fonte inicial — não é o caixa da loja"}>
                             {v.rotuloFonte} · {v.janela}
                           </ChipStatus>
                         </div>

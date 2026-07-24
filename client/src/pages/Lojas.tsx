@@ -27,7 +27,11 @@ export default function Lojas() {
   const conexoesQ = trpc.ecommerce.list.useQuery(undefined, { enabled: podeGerenciar });
   const clientesQ = trpc.accounts.list.useQuery(undefined, { enabled: podeGerenciar });
   const utils = trpc.useUtils();
-  const [form, setForm] = useState<null | { id?: number; accountId: string; storeUrl: string; consumerKey: string; consumerSecret: string }>(null);
+  const [form, setForm] = useState<null | {
+    id?: number; accountId: string; platform: "woocommerce" | "vnda"; storeUrl: string;
+    consumerKey: string; consumerSecret: string;   // WooCommerce
+    token: string; xShopHost: string;              // VNDA / Olist
+  }>(null);
   const [testando, setTestando] = useState<number | null>(null);
   const [sincronizando, setSincronizando] = useState<number | null>(null);
 
@@ -80,19 +84,34 @@ export default function Lojas() {
   const salvar = () => {
     if (!form) return;
     if (editando) {
+      // update é genérico: no VNDA, token→consumerSecret e X-Shop-Host→consumerKey.
+      const secret = form.platform === "vnda" ? form.token : form.consumerSecret;
+      const key = form.platform === "vnda" ? form.xShopHost : form.consumerKey;
       atualizar.mutate({
         id: form.id!,
         ...(form.storeUrl ? { storeUrl: form.storeUrl } : {}),
-        ...(form.consumerKey ? { consumerKey: form.consumerKey } : {}),
-        ...(form.consumerSecret ? { consumerSecret: form.consumerSecret } : {}),
+        ...(key ? { consumerKey: key } : {}),
+        ...(secret ? { consumerSecret: secret } : {}),
+      });
+    } else if (form.platform === "vnda") {
+      criar.mutate({
+        platform: "vnda", accountId: Number(form.accountId), storeUrl: form.storeUrl,
+        token: form.token, ...(form.xShopHost ? { xShopHost: form.xShopHost } : {}),
       });
     } else {
       criar.mutate({
-        accountId: Number(form.accountId), platform: "woocommerce",
-        storeUrl: form.storeUrl, consumerKey: form.consumerKey, consumerSecret: form.consumerSecret,
+        platform: "woocommerce", accountId: Number(form.accountId), storeUrl: form.storeUrl,
+        consumerKey: form.consumerKey, consumerSecret: form.consumerSecret,
       });
     }
   };
+
+  const FORM_VAZIO = { accountId: "", platform: "woocommerce" as const, storeUrl: "", consumerKey: "", consumerSecret: "", token: "", xShopHost: "" };
+  // Um form é "preenchido o bastante" para salvar conforme a plataforma.
+  const podeSalvar = !!form && (editando || (
+    !!form.accountId && !!form.storeUrl &&
+    (form.platform === "vnda" ? !!form.token : (!!form.consumerKey && !!form.consumerSecret))
+  ));
 
   const inp = "w-full text-sm bg-background border border-border rounded-lg px-3 py-2";
 
@@ -109,7 +128,7 @@ export default function Lojas() {
           </p>
         </div>
         {!form && (
-          <button onClick={() => setForm({ accountId: "", storeUrl: "", consumerKey: "", consumerSecret: "" })}
+          <button onClick={() => setForm({ ...FORM_VAZIO })}
             className="inline-flex h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium items-center gap-1.5">
             <Plug className="w-4 h-4" /> Nova conexão
           </button>
@@ -131,43 +150,70 @@ export default function Lojas() {
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Plataforma</label>
-                <select className={inp} value="woocommerce" disabled>
+                <select className={inp} value={form.platform}
+                  onChange={(e) => setForm({ ...form, platform: e.target.value as "woocommerce" | "vnda" })}>
                   <option value="woocommerce">WooCommerce</option>
+                  <option value="vnda">VNDA / Olist Ecommerce</option>
                 </select>
               </div>
             </div>
           )}
 
           <div>
-            <label className="text-xs text-muted-foreground">URL da loja (https, endereço final — sem redirect)</label>
-            <input className={inp} placeholder="https://minhaloja.com.br" value={form.storeUrl}
-              onChange={(e) => setForm({ ...form, storeUrl: e.target.value })} />
+            <label className="text-xs text-muted-foreground">URL/base da loja (https, endereço final — sem redirect)</label>
+            <input className={inp} placeholder={form.platform === "vnda" ? "https://minhaloja.vnda.com.br" : "https://minhaloja.com.br"}
+              value={form.storeUrl} onChange={(e) => setForm({ ...form, storeUrl: e.target.value })} />
           </div>
 
-          <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 flex items-start gap-2">
-            <ShieldCheck className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-muted-foreground">
-              Gere a chave no WooCommerce com permissão <strong>Read/Leitura</strong> (WooCommerce →
-              Configurações → Avançado → REST API). {editando && "Deixe os campos abaixo vazios para manter as chaves atuais."}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-muted-foreground">consumer_key {editando && "(cadastrada — cole nova para substituir)"}</label>
-              <input className={inp} type="password" autoComplete="off" placeholder={editando ? "••••••••" : "ck_…"}
-                value={form.consumerKey} onChange={(e) => setForm({ ...form, consumerKey: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground">consumer_secret {editando && "(cadastrado — cole novo para substituir)"}</label>
-              <input className={inp} type="password" autoComplete="off" placeholder={editando ? "••••••••" : "cs_…"}
-                value={form.consumerSecret} onChange={(e) => setForm({ ...form, consumerSecret: e.target.value })} />
-            </div>
-          </div>
+          {form.platform === "vnda" ? (
+            <>
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  Gere um token de acesso à API no painel VNDA/Olist (Bearer). O X-Shop-Host é opcional —
+                  quando vazio, derivamos do endereço da loja. {editando && "Deixe os campos vazios para manter as credenciais atuais."}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground">Token de acesso {editando && "(cadastrado — cole novo para substituir)"}</label>
+                  <input className={inp} type="password" autoComplete="off" placeholder={editando ? "••••••••" : "token da API"}
+                    value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">X-Shop-Host (opcional)</label>
+                  <input className={inp} autoComplete="off" placeholder="derivado da URL se vazio"
+                    value={form.xShopHost} onChange={(e) => setForm({ ...form, xShopHost: e.target.value })} />
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-muted-foreground">
+                  Gere a chave no WooCommerce com permissão <strong>Read/Leitura</strong> (WooCommerce →
+                  Configurações → Avançado → REST API). {editando && "Deixe os campos abaixo vazios para manter as chaves atuais."}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground">consumer_key {editando && "(cadastrada — cole nova para substituir)"}</label>
+                  <input className={inp} type="password" autoComplete="off" placeholder={editando ? "••••••••" : "ck_…"}
+                    value={form.consumerKey} onChange={(e) => setForm({ ...form, consumerKey: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">consumer_secret {editando && "(cadastrado — cole novo para substituir)"}</label>
+                  <input className={inp} type="password" autoComplete="off" placeholder={editando ? "••••••••" : "cs_…"}
+                    value={form.consumerSecret} onChange={(e) => setForm({ ...form, consumerSecret: e.target.value })} />
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="flex items-center gap-2">
             <button onClick={salvar}
-              disabled={criar.isPending || atualizar.isPending || (!editando && (!form.accountId || !form.storeUrl || !form.consumerKey || !form.consumerSecret))}
+              disabled={criar.isPending || atualizar.isPending || !podeSalvar}
               className="inline-flex h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium items-center gap-1.5 disabled:opacity-60">
               {(criar.isPending || atualizar.isPending) ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Salvar
             </button>
@@ -198,7 +244,7 @@ export default function Lojas() {
               {conexoes.map((c) => (
                 <tr key={c.id} className="border-b border-border/50 last:border-0">
                   <td className="px-5 py-2.5 text-foreground">{nomeDoCliente(c.accountId)}</td>
-                  <td className="px-3 py-2.5 text-muted-foreground">WooCommerce</td>
+                  <td className="px-3 py-2.5 text-muted-foreground">{c.platform === "vnda" ? "VNDA / Olist" : "WooCommerce"}</td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground max-w-[220px] truncate" title={c.storeUrl}>{c.storeUrl}</td>
                   <td className="px-3 py-2.5 text-xs font-mono text-muted-foreground">{c.keyMascarada}</td>
                   <td className="px-3 py-2.5 text-xs">
@@ -233,7 +279,7 @@ export default function Lojas() {
                         className="inline-flex h-7 px-2.5 rounded-md border border-border text-xs items-center gap-1 disabled:opacity-60">
                         {testando === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plug className="w-3 h-3" />} Testar
                       </button>
-                      <button onClick={() => setForm({ id: c.id, accountId: String(c.accountId), storeUrl: c.storeUrl, consumerKey: "", consumerSecret: "" })}
+                      <button onClick={() => setForm({ id: c.id, accountId: String(c.accountId), platform: (c.platform === "vnda" ? "vnda" : "woocommerce"), storeUrl: c.storeUrl, consumerKey: "", consumerSecret: "", token: "", xShopHost: "" })}
                         className="inline-flex h-7 px-2.5 rounded-md border border-border text-xs items-center gap-1">
                         <Pencil className="w-3 h-3" /> Editar
                       </button>

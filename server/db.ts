@@ -4671,7 +4671,7 @@ export async function snapshotsParaPanorama(): Promise<SnapshotPanorama[]> {
         ORDER BY s.dia DESC, s.id DESC
       ) AS rn
       FROM client_site_snapshots s
-      WHERE s.provider IN ('pagespeed', 'security_check', 'uptime_check', 'ga4', 'woocommerce')
+      WHERE s.provider IN ('pagespeed', 'security_check', 'uptime_check', 'ga4', 'woocommerce', 'vnda')
     ) t WHERE t.rn = 1`);
   return (rows as unknown as SnapshotPanorama[]).map((r) => ({
     ...r,
@@ -4696,21 +4696,41 @@ export async function lojasParaPanorama() {
   }).from(ecommerceConnections).where(eq(ecommerceConnections.active, true));
 }
 
+/** Plataformas que contam como "loja real" — Woo e VNDA hoje. */
+const PROVIDERS_LOJA = ["woocommerce", "vnda"] as const;
+
+/**
+ * Portão do mapa de status VNDA. Enquanto NÃO validado (default), os snapshots
+ * VNDA são gravados e podem ser inspecionados, mas NÃO contam como "loja real"
+ * na tela — o cliente segue no GA4 fonte inicial. Condição do Guilherme: a UMA
+ * só troca para VNDA depois que o primeiro sync provar o mapa de status.
+ * Religar: setAppSetting("vnda:mapaValidado", true).
+ */
+export async function vndaContaComoLojaReal(): Promise<boolean> {
+  return (await getAppSetting<boolean>("vnda:mapaValidado")) === true;
+}
+
+/** Providers de loja real que valem AGORA (VNDA só entra se o mapa foi validado). */
+export async function providersLojaAtivos(): Promise<string[]> {
+  return (await vndaContaComoLojaReal()) ? [...PROVIDERS_LOJA] : ["woocommerce"];
+}
+
 /**
  * Snapshots de VENDA de UMA conta (Bloco Comercial). Só leitura, só desta
- * conta — nunca cross-client. Devolve o último snapshot por (provider, janela)
- * de woocommerce e ga4, e o estado de sync da loja SEM colunas cifradas
- * (consumerKey/Secret nem entram no SELECT).
+ * conta — nunca cross-client. Devolve o último snapshot de LOJA REAL (qualquer
+ * plataforma: Woo OU VNDA) por janela + a plataforma, o último GA4, e o estado
+ * de sync da loja SEM colunas cifradas (consumerKey/Secret nem entram no SELECT).
  */
 export async function snapshotsDeVendaDaConta(accountId: number): Promise<{
-  woo_7d: SnapshotPanorama | null; woo_30d: SnapshotPanorama | null;
+  loja_7d: SnapshotPanorama | null; loja_30d: SnapshotPanorama | null;
+  plataformaLoja: string | null;
   ga4_7d: SnapshotPanorama | null; ga4_30d: SnapshotPanorama | null;
   loja: { platform: string; lastSyncAt: Date | null; lastSyncStatus: string | null; lastSyncError: string | null } | null;
 }> {
   const db = await getDb();
-  if (!db) return { woo_7d: null, woo_30d: null, ga4_7d: null, ga4_30d: null, loja: null };
+  if (!db) return { loja_7d: null, loja_30d: null, plataformaLoja: null, ga4_7d: null, ga4_30d: null, loja: null };
 
-  const pegar = async (provider: string, estrategia: string): Promise<SnapshotPanorama | null> => {
+  const pegar = async (providers: readonly string[], estrategia: string): Promise<SnapshotPanorama | null> => {
     const r = await db.select({
       accountId: clientSiteSnapshots.accountId, provider: clientSiteSnapshots.provider,
       estrategia: clientSiteSnapshots.estrategia, dia: clientSiteSnapshots.dia,
@@ -4718,7 +4738,7 @@ export async function snapshotsDeVendaDaConta(accountId: number): Promise<{
     }).from(clientSiteSnapshots)
       .where(and(
         eq(clientSiteSnapshots.accountId, accountId),
-        eq(clientSiteSnapshots.provider, provider),
+        inArray(clientSiteSnapshots.provider, providers as unknown as string[]),
         eq(clientSiteSnapshots.estrategia, estrategia),
       ))
       .orderBy(desc(clientSiteSnapshots.dia), desc(clientSiteSnapshots.id)).limit(1);
@@ -4727,9 +4747,10 @@ export async function snapshotsDeVendaDaConta(accountId: number): Promise<{
     return { ...r[0], metricsJson: typeof m === "string" ? JSON.parse(m) : m } as SnapshotPanorama;
   };
 
-  const [woo7, woo30, ga7, ga30, lojaRow] = await Promise.all([
-    pegar("woocommerce", "7d"), pegar("woocommerce", "30d"),
-    pegar("ga4", "7d"), pegar("ga4", "30d"),
+  const provsLoja = await providersLojaAtivos(); // VNDA só entra se validado
+  const [loja7, loja30, ga7, ga30, lojaRow] = await Promise.all([
+    pegar(provsLoja, "7d"), pegar(provsLoja, "30d"),
+    pegar(["ga4"], "7d"), pegar(["ga4"], "30d"),
     db.select({
       platform: ecommerceConnections.platform, lastSyncAt: ecommerceConnections.lastSyncAt,
       lastSyncStatus: ecommerceConnections.lastSyncStatus, lastSyncError: ecommerceConnections.lastSyncError,
@@ -4737,7 +4758,11 @@ export async function snapshotsDeVendaDaConta(accountId: number): Promise<{
       .where(and(eq(ecommerceConnections.accountId, accountId), eq(ecommerceConnections.active, true)))
       .limit(1),
   ]);
-  return { woo_7d: woo7, woo_30d: woo30, ga4_7d: ga7, ga4_30d: ga30, loja: lojaRow[0] ?? null };
+  return {
+    loja_7d: loja7, loja_30d: loja30,
+    plataformaLoja: loja30?.provider ?? loja7?.provider ?? null,
+    ga4_7d: ga7, ga4_30d: ga30, loja: lojaRow[0] ?? null,
+  };
 }
 
 // ─── Widgets da visão geral (preferência por pessoa) ─────────────────────────

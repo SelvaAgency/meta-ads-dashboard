@@ -2,7 +2,7 @@ import { logger } from "./logger";
 import { resolverTipoDaConta } from "./alertProfiles";
 import { runDailyDigestJob } from "./services/dailyDigestService";
 import { sincronizarGA4 } from "./services/ga4Sync";
-import { sincronizarLojas, resumirCicloWoo } from "./services/woocommerce";
+import { sincronizarLojas, resumirCicloLojas } from "./services/lojaSync";
 import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, hojeAgencia, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
 import { runClaritySnapshots, runPerformanceSnapshots, runSiteHealthChecks } from "./clarityJobs";
 import { runClarityAlertas } from "./services/clarityAlertService";
@@ -446,7 +446,7 @@ async function runWooSync() {
   logger.info("[WooSync] ciclo automático iniciado");
   try {
     const resultados = await sincronizarLojas();
-    const resumo = resumirCicloWoo(resultados);
+    const resumo = resumirCicloLojas(resultados);
     const duracaoMs = Date.now() - inicio;
     await setAppSetting("woo:ultimoCiclo", { em: new Date().toISOString(), duracaoMs, ...resumo });
     logger.info(`[WooSync] ciclo automático · ${resumo.ok}/${resumo.total} ok · ${resumo.falhas} falha(s) · ${resumo.snapshotsAtualizados} snapshots · ${duracaoMs}ms`);

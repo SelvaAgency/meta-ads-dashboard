@@ -103,6 +103,7 @@ import {
   snapshotsParaPanorama,
   lojasParaPanorama,
   snapshotsDeVendaDaConta,
+  vndaContaComoLojaReal,
   getScheduledReportsByUserId,
   getAnomaliesByAccountId,
   getSuggestionsByAccountId,
@@ -310,7 +311,9 @@ import { emailMode, destinatariosDeTeste, transporteAtivo } from "./emailService
 import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
 import { fontesDoCliente, fontesDeTodasAsContas } from "./services/fontesDoCliente";
 import { sincronizarGA4 } from "./services/ga4Sync";
-import { testarConexaoWoo, validarUrlDaLoja, sincronizarLoja } from "./services/woocommerce";
+import { testarConexaoWoo, validarUrlDaLoja } from "./services/woocommerce";
+import { testarConexaoVnda, validarUrlVnda, resolverShopHost } from "./services/vnda";
+import { sincronizarLoja } from "./services/lojaSync";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
 import { buildClientIntelligenceContext, contextoParaTexto, fontesDe, MODULOS, MODULOS_SITE } from "./services/clientIntelligence";
 import { gerarRelatorioModular, PRESETS, tierDe } from "./services/reportBuilder";
@@ -5168,22 +5171,43 @@ export const appRouter = router({
     list: contentProcedure.query(() => listarConexoesEcommerce()),
 
     create: contentProcedure
-      .input(z.object({
-        accountId: z.number().int(),
-        platform: z.literal("woocommerce"),       // Shopify/Nuvemshop/Wix: futuros
-        storeUrl: z.string().min(8),
-        consumerKey: z.string().min(8),
-        consumerSecret: z.string().min(8),
-      }))
+      .input(z.discriminatedUnion("platform", [
+        z.object({
+          platform: z.literal("woocommerce"),
+          accountId: z.number().int(),
+          storeUrl: z.string().min(8),
+          consumerKey: z.string().min(8),
+          consumerSecret: z.string().min(8),
+        }),
+        z.object({
+          platform: z.literal("vnda"),          // VNDA / Olist Ecommerce
+          accountId: z.number().int(),
+          storeUrl: z.string().min(8),
+          token: z.string().min(8),             // Bearer — guardado como o "secret"
+          xShopHost: z.string().optional(),     // não-segredo; derivado da URL se vazio
+        }),
+      ]))
       .mutation(async ({ ctx, input }) => {
-        const storeUrl = await validarUrlDaLoja(input.storeUrl).catch((e) => {
-          throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
-        });
+        // Cada plataforma valida a URL com sua regra e mapeia as credenciais
+        // para as duas colunas cifradas genéricas (key/secret).
+        let storeUrl: string, consumerKey: string, consumerSecret: string;
+        if (input.platform === "woocommerce") {
+          storeUrl = await validarUrlDaLoja(input.storeUrl).catch((e) => {
+            throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+          });
+          consumerKey = input.consumerKey;
+          consumerSecret = input.consumerSecret;
+        } else {
+          storeUrl = await validarUrlVnda(input.storeUrl).catch((e) => {
+            throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+          });
+          consumerKey = resolverShopHost(storeUrl, input.xShopHost); // X-Shop-Host (não-segredo)
+          consumerSecret = input.token;                              // token Bearer
+        }
         try {
           await criarConexaoEcommerce({
             accountId: input.accountId, platform: input.platform, storeUrl,
-            consumerKey: input.consumerKey, consumerSecret: input.consumerSecret,
-            criadoPor: ctx.user.id,
+            consumerKey, consumerSecret, criadoPor: ctx.user.id,
           });
         } catch (e) {
           if (/duplicate/i.test((e as Error).message)) {
@@ -5232,7 +5256,9 @@ export const appRouter = router({
         }
         const r = cred.platform === "woocommerce"
           ? await testarConexaoWoo(cred.storeUrl, cred.consumerKey, cred.consumerSecret)
-          : { ok: false as const, erro: `Teste ainda não implementado para ${cred.platform}.` };
+          : cred.platform === "vnda"
+            ? await testarConexaoVnda(cred.storeUrl, cred.consumerSecret /* token */, cred.consumerKey /* X-Shop-Host */)
+            : { ok: false as const, erro: `Teste ainda não implementado para ${cred.platform}.` };
         await registrarTesteEcommerce(input.id, r.ok, r.ok ? null : r.erro);
         return r;
       }),
@@ -5255,11 +5281,12 @@ export const appRouter = router({
    */
   panorama: router({
     sites: contentProcedure.query(async () => {
-      const [contas, fontes, snaps, lojas] = await Promise.all([
+      const [contas, fontes, snaps, lojas, vndaReal] = await Promise.all([
         getAllActiveMetaAdAccountsForListing(),
         fontesDeTodasAsContas(),
         snapshotsParaPanorama(),
         lojasParaPanorama(),
+        vndaContaComoLojaReal(), // VNDA só vira "loja real" após validar o mapa
       ]);
       const fontesPorConta = new Map(fontes.map((f) => [f.accountId, f.fontes]));
       const lojaPorConta = new Map(lojas.map((l) => [l.accountId, l]));
@@ -5269,19 +5296,33 @@ export const appRouter = router({
           (estrategia === undefined || x.estrategia === estrategia));
         return s ? { dia: s.dia, metricsJson: s.metricsJson } : null;
       };
-      return contas.map((c) => ({
-        accountId: c.id,
-        nome: c.accountName ?? `Conta ${c.id}`,
-        fontes: fontesPorConta.get(c.id) ?? [],
-        loja: lojaPorConta.get(c.id) ?? null,
-        uptime: snap(c.id, "uptime_check"),
-        seguranca: snap(c.id, "security_check"),
-        pagespeed: snap(c.id, "pagespeed"),
-        ga4_7d: snap(c.id, "ga4", "7d"),
-        ga4_30d: snap(c.id, "ga4", "30d"),
-        woo_7d: snap(c.id, "woocommerce", "7d"),
-        woo_30d: snap(c.id, "woocommerce", "30d"),
-      }));
+      // Loja REAL genérica: o snapshot de venda pode ser Woo OU VNDA. Pega o que
+      // existir na janela; a plataforma vem do provider do próprio snapshot. A
+      // VNDA só conta como loja real depois que o mapa de status é validado —
+      // até lá, o cliente segue no GA4 fonte inicial (condição da UMA).
+      const lojaSnap = (accountId: number, estrategia: string) => {
+        const s = snaps.find((x) =>
+          x.accountId === accountId && x.estrategia === estrategia &&
+          (x.provider === "woocommerce" || (x.provider === "vnda" && vndaReal)));
+        return s ? { dia: s.dia, metricsJson: s.metricsJson, provider: s.provider } : null;
+      };
+      return contas.map((c) => {
+        const loja7 = lojaSnap(c.id, "7d"), loja30 = lojaSnap(c.id, "30d");
+        return {
+          accountId: c.id,
+          nome: c.accountName ?? `Conta ${c.id}`,
+          fontes: fontesPorConta.get(c.id) ?? [],
+          loja: lojaPorConta.get(c.id) ?? null,
+          plataformaLoja: loja30?.provider ?? loja7?.provider ?? null,
+          uptime: snap(c.id, "uptime_check"),
+          seguranca: snap(c.id, "security_check"),
+          pagespeed: snap(c.id, "pagespeed"),
+          ga4_7d: snap(c.id, "ga4", "7d"),
+          ga4_30d: snap(c.id, "ga4", "30d"),
+          loja_7d: loja7,
+          loja_30d: loja30,
+        };
+      });
     }),
   }),
 

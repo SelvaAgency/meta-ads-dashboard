@@ -54,7 +54,12 @@ export type SnapGA4 = {
 export type ProdutoWoo = { nome: string; quantidade: number; receita: number };
 export type StatusPedido = { status: string; quantidade: number };
 
-export type SnapWoo = {
+/**
+ * Snapshot de LOJA REAL — o mesmo shape neutro para qualquer plataforma
+ * (WooCommerce, VNDA/Olist, …). A agregação do servidor grava sempre este
+ * formato, então a lógica de venda não precisa saber a plataforma para ler.
+ */
+export type SnapLoja = {
   dia: string;
   metricsJson: {
     status?: "ok" | "sem_dados" | "erro";
@@ -62,8 +67,6 @@ export type SnapWoo = {
     pedidos?: number | null;
     ticketMedio?: number | null;
     cupons?: { codigo: string; usos: number; desconto: number }[];
-    // Já chegam no payload (o router devolve o metricsJson inteiro) — só não
-    // eram tipados porque a v1 do Panorama não os lia.
     produtos?: ProdutoWoo[];
     pedidosPorStatus?: StatusPedido[];
     reembolsos?: number | null;
@@ -71,19 +74,29 @@ export type SnapWoo = {
   };
 };
 
+/** Plataforma da loja real conectada, quando há uma. */
+export type PlataformaLoja = "woocommerce" | "vnda";
+
 export type ClientePanorama = {
   accountId: number;
   nome: string;
   fontes: FontePanorama[];
   loja: { platform: string; lastSyncAt: string | Date | null; lastSyncStatus: string | null; lastSyncError: string | null } | null;
+  /** Plataforma dos snapshots loja_* (Woo ou VNDA); null quando não há loja real. */
+  plataformaLoja?: PlataformaLoja | string | null;
   uptime: { dia: string; metricsJson: { status?: string } } | null;
   seguranca: { dia: string; metricsJson: { https?: boolean; sslValido?: boolean | null; daysToSslExpiry?: number | null; score?: number | null } } | null;
   pagespeed: { dia: string; metricsJson: { performanceScore?: number | null; lcp?: number | null } } | null;
   ga4_7d: SnapGA4 | null;
   ga4_30d: SnapGA4 | null;
-  woo_7d: SnapWoo | null;
-  woo_30d: SnapWoo | null;
+  loja_7d: SnapLoja | null;
+  loja_30d: SnapLoja | null;
 };
+
+/** Rótulo curto da plataforma para o chip de fonte de venda. */
+export function rotuloPlataforma(p: ClientePanorama["plataformaLoja"]): string {
+  return p === "vnda" ? "VNDA" : "Woo";
+}
 
 // ─── Limiares — declarados, não mágicos ──────────────────────────────────────
 
@@ -102,7 +115,9 @@ export const PAGESPEED_MUITO_BAIXO = 40;
 // ─── Vendas: uma fonte só ────────────────────────────────────────────────────
 
 export type Vendas = {
-  fonte: "woocommerce" | "ga4";
+  fonte: "loja" | "ga4";
+  /** "woocommerce" | "vnda" quando fonte==="loja". */
+  plataforma?: string | null;
   rotuloFonte: string;
   janela: "7d" | "30d";
   dia: string;
@@ -111,23 +126,24 @@ export type Vendas = {
   ticketMedio: number | null;
 };
 
-const wooTemDado = (s: SnapWoo | null): boolean => s?.metricsJson?.status === "ok";
+const lojaTemDado = (s: SnapLoja | null): boolean => s?.metricsJson?.status === "ok";
 const ga4Detectou = (s: SnapGA4 | null): boolean => s?.metricsJson?.ecommerce?.status === "detectado";
 
 /**
- * Woo existe → Woo (receita real). Só GA4 detectou → GA4 (fonte inicial).
- * Nada → null (a célula vira "—" e o cliente não é penalizado).
+ * Loja real (Woo OU VNDA) existe → receita real da loja. Só GA4 detectou → GA4
+ * (fonte inicial). Nada → null (a célula vira "—", cliente não é penalizado).
  *
- * Woo prefere 30d (o 7d pode ser sem_dados numa loja de venda esparsa — caso
+ * Loja prefere 30d (o 7d pode ser sem_dados numa loja de venda esparsa — caso
  * BAESH); GA4 prefere 7d, caindo para 30d, espelhando a aba Site (F5-A).
  */
 export function vendasDe(c: ClientePanorama): Vendas | null {
-  const woo = wooTemDado(c.woo_30d) ? { s: c.woo_30d!, janela: "30d" as const }
-    : wooTemDado(c.woo_7d) ? { s: c.woo_7d!, janela: "7d" as const } : null;
-  if (woo) {
-    const m = woo.s.metricsJson;
+  const loja = lojaTemDado(c.loja_30d) ? { s: c.loja_30d!, janela: "30d" as const }
+    : lojaTemDado(c.loja_7d) ? { s: c.loja_7d!, janela: "7d" as const } : null;
+  if (loja) {
+    const m = loja.s.metricsJson;
     return {
-      fonte: "woocommerce", rotuloFonte: "Woo", janela: woo.janela, dia: woo.s.dia,
+      fonte: "loja", plataforma: c.plataformaLoja ?? "woocommerce",
+      rotuloFonte: rotuloPlataforma(c.plataformaLoja), janela: loja.janela, dia: loja.s.dia,
       receita: m.receita ?? null, pedidos: m.pedidos ?? null, ticketMedio: m.ticketMedio ?? null,
     };
   }
@@ -204,17 +220,17 @@ export function achadosDe(c: ClientePanorama): Achado[] {
   }
 
   // Pedidos pagos somando R$ 0 (caso Scaffold: cupom de 100% em pedido de teste)
-  const wooZerado = [{ s: c.woo_7d, j: "7d" }, { s: c.woo_30d, j: "30d" }]
-    .find(({ s }) => wooTemDado(s) && (s!.metricsJson.pedidos ?? 0) > 0 && s!.metricsJson.receita === 0);
-  if (wooZerado) {
-    const m = wooZerado.s!.metricsJson;
+  const lojaZerada = [{ s: c.loja_7d, j: "7d" }, { s: c.loja_30d, j: "30d" }]
+    .find(({ s }) => lojaTemDado(s) && (s!.metricsJson.pedidos ?? 0) > 0 && s!.metricsJson.receita === 0);
+  if (lojaZerada) {
+    const m = lojaZerada.s!.metricsJson;
     const cupom = m.cupons?.[0];
     a.push({
       chave: "pedido_pago_r0", severidade: "atencao",
-      texto: `${m.pedidos} pedido${m.pedidos === 1 ? "" : "s"} pago${m.pedidos === 1 ? "" : "s"} somando R$ 0 em ${wooZerado.j}${cupom ? ` — cupom "${cupom.codigo}" descontou 100%` : ""} — teste interno ou cupom indevido?`,
+      texto: `${m.pedidos} pedido${m.pedidos === 1 ? "" : "s"} pago${m.pedidos === 1 ? "" : "s"} somando R$ 0 em ${lojaZerada.j}${cupom ? ` — cupom "${cupom.codigo}" descontou 100%` : ""} — teste interno ou cupom indevido?`,
     });
   } else if (funil && (funil.e.purchases ?? 0) > 0 && (funil.e.receita == null || funil.e.receita === 0)) {
-    // Purchase sem valor no GA4 — só quando o Woo NÃO explicou a mesma coisa
+    // Purchase sem valor no GA4 — só quando a LOJA NÃO explicou a mesma coisa
     // (senão o mesmo pedido de teste viraria dois achados).
     a.push({
       chave: "purchase_sem_valor", severidade: "atencao", aba: "performance",
@@ -271,7 +287,7 @@ export type Nivel = "critico" | "atencao" | "ok" | "sem_dados";
 export type Avaliacao = { nivel: Nivel; motivos: string[]; achados: Achado[] };
 
 const temAlgumDado = (c: ClientePanorama): boolean =>
-  !!(c.uptime || c.seguranca || c.pagespeed || c.ga4_7d || c.ga4_30d || c.woo_7d || c.woo_30d);
+  !!(c.uptime || c.seguranca || c.pagespeed || c.ga4_7d || c.ga4_30d || c.loja_7d || c.loja_30d);
 
 /**
  * O nível é o pior achado — e os motivos são os textos dos achados, do pior
@@ -368,6 +384,9 @@ export function celulaVendas(c: ClientePanorama): Celula {
   };
 }
 
+/** true quando a venda vem de loja REAL (Woo/VNDA), não de GA4 fonte inicial. */
+export const vendaDeLojaReal = (v: Vendas | null): boolean => v?.fonte === "loja";
+
 // ─── Resumo do portfólio (stat tiles + barra de saúde) ───────────────────────
 
 export type ResumoPortfolio = {
@@ -375,7 +394,7 @@ export type ResumoPortfolio = {
   precisamAtencao: number;
   criticos: number;
   atencoes: number;
-  lojasWoo: number;
+  lojasConectadas: number;
   achadosCriticos: number;
   achadosAtencao: number;
   /** Sempre nesta ordem — a barra empilhada não reordena por tamanho. */
@@ -393,7 +412,7 @@ export function resumoPortfolio(
     precisamAtencao: conta("critico") + conta("atencao"),
     criticos: conta("critico"),
     atencoes: conta("atencao"),
-    lojasWoo: clientes.filter((c) => c.loja?.platform === "woocommerce").length,
+    lojasConectadas: clientes.filter((c) => c.loja?.platform === "woocommerce" || c.loja?.platform === "vnda").length,
     achadosCriticos: achados.filter((x) => x.severidade === "critico").length,
     achadosAtencao: achados.filter((x) => x.severidade === "atencao").length,
     distribuicao: (["critico", "atencao", "ok", "sem_dados"] as Nivel[])
@@ -446,12 +465,12 @@ export function funilVisual(c: ClientePanorama): FunilVisual | null {
   };
 }
 
-// ─── Ranking de produtos e distribuição por status (Woo) ─────────────────────
+// ─── Ranking de produtos e distribuição por status (loja real) ───────────────
 
-/** O snapshot Woo que vale para o cliente — mesma preferência de vendasDe. */
-function wooEscolhido(c: ClientePanorama): SnapWoo | null {
-  if (wooTemDado(c.woo_30d)) return c.woo_30d;
-  if (wooTemDado(c.woo_7d)) return c.woo_7d;
+/** O snapshot de loja que vale para o cliente — mesma preferência de vendasDe. */
+function lojaEscolhida(c: ClientePanorama): SnapLoja | null {
+  if (lojaTemDado(c.loja_30d)) return c.loja_30d;
+  if (lojaTemDado(c.loja_7d)) return c.loja_7d;
   return null;
 }
 
@@ -469,10 +488,10 @@ export type RankingProdutos = {
  * uma mentira visual. A ressalva deixa claro que os pedidos existem e são R$ 0.
  */
 export function rankingProdutos(c: ClientePanorama, limite = 5): RankingProdutos | null {
-  const w = wooEscolhido(c);
+  const w = lojaEscolhida(c);
   const produtos = w?.metricsJson.produtos;
   if (!w || !produtos || produtos.length === 0) return null;
-  const janela: "7d" | "30d" = w === c.woo_30d ? "30d" : "7d";
+  const janela: "7d" | "30d" = w === c.loja_30d ? "30d" : "7d";
   const receitaTotal = produtos.reduce((a, p) => a + (p.receita ?? 0), 0);
   const usaReceita = receitaTotal > 0;
   const medida: "receita" | "quantidade" = usaReceita ? "receita" : "quantidade";
@@ -489,12 +508,16 @@ export function rankingProdutos(c: ClientePanorama, limite = 5): RankingProdutos
 }
 
 const ROTULO_STATUS: Record<string, string> = {
+  // WooCommerce
   completed: "Concluídos", processing: "Processando", pending: "Pendentes",
   "on-hold": "Em espera", cancelled: "Cancelados", refunded: "Reembolsados", failed: "Falhos",
+  // VNDA / Olist
+  confirmed: "Confirmados", received: "Recebidos", canceled: "Cancelados",
 };
 const TOM_STATUS: Record<string, "ok" | "atencao" | "critico" | "neutro"> = {
   completed: "ok", processing: "ok", pending: "atencao", "on-hold": "atencao",
   cancelled: "critico", refunded: "critico", failed: "critico",
+  confirmed: "ok", received: "atencao", canceled: "critico",
 };
 
 export type DistribuicaoStatus = {
@@ -504,10 +527,10 @@ export type DistribuicaoStatus = {
 };
 
 export function distribuicaoStatus(c: ClientePanorama): DistribuicaoStatus | null {
-  const w = wooEscolhido(c);
+  const w = lojaEscolhida(c);
   const lista = w?.metricsJson.pedidosPorStatus;
   if (!w || !lista || lista.length === 0) return null;
-  const janela: "7d" | "30d" = w === c.woo_30d ? "30d" : "7d";
+  const janela: "7d" | "30d" = w === c.loja_30d ? "30d" : "7d";
   const total = lista.reduce((a, s) => a + s.quantidade, 0);
   if (total === 0) return null;
   return {
