@@ -124,13 +124,18 @@ export function resumirCicloLojas(resultados: ResultadoLojaCiclo[]): ResumoCiclo
   };
 }
 
+/** Plataformas que o cron das 06:45 sincroniza. VNDA entrou depois de o mapa
+ *  de status da UMA ser validado (24/07/2026); o portão vnda:mapaValidado
+ *  continua controlando só a EXIBIÇÃO, não a coleta. */
+const PLATAFORMAS_CRON = new Set(["woocommerce", "vnda"]);
+
 /**
- * Sincroniza as lojas do CRON, isoladas. Nesta etapa o cron processa APENAS
- * WooCommerce — a VNDA entra por sync MANUAL até o mapa de status ser validado
- * com os dados reais da UMA; só então avaliamos incluí-la aqui.
+ * Sincroniza as lojas do CRON, isoladas. Processa WooCommerce (BAESH, Scaffold)
+ * e VNDA (UMA) no mesmo ciclo das 06:45. Cada loja em try/catch próprio: uma
+ * falhar não derruba as outras. O provider gravado é o da plataforma da conexão.
  */
 export async function sincronizarLojas(): Promise<ResultadoLojaCiclo[]> {
-  const conexoes = (await conexoesAtivasParaSync()).filter((c) => c.platform === "woocommerce");
+  const conexoes = (await conexoesAtivasParaSync()).filter((c) => PLATAFORMAS_CRON.has(c.platform));
   const resultados: ResultadoLojaCiclo[] = [];
   for (const c of conexoes) {
     try {
