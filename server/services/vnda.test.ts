@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validarUrlVnda, VndaUrlInvalidaError, resolverShopHost, normalizarPedidoVnda, agregarPedidosVnda, type PedidoVnda } from "./vnda";
+import { validarUrlVnda, VndaUrlInvalidaError, resolverShopHost, normalizarPedidoVnda, agregarPedidosVnda, diaDoPedidoVnda, type PedidoVnda } from "./vnda";
 
 /**
  * VNDA carrega token em Bearer. Estes testes travam as regras que protegem a
@@ -36,7 +36,7 @@ describe("URL / shop-host da VNDA", () => {
 
 describe("normalização de pedido VNDA (mapa provisório)", () => {
   const p = (o: Partial<PedidoVnda> = {}): PedidoVnda =>
-    ({ status: "confirmed", total: 100, created_at: "2026-07-20T10:00:00", ...o });
+    ({ status: "confirmed", total: 100, received_at: "2026-07-20T10:00:00", ...o });
 
   it("pago (paid_at) e não cancelado entra na receita", () => {
     const n = normalizarPedidoVnda(p({ status: "confirmed", paid_at: "2026-07-20T11:00:00", total: 150 }));
@@ -70,15 +70,47 @@ describe("normalização de pedido VNDA (mapa provisório)", () => {
   });
 });
 
+/**
+ * A VNDA NÃO tem created_at (foi o que deixou o snapshot da UMA vazio). A data
+ * do pedido cai na cascata received_at ?? confirmed_at ?? paid_at ?? updated_at.
+ * canceled_at NÃO é data principal de venda — só informação de cancelamento.
+ */
+describe("data do pedido VNDA (sem created_at)", () => {
+  it("prefere received_at", () => {
+    expect(diaDoPedidoVnda({ received_at: "2026-07-10T09:00:00-03:00", confirmed_at: "2026-07-11T00:00:00", paid_at: "2026-07-12T00:00:00" })).toBe("2026-07-10");
+  });
+
+  it("cai para confirmed_at, depois paid_at, depois updated_at", () => {
+    expect(diaDoPedidoVnda({ confirmed_at: "2026-07-11T00:00:00", paid_at: "2026-07-12T00:00:00" })).toBe("2026-07-11");
+    expect(diaDoPedidoVnda({ paid_at: "2026-07-12T00:00:00" })).toBe("2026-07-12");
+    expect(diaDoPedidoVnda({ updated_at: "2026-07-13T00:00:00" })).toBe("2026-07-13");
+  });
+
+  it("canceled_at NÃO é usada como data principal", () => {
+    // só canceled_at → não há data de venda; cai para "" (fora de qualquer janela)
+    expect(diaDoPedidoVnda({ canceled_at: "2026-07-14T00:00:00" })).toBe("");
+  });
+
+  it("normalizador usa a data derivada para bucketar a janela", () => {
+    // received_at dentro da janela 7d → conta; sem created_at, antes ficava fora
+    const b = agregarPedidosVnda(
+      [{ status: "confirmed", paid_at: "2026-07-20T11:00:00", received_at: "2026-07-20T10:00:00-03:00", total: 200 }],
+      "7d", "2026-07-16", "2026-07-22",
+    );
+    expect(b.receita).toBe(200);
+    expect(b.pedidos).toBe(1);
+  });
+});
+
 describe("agregação VNDA (via núcleo neutro)", () => {
   const pago = (o: Partial<PedidoVnda>): PedidoVnda =>
-    ({ status: "confirmed", paid_at: "2026-07-20T11:00:00", created_at: "2026-07-20T10:00:00", ...o });
+    ({ status: "confirmed", paid_at: "2026-07-20T11:00:00", received_at: "2026-07-20T10:00:00", ...o });
 
   it("receita = só pedidos pagos; recebidos aparecem por status mas fora", () => {
     const b = agregarPedidosVnda([
       pago({ total: 100 }),
       pago({ total: 50 }),
-      { status: "received", paid_at: null, total: 999, created_at: "2026-07-20T10:00:00" },
+      { status: "received", paid_at: null, total: 999, received_at: "2026-07-20T10:00:00" },
     ], "30d", "2026-06-23", "2026-07-22");
     expect(b.fonte).toBe("vnda");
     expect(b.receita).toBe(150);
@@ -90,14 +122,14 @@ describe("agregação VNDA (via núcleo neutro)", () => {
   it("cancelado conta à parte e não soma receita", () => {
     const b = agregarPedidosVnda([
       pago({ total: 40 }),
-      { status: "canceled", paid_at: "2026-07-20T11:00:00", total: 80, created_at: "2026-07-20T10:00:00" },
+      { status: "canceled", paid_at: "2026-07-20T11:00:00", total: 80, received_at: "2026-07-20T10:00:00" },
     ], "30d", "2026-06-23", "2026-07-22");
     expect(b.receita).toBe(40);
     expect(b.cancelamentos).toBe(1);
   });
 
   it("sem pedido pago mas com pedidos: receita 0, ticket null — nunca R$0 sem base vira null", () => {
-    const b = agregarPedidosVnda([{ status: "received", paid_at: null, total: 10, created_at: "2026-07-20T10:00:00" }], "7d", "2026-07-16", "2026-07-22");
+    const b = agregarPedidosVnda([{ status: "received", paid_at: null, total: 10, received_at: "2026-07-20T10:00:00" }], "7d", "2026-07-16", "2026-07-22");
     expect(b.receita).toBe(0);
     expect(b.pedidos).toBe(0);
     expect(b.ticketMedio).toBeNull();

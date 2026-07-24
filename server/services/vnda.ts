@@ -108,14 +108,20 @@ export async function testarConexaoVnda(
 
 // ─── Importação ──────────────────────────────────────────────────────────────
 
-/** O que usamos de cada pedido VNDA. O resto da resposta é descartado. */
+/**
+ * O que usamos de cada pedido VNDA. A VNDA NÃO tem `created_at` — a data do
+ * pedido é derivada de received_at/confirmed_at/paid_at/updated_at. Também NÃO
+ * tem `invoiced` (o campo não existe na resposta), por isso não é sinal.
+ */
 export type PedidoVnda = {
   code?: string | number;
   status?: string;
   total?: string | number;
-  created_at?: string;
+  received_at?: string | null;
+  confirmed_at?: string | null;
   paid_at?: string | null;
-  invoiced?: boolean;
+  canceled_at?: string | null;
+  updated_at?: string | null;
   coupon_code?: string | null;
   discount_price?: string | number;
   items?: { product_name?: string; name?: string; quantity?: number | string; total?: number | string; price?: number | string }[];
@@ -124,18 +130,28 @@ export type PedidoVnda = {
 const CANCELADOS_VNDA = new Set(["canceled", "cancelled", "cancelado"]);
 
 /**
- * Normaliza um pedido VNDA para o formato neutro, aplicando o MAPA PROVISÓRIO:
- * receita = não cancelado E com `paid_at`. `confirmed` sem `paid_at` NÃO entra
- * até validarmos com os dados reais da UMA.
+ * Data do pedido para bucketar 7d/30d. A VNDA não expõe created_at; a API já
+ * filtra por start/finish no servidor, então `received_at` (pedido recebido) é
+ * o mais próximo da criação. canceled_at NÃO entra aqui — é só informação de
+ * cancelamento, não a data principal de venda.
+ */
+export function diaDoPedidoVnda(p: PedidoVnda): string {
+  return String(p.received_at ?? p.confirmed_at ?? p.paid_at ?? p.updated_at ?? "").slice(0, 10);
+}
+
+/**
+ * Normaliza um pedido VNDA para o formato neutro. MAPA VALIDADO (24/07/2026 com
+ * os dados reais da UMA): receita = pedido NÃO cancelado COM `paid_at`.
+ * `confirmed` sem `paid_at` NÃO entra; `received` fora; `canceled` fora.
  */
 export function normalizarPedidoVnda(p: PedidoVnda): PedidoNeutro {
   const status = String(p.status ?? "desconhecido");
   const cancelado = CANCELADOS_VNDA.has(status.toLowerCase());
-  const pago = !!p.paid_at; // sinal mais confiável que o nome do status
+  const pago = !!p.paid_at; // sinal confiável — o nome do status não basta
   return {
     status,
     total: numSeguro(p.total),
-    dia: String(p.created_at ?? "").slice(0, 10),
+    dia: diaDoPedidoVnda(p),
     contaReceita: pago && !cancelado,
     cancelado,
     reembolsado: false, // sem estado de estorno claro na doc — fica em limitações
@@ -197,9 +213,10 @@ export async function buscarPedidosVnda(
         : [];
     if (!Array.isArray(lote)) throw new Error("Resposta da loja em formato inesperado.");
     pedidos.push(...lote.map((p) => ({
-      code: p.code, status: p.status, total: p.total, created_at: p.created_at,
-      paid_at: p.paid_at ?? null, invoiced: p.invoiced, coupon_code: p.coupon_code ?? null,
-      discount_price: p.discount_price,
+      code: p.code, status: p.status, total: p.total,
+      received_at: p.received_at ?? null, confirmed_at: p.confirmed_at ?? null,
+      paid_at: p.paid_at ?? null, canceled_at: p.canceled_at ?? null, updated_at: p.updated_at ?? null,
+      coupon_code: p.coupon_code ?? null, discount_price: p.discount_price,
       items: (p.items ?? []).map((it) => ({ product_name: it.product_name, name: it.name, quantity: it.quantity, total: it.total, price: it.price })),
     })));
     if (lote.length < 100) return { pedidos, truncado: false };
