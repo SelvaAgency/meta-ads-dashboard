@@ -15,8 +15,8 @@
  */
 import type { ReactNode } from "react";
 import { CheckCircle2, AlertTriangle, XCircle, MinusCircle, TrendingUp, TrendingDown } from "lucide-react";
-import type { EtapaFunil, FunilVisual, RankingProdutos, DistribuicaoStatus, Nivel } from "./panoramaLogic";
-import { fmtBRL } from "./panoramaLogic";
+import type { EtapaFunil, FunilVisual, RankingProdutos, DistribuicaoStatus, Nivel } from "@shared/panoramaLogic";
+import { fmtBRL } from "@shared/panoramaLogic";
 
 // ── Tokens de status (reservados) ────────────────────────────────────────────
 

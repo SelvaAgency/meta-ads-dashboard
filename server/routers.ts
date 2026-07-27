@@ -309,6 +309,7 @@ import { obterBriefingDoDia } from "./services/briefingService";
 import { dispararResumoManual, previewResumoManual, hojeAgencia } from "./notificationJobs";
 import { emailMode, destinatariosDeTeste, transporteAtivo } from "./emailService";
 import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
+import { gerarEPersistirExecutivo, lerUltimoExecutivo } from "./services/jornalExecutivo";
 import { fontesDoCliente, fontesDeTodasAsContas } from "./services/fontesDoCliente";
 import { sincronizarGA4 } from "./services/ga4Sync";
 import { testarConexaoWoo, validarUrlDaLoja } from "./services/woocommerce";
@@ -2085,6 +2086,18 @@ export const appRouter = router({
         dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       }).default({ papel: "admin" }))
       .query(({ input }) => buildDailyDigestForRole(input.papel, input.dia ?? hojeAgencia())),
+
+    /**
+     * Jornalzinho EXECUTIVO (Panorama/lojas/GA4/técnica): gera, PERSISTE em
+     * app_settings e devolve — SEM enviar nada. Só admin. Leitura pura dos
+     * dados já validados; nenhuma credencial, nenhum envio.
+     */
+    executivoPreview: adminProcedure
+      .input(z.object({ dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).default({}))
+      .mutation(({ input }) => gerarEPersistirExecutivo(input.dia ?? hojeAgencia())),
+
+    /** Último Jornalzinho executivo gerado (persistido) — para visualizar no app. */
+    executivoUltimo: adminProcedure.query(() => lerUltimoExecutivo()),
 
     /**
      * "Enviar digest de teste agora". Recusa sem EMAIL_TEST_RECIPIENT — a trava

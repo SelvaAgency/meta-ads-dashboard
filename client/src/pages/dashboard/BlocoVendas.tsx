@@ -4,7 +4,7 @@ import { ShoppingCart, Loader2, ArrowUpRight, Info } from "lucide-react";
 import {
   vendasDe, funilVisual, rankingProdutos, distribuicaoStatus, achadosComerciais,
   fmtBRL, fmtDia, type ClientePanorama,
-} from "../panorama/panoramaLogic";
+} from "@shared/panoramaLogic";
 import { StatTile, ChipStatus, Funil, RankingProdutos, DistribuicaoStatus } from "../panorama/Visuais";
 
 /**

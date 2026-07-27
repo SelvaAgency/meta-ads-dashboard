@@ -9,7 +9,7 @@ import {
   celulaSaude, celulaTrafego, celulaFunil, celulaVendas, vendasDe,
   funilVisual, rankingProdutos, distribuicaoStatus, temEcommerce, fmtDia, fmtBRL,
   type ClientePanorama, type Nivel, type Celula, type Achado,
-} from "./panorama/panoramaLogic";
+} from "@shared/panoramaLogic";
 import {
   StatTile, BarraSaude, ChipStatus, DeltaTrafego, Funil, RankingProdutos, DistribuicaoStatus,
 } from "./panorama/Visuais";

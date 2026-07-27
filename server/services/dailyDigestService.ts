@@ -23,9 +23,10 @@ import {
   registrarEnvioDigest, emailDigestJaEnviado, listarComunicados,
 } from "../db";
 import { obterBriefingDoDia } from "./briefingService";
+import { getJornalExecutivo } from "./jornalExecutivo";
 
 export type Papel = "admin" | "developer" | "user";
-export type BlocoDigest = "performance" | "financeiro" | "site" | "aniversarios" | "comunicados";
+export type BlocoDigest = "performance" | "financeiro" | "site" | "aniversarios" | "comunicados" | "executivo";
 
 /**
  * A matriz é a regra de produto, num lugar só.
@@ -193,18 +194,26 @@ export async function buildDailyDigestForRole(role: string | null | undefined, d
     permitidos.has("comunicados") ? getComunicadosRelevantes(dia) : null,
   ]);
 
+  // Seção executiva (Panorama/lojas/GA4/técnica) — SÓ admin, leitura cross-client.
+  // Mesma lógica pura do Panorama; nunca envia nada (a trava vive no sendEmail).
+  const exec = papel === "admin" ? await getJornalExecutivo(dia).catch(() => null) : null;
+
   const blocos: BlocoDigest[] = [];
+  if (exec && !exec.secoes.vazio) blocos.push("executivo");
   if (perf) blocos.push("performance");
   if (fin) blocos.push("financeiro");
   if (site) blocos.push("site");
   if (niver) blocos.push("aniversarios");
   if (comun) blocos.push("comunicados");
 
+  const execHtml = exec && !exec.secoes.vazio ? SECAO("Leitura executiva do dia", exec.html) : "";
+  const execTexto = exec && !exec.secoes.vazio ? `\n${exec.texto}\n` : "";
+
   return {
     papel, dia, blocos, vazio: blocos.length === 0,
     assunto: `Jornalzinho SELVA — resumo diário — ${fmtData(dia).slice(0, 5)}`,
-    html: montarHtml({ dia, perf, fin, site, niver, comun }),
-    texto: montarTexto({ dia, perf, fin, site, niver, comun }),
+    html: execHtml + montarHtml({ dia, perf, fin, site, niver, comun }),
+    texto: execTexto + montarTexto({ dia, perf, fin, site, niver, comun }),
   };
 }
 
