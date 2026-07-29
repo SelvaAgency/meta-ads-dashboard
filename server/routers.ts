@@ -310,6 +310,9 @@ import { dispararResumoManual, previewResumoManual, hojeAgencia } from "./notifi
 import { emailMode, destinatariosDeTeste, transporteAtivo } from "./emailService";
 import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
 import { gerarEPersistirExecutivo, lerUltimoExecutivo } from "./services/jornalExecutivo";
+import { parseNubankCsv } from "./services/fatura/parseNubank";
+import { conciliarFatura } from "./services/fatura/classificador";
+import { carregarDicionario } from "./services/fatura/dicionario";
 import { fontesDoCliente, fontesDeTodasAsContas } from "./services/fontesDoCliente";
 import { sincronizarGA4 } from "./services/ga4Sync";
 import { testarConexaoWoo, validarUrlDaLoja } from "./services/woocommerce";
@@ -774,6 +777,26 @@ const financeRouter = router({
     create: adminProcedure.input(z.object({ mes: MES, descricao: z.string().min(1).max(120), valorCents: CENTS_SIGNED })).mutation(async ({ input }) => ({ id: await createFinanceRetirada(input) })),
     update: adminProcedure.input(z.object({ id: z.number().int(), mes: MES.optional(), descricao: z.string().min(1).max(120).optional(), valorCents: CENTS_SIGNED.optional() })).mutation(async ({ input }) => { const { id, ...patch } = input; await updateFinanceRetirada(id, patch); return { success: true } as const; }),
     delete: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => { await deleteFinanceRetirada(input.id); return { success: true } as const; }),
+  }),
+
+  /**
+   * ─── Conciliação de fatura → reembolsos SELVA (Fase 2) ────────────────────
+   * `classificar` recebe o CSV da fatura + o mês de competência e devolve a
+   * PRÉVIA classificada (SELVA/pessoal/revisar) — SÓ LEITURA, nada é gravado.
+   * O CSV é processado em memória e descartado; nunca é logado nem persistido.
+   * admin — é a conciliação pessoal do Gui.
+   */
+  fatura: router({
+    classificar: adminProcedure
+      .input(z.object({
+        csv: z.string().min(1).max(500_000),          // texto do CSV Nubank
+        mes: MES,                                      // competência (data da transação)
+      }))
+      .mutation(async ({ input }) => {
+        const dicionario = await carregarDicionario();
+        const linhas = parseNubankCsv(input.csv);      // em memória; não persiste
+        return conciliarFatura(linhas, input.mes, dicionario);
+      }),
   }),
 
   reconciliacao: router({

@@ -1272,6 +1272,30 @@ export const financeReembolsos = mysqlTable("finance_reembolsos", {
 export type FinanceReembolso = typeof financeReembolsos.$inferSelect;
 export type InsertFinanceReembolso = typeof financeReembolsos.$inferInsert;
 
+/**
+ * Dicionário aprendido da conciliação de fatura → reembolsos SELVA. Cada linha
+ * é uma regra estabelecimento→categoria. Semeada da aba "Reembolsos Gui" e
+ * crescida a cada mês conforme o Gui confirma. NUNCA guarda valores da fatura
+ * nem gasto pessoal — só o mapa de classificação. `padrao` é fonte de regex
+ * case-insensitive; `valorCents` (opcional) casa por valor (Apple ambíguo).
+ */
+export const financeMerchantMap = mysqlTable("finance_merchant_map", {
+  id: int("id").autoincrement().primaryKey(),
+  padrao: varchar("padrao", { length: 200 }).notNull(),
+  canonical: varchar("canonical", { length: 120 }).notNull(),
+  categoria: mysqlEnum("categoria", ["SELVA", "PESSOAL"]).notNull(),
+  valorCents: int("valorCents"),
+  origem: mysqlEnum("origem", ["SEED", "CONFIRMADO"]).default("SEED").notNull(),
+  vezesConfirmado: int("vezesConfirmado").default(0).notNull(),
+  ativo: boolean("ativo").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxCategoria: index("idx_merchant_categoria").on(table.categoria),
+}));
+export type FinanceMerchantMap = typeof financeMerchantMap.$inferSelect;
+export type InsertFinanceMerchantMap = typeof financeMerchantMap.$inferInsert;
+
 export const financeRetiradas = mysqlTable("finance_retiradas", {
   id: int("id").autoincrement().primaryKey(),
   mes: varchar("mes", { length: 7 }).notNull(),

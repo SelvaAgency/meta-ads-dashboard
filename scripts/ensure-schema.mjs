@@ -899,6 +899,27 @@ async function main() {
       console.log("[ensure-schema] ok  · alerts.type expandido (CLARITY_ISSUE/TRACKING_PROBLEM)");
     }
 
+    // 22) Dicionário da conciliação de fatura → reembolsos SELVA (Fase 2). Só o
+    //     mapa de classificação — nunca valores da fatura nem gasto pessoal. O
+    //     seed inicial é inserido em código (server/services/fatura/dicionario.ts),
+    //     mantendo uma fonte de verdade única com o classificador.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`finance_merchant_map\` (
+        \`id\` INT NOT NULL AUTO_INCREMENT,
+        \`padrao\` VARCHAR(200) NOT NULL,
+        \`canonical\` VARCHAR(120) NOT NULL,
+        \`categoria\` ENUM('SELVA','PESSOAL') NOT NULL,
+        \`valorCents\` INT NULL,
+        \`origem\` ENUM('SEED','CONFIRMADO') NOT NULL DEFAULT 'SEED',
+        \`vezesConfirmado\` INT NOT NULL DEFAULT 0,
+        \`ativo\` BOOLEAN NOT NULL DEFAULT 1,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_merchant_categoria\` (\`categoria\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · finance_merchant_map garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();
