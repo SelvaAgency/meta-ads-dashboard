@@ -12,7 +12,7 @@ import { HubShell } from "./hub/HubShell";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Wallet, Plus, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight, ArrowLeftRight, Users, TrendingDown, AlertTriangle, CalendarClock, Repeat, Lock, Unlock } from "lucide-react";
+import { Wallet, Plus, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight, ArrowLeftRight, Users, TrendingDown, AlertTriangle, CalendarClock, Repeat, Lock, Unlock, Receipt, Upload, CheckCircle2, HelpCircle } from "lucide-react";
 import { ResponsiveContainer, ComposedChart, Line, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ReferenceLine, PieChart, Pie, ScatterChart, Scatter, ZAxis } from "recharts";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -1724,6 +1724,169 @@ type RetiradaRow = { id: number; mes: string; descricao: string; valorCents: num
 type GsForm = { kind: "retirada"; id?: number; mes: string; descricao: string; valor: string } | { kind: "aporte"; id?: number; mes: string; descricao: string; valor: string };
 type AporteRow = { id: number; mes: string; descricao: string; valorCents: number; status: "pago" | "pendente" };
 
+/**
+ * Conciliação da fatura pessoal (Nubank) → reembolsos SELVA (Plataforma e
+ * Anúncios). FASE 3: upload + mês → prévia classificada revisável. NÃO lança
+ * nada ainda (isso é a Fase 4). O CSV é lido no navegador e enviado ao endpoint
+ * só-leitura; nada é gravado.
+ */
+function FaturaTab({ months }: { months: string[] }) {
+  const [mes, setMes] = useState<string>(months[0] ?? agencyCurrentMonthCli());
+  const [csv, setCsv] = useState<string>("");
+  const [fileName, setFileName] = useState<string>("");
+  // Revisão local (não persiste): estabelecimentos SELVA incluídos + decisão dos "revisar".
+  const [incluidos, setIncluidos] = useState<Record<string, boolean>>({});
+  const [decisaoRevisar, setDecisaoRevisar] = useState<Record<string, "SELVA" | "PESSOAL">>({});
+
+  const classificar = trpc.finance.fatura.classificar.useMutation({
+    onSuccess: (r) => {
+      setIncluidos(Object.fromEntries(r.selva.map((s) => [s.canonical, true])));
+      setDecisaoRevisar({});
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const conc = classificar.data;
+
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFileName(f.name);
+    const reader = new FileReader();
+    reader.onload = () => setCsv(String(reader.result ?? ""));
+    reader.onerror = () => toast.error("Não foi possível ler o arquivo.");
+    reader.readAsText(f, "utf-8");
+  };
+
+  const analisar = () => {
+    if (!csv.trim()) return toast.error("Selecione o CSV da fatura.");
+    if (!MES_RE.test(mes)) return toast.error("Mês inválido.");
+    classificar.mutate({ csv, mes });
+  };
+
+  // Total SELVA considerando a revisão local (estabelecimentos marcados + revisar→SELVA).
+  const totalRevisado = conc
+    ? conc.selva.filter((s) => incluidos[s.canonical] !== false).reduce((a, s) => a + s.valorCents, 0)
+      + conc.revisar.filter((l) => decisaoRevisar[chaveRevisar(l)] === "SELVA").reduce((a, l) => a + l.valorCents, 0)
+    : 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Upload */}
+      <Card><CardContent className="p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs">Mês de competência</Label>
+            <Select value={mes} onValueChange={setMes}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>{months.map((m) => <SelectItem key={m} value={m}>{formatMes(m)}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs">Fatura (CSV do Nubank)</Label>
+            <label className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-border text-sm cursor-pointer hover:bg-accent/40 w-64">
+              <Upload className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">{fileName || "Selecionar arquivo…"}</span>
+              <input type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
+            </label>
+          </div>
+          <Button onClick={analisar} disabled={classificar.isPending || !csv}>
+            {classificar.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Receipt className="w-4 h-4 mr-1" />} Analisar
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-2">
+          A competência é a <strong>data da transação</strong>: só entram gastos feitos no mês escolhido. O arquivo é lido no seu navegador e analisado sem ser salvo. Esta etapa é só a <strong>revisão</strong> — nada é lançado ainda.
+        </p>
+      </CardContent></Card>
+
+      {conc && (
+        <>
+          {/* Resumo */}
+          <div className="flex flex-wrap gap-3">
+            <SummaryTile label="Total SELVA (revisado)" value={centsToBRL(totalRevisado)} tone="emerald" />
+            <SummaryTile label="Estabelecimentos SELVA" value={String(conc.selva.length)} />
+            <SummaryTile label="Revisar" value={String(conc.revisar.length)} tone={conc.revisar.length ? "amber" : undefined} />
+            <SummaryTile label="Fora do mês" value={String(conc.foraDoMes.length)} hint="entram no próximo upload" />
+          </div>
+
+          {/* SELVA — agregado por estabelecimento */}
+          <Card><CardContent className="p-0">
+            <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 text-sm font-semibold"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Gastos SELVA · Plataforma e Anúncios</div>
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead className="w-10"></TableHead><TableHead>Estabelecimento</TableHead><TableHead>Lançamentos</TableHead><TableHead className="text-right">Valor</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {conc.selva.map((s) => (
+                  <TableRow key={s.canonical} className={incluidos[s.canonical] === false ? "opacity-40" : ""}>
+                    <TableCell><Switch checked={incluidos[s.canonical] !== false} onCheckedChange={(v) => setIncluidos((p) => ({ ...p, [s.canonical]: !!v }))} /></TableCell>
+                    <TableCell className="font-medium">{s.canonical}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{s.linhas.map((l) => `${l.descritor} (${centsToBRL(l.valorCents)})`).join(" · ")}</TableCell>
+                    <TableCell className="text-right tabular-nums font-semibold">{centsToBRL(s.valorCents)}</TableCell>
+                  </TableRow>
+                ))}
+                {conc.selva.length === 0 && <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-4">Nenhum gasto SELVA identificado neste mês.</TableCell></TableRow>}
+              </TableBody>
+            </Table>
+          </CardContent></Card>
+
+          {/* REVISAR — o sistema não sabe; você decide */}
+          {conc.revisar.length > 0 && (
+            <Card><CardContent className="p-0">
+              <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 text-sm font-semibold text-amber-600"><HelpCircle className="w-4 h-4" /> Revisar — estabelecimentos novos</div>
+              <Table>
+                <TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Estabelecimento</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="w-52">Classificar</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {conc.revisar.map((l) => { const k = chaveRevisar(l); const d = decisaoRevisar[k]; return (
+                    <TableRow key={k}>
+                      <TableCell className="text-xs text-muted-foreground">{l.data.slice(8, 10)}/{l.data.slice(5, 7)}</TableCell>
+                      <TableCell className="font-medium">{l.descritor}</TableCell>
+                      <TableCell className="text-right tabular-nums">{centsToBRL(l.valorCents)}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <Button size="sm" variant={d === "SELVA" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setDecisaoRevisar((p) => ({ ...p, [k]: "SELVA" }))}>SELVA</Button>
+                          <Button size="sm" variant={d === "PESSOAL" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setDecisaoRevisar((p) => ({ ...p, [k]: "PESSOAL" }))}>Pessoal</Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ); })}
+                </TableBody>
+              </Table>
+            </CardContent></Card>
+          )}
+
+          {/* Pessoal + ignorados (transparência, secundário) */}
+          <Card><CardContent className="p-4 text-xs text-muted-foreground space-y-1">
+            <p><strong className="text-foreground">{conc.pessoal.length}</strong> lançamentos classificados como pessoais (não entram no reembolso).</p>
+            <p><strong className="text-foreground">{conc.ignorados.length}</strong> ignorados (pagamento da fatura, estorno, ajuste, IOF de volta).</p>
+            {conc.foraDoMes.length > 0 && <p><strong className="text-foreground">{conc.foraDoMes.length}</strong> lançamentos de outro mês — entram no upload do mês correspondente.</p>}
+          </CardContent></Card>
+
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            Revisão apenas. O lançamento das despesas + reembolso (e o aprendizado do dicionário) entra na próxima etapa.
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Chave estável de uma linha "revisar" (data+descritor+valor). */
+function chaveRevisar(l: { data: string; descritor: string; valorCents: number }): string {
+  return `${l.data}|${l.descritor}|${l.valorCents}`;
+}
+
+function SummaryTile({ label, value, tone, hint }: { label: string; value: string; tone?: "emerald" | "amber"; hint?: string }) {
+  const cor = tone === "emerald" ? "text-emerald-600" : tone === "amber" ? "text-amber-600" : "text-foreground";
+  return (
+    <div className="bg-card border border-border rounded-xl px-4 py-3 min-w-[150px]">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={`text-2xl font-bold mt-0.5 tabular-nums ${cor}`}>{value}</p>
+      {hint && <p className="text-[11px] text-muted-foreground mt-0.5">{hint}</p>}
+    </div>
+  );
+}
+
 function GuiSelvaTab({ months }: { months: string[] }) {
   const utils = trpc.useUtils();
   const [mes, setMes] = useState<string>(agencyCurrentMonthCli());
@@ -1916,11 +2079,13 @@ export default function Finance() {
               <TabsTrigger value="clientes"><Users className="w-3.5 h-3.5 mr-1" /> Clientes e projetos</TabsTrigger>
               <TabsTrigger value="despesas"><TrendingDown className="w-3.5 h-3.5 mr-1" /> Despesas</TabsTrigger>
               <TabsTrigger value="guiselva"><ArrowLeftRight className="w-3.5 h-3.5 mr-1" /> Gui &amp; SELVA</TabsTrigger>
+              <TabsTrigger value="fatura"><Receipt className="w-3.5 h-3.5 mr-1" /> Fatura</TabsTrigger>
             </TabsList>
             <TabsContent value="visao" className="mt-4"><PnlTab months={months} clientes={clientes} clienteById={clienteById} onNavigate={navigate} /></TabsContent>
             <TabsContent value="clientes" className="mt-4"><ClientesTab months={months} clientes={clientes} drill={drill} /></TabsContent>
             <TabsContent value="despesas" className="mt-4"><DespesasTab months={months} drill={drill} /></TabsContent>
             <TabsContent value="guiselva" className="mt-4"><GuiSelvaTab months={months} /></TabsContent>
+            <TabsContent value="fatura" className="mt-4"><FaturaTab months={months} /></TabsContent>
           </Tabs>
         )}
       </div>
