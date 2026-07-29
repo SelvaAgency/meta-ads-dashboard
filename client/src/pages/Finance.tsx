@@ -1738,6 +1738,7 @@ function FaturaTab({ months }: { months: string[] }) {
   const [incluidos, setIncluidos] = useState<Record<string, boolean>>({});
   const [decisaoRevisar, setDecisaoRevisar] = useState<Record<string, "SELVA" | "PESSOAL">>({});
 
+  const utils = trpc.useUtils();
   const classificar = trpc.finance.fatura.classificar.useMutation({
     onSuccess: (r) => {
       setIncluidos(Object.fromEntries(r.selva.map((s) => [s.canonical, true])));
@@ -1746,6 +1747,15 @@ function FaturaTab({ months }: { months: string[] }) {
     onError: (e) => toast.error(e.message),
   });
   const conc = classificar.data;
+
+  const lancar = trpc.finance.fatura.lancar.useMutation({
+    onSuccess: (r) => {
+      toast.success(`${r.criadas} lançamento(s) criado(s)${r.puladas ? ` · ${r.puladas} já existiam` : ""}${r.novas ? ` · ${r.novas} regra(s) aprendida(s)` : ""}.`);
+      utils.finance.pnl.list.invalidate(); utils.finance.pnl.resumo.invalidate(); utils.finance.analytics?.invalidate?.();
+      classificar.reset(); setCsv(""); setFileName("");
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -1861,10 +1871,32 @@ function FaturaTab({ months }: { months: string[] }) {
             {conc.foraDoMes.length > 0 && <p><strong className="text-foreground">{conc.foraDoMes.length}</strong> lançamentos de outro mês — entram no upload do mês correspondente.</p>}
           </CardContent></Card>
 
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-            Revisão apenas. O lançamento das despesas + reembolso (e o aprendizado do dicionário) entra na próxima etapa.
-          </div>
+          {/* Lançar — cria despesas + reembolso e aprende os "revisar" */}
+          {(() => {
+            const lancamentos = [
+              ...conc.selva.filter((s) => incluidos[s.canonical] !== false).map((s) => ({ descricao: s.canonical, valorCents: s.valorCents })),
+              ...conc.revisar.filter((l) => decisaoRevisar[chaveRevisar(l)] === "SELVA").map((l) => ({ descricao: l.descritor, valorCents: l.valorCents })),
+            ];
+            const aprender = conc.revisar
+              .filter((l) => decisaoRevisar[chaveRevisar(l)])
+              .map((l) => ({ descritor: l.descritor, categoria: decisaoRevisar[chaveRevisar(l)]!, ...(decisaoRevisar[chaveRevisar(l)] === "SELVA" ? { canonical: l.descritor } : {}) }));
+            const pendentes = conc.revisar.filter((l) => !decisaoRevisar[chaveRevisar(l)]).length;
+            return (
+              <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
+                <div className="text-sm">
+                  <span className="font-semibold">{lancamentos.length}</span> lançamento(s) · total <span className="font-semibold tabular-nums">{centsToBRL(totalRevisado)}</span>
+                  {pendentes > 0 && <span className="text-amber-600 ml-2">· {pendentes} em "revisar" ainda sem decisão</span>}
+                </div>
+                <Button className="ml-auto" onClick={() => lancar.mutate({ mes: conc.mes, lancamentos, aprender })} disabled={lancar.isPending || lancamentos.length === 0}>
+                  {lancar.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-1" />} Lançar despesas + reembolso
+                </Button>
+              </div>
+            );
+          })()}
+          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+            Cada lançamento vira despesa pontual paga + reembolso pendente (Plataformas & Ferramentas). Subir o mesmo mês de novo não duplica. Suas decisões de "revisar" viram regra para o próximo mês.
+          </p>
         </>
       )}
     </div>

@@ -14,7 +14,7 @@
  */
 import { getDb } from "../../db";
 import { financeMerchantMap } from "../../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { DICIONARIO_SEED, type Regra } from "./classificador";
 import { logger } from "../../logger";
 
@@ -59,4 +59,45 @@ export async function carregarDicionario(): Promise<Regra[]> {
     return (b.valorCents != null ? 1 : 0) - (a.valorCents != null ? 1 : 0);
   });
   return ordenadas.map(paraRegra).filter((r): r is Regra => r !== null);
+}
+
+/** Escapa um descritor para virar um padrão de regex exato (case-insensitive). */
+function escaparRegex(s: string): string {
+  return s.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").slice(0, 200);
+}
+
+/**
+ * APRENDE: grava as decisões de "revisar" do Gui como regras CONFIRMADO. Um
+ * estabelecimento novo classificado por ele passa a ser reconhecido no mês
+ * seguinte. Idempotente: se a regra já existe (mesmo padrão+categoria), só
+ * incrementa `vezesConfirmado`. Guarda SÓ o mapa — nunca valor nem gasto.
+ */
+export async function aprenderRegras(
+  decisoes: { descritor: string; categoria: "SELVA" | "PESSOAL"; canonical?: string }[],
+): Promise<{ novas: number; reforcadas: number }> {
+  const db = await getDb();
+  if (!db) return { novas: 0, reforcadas: 0 };
+  let novas = 0, reforcadas = 0;
+  for (const d of decisoes) {
+    const padrao = escaparRegex(d.descritor);
+    if (!padrao) continue;
+    const canonical = (d.canonical?.trim() || d.descritor.trim() || "Novo").slice(0, 120);
+    const existente = await db.select({ id: financeMerchantMap.id, vezes: financeMerchantMap.vezesConfirmado })
+      .from(financeMerchantMap)
+      .where(and(eq(financeMerchantMap.padrao, padrao), eq(financeMerchantMap.categoria, d.categoria)))
+      .limit(1);
+    if (existente[0]) {
+      await db.update(financeMerchantMap)
+        .set({ vezesConfirmado: existente[0].vezes + 1, ativo: true, origem: "CONFIRMADO" })
+        .where(eq(financeMerchantMap.id, existente[0].id));
+      reforcadas++;
+    } else {
+      await db.insert(financeMerchantMap).values({
+        padrao, canonical, categoria: d.categoria, origem: "CONFIRMADO", vezesConfirmado: 1,
+      });
+      novas++;
+    }
+  }
+  logger.info(`[Fatura] aprendizado: ${novas} regras novas · ${reforcadas} reforçadas`);
+  return { novas, reforcadas };
 }

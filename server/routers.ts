@@ -243,6 +243,7 @@ import {
   listFinancePnl,
   financePnlResumo,
   createFinancePnl,
+  lancarReembolsosFatura,
   updateFinancePnl,
   deleteFinancePnl,
   listFinanceReembolsos,
@@ -312,7 +313,7 @@ import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigest
 import { gerarEPersistirExecutivo, lerUltimoExecutivo } from "./services/jornalExecutivo";
 import { parseNubankCsv } from "./services/fatura/parseNubank";
 import { conciliarFatura } from "./services/fatura/classificador";
-import { carregarDicionario } from "./services/fatura/dicionario";
+import { carregarDicionario, aprenderRegras } from "./services/fatura/dicionario";
 import { fontesDoCliente, fontesDeTodasAsContas } from "./services/fontesDoCliente";
 import { sincronizarGA4 } from "./services/ga4Sync";
 import { testarConexaoWoo, validarUrlDaLoja } from "./services/woocommerce";
@@ -796,6 +797,25 @@ const financeRouter = router({
         const dicionario = await carregarDicionario();
         const linhas = parseNubankCsv(input.csv);      // em memória; não persiste
         return conciliarFatura(linhas, input.mes, dicionario);
+      }),
+
+    /**
+     * Fase 4: LANÇA os gastos SELVA confirmados como DESPESA_PONTUAL + reembolso
+     * pendente (subcategoria PLATAFORMAS), com dedup por (mês, sub, descrição,
+     * valor). E APRENDE: as decisões de "revisar" viram regras CONFIRMADO no
+     * dicionário. Recebe só valores/descrições (nunca o CSV) — nada de PII.
+     */
+    lancar: adminProcedure
+      .input(z.object({
+        mes: MES,
+        subcategoria: z.string().max(24).default("PLATAFORMAS"),
+        lancamentos: z.array(z.object({ descricao: z.string().min(1).max(255), valorCents: z.number().int().positive() })).max(200),
+        aprender: z.array(z.object({ descritor: z.string().min(1).max(200), categoria: z.enum(["SELVA", "PESSOAL"]), canonical: z.string().max(120).optional() })).max(200).default([]),
+      }))
+      .mutation(async ({ input }) => {
+        const aprendizado = input.aprender.length ? await aprenderRegras(input.aprender) : { novas: 0, reforcadas: 0 };
+        const lancamento = await lancarReembolsosFatura(input.mes, input.subcategoria, input.lancamentos);
+        return { ...lancamento, ...aprendizado };
       }),
   }),
 

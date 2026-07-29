@@ -2269,6 +2269,41 @@ export async function getFinancePnlById(id: number) {
   const r = await db.select().from(financePnlEntries).where(eq(financePnlEntries.id, id)).limit(1);
   return r[0];
 }
+
+/**
+ * Lança os gastos SELVA da conciliação de fatura como DESPESA_PONTUAL + reembolso
+ * pendente, no mês de competência. DEDUP por (mes, subcategoria, descrição,
+ * valor): re-subir o mesmo mês não duplica. Cada lançamento é `pago` (já saiu do
+ * cartão) e alimenta o "falta receber do Gui". Mês fechado é recusado.
+ */
+export async function lancarReembolsosFatura(
+  mes: string, subcategoria: string, lancamentos: { descricao: string; valorCents: number }[],
+): Promise<{ criadas: number; puladas: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await assertMesAberto(mes);
+  const existentes = await db.select({ descricao: financePnlEntries.descricao, valorCents: financePnlEntries.valorCents })
+    .from(financePnlEntries)
+    .where(and(
+      eq(financePnlEntries.mes, mes),
+      eq(financePnlEntries.tipo, "DESPESA_PONTUAL"),
+      eq(financePnlEntries.subcategoria, subcategoria),
+    ));
+  const jaExiste = new Set(existentes.map((e) => `${e.descricao}|${e.valorCents}`));
+  let criadas = 0, puladas = 0;
+  for (const l of lancamentos) {
+    if (l.valorCents <= 0 || !l.descricao.trim()) { puladas++; continue; }
+    if (jaExiste.has(`${l.descricao}|${l.valorCents}`)) { puladas++; continue; }
+    await db.insert(financePnlEntries).values({
+      mes, tipo: "DESPESA_PONTUAL", descricao: l.descricao.slice(0, 255), valorCents: l.valorCents,
+      status: "pago", clienteId: null, origem: "MANUAL", reembolsoPendente: true,
+      subcategoria: subcategoria.slice(0, 24),
+    });
+    jaExiste.add(`${l.descricao}|${l.valorCents}`);
+    criadas++;
+  }
+  return { criadas, puladas };
+}
 export async function updateFinancePnl(id: number, patch: Partial<InsertFinancePnlEntry>) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
