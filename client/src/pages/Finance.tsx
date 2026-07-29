@@ -1732,8 +1732,7 @@ type AporteRow = { id: number; mes: string; descricao: string; valorCents: numbe
  */
 function FaturaTab({ months }: { months: string[] }) {
   const [mes, setMes] = useState<string>(months[0] ?? agencyCurrentMonthCli());
-  const [csv, setCsv] = useState<string>("");
-  const [fileName, setFileName] = useState<string>("");
+  const [arquivos, setArquivos] = useState<{ nome: string; texto: string }[]>([]);
   // Revisão local (não persiste): estabelecimentos SELVA incluídos + decisão dos "revisar".
   const [incluidos, setIncluidos] = useState<Record<string, boolean>>({});
   const [decisaoRevisar, setDecisaoRevisar] = useState<Record<string, "SELVA" | "PESSOAL">>({});
@@ -1752,25 +1751,32 @@ function FaturaTab({ months }: { months: string[] }) {
     onSuccess: (r) => {
       toast.success(`${r.criadas} lançamento(s) criado(s)${r.puladas ? ` · ${r.puladas} já existiam` : ""}${r.novas ? ` · ${r.novas} regra(s) aprendida(s)` : ""}.`);
       utils.finance.pnl.list.invalidate(); utils.finance.pnl.resumo.invalidate(); utils.finance.analytics?.invalidate?.();
-      classificar.reset(); setCsv(""); setFileName("");
+      classificar.reset(); setArquivos([]);
     },
     onError: (e) => toast.error(e.message),
   });
 
+  // Lê os arquivos escolhidos (pode ser mais de um) e acumula, sem duplicar arquivo idêntico.
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setFileName(f.name);
-    const reader = new FileReader();
-    reader.onload = () => setCsv(String(reader.result ?? ""));
-    reader.onerror = () => toast.error("Não foi possível ler o arquivo.");
-    reader.readAsText(f, "utf-8");
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // permite reescolher o mesmo arquivo depois
+    Promise.all(files.map((f) => new Promise<{ nome: string; texto: string }>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ nome: f.name, texto: String(reader.result ?? "") });
+      reader.onerror = () => reject(new Error(f.name));
+      reader.readAsText(f, "utf-8");
+    }))).then((novos) => {
+      setArquivos((prev) => {
+        const textos = new Set(prev.map((a) => a.texto));
+        return [...prev, ...novos.filter((n) => n.texto.trim() && !textos.has(n.texto))];
+      });
+    }).catch((err) => toast.error(`Não foi possível ler ${err.message}.`));
   };
 
   const analisar = () => {
-    if (!csv.trim()) return toast.error("Selecione o CSV da fatura.");
+    if (!arquivos.length) return toast.error("Selecione ao menos uma fatura (CSV).");
     if (!MES_RE.test(mes)) return toast.error("Mês inválido.");
-    classificar.mutate({ csv, mes });
+    classificar.mutate({ csvs: arquivos.map((a) => a.texto), mes });
   };
 
   // Total SELVA considerando a revisão local (estabelecimentos marcados + revisar→SELVA).
@@ -1792,19 +1798,29 @@ function FaturaTab({ months }: { months: string[] }) {
             </Select>
           </div>
           <div className="flex flex-col gap-1">
-            <Label className="text-xs">Fatura (CSV do Nubank)</Label>
+            <Label className="text-xs">Faturas (CSV do Nubank — pode subir mais de uma)</Label>
             <label className="inline-flex items-center gap-2 h-9 px-3 rounded-md border border-border text-sm cursor-pointer hover:bg-accent/40 w-64">
               <Upload className="w-4 h-4 flex-shrink-0" />
-              <span className="truncate">{fileName || "Selecionar arquivo…"}</span>
-              <input type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
+              <span className="truncate">{arquivos.length ? `Adicionar mais…` : "Selecionar arquivo(s)…"}</span>
+              <input type="file" accept=".csv,text/csv" multiple className="hidden" onChange={onFile} />
             </label>
           </div>
-          <Button onClick={analisar} disabled={classificar.isPending || !csv}>
+          <Button onClick={analisar} disabled={classificar.isPending || !arquivos.length}>
             {classificar.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Receipt className="w-4 h-4 mr-1" />} Analisar
           </Button>
         </div>
+        {arquivos.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-3">
+            {arquivos.map((a) => (
+              <span key={a.nome + a.texto.length} className="inline-flex items-center gap-1.5 text-xs bg-muted/60 rounded-md px-2 py-1">
+                <Receipt className="w-3 h-3 text-muted-foreground" /> {a.nome}
+                <button onClick={() => setArquivos((prev) => prev.filter((x) => x !== a))} className="text-muted-foreground hover:text-red-600" title="Remover"><Trash2 className="w-3 h-3" /></button>
+              </span>
+            ))}
+          </div>
+        )}
         <p className="text-[11px] text-muted-foreground mt-2">
-          A competência é a <strong>data da transação</strong>: só entram gastos feitos no mês escolhido. O arquivo é lido no seu navegador e analisado sem ser salvo. Esta etapa é só a <strong>revisão</strong> — nada é lançado ainda.
+          A competência é a <strong>data da transação</strong>: só entram gastos feitos no mês escolhido — de qualquer uma das faturas. Ex.: para julho, suba a fatura de julho <strong>e</strong> a de agosto; o sistema pega só os dias 01–31/jul. Os arquivos são lidos no seu navegador e analisados sem serem salvos. Esta etapa é só a <strong>revisão</strong> — nada é lançado ainda.
         </p>
       </CardContent></Card>
 
@@ -1823,18 +1839,19 @@ function FaturaTab({ months }: { months: string[] }) {
             <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 text-sm font-semibold"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Gastos SELVA · Plataforma e Anúncios</div>
             <Table>
               <TableHeader><TableRow>
-                <TableHead className="w-10"></TableHead><TableHead>Estabelecimento</TableHead><TableHead>Lançamentos</TableHead><TableHead className="text-right">Valor</TableHead>
+                <TableHead className="w-10"></TableHead><TableHead>Estabelecimento</TableHead><TableHead className="w-28">Data</TableHead><TableHead>Lançamentos</TableHead><TableHead className="text-right">Valor</TableHead>
               </TableRow></TableHeader>
               <TableBody>
                 {conc.selva.map((s) => (
                   <TableRow key={s.canonical} className={incluidos[s.canonical] === false ? "opacity-40" : ""}>
                     <TableCell><Switch checked={incluidos[s.canonical] !== false} onCheckedChange={(v) => setIncluidos((p) => ({ ...p, [s.canonical]: !!v }))} /></TableCell>
                     <TableCell className="font-medium">{s.canonical}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{s.linhas.map((l) => `${l.descritor} (${centsToBRL(l.valorCents)})`).join(" · ")}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap tabular-nums">{rangeDatas(s.linhas)}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{s.linhas.map((l) => `${ddmm(l.data)} · ${l.descritor} (${centsToBRL(l.valorCents)})`).join(" · ")}</TableCell>
                     <TableCell className="text-right tabular-nums font-semibold">{centsToBRL(s.valorCents)}</TableCell>
                   </TableRow>
                 ))}
-                {conc.selva.length === 0 && <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-4">Nenhum gasto SELVA identificado neste mês.</TableCell></TableRow>}
+                {conc.selva.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-4">Nenhum gasto SELVA identificado neste mês.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </CardContent></Card>
@@ -1906,6 +1923,17 @@ function FaturaTab({ months }: { months: string[] }) {
 /** Chave estável de uma linha "revisar" (data+descritor+valor). */
 function chaveRevisar(l: { data: string; descritor: string; valorCents: number }): string {
   return `${l.data}|${l.descritor}|${l.valorCents}`;
+}
+
+/** "2026-07-04" → "04/07". */
+const ddmm = (data: string): string => `${data.slice(8, 10)}/${data.slice(5, 7)}`;
+
+/** Faixa de datas de um estabelecimento: uma data, ou menor–maior. */
+function rangeDatas(linhas: { data: string }[]): string {
+  const datas = linhas.map((l) => l.data).filter(Boolean).sort();
+  if (datas.length === 0) return "—";
+  const min = ddmm(datas[0]), max = ddmm(datas[datas.length - 1]);
+  return min === max ? min : `${min}–${max}`;
 }
 
 function SummaryTile({ label, value, tone, hint }: { label: string; value: string; tone?: "emerald" | "amber"; hint?: string }) {

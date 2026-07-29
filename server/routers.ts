@@ -790,12 +790,14 @@ const financeRouter = router({
   fatura: router({
     classificar: adminProcedure
       .input(z.object({
-        csv: z.string().min(1).max(500_000),          // texto do CSV Nubank
+        // Uma OU mais faturas (ex.: a de julho + a de agosto): a competência por
+        // data pega só os gastos do mês, de qualquer arquivo. Em memória, nunca salvo.
+        csvs: z.array(z.string().min(1).max(500_000)).min(1).max(6),
         mes: MES,                                      // competência (data da transação)
       }))
       .mutation(async ({ input }) => {
         const dicionario = await carregarDicionario();
-        const linhas = parseNubankCsv(input.csv);      // em memória; não persiste
+        const linhas = input.csvs.flatMap((c) => parseNubankCsv(c)); // junta as faturas
         return conciliarFatura(linhas, input.mes, dicionario);
       }),
 
