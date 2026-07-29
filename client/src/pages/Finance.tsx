@@ -1837,20 +1837,20 @@ function FaturaTab({ months }: { months: string[] }) {
           {/* SELVA — agregado por estabelecimento */}
           <Card><CardContent className="p-0">
             <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 text-sm font-semibold"><CheckCircle2 className="w-4 h-4 text-emerald-600" /> Gastos SELVA · Plataforma e Anúncios</div>
-            <Table>
+            <Table className="table-fixed w-full">
               <TableHeader><TableRow>
-                <TableHead className="w-10"></TableHead><TableHead>Estabelecimento</TableHead><TableHead className="w-28">Data</TableHead><TableHead>Lançamentos</TableHead><TableHead className="text-right">Valor</TableHead>
+                <TableHead className="w-12"></TableHead><TableHead className="w-44">Estabelecimento</TableHead><TableHead className="w-28">Data</TableHead><TableHead>Lançamentos</TableHead><TableHead className="w-32 text-right">Valor</TableHead>
               </TableRow></TableHeader>
               <TableBody>
-                {conc.selva.map((s) => (
+                {conc.selva.map((s) => { const texto = lancamentosTexto(s.linhas); return (
                   <TableRow key={s.canonical} className={incluidos[s.canonical] === false ? "opacity-40" : ""}>
                     <TableCell><Switch checked={incluidos[s.canonical] !== false} onCheckedChange={(v) => setIncluidos((p) => ({ ...p, [s.canonical]: !!v }))} /></TableCell>
-                    <TableCell className="font-medium">{s.canonical}</TableCell>
+                    <TableCell className="font-medium"><div className="truncate" title={s.canonical}>{s.canonical}</div></TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap tabular-nums">{rangeDatas(s.linhas)}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{s.linhas.map((l) => `${ddmm(l.data)} · ${l.descritor} (${centsToBRL(l.valorCents)})`).join(" · ")}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground"><div className="truncate" title={texto}>{texto}</div></TableCell>
                     <TableCell className="text-right tabular-nums font-semibold">{centsToBRL(s.valorCents)}</TableCell>
                   </TableRow>
-                ))}
+                ); })}
                 {conc.selva.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-4">Nenhum gasto SELVA identificado neste mês.</TableCell></TableRow>}
               </TableBody>
             </Table>
@@ -1934,6 +1934,11 @@ function rangeDatas(linhas: { data: string }[]): string {
   if (datas.length === 0) return "—";
   const min = ddmm(datas[0]), max = ddmm(datas[datas.length - 1]);
   return min === max ? min : `${min}–${max}`;
+}
+
+/** Texto completo dos lançamentos de um estabelecimento (data · descritor (valor)). */
+function lancamentosTexto(linhas: { data: string; descritor: string; valorCents: number }[]): string {
+  return linhas.map((l) => `${ddmm(l.data)} · ${l.descritor} (${centsToBRL(l.valorCents)})`).join(" · ");
 }
 
 function SummaryTile({ label, value, tone, hint }: { label: string; value: string; tone?: "emerald" | "amber"; hint?: string }) {
