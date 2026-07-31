@@ -1453,7 +1453,21 @@ export async function getUnreadAlertsCountByAccount(userId: number, accountId: n
   return result[0]?.count ?? 0;
 }
 
+/**
+ * ─── Interruptor MESTRE de notificações/alertas ─────────────────────────────
+ * Fail-safe: só cria alerta quando NOTIFICATIONS_ENABLED === "true". Qualquer
+ * outro valor — inclusive ausência — deixa PAUSADO. A trava fica nos pontos por
+ * onde todo alerta passa (createAlert, createAlertIfNotExists e o fan-out
+ * in-app), então nenhum caminho escapa. Religar: NOTIFICATIONS_ENABLED=true.
+ * (Espelha a pausa de e-mail; os sinais de "fonte com erro" no Panorama/
+ * Jornalzinho vêm do classificador de fontes, não de alertas, então seguem.)
+ */
+export function notificacoesHabilitadas(): boolean {
+  return process.env.NOTIFICATIONS_ENABLED === "true";
+}
+
 export async function createAlert(data: InsertAlert) {
+  if (!notificacoesHabilitadas()) { logger.warn("[Alertas] notificações pausadas — alerta não criado"); return null; }
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   const result = await db.insert(alerts).values(data);
@@ -1466,6 +1480,7 @@ export async function createAlert(data: InsertAlert) {
  * Retorna o resultado do INSERT ou null se já existia.
  */
 export async function createAlertIfNotExists(data: InsertAlert): Promise<any | null> {
+  if (!notificacoesHabilitadas()) { logger.warn("[Alertas] notificações pausadas — alerta não criado"); return null; }
   const db = await getDb();
   if (!db) throw new Error("DB not available");
 
@@ -3549,6 +3564,7 @@ export type NovaNotificacao = {
  * Retorna os userIds que receberam agora.
  */
 export async function createNotification(n: NovaNotificacao): Promise<number[]> {
+  if (!notificacoesHabilitadas()) { logger.warn("[Alertas] notificações pausadas — fan-out in-app não criado"); return []; }
   const db = await getDb();
   if (!db) return [];
   const dominio = dominioDoAlerta(n.alertType);

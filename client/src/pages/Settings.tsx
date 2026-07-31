@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import {
   Settings2, Check, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
   CreditCard, Wallet, Key, ExternalLink, Link2, ChevronRight, Zap,
-  Trash2, Loader2, SlidersHorizontal, Bell, RefreshCw, Brain, BookOpen, Save} from "lucide-react";
+  Trash2, Loader2, SlidersHorizontal, RefreshCw, Brain, BookOpen, Save} from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type GoalType = "SALES"|"VALUE"|"LEADS"|"MESSAGES"|"TRAFFIC"|"ENGAGEMENT"|"AWARENESS"|"VIDEO"|"FOLLOWERS"|"APP";
@@ -756,19 +756,9 @@ export default function Settings() {
 
         </section>
 
-
-        {/* Limites de alerta de mídia (CPA/ROAS/orçamento). As PREFERÊNCIAS
-            pessoais de notificação (o que cada pessoa recebe e por onde, o
-            resumo diário) foram para Configurações do Spaces — são da vida da
-            pessoa na empresa, não desta conta de mídia. Aqui fica só o que é
-            mecânica de mídia: quando o alerta dispara. */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Bell className="w-3.5 h-3.5 text-muted-foreground" />
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Limites de alerta de mídia</h2>
-          </div>
-          <NotificationsSection />
-        </section>
+        {/* Bloco "Limites de alerta de mídia" (NotificationsSection) removido —
+            as notificações estão pausadas por ora. A seção e o componente
+            continuam no código para quando religarmos. */}
 
       </div>
     </MetaDashboardLayout>
