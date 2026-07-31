@@ -1,4 +1,7 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { SemAcessoTracker } from "@/components/SemAcessoTracker";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canManageContent } from "@shared/permissions";
 import { trpc } from "@/lib/trpc";
 import {
   AlertTriangle, Bell, BellOff, Info, Loader2, RefreshCw,
@@ -55,6 +58,11 @@ export default function AlertsPage() {
   const [statusFilter, setStatusFilter] = useState<"nova" | "lida" | null>("nova");
   const utils = trpc.useUtils();
 
+  // Visibilidade temporária: Alertas do Tracker é oculto para colaboradores.
+  // Guarda de UI + queries desligadas quando não pode ver (backend inalterado).
+  const { user } = useAuth();
+  const podeVer = canManageContent(user?.role);
+
   const toggleGroup = (key: string) => {
     setExpandedGroups(prev => {
       const next = new Set(prev);
@@ -66,8 +74,8 @@ export default function AlertsPage() {
   const { data: allAlerts, isLoading } = trpc.alerts.listAll.useQuery({
     ...(dominio ? { dominio } : {}),
     ...(statusFilter ? { status: statusFilter } : {}),
-  });
-  const { data: contagem } = trpc.alerts.unreadByDominio.useQuery();
+  }, { enabled: podeVer });
+  const { data: contagem } = trpc.alerts.unreadByDominio.useQuery(undefined, { enabled: podeVer });
 
   const markRead = trpc.alerts.markRead.useMutation({
     onSuccess: () => { utils.alerts.listAll.invalidate(); utils.alerts.unreadCount.invalidate(); },
@@ -152,6 +160,15 @@ export default function AlertsPage() {
     }
     return Array.from(map.entries()).map(([type, items]) => ({ type, items }));
   }, [filteredCriticalAlerts]);
+
+  if (!podeVer) {
+    return (
+      <SemAcessoTracker
+        title="Alertas"
+        message="A central de alertas do Tracker é restrita a administradores e desenvolvedores."
+      />
+    );
+  }
 
   const panel: React.CSSProperties = { background: "#FFFFFF", border: "0.5px solid var(--color-border-secondary)", borderRadius: 12, overflow: "hidden" };
 

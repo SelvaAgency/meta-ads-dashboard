@@ -20,6 +20,7 @@ import {
   Link2,
   LogOut,
   Lightbulb,
+  Lock,
   TrendingUp,
   Activity,
   Globe,
@@ -107,6 +108,10 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   const leaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sidebarOpen = pinnedOpen || hovering || clientDropdownOpen;
 
+  // Visibilidade temporária: Alertas/Google Ads/Redes sociais ficam ocultos para
+  // o colaborador. Também desliga as queries de alerta e o sino do topo.
+  const isManager = canManageContent(user?.role);
+
   const {
     activeAccount,
     activeAccountId,
@@ -118,12 +123,12 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
   const { data: unreadCount } = trpc.alerts.unreadCount.useQuery(
     { accountId: activeAccountId ?? undefined },
-    { enabled: isAuthenticated, refetchInterval: 30000 }
+    { enabled: isAuthenticated && isManager, refetchInterval: 30000 }
   );
 
   const { data: globalUnreadCount } = trpc.alerts.unreadCount.useQuery(
     {},
-    { enabled: isAuthenticated, refetchInterval: 30000 }
+    { enabled: isAuthenticated && isManager, refetchInterval: 30000 }
   );
 
   const [notifOpen, setNotifOpen] = useState(false);
@@ -131,12 +136,12 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
   const [notifDominio, setNotifDominio] = useState<"PERFORMANCE" | "FINANCEIRO" | null>(null);
   const { data: notifPorDominio } = trpc.alerts.unreadByDominio.useQuery(undefined, {
-    enabled: isAuthenticated, refetchInterval: 30000,
+    enabled: isAuthenticated && isManager, refetchInterval: 30000,
   });
   // status:"nova" é obrigatório agora: com soft-read a lida continua na tabela.
   const { data: recentAlerts, isLoading: notifLoading } = trpc.alerts.listAll.useQuery(
     { status: "nova", ...(notifDominio ? { dominio: notifDominio } : {}) },
-    { enabled: isAuthenticated && notifOpen, refetchInterval: notifOpen ? 15000 : false },
+    { enabled: isAuthenticated && notifOpen && isManager, refetchInterval: notifOpen ? 15000 : false },
   );
 
   useEffect(() => {
@@ -176,24 +181,70 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
   const hasClient = !!activeClient;
 
-  // Account-specific nav items (require a client to be selected)
-  const accountNavItems = [
+  // Nav por-cliente (exigem cliente selecionado).
+  // Base: sempre visível, inclusive para o colaborador.
+  const baseNavItems = [
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
     { path: "/reports", label: "Relatórios", icon: FileText },
-    { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
-    // Gestão de propriedades GA4 é de admin/dev; usuário comum consome os
-    // dados na seção Site e não precisa da tela de vínculo.
-    ...(canManageContent(user?.role) ? [
-      { path: "/ga4", label: "Google Analytics", icon: BarChart3 },
-      // Conexões de e-commerce (F5-B) — gestão, então admin/dev.
-      { path: "/lojas", label: "Lojas", icon: Store },
-    ] : []),
     { path: "/site", label: "Site", icon: Globe },
-    // A página existia e já puxava dado real do Instagram, mas não estava em
-    // lugar nenhum da navegação — só por URL direta.
+  ];
+  // Ocultos para colaboradores — só admin/dev. Ficam sob o divisor
+  // "Oculto para colaboradores". GA4/Lojas já eram admin/dev; Google Ads e
+  // Redes sociais entram agora na mesma lógica.
+  const managerNavItems = [
+    { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
+    { path: "/ga4", label: "Google Analytics", icon: BarChart3 },
+    { path: "/lojas", label: "Lojas", icon: Store },
     { path: "/social-networks", label: "Redes sociais", icon: Instagram },
   ];
+
+  const renderAccountItem = (item: { path: string; label: string; icon: typeof Home }) => {
+    const isActive = location === item.path;
+    const Icon = item.icon;
+    return (
+      <div
+        key={item.path}
+        style={!hasClient ? { opacity: 0.25, pointerEvents: "none" as const } : {}}
+      >
+        <Link href={item.path}>
+          <div
+            className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
+            style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
+          >
+            <Icon className="w-4 h-4 flex-shrink-0" />
+            {sidebarOpen && (
+              <span className="text-sm font-medium flex-1 truncate">{item.label}</span>
+            )}
+          </div>
+        </Link>
+        {/* Sugestões IA sub-item */}
+        {item.path === "/dashboard" && sidebarOpen && (
+          <Link href="/suggestions">
+            <div
+              className={`flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg cursor-pointer transition-all duration-150 ${location !== "/suggestions" ? HOVER_CLS : ""}`}
+              style={location === "/suggestions" ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: "rgba(255,255,255,0.4)" }}
+            >
+              <Lightbulb className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="text-xs font-medium flex-1 truncate">Plano de Ação</span>
+            </div>
+          </Link>
+        )}
+        {/* Experimentos sub-item */}
+        {item.path === "/dashboard" && sidebarOpen && (
+          <Link href="/experiments">
+            <div
+              className={`flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg cursor-pointer transition-all duration-150 ${location !== "/experiments" && !location.startsWith("/experiments/") ? HOVER_CLS : ""}`}
+              style={location === "/experiments" || location.startsWith("/experiments/") ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: "rgba(255,255,255,0.4)" }}
+            >
+              <FlaskConical className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="text-xs font-medium flex-1 truncate">Experimentos</span>
+            </div>
+          </Link>
+        )}
+      </div>
+    );
+  };
 
   // ── Loading / Auth guards ──────────────────────────────────────────────────
 
@@ -262,7 +313,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             )}
           </div>
 
-          {/* Visão Geral — always accessible */}
+          {/* Visão Geral — sempre visível */}
           {(() => {
             const isActive = location === "/";
             return (
@@ -277,23 +328,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             );
           })()}
 
-          {/* Panorama de Sites — visão cross-client de gestão, admin/dev */}
-          {canManageContent(user?.role) && (() => {
-            const isActive = location === "/panorama";
-            return (
-              <Link href="/panorama">
-                <div
-                  className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
-                  style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
-                >
-                  <Globe className="w-4 h-4 flex-shrink-0" />
-                  {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Panorama de Sites</span>}
-                </div>
-              </Link>
-            );
-          })()}
-
-          {/* Configurações — always accessible */}
+          {/* Configurações — sempre visível */}
           {(() => {
             const isActive = location === "/settings";
             return (
@@ -309,34 +344,62 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             );
           })()}
 
-          {/* Administrativo NÃO fica aqui: é área do Spaces, não do Tracker.
-              Ele vive na sidebar principal do Spaces (HubSidebar), lá sim
-              visível-com-cadeado para não-admin. Duplicar aqui criava uma
-              segunda porta administrativa dentro do Tracker. */}
-          {/* Alertas — always accessible, badge shows total across all accounts */}
-          {(() => {
-            const isActive = location === "/alerts";
-            return (
-              <Link href="/alerts">
-                <div
-                  className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
-                  style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
-                >
-                  <Bell className="w-4 h-4 flex-shrink-0" />
-                  {sidebarOpen && (
-                    <>
-                      <span className="text-sm font-medium flex-1 truncate">Alertas</span>
-                      {globalUnreadCount != null && globalUnreadCount > 0 && (
-                        <Badge variant="destructive" className="h-5 min-w-5 px-1.5 text-xs flex items-center justify-center font-bold shadow-sm">
-                          {globalUnreadCount > 99 ? "99+" : globalUnreadCount}
-                        </Badge>
+          {/* ── Oculto para colaboradores (admin/dev) ──────────────────────────
+              Panorama e Alertas somem por completo para o colaborador. Para
+              admin/dev, o rótulo deixa claro que é seção que o colaborador não
+              vê. Administrativo continua fora do Tracker (vive no HubSidebar). */}
+          {isManager && (
+            <>
+              {sidebarOpen ? (
+                <p className="mt-3 mb-1 px-3 text-[9px] font-bold uppercase tracking-[0.1em] flex items-center gap-1.5" style={{ color: "rgba(255,255,255,0.28)" }}>
+                  <Lock className="w-2.5 h-2.5 flex-shrink-0" /> Oculto para colaboradores
+                </p>
+              ) : (
+                <div style={{ borderTop: DIVIDER, margin: "8px 8px 4px" }} />
+              )}
+
+              {/* Panorama de Sites — visão cross-client de gestão */}
+              {(() => {
+                const isActive = location === "/panorama";
+                return (
+                  <Link href="/panorama">
+                    <div
+                      className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
+                      style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
+                    >
+                      <Globe className="w-4 h-4 flex-shrink-0" />
+                      {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Panorama de Sites</span>}
+                    </div>
+                  </Link>
+                );
+              })()}
+
+              {/* Alertas — badge mostra o total entre todas as contas */}
+              {(() => {
+                const isActive = location === "/alerts";
+                return (
+                  <Link href="/alerts">
+                    <div
+                      className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
+                      style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
+                    >
+                      <Bell className="w-4 h-4 flex-shrink-0" />
+                      {sidebarOpen && (
+                        <>
+                          <span className="text-sm font-medium flex-1 truncate">Alertas</span>
+                          {globalUnreadCount != null && globalUnreadCount > 0 && (
+                            <Badge variant="destructive" className="h-5 min-w-5 px-1.5 text-xs flex items-center justify-center font-bold shadow-sm">
+                              {globalUnreadCount > 99 ? "99+" : globalUnreadCount}
+                            </Badge>
+                          )}
+                        </>
                       )}
-                    </>
-                  )}
-                </div>
-              </Link>
-            );
-          })()}
+                    </div>
+                  </Link>
+                );
+              })()}
+            </>
+          )}
         </div>
 
         {/* Divider */}
@@ -464,52 +527,23 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
           {/* Account nav items ───────────────────────────────── */}
           <div className="mt-3 flex flex-col gap-0.5">
-            {accountNavItems.map((item) => {
-              const isActive = location === item.path;
-              const Icon = item.icon;
-              return (
-                <div
-                  key={item.path}
-                  style={!hasClient ? { opacity: 0.25, pointerEvents: "none" as const } : {}}
-                >
-                  <Link href={item.path}>
-                    <div
-                      className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
-                      style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
-                    >
-                      <Icon className="w-4 h-4 flex-shrink-0" />
-                      {sidebarOpen && (
-                        <span className="text-sm font-medium flex-1 truncate">{item.label}</span>
-                      )}
-                    </div>
-                  </Link>
-                  {/* Sugestões IA sub-item */}
-                  {item.path === "/dashboard" && sidebarOpen && (
-                    <Link href="/suggestions">
-                      <div
-                        className={`flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg cursor-pointer transition-all duration-150 ${location !== "/suggestions" ? HOVER_CLS : ""}`}
-                        style={location === "/suggestions" ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: "rgba(255,255,255,0.4)" }}
-                      >
-                        <Lightbulb className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="text-xs font-medium flex-1 truncate">Plano de Ação</span>
-                      </div>
-                    </Link>
-                  )}
-                  {/* Experimentos sub-item */}
-                  {item.path === "/dashboard" && sidebarOpen && (
-                    <Link href="/experiments">
-                      <div
-                        className={`flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg cursor-pointer transition-all duration-150 ${location !== "/experiments" && !location.startsWith("/experiments/") ? HOVER_CLS : ""}`}
-                        style={location === "/experiments" || location.startsWith("/experiments/") ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: "rgba(255,255,255,0.4)" }}
-                      >
-                        <FlaskConical className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="text-xs font-medium flex-1 truncate">Experimentos</span>
-                      </div>
-                    </Link>
-                  )}
-                </div>
-              );
-            })}
+            {baseNavItems.map(renderAccountItem)}
+
+            {/* ── Oculto para colaboradores (admin/dev) ────────────────────────
+                Google Ads, GA4, Lojas e Redes sociais somem para o colaborador.
+                Para admin/dev, o rótulo indica que é seção restrita. */}
+            {isManager && (
+              <>
+                {sidebarOpen ? (
+                  <p className="mt-3 mb-1 px-3 text-[9px] font-bold uppercase tracking-[0.1em] flex items-center gap-1.5" style={{ color: "rgba(255,255,255,0.28)" }}>
+                    <Lock className="w-2.5 h-2.5 flex-shrink-0" /> Oculto para colaboradores
+                  </p>
+                ) : (
+                  <div style={{ borderTop: DIVIDER, margin: "8px 8px 4px" }} />
+                )}
+                {managerNavItems.map(renderAccountItem)}
+              </>
+            )}
           </div>
 
         </div>
@@ -588,6 +622,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Sino de alertas — oculto para colaboradores (Alertas é restrito). */}
+            {isManager && (
             <div className="relative" ref={notifRef}>
               <button
                 onClick={() => setNotifOpen((o) => !o)}
@@ -674,6 +710,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 </div>
               )}
             </div>
+            )}
           </div>
         </header>
 

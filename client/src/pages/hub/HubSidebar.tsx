@@ -44,7 +44,7 @@ import {
 } from "lucide-react";
 import { SelvaLogo } from "@/components/SelvaLogo";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { canAccessAdmin } from "@shared/permissions";
+import { canAccessAdmin, canManageContent } from "@shared/permissions";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import { trpc } from "@/lib/trpc";
 import { urlDoShellPara } from "./trackerRoutes";
@@ -289,9 +289,17 @@ export function HubSidebar() {
   const [location] = useLocation();
   const { user } = useAuth();
   const isAdmin = canAccessAdmin((user as { role?: string } | null)?.role);
+  const isManager = canManageContent((user as { role?: string } | null)?.role);
   // Administrativo não some mais para não-admin: aparece com cadeado. Saber que
   // a área existe (e que não é para você) é diferente de achar que ela não existe.
   const groups = NAV_GROUPS;
+  // Visibilidade temporária: Notificações do Spaces fica "Em breve" para o
+  // colaborador (vira placeholder sem destino). Admin/dev seguem com o link real.
+  const navGlobal: NavItem[] = NAV_GLOBAL.map((item) =>
+    item.label === "Notificações" && !isManager
+      ? { label: "Notificações", icon: item.icon, kind: "placeholder" }
+      : item,
+  );
   const [hovering, setHovering] = useState(false);
   const [recolhida, setRecolhida] = useState(lerRecolhida);
   // Ao clicar em recolher, o mouse AINDA está sobre a sidebar, então hovering
@@ -380,7 +388,7 @@ export function HubSidebar() {
       <nav className={`flex-1 overflow-y-auto min-h-0 py-1 ${open ? "px-3" : "px-2"}`}>
         {/* Navegação global */}
         <div className="flex flex-col gap-0.5">
-          {NAV_GLOBAL.map((item) => (
+          {navGlobal.map((item) => (
             <NavRow key={item.label} item={item} open={open} active={isActive(item)} />
           ))}
         </div>

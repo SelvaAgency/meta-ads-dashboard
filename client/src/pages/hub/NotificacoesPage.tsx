@@ -18,9 +18,11 @@ import {
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { canManageContent } from "@shared/permissions";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { HubShell } from "./HubShell";
+import { EmBreve } from "./EmBreve";
 import { NOTIF_DOMINIOS, dominioLabel, type NotifDominio } from "@shared/notifications";
 
 const ICONE: Record<string, typeof Bell> = {
@@ -108,6 +110,9 @@ function quando(d: string | Date): string {
 export default function NotificacoesPage() {
   const { user } = useAuth();
   const isAdmin = (user as { role?: string } | null)?.role === "admin";
+  // Visibilidade temporária: Notificações do Spaces fica "Em breve" para o
+  // colaborador. Guarda de UI + queries desligadas (backend inalterado).
+  const podeVer = canManageContent((user as { role?: string } | null)?.role);
   const utils = trpc.useUtils();
 
   const [aba, setAba] = useState<"minhas" | "enviados">("minhas");
@@ -121,13 +126,13 @@ export default function NotificacoesPage() {
     ...(dominio ? { dominio } : {}),
     ...(status ? { status } : {}),
     ...(cliente ? { accountId: cliente } : {}),
-  });
+  }, { enabled: podeVer });
   const clientesQ = trpc.alerts.clientesDisponiveis.useQuery({
     ...(dominio ? { dominio } : {}),
     ...(status ? { status } : {}),
-  });
+  }, { enabled: podeVer });
   const temFiltro = dominio !== null || cliente !== null || status !== "nova";
-  const contagemQ = trpc.alerts.unreadByDominio.useQuery();
+  const contagemQ = trpc.alerts.unreadByDominio.useQuery(undefined, { enabled: podeVer });
   const itens = listQ.data ?? [];
 
   const inval = () => { utils.alerts.listAll.invalidate(); utils.alerts.unreadByDominio.invalidate(); utils.alerts.unreadCount.invalidate(); };
@@ -144,6 +149,15 @@ export default function NotificacoesPage() {
   const dominiosVisiveis = NOTIF_DOMINIOS.filter((d) => d.v !== "FINANCEIRO" || isAdmin);
   // Hoje / Ontem / Esta semana / Mais antigas — período vazio nem aparece.
   const periodos = useMemo(() => separarPorPeriodo(itens), [itens]);
+
+  if (!podeVer) {
+    return (
+      <EmBreve
+        titulo="Notificações"
+        descricao="Suas notificações do Spaces estarão disponíveis em breve."
+      />
+    );
+  }
 
   return (
     <HubShell>

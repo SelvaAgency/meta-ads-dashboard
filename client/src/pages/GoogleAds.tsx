@@ -1,6 +1,9 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { SemAcessoTracker } from "@/components/SemAcessoTracker";
 import { trpc } from "@/lib/trpc";
 import { useState } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canManageContent } from "@shared/permissions";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId } from "@/config/clientConfig";
 import {
@@ -535,6 +538,11 @@ export default function GoogleAds() {
   const utils = trpc.useUtils();
   const { selectedAccountId, accounts: metaAccounts } = useSelectedAccount();
 
+  // Visibilidade temporária: Google Ads é oculto para colaboradores.
+  // Guarda de UI + queries desligadas quando não pode ver (backend inalterado).
+  const { user } = useAuth();
+  const podeVer = canManageContent(user?.role);
+
   // Cliente ativo: selectedAccountId é o id do BANCO; getClientByMetaAccountId
   // espera o accountId string da Meta. Resolve pela lista de contas Meta antes
   // — era o bug id-vs-accountId (activeClient sempre undefined).
@@ -544,7 +552,7 @@ export default function GoogleAds() {
     return acc ? getClientByMetaAccountId(acc.accountId) : null;
   })();
 
-  const { data: configStatus, isLoading: checkingConfig } = trpc.googleAds.isConfigured.useQuery();
+  const { data: configStatus, isLoading: checkingConfig } = trpc.googleAds.isConfigured.useQuery(undefined, { enabled: podeVer });
   const podeGerenciar = configStatus?.podeGerenciar ?? false;
 
   // Usuário comum vê SÓ a conta vinculada ao cliente selecionado. O MCC tem ~23
@@ -552,16 +560,25 @@ export default function GoogleAds() {
   // consumo, e mostrar tudo faria alguém abrir a conta do cliente errado.
   const { data: contaDoCliente, isLoading: loadingConta } = trpc.googleAds.contaDoCliente.useQuery(
     { accountId: selectedAccountId ?? 0 },
-    { enabled: !!selectedAccountId && configStatus?.configured === true }
+    { enabled: podeVer && !!selectedAccountId && configStatus?.configured === true }
   );
 
   // Gestão (admin/dev): todas as contas descobertas, para vincular.
   const { data: contasGestao } = trpc.googleAds.contasParaGerenciar.useQuery(
     undefined,
-    { enabled: podeGerenciar && configStatus?.configured === true }
+    { enabled: podeVer && podeGerenciar && configStatus?.configured === true }
   );
 
   const contasVisiveis = contaDoCliente ? [contaDoCliente] : [];
+
+  if (!podeVer) {
+    return (
+      <SemAcessoTracker
+        title="Google Ads"
+        message="A área de Google Ads é restrita a administradores e desenvolvedores."
+      />
+    );
+  }
 
   if (!selectedAccountId) {
     return (

@@ -1,4 +1,5 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { SemAcessoTracker } from "@/components/SemAcessoTracker";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
 import {
@@ -759,6 +760,11 @@ export default function SocialNetworks() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const { period, setPeriod, dateRange } = usePeriodFilter("30d");
 
+  // Visibilidade temporária: Redes sociais é oculto para colaboradores.
+  // Guarda de UI + queries desligadas quando não pode ver (backend inalterado).
+  const { user } = useAuth();
+  const podeVer = canManageContent((user as { role?: string } | null)?.role);
+
   // Derive active client name
   const activeClient = useMemo(() => {
     if (!selectedAccountId || !accounts) return null;
@@ -770,7 +776,7 @@ export default function SocialNetworks() {
   // Fetch pages filtered by the selected ad account
   const { data, isLoading, error } = trpc.socialNetworks.forAccount.useQuery(
     { accountId: selectedAccountId! },
-    { enabled: !!selectedAccountId, staleTime: 5 * 60 * 1000 }
+    { enabled: podeVer && !!selectedAccountId, staleTime: 5 * 60 * 1000 }
   );
 
   const pages: PageData[] = data?.pages ?? [];
@@ -788,14 +794,14 @@ export default function SocialNetworks() {
   const { data: primaryInsights, isLoading: insightsLoading } =
     trpc.socialNetworks.pageInsights.useQuery(
       { pageId: primaryPage?.id ?? "", since: dateRange.startDate, until: dateRange.endDate },
-      { enabled: !!primaryPage?.id, staleTime: 5 * 60 * 1000 }
+      { enabled: podeVer && !!primaryPage?.id, staleTime: 5 * 60 * 1000 }
     );
 
   // Paid metrics from campaign_metrics DB
   const { data: paidMetrics, isLoading: paidLoading } =
     trpc.socialNetworks.socialPaidMetrics.useQuery(
       { accountId: selectedAccountId!, startDate: dateRange.startDate, endDate: dateRange.endDate },
-      { enabled: !!selectedAccountId, staleTime: 5 * 60 * 1000 }
+      { enabled: podeVer && !!selectedAccountId, staleTime: 5 * 60 * 1000 }
     );
 
   const tabs: { id: TabId; label: string; icon: any }[] = [
@@ -804,6 +810,15 @@ export default function SocialNetworks() {
     { id: "insights", label: "Insights", icon: Activity },
     { id: "paid", label: "Pago", icon: DollarSign },
   ];
+
+  if (!podeVer) {
+    return (
+      <SemAcessoTracker
+        title="Redes sociais"
+        message="A área de Redes sociais é restrita a administradores e desenvolvedores."
+      />
+    );
+  }
 
   // No account selected
   if (!selectedAccountId) {
