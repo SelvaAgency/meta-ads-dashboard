@@ -254,16 +254,12 @@ export default function SuggestionsHub() {
   const { data: todayMetrics }  = trpc.accounts.todayMetrics.useQuery(undefined, { refetchOnWindowFocus: false });
   const { data: urgentAlerts }  = trpc.alerts.listUrgent.useQuery(undefined, { refetchOnWindowFocus: false });
   const { data: briefingData, isLoading: briefingLoading } = trpc.suggestions.getDailyBriefing.useQuery(undefined, { refetchOnWindowFocus: false });
-  // Site dissolvido nos blocos existentes (D1.2): resumo no Resumo do Dia,
-  // ações no bloco de Ações com filtro. A query fica no topo para alimentar os
-  // dois lugares a partir de uma fonte só.
-  const { data: sitesData } = trpc.visao.sites.useQuery(undefined, { refetchOnWindowFocus: false });
-  // Ações de site = o que exige ação (crítico/atenção). Pendências e "não é
-  // queda" (info) ficam de fora daqui — são para o Resumo, não para a fila.
-  const siteAcoes = (sitesData?.destaques ?? []).filter((d) => d.severidade === "critico" || d.severidade === "atencao");
-  const siteResumo = (sitesData?.destaques ?? []).filter((d) => d.severidade === "pendencia" || d.severidade === "info");
-  // Filtro de origem das ações. "todos" mistura mídia + site (default).
-  const [origemFiltro, setOrigemFiltro] = useState<"todos" | "midia" | "site">("todos");
+  // Alertas técnicos de site (LCP, headers, Clarity, PageSpeed, SSL, uptime, WAF,
+  // sem teste/contexto) saíram da Visão Geral por decisão editorial — são para a
+  // página Site/Panorama, não destaque executivo aqui. Só voltam nesta tela se um
+  // dia forem alertas de IMPACTO COMERCIAL (sessões×vendas, queda de tráfego,
+  // checkout baixo etc.), que é frente futura. A query visao.sites e o
+  // resumoSitesPortfolio seguem intactos no servidor.
   const syncAccount = trpc.accounts.sync.useMutation();
   const { setActiveAccountId, trocarDeCliente } = useActiveAccount();
   const [, navigate]           = useLocation();
@@ -284,16 +280,6 @@ export default function SuggestionsHub() {
   const ordemWidget = (k: string) => {
     const i = (widgets ?? []).findIndex((w) => w.key === k);
     return i < 0 ? 99 : i;
-  };
-
-  /** Bloco de Sites → seção Site, no cliente e aba certos quando dá. */
-  const irParaSite = (accountId: number | undefined, aba: string | undefined) => {
-    if (accountId) setActiveAccountId(accountId);
-    const p = new URLSearchParams();
-    if (accountId) p.set("account", String(accountId));
-    if (aba) p.set("aba", aba);
-    const qs = p.toString();
-    navigate(qs ? `/site?${qs}` : "/site");
   };
 
   // ── Measure briefing overflow once content arrives ────────────────────────
@@ -418,10 +404,15 @@ export default function SuggestionsHub() {
   // ── Stat cards ────────────────────────────────────────────────────────────
 
   const statCards: { label: string; value: number | null; color: string; icon: any; subtitle: string; tab: FogoTab | null }[] = [
-    { label: "Urgentes",          value: urgencyCount,                         color: urgencyCount > 0 ? "#ef4444" : "var(--foreground)",               icon: Flame,         subtitle: "Estado C · agir agora", tab: "URGENT" },
+    // Cada contador bate com o que a aba correspondente renderiza: Urgentes = os
+    // cards de "O que está pegando fogo" (fogoAccounts); P1/P2/P3 = as sugestões
+    // filtradas por prioridade. Antes "Urgentes" usava urgencyCount (só contas
+    // "red") e divergia dos cards; "Em monitoramento" usava urgentAlerts.length
+    // em vez do p3Count que a aba P3 mostra.
+    { label: "Urgentes",          value: fogoAccounts.length,                  color: fogoAccounts.length > 0 ? "#ef4444" : "var(--foreground)",        icon: Flame,         subtitle: "Estado C · agir agora", tab: "URGENT" },
     { label: "Alta prioridade",   value: suggestionsLoading ? null : p1Count,  color: p1Count > 0 ? "#f59e0b" : "var(--foreground)",                    icon: AlertTriangle, subtitle: "P1 · requerem ação",    tab: "P1" },
     { label: "Média prioridade",  value: suggestionsLoading ? null : p2Count,  color: "var(--foreground)",                                               icon: Bell,          subtitle: "P2 · monitorar",        tab: "P2" },
-    { label: "Em monitoramento",  value: urgentAlerts?.length ?? 0,            color: (urgentAlerts?.length ?? 0) > 0 ? "#3b82f6" : "var(--foreground)", icon: Bell,          subtitle: "ações em andamento",    tab: "P3" },
+    { label: "Em monitoramento",  value: suggestionsLoading ? null : p3Count,  color: p3Count > 0 ? "#3b82f6" : "var(--foreground)",                    icon: Bell,          subtitle: "P3 · em andamento",     tab: "P3" },
   ];
 
   // ── Briefing split ────────────────────────────────────────────────────────
@@ -500,16 +491,6 @@ export default function SuggestionsHub() {
                   {briefingParsed.resumo && (
                     <p style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary, var(--foreground))", lineHeight: 1.55, marginBottom: briefingExpanded ? 10 : 0 }}>
                       {linkifyAccounts(briefingParsed.resumo, accounts ?? [], handleSelectAccount)}
-                    </p>
-                  )}
-                  {/* Panorama dos sites — junto do resumo, não em box separado.
-                      Só os agregados (pendências e "não é queda"); o que exige
-                      ação vai para o bloco de Ações abaixo. */}
-                  {siteResumo.length > 0 && (
-                    <p className="text-[11px] mt-1.5" style={{ color: "var(--muted-foreground)" }}>
-                      <button onClick={() => irParaSite(undefined, undefined)} className="font-semibold hover:underline" style={{ color: "#E85BA8" }}>Sites</button>
-                      {" · "}
-                      {siteResumo.map((d) => d.texto).join(" · ")}
                     </p>
                   )}
                   {/* Seções expandidas */}
@@ -684,60 +665,9 @@ export default function SuggestionsHub() {
         <div className="px-6 pt-4" style={{ order: ordemWidget("acoes") }}>
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Ações Sugeridas</p>
-            {/* Filtro de origem: mídia paga vs. site. "Todos" mistura os dois.
-                Aparece só quando há site medido — sem isso, o filtro "Site"
-                estaria sempre vazio e pareceria quebrado. */}
-            {(siteAcoes.length > 0 || (sitesData?.totalComSite ?? 0) > 0) && (
-              <div className="flex items-center gap-1">
-                {([["todos", "Todos"], ["midia", "Mídia"], ["site", "Site"]] as const).map(([v, label]) => (
-                  <button
-                    key={v}
-                    onClick={() => setOrigemFiltro(v)}
-                    className="text-[10px] font-medium px-2 py-0.5 rounded-md transition-colors"
-                    style={origemFiltro === v
-                      ? { background: "rgba(232,91,168,0.12)", color: "#E85BA8", border: "0.5px solid rgba(232,91,168,0.4)" }
-                      : { color: "var(--muted-foreground)", border: `0.5px solid ${BORDER_T}` }}
-                  >
-                    {label}
-                    {v === "site" && siteAcoes.length > 0 && <span className="ml-1 opacity-70">{siteAcoes.length}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
           <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, padding: 16 }}>
 
-            {/* Ações de SITE — lista com tag de origem. Some quando o filtro é
-                "Mídia". A tag [Site] deixa a origem explícita ao lado da de
-                mídia, como pedido. */}
-            {origemFiltro !== "midia" && siteAcoes.length > 0 && (
-              <div className="flex flex-col gap-1.5 mb-4">
-                {siteAcoes.map((d) => {
-                  const critico = d.severidade === "critico";
-                  const cor = critico ? "#E24B4A" : "#EF9F27";
-                  return (
-                    <button
-                      key={d.chave}
-                      onClick={() => d.accountId !== undefined && irParaSite(d.accountId, d.aba)}
-                      disabled={d.accountId === undefined}
-                      title={d.accountId === undefined ? "Vários clientes — abra a seção Site" : "Abrir este cliente"}
-                      className="flex items-center gap-2 text-left rounded-lg px-2.5 py-2"
-                      style={{ background: `${cor}0f`, border: `0.5px solid ${cor}30`, cursor: d.accountId !== undefined ? "pointer" : "default" }}
-                    >
-                      <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: `${cor}22`, color: cor }}>Site</span>
-                      <span className="text-xs" style={{ color: cor }}>{d.texto}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Mídia: some quando o filtro é "Site". Quando "Site" está ativo e
-                não há ação de site, mostra um vazio honesto. */}
-            {origemFiltro === "site" && siteAcoes.length === 0 && (
-              <p className="text-xs text-muted-foreground">Nenhuma ação de site pendente.</p>
-            )}
-            {origemFiltro !== "site" && (<>
             {/* Stats — 4 cards compactos */}
             <div className="grid grid-cols-4 gap-2">
               {statCards.map(({ label, value, color, icon: Icon, subtitle, tab }) => (
@@ -876,7 +806,6 @@ export default function SuggestionsHub() {
                 )
               )}
             </div>
-            </>)}
 
           </div>
         </div>
