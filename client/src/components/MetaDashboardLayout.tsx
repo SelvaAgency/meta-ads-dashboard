@@ -61,6 +61,41 @@ const TEXT_DIM    = "rgba(255,255,255,0.35)";
 const DIVIDER     = "0.5px solid rgba(255,255,255,0.08)";
 
 /**
+ * Container visual dos itens ocultos para colaboradores (só admin/dev).
+ * Presentacional: agrupa o rótulo "Oculto para colaboradores" + uma caixa com
+ * borda/fundo sutis em volta dos itens de nav — que continuam sendo os mesmos
+ * Links, com hover/active/ícones preservados. Não mexe em acesso: quem decide
+ * se o grupo aparece é o `isManager` de quem chama. Adapta-se à sidebar
+ * recolhida (rótulo vira só um cadeado centralizado).
+ */
+function HiddenForUsersGroup({ open, children }: { open: boolean; children: React.ReactNode }) {
+  return (
+    <div className={open ? "mt-3" : "mt-2"}>
+      {open ? (
+        <p className="mb-1.5 px-1 text-[9px] font-bold uppercase tracking-[0.1em] flex items-center gap-1.5" style={{ color: "rgba(255,255,255,0.32)" }}>
+          <Lock className="w-2.5 h-2.5 flex-shrink-0" /> Oculto para colaboradores
+        </p>
+      ) : (
+        <div className="flex justify-center mb-1" title="Oculto para colaboradores">
+          <Lock className="w-3 h-3" style={{ color: "rgba(255,255,255,0.32)" }} />
+        </div>
+      )}
+      <div
+        className="flex flex-col gap-0.5"
+        style={{
+          border: "1px solid rgba(255,255,255,0.09)",
+          background: "rgba(255,255,255,0.03)",
+          borderRadius: 10,
+          padding: open ? 4 : "4px 2px",
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Mini-chip de fonte no seletor de clientes. Mesma verdade do AccountHeader:
  * as duas telas leem o mesmo resolvedor, então não podem divergir sobre o que
  * "conectado" significa.
@@ -349,14 +384,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
               admin/dev, o rótulo deixa claro que é seção que o colaborador não
               vê. Administrativo continua fora do Tracker (vive no HubSidebar). */}
           {isManager && (
-            <>
-              {sidebarOpen ? (
-                <p className="mt-3 mb-1 px-3 text-[9px] font-bold uppercase tracking-[0.1em] flex items-center gap-1.5" style={{ color: "rgba(255,255,255,0.28)" }}>
-                  <Lock className="w-2.5 h-2.5 flex-shrink-0" /> Oculto para colaboradores
-                </p>
-              ) : (
-                <div style={{ borderTop: DIVIDER, margin: "8px 8px 4px" }} />
-              )}
+            <HiddenForUsersGroup open={sidebarOpen}>
 
               {/* Panorama de Sites — visão cross-client de gestão */}
               {(() => {
@@ -398,7 +426,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                   </Link>
                 );
               })()}
-            </>
+            </HiddenForUsersGroup>
           )}
         </div>
 
@@ -533,16 +561,9 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                 Google Ads, GA4, Lojas e Redes sociais somem para o colaborador.
                 Para admin/dev, o rótulo indica que é seção restrita. */}
             {isManager && (
-              <>
-                {sidebarOpen ? (
-                  <p className="mt-3 mb-1 px-3 text-[9px] font-bold uppercase tracking-[0.1em] flex items-center gap-1.5" style={{ color: "rgba(255,255,255,0.28)" }}>
-                    <Lock className="w-2.5 h-2.5 flex-shrink-0" /> Oculto para colaboradores
-                  </p>
-                ) : (
-                  <div style={{ borderTop: DIVIDER, margin: "8px 8px 4px" }} />
-                )}
+              <HiddenForUsersGroup open={sidebarOpen}>
                 {managerNavItems.map(renderAccountItem)}
-              </>
+              </HiddenForUsersGroup>
             )}
           </div>
 
