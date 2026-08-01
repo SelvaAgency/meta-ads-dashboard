@@ -53,10 +53,17 @@ import { HubUserMenu } from "./HubUserMenu";
 // Tokens alinhados ao MetaDashboardLayout (mantém consistência visual)
 const ACTIVE_BG = "rgba(212,83,126,0.15)";
 const ACTIVE_CLR = "#D4537E";
+// Itens do BIT (Dashboard, Relatórios) usam laranja — hover e seleção. O resto
+// do menu segue rosa. Mesmo comportamento com a sidebar expandida ou colapsada.
+const ACTIVE_BG_ORANGE = "rgba(239,112,27,0.15)";
+const ACTIVE_CLR_ORANGE = "#EF701B";
+const HOVER_ORANGE = "hover:bg-[#EF701B]/10";
 const TEXT_NORMAL = "rgba(255,255,255,0.55)";
 const TEXT_DIM = "rgba(255,255,255,0.35)";
 const DIVIDER = "0.5px solid rgba(255,255,255,0.08)";
 const HOVER_CLS = "hover:bg-white/[0.06]";
+
+type Accent = "orange" | undefined;
 
 type NavItem = {
   label: string;
@@ -73,6 +80,8 @@ interface NavGroup {
   items: NavItem[];
   /** Grupo Administrativo → visível apenas para admin. */
   adminOnly?: boolean;
+  /** Cor de destaque (hover/seleção) dos itens do grupo. Padrão: rosa. */
+  accent?: Accent;
 }
 
 // ─── Navegação global (topo) ─────────────────────────────────────────────────
@@ -88,6 +97,7 @@ const NAV_GLOBAL: NavItem[] = [
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "Brand Inteligent Tracker (BIT)",
+    accent: "orange",
     items: [
       // Apps integrados abrem via iframe dentro do Spaces (ver integratedAppsConfig).
       { label: "Dashboard", icon: Bot, kind: "app", href: "/tracker", flyout: true },
@@ -130,22 +140,26 @@ function RowInner({ item, open }: { item: NavItem; open: boolean }) {
   );
 }
 
-function rowClass(open: boolean, active: boolean, placeholder: boolean) {
+function rowClass(open: boolean, active: boolean, placeholder: boolean, accent?: Accent) {
+  const hover = accent === "orange" ? HOVER_ORANGE : HOVER_CLS;
   return `flex items-center ${open ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg transition-all duration-150 ${
-    active || placeholder ? "" : `cursor-pointer ${HOVER_CLS}`
+    active || placeholder ? "" : `cursor-pointer ${hover}`
   } ${placeholder ? "cursor-default" : ""}`;
 }
 
-function rowStyle(active: boolean, placeholder: boolean) {
-  return active
-    ? { background: ACTIVE_BG, color: ACTIVE_CLR }
-    : { color: placeholder ? TEXT_DIM : TEXT_NORMAL };
+function rowStyle(active: boolean, placeholder: boolean, accent?: Accent) {
+  if (active) {
+    return accent === "orange"
+      ? { background: ACTIVE_BG_ORANGE, color: ACTIVE_CLR_ORANGE }
+      : { background: ACTIVE_BG, color: ACTIVE_CLR };
+  }
+  return { color: placeholder ? TEXT_DIM : TEXT_NORMAL };
 }
 
-function NavRow({ item, open, active }: { item: NavItem; open: boolean; active: boolean }) {
+function NavRow({ item, open, active, accent }: { item: NavItem; open: boolean; active: boolean; accent?: Accent }) {
   const placeholder = item.kind === "placeholder";
-  const cls = rowClass(open, active, placeholder);
-  const style = rowStyle(active, placeholder);
+  const cls = rowClass(open, active, placeholder, accent);
+  const style = rowStyle(active, placeholder, accent);
   const title = open ? undefined : item.label;
 
   if (item.kind === "internal" || item.kind === "app") {
@@ -208,7 +222,7 @@ function LinhaBloqueada({ item, open }: { item: NavItem; open: boolean }) {
  * /dashboard é a Visão Geral DAQUELE cliente, que é o que a pessoa pediu ao
  * clicar no nome dele.
  */
-function TrackerItem({ item, open, active }: { item: Extract<NavItem, { kind: "app" }>; open: boolean; active: boolean }) {
+function TrackerItem({ item, open, active, accent }: { item: Extract<NavItem, { kind: "app" }>; open: boolean; active: boolean; accent?: Accent }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -229,7 +243,7 @@ function TrackerItem({ item, open, active }: { item: Extract<NavItem, { kind: "a
 
   return (
     <div ref={rowRef} onMouseEnter={openFlyout} onMouseLeave={scheduleClose}>
-      <NavRow item={item} open={open} active={active} />
+      <NavRow item={item} open={open} active={active} accent={accent} />
 
       {pos && (
         <div
@@ -418,9 +432,9 @@ export function HubSidebar() {
             <div className="flex flex-col gap-0.5">
               {group.items.map((item) =>
                 item.kind === "app" && item.flyout ? (
-                  <TrackerItem key={item.label} item={item} open={open} active={isActive(item)} />
+                  <TrackerItem key={item.label} item={item} open={open} active={isActive(item)} accent={group.accent} />
                 ) : (
-                  <NavRow key={item.label} item={item} open={open} active={isActive(item)} />
+                  <NavRow key={item.label} item={item} open={open} active={isActive(item)} accent={group.accent} />
                 )
               )}
             </div>
