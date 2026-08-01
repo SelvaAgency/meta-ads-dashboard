@@ -65,22 +65,28 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
 
     function initBalls() {
       balls.length = 0;
-      // Menos bolinhas em telas estreitas (mobile) → transição/animação mais leve.
-      baseCount = W < 560 ? 240 : 480;
-      const COUNT = baseCount;
+      // As moedas JÁ começam assentadas no chão (empilhadas de baixo p/ cima) e
+      // DORMINDO — nada de cair do topo a cada abertura. Só se mexem com o mouse.
+      const d = BR * 2 + 3;                                   // passo horizontal
+      const rowH = BR * 1.82;                                 // passo vertical (leve sobreposição)
+      const perRow = Math.max(1, Math.floor((W - 4) / d));
+      const maxRows = Math.max(3, Math.floor((H * .94) / rowH)); // não passa do topo
+      const desired = W < 560 ? 240 : 480;
+      const COUNT = Math.min(desired, perRow * maxRows);      // cabe na altura
+      baseCount = COUNT;
       for (let i = 0; i < COUNT; i++) {
+        const row = Math.floor(i / perRow), col = i % perRow;
+        const hexOff = (row % 2) * (d / 2);                   // fileiras alternadas (hex)
+        const rr = BR + (() => { const q = Math.random(); return q < .16 ? 2 + Math.random() * 5 : q < .38 ? -3 : 0; })();
+        const x = Math.max(rr, Math.min(W - rr, BR + hexOff + col * d + (Math.random() - .5) * 3));
+        const y = Math.max(rr, H - rr - row * rowH + (Math.random() - .5) * 3);
         const layer: 'back'|'front' = Math.random() < .42 ? 'back' : 'front';
         balls.push({
-          x: BR + Math.random() * (W - BR * 2),
-          y: BR + Math.random() * (H * .8),
-          vx: (Math.random() - .5) * .7,
-          vy: (Math.random() - .5) * .7,
-          // Mistura de tamanhos: ~16% moedas maiores (+2..+7), ~22% menores (-3),
-          // resto no padrão — deixa a piscina mais viva e "moeda de verdade".
-          r: BR + (() => { const q = Math.random(); return q < .16 ? 2 + Math.random() * 5 : q < .38 ? -3 : 0; })(),
+          x, y, vx: 0, vy: 0, r: rr,
           col: POOL[i % POOL.length],
           layer, pp: Math.random() * 6.28,
-          ps: .008 + Math.random() * .012, pulse: 0, still: 0,
+          ps: .008 + Math.random() * .012, pulse: 0,
+          still: REST_FRAMES + 5,                             // já dormindo (estático)
         });
       }
     }
