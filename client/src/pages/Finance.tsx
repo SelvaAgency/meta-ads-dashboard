@@ -328,7 +328,6 @@ function ConcentracaoDonut({ data, topN = 5, onSlice, emptyMsg = "Sem receita no
   const top = data.slice(0, topN);
   const demais = data.slice(topN).reduce((s, x) => s + x.totalCents, 0);
   const fatias = [...top.map((x, i) => ({ nome: x.nome, v: x.totalCents / 100, cor: DONUT_CORES[i % DONUT_CORES.length], k: x.key ?? null })), ...(demais > 0 ? [{ nome: "Demais", v: demais / 100, cor: DONUT_CORES[DONUT_CORES.length - 1], k: null }] : [])];
-  const top3pct = total > 0 ? Math.round((data.slice(0, 3).reduce((s, x) => s + x.totalCents, 0) / total) * 100) : 0;
   if (total === 0) return <div className="h-[200px] flex items-center justify-center text-sm text-muted-foreground">{emptyMsg}</div>;
   return (
     <div className="flex items-center gap-3 flex-wrap">
@@ -356,10 +355,6 @@ function ConcentracaoDonut({ data, topN = 5, onSlice, emptyMsg = "Sem receita no
             />
           </PieChart>
         </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ zIndex: 1 }}>
-          <span className="text-lg font-bold tabular-nums">{top3pct}%</span>
-          <span className="text-[10px] text-muted-foreground">top 3</span>
-        </div>
       </div>
       <div className="flex-1 min-w-[150px] space-y-1">
         {fatias.map((f, i) => (
