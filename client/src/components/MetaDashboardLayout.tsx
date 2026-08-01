@@ -170,8 +170,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   const baseNavItems = [
     { path: "/dashboard", label: "Resumo", icon: LayoutDashboard },
     { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
-    { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/site", label: "Site", icon: Globe },
+    { path: "/reports", label: "Relatórios", icon: FileText },
   ];
   // Ocultos para colaboradores — só admin/dev. Ficam sob o divisor
   // "Oculto para colaboradores". GA4/Lojas já eram admin/dev; Google Ads e
@@ -202,29 +202,45 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             )}
           </div>
         </Link>
-        {/* Sugestões IA sub-item */}
+        {/* Plano de Ação — só admin/dev; colaborador vê "EM BREVE" opaco e não clicável. */}
         {item.path === "/dashboard" && sidebarOpen && (
-          <Link href="/suggestions">
-            <div
-              className={`flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg cursor-pointer transition-all duration-150 ${location !== "/suggestions" ? HOVER_CLS : ""}`}
-              style={location === "/suggestions" ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: "rgba(255,255,255,0.4)" }}
-            >
+          isManager ? (
+            <Link href="/suggestions">
+              <div
+                className={`flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg cursor-pointer transition-all duration-150 ${location !== "/suggestions" ? HOVER_CLS : ""}`}
+                style={location === "/suggestions" ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: "rgba(255,255,255,0.4)" }}
+              >
+                <Lightbulb className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="text-xs font-medium flex-1 truncate">Plano de Ação</span>
+              </div>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg cursor-default select-none" style={{ color: "rgba(255,255,255,0.25)" }} title="Em breve">
               <Lightbulb className="w-3.5 h-3.5 flex-shrink-0" />
               <span className="text-xs font-medium flex-1 truncate">Plano de Ação</span>
+              <span className="text-[8px] uppercase tracking-wide flex-shrink-0">em breve</span>
             </div>
-          </Link>
+          )
         )}
-        {/* Experimentos sub-item */}
+        {/* Experimentos — só admin/dev; colaborador vê "EM BREVE" opaco e não clicável. */}
         {item.path === "/dashboard" && sidebarOpen && (
-          <Link href="/experiments">
-            <div
-              className={`flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg cursor-pointer transition-all duration-150 ${location !== "/experiments" && !location.startsWith("/experiments/") ? HOVER_CLS : ""}`}
-              style={location === "/experiments" || location.startsWith("/experiments/") ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: "rgba(255,255,255,0.4)" }}
-            >
+          isManager ? (
+            <Link href="/experiments">
+              <div
+                className={`flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg cursor-pointer transition-all duration-150 ${location !== "/experiments" && !location.startsWith("/experiments/") ? HOVER_CLS : ""}`}
+                style={location === "/experiments" || location.startsWith("/experiments/") ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: "rgba(255,255,255,0.4)" }}
+              >
+                <FlaskConical className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="text-xs font-medium flex-1 truncate">Experimentos</span>
+              </div>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-2.5 pl-9 pr-3 py-1.5 rounded-lg cursor-default select-none" style={{ color: "rgba(255,255,255,0.25)" }} title="Em breve">
               <FlaskConical className="w-3.5 h-3.5 flex-shrink-0" />
               <span className="text-xs font-medium flex-1 truncate">Experimentos</span>
+              <span className="text-[8px] uppercase tracking-wide flex-shrink-0">em breve</span>
             </div>
-          </Link>
+          )
         )}
       </div>
     );
