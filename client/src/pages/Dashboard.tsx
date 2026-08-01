@@ -40,10 +40,9 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
 import { AccountHeader } from "@/components/AccountHeader";
-import { BlocoVendas } from "@/pages/dashboard/BlocoVendas";
-import { BandaResultado } from "@/pages/dashboard/BandaResultado";
+import { SecaoSite } from "@/pages/dashboard/SecaoSite";
 import { GoogleAdsPane } from "@/pages/dashboard/GoogleAdsPane";
-import { GeralPane } from "@/pages/dashboard/GeralPane";
+import { KpisPlataformas, GraficosPlataformas } from "@/pages/dashboard/GeralPane";
 import { AlertBlock, typeConfig as alertTypeConfig, CRITICAL_TYPES as alertCriticalTypes, initials as alertInitials } from "@/components/AlertBlock";
 import {
   type GoalType, type KpiDef,
@@ -155,6 +154,8 @@ export default function Dashboard() {
   const [cardsExpanded, setCardsExpanded] = useState(false);
   // Aba de plataforma (Detalhes por plataforma · Geral | Meta | Google).
   const [platTab, setPlatTab] = useState<"geral" | "meta" | "google">("geral");
+  // Detalhes por plataforma: colapsado por padrão (mostra só os 3 KPIs somados).
+  const [detalhesOpen, setDetalhesOpen] = useState(false);
   const [alertsStripExpanded, setAlertsStripExpanded] = useState(false);
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
@@ -208,6 +209,13 @@ export default function Dashboard() {
     }
     return 7;
   }, [queryParams]);
+
+  // Fontes conectadas da conta — decide quais abas de plataforma ficam clicáveis.
+  const { data: fontesConta } = trpc.fontes.doCliente.useQuery(
+    { accountId: selectedAccountId! }, { enabled: !!selectedAccountId, staleTime: 60_000 },
+  );
+  const metaConectada = (fontesConta ?? []).some((f) => f.chave === "meta" && f.status !== "ausente");
+  const googleConectada = (fontesConta ?? []).some((f) => f.chave === "google_ads" && f.status !== "ausente");
 
   const { data, isLoading, isError, error, refetch } = trpc.dashboard.overview.useQuery(
     { accountId: selectedAccountId!, ...queryParams },
@@ -390,116 +398,42 @@ export default function Dashboard() {
         {/* Account summary header — identity, integrations, daily snapshot, AI status */}
         <AccountHeader goalLabel={objInfo.label} goalEmoji={objInfo.emoji} goalType={goalType} />
 
-        {/* Faixa "Resultado" (régua Investido→Atribuído→Real) — banda própria, fora da faixa do site */}
-        {selectedAccountId && <BandaResultado accountId={selectedAccountId} />}
-
-        {/* Faixa exclusiva do site — só o funil de compra (e-commerce) */}
-        {selectedAccountId && <BlocoVendas accountId={selectedAccountId} />}
-
-        {/* Faixa de alertas críticos da conta — mesmo padrão visual do card "Por conta" da página de Alertas */}
-        {criticalAccountAlerts.length > 0 && (
-          <div style={{ background: "#FFFFFF", border: "0.5px solid var(--color-border-secondary)", borderLeft: "4px solid #D4537E", borderRadius: 12, overflow: "hidden" }}>
-            <div
-              onClick={() => setAlertsStripExpanded((v) => !v)}
-              style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", cursor: "pointer", userSelect: "none" as const }}
-            >
-              <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#FBEAF0", color: "#993556", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 500, flexShrink: 0 }}>
-                {alertInitials(activeAccount?.accountName)}
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>{activeAccount?.accountName ?? "Conta"}</div>
-              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  {Array.from(new Set(criticalAccountAlerts.map((a: any) => a.type))).slice(0, 6).map((type: string) => {
-                    const cfg = alertTypeConfig[type] ?? { icon: AlertTriangle };
-                    const Icon = cfg.icon;
-                    const isCrit = alertCriticalTypes.has(type);
-                    return (
-                      <div key={type} style={{ width: 20, height: 20, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", background: isCrit ? "#FCEBEB" : "#FAEEDA", color: isCrit ? "#A32D2D" : "#854F0B", flexShrink: 0 }}>
-                        <Icon size={11} />
-                      </div>
-                    );
-                  })}
-                </div>
-                <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{criticalAccountAlerts.length} alerta{criticalAccountAlerts.length !== 1 ? "s" : ""}</span>
-                <span style={{ fontSize: 12, color: "var(--color-text-secondary)", transform: alertsStripExpanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>▼</span>
-              </div>
-            </div>
-            {alertsStripExpanded && (
-              <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }}>
-                {criticalAccountAlerts.slice(0, 5).map((alert: any, i: number) => (
-                  <AlertBlock
-                    key={alert.id}
-                    alert={alert}
-                    onDismiss={() => dismissAlert.mutate({ alertId: alert.id })}
-                    isLast={i === Math.min(criticalAccountAlerts.length, 5) - 1}
-                  />
-                ))}
-                <div style={{ padding: "12px 18px", borderTop: "0.5px solid var(--color-border-tertiary)" }}>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full text-xs"
-                    onClick={() => navigate("/alerts")}
-                  >
-                    Ver todos os alertas
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Em andamento — sugestões aplicadas em monitoramento */}
-
-        {/* Error state */}
-        {isError && (
-          <Card className="border-red-500/30 bg-red-500/10">
-            <CardContent className="p-6">
-              <div className="flex items-start gap-4">
-                <AlertTriangle className="w-6 h-6 text-red-400 mt-0.5 shrink-0" />
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-red-400 mb-1">Erro ao carregar dados</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    {error?.message ?? "Ocorreu um erro ao buscar os dados do dashboard."}
-                  </p>
-                  <div className="flex gap-3">
-                    <Button size="sm" variant="outline" onClick={() => refetch()} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
-                      Tentar Novamente
-                    </Button>
-                    {error?.message?.toLowerCase().includes("token") && (
-                      <Button size="sm" variant="outline" onClick={() => navigate("/connect")} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
-                        Reconectar Token
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ─── Detalhes por plataforma (colapsável · Meta | Google) ─────── */}
-        <details className="rounded-xl border border-border bg-card group/plat">
-          <summary className="flex items-center gap-2 px-5 py-4 cursor-pointer select-none text-sm font-semibold list-none [&::-webkit-details-marker]:hidden">
-            <ChevronRight className="w-4 h-4 text-muted-foreground transition-transform group-open/plat:rotate-90" />
+        {/* ─── Detalhes por plataforma — logo abaixo do header; colapsado mostra só os 3 KPIs somados ─── */}
+        <div className="rounded-xl border border-border bg-card">
+          <div onClick={() => setDetalhesOpen((v) => !v)} className="flex items-center gap-2 px-5 py-4 cursor-pointer select-none text-sm font-semibold">
+            <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${detalhesOpen ? "rotate-90" : ""}`} />
             Detalhes por plataforma
-            <span className="ml-auto text-xs font-normal text-muted-foreground hidden sm:inline">Meta · Google Ads — KPIs, campanhas e destaques</span>
-          </summary>
+            <span className="ml-auto text-xs font-normal text-muted-foreground hidden sm:inline">{detalhesOpen ? "Meta · Google Ads — campanhas, destaques e gráficos" : "expandir para campanhas, destaques e gráficos"}</span>
+          </div>
           <div className="px-4 pb-4 pt-1 space-y-4">
-            <div className="inline-flex gap-1 rounded-lg border border-border bg-muted/40 p-1">
-              <button type="button" onClick={() => setPlatTab("geral")} className={`px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${platTab === "geral" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Geral</button>
-              <button type="button" onClick={() => setPlatTab("meta")} className={`px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${platTab === "meta" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}><span className="w-2 h-2 rounded-full" style={{ background: "#1877F2" }} />Meta</button>
-              <button type="button" onClick={() => setPlatTab("google")} className={`px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${platTab === "google" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}><span className="w-2 h-2 rounded-full" style={{ background: "#EA4335" }} />Google Ads</button>
-            </div>
-
-            {platTab === "geral" && selectedAccountId && (
-              <GeralPane
+            {/* 3 KPIs somados (Meta+Google) — sempre visíveis, inclusive colapsado */}
+            {selectedAccountId && (
+              <KpisPlataformas
                 metaAccountId={selectedAccountId}
                 days={platDays}
-                metaTimeSeries={(data as any)?.timeSeries}
                 metaSpend={Number(data?.totals?.spend ?? 0)}
                 metaConversions={Number(data?.totals?.conversions ?? 0)}
               />
+            )}
+
+            {detalhesOpen && (
+            <>
+            <div className="inline-flex gap-1 rounded-lg border border-border bg-muted/40 p-1">
+              <button type="button" onClick={() => setPlatTab("geral")} className={`px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${platTab === "geral" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Geral</button>
+              {metaConectada ? (
+                <button type="button" onClick={() => setPlatTab("meta")} className={`px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${platTab === "meta" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}><span className="w-2 h-2 rounded-full" style={{ background: "#1877F2" }} />Meta</button>
+              ) : (
+                <span title="Meta não conectado" className="px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 text-muted-foreground/40 cursor-not-allowed"><span className="w-2 h-2 rounded-full bg-muted-foreground/30" />Meta</span>
+              )}
+              {googleConectada ? (
+                <button type="button" onClick={() => setPlatTab("google")} className={`px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${platTab === "google" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}><span className="w-2 h-2 rounded-full" style={{ background: "#EA4335" }} />Google Ads</button>
+              ) : (
+                <span title="Google Ads não conectado" className="px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 text-muted-foreground/40 cursor-not-allowed"><span className="w-2 h-2 rounded-full bg-muted-foreground/30" />Google Ads</span>
+              )}
+            </div>
+
+            {platTab === "geral" && selectedAccountId && (
+              <GraficosPlataformas metaAccountId={selectedAccountId} days={platDays} metaTimeSeries={(data as any)?.timeSeries} />
             )}
 
             <div className={platTab === "meta" ? "space-y-6" : "hidden"}>
@@ -806,8 +740,96 @@ export default function Dashboard() {
             {platTab === "google" && selectedAccountId && (
               <GoogleAdsPane metaAccountId={selectedAccountId} days={platDays} goalType={goalType} />
             )}
+            </>
+            )}
           </div>
-        </details>
+        </div>
+
+        {/* Seção do site — régua de resultado + funil, na MESMA caixa (some se não-ecomm) */}
+        {selectedAccountId && <SecaoSite accountId={selectedAccountId} />}
+
+        {/* Faixa de alertas críticos da conta — mesmo padrão visual do card "Por conta" da página de Alertas */}
+        {criticalAccountAlerts.length > 0 && (
+          <div style={{ background: "#FFFFFF", border: "0.5px solid var(--color-border-secondary)", borderLeft: "4px solid #D4537E", borderRadius: 12, overflow: "hidden" }}>
+            <div
+              onClick={() => setAlertsStripExpanded((v) => !v)}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", cursor: "pointer", userSelect: "none" as const }}
+            >
+              <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#FBEAF0", color: "#993556", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 500, flexShrink: 0 }}>
+                {alertInitials(activeAccount?.accountName)}
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>{activeAccount?.accountName ?? "Conta"}</div>
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  {Array.from(new Set(criticalAccountAlerts.map((a: any) => a.type))).slice(0, 6).map((type: string) => {
+                    const cfg = alertTypeConfig[type] ?? { icon: AlertTriangle };
+                    const Icon = cfg.icon;
+                    const isCrit = alertCriticalTypes.has(type);
+                    return (
+                      <div key={type} style={{ width: 20, height: 20, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", background: isCrit ? "#FCEBEB" : "#FAEEDA", color: isCrit ? "#A32D2D" : "#854F0B", flexShrink: 0 }}>
+                        <Icon size={11} />
+                      </div>
+                    );
+                  })}
+                </div>
+                <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>{criticalAccountAlerts.length} alerta{criticalAccountAlerts.length !== 1 ? "s" : ""}</span>
+                <span style={{ fontSize: 12, color: "var(--color-text-secondary)", transform: alertsStripExpanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>▼</span>
+              </div>
+            </div>
+            {alertsStripExpanded && (
+              <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+                {criticalAccountAlerts.slice(0, 5).map((alert: any, i: number) => (
+                  <AlertBlock
+                    key={alert.id}
+                    alert={alert}
+                    onDismiss={() => dismissAlert.mutate({ alertId: alert.id })}
+                    isLast={i === Math.min(criticalAccountAlerts.length, 5) - 1}
+                  />
+                ))}
+                <div style={{ padding: "12px 18px", borderTop: "0.5px solid var(--color-border-tertiary)" }}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full text-xs"
+                    onClick={() => navigate("/alerts")}
+                  >
+                    Ver todos os alertas
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Em andamento — sugestões aplicadas em monitoramento */}
+
+        {/* Error state */}
+        {isError && (
+          <Card className="border-red-500/30 bg-red-500/10">
+            <CardContent className="p-6">
+              <div className="flex items-start gap-4">
+                <AlertTriangle className="w-6 h-6 text-red-400 mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-red-400 mb-1">Erro ao carregar dados</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    {error?.message ?? "Ocorreu um erro ao buscar os dados do dashboard."}
+                  </p>
+                  <div className="flex gap-3">
+                    <Button size="sm" variant="outline" onClick={() => refetch()} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+                      Tentar Novamente
+                    </Button>
+                    {error?.message?.toLowerCase().includes("token") && (
+                      <Button size="sm" variant="outline" onClick={() => navigate("/connect")} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+                        Reconectar Token
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
 
         {/* Ver sugestões da IA */}
         <div style={{ textAlign: "center", paddingTop: 4 }}>
