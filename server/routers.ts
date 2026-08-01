@@ -327,6 +327,7 @@ import { gerarRelatorioModular, PRESETS, tierDe } from "./services/reportBuilder
 import { resumoSitesPortfolio } from "./services/sitePortfolio";
 import { resolverWidgets, widgetPorKey, widgetServeRole } from "@shared/widgets";
 import type { Role } from "@shared/permissions";
+import { vendasDe, type ClientePanorama } from "@shared/panoramaLogic";
 import { getWidgetPrefs, upsertWidgetPref, limparWidgetPrefs, listarSociaisDaConta, salvarSocial, apagarSocial, registrarPresenca, listarPresenca } from "./db";
 
 /**
@@ -2301,6 +2302,56 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         await getVerifiedAccount(input.accountId, ctx.user.id); // dono/permissão
         return snapshotsDeVendaDaConta(input.accountId);
+      }),
+
+    /**
+     * Régua do e-commerce: Investido (Meta+Google) → Receita ATRIBUÍDA de mídia
+     * (Meta+Google) → Receita REAL da loja (Woo/VNDA ou GA4). As três NÃO se
+     * somam — a leitura é a relação. Janela consistente: a mesma que a receita
+     * real usou (`vendasDe`.janela), pra mídia e loja baterem. null quando não há
+     * venda conectada (não é e-commerce). Admin/dev (Google ao vivo + gated).
+     */
+    resultadoEcom: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(async ({ input }) => {
+        const snap = await snapshotsDeVendaDaConta(input.accountId);
+        const c: ClientePanorama = {
+          accountId: input.accountId, nome: "", fontes: [],
+          loja: snap.loja, plataformaLoja: snap.plataformaLoja,
+          uptime: null, seguranca: null, pagespeed: null,
+          ga4_7d: snap.ga4_7d ? { dia: snap.ga4_7d.dia, metricsJson: snap.ga4_7d.metricsJson as any } : null,
+          ga4_30d: snap.ga4_30d ? { dia: snap.ga4_30d.dia, metricsJson: snap.ga4_30d.metricsJson as any } : null,
+          loja_7d: snap.loja_7d ? { dia: snap.loja_7d.dia, metricsJson: snap.loja_7d.metricsJson as any } : null,
+          loja_30d: snap.loja_30d ? { dia: snap.loja_30d.dia, metricsJson: snap.loja_30d.metricsJson as any } : null,
+        };
+        const v = vendasDe(c);
+        if (!v) return null;
+
+        const dias = v.janela === "30d" ? 30 : 7;
+        const { startDate, endDate } = getDateRange(dias);
+        const metrics = await getAccountMetricsSummary(input.accountId, startDate, endDate);
+        const metaSpend = metrics.reduce((s, m) => s + Number(m.totalSpend ?? 0), 0);
+        const metaAttr  = metrics.reduce((s, m) => s + Number(m.totalConversionValue ?? 0), 0);
+
+        let gSpend = 0, gAttr = 0, temGoogle = false;
+        const config = getGoogleAdsConfig();
+        if (config) {
+          const gc = await contaGoogleDoCliente(input.accountId);
+          if (gc && !(gc as { ignored?: boolean }).ignored) {
+            const gs = await getGoogleAdsAccountSummary(
+              { ...config, refreshToken: tokenDaConta(gc.refreshToken) }, gc.customerId, startDate, endDate,
+            ).catch(() => null);
+            if (gs) { gSpend = gs.spend; gAttr = gs.conversionValue; temGoogle = true; }
+          }
+        }
+
+        return {
+          janela: v.janela,
+          temGoogle,
+          investido: { meta: metaSpend, google: gSpend, total: metaSpend + gSpend },
+          atribuida: { meta: metaAttr, google: gAttr, total: metaAttr + gAttr },
+          real: { receita: v.receita, pedidos: v.pedidos, ticket: v.ticketMedio, fonte: v.rotuloFonte, dia: v.dia },
+        };
       }),
 
     overview: protectedProcedure

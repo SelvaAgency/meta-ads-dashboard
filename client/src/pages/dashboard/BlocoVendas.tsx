@@ -6,6 +6,35 @@ import {
   fmtBRL, fmtDia, type ClientePanorama,
 } from "@shared/panoramaLogic";
 import { StatTile, ChipStatus, Funil, RankingProdutos, DistribuicaoStatus } from "../panorama/Visuais";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canManageContent } from "@shared/permissions";
+
+/** Régua do e-commerce: Investido → Atribuída → Real (as três NÃO se somam). */
+function ReguaResultado({ r }: { r: any }) {
+  const cell = (lbl: string, big: string, sub?: string, tone?: string) => (
+    <div className="flex-1 min-w-0">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{lbl}</p>
+      <p className={`text-xl font-extrabold leading-tight ${tone ?? "text-foreground"}`}>{big}</p>
+      {sub && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{sub}</p>}
+    </div>
+  );
+  return (
+    <div className="mb-4 rounded-xl border border-border bg-muted/30 p-3">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+        {cell("Investido em mídia", fmtBRL(r.investido.total),
+          r.temGoogle ? `Meta ${fmtBRL(r.investido.meta)} · Google ${fmtBRL(r.investido.google)}` : "só Meta")}
+        <span className="hidden sm:block text-muted-foreground/50">→</span>
+        {cell("Receita atribuída", fmtBRL(r.atribuida.total), "o que os anúncios reivindicam")}
+        <span className="hidden sm:block text-muted-foreground/50">→</span>
+        {cell(`Receita real · ${r.real.fonte}`, r.real.receita != null ? fmtBRL(r.real.receita) : "—",
+          `${r.real.pedidos ?? "—"} pedido(s)`, "text-emerald-600 dark:text-emerald-400")}
+      </div>
+      <p className="text-[10px] text-muted-foreground mt-2">
+        As três <b className="text-foreground">não se somam</b>: investido e atribuído são mídia; a real é o caixa da loja. A leitura é a relação · {r.janela}
+      </p>
+    </div>
+  );
+}
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -31,6 +60,13 @@ export function BlocoVendas({ accountId, midiaAtribuida }: {
   midiaAtribuida?: { meta?: number | null };
 }) {
   const q = trpc.dashboard.vendas.useQuery({ accountId }, { enabled: !!accountId, staleTime: 120_000 });
+  // Régua Investido→Atribuído→Real (Meta+Google): admin/dev (Google ao vivo/gated).
+  const { user } = useAuth();
+  const podeRegua = canManageContent(user?.role);
+  const reguaQ = trpc.dashboard.resultadoEcom.useQuery(
+    { accountId }, { enabled: !!accountId && podeRegua, staleTime: 5 * 60_000, refetchOnWindowFocus: false },
+  );
+  const regua = reguaQ.data;
 
   const Wrapper = ({ children }: { children: React.ReactNode }) => (
     <div className="bg-card border border-border rounded-xl p-5">
@@ -95,6 +131,9 @@ export function BlocoVendas({ accountId, midiaAtribuida }: {
 
   return (
     <Wrapper>
+      {/* Régua Investido → Atribuído → Real (Meta+Google) — só admin/dev. */}
+      {regua && <ReguaResultado r={regua} />}
+
       {/* Cabeçalho: fonte + janela + data (+ selo de idade) */}
       <div className="flex items-center justify-between gap-2 mb-3 -mt-1">
         <ChipStatus tom={v.fonte === "loja" ? "ok" : "neutro"}
@@ -142,7 +181,8 @@ export function BlocoVendas({ accountId, midiaAtribuida }: {
         </div>
       )}
 
-      <LinhaMidia />
+      {/* Linha de atribuída Meta-only só quando a régua completa não aparece. */}
+      {!regua && <LinhaMidia />}
     </Wrapper>
   );
 }
