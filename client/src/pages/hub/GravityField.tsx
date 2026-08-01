@@ -45,9 +45,8 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
     const balls: Ball[] = [];
     const ripples: Ripple[] = [];
     let baseCount = 0; // nº base de bolinhas (definido no initBalls); teto do "derrame" no clique
-    // Página Game (fill): 4x mais moedas e menores, p/ caberem na mesma caixa.
-    const nScale = fill ? 4 : 1;   // multiplicador de quantidade
-    const rScale = fill ? .52 : 1; // multiplicador de raio (menores → cabem 4x)
+    // Página Game (fill): 4x mais moedas, no MESMO tamanho da versão anterior.
+    const nScale = fill ? 4 : 1;   // multiplicador de quantidade (só na Game)
 
     // Logo
     const logoImg = new Image();
@@ -70,7 +69,7 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
       balls.length = 0;
       // Quantidade: limitada por área p/ telas baixas não deixarem moeda além do
       // topo; desktop mantém o cheio. ~600px² por moeda no empacotamento.
-      const cap = Math.floor((W * H * .7) / (600 * rScale * rScale));
+      const cap = Math.floor((W * H * .7) / 600);
       const COUNT = Math.min((W < 560 ? 240 : 480) * nScale, Math.max(30, cap));
       baseCount = COUNT;
       for (let i = 0; i < COUNT; i++) {
@@ -80,7 +79,7 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
           y: H * .3 + Math.random() * (H * .68),   // já começa na metade de baixo → queda curta
           vx: (Math.random() - .5) * .5,
           vy: (Math.random() - .5) * .5,
-          r: (BR + (() => { const q = Math.random(); return q < .16 ? 2 + Math.random() * 5 : q < .38 ? -3 : 0; })()) * rScale,
+          r: BR + (() => { const q = Math.random(); return q < .16 ? 2 + Math.random() * 5 : q < .38 ? -3 : 0; })(),
           col: POOL[i % POOL.length],
           layer, pp: Math.random() * 6.28,
           ps: .008 + Math.random() * .012, pulse: 0, still: 0,
@@ -114,7 +113,7 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
           x: Math.max(BR, Math.min(W - BR, x + (Math.random() - .5) * 90)),
           y: -BR - Math.random() * 50,
           vx: (Math.random() - .5) * 1.4, vy: 1 + Math.random() * 1.6,
-          r: (BR + (Math.random() < .2 ? 2 + Math.random() * 4 : 0)) * rScale,
+          r: BR + (Math.random() < .2 ? 2 + Math.random() * 4 : 0),
           col: POOL[(Math.random() * POOL.length) | 0],
           layer, pp: Math.random() * 6.28, ps: .008 + Math.random() * .012, pulse: 1, still: 0,
         });

@@ -46,20 +46,22 @@ function AtalhosRapidos() {
           <Link
             key={href}
             href={href}
-            className="group relative overflow-hidden rounded-xl p-5 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-[#EF701B]/20"
-            style={{
-              background: "linear-gradient(135deg, #12141c 0%, #0a0b11 100%)",
-              border: "1px solid rgba(253,255,237,0.08)",
-            }}
+            className="group relative overflow-hidden rounded-xl border border-[#EF701B]/30 p-5 transition-all hover:-translate-y-0.5 hover:border-[#EF701B]/80 hover:shadow-xl hover:shadow-[#EF701B]/25"
+            style={{ background: "linear-gradient(135deg, #12141c 0%, #0a0b11 100%)" }}
           >
+            {/* faixa laranja no topo — some quando parado, acende no hover */}
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 h-px opacity-40 transition-opacity duration-300 group-hover:opacity-100"
+              style={{ background: "linear-gradient(90deg, transparent, #EF701B, transparent)" }}
+            />
             {/* brilho laranja de fundo no hover */}
             <div
-              className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full opacity-40 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
-              style={{ background: "radial-gradient(circle, rgba(239,112,27,0.5), transparent 70%)" }}
+              className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full opacity-50 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
+              style={{ background: "radial-gradient(circle, rgba(239,112,27,0.6), transparent 70%)" }}
             />
             <div className="relative flex items-start gap-4">
               <span
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ring-1 ring-[#EF701B]/20 transition-all group-hover:scale-105 group-hover:ring-[#EF701B]/60"
                 style={{ background: "rgba(239,112,27,0.16)", color: "#EF701B" }}
               >
                 <Icon className="h-5 w-5" />
