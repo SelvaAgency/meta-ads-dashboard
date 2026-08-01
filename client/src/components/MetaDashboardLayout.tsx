@@ -359,55 +359,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             );
           })()}
 
-          {/* ── Oculto para colaboradores (admin/dev) ──────────────────────────
-              Panorama e Alertas somem por completo para o colaborador. Para
-              admin/dev, o rótulo deixa claro que é seção que o colaborador não
-              vê. Administrativo continua fora do Tracker (vive no HubSidebar). */}
-          {isManager && (
-            <HiddenForUsersGroup open={sidebarOpen}>
-
-              {/* Panorama de Sites — visão cross-client de gestão */}
-              {(() => {
-                const isActive = location === "/panorama";
-                return (
-                  <Link href="/panorama">
-                    <div
-                      className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
-                      style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
-                    >
-                      <Globe className="w-4 h-4 flex-shrink-0" />
-                      {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Panorama de Sites</span>}
-                    </div>
-                  </Link>
-                );
-              })()}
-
-              {/* Alertas — badge mostra o total entre todas as contas */}
-              {(() => {
-                const isActive = location === "/alerts";
-                return (
-                  <Link href="/alerts">
-                    <div
-                      className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
-                      style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
-                    >
-                      <Bell className="w-4 h-4 flex-shrink-0" />
-                      {sidebarOpen && (
-                        <>
-                          <span className="text-sm font-medium flex-1 truncate">Alertas</span>
-                          {globalUnreadCount != null && globalUnreadCount > 0 && (
-                            <Badge variant="destructive" className="h-5 min-w-5 px-1.5 text-xs flex items-center justify-center font-bold shadow-sm">
-                              {globalUnreadCount > 99 ? "99+" : globalUnreadCount}
-                            </Badge>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </Link>
-                );
-              })()}
-            </HiddenForUsersGroup>
-          )}
+          {/* Panorama de Sites e Alertas foram movidos para a ÚNICA caixa
+              "Oculto para colaboradores", na seção do cliente (mais abaixo). */}
         </div>
 
         {/* Divider */}
@@ -540,11 +493,53 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           <div className="mt-3 flex flex-col gap-0.5">
             {baseNavItems.map(renderAccountItem)}
 
-            {/* ── Oculto para colaboradores (admin/dev) ────────────────────────
-                Google Ads, GA4, Lojas e Redes sociais somem para o colaborador.
-                Para admin/dev, o rótulo indica que é seção restrita. */}
+            {/* ── Oculto para colaboradores (admin/dev) — caixa ÚNICA ──────────
+                Reúne tudo que o colaborador não vê: gestão cross-client
+                (Panorama, Alertas) + fontes por cliente (Google Ads, GA4, Lojas). */}
             {isManager && (
               <HiddenForUsersGroup open={sidebarOpen}>
+
+                {/* Panorama de Sites — visão cross-client de gestão */}
+                {(() => {
+                  const isActive = location === "/panorama";
+                  return (
+                    <Link href="/panorama">
+                      <div
+                        className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
+                        style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
+                      >
+                        <Globe className="w-4 h-4 flex-shrink-0" />
+                        {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Panorama de Sites</span>}
+                      </div>
+                    </Link>
+                  );
+                })()}
+
+                {/* Alertas — badge mostra o total entre todas as contas */}
+                {(() => {
+                  const isActive = location === "/alerts";
+                  return (
+                    <Link href="/alerts">
+                      <div
+                        className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
+                        style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
+                      >
+                        <Bell className="w-4 h-4 flex-shrink-0" />
+                        {sidebarOpen && (
+                          <>
+                            <span className="text-sm font-medium flex-1 truncate">Alertas</span>
+                            {globalUnreadCount != null && globalUnreadCount > 0 && (
+                              <Badge variant="destructive" className="h-5 min-w-5 px-1.5 text-xs flex items-center justify-center font-bold shadow-sm">
+                                {globalUnreadCount > 99 ? "99+" : globalUnreadCount}
+                              </Badge>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </Link>
+                  );
+                })()}
+
                 {managerNavItems.map(renderAccountItem)}
               </HiddenForUsersGroup>
             )}
