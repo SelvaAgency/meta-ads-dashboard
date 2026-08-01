@@ -2325,19 +2325,18 @@ export const appRouter = router({
           loja_30d: snap.loja_30d ? { dia: snap.loja_30d.dia, metricsJson: snap.loja_30d.metricsJson as any } : null,
         };
         // A HOME (Visão Geral do cliente) fixa em 7d — leitura "atual". Anulando os
-        // snapshots de 30d, o vendasDe usa só a janela de 7d (loja 7d → GA4 7d). O
-        // aprofundamento em 30d vive nas páginas internas de cada canal.
+        // snapshots de 30d, o vendasDe usa só a janela de 7d. Aprofundamento em 30d
+        // vive nas páginas internas de cada canal.
         const c7: ClientePanorama = { ...c, loja_30d: null, ga4_30d: null };
         const v = vendasDe(c7);
-        if (!v) return null;
 
-        const dias = 7;
-        const { startDate, endDate } = getDateRange(dias);
+        const { startDate, endDate } = getDateRange(7);
         const metrics = await getAccountMetricsSummary(input.accountId, startDate, endDate);
-        const metaSpend = metrics.reduce((s, m) => s + Number(m.totalSpend ?? 0), 0);
-        const metaAttr  = metrics.reduce((s, m) => s + Number(m.totalConversionValue ?? 0), 0);
+        const metaSpend     = metrics.reduce((s, m) => s + Number(m.totalSpend ?? 0), 0);
+        const metaConvValue = metrics.reduce((s, m) => s + Number(m.totalConversionValue ?? 0), 0);
+        const metaConv      = metrics.reduce((s, m) => s + Number(m.totalConversions ?? 0), 0);
 
-        let gSpend = 0, gAttr = 0, temGoogle = false;
+        let gSpend = 0, gConvValue = 0, gConv = 0, temGoogle = false;
         const config = getGoogleAdsConfig();
         if (config) {
           const gc = await contaGoogleDoCliente(input.accountId);
@@ -2345,16 +2344,30 @@ export const appRouter = router({
             const gs = await getGoogleAdsAccountSummary(
               { ...config, refreshToken: tokenDaConta(gc.refreshToken) }, gc.customerId, startDate, endDate,
             ).catch(() => null);
-            if (gs) { gSpend = gs.spend; gAttr = gs.conversionValue; temGoogle = true; }
+            if (gs) { gSpend = gs.spend; gConvValue = gs.conversionValue; gConv = gs.conversions; temGoogle = true; }
           }
         }
 
+        const investido = { meta: metaSpend, google: gSpend, total: metaSpend + gSpend };
+
+        // E-COMMERCE: régua em RECEITA (atribuída de mídia × receita real da loja).
+        if (v) {
+          return {
+            ecom: true as const, janela: v.janela, temGoogle, investido,
+            atribuido: { meta: metaConvValue, google: gConvValue, total: metaConvValue + gConvValue },
+            geral: { valor: v.receita, pedidos: v.pedidos, fonte: v.rotuloFonte },
+          };
+        }
+
+        // NÃO-ECOMMERCE: régua em RESULTADO. Atribuído = conversões que as plataformas
+        // reivindicam; geral RASTREADO = conversões medidas pelo GA4 (todas as fontes).
+        const ga4Conv = (c7.ga4_7d?.metricsJson as { conversions?: number } | undefined)?.conversions ?? null;
+        const atribuidoTotal = metaConv + gConv;
+        if (investido.total <= 0 && atribuidoTotal <= 0 && ga4Conv == null) return null;
         return {
-          janela: v.janela,
-          temGoogle,
-          investido: { meta: metaSpend, google: gSpend, total: metaSpend + gSpend },
-          atribuida: { meta: metaAttr, google: gAttr, total: metaAttr + gAttr },
-          real: { receita: v.receita, pedidos: v.pedidos, ticket: v.ticketMedio, fonte: v.rotuloFonte, dia: v.dia },
+          ecom: false as const, janela: "7d", temGoogle, investido,
+          atribuido: { meta: metaConv, google: gConv, total: atribuidoTotal },
+          geral: { valor: ga4Conv, pedidos: null, fonte: "GA4 (rastreado)" },
         };
       }),
 

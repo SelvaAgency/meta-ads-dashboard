@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Loader2 } from "lucide-react";
 import { funilVisual, fmtBRL, type ClientePanorama } from "@shared/panoramaLogic";
+import { fmtNumber } from "@/lib/kpiConfig";
 import { Funil } from "../panorama/Visuais";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
@@ -54,23 +55,31 @@ export function SecaoSite({ accountId }: { accountId: number }) {
 
   return (
     <div className="bg-card border border-border rounded-xl p-5 space-y-4">
-      {/* Régua de resultado */}
-      {r && (
-        <div>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            {cell("Investimento", fmtBRL(r.investido.total),
-              r.temGoogle ? `Meta ${fmtBRL(r.investido.meta)} · Google ${fmtBRL(r.investido.google)}` : "só Meta")}
-            <span className="hidden sm:block text-muted-foreground/50 text-lg">→</span>
-            {cell("Receita atribuída", fmtBRL(r.atribuida.total), "o que os anúncios reivindicam")}
-            <span className="hidden sm:block text-muted-foreground/50 text-lg">→</span>
-            {cell(`Receita geral · ${r.real.fonte}`, r.real.receita != null ? fmtBRL(r.real.receita) : "—",
-              `${r.real.pedidos ?? "—"} pedido(s)`, "text-emerald-600 dark:text-emerald-400")}
+      {/* Régua de resultado — e-commerce em RECEITA; demais objetivos em RESULTADO */}
+      {r && (() => {
+        const g = r.geral as { valor: number | null; pedidos: number | null; fonte: string };
+        const c2Val = r.ecom ? fmtBRL(r.atribuido.total) : fmtNumber(r.atribuido.total);
+        const c3Label = r.ecom ? `Receita geral · ${g.fonte}` : `Resultado geral rastreado · ${g.fonte}`;
+        const c3Val = g.valor != null ? (r.ecom ? fmtBRL(g.valor) : fmtNumber(g.valor)) : "—";
+        const c3Sub = r.ecom ? `${g.pedidos ?? "—"} pedido(s)` : "medido pelo GA4 (todas as fontes)";
+        return (
+          <div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              {cell("Investimento", fmtBRL(r.investido.total),
+                r.temGoogle ? `Meta ${fmtBRL(r.investido.meta)} · Google ${fmtBRL(r.investido.google)}` : "só Meta")}
+              <span className="hidden sm:block text-muted-foreground/50 text-lg">→</span>
+              {cell(r.ecom ? "Receita atribuída" : "Resultado atribuído", c2Val, "o que os anúncios reivindicam")}
+              <span className="hidden sm:block text-muted-foreground/50 text-lg">→</span>
+              {cell(c3Label, c3Val, c3Sub, "text-emerald-600 dark:text-emerald-400")}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-3">
+              {r.ecom
+                ? <>As três <b className="text-foreground">não se somam</b>: investido e atribuído são mídia; a geral é o caixa da loja. A leitura é a relação · {r.janela}</>
+                : <>Atribuído = o que as plataformas reivindicam; geral <b className="text-foreground">rastreado</b> = o que o GA4 mede no site (todas as fontes) · {r.janela}</>}
+            </p>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-3">
-            As três <b className="text-foreground">não se somam</b>: investido e atribuído são mídia; a geral é o caixa da loja. A leitura é a relação · {r.janela}
-          </p>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Funil de compra */}
       {funil && (

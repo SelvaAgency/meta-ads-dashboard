@@ -28,13 +28,13 @@ const ATALHOS = [
     href: "/tracker",
     icon: Bot,
     title: "Brand Inteligent Tracker",
-    desc: "O robô de performance da SELVA",
+    desc: "O robô de performance da SELVA.",
   },
   {
     href: "/reports",
     icon: FileText,
     title: "Relatório",
-    desc: "Gere relatórios prontos para o cliente",
+    desc: "Gere relatórios prontos para o cliente.",
   },
   {
     href: "/access",
