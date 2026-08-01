@@ -34,12 +34,14 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
 } from "lucide-react";
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
 import { AccountHeader } from "@/components/AccountHeader";
 import { BlocoVendas } from "@/pages/dashboard/BlocoVendas";
+import { GoogleAdsPane } from "@/pages/dashboard/GoogleAdsPane";
 import { AlertBlock, typeConfig as alertTypeConfig, CRITICAL_TYPES as alertCriticalTypes, initials as alertInitials } from "@/components/AlertBlock";
 import {
   type GoalType, type KpiDef,
@@ -210,6 +212,8 @@ export default function Dashboard() {
   });
   const [creativeTab, setCreativeTab] = useState<"creatives" | "audiences">("creatives");
   const [cardsExpanded, setCardsExpanded] = useState(false);
+  // Aba de plataforma (Detalhes por plataforma · Meta | Google).
+  const [platTab, setPlatTab] = useState<"meta" | "google">("meta");
   const [alertsStripExpanded, setAlertsStripExpanded] = useState(false);
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
@@ -520,6 +524,21 @@ export default function Dashboard() {
           </Card>
         )}
 
+        {/* ─── Detalhes por plataforma (colapsável · Meta | Google) ─────── */}
+        <details className="rounded-xl border border-border bg-card group/plat">
+          <summary className="flex items-center gap-2 px-5 py-4 cursor-pointer select-none text-sm font-semibold list-none [&::-webkit-details-marker]:hidden">
+            <ChevronRight className="w-4 h-4 text-muted-foreground transition-transform group-open/plat:rotate-90" />
+            Detalhes por plataforma
+            <span className="ml-auto text-xs font-normal text-muted-foreground hidden sm:inline">Meta · Google Ads — KPIs, campanhas e destaques</span>
+          </summary>
+          <div className="px-4 pb-4 pt-1 space-y-4">
+            <div className="inline-flex gap-1 rounded-lg border border-border bg-muted/40 p-1">
+              <button type="button" onClick={() => setPlatTab("meta")} className={`px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${platTab === "meta" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}><span className="w-2 h-2 rounded-full" style={{ background: "#1877F2" }} />Meta</button>
+              <button type="button" onClick={() => setPlatTab("google")} className={`px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${platTab === "google" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}><span className="w-2 h-2 rounded-full" style={{ background: "#EA4335" }} />Google Ads</button>
+            </div>
+
+            <div className={platTab === "meta" ? "space-y-6" : "hidden"}>
+
         {/* ─── Campanhas + Top Criativos/Públicos ───────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
@@ -817,6 +836,16 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+            </div>{/* fim aba Meta */}
+            {platTab === "google" && selectedAccountId && (
+              <GoogleAdsPane
+                metaAccountId={selectedAccountId}
+                days={period.preset === "30d" ? 30 : period.preset === "14d" ? 14 : period.preset === "7d" ? 7 : 30}
+              />
+            )}
+          </div>
+        </details>
 
         {/* Ver sugestões da IA */}
         <div style={{ textAlign: "center", paddingTop: 4 }}>
