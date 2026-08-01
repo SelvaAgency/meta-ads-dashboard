@@ -45,8 +45,6 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
     const balls: Ball[] = [];
     const ripples: Ripple[] = [];
     let baseCount = 0; // nº base de bolinhas (definido no initBalls); teto do "derrame" no clique
-    // Página Game (fill): 4x mais moedas, no MESMO tamanho da versão anterior.
-    const nScale = fill ? 4 : 1;   // multiplicador de quantidade (só na Game)
 
     // Logo
     const logoImg = new Image();
@@ -70,7 +68,7 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
       // Quantidade: limitada por área p/ telas baixas não deixarem moeda além do
       // topo; desktop mantém o cheio. ~600px² por moeda no empacotamento.
       const cap = Math.floor((W * H * .7) / 600);
-      const COUNT = Math.min((W < 560 ? 240 : 480) * nScale, Math.max(30, cap));
+      const COUNT = Math.min(W < 560 ? 240 : 480, Math.max(30, cap));
       baseCount = COUNT;
       for (let i = 0; i < COUNT; i++) {
         const layer: 'back'|'front' = Math.random() < .42 ? 'back' : 'front';

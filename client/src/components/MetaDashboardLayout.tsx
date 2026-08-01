@@ -219,7 +219,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   // Nav por-cliente (exigem cliente selecionado).
   // Base: sempre visível, inclusive para o colaborador.
   const baseNavItems = [
-    { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { path: "/dashboard", label: "Resumo", icon: LayoutDashboard },
     { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
     { path: "/reports", label: "Relatórios", icon: FileText },
     { path: "/site", label: "Site", icon: Globe },
@@ -341,7 +341,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             {sidebarOpen && (
               <div className="overflow-hidden min-w-0">
                 <p className="text-xs font-semibold truncate" style={{ letterSpacing: "0.04em", color: "#FDFFED" }}>
-                  Performance Tracker
+                  Brand Inteligent Tracker
                 </p>
                 <p className="text-[10px] truncate" style={{ color: TEXT_DIM }}>Powered by SELVA Agency</p>
               </div>
@@ -363,8 +363,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             );
           })()}
 
-          {/* Configurações — sempre visível */}
-          {(() => {
+          {/* Configurações — restrito a admin/dev (visibilidade + acesso). */}
+          {isManager && (() => {
             const isActive = location === "/settings";
             return (
               <Link href="/settings">

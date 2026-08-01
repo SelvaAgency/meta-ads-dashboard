@@ -1,4 +1,7 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { SemAcessoTracker } from "@/components/SemAcessoTracker";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canManageContent } from "@shared/permissions";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
 import { useState, useEffect } from "react";
@@ -720,11 +723,23 @@ function KnowledgeBaseSection() {
 }
 
 export default function Settings() {
+  const { user } = useAuth();
   const { accounts } = useSelectedAccount();
   const refreshPictures = trpc.accounts.refreshPictures.useMutation({
     onSuccess: (data) => toast.success(`Fotos atualizadas (${data.updated} conta(s))`),
     onError: () => toast.error("Erro ao atualizar fotos"),
   });
+
+  // Configurações do Tracker é restrita a admin/dev (visibilidade + acesso).
+  // Guard depois dos hooks para respeitar as regras de hooks.
+  if (!canManageContent(user?.role)) {
+    return (
+      <SemAcessoTracker
+        title="Configurações"
+        message="As configurações do Brand Inteligent Tracker são restritas a administradores e desenvolvedores."
+      />
+    );
+  }
 
   return (
     <MetaDashboardLayout>

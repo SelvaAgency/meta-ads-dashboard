@@ -31,7 +31,7 @@ interface Shortcut {
 
 const SHORTCUTS: Shortcut[] = [
   {
-    key: "tracker", label: "Tracker", href: "/tracker", internal: true,
+    key: "tracker", label: "Brand Inteligent Tracker", href: "/tracker", internal: true,
     icon: <svg viewBox="0 0 144 145" width="24" height="24"><path d="M143.5 0H113.8V144.1H143.5V0Z" fill="#EF701B" /><path d="M92.9 31.5H63.2V144.1H92.9V31.5Z" fill="#FDFFED" /><path d="M66.7 73.2L40.9 58.3L0 129.2L25.8 144.1L66.7 73.2Z" fill="#FDFFED" /></svg>,
   },
   {

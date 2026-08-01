@@ -25,7 +25,7 @@ export function NewsTicker({ items, celebration }: { items: NewsItem[]; celebrat
         <style>{TICKER_CSS}</style>
         <div className="selva-ticker__label">
           <IconeJornalzinho />
-          <span>Jornalzinho</span>
+          <span>Tá quente na Selva</span>
         </div>
         <div className="selva-ticker__pinned-msg">🎉 {celebration}</div>
       </div>
@@ -60,7 +60,7 @@ export function NewsTicker({ items, celebration }: { items: NewsItem[]; celebrat
 
       <div className="selva-ticker__label">
         <IconeJornalzinho />
-        <span>Jornalzinho</span>
+        <span>Tá quente na Selva</span>
       </div>
 
       <div className="selva-ticker__viewport">

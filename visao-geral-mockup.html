@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Visão Geral do cliente — mockup (Tracker)</title></head><body>
+<title>Visão Geral do cliente — prévias por foco</title>
+<style>
+  /* Paleta SELVA oficial — Cream #F6F6E2 · Pink #E87AB0/#F5ADCC · Black #0A0A0A */
+  :root{
+    --accent:#E87AB0; --accent-deep:#CE5C97; --accent-soft:rgba(232,122,176,.13);
+    --ground:#F6F6E2; --card:#FFFFFF; --card-2:#F6F6EA;
+    --ink:#0A0A0A; --ink-2:#555555; --ink-3:#8C8A73; --line:rgba(10,10,10,.12); --line-2:rgba(10,10,10,.055);
+    --good:#15884F; --good-soft:rgba(21,136,79,.12);
+    --warn:#B26B08; --warn-soft:rgba(217,119,6,.14);
+    --crit:#C7332B; --crit-soft:rgba(199,51,43,.12);
+    --radius:16px; --shadow:0 1px 2px rgba(10,10,10,.05),0 8px 24px -18px rgba(10,10,10,.28);
+    --sans:'DM Sans',ui-sans-serif,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --ground:#0A0A0A;--card:#161613;--card-2:#1D1D18;--ink:#F6F6E2;--ink-2:#BDBDA9;--ink-3:#84836E;--line:rgba(246,246,226,.13);--line-2:rgba(246,246,226,.06);
+    --accent:#F2A6CB;--accent-deep:#E87AB0;--accent-soft:rgba(242,166,203,.15);--good:#4ED08A;--good-soft:rgba(78,208,138,.13);--warn:#E6A94B;--warn-soft:rgba(230,169,75,.13);
+    --crit:#F0776E;--crit-soft:rgba(240,119,110,.13);--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -20px rgba(0,0,0,.7);}}
+  :root[data-theme="dark"]{
+    --ground:#0A0A0A;--card:#161613;--card-2:#1D1D18;--ink:#F6F6E2;--ink-2:#BDBDA9;--ink-3:#84836E;--line:rgba(246,246,226,.13);--line-2:rgba(246,246,226,.06);
+    --accent:#F2A6CB;--accent-deep:#E87AB0;--accent-soft:rgba(242,166,203,.15);--good:#4ED08A;--good-soft:rgba(78,208,138,.13);--warn:#E6A94B;--warn-soft:rgba(230,169,75,.13);
+    --crit:#F0776E;--crit-soft:rgba(240,119,110,.13);--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -20px rgba(0,0,0,.7);}
+  :root[data-theme="light"]{
+    --ground:#F6F6E2;--card:#FFFFFF;--card-2:#F6F6EA;--ink:#0A0A0A;--ink-2:#555555;--ink-3:#8C8A73;--line:rgba(10,10,10,.12);--line-2:rgba(10,10,10,.055);
+    --accent:#E87AB0;--accent-deep:#CE5C97;--accent-soft:rgba(232,122,176,.13);--good:#15884F;--good-soft:rgba(21,136,79,.12);--warn:#B26B08;--warn-soft:rgba(217,119,6,.14);
+    --crit:#C7332B;--crit-soft:rgba(199,51,43,.12);--shadow:0 1px 2px rgba(10,10,10,.05),0 8px 24px -18px rgba(10,10,10,.28);}
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;padding:22px 20px 64px}
+  .wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+  .tnum{font-variant-numeric:tabular-nums}
+  h1,h2,h3{margin:0;text-wrap:balance}
+  .eyebrow{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  .sub-sec{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin:4px 0 8px}
+  .sep{color:var(--ink-3);opacity:.6}
+
+  /* switcher */
+  .switch-wrap{position:sticky;top:0;z-index:5;background:var(--ground);padding:6px 0 10px;margin:-6px 0 2px}
+  .switch-lead{font-size:12px;color:var(--ink-2);margin-bottom:8px}
+  .switch-lead b{color:var(--ink);font-weight:700}
+  .switch{display:flex;gap:8px;flex-wrap:wrap}
+  .pill{border:1px solid var(--line);background:var(--card);border-radius:11px;padding:8px 12px;cursor:pointer;
+    text-align:left;color:var(--ink);font-family:inherit;transition:.14s;min-width:0}
+  .pill:hover{border-color:var(--accent)}
+  .pill .pt{font-size:12.5px;font-weight:700}
+  .pill .pf{font-size:11px;color:var(--ink-3);margin-top:1px}
+  .pill.on{background:var(--accent);border-color:var(--accent)}
+  .pill.on .pt,.pill.on .pf{color:#fff}
+  .pill.on .pf{opacity:.85}
+  .pill:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .view{display:none;flex-direction:column;gap:16px}
+  .view.on{display:flex}
+
+  .chip{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600;line-height:1.6;white-space:nowrap}
+  .chip svg{width:12px;height:12px}
+  .chip.good{background:var(--good-soft);color:var(--good)} .chip.warn{background:var(--warn-soft);color:var(--warn)}
+  .chip.crit{background:var(--crit-soft);color:var(--crit)} .chip.neut{background:var(--line-2);color:var(--ink-2)}
+  .chip.brand{background:var(--accent-soft);color:var(--accent-deep)}
+  :root[data-theme="dark"] .chip.brand{color:var(--accent)} @media(prefers-color-scheme:dark){.chip.brand{color:var(--accent)}}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 auto}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .card.pad{padding:18px 20px}
+  .card-h{display:flex;align-items:center;gap:9px;padding:13px 20px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700}
+  .card-h .ic{width:16px;height:16px;color:var(--ink-3);flex:0 0 auto}
+  .inner{border:0;box-shadow:none}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+
+  .head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px 20px}
+  .head .id{display:flex;gap:13px;align-items:center}
+  .avatar{width:44px;height:44px;border-radius:13px;flex:0 0 auto;display:grid;place-items:center;font-weight:800;font-size:17px;color:#fff}
+  .head h1{font-size:22px;font-weight:800;letter-spacing:-.02em}
+  .head .subl{color:var(--ink-2);font-size:13px;margin-top:2px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .period{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:3px}
+  .period span{font-size:12px;padding:4px 10px;border-radius:8px;color:var(--ink-3);font-weight:600}
+  .period span.on{background:var(--accent);color:#fff}
+
+  .verdict{font-size:16px;font-weight:600;line-height:1.45;letter-spacing:-.01em}
+  .verdict b{font-weight:800}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:720px){.tiles{grid-template-columns:1fr 1fr}}
+  .tile{background:var(--card-2);border:1px solid var(--line);border-radius:13px;padding:13px 15px}
+  .tile .lbl{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  .tile .val{font-size:23px;font-weight:800;letter-spacing:-.02em;margin-top:3px}
+  .tile .meta{font-size:11.5px;color:var(--ink-2);margin-top:2px}
+  .tile .val.good{color:var(--good)} .tile .val.warn{color:var(--warn)} .tile .val.crit{color:var(--crit)}
+  .tile .val.muted{color:var(--ink-3)}
+
+  .att-row{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-top:1px solid var(--line-2)}
+  .att-row:first-child{border-top:0;padding-top:2px}
+  .att-row .txt{flex:1;min-width:0}
+  .att-row .t1{font-size:13.5px;font-weight:600}
+  .att-row .t2{font-size:12.5px;color:var(--ink-2);margin-top:1px}
+  .link{color:var(--accent-deep);font-weight:600;text-decoration:none;font-size:12px;white-space:nowrap;display:inline-flex;align-items:center;gap:3px}
+  :root[data-theme="dark"] .link{color:var(--accent)} @media(prefers-color-scheme:dark){.link{color:var(--accent)}}
+  .link:hover{text-decoration:underline}
+
+  .statrow{display:flex;flex-wrap:wrap;gap:10px}
+  .stat{flex:1;min-width:120px;background:var(--card-2);border:1px solid var(--line);border-radius:12px;padding:11px 14px}
+  .stat .lbl{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  .stat .v{font-size:19px;font-weight:800;letter-spacing:-.01em;margin-top:2px}
+  .stat .v.good{color:var(--good)} .stat .v.warn{color:var(--warn)}
+
+  /* efficiency 3-col (UMA) */
+  .effi{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:14px;align-items:center}
+  @media(max-width:720px){.effi{grid-template-columns:1fr;text-align:left}.effi .arrow{transform:rotate(90deg);justify-self:start}}
+  .effi .cell .lbl{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  .effi .cell .big{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
+  .effi .cell .mt{font-size:11.5px;color:var(--ink-2);margin-top:1px}
+  .effi .arrow{color:var(--ink-3)}
+  .effi .cell.real .big{color:var(--good)}
+
+  .barlist{display:flex;flex-direction:column;gap:8px}
+  .bar{display:flex;align-items:center;gap:10px}
+  .bar .nm{width:150px;flex:0 0 auto;font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar .track{flex:1;height:16px;background:var(--line-2);border-radius:6px;overflow:hidden}
+  .bar .fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--accent),var(--accent-deep))}
+  .bar .amt{width:96px;flex:0 0 auto;text-align:right;font-size:12.5px;font-weight:700}
+
+  .funnel{display:flex;flex-direction:column;gap:9px}
+  .fstep{display:flex;align-items:center;gap:10px}
+  .fstep .nm{width:92px;flex:0 0 auto;font-size:12px;color:var(--ink-2)}
+  .fstep .track{flex:1;height:22px;background:var(--line-2);border-radius:7px;overflow:hidden}
+  .fstep .fill{height:100%;border-radius:7px;background:var(--accent);opacity:.78}
+  .fstep .n{width:44px;text-align:right;font-weight:800;font-size:13px}
+  .fstep .pass{width:120px;text-align:right;font-size:11.5px;color:var(--ink-2)}
+  .fstep .pass.bad{color:var(--warn);font-weight:600}
+  .fstep .pass.crit{color:var(--crit);font-weight:700}
+
+  .media-tot{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:10px}
+  .media-tot .big{font-size:22px;font-weight:800;letter-spacing:-.02em}
+  .kv{display:flex;justify-content:space-between;font-size:12.5px;padding:5px 0;border-top:1px solid var(--line-2)}
+  .kv:first-of-type{border-top:0}
+  .kv .k{color:var(--ink-2)} .kv .v{font-weight:700}
+
+  .note{display:flex;gap:8px;align-items:flex-start;background:var(--card-2);border:1px dashed var(--line);border-radius:11px;padding:10px 12px;font-size:12px;color:var(--ink-2)}
+  .note svg{width:15px;height:15px;color:var(--ink-3);flex:0 0 auto;margin-top:1px}
+  .note.warn{border-color:color-mix(in srgb,var(--warn) 40%,var(--line));background:var(--warn-soft)}
+  .note.warn svg{color:var(--warn)}
+  .note.crit{border-color:color-mix(in srgb,var(--crit) 45%,var(--line));background:var(--crit-soft)}
+  .note.crit svg{color:var(--crit)}
+
+  .health{display:flex;flex-wrap:wrap;gap:9px}
+  .hpill{display:flex;align-items:center;gap:8px;background:var(--card-2);border:1px solid var(--line);border-radius:11px;padding:9px 13px;font-size:12.5px}
+  .hpill .hv{font-weight:800}
+
+  .sources{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+  @media(max-width:620px){.sources{grid-template-columns:1fr 1fr}}
+  .src{display:flex;align-items:center;gap:8px;font-size:12.5px}
+  .src .snm{font-weight:600} .src .sd{color:var(--ink-3);margin-left:auto;font-size:11.5px}
+  .src .sd.err{color:var(--crit);font-weight:600}
+
+  ol.steps{margin:0;padding:0;list-style:none;counter-reset:s;display:flex;flex-direction:column;gap:11px}
+  ol.steps li{counter-increment:s;display:flex;gap:12px;align-items:flex-start}
+  ol.steps li::before{content:counter(s);flex:0 0 auto;width:22px;height:22px;border-radius:7px;background:var(--accent-soft);color:var(--accent-deep);font-weight:800;font-size:12px;display:grid;place-items:center}
+  :root[data-theme="dark"] ol.steps li::before{color:var(--accent)} @media(prefers-color-scheme:dark){ol.steps li::before{color:var(--accent)}}
+  ol.steps .st{font-size:13.5px;font-weight:600} ol.steps .sd{font-size:12.5px;color:var(--ink-2)}
+
+  .foot{text-align:center;color:var(--ink-3);font-size:11.5px;margin-top:8px;line-height:1.6}
+  .spark{width:100%;height:44px}
+  .big-empty{text-align:center;padding:26px 16px;color:var(--ink-3)}
+  .big-empty .em1{font-size:15px;font-weight:700;color:var(--ink-2)}
+  .big-empty .em2{font-size:12.5px;margin-top:4px}
+
+  /* KPI cards — variação vs período anterior */
+  .d{font-size:11px;font-weight:700;margin-top:4px;display:inline-flex;gap:4px;align-items:center}
+  .d.pos{color:var(--good)} .d.neg{color:var(--crit)} .d.flat{color:var(--ink-3)}
+  /* gráfico diário (série temporal) */
+  .chart{width:100%;height:120px;display:block}
+  .chart line{stroke-width:1}
+  .legend{display:flex;gap:16px;margin-bottom:9px;font-size:11.5px;color:var(--ink-2);flex-wrap:wrap}
+  .legend .lg{display:inline-flex;align-items:center;gap:6px}
+  .legend .sw{width:13px;height:3px;border-radius:2px;display:inline-block}
+  .xax{display:flex;justify-content:space-between;font-size:10px;color:var(--ink-3);margin-top:7px}
+  /* campanhas ativas */
+  .camp{display:flex;align-items:center;gap:11px;padding:10px 0;border-top:1px solid var(--line-2)}
+  .camp:first-child{border-top:0;padding-top:2px}
+  .camp .cd{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .camp .cnm{flex:1;min-width:0;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .camp .cmt{font-size:11.5px;color:var(--ink-2);white-space:nowrap}
+  /* destaques — top criativo / público */
+  .topgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:620px){.topgrid{grid-template-columns:1fr}}
+  .topcell{display:flex;gap:12px;align-items:center}
+  .thumb{width:46px;height:46px;border-radius:12px;flex:0 0 auto;background:linear-gradient(135deg,var(--accent-soft),var(--line-2));display:grid;place-items:center;color:var(--accent-deep)}
+  :root[data-theme="dark"] .thumb{color:var(--accent)} @media(prefers-color-scheme:dark){.thumb{color:var(--accent)}}
+  .thumb svg{width:20px;height:20px}
+  .topcell .tnm{font-size:13px;font-weight:700;line-height:1.25} .topcell .tmt{font-size:11.5px;color:var(--ink-2);margin-top:2px}
+
+  /* ontem e hoje — Meta + Google (quick glance) */
+  .oh{display:grid;grid-template-columns:92px 1fr 1fr;gap:11px 14px;align-items:center}
+  @media(max-width:520px){.oh{grid-template-columns:76px 1fr 1fr;gap:9px 10px}}
+  .oh .ohh{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);font-weight:700}
+  .oh .ohp{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700}
+  .oh .ohc .v{font-size:16px;font-weight:800;letter-spacing:-.01em}
+  .oh .ohc .m{font-size:11px;color:var(--ink-2);display:flex;align-items:center;gap:4px}
+  .oh .ohc .m .up{color:var(--good);font-weight:800} .oh .ohc .m .down{color:var(--crit);font-weight:800}
+  .resumo{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  /* resumo como DETALHE dentro do card (não um card gigante) */
+  .resumo-line{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12.5px;color:var(--ink-2);padding-top:12px;border-top:1px solid var(--line-2)}
+  .resumo-line .rl{flex:1;min-width:220px;line-height:1.4} .resumo-line .rl b{color:var(--ink);font-weight:700}
+  .lbl-r{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);font-weight:800;flex:0 0 auto}
+  /* strip fino de resumo (demais views) */
+  .strip{display:flex;align-items:center;gap:11px;flex-wrap:wrap;padding:11px 16px}
+  .strip .st{font-size:12.5px;color:var(--ink-2);flex:1;min-width:220px;line-height:1.4} .strip .st b{color:var(--ink);font-weight:700}
+  /* delta inline compacto */
+  .dlt{font-size:10.5px;font-weight:800;margin-left:4px;white-space:nowrap} .dlt.pos{color:var(--good)} .dlt.neg{color:var(--crit)}
+
+  /* bloco colapsável (detalhes de mídia) */
+  .collapse{display:block}
+  .collapse>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:11px;padding:14px 18px;font-weight:700;font-size:13.5px;color:var(--ink);
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .collapse>summary::-webkit-details-marker{display:none}
+  .collapse>summary:hover{border-color:var(--accent)}
+  .collapse>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .collapse .chev{width:16px;height:16px;color:var(--ink-3);transition:transform .2s;flex:0 0 auto}
+  .collapse[open] .chev{transform:rotate(90deg)}
+  .collapse .cbadge{margin-left:auto;font-size:11px;font-weight:500;color:var(--ink-3);white-space:nowrap}
+  @media(max-width:560px){.collapse .cbadge{display:none}}
+  .collapse .cbody{display:flex;flex-direction:column;gap:16px;margin-top:16px}
+
+  /* ── detalhes por plataforma (tabs Meta | Google Ads) ── */
+  .ptabs{display:inline-flex;gap:4px;background:var(--card-2);border:1px solid var(--line);border-radius:11px;padding:3px}
+  .ptab{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;padding:6px 14px;border-radius:8px;border:0;background:none;color:var(--ink-2);cursor:pointer;font-family:inherit}
+  .ptab .cd{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .ptab.on{background:var(--card);box-shadow:var(--shadow);color:var(--ink)}
+  .ppane{display:none;flex-direction:column;gap:16px;margin-top:14px}
+  .ppane.on{display:flex}
+  .mkpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  @media(max-width:720px){.mkpis{grid-template-columns:1fr 1fr}}
+  .mkpi{background:var(--card-2);border:1px solid var(--line);border-radius:12px;padding:10px 13px}
+  .mkpi .l{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);font-weight:700}
+  .mkpi .v{font-size:18px;font-weight:800;letter-spacing:-.01em;margin-top:3px}
+  .mkpi .v.good{color:var(--good)}
+
+  /* ── header de conta (4 blocos, inspirado no AccountHeader real) ── */
+  .topmini{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:11.5px;color:var(--ink-2)}
+  .acct{display:grid;grid-template-columns:206px 1.1fr 1.1fr .95fr;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+  .acct.st-good{border-left:3px solid var(--good)} .acct.st-warn{border-left:3px solid var(--warn)} .acct.st-crit{border-left:3px solid var(--crit)}
+  .acct>.b{padding:13px 15px;border-right:1px solid var(--line-2);min-width:0;display:flex;flex-direction:column}
+  .acct>.b:last-child{border-right:0}
+  .bl{font-size:9px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center}
+  .ah-id{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .ah-id .av{width:30px;height:30px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;font-weight:800;font-size:11px;color:#fff}
+  .ah-id .nm{font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ah-sync{font-size:10px;color:var(--ink-3);display:flex;align-items:center;gap:5px;margin-bottom:7px}
+  .ah-sync .d{width:5px;height:5px;border-radius:50%;background:var(--good);flex:0 0 auto}
+  .ah-sync.stale{color:var(--warn)} .ah-sync.stale .d{background:var(--warn)}
+  .gbadge{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent-deep);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);margin-bottom:8px}
+  :root[data-theme="dark"] .gbadge{color:var(--accent)} @media(prefers-color-scheme:dark){.gbadge{color:var(--accent)}}
+  .fchips{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
+  .fchip{font-size:9.5px;font-weight:600;padding:1px 7px;border-radius:99px;border:1px solid;white-space:nowrap}
+  .fchip.ok{color:var(--good);background:var(--good-soft);border-color:color-mix(in srgb,var(--good) 30%,transparent)}
+  .fchip.warn{color:var(--warn);background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 30%,transparent)}
+  .fchip.err{color:var(--crit);background:var(--crit-soft);border-color:color-mix(in srgb,var(--crit) 32%,transparent)}
+  .fchip.off{color:var(--ink-3);background:var(--line-2);border-color:var(--line);opacity:.7}
+  .ah-btns{display:flex;gap:6px;margin-top:auto;padding-top:8px}
+  .ah-btn{font-size:11px;font-weight:600;padding:6px 9px;border-radius:8px;border:1px solid var(--line);background:var(--card-2);color:var(--ink-2);display:inline-flex;align-items:center;gap:5px;cursor:pointer}
+  .ah-btn svg{width:12px;height:12px}
+  .ah-btn.sync{background:var(--accent);border-color:var(--accent);color:#fff;flex:1;justify-content:center}
+  .ah-day{margin-bottom:10px}
+  .ah-day .dh{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+  .ah-day .dh .dn{font-size:10px;font-weight:700} .ah-day .dh .dn.today{color:var(--accent-deep)} .ah-day .dh .dn.yest{color:var(--ink-3)}
+  :root[data-theme="dark"] .ah-day .dh .dn.today{color:var(--accent)} @media(prefers-color-scheme:dark){.ah-day .dh .dn.today{color:var(--accent)}}
+  .daytag{font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;line-height:1.5}
+  .ah-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:3px 8px}
+  .ah-kpis .k .kl{font-size:8.5px;text-transform:uppercase;letter-spacing:.02em;color:var(--ink-3);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ah-kpis .k .kv{font-size:12px;font-weight:700;white-space:nowrap}
+  .ah-kpis .k .kv.muted{color:var(--ink-3)}
+  .ah-pay{margin-top:auto;padding-top:9px;font-size:10px;color:var(--good);font-weight:600;display:flex;align-items:center;gap:6px}
+  .ah-pay .d{width:6px;height:6px;border-radius:50%;background:var(--good);flex:0 0 auto}
+  .ah-rg .rgs{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+  .ah-rg .rgs .d{width:6px;height:6px;border-radius:50%;flex:0 0 auto}
+  .ah-rg .rgs .lb{font-size:11px;font-weight:700}
+  .ah-rg .txt{font-size:11px;line-height:1.5;color:var(--ink-2)}
+  .ah-rg .more{font-size:10px;color:var(--accent-deep);font-weight:600;margin-top:6px;cursor:pointer}
+  :root[data-theme="dark"] .ah-rg .more{color:var(--accent)} @media(prefers-color-scheme:dark){.ah-rg .more{color:var(--accent)}}
+  .ah-item{display:flex;gap:7px;align-items:flex-start;padding:7px 9px;border:1px solid var(--line-2);border-radius:8px;background:var(--card-2);margin-bottom:6px}
+  .ah-item .ck{width:15px;height:15px;border-radius:50%;border:1.5px solid var(--good);display:grid;place-items:center;flex:0 0 auto;margin-top:1px}
+  .ah-item .ck svg{width:8px;height:8px;color:var(--good)}
+  .ah-item .t{font-size:10.5px;font-weight:600;line-height:1.3} .ah-item .mt{font-size:9.5px;color:var(--ink-3);margin-top:2px}
+  .ah-empty{font-size:11px;color:var(--ink-3);font-style:italic}
+  .cnt{font-size:9px;font-weight:800;padding:1px 6px;border-radius:99px;background:var(--accent);color:#fff;margin-left:6px}
+  @media(max-width:940px){.acct{grid-template-columns:1fr 1fr}.acct>.b{border-right:0;border-bottom:1px solid var(--line-2)}.acct>.b:nth-child(odd){border-right:1px solid var(--line-2)}.acct>.b:nth-last-child(-n+2){border-bottom:0}}
+  @media(max-width:600px){.acct{grid-template-columns:1fr}.acct>.b{border-right:0!important;border-bottom:1px solid var(--line-2)}.acct>.b:last-child{border-bottom:0}}
+
+  /* ── app shell (chrome do Tracker) ── */
+  .app{display:flex;align-items:flex-start;max-width:1340px;margin:0 auto}
+  .sidebar{--sb-bg:#0A0A0A;--sb-hover:rgba(246,246,226,.07);--sb-text:rgba(246,246,226,.72);--sb-dim:rgba(246,246,226,.4);
+    --sb-abg:rgba(232,122,176,.20);--sb-active:#F5ADCC;
+    width:242px;flex:0 0 auto;background:var(--sb-bg);color:var(--sb-text);border-radius:18px;padding:14px 12px;
+    display:flex;flex-direction:column;gap:2px;position:sticky;top:20px;max-height:calc(100vh - 40px);overflow:auto}
+  .main{flex:1;min-width:0;padding-left:20px}
+  .main .wrap{max-width:none;padding:0}
+  .sb-logo{display:flex;align-items:center;gap:10px;padding:6px 8px 10px}
+  .sb-mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(150deg,var(--accent),var(--accent-deep));display:grid;place-items:center;color:#fff;font-weight:900;font-size:16px}
+  .sb-logo .lt{font-size:12.5px;font-weight:700;color:#fff}.sb-logo .ld{font-size:10px;color:var(--sb-dim)}
+  .sb-lbl{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--sb-dim);font-weight:700;padding:12px 8px 5px}
+  .sb-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;font-size:13px;color:var(--sb-text);cursor:default;border:0;background:none;width:100%;text-align:left;font-family:inherit}
+  .sb-item svg{width:16px;height:16px;flex:0 0 auto;opacity:.8}
+  .sb-item.active{background:var(--sb-abg);color:var(--sb-active);font-weight:600}
+  .sb-div{height:1px;background:rgba(255,255,255,.08);margin:9px 4px}
+  .sb-client{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:9px;cursor:pointer;border:0;background:none;width:100%;text-align:left;font-family:inherit}
+  .sb-client:hover{background:var(--sb-hover)}
+  .sb-client.on{background:var(--sb-abg)}
+  .sb-client .ca{width:26px;height:26px;border-radius:7px;flex:0 0 auto;display:grid;place-items:center;color:#fff;font-weight:800;font-size:11px}
+  .sb-client .cn{font-size:12.5px;font-weight:600;color:#fff;line-height:1.2}
+  .sb-client.on .cn{color:var(--sb-active)}
+  .sb-client .cchips{display:flex;gap:3px;margin-top:3px}
+  .fx{font-size:8px;font-weight:700;padding:0 4px;border-radius:4px;line-height:1.6}
+  .fx.ok{background:rgba(78,208,138,.22);color:#7EE0AC}.fx.er{background:rgba(240,119,110,.22);color:#F3A29B}.fx.no{background:rgba(255,255,255,.08);color:var(--sb-dim)}
+  .sb-foot{margin-top:auto;padding:10px 8px 2px;display:flex;align-items:center;gap:8px}
+  .sb-foot .ua{width:24px;height:24px;border-radius:50%;background:linear-gradient(150deg,#E85BA8,#C43D86);display:grid;place-items:center;color:#fff;font-size:11px;font-weight:800}
+  .sb-foot .un{font-size:11.5px;font-weight:600;color:#fff}.sb-foot .ur{font-size:10px;color:var(--sb-dim)}
+  .mobile-switch{display:none}
+  @media(max-width:880px){
+    body{padding:14px 12px 48px}
+    .app{flex-direction:column}
+    .sidebar{display:none}
+    .main{padding-left:0;width:100%}
+    .mobile-switch{display:block !important}
+  }
+</style>
+
+<div class="app">
+  <!-- ── sidebar (chrome do Tracker) ── -->
+  <aside class="sidebar">
+    <div class="sb-logo"><div class="sb-mark">S</div><div><div class="lt">Performance Tracker</div><div class="ld">Powered by SELVA Agency</div></div></div>
+    <button class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>Visão Geral</button>
+    <button class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>Panorama de Sites</button>
+
+    <div class="sb-lbl">Cliente</div>
+    <button class="sb-client on" data-v="uma"><div class="ca" style="background:linear-gradient(150deg,#E85BA8,#C43D86)">U</div><div><div class="cn">UMA Comércio</div><div class="cchips"><span class="fx ok">VNDA</span><span class="fx ok">GA4</span><span class="fx ok">Meta</span></div></div></button>
+    <button class="sb-client" data-v="baesh"><div class="ca" style="background:linear-gradient(150deg,#5B8C51,#3E6B39)">B</div><div><div class="cn">BAESH</div><div class="cchips"><span class="fx ok">Woo</span><span class="fx ok">GA4</span><span class="fx no">Meta</span></div></div></button>
+    <button class="sb-client" data-v="leads"><div class="ca" style="background:linear-gradient(150deg,#3B82F6,#1D4ED8)">S</div><div><div class="cn">Studio Vibe</div><div class="cchips"><span class="fx ok">Meta</span><span class="fx ok">GA4</span><span class="fx no">Loja</span></div></div></button>
+    <button class="sb-client" data-v="inst"><div class="ca" style="background:linear-gradient(150deg,#0EA5A5,#0F766E)">C</div><div><div class="cn">Casa Marembo</div><div class="cchips"><span class="fx ok">GA4</span><span class="fx ok">Site</span><span class="fx no">Mídia</span></div></div></button>
+    <button class="sb-client" data-v="arka"><div class="ca" style="background:linear-gradient(150deg,#9CA3AF,#6B7280)">A</div><div><div class="cn">ARKA</div><div class="cchips"><span class="fx er">Meta</span><span class="fx no">GA4</span></div></div></button>
+
+    <div class="sb-div"></div>
+    <button class="sb-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</button>
+    <button class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="7"/><rect x="12" y="7" width="3" height="11"/><rect x="17" y="13" width="3" height="5"/></svg>Campanhas</button>
+    <button class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg>Relatórios</button>
+    <button class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/></svg>Google Ads</button>
+    <button class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Google Analytics</button>
+    <button class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/></svg>Lojas</button>
+    <button class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>Site</button>
+    <div class="sb-div"></div>
+    <button class="sb-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.3l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2.2-1.3L14 2h-4l-.3 2.4a7 7 0 0 0-2.2 1.3l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2.6l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2.2 1.3L10 22h4l.3-2.4a7 7 0 0 0 2.2-1.3l2.4 1 2-3.4-2-1.6c.06-.43.1-.86.1-1.3Z"/></svg>Configurações</button>
+    <div class="sb-foot"><div class="ua">G</div><div><div class="un">Guilherme</div><div class="ur">admin</div></div></div>
+  </aside>
+
+  <main class="main">
+  <div class="wrap">
+  <!-- ── seletor (mobile — no desktop a troca é pela sidebar) ── -->
+  <div class="switch-wrap mobile-switch">
+    <p class="switch-lead"><b>A Visão Geral se reorganiza pelo foco do cliente.</b> Toque num perfil.</p>
+    <div class="switch" role="tablist">
+      <button class="pill on" data-v="uma" role="tab"><div class="pt">UMA</div><div class="pf">loja + mídia</div></button>
+      <button class="pill" data-v="baesh" role="tab"><div class="pt">BAESH</div><div class="pf">loja Woo</div></button>
+      <button class="pill" data-v="leads" role="tab"><div class="pt">Serviços</div><div class="pf">leads/mídia</div></button>
+      <button class="pill" data-v="inst" role="tab"><div class="pt">Institucional</div><div class="pf">site/tráfego</div></button>
+      <button class="pill" data-v="arka" role="tab"><div class="pt">ARKA</div><div class="pf">fonte em erro</div></button>
+    </div>
+  </div>
+
+  <!-- ══════════ UMA — loja + mídia (foco: gasto × conversão) ══════════ -->
+  <div class="view on" id="v-uma">
+
+    <!-- Header de conta — 4 blocos (Identidade · Resultados Hoje/Ontem · Resumo Geral IA · Ações) -->
+    <div class="topmini"><span>UMA Comércio · fontes atualizadas hoje 06:45</span><div class="period"><span>7d</span><span class="on">30 dias</span><span>90d</span></div></div>
+    <div class="acct st-good">
+      <div class="b">
+        <div class="bl">Conta</div>
+        <div class="ah-id"><div class="av" style="background:linear-gradient(150deg,#E85BA8,#C43D86)">U</div><div class="nm">UMA Comércio</div></div>
+        <div class="ah-sync"><span class="d"></span>sync há 6min</div>
+        <span class="gbadge">🎯 Vendas · e-commerce</span>
+        <div class="fchips"><span class="fchip ok">● Meta</span><span class="fchip ok">● Google</span><span class="fchip ok">● GA4</span></div>
+        <div class="ah-btns">
+          <button class="ah-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0-4 10.5V17h8v-3.5A6 6 0 0 0 12 3zM9 21h6"/></svg>Contexto</button>
+          <button class="ah-btn sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Sincronizar</button>
+        </div>
+      </div>
+      <div class="b">
+        <div class="bl">Resultados</div>
+        <div class="ah-day">
+          <div class="dh"><span class="dn today">Hoje</span><span class="daytag" style="background:var(--good-soft);color:var(--good)">bom dia</span></div>
+          <div class="ah-kpis"><div class="k"><div class="kl">Gasto</div><div class="kv">R$ 790</div></div><div class="k"><div class="kl">Conv.</div><div class="kv">11</div></div><div class="k"><div class="kl">ROAS</div><div class="kv">2,1×</div></div><div class="k"><div class="kl">CPA</div><div class="kv">R$ 72</div></div></div>
+        </div>
+        <div class="ah-day">
+          <div class="dh"><span class="dn yest">Ontem</span><span class="daytag" style="background:var(--line-2);color:var(--ink-2)">estável</span></div>
+          <div class="ah-kpis"><div class="k"><div class="kl">Gasto</div><div class="kv">R$ 720</div></div><div class="k"><div class="kl">Conv.</div><div class="kv">8</div></div><div class="k"><div class="kl">ROAS</div><div class="kv">1,9×</div></div><div class="k"><div class="kl">CPA</div><div class="kv">R$ 90</div></div></div>
+        </div>
+        <div class="ah-pay"><span class="d"></span>Cartão de crédito · OK</div>
+      </div>
+      <div class="b">
+        <div class="bl">Resumo Geral</div>
+        <div class="ah-rg">
+          <div class="rgs"><span class="d" style="background:var(--good)"></span><span class="lb" style="color:var(--good)">Saudável — 7 dias</span></div>
+          <p class="txt">Semana saudável: investimento estável e ROAS acima de 2× nas duas plataformas. O Meta puxa a maior parte das vendas e o Google vem consistente no Search de marca. O ponto de atenção segue no <b style="color:var(--ink)">checkout</b> — a mídia entrega tráfego qualificado, mas o site perde ~76% no caminho carrinho → compra.</p>
+          <div class="more">ver análise completa ▾</div>
+        </div>
+      </div>
+      <div class="b">
+        <div class="bl">Ações em andamento <span class="cnt">2</span></div>
+        <div class="ah-item"><div class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg></div><div><div class="t">Realocar orçamento p/ Catálogo</div><div class="mt">👁 4d restantes · realocar orçamento</div></div></div>
+        <div class="ah-item"><div class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg></div><div><div class="t">Novo criativo — vídeo verão</div><div class="mt">👁 6d restantes · novo criativo</div></div></div>
+      </div>
+    </div>
+
+    <!-- Funil de compra (Hoje/Ontem foi para o header) -->
+    <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18l-7 8v6l-4 2v-8L3 4Z"/></svg>Funil de compra<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">GA4 · 7d</span></div>
+      <div class="card pad inner"><div class="funnel">
+        <div class="fstep"><span class="nm">Carrinho</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="n tnum">203</span><span class="pass"></span></div>
+        <div class="fstep"><span class="nm">Checkout</span><span class="track"><span class="fill" style="width:23.6%"></span></span><span class="n tnum">48</span><span class="pass bad">23,6% · −155</span></div>
+        <div class="fstep"><span class="nm">Compra</span><span class="track"><span class="fill" style="width:15.3%"></span></span><span class="n tnum">31</span><span class="pass">64,6% · −17</span></div>
+      </div></div></div>
+
+    <!-- Relação investimento → vendas reais (assinatura) -->
+    <div class="card pad" style="display:flex;flex-direction:column;gap:12px">
+      <div class="effi">
+        <div class="cell"><div class="lbl">Investido em mídia</div><div class="big">R$ 16.600</div><div class="mt">Meta 12,4k · Google 4,2k</div></div>
+        <div class="arrow">→</div>
+        <div class="cell"><div class="lbl">Receita atribuída</div><div class="big">R$ 33.013</div><div class="mt">o que os anúncios reivindicam</div></div>
+        <div class="arrow">→</div>
+        <div class="cell real"><div class="lbl">Receita real · VNDA</div><div class="big">R$ 121.627</div><div class="mt">175 pedidos · ticket R$ 695</div></div>
+      </div>
+      <div class="note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg><span>As três <b style="color:var(--ink)">não se somam</b>: investido e atribuído são mídia; a receita real é o caixa da loja. A leitura é a <b style="color:var(--ink)">relação</b>.</span></div>
+    </div>
+
+    <!-- Precisa de atenção (largura cheia) -->
+    <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>Precisa de atenção</div>
+      <div class="card pad inner">
+        <div class="att-row"><span class="chip warn">Atenção</span><div class="txt"><div class="t1">Checkout segura a conversão</div><div class="t2">203 carrinho · 48 checkout · 31 compra (GA4 · 7d) — onde a mídia perde retorno.</div></div><a class="link" href="#">Site →</a></div>
+      </div></div>
+
+    <!-- ══ Detalhes por plataforma — tabs Meta | Google Ads (colapsável) ══ -->
+    <details class="collapse plat-box">
+      <summary><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>Detalhes por plataforma<span class="cbadge">Meta · Google Ads — KPIs, campanhas, destaques e gráficos</span></summary>
+      <div class="cbody">
+        <div class="ptabs">
+          <button class="ptab on" data-p="meta"><span class="cd" style="background:#1877F2"></span>Meta</button>
+          <button class="ptab" data-p="google"><span class="cd" style="background:#EA4335"></span>Google Ads</button>
+        </div>
+
+        <!-- ── Pane Meta ── -->
+        <div class="ppane on" data-p="meta">
+          <div class="mkpis">
+            <div class="mkpi"><div class="l">Investimento</div><div class="v">R$ 12.400</div></div>
+            <div class="mkpi"><div class="l">ROAS</div><div class="v good">1,9×</div></div>
+            <div class="mkpi"><div class="l">CPA</div><div class="v">R$ 364</div></div>
+            <div class="mkpi"><div class="l">Conversões</div><div class="v">34</div></div>
+            <div class="mkpi"><div class="l">Valor conv.</div><div class="v">R$ 24.113</div></div>
+            <div class="mkpi"><div class="l">Alcance</div><div class="v">84,2k</div></div>
+            <div class="mkpi"><div class="l">Impressões</div><div class="v">312k</div></div>
+            <div class="mkpi"><div class="l">CTR</div><div class="v">1,8%</div></div>
+          </div>
+          <div class="card"><div class="card-h"><span class="dot" style="background:#1877F2"></span>Investimento diário — Meta<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">30d</span></div>
+            <div class="card pad inner">
+              <svg class="chart" viewBox="0 0 300 118" preserveAspectRatio="none"><defs><linearGradient id="cg-meta" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".24"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+                <line x1="0" y1="30" x2="300" y2="30" stroke="var(--line-2)"/><line x1="0" y1="60" x2="300" y2="60" stroke="var(--line-2)"/><line x1="0" y1="90" x2="300" y2="90" stroke="var(--line-2)"/>
+                <path d="M0,78 27,74 54,80 82,64 109,70 136,56 164,62 191,50 218,58 246,44 273,52 300,42 L300,118 L0,118 Z" fill="url(#cg-meta)"/>
+                <path d="M0,78 27,74 54,80 82,64 109,70 136,56 164,62 191,50 218,58 246,44 273,52 300,42" fill="none" stroke="var(--accent)" stroke-width="2"/>
+              </svg>
+              <div class="xax"><span>dia 1</span><span>8</span><span>15</span><span>22</span><span>30</span></div>
+            </div></div>
+          <div class="grid2">
+            <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="7"/><rect x="12" y="7" width="3" height="11"/><rect x="17" y="13" width="3" height="5"/></svg>Campanhas ativas · Meta<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">2 · 30d</span></div>
+              <div class="card pad inner">
+                <div class="camp"><span class="cd" style="background:#1877F2"></span><span class="cnm">Conversão — Catálogo</span><span class="cmt">R$ 5.240 · 22 conv</span><span class="chip good">2,1×</span></div>
+                <div class="camp"><span class="cd" style="background:#1877F2"></span><span class="cnm">Remarketing 7d</span><span class="cmt">R$ 3.760 · 9 conv</span><span class="chip warn">1,6×</span></div>
+              </div></div>
+            <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.5 2.3 7.1-6.3-4.6L5.7 21l2.3-7.1-6-4.5h7.6z"/></svg>Destaques · Meta</div>
+              <div class="card pad inner"><div class="topgrid">
+                <div><p class="sub-sec">Top criativo</p><div class="topcell"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18v14H3z"/><path d="M10 9l5 3-5 3z" fill="currentColor" stroke="none"/></svg></div><div><div class="tnm">Vídeo 15s — Verão</div><div class="tmt">CTR 2,8% · 18 conv · ROAS 2,6×</div></div></div></div>
+                <div><p class="sub-sec">Top público</p><div class="topcell"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 6a3 3 0 0 1 0 6M21 20a5 5 0 0 0-5-5"/></svg></div><div><div class="tnm">Lookalike 2% compradores</div><div class="tmt">R$ 6,1k · 24 conv · CPA R$ 254</div></div></div></div>
+              </div></div></div>
+          </div>
+        </div>
+
+        <!-- ── Pane Google Ads ── -->
+        <div class="ppane" data-p="google">
+          <div class="mkpis">
+            <div class="mkpi"><div class="l">Investimento</div><div class="v">R$ 4.200</div></div>
+            <div class="mkpi"><div class="l">ROAS</div><div class="v good">2,1×</div></div>
+            <div class="mkpi"><div class="l">CPA</div><div class="v">R$ 350</div></div>
+            <div class="mkpi"><div class="l">Conversões</div><div class="v">12</div></div>
+            <div class="mkpi"><div class="l">Valor conv.</div><div class="v">R$ 8.900</div></div>
+            <div class="mkpi"><div class="l">Impressões</div><div class="v">96k</div></div>
+            <div class="mkpi"><div class="l">CTR</div><div class="v">3,1%</div></div>
+            <div class="mkpi"><div class="l">Cliques</div><div class="v">2.976</div></div>
+          </div>
+          <div class="card"><div class="card-h"><span class="dot" style="background:#EA4335"></span>Investimento diário — Google Ads<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">30d</span></div>
+            <div class="card pad inner">
+              <svg class="chart" viewBox="0 0 300 118" preserveAspectRatio="none"><defs><linearGradient id="cg-google" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".24"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+                <line x1="0" y1="30" x2="300" y2="30" stroke="var(--line-2)"/><line x1="0" y1="60" x2="300" y2="60" stroke="var(--line-2)"/><line x1="0" y1="90" x2="300" y2="90" stroke="var(--line-2)"/>
+                <path d="M0,90 27,94 54,84 82,88 109,78 136,84 164,74 191,80 218,70 246,76 273,66 300,68 L300,118 L0,118 Z" fill="url(#cg-google)"/>
+                <path d="M0,90 27,94 54,84 82,88 109,78 136,84 164,74 191,80 218,70 246,76 273,66 300,68" fill="none" stroke="var(--accent)" stroke-width="2"/>
+              </svg>
+              <div class="xax"><span>dia 1</span><span>8</span><span>15</span><span>22</span><span>30</span></div>
+            </div></div>
+          <div class="grid2">
+            <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="7"/><rect x="12" y="7" width="3" height="11"/><rect x="17" y="13" width="3" height="5"/></svg>Campanhas ativas · Google<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">2 · 30d</span></div>
+              <div class="card pad inner">
+                <div class="camp"><span class="cd" style="background:#EA4335"></span><span class="cnm">Search — Marca</span><span class="cmt">R$ 2.480 · 8 conv</span><span class="chip good">2,4×</span></div>
+                <div class="camp"><span class="cd" style="background:#EA4335"></span><span class="cnm">Performance Max</span><span class="cmt">R$ 1.820 · 5 conv</span><span class="chip good">1,8×</span></div>
+              </div></div>
+            <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.5 2.3 7.1-6.3-4.6L5.7 21l2.3-7.1-6-4.5h7.6z"/></svg>Destaques · Google</div>
+              <div class="card pad inner"><div class="topgrid">
+                <div><p class="sub-sec">Top termo de busca</p><div class="topcell"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div><div><div class="tnm">"jogo de panelas"</div><div class="tmt">CTR 4,1% · 9 conv · CPA R$ 288</div></div></div></div>
+                <div><p class="sub-sec">Top produto (Shopping)</p><div class="topcell"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/></svg></div><div><div class="tnm">Panela Steel 6pç</div><div class="tmt">R$ 1,3k · 6 conv · ROAS 2,7×</div></div></div></div>
+              </div></div></div>
+          </div>
+        </div>
+      </div>
+    </details>
+    <p class="foot">UMA · Resumão Geral no topo; abaixo, detalhes de mídia separados por plataforma (Meta / Google Ads) — KPIs, campanhas, destaques e gráficos.</p>
+  </div>
+
+  <!-- ══════════ BAESH — loja Woo (foco: a loja + funil) ══════════ -->
+  <div class="view" id="v-baesh">
+
+    <div class="topmini"><span>BAESH · loja importada hoje 06:45</span><div class="period"><span>7d</span><span class="on">30 dias</span><span>90d</span></div></div>
+    <div class="acct st-warn">
+      <div class="b">
+        <div class="bl">Conta</div>
+        <div class="ah-id"><div class="av" style="background:linear-gradient(150deg,#5B8C51,#3E6B39)">B</div><div class="nm">BAESH</div></div>
+        <div class="ah-sync"><span class="d"></span>sync há 12min</div>
+        <span class="gbadge">🛒 Loja · Woo</span>
+        <div class="fchips"><span class="fchip ok">● Woo</span><span class="fchip ok">● GA4</span><span class="fchip off">○ Meta</span></div>
+        <div class="ah-btns">
+          <button class="ah-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0-4 10.5V17h8v-3.5A6 6 0 0 0 12 3zM9 21h6"/></svg>Contexto</button>
+          <button class="ah-btn sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Sincronizar</button>
+        </div>
+      </div>
+      <div class="b">
+        <div class="bl">Resultados</div>
+        <div class="ah-day">
+          <div class="dh"><span class="dn today">Hoje</span><span class="daytag" style="background:var(--good-soft);color:var(--good)">1 venda</span></div>
+          <div class="ah-kpis"><div class="k"><div class="kl">Pedidos</div><div class="kv">1</div></div><div class="k"><div class="kl">Receita</div><div class="kv">R$ 515</div></div><div class="k"><div class="kl">Ticket</div><div class="kv">R$ 515</div></div><div class="k"><div class="kl">Sessões</div><div class="kv">214</div></div></div>
+        </div>
+        <div class="ah-day">
+          <div class="dh"><span class="dn yest">Ontem</span><span class="daytag" style="background:var(--line-2);color:var(--ink-2)">sem venda</span></div>
+          <div class="ah-kpis"><div class="k"><div class="kl">Pedidos</div><div class="kv">0</div></div><div class="k"><div class="kl">Receita</div><div class="kv muted">—</div></div><div class="k"><div class="kl">Ticket</div><div class="kv muted">—</div></div><div class="k"><div class="kl">Sessões</div><div class="kv">198</div></div></div>
+        </div>
+        <div class="ah-pay"><span class="d"></span>Loja Woo · sincronizada</div>
+      </div>
+      <div class="b">
+        <div class="bl">Resumo Geral</div>
+        <div class="ah-rg">
+          <div class="rgs"><span class="d" style="background:var(--warn)"></span><span class="lb" style="color:var(--warn)">Atenção — 7 dias</span></div>
+          <p class="txt">A loja <b style="color:var(--ink)">vende bem no direto</b> e a mídia é leve. O problema da semana é o <b style="color:var(--ink)">checkout</b>: o caminho carrinho → checkout é ótimo (96%), mas só ~7% que iniciam o pagamento concluem. Vale revisar meios de pagamento e frete antes de escalar mídia.</p>
+          <div class="more">ver análise completa ▾</div>
+        </div>
+      </div>
+      <div class="b">
+        <div class="bl">Ações em andamento</div>
+        <p class="ah-empty">Nenhuma ação em monitoramento.</p>
+      </div>
+    </div>
+
+    <!-- Funil de compra (Hoje/Ontem foi para o header) -->
+    <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18l-7 8v6l-4 2v-8L3 4Z"/></svg>Funil de compra<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">GA4 · 30d</span></div>
+      <div class="card pad inner"><div class="funnel">
+        <div class="fstep"><span class="nm">Carrinho</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="n tnum">62</span><span class="pass"></span></div>
+        <div class="fstep"><span class="nm">Checkout</span><span class="track"><span class="fill" style="width:97%"></span></span><span class="n tnum">60</span><span class="pass">96,8% · −2</span></div>
+        <div class="fstep"><span class="nm">Compra</span><span class="track"><span class="fill" style="width:6.5%"></span></span><span class="n tnum">4</span><span class="pass crit">6,7% · −56</span></div>
+      </div></div></div>
+
+    <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/></svg>Vendas reais · top produtos<span class="chip brand" style="margin-left:2px">Woo · 30d</span></div>
+      <div class="card pad inner" style="display:flex;flex-direction:column;gap:14px">
+        <div class="barlist">
+          <div class="bar"><span class="nm">Jogo de Panelas Steel 6pç</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="amt">R$ 1.398</span></div>
+          <div class="bar"><span class="nm">Jogo Panelas Vitality 6pç</span><span class="track"><span class="fill" style="width:31%"></span></span><span class="amt">R$ 431</span></div>
+          <div class="bar"><span class="nm">Frigideiras Vitality 3pç</span><span class="track"><span class="fill" style="width:10%"></span></span><span class="amt">R$ 143</span></div>
+        </div>
+        <div class="note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg><span>Mídia leve — <b style="color:var(--ink)">receita atribuída · Meta R$ 1.240</b> (rotulada, não é o caixa da loja).</span></div>
+      </div></div>
+
+    <details class="collapse">
+      <summary><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>Ver mais — receita da loja por dia<span class="cbadge">Woo · série diária</span></summary>
+      <div class="cbody">
+        <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/></svg>Receita da loja por dia<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">Woo · 30d</span></div>
+          <div class="card pad inner">
+            <div class="legend"><span class="lg"><span class="sw" style="background:var(--good)"></span>Receita real (Woo) · dias com pedido</span></div>
+            <svg class="chart" viewBox="0 0 300 118" preserveAspectRatio="none"><defs><linearGradient id="cg-baesh" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--good)" stop-opacity=".22"/><stop offset="1" stop-color="var(--good)" stop-opacity="0"/></linearGradient></defs>
+              <line x1="0" y1="30" x2="300" y2="30" stroke="var(--line-2)"/><line x1="0" y1="60" x2="300" y2="60" stroke="var(--line-2)"/><line x1="0" y1="90" x2="300" y2="90" stroke="var(--line-2)"/>
+              <path d="M0,108 27,108 54,64 82,108 109,108 136,108 164,84 191,108 218,108 246,50 273,108 300,92 L300,118 L0,118 Z" fill="url(#cg-baesh)"/>
+              <path d="M0,108 27,108 54,64 82,108 109,108 136,108 164,84 191,108 218,108 246,50 273,108 300,92" fill="none" stroke="var(--good)" stroke-width="2"/>
+            </svg>
+            <div class="xax"><span>dia 1</span><span>8</span><span>15</span><span>22</span><span>30</span></div>
+          </div></div>
+      </div>
+    </details>
+    <p class="foot">BAESH · loja no centro — status, KPIs, ontem/hoje, funil e vendas reais numa olhada; série diária em "ver mais".</p>
+  </div>
+
+  <!-- ══════════ SERVIÇOS — sem e-commerce (foco: leads/mídia) ══════════ -->
+  <div class="view" id="v-leads">
+
+    <div class="topmini"><span>Studio Vibe · Meta &amp; Google atualizados hoje 06:45</span><div class="period"><span>7d</span><span class="on">30 dias</span><span>90d</span></div></div>
+    <div class="acct st-good">
+      <div class="b">
+        <div class="bl">Conta</div>
+        <div class="ah-id"><div class="av" style="background:linear-gradient(150deg,#3B82F6,#1D4ED8)">S</div><div class="nm">Studio Vibe</div></div>
+        <div class="ah-sync"><span class="d"></span>sync há 9min</div>
+        <span class="gbadge">📩 Leads · serviços</span>
+        <div class="fchips"><span class="fchip ok">● Meta</span><span class="fchip ok">● Google</span><span class="fchip ok">● GA4</span><span class="fchip off">○ Loja</span></div>
+        <div class="ah-btns">
+          <button class="ah-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0-4 10.5V17h8v-3.5A6 6 0 0 0 12 3zM9 21h6"/></svg>Contexto</button>
+          <button class="ah-btn sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Sincronizar</button>
+        </div>
+      </div>
+      <div class="b">
+        <div class="bl">Resultados</div>
+        <div class="ah-day">
+          <div class="dh"><span class="dn today">Hoje</span><span class="daytag" style="background:var(--good-soft);color:var(--good)">bom dia</span></div>
+          <div class="ah-kpis"><div class="k"><div class="kl">Gasto</div><div class="kv">R$ 120</div></div><div class="k"><div class="kl">Leads</div><div class="kv">4</div></div><div class="k"><div class="kl">CPL</div><div class="kv">R$ 30</div></div><div class="k"><div class="kl">Msgs</div><div class="kv">5</div></div></div>
+        </div>
+        <div class="ah-day">
+          <div class="dh"><span class="dn yest">Ontem</span><span class="daytag" style="background:var(--line-2);color:var(--ink-2)">estável</span></div>
+          <div class="ah-kpis"><div class="k"><div class="kl">Gasto</div><div class="kv">R$ 110</div></div><div class="k"><div class="kl">Leads</div><div class="kv">3</div></div><div class="k"><div class="kl">CPL</div><div class="kv">R$ 37</div></div><div class="k"><div class="kl">Msgs</div><div class="kv">4</div></div></div>
+        </div>
+        <div class="ah-pay"><span class="d"></span>Cartão de crédito · OK</div>
+      </div>
+      <div class="b">
+        <div class="bl">Resumo Geral</div>
+        <div class="ah-rg">
+          <div class="rgs"><span class="d" style="background:var(--good)"></span><span class="lb" style="color:var(--good)">Saudável — 7 dias</span></div>
+          <p class="txt">Semana boa: <b style="color:var(--ink)">42 leads</b> a R$ 38, com o Meta puxando a maior parte e o Google firme no Search. Sem e-commerce, o resultado é lead/mensagem — e está saudável. O ponto de melhoria é o <b style="color:var(--ink)">formulário do site</b>: 3 em cada 4 que abrem a página de contato não enviam.</p>
+          <div class="more">ver análise completa ▾</div>
+        </div>
+      </div>
+      <div class="b">
+        <div class="bl">Ações em andamento <span class="cnt">1</span></div>
+        <div class="ah-item"><div class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg></div><div><div class="t">Testar formulário mais curto</div><div class="mt">👁 5d restantes · otimização de conversão</div></div></div>
+      </div>
+    </div>
+
+    <!-- Jornada no site (Hoje/Ontem foi para o header) -->
+    <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18l-7 8v6l-4 2v-8L3 4Z"/></svg>Jornada no site<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">GA4 · 30d</span></div>
+      <div class="card pad inner"><div class="funnel">
+        <div class="fstep"><span class="nm">Visitas</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="n tnum">1.240</span><span class="pass"></span></div>
+        <div class="fstep"><span class="nm">Ver contato</span><span class="track"><span class="fill" style="width:14%"></span></span><span class="n tnum">168</span><span class="pass">13,5%</span></div>
+        <div class="fstep"><span class="nm">Enviar form</span><span class="track"><span class="fill" style="width:3.4%"></span></span><span class="n tnum">42</span><span class="pass bad">25,0%</span></div>
+      </div></div></div>
+
+    <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Saúde técnica do site<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">GA4 · Clarity</span></div>
+      <div class="card pad inner"><div class="health"><div class="hpill"><span class="chip good">No ar</span></div><div class="hpill">SSL <span class="hv" style="color:var(--good)">120 dias</span></div><div class="hpill">PageSpeed <span class="hv" style="color:var(--good)">88</span></div><div class="hpill">Form <span class="hv" style="color:var(--warn)">25% envia</span></div></div></div></div>
+
+    <!-- ══ Detalhes por plataforma — tabs Meta | Google Ads (colapsável) ══ -->
+    <details class="collapse plat-box">
+      <summary><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>Detalhes por plataforma<span class="cbadge">Meta · Google Ads — KPIs, campanhas, destaques e gráficos</span></summary>
+      <div class="cbody">
+        <div class="ptabs">
+          <button class="ptab on" data-p="meta"><span class="cd" style="background:#1877F2"></span>Meta</button>
+          <button class="ptab" data-p="google"><span class="cd" style="background:#EA4335"></span>Google Ads</button>
+        </div>
+
+        <!-- ── Pane Meta ── -->
+        <div class="ppane on" data-p="meta">
+          <div class="mkpis">
+            <div class="mkpi"><div class="l">Investimento</div><div class="v">R$ 1.116</div></div>
+            <div class="mkpi"><div class="l">Leads</div><div class="v good">31</div></div>
+            <div class="mkpi"><div class="l">CPL</div><div class="v">R$ 36</div></div>
+            <div class="mkpi"><div class="l">Mensagens</div><div class="v">67</div></div>
+            <div class="mkpi"><div class="l">CTR</div><div class="v">1,9%</div></div>
+            <div class="mkpi"><div class="l">Alcance</div><div class="v">41k</div></div>
+            <div class="mkpi"><div class="l">Impressões</div><div class="v">78k</div></div>
+            <div class="mkpi"><div class="l">Cliques</div><div class="v">1.482</div></div>
+          </div>
+          <div class="card"><div class="card-h"><span class="dot" style="background:#1877F2"></span>Leads por dia — Meta<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">30d</span></div>
+            <div class="card pad inner">
+              <svg class="chart" viewBox="0 0 300 118" preserveAspectRatio="none"><defs><linearGradient id="cg-lmeta" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+                <line x1="0" y1="30" x2="300" y2="30" stroke="var(--line-2)"/><line x1="0" y1="60" x2="300" y2="60" stroke="var(--line-2)"/><line x1="0" y1="90" x2="300" y2="90" stroke="var(--line-2)"/>
+                <path d="M0,86 27,80 54,90 82,74 109,84 136,70 164,78 191,64 218,74 246,68 273,76 300,66 L300,118 L0,118 Z" fill="url(#cg-lmeta)"/>
+                <path d="M0,86 27,80 54,90 82,74 109,84 136,70 164,78 191,64 218,74 246,68 273,76 300,66" fill="none" stroke="var(--accent)" stroke-width="2"/>
+              </svg>
+              <div class="xax"><span>dia 1</span><span>8</span><span>15</span><span>22</span><span>30</span></div>
+            </div></div>
+          <div class="grid2">
+            <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>Campanhas · Meta<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">30d</span></div>
+              <div class="card pad inner"><div class="barlist">
+                <div class="bar"><span class="nm">Projetos residenciais</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="amt">21 leads</span></div>
+                <div class="bar"><span class="nm">Reforma comercial</span><span class="track"><span class="fill" style="width:48%"></span></span><span class="amt">10 leads</span></div>
+              </div></div></div>
+            <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.5 2.3 7.1-6.3-4.6L5.7 21l2.3-7.1-6-4.5h7.6z"/></svg>Destaques · Meta</div>
+              <div class="card pad inner"><div class="topgrid">
+                <div><p class="sub-sec">Top criativo</p><div class="topcell"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18v14H3z"/><path d="M10 9l5 3-5 3z" fill="currentColor" stroke="none"/></svg></div><div><div class="tnm">Carrossel projetos</div><div class="tmt">CTR 2,4% · 14 leads · CPL R$ 32</div></div></div></div>
+                <div><p class="sub-sec">Top público</p><div class="topcell"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 6a3 3 0 0 1 0 6M21 20a5 5 0 0 0-5-5"/></svg></div><div><div class="tnm">Interesses · arquitetura</div><div class="tmt">R$ 640 · 18 leads · CPL R$ 36</div></div></div></div>
+              </div></div></div>
+          </div>
+        </div>
+
+        <!-- ── Pane Google Ads ── -->
+        <div class="ppane" data-p="google">
+          <div class="mkpis">
+            <div class="mkpi"><div class="l">Investimento</div><div class="v">R$ 484</div></div>
+            <div class="mkpi"><div class="l">Leads</div><div class="v good">11</div></div>
+            <div class="mkpi"><div class="l">CPL</div><div class="v">R$ 44</div></div>
+            <div class="mkpi"><div class="l">CTR</div><div class="v">4,2%</div></div>
+            <div class="mkpi"><div class="l">Impressões</div><div class="v">19k</div></div>
+            <div class="mkpi"><div class="l">Cliques</div><div class="v">798</div></div>
+          </div>
+          <div class="card"><div class="card-h"><span class="dot" style="background:#EA4335"></span>Leads por dia — Google Ads<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">30d</span></div>
+            <div class="card pad inner">
+              <svg class="chart" viewBox="0 0 300 118" preserveAspectRatio="none"><defs><linearGradient id="cg-lgoogle" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+                <line x1="0" y1="30" x2="300" y2="30" stroke="var(--line-2)"/><line x1="0" y1="60" x2="300" y2="60" stroke="var(--line-2)"/><line x1="0" y1="90" x2="300" y2="90" stroke="var(--line-2)"/>
+                <path d="M0,98 27,94 54,100 82,90 109,96 136,88 164,92 191,86 218,90 246,84 273,88 300,82 L300,118 L0,118 Z" fill="url(#cg-lgoogle)"/>
+                <path d="M0,98 27,94 54,100 82,90 109,96 136,88 164,92 191,86 218,90 246,84 273,88 300,82" fill="none" stroke="var(--accent)" stroke-width="2"/>
+              </svg>
+              <div class="xax"><span>dia 1</span><span>8</span><span>15</span><span>22</span><span>30</span></div>
+            </div></div>
+          <div class="grid2">
+            <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>Campanhas · Google<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">30d</span></div>
+              <div class="card pad inner"><div class="barlist">
+                <div class="bar"><span class="nm">Search — "arquiteto SP"</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="amt">11 leads</span></div>
+              </div></div></div>
+            <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.5 2.3 7.1-6.3-4.6L5.7 21l2.3-7.1-6-4.5h7.6z"/></svg>Destaques · Google</div>
+              <div class="card pad inner"><div class="topgrid">
+                <div><p class="sub-sec">Top termo de busca</p><div class="topcell"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div><div><div class="tnm">"arquiteto SP"</div><div class="tmt">CTR 5,1% · 7 leads · CPL R$ 41</div></div></div></div>
+                <div><p class="sub-sec">Melhor anúncio</p><div class="topcell"><div class="thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v10H4z"/><path d="M8 19h8"/></svg></div><div><div class="tnm">Projeto sob medida</div><div class="tmt">4 leads · CPL R$ 47</div></div></div></div>
+              </div></div></div>
+          </div>
+        </div>
+      </div>
+    </details>
+    <p class="foot">Serviços/leads · Resumão Geral no topo; abaixo, detalhes de mídia por plataforma (Meta / Google Ads) — leads, CPL, campanhas, destaques e gráficos.</p>
+  </div>
+
+  <!-- ══════════ INSTITUCIONAL — sem venda (foco: site/tráfego) ══════════ -->
+  <div class="view" id="v-inst">
+
+    <div class="topmini"><span>Casa Marembo · GA4 &amp; site atualizados hoje 06:45</span><div class="period"><span>7d</span><span class="on">30 dias</span><span>90d</span></div></div>
+    <div class="acct st-good">
+      <div class="b">
+        <div class="bl">Conta</div>
+        <div class="ah-id"><div class="av" style="background:linear-gradient(150deg,#0EA5A5,#0F766E)">C</div><div class="nm">Casa Marembo</div></div>
+        <div class="ah-sync"><span class="d"></span>sync há 15min</div>
+        <span class="gbadge">🌐 Presença · institucional</span>
+        <div class="fchips"><span class="fchip ok">● GA4</span><span class="fchip ok">● Site</span><span class="fchip off">○ Mídia</span></div>
+        <div class="ah-btns">
+          <button class="ah-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0-4 10.5V17h8v-3.5A6 6 0 0 0 12 3zM9 21h6"/></svg>Contexto</button>
+          <button class="ah-btn sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Sincronizar</button>
+        </div>
+      </div>
+      <div class="b">
+        <div class="bl">Resultados</div>
+        <div class="ah-day">
+          <div class="dh"><span class="dn today">Hoje</span><span class="daytag" style="background:var(--good-soft);color:var(--good)">▲ tráfego</span></div>
+          <div class="ah-kpis"><div class="k"><div class="kl">Sessões</div><div class="kv">512</div></div><div class="k"><div class="kl">Usuários</div><div class="kv">430</div></div><div class="k"><div class="kl">Pg/ses</div><div class="kv">3,2</div></div><div class="k"><div class="kl">Duração</div><div class="kv">2m10s</div></div></div>
+        </div>
+        <div class="ah-day">
+          <div class="dh"><span class="dn yest">Ontem</span><span class="daytag" style="background:var(--line-2);color:var(--ink-2)">estável</span></div>
+          <div class="ah-kpis"><div class="k"><div class="kl">Sessões</div><div class="kv">486</div></div><div class="k"><div class="kl">Usuários</div><div class="kv">405</div></div><div class="k"><div class="kl">Pg/ses</div><div class="kv">3,1</div></div><div class="k"><div class="kl">Duração</div><div class="kv">2m04s</div></div></div>
+        </div>
+        <div class="ah-pay"><span class="d"></span>Site no ar · SSL ok</div>
+      </div>
+      <div class="b">
+        <div class="bl">Resumo Geral</div>
+        <div class="ah-rg">
+          <div class="rgs"><span class="d" style="background:var(--good)"></span><span class="lb" style="color:var(--good)">Saudável — 7 dias</span></div>
+          <p class="txt">Site <b style="color:var(--ink)">saudável</b> e tráfego <b style="color:var(--ink)">crescendo (+18%)</b>, puxado pelo orgânico. Sem venda online — o foco é presença e conteúdo, e está indo bem: boa leitura do portfólio e comportamento sem atrito. "—" em vendas é estado normal, não alerta.</p>
+          <div class="more">ver análise completa ▾</div>
+        </div>
+      </div>
+      <div class="b">
+        <div class="bl">Ações em andamento</div>
+        <p class="ah-empty">Nenhuma ação em monitoramento.</p>
+      </div>
+    </div>
+
+    <!-- Origem do tráfego (Hoje/Ontem foi para o header) -->
+    <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M19 9l-5 5-4-4-3 3"/></svg>Origem do tráfego<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">GA4 · 30d</span></div>
+      <div class="card pad inner"><div class="barlist">
+        <div class="bar"><span class="nm">Orgânico (Google)</span><span class="track"><span class="fill" style="width:100%"></span></span><span class="amt">7.900</span></div>
+        <div class="bar"><span class="nm">Direto</span><span class="track"><span class="fill" style="width:44%"></span></span><span class="amt">3.480</span></div>
+        <div class="bar"><span class="nm">Social (Instagram)</span><span class="track"><span class="fill" style="width:36%"></span></span><span class="amt">2.940</span></div>
+      </div></div></div>
+
+    <!-- Comportamento + Saúde técnica -->
+    <div class="grid2">
+      <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>Comportamento<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">Clarity · 7d</span></div>
+        <div class="card pad inner"><div class="statrow"><div class="stat"><div class="lbl">Scroll médio</div><div class="v">74%</div></div><div class="stat"><div class="lbl">Tempo médio</div><div class="v">2m10s</div></div><div class="stat"><div class="lbl">Rage clicks</div><div class="v good">6</div></div></div>
+          <div class="note" style="margin-top:12px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg><span>Boa leitura de conteúdo; visitantes chegam ao fim do portfólio.</span></div></div></div>
+      <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Saúde técnica</div>
+        <div class="card pad inner"><div class="health"><div class="hpill"><span class="chip good">No ar</span></div><div class="hpill">SSL <span class="hv" style="color:var(--good)">210 dias</span></div><div class="hpill">PageSpeed <span class="hv" style="color:var(--good)">91</span></div><div class="hpill">LCP <span class="hv">1,6s</span></div></div></div></div>
+    </div>
+
+    <details class="collapse">
+      <summary><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>Ver mais — sessões por dia<span class="cbadge">GA4 · série diária</span></summary>
+      <div class="cbody">
+        <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/></svg>Sessões por dia<span style="margin-left:auto;font-size:11px;color:var(--ink-3);font-weight:500">GA4 · 30d</span></div>
+          <div class="card pad inner">
+            <div class="legend"><span class="lg"><span class="sw" style="background:var(--good)"></span>Sessões/dia · tendência de alta</span></div>
+            <svg class="chart" viewBox="0 0 300 118" preserveAspectRatio="none"><defs><linearGradient id="cg-inst" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--good)" stop-opacity=".22"/><stop offset="1" stop-color="var(--good)" stop-opacity="0"/></linearGradient></defs>
+              <line x1="0" y1="30" x2="300" y2="30" stroke="var(--line-2)"/><line x1="0" y1="60" x2="300" y2="60" stroke="var(--line-2)"/><line x1="0" y1="90" x2="300" y2="90" stroke="var(--line-2)"/>
+              <path d="M0,92 27,88 54,90 82,80 109,84 136,74 164,78 191,66 218,70 246,58 273,62 300,50 L300,118 L0,118 Z" fill="url(#cg-inst)"/>
+              <path d="M0,92 27,88 54,90 82,80 109,84 136,74 164,78 191,66 218,70 246,58 273,62 300,50" fill="none" stroke="var(--good)" stroke-width="2"/>
+            </svg>
+            <div class="xax"><span>dia 1</span><span>8</span><span>15</span><span>22</span><span>30</span></div>
+          </div></div>
+      </div>
+    </details>
+    <p class="foot">Institucional · status, tráfego, ontem/hoje, origem e comportamento numa olhada; série diária em "ver mais".</p>
+  </div>
+
+  <!-- ══════════ ARKA — fonte em erro (foco: reconectar) ══════════ -->
+  <div class="view" id="v-arka">
+    <div class="topmini"><span>ARKA · último sync 03/jun</span><div class="period"><span>7d</span><span class="on">30 dias</span><span>90d</span></div></div>
+    <div class="acct st-crit">
+      <div class="b">
+        <div class="bl">Conta</div>
+        <div class="ah-id"><div class="av" style="background:linear-gradient(150deg,#9CA3AF,#6B7280)">A</div><div class="nm">ARKA</div></div>
+        <div class="ah-sync stale"><span class="d"></span>sync 03/jun</div>
+        <span class="gbadge" style="background:var(--crit-soft);color:var(--crit);border-color:color-mix(in srgb,var(--crit) 32%,transparent)">⚠ Reconectar Meta</span>
+        <div class="fchips"><span class="fchip err">▲ Meta</span><span class="fchip off">○ Google</span><span class="fchip off">○ GA4</span></div>
+        <div class="ah-btns">
+          <button class="ah-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0-4 10.5V17h8v-3.5A6 6 0 0 0 12 3zM9 21h6"/></svg>Contexto</button>
+          <button class="ah-btn sync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v9m0 0-3-3m3 3 3-3M4 15a8 8 0 1 0 16 0"/></svg>Reconectar</button>
+        </div>
+      </div>
+      <div class="b">
+        <div class="bl">Resultados</div>
+        <div class="ah-day">
+          <div class="dh"><span class="dn today">Hoje</span><span class="daytag" style="background:var(--crit-soft);color:var(--crit)">sem dados</span></div>
+          <div class="ah-kpis"><div class="k"><div class="kl">Gasto</div><div class="kv muted">—</div></div><div class="k"><div class="kl">Conv.</div><div class="kv muted">—</div></div><div class="k"><div class="kl">ROAS</div><div class="kv muted">—</div></div><div class="k"><div class="kl">CPA</div><div class="kv muted">—</div></div></div>
+        </div>
+        <div class="ah-day">
+          <div class="dh"><span class="dn yest">Ontem</span><span class="daytag" style="background:var(--crit-soft);color:var(--crit)">sem dados</span></div>
+          <div class="ah-kpis"><div class="k"><div class="kl">Gasto</div><div class="kv muted">—</div></div><div class="k"><div class="kl">Conv.</div><div class="kv muted">—</div></div><div class="k"><div class="kl">ROAS</div><div class="kv muted">—</div></div><div class="k"><div class="kl">CPA</div><div class="kv muted">—</div></div></div>
+        </div>
+        <div class="ah-pay" style="color:var(--crit)"><span class="d" style="background:var(--crit)"></span>Meta · erro desde 03/jun</div>
+      </div>
+      <div class="b">
+        <div class="bl">Resumo Geral</div>
+        <div class="ah-rg">
+          <div class="rgs"><span class="d" style="background:var(--crit)"></span><span class="lb" style="color:var(--crit)">Crítico — fonte em erro</span></div>
+          <p class="txt"><b style="color:var(--ink)">Meta desconectado desde 03/jun</b> — os dados de mídia estão cegos há semanas. Gasto, resultados e alertas não atualizam. A tela não inventa número: mostra o estado degradado e a ação necessária. Reconecte o token para voltar a medir.</p>
+          <div class="more">ver o que está cego ▾</div>
+        </div>
+      </div>
+      <div class="b">
+        <div class="bl">Ações em andamento</div>
+        <p class="ah-empty">Sem ações — fonte desconectada.</p>
+      </div>
+    </div>
+
+    <div class="card pad" style="display:flex;flex-direction:column;gap:14px">
+      <p class="eyebrow">Como está — foco: reconectar</p>
+      <p class="verdict">A conta do <b>Meta expirou em 03/jun</b> — os dados de mídia estão <b>cegos</b> há semanas. É preciso reconectar para voltar a medir.</p>
+      <div class="note crit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg><span><b style="color:var(--ink)">Ação necessária (humana):</b> reconectar o token do Meta Ads via /connect. Enquanto isso, gasto, resultados e alertas de mídia não atualizam.</span></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/></svg>O que dá para ver</div>
+        <div class="card pad inner"><div class="big-empty"><div class="em1">Nenhuma outra fonte conectada</div><div class="em2">GA4, site, Clarity e loja ainda não configurados para este cliente — não há dado para mostrar além da mídia (que está offline).</div></div></div></div>
+      <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4m10-10h-4M6 12H2"/></svg>Fontes de dados</div>
+        <div class="card pad inner"><div class="sources">
+          <div class="src"><span class="dot" style="background:var(--crit)"></span><span class="snm">Meta</span><span class="sd err">erro · 03/jun</span></div>
+          <div class="src"><span class="dot" style="background:var(--ink-3)"></span><span class="snm">Google</span><span class="sd">ausente</span></div>
+          <div class="src"><span class="dot" style="background:var(--ink-3)"></span><span class="snm">GA4</span><span class="sd">ausente</span></div>
+          <div class="src"><span class="dot" style="background:var(--ink-3)"></span><span class="snm">Loja</span><span class="sd">ausente</span></div>
+          <div class="src"><span class="dot" style="background:var(--ink-3)"></span><span class="snm">Clarity</span><span class="sd">ausente</span></div>
+          <div class="src"><span class="dot" style="background:var(--ink-3)"></span><span class="snm">PageSpeed</span><span class="sd">ausente</span></div>
+        </div></div></div>
+    </div>
+
+    <div class="card"><div class="card-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Próximos passos</div>
+      <div class="card pad inner"><ol class="steps"><li><div><div class="st">Reconectar o Meta Ads</div><div class="sd">token expirado em 03/jun — sem isso, tudo de mídia fica parado. Leva 1 minuto via /connect.</div></div></li><li><div><div class="st">Avaliar conectar GA4 e o site</div><div class="sd">para o cliente ter funil, tráfego e saúde técnica além da mídia.</div></div></li></ol></div></div>
+    <p class="foot">Fonte em erro · a tela não finge dado: mostra o estado degradado, o que está cego e a ação humana necessária — sem inventar números.</p>
+  </div>
+
+  <p class="foot" style="margin-top:14px">Prévia de layout · dados de exemplo · visão de gestão (admin/dev) · não é a tela ao vivo.<br/>Regra em todas as versões: Woo/VNDA = receita real · GA4 = funil/origem · Meta/Google = mídia atribuída (nunca somadas) · toda métrica com fonte e data · cliente sem e-commerce não vira problema.</p>
+  </div>
+  </main>
+</div>
+
+<script>
+  (function(){
+    var triggers=document.querySelectorAll('[data-v]'), views=document.querySelectorAll('.view');
+    function select(id){
+      document.querySelectorAll('.pill').forEach(function(x){ x.classList.toggle('on', x.getAttribute('data-v')===id); });
+      document.querySelectorAll('.sb-client').forEach(function(x){ x.classList.toggle('on', x.getAttribute('data-v')===id); });
+      views.forEach(function(v){ v.classList.toggle('on', v.id==='v-'+id); });
+      var main=document.querySelector('.main'); if(main) main.scrollIntoView({block:'start'});
+      window.scrollTo({top:0,behavior:'smooth'});
+    }
+    triggers.forEach(function(t){ t.addEventListener('click',function(){ select(t.getAttribute('data-v')); }); });
+
+    // Tabs de plataforma (Meta | Google Ads) — escopo por bloco .plat-box
+    document.querySelectorAll('.ptab').forEach(function(tab){
+      tab.addEventListener('click', function(e){
+        e.preventDefault();
+        var box = tab.closest('.plat-box'); if(!box) return;
+        var p = tab.getAttribute('data-p');
+        box.querySelectorAll('.ptab').forEach(function(x){ x.classList.toggle('on', x===tab); });
+        box.querySelectorAll('.ppane').forEach(function(x){ x.classList.toggle('on', x.getAttribute('data-p')===p); });
+      });
+    });
+  })();
+</script>
+</body></html>

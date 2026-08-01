@@ -28,7 +28,6 @@ import {
   KeyRound,
   Bell,
   Settings,
-  LayoutGrid,
   Boxes,
   FileText,
   Lock,
@@ -83,16 +82,15 @@ const NAV_GLOBAL: NavItem[] = [
   { label: "Acessos", icon: KeyRound, kind: "internal", href: "/access" },
   { label: "Notificações", icon: Bell, kind: "placeholder" },
   { label: "Configurações", icon: Settings, kind: "internal", href: "/settings" },
-  { label: "Game", icon: LayoutGrid, kind: "internal", href: "/spaces" },
 ];
 
 // ─── Produtos agrupados por área ─────────────────────────────────────────────
 const NAV_GROUPS: NavGroup[] = [
   {
-    label: "Performance",
+    label: "Brand Inteligent Tracker (BIT)",
     items: [
       // Apps integrados abrem via iframe dentro do Spaces (ver integratedAppsConfig).
-      { label: "Tracker", icon: Boxes, kind: "app", href: "/tracker", flyout: true },
+      { label: "Dashboard", icon: Boxes, kind: "app", href: "/tracker", flyout: true },
       { label: "Relatórios", icon: FileText, kind: "app", href: "/reports" },
     ],
   },
@@ -240,7 +238,7 @@ function TrackerItem({ item, open, active }: { item: Extract<NavItem, { kind: "a
           onMouseEnter={() => closeTimer.current && clearTimeout(closeTimer.current)}
           onMouseLeave={scheduleClose}
         >
-          <p className="px-2 pb-1.5 pt-1 text-[11px] text-muted-foreground">Clientes · Tracker</p>
+          <p className="px-2 pb-1.5 pt-1 text-[11px] text-muted-foreground">Clientes · Brand Inteligent Tracker</p>
           <div className="max-h-80 overflow-y-auto flex flex-col">
             {isLoading && <p className="px-2 py-1.5 text-xs text-muted-foreground">Carregando…</p>}
             {!isLoading && clientAccounts.length === 0 && (

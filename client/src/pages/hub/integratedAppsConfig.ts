@@ -32,7 +32,7 @@ export interface IntegratedApp {
 // deixava o Tracker rodar solto, fora do shell. Foi removido por decisão de
 // produto — nada interno funciona como app avulso.
 export const INTEGRATED_APPS: IntegratedApp[] = [
-  { id: "tracker", label: "Tracker", route: "/tracker", supportsClientFlyout: true },
+  { id: "tracker", label: "Brand Inteligent Tracker", route: "/tracker", supportsClientFlyout: true },
   { id: "reports", label: "Relatórios", route: "/reports" },
   { id: "contracts", label: "Contratos", route: "/contracts" },
   { id: "finance", label: "Financeiro", route: "/finance" },
