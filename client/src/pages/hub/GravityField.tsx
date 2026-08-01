@@ -8,6 +8,9 @@ import { memo, useEffect, useRef } from "react";
 const C=[253,255,237],O=[239,112,27],P=[245,173,204];
 const POOL=[C,C,C,O,O,P,P,P,C,O,P,C,O,P,C,P,O,C,P,O];
 const BR=12,GRAV=.038,DAMP=.983,REST=.42;
+// "Sono": moeda lenta por REST_FRAMES quadros congela (gravidade off) e fica
+// estática até ser acordada (mouse, batida real ou clique). Fim do jitter.
+const SLEEP_V2=.055, REST_FRAMES=32, MINOV=.22;
 
 const LOGO_SVG=`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 3443 392' fill='none'><path d='M94.7407 153.813C94.7407 163.637 121.881 164.969 157.013 166.634C219.452 169.798 307.2 174.127 307.033 230.239C307.033 294.176 233.771 309.328 155.182 309.328C76.7583 309.162 11.6553 299.671 3.33008 230.239H94.7407C104.731 247.555 127.875 252.051 155.182 252.051C182.322 252.051 215.623 247.555 215.623 230.239C215.623 220.415 188.482 218.917 153.35 217.251C90.9111 214.088 3.16357 209.759 3.33008 153.813C3.33008 89.876 76.5918 74.5576 155.182 74.5576C233.605 75.0571 298.708 83.8818 307.033 153.813H215.623C205.632 136.164 182.488 132.001 155.182 132.001C128.042 132.001 94.7407 135.998 94.7407 153.813Z' fill='%23FDFFED'/><path d='M333.754 304.167V80.3853H595.664V137.663H421.002V166.301H595.664V218.084H421.002V246.723H595.664V304.167H333.754Z' fill='%23FDFFED'/><path d='M645.529 80.0522H732.777V232.903H907.44V303.833H645.529V80.0522Z' fill='%23FDFFED'/><path d='M951.31 80.3853L1019.58 235.733L1087.84 80.3853H1186.08L1071.36 304.167H967.627L853.073 80.3853H951.31Z' fill='%23FDFFED'/><path fill-rule='evenodd' d='M1131.55 304.167L1251.6 80.3853H1355.33L1475.38 304.167H1377.14L1359.49 265.871H1247.43L1229.78 304.167H1131.55Z M1303.55 145.155L1272.74 211.257H1334.18L1303.55 145.155Z' fill='%23FDFFED'/><path d='M1485.61 238.564H1572.86V304H1485.61V238.564Z' fill='%23EF701B'/><path d='M1674.34 153.813C1674.34 163.637 1701.48 164.969 1736.62 166.634C1799.05 169.798 1886.8 174.127 1886.64 230.239C1886.64 294.176 1813.37 309.328 1734.78 309.328C1656.36 309.162 1591.26 299.671 1582.93 230.239H1674.34C1684.33 247.555 1707.48 252.051 1734.78 252.051C1761.92 252.051 1795.23 247.555 1795.23 230.239C1795.23 220.415 1768.08 218.917 1732.95 217.251C1670.51 214.088 1582.77 209.759 1582.93 153.813C1582.93 89.876 1656.19 74.5576 1734.78 74.5576C1813.21 75.0571 1878.31 83.8818 1886.64 153.813H1795.23C1785.23 136.164 1762.09 132.001 1734.78 132.001C1707.64 132.001 1674.34 135.998 1674.34 153.813Z' fill='%23FDFFED'/><path fill-rule='evenodd' d='M1913.36 80.3853H2128.98C2175.1 79.8857 2214.23 118.681 2213.56 164.969C2214.23 211.091 2175.1 250.219 2128.98 249.553H2000.6V304.167H1913.36V80.3853Z M2000.6 183.951H2107.17C2112.33 183.951 2116.82 182.119 2120.49 178.456C2124.32 174.626 2126.15 170.131 2126.15 164.969C2126.15 159.641 2124.32 155.146 2120.49 151.482C2116.82 147.653 2112.33 145.821 2107.17 145.821H2000.6V183.951Z' fill='%23FDFFED'/><path fill-rule='evenodd' d='M2178.84 304.167L2298.89 80.3853H2402.62L2522.67 304.167H2424.44L2406.79 265.871H2294.73L2277.08 304.167H2178.84Z M2350.84 145.155L2320.04 211.257H2381.48L2350.84 145.155Z' fill='%23FDFFED'/><path d='M2727.72 211.091H2817.13C2811.64 286.684 2745.37 309.328 2664.78 309.328C2580.86 309.162 2511.6 284.852 2511.93 200.102V183.784C2511.6 99.2002 2580.86 74.8906 2664.78 74.5576C2745.37 74.7241 2811.64 97.3687 2817.13 172.795H2727.72C2719.56 150.816 2694.75 145.655 2664.78 145.655C2629.15 146.154 2598.85 152.481 2599.35 189.279V194.773C2598.85 231.238 2629.15 237.898 2664.78 238.397C2694.75 238.397 2719.73 233.069 2727.72 211.091Z' fill='%23FDFFED'/><path d='M2846.68 304.167V80.3853H3108.59V137.663H2933.93V166.301H3108.59V218.084H2933.93V246.723H3108.59V304.167H2846.68Z' fill='%23FDFFED'/><path d='M3227.23 153.813C3227.23 163.637 3254.37 164.969 3289.5 166.634C3351.94 169.798 3439.68 174.127 3439.52 230.239C3439.52 294.176 3366.26 309.328 3287.67 309.328C3209.24 309.162 3144.14 299.671 3135.81 230.239H3227.23C3237.22 247.555 3260.36 252.051 3287.67 252.051C3314.81 252.051 3348.11 247.555 3348.11 230.239C3348.11 220.415 3320.97 218.917 3285.83 217.251C3223.4 214.088 3135.65 209.759 3135.81 153.813C3135.81 89.876 3209.08 74.5576 3287.67 74.5576C3366.09 75.0571 3431.19 83.8818 3439.52 153.813H3348.11C3338.12 136.164 3314.97 132.001 3287.67 132.001C3260.53 132.001 3227.23 135.998 3227.23 153.813Z' fill='%23FDFFED'/></svg>`;
 
@@ -15,6 +18,7 @@ interface Ball {
   x:number;y:number;vx:number;vy:number;
   r:number;col:number[];layer:'back'|'front';
   pp:number;ps:number;pulse:number;
+  still:number; // quadros consecutivos lento; > REST_FRAMES = dormindo
 }
 interface Ripple {
   x:number;y:number;r:number;maxR:number;
@@ -76,7 +80,7 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
           r: BR + (() => { const q = Math.random(); return q < .16 ? 2 + Math.random() * 5 : q < .38 ? -3 : 0; })(),
           col: POOL[i % POOL.length],
           layer, pp: Math.random() * 6.28,
-          ps: .008 + Math.random() * .012, pulse: 0,
+          ps: .008 + Math.random() * .012, pulse: 0, still: 0,
         });
       }
     }
@@ -86,7 +90,7 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
       ripples.push({ x,y, r:0, maxR:68, alpha:.44, col:P, speed:2.2, lw:1, delay:5 });
       for (const b of balls) {
         const d = Math.hypot(b.x - x, b.y - y);
-        if (d < 90) b.pulse = Math.max(b.pulse, 1 - (d / 90) * .35);
+        if (d < 90) { b.pulse = Math.max(b.pulse, 1 - (d / 90) * .35); b.still = 0; }
       }
     }
 
@@ -102,7 +106,7 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
           vx: (Math.random() - .5) * 1.4, vy: 1 + Math.random() * 1.6,
           r: BR + (Math.random() < .2 ? 2 + Math.random() * 4 : 0),
           col: POOL[(Math.random() * POOL.length) | 0],
-          layer, pp: Math.random() * 6.28, ps: .008 + Math.random() * .012, pulse: 1,
+          layer, pp: Math.random() * 6.28, ps: .008 + Math.random() * .012, pulse: 1, still: 0,
         });
       }
     }
@@ -111,7 +115,10 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
       const dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy), mn=a.r+b.r;
       if (d >= mn || d < .001) return;
       const nx=dx/d, ny=dy/d, ov=(mn-d)*.5;
-      a.x-=nx*ov; a.y-=ny*ov; b.x+=nx*ov; b.y+=ny*ov;
+      // Só separa sobreposição relevante (> MINOV) — sem acordar: micro-correção
+      // de posição não deve tirar do sono. Quem acorda a pilha é o impacto real
+      // (impulso abaixo) ou o mouse. Assim moedas assentadas ficam estáticas.
+      if (ov > MINOV) { a.x-=nx*ov; a.y-=ny*ov; b.x+=nx*ov; b.y+=ny*ov; }
       const rv=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny;
       if (rv > 0) return;
       // Batidas rápidas acendem as duas moedas (clarão proporcional ao impacto).
@@ -121,6 +128,7 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
       const pp = Math.max(a.pulse, b.pulse) * .68;
       if (pp > .04) { a.pulse=Math.max(a.pulse,pp); b.pulse=Math.max(b.pulse,pp); }
       a.vx-=j*nx; a.vy-=j*ny; b.vx+=j*nx; b.vy+=j*ny;
+      if (j > .1) { a.still=0; b.still=0; } // impacto real acorda as duas
     }
 
     function step() {
@@ -129,17 +137,26 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
       ms.px=ms.x; ms.py=ms.y;
       const pR=ms.down?85:48, pF=ms.down?2.8+mspd*.11:.38+mspd*.055;
       for (const b of balls) {
-        b.pp += b.ps; b.vy += GRAV;
+        // Empurrão do mouse — acorda quem estiver no raio.
+        let pushed = false;
         if (ms.x > 0) {
           const dx=b.x-ms.x, dy=b.y-ms.y, d=Math.sqrt(dx*dx+dy*dy);
-          if (d < pR && d > .1) { const f=(1-d/pR)*pF; b.vx+=(dx/d)*f; b.vy+=(dy/d)*f; }
+          if (d < pR && d > .1) { const f=(1-d/pR)*pF; b.vx+=(dx/d)*f; b.vy+=(dy/d)*f; b.still=0; pushed=true; }
         }
-        b.vx*=DAMP; b.vy*=DAMP; b.x+=b.vx; b.y+=b.vy;
+        if (b.still > REST_FRAMES) {
+          // Dormindo: assentada, sem gravidade e sem vibrar — fica estática.
+          b.vx=0; b.vy=0;
+        } else {
+          b.pp += b.ps; b.vy += GRAV;
+          b.vx*=DAMP; b.vy*=DAMP; b.x+=b.vx; b.y+=b.vy;
+          if (b.x-b.r<0) { b.x=b.r; b.vx=Math.abs(b.vx)*REST; }
+          if (b.x+b.r>W) { b.x=W-b.r; b.vx=-Math.abs(b.vx)*REST; }
+          if (b.y-b.r<0) { b.y=b.r; b.vy=Math.abs(b.vy)*REST; }
+          // No chão em baixa velocidade, para (não quica) — assenta limpo.
+          if (b.y+b.r>H) { b.y=H-b.r; b.vy = Math.abs(b.vy) < .45 ? 0 : -Math.abs(b.vy)*REST; }
+          if (!pushed) { if (b.vx*b.vx+b.vy*b.vy < SLEEP_V2) b.still++; else b.still = 0; }
+        }
         if (b.pulse > .001) b.pulse *= .90; else b.pulse = 0;
-        if (b.x-b.r<0) { b.x=b.r; b.vx=Math.abs(b.vx)*REST; }
-        if (b.x+b.r>W) { b.x=W-b.r; b.vx=-Math.abs(b.vx)*REST; }
-        if (b.y-b.r<0) { b.y=b.r; b.vy=Math.abs(b.vy)*REST; }
-        if (b.y+b.r>H) { b.y=H-b.r; b.vy=-Math.abs(b.vy)*REST; }
       }
       // Broad-phase por grade uniforme: só testa colisão entre vizinhos de célula
       // (célula ≥ maior diâmetro), mantendo suave mesmo com muitas bolinhas.
