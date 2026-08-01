@@ -780,6 +780,7 @@ function AbaResumo({ accountId, onIr }: { accountId: number; onIr: (a: AbaSite) 
   const ctxQ = trpc.siteDiag.contexto.useQuery({ accountId });
   const repQ = trpc.siteDiag.relatorios.useQuery({ accountId });
   const fontesQ = trpc.fontes.doCliente.useQuery({ accountId });
+  const ga4Q = trpc.siteDiag.ga4Snapshot.useQuery({ accountId });
 
   if (cfgQ.isLoading) return <Carregando />;
   const cfg = cfgQ.data;
@@ -792,6 +793,12 @@ function AbaResumo({ accountId, onIr }: { accountId: number; onIr: (a: AbaSite) 
   const seg = (saudeQ.data?.seguranca?.metricsJson ?? null) as MetSeg | null;
   const up = (saudeQ.data?.uptime?.metricsJson ?? null) as MetUp | null;
   const temDominio = !!(cfg?.domain || cfg?.performanceUrl);
+  // Performance-first: o Resumo lidera com o tráfego do GA4 + comportamento do Clarity.
+  const g7 = (ga4Q.data?.d7?.metricsJson ?? null) as MetricasGA4 | null;
+  const g30 = (ga4Q.data?.d30?.metricsJson ?? null) as MetricasGA4 | null;
+  const gListas = (ga4Q.data?.d7?.issuesJson ?? null) as ListasGA4 | null;
+  const temGa4 = !!g7;
+  const clarityComp = clarityOn && m && (m.sessions ?? 0) > 0;
 
   // Site não configurado = nem domínio, nem Clarity, nem performance. Com
   // domínio já dá para checar segurança e uptime — não precisa de mais nada.
@@ -815,6 +822,26 @@ function AbaResumo({ accountId, onIr }: { accountId: number; onIr: (a: AbaSite) 
           <div className="flex flex-wrap gap-1.5">
             {fontes.map((f) => <PastilhaFonte key={f.chave} fonte={f} />)}
           </div>
+        </div>
+      )}
+
+      {/* ★ PERFORMANCE — o foco do Resumo (tráfego GA4 + comportamento Clarity) */}
+      {temGa4 && <BlocosGA4 m7={g7} m30={g30} listas={gListas} fonteErro={fontes.find((f) => f.chave === "ga4")?.status === "erro" ? fontes.find((f) => f.chave === "ga4")?.porque : undefined} />}
+      {clarityComp && (
+        <Secao id="comportamento" titulo="Comportamento (Clarity)" icone={<Activity className="w-4 h-4" />}
+          estado={`${fmtNum(m?.sessions)} sessões · ${fmtPct(m?.averageScrollDepth)} de scroll médio`} aberta>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card icone={<Users className="w-3.5 h-3.5" />} label="Sessões" valor={fmtNum(m?.sessions)} />
+            <Card icone={<Clock className="w-3.5 h-3.5" />} label="Tempo médio" valor={fmtSeg(m?.averageSessionDuration)} />
+            <Card icone={<ArrowDownWideNarrow className="w-3.5 h-3.5" />} label="Scroll médio" valor={fmtPct(m?.averageScrollDepth)} />
+            <Card icone={<TrendingUp className="w-3.5 h-3.5" />} label="Páginas/sessão" valor={fmtNum(m?.pagesPerSession)} />
+          </div>
+        </Secao>
+      )}
+      {!temGa4 && !clarityComp && (
+        <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+          Sem dados de performance ainda — conecte GA4 (tráfego) ou Clarity (comportamento).{" "}
+          <button onClick={() => onIr("performance")} className="text-accent hover:underline">ver Performance</button>
         </div>
       )}
 
@@ -858,25 +885,10 @@ function AbaResumo({ accountId, onIr }: { accountId: number; onIr: (a: AbaSite) 
         {acoes[0]?.proximoPasso ?? "Nada urgente por aqui. Vale registrar o contexto do cliente para o robô ficar mais preciso."}
       </p>
 
-      {/* 5 — Os quatro cards de sempre */}
+      {/* 5 — Saúde técnica (secundária): a performance é o foco; o técnico só
+          ganha destaque quando há algo crítico (SSL, uptime, PageSpeed baixo). */}
+      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide px-1 pt-2 border-t border-border/40">Saúde técnica</p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Comportamento */}
-        <CardResumo
-          titulo="Comportamento" icone={<Activity className="w-4 h-4" />}
-          ligado={clarityOn} semDados={clarityOn && !clarityQ.data}
-          textoOff="Clarity não conectado." textoSemDados="Sem snapshot ainda — o primeiro sai amanhã de manhã."
-          onIr={() => onIr("performance")}
-        >
-          {m && (
-            <div className="grid grid-cols-2 gap-2">
-              <Mini label="Sessões" valor={fmtNum(m.sessions)} />
-              <Mini label="Scroll médio" valor={fmtPct(m.averageScrollDepth)} />
-              <Mini label="Erros de JS" valor={fmtNum(m.javascriptErrors)} alerta={(m.javascriptErrors ?? 0) > 0} />
-              <Mini label="Cliques mortos" valor={fmtNum(m.deadClicks)} alerta={(m.deadClicks ?? 0) > 0} />
-            </div>
-          )}
-        </CardResumo>
-
         {/* Performance técnica */}
         <CardResumo
           titulo="Performance técnica" icone={<Gauge className="w-4 h-4" />}
