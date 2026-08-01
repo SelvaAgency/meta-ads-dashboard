@@ -11,7 +11,7 @@
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Link } from "wouter";
-import { Bot, FileText, ArrowUpRight } from "lucide-react";
+import { Bot, FileText, KeyRound, Settings, ArrowUpRight } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { HubShell } from "./HubShell";
@@ -22,19 +22,31 @@ import type { NewsItem, SelvaTVImage } from "./hubMocks";
 import { AgendaCard } from "./AgendaCard";
 import { MyCardsCard } from "./MyCardsCard";
 
-/** As duas funcionalidades mais legais rodando hoje no Spaces — acesso rápido. */
+/** Atalhos de destaque na Home — acesso rápido aos principais recursos. */
 const ATALHOS = [
   {
     href: "/tracker",
     icon: Bot,
     title: "Brand Inteligent Tracker",
-    desc: "Performance das campanhas em tempo real",
+    desc: "O robô de performance da SELVA",
   },
   {
     href: "/reports",
     icon: FileText,
     title: "Relatório",
     desc: "Gere relatórios prontos para o cliente",
+  },
+  {
+    href: "/access",
+    icon: KeyRound,
+    title: "Acessos",
+    desc: "Credenciais dos clientes — organizadas e seguras.",
+  },
+  {
+    href: "/settings",
+    icon: Settings,
+    title: "Configurações",
+    desc: "Personalize seu SELVA Spaces.",
   },
 ] as const;
 

@@ -448,13 +448,13 @@ export default function SuggestionsHub() {
               </span>
               <div className="min-w-0">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.22em]" style={{ color: "#EF701B" }}>
-                  O robô da SELVA
+                  O robô de performance da SELVA
                 </span>
                 <h1 className="mt-1 text-xl font-bold" style={{ color: "#FDFFED" }}>
                   Brand Inteligent Tracker
                 </h1>
                 <p className="mt-1.5 text-sm max-w-2xl" style={{ color: "rgba(253,255,237,0.6)" }}>
-                  Centraliza e analisa os dados de performance de todos os nossos clientes em um só lugar.
+                  Os indicativos de performance centralizados em um único dashboard.
                 </p>
               </div>
             </div>

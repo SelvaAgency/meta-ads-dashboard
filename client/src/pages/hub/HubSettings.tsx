@@ -540,7 +540,7 @@ export default function HubSettings() {
             </span>
             <div>
               <h1 className="text-2xl font-bold">Configurações</h1>
-              <p className="text-sm text-muted-foreground">Perfil{canContent ? " e conteúdo" : ""}</p>
+              <p className="text-sm text-muted-foreground">Personalize seu SELVA Spaces</p>
             </div>
           </header>
 
