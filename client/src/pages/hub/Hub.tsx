@@ -10,6 +10,8 @@
  */
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { Link } from "wouter";
+import { Boxes, FileText, ArrowUpRight } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { HubShell } from "./HubShell";
@@ -19,6 +21,59 @@ import { greetingForHour, firstName } from "./hubMocks";
 import type { NewsItem, SelvaTVImage } from "./hubMocks";
 import { AgendaCard } from "./AgendaCard";
 import { MyCardsCard } from "./MyCardsCard";
+
+/** As duas funcionalidades mais legais rodando hoje no Spaces — acesso rápido. */
+const ATALHOS = [
+  {
+    href: "/tracker",
+    icon: Boxes,
+    title: "Tracker",
+    desc: "Performance das campanhas em tempo real",
+  },
+  {
+    href: "/reports",
+    icon: FileText,
+    title: "Relatório",
+    desc: "Relatórios prontos para apresentar ao cliente",
+  },
+] as const;
+
+function AtalhosRapidos() {
+  return (
+    <section aria-label="Acesso rápido">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {ATALHOS.map(({ href, icon: Icon, title, desc }) => (
+          <Link
+            key={href}
+            href={href}
+            className="group relative overflow-hidden rounded-xl border border-border bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-[#EF701B]/60 hover:shadow-lg hover:shadow-[#EF701B]/10"
+          >
+            {/* brilho laranja de fundo no hover */}
+            <div
+              className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
+              style={{ background: "radial-gradient(circle, rgba(239,112,27,0.35), transparent 70%)" }}
+            />
+            <div className="relative flex items-start gap-4">
+              <span
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors group-hover:scale-105"
+                style={{ background: "rgba(239,112,27,0.12)", color: "#EF701B" }}
+              >
+                <Icon className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <h3 className="font-semibold leading-none">{title}</h3>
+                  <ArrowUpRight className="h-4 w-4 text-muted-foreground transition-all group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-[#EF701B]" />
+                </div>
+                <p className="mt-1.5 text-sm text-muted-foreground">{desc}</p>
+              </div>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 export default function Hub() {
   const { user } = useAuth();
@@ -65,6 +120,9 @@ export default function Hub() {
               <AgendaCard />
               <MyCardsCard />
             </div>
+
+            {/* Acesso rápido às 2 funcionalidades mais legais do Spaces */}
+            <AtalhosRapidos />
 
             {/* SELVA TV — carrossel (uploads + "Você prefere?" + slide fixo) */}
             <SelvaTV images={tvImages} vocePrefere={vpQ.data} fixedSlides={fsQ.data} />

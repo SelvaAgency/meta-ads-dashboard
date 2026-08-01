@@ -44,7 +44,7 @@ import {
 } from "lucide-react";
 import { SelvaLogo } from "@/components/SelvaLogo";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { canAccessAdmin, canManageContent } from "@shared/permissions";
+import { canAccessAdmin } from "@shared/permissions";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import { trpc } from "@/lib/trpc";
 import { urlDoShellPara } from "./trackerRoutes";
@@ -81,9 +81,9 @@ const NAV_GLOBAL: NavItem[] = [
   { label: "Home", icon: Home, kind: "internal", href: "/" },
   { label: "Tarefas", icon: CalendarCheck, kind: "placeholder" },
   { label: "Acessos", icon: KeyRound, kind: "internal", href: "/access" },
-  { label: "Notificações", icon: Bell, kind: "internal", href: "/notificacoes" },
+  { label: "Notificações", icon: Bell, kind: "placeholder" },
   { label: "Configurações", icon: Settings, kind: "internal", href: "/settings" },
-  { label: "Spaces", icon: LayoutGrid, kind: "internal", href: "/spaces" },
+  { label: "GAME", icon: LayoutGrid, kind: "internal", href: "/spaces" },
 ];
 
 // ─── Produtos agrupados por área ─────────────────────────────────────────────
@@ -289,17 +289,11 @@ export function HubSidebar() {
   const [location] = useLocation();
   const { user } = useAuth();
   const isAdmin = canAccessAdmin((user as { role?: string } | null)?.role);
-  const isManager = canManageContent((user as { role?: string } | null)?.role);
   // Administrativo não some mais para não-admin: aparece com cadeado. Saber que
   // a área existe (e que não é para você) é diferente de achar que ela não existe.
   const groups = NAV_GROUPS;
-  // Visibilidade temporária: Notificações do Spaces fica "Em breve" para o
-  // colaborador (vira placeholder sem destino). Admin/dev seguem com o link real.
-  const navGlobal: NavItem[] = NAV_GLOBAL.map((item) =>
-    item.label === "Notificações" && !isManager
-      ? { label: "Notificações", icon: item.icon, kind: "placeholder" }
-      : item,
-  );
+  // Notificações é "Em breve" para todos (placeholder sem destino), igual Tarefas.
+  const navGlobal: NavItem[] = NAV_GLOBAL;
   const [hovering, setHovering] = useState(false);
   const [recolhida, setRecolhida] = useState(lerRecolhida);
   // Ao clicar em recolher, o mouse AINDA está sobre a sidebar, então hovering
