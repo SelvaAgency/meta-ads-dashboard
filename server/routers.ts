@@ -2325,21 +2325,19 @@ export const appRouter = router({
           loja_7d: snap.loja_7d ? { dia: snap.loja_7d.dia, metricsJson: snap.loja_7d.metricsJson as any } : null,
           loja_30d: snap.loja_30d ? { dia: snap.loja_30d.dia, metricsJson: snap.loja_30d.metricsJson as any } : null,
         };
-        // A HOME (Visão Geral do cliente) fixa em 7d — leitura "atual". Anulando os
-        // snapshots de 30d, o vendasDe usa só a janela de 7d. Aprofundamento em 30d
-        // vive nas páginas internas de cada canal.
-        const c7: ClientePanorama = { ...c, loja_30d: null, ga4_30d: null };
-        const v = vendasDe(c7);
-
-        const { startDate, endDate } = getDateRange(7);
+        // Janela: e-commerce usa a MELHOR disponível (vendasDe: 7d preferido, 30d de
+        // fallback) — assim régua e funil nunca somem numa loja de venda esparsa.
+        const v = vendasDe(c);
+        const dias = v && v.janela === "30d" ? 30 : 7;
+        const { startDate, endDate } = getDateRange(dias);
         const metrics = await getAccountMetricsSummary(input.accountId, startDate, endDate);
         const metaSpend     = metrics.reduce((s, m) => s + Number(m.totalSpend ?? 0), 0);
         const metaConvValue = metrics.reduce((s, m) => s + Number(m.totalConversionValue ?? 0), 0);
         const metaConv      = metrics.reduce((s, m) => s + Number(m.totalConversions ?? 0), 0);
 
+        // Google entra p/ TODOS (a régua é a performance do próprio cliente).
         let gSpend = 0, gConvValue = 0, gConv = 0, temGoogle = false;
-        // Google só p/ admin/dev (colaborador não vê Google Ads — política de acesso).
-        const config = canManageContent(ctx.user.role) ? getGoogleAdsConfig() : null;
+        const config = getGoogleAdsConfig();
         if (config) {
           const gc = await contaGoogleDoCliente(input.accountId);
           if (gc && !(gc as { ignored?: boolean }).ignored) {
@@ -2363,13 +2361,14 @@ export const appRouter = router({
 
         // NÃO-ECOMMERCE: régua em RESULTADO. Atribuído = conversões que as plataformas
         // reivindicam; geral RASTREADO = conversões medidas pelo GA4 (todas as fontes).
-        const ga4Conv = (c7.ga4_7d?.metricsJson as { conversions?: number } | undefined)?.conversions ?? null;
+        const ga4snap = c.ga4_7d ?? c.ga4_30d;
+        const ga4Conv = (ga4snap?.metricsJson as { conversions?: number } | undefined)?.conversions ?? null;
         const atribuidoTotal = metaConv + gConv;
         if (investido.total <= 0 && atribuidoTotal <= 0 && ga4Conv == null) return null;
         return {
-          ecom: false as const, janela: "7d", temGoogle, investido,
+          ecom: false as const, janela: c.ga4_7d ? "7d" : c.ga4_30d ? "30d" : "7d", temGoogle, investido,
           atribuido: { meta: metaConv, google: gConv, total: atribuidoTotal },
-          geral: { valor: ga4Conv, pedidos: null, fonte: "GA4 (rastreado)" },
+          geral: { valor: ga4Conv, pedidos: null, fonte: "GA4" },
         };
       }),
 

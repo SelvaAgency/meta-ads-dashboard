@@ -27,9 +27,10 @@ export function SecaoSite({ accountId }: { accountId: number }) {
       loja: d.loja, plataformaLoja: d.plataformaLoja,
       uptime: null, seguranca: null, pagespeed: null,
       ga4_7d: d.ga4_7d ? { dia: d.ga4_7d.dia, metricsJson: d.ga4_7d.metricsJson as any } : null,
-      ga4_30d: null, // HOME fixa em 7d
+      // Melhor janela (7d preferido, 30d de fallback) — o funil não some numa loja esparsa.
+      ga4_30d: d.ga4_30d ? { dia: d.ga4_30d.dia, metricsJson: d.ga4_30d.metricsJson as any } : null,
       loja_7d: d.loja_7d ? { dia: d.loja_7d.dia, metricsJson: d.loja_7d.metricsJson as any } : null,
-      loja_30d: null,
+      loja_30d: d.loja_30d ? { dia: d.loja_30d.dia, metricsJson: d.loja_30d.metricsJson as any } : null,
     };
     funil = funilVisual(c);
   }
