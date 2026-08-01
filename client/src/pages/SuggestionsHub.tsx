@@ -427,20 +427,6 @@ export default function SuggestionsHub() {
           aqui sem reestruturar o JSX (ver ordemWidget). */}
       <div className="max-w-4xl mx-auto pb-8 flex flex-col">
 
-        {/* Personalizar visão — a lista de widgets sai do servidor, já filtrada
-            pelo papel de quem está olhando (ver shared/widgets.ts). order:-1
-            mantém o botão sempre no topo, acima dos blocos reordenáveis. */}
-        <div className="px-6 pt-6 flex justify-end" style={{ order: -1 }}>
-          <button
-            onClick={() => setPainelAberto(true)}
-            className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground transition-colors"
-            style={{ border: `0.5px solid ${BORDER_T}` }}
-          >
-            <SlidersHorizontal className="w-3 h-3" />
-            Personalizar visão
-          </button>
-        </div>
-        {painelAberto && <PainelVisao onFechar={() => setPainelAberto(false)} />}
 
         {/* ══ 1 — Caixa unificada: top bar + briefing + status cards ══════ */}
         {mostrar("midia_geral") && (

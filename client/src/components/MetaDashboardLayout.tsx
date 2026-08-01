@@ -137,7 +137,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   // Embutido no Selva Spaces (iframe) → conta/logout ficam na sidebar do Spaces.
   const embedded = isEmbedded();
   const [location, navigate] = useLocation();
-  const [pinnedOpen, setPinnedOpen] = useState(true);
+  const [pinnedOpen] = useState(true);
   const [hovering, setHovering] = useState(false);
   const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
   const leaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -156,63 +156,10 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     clearActiveAccount,
   } = useActiveAccount();
 
-  const { data: unreadCount } = trpc.alerts.unreadCount.useQuery(
-    { accountId: activeAccountId ?? undefined },
-    { enabled: isAuthenticated && isManager, refetchInterval: 30000 }
-  );
-
   const { data: globalUnreadCount } = trpc.alerts.unreadCount.useQuery(
     {},
     { enabled: isAuthenticated && isManager, refetchInterval: 30000 }
   );
-
-  const [notifOpen, setNotifOpen] = useState(false);
-  const notifRef = useRef<HTMLDivElement>(null);
-
-  const [notifDominio, setNotifDominio] = useState<"PERFORMANCE" | "FINANCEIRO" | null>(null);
-  const { data: notifPorDominio } = trpc.alerts.unreadByDominio.useQuery(undefined, {
-    enabled: isAuthenticated && isManager, refetchInterval: 30000,
-  });
-  // status:"nova" é obrigatório agora: com soft-read a lida continua na tabela.
-  const { data: recentAlerts, isLoading: notifLoading } = trpc.alerts.listAll.useQuery(
-    { status: "nova", ...(notifDominio ? { dominio: notifDominio } : {}) },
-    { enabled: isAuthenticated && notifOpen && isManager, refetchInterval: notifOpen ? 15000 : false },
-  );
-
-  useEffect(() => {
-    if (!notifOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setNotifOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [notifOpen]);
-
-  const NOTIF_CRITICAL_TYPES = new Set(["SYNC_ERROR", "PAYMENT_FAILED", "AD_REJECTED", "PIXEL_ERROR", "PAGE_UNLINKED", "CAMPAIGN_PAUSED"]);
-  const NOTIF_WARNING_TYPES = new Set(["AD_ERROR", "BUDGET_WARNING", "INSTAGRAM_UNLINKED", "ADSET_NO_DELIVERY"]);
-
-  function notifIcon(type: string) {
-    if (type === "SYNC_ERROR") return Link2;
-    if (type === "BUDGET_WARNING") return Wallet;
-    if (type === "SUGGESTION_APPLIED") return Sparkles;
-    if (NOTIF_CRITICAL_TYPES.has(type) || NOTIF_WARNING_TYPES.has(type)) return AlertTriangle;
-    return Info;
-  }
-
-  function notifTimeAgo(date: string | Date): string {
-    const d = new Date(date);
-    const mins = Math.floor((Date.now() - d.getTime()) / 60000);
-    if (mins < 1) return "agora";
-    if (mins < 60) return `${mins}min`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h`;
-    const days = Math.floor(hours / 24);
-    return `${days}d`;
-  }
-
-  const recentItems = (recentAlerts ?? []).slice(0, 8);
 
   const hasClient = !!activeClient;
 
@@ -350,7 +297,9 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
           {/* Visão Geral — sempre visível */}
           {(() => {
-            const isActive = location === "/";
+            // Embutido no Spaces o iframe abre em "/tracker"; direto abre em "/".
+            // Ambos são a Visão Geral, então o item destaca nos dois casos.
+            const isActive = location === "/" || location === "/tracker";
             return (
               <div
                 onClick={() => { clearActiveAccount(); navigate("/"); }}
@@ -607,135 +556,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
       {/* ═══════════════════════════ MAIN CONTENT ═════════════════════════════ */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top bar */}
-        <header className="h-16 border-b border-border flex items-center justify-between px-6 bg-background sticky top-0 z-10">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setPinnedOpen(!pinnedOpen)}
-              className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all hover:shadow-sm"
-            >
-              <LayoutDashboard className="w-4 h-4" />
-            </button>
-            {(title || location === "/") && (
-              <h1 className="text-sm font-bold text-foreground" style={{ fontFamily: "Montserrat, sans-serif", textTransform: "uppercase", letterSpacing: "1px" }}>
-                {title ?? "Visão Geral"}
-              </h1>
-            )}
-            {/* Breadcrumb */}
-            <div className="flex items-center gap-1.5 text-xs">
-              {location !== "/" && (
-                <button
-                  onClick={() => { clearActiveAccount(); navigate("/"); }}
-                  className="font-medium text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Visão Geral
-                </button>
-              )}
-              {location !== "/" && activeClient && (
-                <ChevronRight className="w-3 h-3 text-muted-foreground/40" />
-              )}
-              {activeClient && (
-                <span className="font-bold px-2 py-1 rounded-md bg-primary/10 text-primary">
-                  {activeAccount?.displayName ?? activeClient.name}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Sino de alertas — oculto para colaboradores (Alertas é restrito). */}
-            {isManager && (
-            <div className="relative" ref={notifRef}>
-              <button
-                onClick={() => setNotifOpen((o) => !o)}
-                className="relative p-2 rounded-lg hover:bg-primary/10 transition-all text-muted-foreground hover:text-primary hover:shadow-sm"
-              >
-                <Bell className="w-4 h-4" />
-                {unreadCount != null && unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-primary rounded-full animate-pulse shadow-lg shadow-primary/50" />
-                )}
-              </button>
-
-              {notifOpen && (
-                <div className="absolute right-0 top-full mt-2 w-96 bg-card border border-border rounded-xl shadow-lg z-50 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                    <span className="text-sm font-medium">Notificações</span>
-                    <Link href="/alerts">
-                      <span
-                        onClick={() => setNotifOpen(false)}
-                        className="text-xs text-primary cursor-pointer hover:underline"
-                      >
-                        Ver tudo
-                      </span>
-                    </Link>
-                  </div>
-                  {/* Filtro por domínio — Financeiro só aparece quando existe (admin). */}
-                  <div className="px-3 py-2 border-b border-border flex items-center gap-1.5">
-                    {([[null, "Todos"], ["PERFORMANCE", "Performance"], ["FINANCEIRO", "Financeiro"]] as const)
-                      .filter(([v]) => v !== "FINANCEIRO" || (notifPorDominio?.FINANCEIRO ?? 0) > 0 || notifDominio === "FINANCEIRO")
-                      .map(([v, lbl]) => {
-                        const n = v === "PERFORMANCE" ? notifPorDominio?.PERFORMANCE ?? 0 : v === "FINANCEIRO" ? notifPorDominio?.FINANCEIRO ?? 0 : 0;
-                        return (
-                          <button key={String(v)} onClick={() => setNotifDominio(v)}
-                            className={`px-2 py-0.5 rounded-full text-[11px] border transition ${notifDominio === v ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground hover:text-foreground"}`}>
-                            {lbl}{n > 0 ? ` · ${n}` : ""}
-                          </button>
-                        );
-                      })}
-                  </div>
-
-                  <div className="max-h-96 overflow-y-auto">
-                    {notifLoading ? (
-                      <div className="flex items-center gap-2 px-4 py-6 text-xs text-muted-foreground">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando...
-                      </div>
-                    ) : recentItems.length === 0 ? (
-                      <div className="px-4 py-8 text-center">
-                        <Bell className="w-6 h-6 text-muted-foreground/30 mx-auto mb-2" />
-                        <div className="text-xs text-muted-foreground">Nenhuma notificação por aqui</div>
-                      </div>
-                    ) : (
-                      recentItems.map((alert: any) => {
-                        const Icon = notifIcon(alert.type);
-                        const isCrit = NOTIF_CRITICAL_TYPES.has(alert.type);
-                        const isWarn = NOTIF_WARNING_TYPES.has(alert.type);
-                        const iconColor = isCrit ? "text-red-500" : isWarn ? "text-amber-500" : "text-blue-500";
-                        const iconBg = isCrit ? "bg-red-500/10" : isWarn ? "bg-amber-500/10" : "bg-blue-500/10";
-                        return (
-                          <Link key={alert.id} href="/alerts">
-                            <div
-                              onClick={() => setNotifOpen(false)}
-                              className={`flex items-start gap-3 px-4 py-3 border-b border-border/50 last:border-b-0 cursor-pointer hover:bg-accent/30 transition-colors ${!alert.isRead ? "bg-primary/[0.03]" : ""}`}
-                            >
-                              <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${iconBg} ${iconColor}`}>
-                                <Icon className="w-3.5 h-3.5" />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="text-xs font-medium leading-snug">{alert.title}</div>
-                                <div className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{alert.message}</div>
-                                <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1.5">
-                                  <span className="text-primary font-medium">{alert.accountName}</span>
-                                  <span>·</span>
-                                  <span>{notifTimeAgo(alert.createdAt)}</span>
-                                </div>
-                              </div>
-                              {!alert.isRead && (
-                                <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-1" />
-                              )}
-                            </div>
-                          </Link>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            )}
-          </div>
-        </header>
-
-        {/* Page content */}
+        {/* Page content — o sub-cabeçalho (colapso + título + sino) foi removido. */}
         <main className="flex-1 overflow-auto p-6">
           {children}
         </main>

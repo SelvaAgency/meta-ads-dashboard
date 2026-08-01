@@ -51,16 +51,6 @@ export function HubIntegratedApp({ title, src }: HubIntegratedAppProps) {
   return (
     <HubShell>
       <div className="flex-1 flex flex-col min-h-0">
-        {/* Barra fina do app integrado */}
-        <div className="flex items-center justify-between gap-3 border-b border-border bg-background px-4 py-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-sm font-semibold truncate">{title}</span>
-            <span className="text-[11px] text-muted-foreground truncate hidden sm:inline">
-              app integrado
-            </span>
-          </div>
-        </div>
-
         {/* Área do app */}
         <div className="relative flex-1 min-h-0 bg-secondary/40">
           {status !== "fallback" && (
