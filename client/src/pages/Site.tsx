@@ -32,6 +32,7 @@ import {
   cardsDeTrafego, listasDe, contexto30d, amostraPequena, semTrafego, prepararVendas,
   type MetricasGA4, type ListasGA4, type CardGA4, type Lista as ListaGA4,
 } from "./site/ga4Performance";
+import { PerformanceVisual } from "./site/PerformanceVisual";
 import { type Fonte, type StatusFonte } from "@shared/fontes";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
@@ -781,6 +782,7 @@ function AbaResumo({ accountId, onIr }: { accountId: number; onIr: (a: AbaSite) 
   const repQ = trpc.siteDiag.relatorios.useQuery({ accountId });
   const fontesQ = trpc.fontes.doCliente.useQuery({ accountId });
   const ga4Q = trpc.siteDiag.ga4Snapshot.useQuery({ accountId });
+  const [periodo, setPeriodo] = useState<7 | 30>(7);
 
   if (cfgQ.isLoading) return <Carregando />;
   const cfg = cfgQ.data;
@@ -796,7 +798,8 @@ function AbaResumo({ accountId, onIr }: { accountId: number; onIr: (a: AbaSite) 
   // Performance-first: o Resumo lidera com o tráfego do GA4 + comportamento do Clarity.
   const g7 = (ga4Q.data?.d7?.metricsJson ?? null) as MetricasGA4 | null;
   const g30 = (ga4Q.data?.d30?.metricsJson ?? null) as MetricasGA4 | null;
-  const gListas = (ga4Q.data?.d7?.issuesJson ?? null) as ListasGA4 | null;
+  const gm = periodo === 30 ? (g30 ?? g7) : g7;
+  const gl = (ga4Q.data?.[periodo === 30 ? "d30" : "d7"]?.issuesJson ?? null) as ListasGA4 | null;
   const temGa4 = !!g7;
   const clarityComp = clarityOn && m && (m.sessions ?? 0) > 0;
 
@@ -815,18 +818,23 @@ function AbaResumo({ accountId, onIr }: { accountId: number; onIr: (a: AbaSite) 
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 1 — Estado das fontes deste cliente (resolvedor da F1) */}
-      {fontes.length > 0 && (
-        <div className="rounded-lg border border-border bg-card p-3">
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Fontes deste cliente</p>
-          <div className="flex flex-wrap gap-1.5">
-            {fontes.map((f) => <PastilhaFonte key={f.chave} fonte={f} />)}
+      {/* Seletor de período — controla os dados de performance do GA4 */}
+      {temGa4 && (
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <p className="text-sm font-bold text-foreground">Performance do site</p>
+          <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
+            {[7, 30].map((d) => (
+              <button key={d} onClick={() => setPeriodo(d as 7 | 30)}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${periodo === d ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                {d} dias
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {/* ★ PERFORMANCE — o foco do Resumo (tráfego GA4 + comportamento Clarity) */}
-      {temGa4 && <BlocosGA4 m7={g7} m30={g30} listas={gListas} fonteErro={fontes.find((f) => f.chave === "ga4")?.status === "erro" ? fontes.find((f) => f.chave === "ga4")?.porque : undefined} />}
+      {/* ★ PERFORMANCE — o foco do Resumo (tráfego GA4, visual) */}
+      {temGa4 && <PerformanceVisual accountId={accountId} periodo={periodo} m={gm} listas={gl} />}
       {clarityComp && (
         <Secao id="comportamento" titulo="Comportamento (Clarity)" icone={<Activity className="w-4 h-4" />}
           estado={`${fmtNum(m?.sessions)} sessões · ${fmtPct(m?.averageScrollDepth)} de scroll médio`} aberta>
@@ -884,87 +892,6 @@ function AbaResumo({ accountId, onIr }: { accountId: number; onIr: (a: AbaSite) 
         <span className="font-medium text-foreground">Próximo passo: </span>
         {acoes[0]?.proximoPasso ?? "Nada urgente por aqui. Vale registrar o contexto do cliente para o robô ficar mais preciso."}
       </p>
-
-      {/* 5 — Saúde técnica (secundária): a performance é o foco; o técnico só
-          ganha destaque quando há algo crítico (SSL, uptime, PageSpeed baixo). */}
-      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide px-1 pt-2 border-t border-border/40">Saúde técnica</p>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Performance técnica */}
-        <CardResumo
-          titulo="Performance técnica" icone={<Gauge className="w-4 h-4" />}
-          ligado={perfOn} semDados={perfOn && !perfQ.data}
-          textoOff="Performance técnica não configurada." textoSemDados="Nenhum teste rodado ainda."
-          onIr={() => onIr("tecnico")}
-        >
-          {pm && (
-            <div className="grid grid-cols-2 gap-2">
-              <Mini label="Score" valor={fmtScore(pm.performanceScore)} alerta={(pm.performanceScore ?? 100) < 50} />
-              <Mini label="LCP" valor={fmtMs(pm.lcp)} alerta={(pm.lcp ?? 0) > 2500} />
-              <Mini label="CLS" valor={fmtDec(pm.cls, 2)} alerta={(pm.cls ?? 0) > 0.1} />
-              <Mini label="TBT" valor={fmtMs(pm.tbt)} alerta={(pm.tbt ?? 0) > 200} />
-            </div>
-          )}
-        </CardResumo>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <CardResumo
-          titulo="Segurança básica" icone={<ShieldCheck className="w-4 h-4" />}
-          ligado={temDominio} semDados={temDominio && !seg}
-          textoOff="Domínio não informado." textoSemDados="Ainda não verificado — roda amanhã de manhã."
-          onIr={() => onIr("tecnico")}
-        >
-          {seg && (
-            <div className="grid grid-cols-2 gap-2">
-              <Mini label="Nota" valor={ehNum(seg.score) ? `${fmtScore(seg.score)}/100` : "—"} alerta={!!seg.status && seg.status !== "bom"} />
-              <Mini label="HTTPS" valor={seg.https === undefined ? "—" : seg.https ? "Ativo" : "Ausente"} alerta={seg.https === false} />
-              <Mini label="Certificado" valor={seg.sslValido === null || seg.sslValido === undefined ? "—" : seg.sslValido ? "Válido" : "Inválido"} alerta={seg.sslValido === false} />
-              <Mini label="Expira em" valor={fmtDias(seg.daysToSslExpiry)} alerta={(seg.daysToSslExpiry ?? 999) <= 30} />
-            </div>
-          )}
-        </CardResumo>
-
-        <CardResumo
-          titulo="Disponibilidade" icone={<Wifi className="w-4 h-4" />}
-          ligado={temDominio} semDados={temDominio && !up}
-          textoOff="Domínio não informado." textoSemDados="Ainda não verificado — roda amanhã de manhã."
-          onIr={() => onIr("tecnico")}
-        >
-          {up && (
-            <div className="grid grid-cols-2 gap-2">
-              <Mini label="Status" valor={(up.status && UP_LABEL[up.status]) ?? "—"} alerta={up.status === "fora_do_ar" || up.status === "erro"} />
-              <Mini label="Resposta" valor={fmtMs(up.responseTimeMs)} alerta={(up.responseTimeMs ?? 0) > 3000} />
-            </div>
-          )}
-        </CardResumo>
-      </div>
-
-      {/* O que falta para o diagnóstico ficar bom */}
-      <div className="rounded-xl border border-border bg-card p-4">
-        <p className="text-xs font-semibold text-muted-foreground mb-2">Fontes deste diagnóstico</p>
-        <div className="flex flex-wrap gap-1.5">
-          <Pastilha ok={!!seg} label="Segurança" onClick={() => onIr("tecnico")} />
-          <Pastilha ok={!!up} label="Disponibilidade" onClick={() => onIr("tecnico")} />
-          <Pastilha ok={!!perfQ.data} label="Performance" onClick={() => onIr("tecnico")} />
-          <Pastilha ok={!!clarityQ.data} label="Clarity" onClick={() => onIr("performance")} />
-          <Pastilha ok={temCtx} label="Contexto" onClick={() => onIr("contexto")} />
-          <Pastilha ok={(repQ.data ?? []).length > 0} label={`${(repQ.data ?? []).length} relatório(s)`} onClick={() => onIr("relatorios")} />
-        </div>
-        {/* Nenhuma fonte é obrigatória — mas dizer o que falta é o que separa
-            "diagnóstico parcial" de "diagnóstico errado". */}
-        <p className="text-[11px] text-muted-foreground mt-2">{nivelDiagnostico({ seg: !!seg, up: !!up, perf: !!perfQ.data, clarity: !!clarityQ.data, ctx: temCtx })}</p>
-        {!clarityOn && (
-          <p className="text-[11px] text-muted-foreground mt-1">
-            O Clarity não está conectado, então não avaliamos o comportamento real de quem visita o site.
-          </p>
-        )}
-        {!temCtx && (
-          <p className="text-[11px] text-muted-foreground mt-1">
-            Sem o contexto, o relatório descreve números mas não interpreta —
-            <button onClick={() => onIr("contexto")} className="text-accent hover:underline ml-1">preencher agora</button>.
-          </p>
-        )}
-      </div>
     </div>
   );
 }
