@@ -1950,7 +1950,7 @@ export const appRouter = router({
 
     // ─── AI Status Summary ────────────────────────────────────────────────────
     refreshStatus: protectedProcedure
-      .input(z.object({ accountId: z.number() }))
+      .input(z.object({ accountId: z.number(), contexto: z.string().max(2000).optional() }))
       .mutation(async ({ ctx, input }) => {
         await getVerifiedAccount(input.accountId, ctx.user.id);
         const accountData = await getMetaAdAccountById(input.accountId);
@@ -1959,6 +1959,21 @@ export const appRouter = router({
         const roasApplies = roasGoals.includes(goalType);
         const { startDate, endDate } = getDateRange(7);
         const metrics = await getAccountMetricsSummary(input.accountId, startDate, endDate);
+
+        // Contexto: o resumo deve considerar o contexto da conta (perfil/regras/
+        // aprendizados) e o contexto ad-hoc que a pessoa escreveu agora sobre os
+        // últimos 7 dias — números sozinhos não explicam sazonalidade, campanha
+        // de lançamento, feriado, etc.
+        const accCtx = await getAccountContext(input.accountId).catch(() => null);
+        const partesCtx = [
+          accCtx?.clientProfile ? `Perfil do cliente: ${accCtx.clientProfile}` : "",
+          accCtx?.operationalRules ? `Regras operacionais: ${accCtx.operationalRules}` : "",
+          accCtx?.learnings ? `Aprendizados históricos: ${accCtx.learnings}` : "",
+          input.contexto?.trim() ? `Contexto informado agora sobre estes 7 dias: ${input.contexto.trim()}` : "",
+        ].filter(Boolean);
+        const blocoCtx = partesCtx.length
+          ? `\n\nCONTEXTO (considere ao avaliar e ao escrever o resumo — pode explicar variações que os números não mostram):\n${partesCtx.join("\n")}`
+          : "";
 
         const totals = metrics.reduce(
           (acc, m) => ({
@@ -1977,7 +1992,7 @@ export const appRouter = router({
         const result = await invokeLLM({
           messages: [{
             role: "user",
-            content: `Analise os dados de performance dos últimos 7 dias e retorne um JSON com dois campos: "color" (green/yellow/red) e "summary" (máx 300 caracteres em português, sem emoji). O summary deve conter: (1) status geral da conta, (2) principal métrica positiva ou problemática com valor, (3) uma ação sugerida objetiva. Verde = conta saudável, Amarelo = atenção necessária, Vermelho = problema crítico.\n\nObjetivo da conta: ${goalType}${!roasApplies ? " — IMPORTANTE: esta conta é de " + goalType + ", NÃO de e-commerce. NUNCA mencione ROAS, valor de conversão ou rastreamento de receita como problema. Avalie APENAS: volume de resultados (mensagens/cliques/alcance), custo por resultado e CTR." : ""}\n\nDados:\n${JSON.stringify(roasApplies ? { ...totals, roas: roas.toFixed(2), cpa: cpa.toFixed(2), ctr: ctr.toFixed(2) } : { spend: totals.spend, conversions: totals.conversions, clicks: totals.clicks, impressions: totals.impressions, cpa: cpa.toFixed(2), ctr: ctr.toFixed(2) })}`,
+            content: `Analise os dados de performance dos últimos 7 dias e retorne um JSON com dois campos: "color" (green/yellow/red) e "summary" (máx 300 caracteres em português, sem emoji). O summary deve conter: (1) status geral da conta, (2) principal métrica positiva ou problemática com valor, (3) uma ação sugerida objetiva. Verde = conta saudável, Amarelo = atenção necessária, Vermelho = problema crítico.\n\nObjetivo da conta: ${goalType}${!roasApplies ? " — IMPORTANTE: esta conta é de " + goalType + ", NÃO de e-commerce. NUNCA mencione ROAS, valor de conversão ou rastreamento de receita como problema. Avalie APENAS: volume de resultados (mensagens/cliques/alcance), custo por resultado e CTR." : ""}${blocoCtx}\n\nDados:\n${JSON.stringify(roasApplies ? { ...totals, roas: roas.toFixed(2), cpa: cpa.toFixed(2), ctr: ctr.toFixed(2) } : { spend: totals.spend, conversions: totals.conversions, clicks: totals.clicks, impressions: totals.impressions, cpa: cpa.toFixed(2), ctr: ctr.toFixed(2) })}`,
           }],
           responseFormat: { type: "json_object" },
           thinking: false,
@@ -4742,6 +4757,29 @@ export const appRouter = router({
       }
       return map;
     }),
+
+    /**
+     * Resumo de HOJE e ONTEM de UMA conta (a conta Meta → sua Google Ads
+     * vinculada). Alimenta o bloco "Resultados" do header do Resumo com a verba
+     * unificada. Ao vivo, tolerante a falha (cada dia com catch). Admin/dev.
+     */
+    resumoDiasConta: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(async ({ input }) => {
+        const config = getGoogleAdsConfig();
+        if (!config) return null;
+        const conta = await contaGoogleDoCliente(input.accountId);
+        if (!conta || (conta as { ignored?: boolean }).ignored) return null;
+        const cfg = { ...config, refreshToken: tokenDaConta(conta.refreshToken) };
+        const dia = (offset: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() - offset * 86_400_000));
+        const [h, o] = await Promise.all([
+          getGoogleAdsAccountSummary(cfg, conta.customerId, dia(0), dia(0)).catch(() => null),
+          getGoogleAdsAccountSummary(cfg, conta.customerId, dia(1), dia(1)).catch(() => null),
+        ]);
+        const pick = (s: Awaited<ReturnType<typeof getGoogleAdsAccountSummary>> | null) =>
+          s ? { spend: s.spend, clicks: s.clicks, impressions: s.impressions, conversions: s.conversions, conversionValue: s.conversionValue } : null;
+        return { hoje: pick(h), ontem: pick(o) };
+      }),
 
     // Campaigns with metrics
     campaigns: protectedProcedure

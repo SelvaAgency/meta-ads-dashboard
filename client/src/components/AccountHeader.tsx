@@ -8,6 +8,8 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { KPI_CONFIGS, getDayStatus, type GoalType } from "@/lib/kpiConfig";
 import { type Fonte, type StatusFonte, type ChaveFonte } from "@shared/fontes";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canManageContent } from "@shared/permissions";
 
 /**
  * Cores por status. Antes o chip "Meta Ads" era a string fixa "● Meta Ads" —
@@ -74,6 +76,26 @@ function buildTotals(t: any) {
     cpc: clicks > 0 ? spend / clicks : 0,
     cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
     frequency: 0,
+  };
+}
+
+/** Soma Google Ads (mesmo dia) ao total Meta e recalcula as taxas do combinado.
+ *  Sem Google Ads (g nulo) devolve o total Meta intacto. Alcance fica só do Meta. */
+type GAdsDia = { spend: number; clicks: number; impressions: number; conversions: number; conversionValue: number };
+function mergeGAds(t: any, g: GAdsDia | null | undefined) {
+  if (!g) return t;
+  const spend           = Number(t.spend ?? 0) + g.spend;
+  const clicks          = Number(t.clicks ?? 0) + g.clicks;
+  const impressions     = Number(t.impressions ?? 0) + g.impressions;
+  const conversions     = Number(t.conversions ?? 0) + g.conversions;
+  const conversionValue = Number(t.conversionValue ?? 0) + g.conversionValue;
+  return {
+    ...t, spend, clicks, impressions, conversions, conversionValue,
+    roas: spend > 0 ? conversionValue / spend : 0,
+    cpa:  conversions > 0 ? spend / conversions : 0,
+    ctr:  impressions > 0 ? (clicks / impressions) * 100 : 0,
+    cpc:  clicks > 0 ? spend / clicks : 0,
+    cpm:  impressions > 0 ? (spend / impressions) * 1000 : 0,
   };
 }
 
@@ -165,6 +187,15 @@ export function AccountHeader({
     { enabled: !!selectedAccountId },
   );
 
+  // Verba unificada (Meta + Google Ads) no bloco Resultados — mesma ideia da Home.
+  // Ao vivo, admin/dev (Google Ads é gated); se falhar/ausente, fica só Meta.
+  const { user } = useAuth();
+  const podeGAds = canManageContent(user?.role);
+  const { data: gAdsDias } = trpc.googleAds.resumoDiasConta.useQuery(
+    { accountId: selectedAccountId! },
+    { enabled: !!selectedAccountId && podeGAds, staleTime: 5 * 60_000, refetchOnWindowFocus: false },
+  );
+
   const { data: suggestions } = trpc.suggestions.list.useQuery(
     { accountId: selectedAccountId! },
     { enabled: !!selectedAccountId, staleTime: 5 * 60 * 1000 }
@@ -200,6 +231,9 @@ export function AccountHeader({
 
   // ─── Context panel state ────────────────────────────────────────────────
   const [contextOpen, setContextOpen] = useState(false);
+  // Contexto ad-hoc do resumo 7 dias (não persiste; é enviado na regeneração).
+  const [resumoCtxOpen, setResumoCtxOpen] = useState(false);
+  const [resumoCtx, setResumoCtx] = useState("");
   const [ctxProfile, setCtxProfile] = useState("");
   const [ctxRules, setCtxRules] = useState("");
   const [ctxLearnings, setCtxLearnings] = useState("");
@@ -265,15 +299,15 @@ export function AccountHeader({
   const muted = "rgba(0,0,0,0.4)";
 
   const kpiDefs = KPI_CONFIGS[goalType].slice(0, 4);
-  const todayTotals = buildTotals(todayData?.totals);
-  const yestTotals  = buildTotals(yestData?.totals);
+  const todayTotals = mergeGAds(buildTotals(todayData?.totals), gAdsDias?.hoje);
+  const yestTotals  = mergeGAds(buildTotals(yestData?.totals), gAdsDias?.ontem);
 
   const CLAMP_HEIGHT = 72;
 
   return (
     <div style={{
       display: "grid",
-      gridTemplateColumns: "220px 1fr 1fr 1fr",
+      gridTemplateColumns: "220px 1fr 1fr",
       background: "white",
       border: "1px solid rgba(0,0,0,0.08)",
       borderRadius: "12px",
@@ -501,7 +535,16 @@ export function AccountHeader({
             {statusCfg?.label ?? "Status IA"} — 7 dias
           </span>
           <button
-            onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
+            onClick={() => setResumoCtxOpen(v => !v)}
+            title="Adicionar contexto e reanalisar"
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: resumoCtxOpen ? "#E85BA8" : muted, opacity: resumoCtxOpen ? 1 : 0.5, transition: "opacity 0.15s" }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = resumoCtxOpen ? "1" : "0.5")}
+          >
+            <Brain style={{ width: 11, height: 11 }} />
+          </button>
+          <button
+            onClick={() => refreshStatus.mutate({ accountId: selectedAccountId, contexto: resumoCtx.trim() || undefined })}
             disabled={refreshStatus.isPending}
             title="Atualizar análise IA"
             style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: muted, opacity: 0.5, transition: "opacity 0.15s" }}
@@ -511,6 +554,35 @@ export function AccountHeader({
             <RefreshCw style={{ width: 10, height: 10, animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
           </button>
         </div>
+
+        {/* Contexto ad-hoc: explica os últimos 7 dias; a IA reescreve o resumo. */}
+        {resumoCtxOpen && (
+          <div style={{ marginBottom: 8 }}>
+            <textarea
+              value={resumoCtx}
+              onChange={(e) => setResumoCtx(e.target.value)}
+              placeholder="Contexto dos últimos 7 dias (ex.: campanha de lançamento, feriado, verba reduzida)…"
+              rows={3}
+              style={{
+                width: "100%", fontSize: 11, lineHeight: 1.4, padding: "6px 8px",
+                border: "1px solid rgba(0,0,0,0.12)", borderRadius: 8, resize: "vertical",
+                color: "#111", background: "rgba(0,0,0,0.015)", outline: "none",
+              }}
+            />
+            <button
+              onClick={() => refreshStatus.mutate({ accountId: selectedAccountId, contexto: resumoCtx.trim() || undefined })}
+              disabled={refreshStatus.isPending || !resumoCtx.trim()}
+              style={{
+                marginTop: 5, fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 7,
+                border: "none", cursor: refreshStatus.isPending || !resumoCtx.trim() ? "default" : "pointer",
+                background: refreshStatus.isPending || !resumoCtx.trim() ? "rgba(0,0,0,0.08)" : "#E85BA8",
+                color: refreshStatus.isPending || !resumoCtx.trim() ? "rgba(0,0,0,0.4)" : "white",
+              }}
+            >
+              {refreshStatus.isPending ? "Analisando…" : "Atualizar com contexto"}
+            </button>
+          </div>
+        )}
         <p
           ref={summaryRef}
           style={{
@@ -534,86 +606,6 @@ export function AccountHeader({
         )}
       </div>
 
-      {/* ══ Block 4 — Ações em andamento ══════════════════════════════ */}
-      <div style={{ padding: "12px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-          {blockLabel("Ações em andamento")}
-          {monitoringItems.length > 0 && (
-            <span style={{
-              fontSize: 9, fontWeight: 700, lineHeight: 1,
-              padding: "2px 6px", borderRadius: 99,
-              background: "#E85BA8", color: "white",
-              marginBottom: 6,
-            }}>
-              {monitoringItems.length}
-            </span>
-          )}
-        </div>
-
-        {monitoringItems.length === 0 ? (
-          <p style={{ fontSize: 11, color: "rgba(0,0,0,0.3)", fontStyle: "italic" }}>
-            Nenhuma ação em monitoramento.
-          </p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {monitoringItems.slice(0, 3).map((s: any) => {
-              const remaining = daysLeft(s.monitorUntil);
-              const catColor = CATEGORY_COLORS[s.category] ?? "#E85BA8";
-              return (
-                <div key={s.id} onClick={() => navigate(`/suggestions?highlight=${s.id}`)} style={{
-                  display: "flex", alignItems: "flex-start", gap: 7,
-                  padding: "7px 9px",
-                  background: "rgba(0,0,0,0.02)",
-                  border: "0.5px solid rgba(0,0,0,0.07)",
-                  borderRadius: 8,
-                  cursor: "pointer",
-                  transition: "background 0.15s, border-color 0.15s",
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = "rgba(232,91,168,0.06)"; (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(232,91,168,0.25)"; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = "rgba(0,0,0,0.02)"; (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(0,0,0,0.07)"; }}
-                >
-                  <div style={{
-                    width: 16, height: 16, borderRadius: "50%", flexShrink: 0, marginTop: 1,
-                    border: "1.5px solid #1D9E75",
-                    background: "rgba(29,158,117,0.08)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}>
-                    <CheckCircle2 style={{ width: 9, height: 9, color: "#1D9E75" }} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{
-                      fontSize: 11, fontWeight: 600, color: "#111",
-                      lineHeight: 1.35, marginBottom: 3,
-                      overflow: "hidden", textOverflow: "ellipsis",
-                      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
-                    }}>
-                      {s.title}
-                    </p>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
-                      <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: "#60a5fa" }}>
-                        <Eye style={{ width: 9, height: 9 }} />
-                        {remaining}d restante{remaining !== 1 ? "s" : ""}
-                      </span>
-                      <span style={{
-                        fontSize: 9, fontWeight: 600, padding: "1px 5px", borderRadius: 99,
-                        background: "rgba(0,0,0,0.04)", border: "0.5px solid rgba(0,0,0,0.12)",
-                        color: catColor,
-                      }}>
-                        {(s.category ?? "GENERAL").replace(/_/g, " ")}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            {monitoringItems.length > 3 && (
-              <p style={{ fontSize: 10, color: "rgba(0,0,0,0.35)", marginTop: 2 }}>
-                +{monitoringItems.length - 3} mais
-              </p>
-            )}
-          </div>
-        )}
-      </div>
 
       {/* ══ Painel de Contexto (inline, expande abaixo) ══════════════════ */}
       {contextOpen && selectedAccountId && (
