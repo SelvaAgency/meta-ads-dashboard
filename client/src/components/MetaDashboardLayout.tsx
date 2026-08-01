@@ -174,13 +174,12 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/reports", label: "Relatórios", icon: FileText },
   ];
   // Ocultos para colaboradores — só admin/dev. Ficam sob o divisor
-  // "Oculto para colaboradores". GA4/Lojas já eram admin/dev; Google Ads e
-  // Redes sociais entram agora na mesma lógica.
+  // "Oculto para colaboradores". Redes sociais saiu daqui: agora é "EM BREVE"
+  // para todos, logo abaixo de Site (ver renderAccountItem).
   const managerNavItems = [
     { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
     { path: "/ga4", label: "Google Analytics", icon: BarChart3 },
     { path: "/lojas", label: "Lojas", icon: Store },
-    { path: "/social-networks", label: "Redes sociais", icon: Instagram },
   ];
 
   const renderAccountItem = (item: { path: string; label: string; icon: typeof Home }) => {
@@ -202,6 +201,14 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             )}
           </div>
         </Link>
+        {/* Redes sociais — "EM BREVE" para TODOS (opaco, não clicável), abaixo de Site. */}
+        {item.path === "/site" && sidebarOpen && (
+          <div className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-default select-none" style={{ color: "rgba(255,255,255,0.25)" }} title="Em breve">
+            <Instagram className="w-4 h-4 flex-shrink-0" />
+            <span className="text-sm font-medium flex-1 truncate">Redes sociais</span>
+            <span className="text-[8px] uppercase tracking-wide flex-shrink-0">em breve</span>
+          </div>
+        )}
         {/* Plano de Ação — só admin/dev; colaborador vê "EM BREVE" opaco e não clicável. */}
         {item.path === "/dashboard" && sidebarOpen && (
           isManager ? (
