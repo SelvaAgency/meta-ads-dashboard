@@ -1431,6 +1431,10 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
   const [subFilter, setSubFilter] = useState<string | null>(null);
   const [remarcar, setRemarcar] = useState<{ id: number; venc: string; oficial?: boolean } | null>(null);
   const [editPon, setEditPon] = useState<EditPon | null>(null);
+  // Edição do valor de UM mês específico de uma despesa recorrente/imposto — sem
+  // mexer no valor recorrente nem nos outros meses (ex.: Contabilizei foi R$345 só
+  // em julho). Usa finance.pnl.update na entrada gerada daquele mês.
+  const [editMes, setEditMes] = useState<EditPon | null>(null);
   const [custoTab, setCustoTab] = useState<"recorrente" | "imposto" | "pontual">("recorrente");
   const [concTab, setConcTab] = useState<"categoria" | "sub" | "fornecedor">("categoria");
 
@@ -1463,8 +1467,9 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
     onToggle: d.entryId ? () => setStatusM.mutate({ id: d.entryId!, status: d.status === "pago" ? "pendente" : "pago" }) : undefined,
     actions: (
       <div className="inline-flex items-center gap-1">
+        {d.entryId != null && <button onClick={() => setEditMes({ id: d.entryId!, descricao: d.descricao, valorCents: d.valorCents, vencimento: d.vencimento })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Editar o valor só deste mês"><Pencil className="w-4 h-4" /></button>}
         {d.entryId && <button onClick={() => setRemarcar({ id: d.entryId!, venc: d.vencimento ?? "", oficial: true })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Mudar data de pagamento"><CalendarClock className="w-4 h-4" /></button>}
-        {d.recorrenciaId != null && <button onClick={() => setAjuste({ recorrenciaId: d.recorrenciaId!, nome: d.descricao, valor: centsToInput(d.valorCents), aplicarGerados: false })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Ajustar valor"><Pencil className="w-4 h-4" /></button>}
+        {d.recorrenciaId != null && <button onClick={() => setAjuste({ recorrenciaId: d.recorrenciaId!, nome: d.descricao, valor: centsToInput(d.valorCents), aplicarGerados: false })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Ajustar valor recorrente (próximos meses)"><Repeat className="w-4 h-4" /></button>}
         {d.recorrenciaId != null && <button onClick={() => { if (confirm(`Encerrar "${d.descricao}"? Remove os meses futuros pendentes (não mexe nos pagos).`)) marcarSaida.mutate({ recorrenciaId: d.recorrenciaId!, mes: cur }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Encerrar recorrência"><TrendingDown className="w-4 h-4" /></button>}
       </div>
     ),
@@ -1658,6 +1663,7 @@ function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: num
       </Dialog>
 
       <EditPontualDialog entry={editPon} onClose={() => setEditPon(null)} onSaved={invRec} label="despesa pontual" showSub />
+      <EditPontualDialog entry={editMes} onClose={() => setEditMes(null)} onSaved={invRec} label="valor deste mês" />
 
       {/* Backlog: "Custo por pessoa por período" exige canonicalizar nomes de despesa
           (como foi feito com clientes) — não implementado nesta rodada. */}
