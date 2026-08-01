@@ -3,8 +3,6 @@ import { Loader2 } from "lucide-react";
 import { funilVisual, fmtBRL, type ClientePanorama } from "@shared/panoramaLogic";
 import { fmtNumber } from "@/lib/kpiConfig";
 import { Funil } from "../panorama/Visuais";
-import { useAuth } from "@/_core/hooks/useAuth";
-import { canManageContent } from "@shared/permissions";
 
 /**
  * Seção do SITE em UMA caixa: começa com a régua de resultado (Investimento →
@@ -13,10 +11,10 @@ import { canManageContent } from "@shared/permissions";
  * e-commerce). Admin/dev p/ a régua (inclui Google ao vivo).
  */
 export function SecaoSite({ accountId }: { accountId: number }) {
-  const { user } = useAuth();
-  const pode = canManageContent(user?.role);
+  // Régua p/ todos (é a performance do próprio cliente); o Google dela é
+  // preenchido só p/ admin/dev no servidor.
   const reguaQ = trpc.dashboard.resultadoEcom.useQuery(
-    { accountId }, { enabled: !!accountId && pode, staleTime: 5 * 60_000, refetchOnWindowFocus: false },
+    { accountId }, { enabled: !!accountId, staleTime: 5 * 60_000, refetchOnWindowFocus: false },
   );
   const vendasQ = trpc.dashboard.vendas.useQuery({ accountId }, { enabled: !!accountId, staleTime: 120_000 });
 

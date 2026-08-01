@@ -2311,9 +2311,10 @@ export const appRouter = router({
      * real usou (`vendasDe`.janela), pra mídia e loja baterem. null quando não há
      * venda conectada (não é e-commerce). Admin/dev (Google ao vivo + gated).
      */
-    resultadoEcom: contentProcedure
+    resultadoEcom: protectedProcedure
       .input(z.object({ accountId: z.number().int() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id); // dono/permissão
         const snap = await snapshotsDeVendaDaConta(input.accountId);
         const c: ClientePanorama = {
           accountId: input.accountId, nome: "", fontes: [],
@@ -2337,7 +2338,8 @@ export const appRouter = router({
         const metaConv      = metrics.reduce((s, m) => s + Number(m.totalConversions ?? 0), 0);
 
         let gSpend = 0, gConvValue = 0, gConv = 0, temGoogle = false;
-        const config = getGoogleAdsConfig();
+        // Google só p/ admin/dev (colaborador não vê Google Ads — política de acesso).
+        const config = canManageContent(ctx.user.role) ? getGoogleAdsConfig() : null;
         if (config) {
           const gc = await contaGoogleDoCliente(input.accountId);
           if (gc && !(gc as { ignored?: boolean }).ignored) {
