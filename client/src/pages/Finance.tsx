@@ -733,9 +733,8 @@ type PnlForm = { id?: number; mes: string; tipo: PnlTipo; descricao: string; val
 type ProjParcela = { valor: string; vencimento: string };
 type ProjForm = { clienteId: number | null; nome: string; parcelas: ProjParcela[] };
 
-function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[]; clientes: Cliente[]; clienteById: Map<number, Cliente>; onNavigate?: (tab: string, opts?: { period?: PeriodState; sub?: string }) => void }) {
+function PnlTab({ period, setPeriod, months, clientes, clienteById, onNavigate }: { period: PeriodState; setPeriod: (p: PeriodState) => void; months: string[]; clientes: Cliente[]; clienteById: Map<number, Cliente>; onNavigate?: (tab: string, opts?: { period?: PeriodState; sub?: string }) => void }) {
   const utils = trpc.useUtils();
-  const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
   const { from, to, refMonth } = periodRange(period, months);
   const [status, setStatus] = useState(""); const [clienteFilter, setClienteFilter] = useState<number | "">("");
   const [showAging, setShowAging] = useState(false);
@@ -948,8 +947,7 @@ function PnlTab({ months, clientes, clienteById, onNavigate }: { months: string[
 // ═════════════════════════════════════════════════════════════════════════════
 type QualRow = { clienteId: number | null; nome: string; cor: string | null; mesesAtivos: number; totalCents: number; mediaCents: number; primeiroMes: string; ultimoMes: string; status: "ativo" | "churned" | "pontual" };
 
-function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: Cliente[]; drill?: { nonce: number; period?: PeriodState; sub?: string } }) {
-  const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
+function ClientesTab({ period, setPeriod, months, clientes, drill }: { period: PeriodState; setPeriod: (p: PeriodState) => void; months: string[]; clientes: Cliente[]; drill?: { nonce: number; period?: PeriodState; sub?: string } }) {
   const { from, to, refMonth } = periodRange(period, months);
   const [escopo, setEscopo] = useState<"vitalicio" | "periodo">("vitalicio");
   const [sortKey, setSortKey] = useState<keyof QualRow>("mediaCents");
@@ -1405,9 +1403,8 @@ function ClientesTab({ months, clientes, drill }: { months: string[]; clientes: 
 // ═════════════════════════════════════════════════════════════════════════════
 //  Aba Despesas (por categoria)
 // ═════════════════════════════════════════════════════════════════════════════
-function DespesasTab({ months, drill }: { months: string[]; drill?: { nonce: number; period?: PeriodState; sub?: string } }) {
+function DespesasTab({ period, setPeriod, months, drill }: { period: PeriodState; setPeriod: (p: PeriodState) => void; months: string[]; drill?: { nonce: number; period?: PeriodState; sub?: string } }) {
   const utils = trpc.useUtils();
-  const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
   useEffect(() => { if (drill?.period) setPeriod(drill.period); }, [drill?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   const { from, to, refMonth } = periodRange(period, months);
   const q = trpc.finance.analytics.despesaPorCategoria.useQuery({ mesFrom: from, mesTo: to, limitMonths: 12 }, { enabled: MES_RE.test(from) });
@@ -2128,6 +2125,10 @@ export default function Finance() {
   const clientes = (clientesQ.data ?? []) as Cliente[];
   const clienteById = useMemo(() => new Map(clientes.map((c) => [c.id, c])), [clientes]);
   const [tab, setTab] = useState("visao");
+  // Período compartilhado entre as abas: ao ENTRAR no Financeiro abre no mês em
+  // vigor; ao TROCAR de aba, o mês selecionado permanece (o estado vive no pai,
+  // não em cada aba, que era remontada e voltava para o mês atual).
+  const [period, setPeriod] = useState<PeriodState>(defaultPeriod(agencyCurrentMonthCli()));
   const [drill, setDrill] = useState<{ nonce: number; period?: PeriodState; sub?: string }>({ nonce: 0 });
   const navigate = (t: string, opts?: { period?: PeriodState; sub?: string }) => { setTab(t); if (opts) setDrill((d) => ({ nonce: d.nonce + 1, period: opts.period, sub: opts.sub })); };
 
@@ -2152,9 +2153,9 @@ export default function Finance() {
               <TabsTrigger value="guiselva"><ArrowLeftRight className="w-3.5 h-3.5 mr-1" /> Gui &amp; SELVA</TabsTrigger>
               <TabsTrigger value="fatura"><Receipt className="w-3.5 h-3.5 mr-1" /> Fatura</TabsTrigger>
             </TabsList>
-            <TabsContent value="visao" className="mt-4"><PnlTab months={months} clientes={clientes} clienteById={clienteById} onNavigate={navigate} /></TabsContent>
-            <TabsContent value="clientes" className="mt-4"><ClientesTab months={months} clientes={clientes} drill={drill} /></TabsContent>
-            <TabsContent value="despesas" className="mt-4"><DespesasTab months={months} drill={drill} /></TabsContent>
+            <TabsContent value="visao" className="mt-4"><PnlTab period={period} setPeriod={setPeriod} months={months} clientes={clientes} clienteById={clienteById} onNavigate={navigate} /></TabsContent>
+            <TabsContent value="clientes" className="mt-4"><ClientesTab period={period} setPeriod={setPeriod} months={months} clientes={clientes} drill={drill} /></TabsContent>
+            <TabsContent value="despesas" className="mt-4"><DespesasTab period={period} setPeriod={setPeriod} months={months} drill={drill} /></TabsContent>
             <TabsContent value="guiselva" className="mt-4"><GuiSelvaTab months={months} /></TabsContent>
             <TabsContent value="fatura" className="mt-4"><FaturaTab months={months} /></TabsContent>
           </Tabs>
