@@ -49,7 +49,7 @@ const TIMING_REDUCE = { cover: 150, hold: 110, reveal: 200 };
 
 // Moldura com proporção fixa 8:3 (recomendada). object-cover + proporção igual = sem corte.
 function Frame({ children }: { children: React.ReactNode }) {
-  return <div className="relative w-full aspect-[8/3] overflow-hidden rounded-xl bg-secondary">{children}</div>;
+  return <div className="relative w-full aspect-[3/1] overflow-hidden rounded-xl bg-secondary">{children}</div>;
 }
 
 function ImageSlide({ image, eager }: { image: SelvaTVImage; eager?: boolean }) {
@@ -203,7 +203,7 @@ export function SelvaTV({ images, vocePrefere, fixedSlides }: { images: SelvaTVI
 
   return (
     <section ref={sectionRef} aria-label="SELVA TV" className="relative">
-      <Carousel opts={{ loop: true }} className="w-full" setApi={setApi}>
+      <Carousel opts={{ loop: true, watchDrag: false }} className="w-full" setApi={setApi}>
         <CarouselContent>
           {slides.map((s, i) => (
             <CarouselItem key={s.key}>{renderSlide(s, i)}</CarouselItem>

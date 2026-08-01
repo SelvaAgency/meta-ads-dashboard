@@ -40,6 +40,7 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
     const ms = { x:-999, y:-999, px:-999, py:-999, down:false };
     const balls: Ball[] = [];
     const ripples: Ripple[] = [];
+    let baseCount = 0; // nº base de bolinhas (definido no initBalls); teto do "derrame" no clique
 
     // Logo
     const logoImg = new Image();
@@ -60,9 +61,9 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
 
     function initBalls() {
       balls.length = 0;
-      // Menos bolinhas em telas estreitas (mobile) → transição/animação mais leve
-      // sem alterar o visual aprovado no desktop.
-      const COUNT = W < 560 ? 120 : 240;
+      // Menos bolinhas em telas estreitas (mobile) → transição/animação mais leve.
+      baseCount = W < 560 ? 240 : 480;
+      const COUNT = baseCount;
       for (let i = 0; i < COUNT; i++) {
         const layer: 'back'|'front' = Math.random() < .42 ? 'back' : 'front';
         balls.push({
@@ -89,6 +90,23 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
       }
     }
 
+    // Derrama algumas moedas novas do topo no clique (efeito "jogar moedas").
+    // Limitado a baseCount+90 para não crescer sem fim em cliques repetidos.
+    function pourCoins(x: number) {
+      const cap = baseCount + 90;
+      for (let k = 0; k < 5 && balls.length < cap; k++) {
+        const layer: 'back'|'front' = Math.random() < .42 ? 'back' : 'front';
+        balls.push({
+          x: Math.max(BR, Math.min(W - BR, x + (Math.random() - .5) * 90)),
+          y: -BR - Math.random() * 50,
+          vx: (Math.random() - .5) * 1.4, vy: 1 + Math.random() * 1.6,
+          r: BR + (Math.random() < .2 ? 2 + Math.random() * 4 : 0),
+          col: POOL[(Math.random() * POOL.length) | 0],
+          layer, pp: Math.random() * 6.28, ps: .008 + Math.random() * .012, pulse: 1,
+        });
+      }
+    }
+
     function collide(a: Ball, b: Ball) {
       const dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy), mn=a.r+b.r;
       if (d >= mn || d < .001) return;
@@ -96,6 +114,9 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
       a.x-=nx*ov; a.y-=ny*ov; b.x+=nx*ov; b.y+=ny*ov;
       const rv=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny;
       if (rv > 0) return;
+      // Batidas rápidas acendem as duas moedas (clarão proporcional ao impacto).
+      const impact = Math.min(1, -rv * .11);
+      if (impact > .16) { a.pulse=Math.max(a.pulse,impact*.85); b.pulse=Math.max(b.pulse,impact*.85); }
       const j = -(1+REST)*rv*.5;
       const pp = Math.max(a.pulse, b.pulse) * .68;
       if (pp > .04) { a.pulse=Math.max(a.pulse,pp); b.pulse=Math.max(b.pulse,pp); }
@@ -120,9 +141,22 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
         if (b.y-b.r<0) { b.y=b.r; b.vy=Math.abs(b.vy)*REST; }
         if (b.y+b.r>H) { b.y=H-b.r; b.vy=-Math.abs(b.vy)*REST; }
       }
-      for (let i=0;i<balls.length;i++)
-        for (let j=i+1;j<balls.length;j++)
-          collide(balls[i], balls[j]);
+      // Broad-phase por grade uniforme: só testa colisão entre vizinhos de célula
+      // (célula ≥ maior diâmetro), mantendo suave mesmo com muitas bolinhas.
+      const cs = (BR + 8) * 2;
+      const gkey = (cx:number, cy:number) => cx * 100003 + cy;
+      const grid = new Map<number, number[]>();
+      for (let i=0;i<balls.length;i++) {
+        const k = gkey((balls[i].x / cs) | 0, (balls[i].y / cs) | 0);
+        let a = grid.get(k); if (!a) { a = []; grid.set(k, a); } a.push(i);
+      }
+      for (let i=0;i<balls.length;i++) {
+        const cx=(balls[i].x/cs)|0, cy=(balls[i].y/cs)|0;
+        for (let ox=-1;ox<=1;ox++) for (let oy=-1;oy<=1;oy++) {
+          const arr = grid.get(gkey(cx+ox, cy+oy)); if (!arr) continue;
+          for (const jdx of arr) { if (jdx <= i) continue; collide(balls[i], balls[jdx]); }
+        }
+      }
       for (let i=ripples.length-1; i>=0; i--) {
         const rp=ripples[i];
         if (rp.delay && rp.delay > 0) { rp.delay--; continue; }
@@ -224,8 +258,8 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
       return { x: src.clientX-rect.left, y: src.clientY-rect.top };
     }
 
-    const onMove  = (e:MouseEvent|TouchEvent) => { const p=getXY(e); ms.x=p.x; ms.y=p.y; };
-    const onDown  = (e:MouseEvent|TouchEvent) => { const p=getXY(e); ms.x=p.x; ms.y=p.y; ms.down=true; spawnRipple(p.x,p.y); };
+    const onMove  = (e:MouseEvent|TouchEvent) => { if ('touches' in e || ms.down) { try { e.preventDefault(); } catch { /* listener passivo */ } } const p=getXY(e); ms.x=p.x; ms.y=p.y; };
+    const onDown  = (e:MouseEvent|TouchEvent) => { try { e.preventDefault(); } catch { /* listener passivo */ } const p=getXY(e); ms.x=p.x; ms.y=p.y; ms.down=true; spawnRipple(p.x,p.y); pourCoins(p.x); };
     const onUp    = () => { ms.down=false; };
     const onLeave = () => { ms.down=false; ms.x=-999; ms.y=-999; };
 
