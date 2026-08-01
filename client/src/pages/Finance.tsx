@@ -988,7 +988,7 @@ function ClientesTab({ period, setPeriod, months, clientes, drill }: { period: P
   const ch = churnQ.data;
   const ov = overviewQ.data;
   const rp = receitaPeriodoQ.data;
-  const [concTab, setConcTab] = useState<"cliente" | "tipo">("cliente");
+  const [concTab, setConcTab] = useState<"cliente" | "tipo">("tipo");
   const curMes = agencyCurrentMonthCli();
   const destaqueSerie = serieGran === "anual" ? curMes.slice(0, 4) : curMes;
   const encerradas = (recQ.data ?? []).filter((rec) => rec.natureza !== "DESPESA" && !rec.ativo);
@@ -1109,7 +1109,7 @@ function ClientesTab({ period, setPeriod, months, clientes, drill }: { period: P
           <div className="flex items-start justify-between gap-2 flex-wrap mb-2">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Concentração da receita · {periodLabel(period, from, to)}</p>
             <div className="inline-flex rounded-md border border-border overflow-hidden text-[11px]">
-              {([["cliente", "Por cliente"], ["tipo", "Recorrente × pontual"]] as const).map(([v, lbl], i) => (
+              {([["tipo", "Recorrente × pontual"], ["cliente", "Por cliente"]] as const).map(([v, lbl], i) => (
                 <button key={v} onClick={() => setConcTab(v)} className={`px-2 py-1 ${i > 0 ? "border-l border-border" : ""} ${concTab === v ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>{lbl}</button>
               ))}
             </div>
@@ -1421,6 +1421,14 @@ function DespesasTab({ period, setPeriod, months, drill }: { period: PeriodState
   const total = p?.totalCents ?? 0;
   const pct = (c: number) => (total > 0 ? `${Math.round((c / total) * 100)}%` : "—");
   const cur = agencyCurrentMonthCli();
+  // Média dos últimos 6 meses (antes do mês de referência) por categoria — para a
+  // setinha de tendência em Recorrente/Imposto/Pontual, igual à do total.
+  const media6Cat = useMemo(() => {
+    const past = (q.data?.serie ?? []).filter((s) => s.mes < refMonth).slice(-6);
+    if (past.length === 0) return null;
+    const avg = (sel: (x: (typeof past)[number]) => number) => Math.round(past.reduce((s, x) => s + sel(x), 0) / past.length);
+    return { recorrente: avg((x) => x.recorrenteCents), imposto: avg((x) => x.impostoCents), pontual: avg((x) => x.pontualCents) };
+  }, [q.data?.serie, refMonth]);
 
   const [ajuste, setAjuste] = useState<{ recorrenciaId: number; nome: string; valor: string; aplicarGerados: boolean } | null>(null);
   const [novo, setNovo] = useState<{ descricao: string; valor: string; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; dia: string; mesInicio: string; mesSeguinte: boolean } | null>(null);
@@ -1510,9 +1518,9 @@ function DespesasTab({ period, setPeriod, months, drill }: { period: PeriodState
             <span className="mb-1"><Delta value={total} media={ov?.despesaMedia6Cents ?? 0} higherIsBetter={false} /></span>
           </div>
           <div className="grid grid-cols-3 gap-3 mt-3">
-            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Recorrente</p><p className="text-sm font-semibold tabular-nums">{centsToBRL(p?.recorrenteCents ?? 0)}</p><span className="text-[10px] text-muted-foreground">{pct(p?.recorrenteCents ?? 0)} · folha</span></div>
-            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Imposto</p><p className="text-sm font-semibold tabular-nums">{centsToBRL(p?.impostoCents ?? 0)}</p><span className="text-[10px] text-muted-foreground">{pct(p?.impostoCents ?? 0)}</span></div>
-            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Pontual</p><p className="text-sm font-semibold tabular-nums">{centsToBRL(p?.pontualCents ?? 0)}</p><span className="text-[10px] text-muted-foreground">{pct(p?.pontualCents ?? 0)}</span></div>
+            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Recorrente</p><p className="text-sm font-semibold tabular-nums">{centsToBRL(p?.recorrenteCents ?? 0)}</p><div className="flex items-center gap-1.5 flex-wrap"><span className="text-[10px] text-muted-foreground">{pct(p?.recorrenteCents ?? 0)} · folha</span>{media6Cat && <Delta value={p?.recorrenteCents ?? 0} media={media6Cat.recorrente} higherIsBetter={false} />}</div></div>
+            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Imposto</p><p className="text-sm font-semibold tabular-nums">{centsToBRL(p?.impostoCents ?? 0)}</p><div className="flex items-center gap-1.5 flex-wrap"><span className="text-[10px] text-muted-foreground">{pct(p?.impostoCents ?? 0)}</span>{media6Cat && <Delta value={p?.impostoCents ?? 0} media={media6Cat.imposto} higherIsBetter={false} />}</div></div>
+            <div><p className="text-[11px] uppercase tracking-wide text-muted-foreground">Pontual</p><p className="text-sm font-semibold tabular-nums">{centsToBRL(p?.pontualCents ?? 0)}</p><div className="flex items-center gap-1.5 flex-wrap"><span className="text-[10px] text-muted-foreground">{pct(p?.pontualCents ?? 0)}</span>{media6Cat && <Delta value={p?.pontualCents ?? 0} media={media6Cat.pontual} higherIsBetter={false} />}</div></div>
           </div>
           <div className="mt-3">
             <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Pagamento de {formatMes(refMonth)}</p>
