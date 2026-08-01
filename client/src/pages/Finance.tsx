@@ -99,7 +99,7 @@ const CATEGORIAS = [
 type ReembCat = (typeof CATEGORIAS)[number]["v"];
 const catLabel = (v: string) => CATEGORIAS.find((c) => c.v === v)?.label ?? v;
 
-type Cliente = { id: number; nome: string; cor: string | null; ativo: boolean };
+type Cliente = { id: number; nome: string; cor: string | null; ativo: boolean; usos?: number };
 function textOn(hex: string | null): string {
   if (!hex) return "#111";
   const h = hex.replace("#", "");
@@ -942,6 +942,64 @@ function PnlTab({ period, setPeriod, months, clientes, clienteById, onNavigate }
 // ═════════════════════════════════════════════════════════════════════════════
 type QualRow = { clienteId: number | null; nome: string; cor: string | null; mesesAtivos: number; totalCents: number; mediaCents: number; primeiroMes: string; ultimoMes: string; status: "ativo" | "churned" | "pontual" };
 
+/** Padronizar nomes de clientes: renomear (corrige grafia) e mesclar duplicados
+ *  (move lançamentos/recorrências/projetos e apaga a duplicada). */
+function GerenciarClientesDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const utils = trpc.useUtils();
+  const listQ = trpc.finance.clientes.list.useQuery(undefined, { enabled: open });
+  const clientes = (listQ.data ?? []) as Cliente[];
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editNome, setEditNome] = useState("");
+  const [mergeId, setMergeId] = useState<number | null>(null);
+  const [mergeTarget, setMergeTarget] = useState<number | "">("");
+  const inv = () => { utils.finance.clientes.list.invalidate(); utils.finance.pnl.invalidate(); utils.finance.analytics.invalidate(); utils.finance.overview.invalidate(); utils.finance.recorrencia.invalidate(); utils.finance.projetos.list.invalidate(); };
+  const onErr = (e: { message: string }) => toast.error(e.message);
+  const rename = trpc.finance.clientes.rename.useMutation({ onSuccess: () => { inv(); setEditId(null); toast.success("Nome atualizado."); }, onError: onErr });
+  const merge = trpc.finance.clientes.merge.useMutation({ onSuccess: (r) => { inv(); setMergeId(null); setMergeTarget(""); toast.success(`"${r.origem}" mesclado em "${r.alvo}" — ${r.movidos.pnl} lançamento(s), ${r.movidos.recorrencia} recorrência(s), ${r.movidos.projetos} projeto(s).`); }, onError: onErr });
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>Gerenciar clientes</DialogTitle></DialogHeader>
+        <p className="text-xs text-muted-foreground">Renomeie para corrigir a grafia. Para dois registros do mesmo cliente, use <b>Mesclar</b>: move todos os lançamentos, recorrências e projetos para o cliente escolhido e apaga o duplicado. Não altera valores.</p>
+        <div className="max-h-[60vh] overflow-y-auto space-y-1.5 mt-1">
+          {listQ.isLoading && <div className="text-center text-muted-foreground py-6 text-sm"><Loader2 className="w-4 h-4 animate-spin inline" /> Carregando…</div>}
+          {clientes.map((c) => (
+            <div key={c.id} className="rounded-md border border-border px-2.5 py-2">
+              {editId === c.id ? (
+                <div className="flex items-center gap-2">
+                  <Input value={editNome} onChange={(e) => setEditNome(e.target.value)} className="h-8" autoFocus />
+                  <Button size="sm" onClick={() => rename.mutate({ id: c.id, nome: editNome.trim() })} disabled={rename.isPending || !editNome.trim()}>Salvar</Button>
+                  <Button size="sm" variant="outline" onClick={() => setEditId(null)}>Cancelar</Button>
+                </div>
+              ) : mergeId === c.id ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm">Mesclar <b>{c.nome}</b> em:</span>
+                  <select value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value ? Number(e.target.value) : "")} className="h-8 rounded-md border border-border bg-background px-2 text-sm max-w-[180px]">
+                    <option value="">escolher…</option>
+                    {clientes.filter((x) => x.id !== c.id).map((x) => <option key={x.id} value={x.id}>{x.nome}{x.usos != null ? ` (${x.usos})` : ""}</option>)}
+                  </select>
+                  <Button size="sm" onClick={() => { if (!mergeTarget) return; const tgt = clientes.find((x) => x.id === mergeTarget); if (confirm(`Mover tudo de "${c.nome}" para "${tgt?.nome}" e apagar "${c.nome}"? Esta ação não pode ser desfeita.`)) merge.mutate({ sourceId: c.id, targetId: Number(mergeTarget) }); }} disabled={merge.isPending || !mergeTarget}>Mesclar</Button>
+                  <Button size="sm" variant="outline" onClick={() => { setMergeId(null); setMergeTarget(""); }}>Cancelar</Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: c.cor ?? "var(--color-muted-foreground, #999)" }} />
+                  <span className="text-sm font-medium flex-1 truncate">{c.nome}</span>
+                  {c.usos != null && <span className="text-[10px] text-muted-foreground whitespace-nowrap">{c.usos} uso{c.usos === 1 ? "" : "s"}</span>}
+                  <button onClick={() => { setEditId(c.id); setEditNome(c.nome); }} className="p-1.5 text-muted-foreground hover:text-foreground" title="Renomear"><Pencil className="w-4 h-4" /></button>
+                  <button onClick={() => { setMergeId(c.id); setMergeTarget(""); }} className="p-1.5 text-muted-foreground hover:text-foreground" title="Mesclar em outro cliente"><ArrowLeftRight className="w-4 h-4" /></button>
+                </div>
+              )}
+            </div>
+          ))}
+          {!listQ.isLoading && clientes.length === 0 && <p className="text-sm text-muted-foreground text-center py-6">Nenhum cliente cadastrado.</p>}
+        </div>
+        <DialogFooter><Button variant="outline" onClick={onClose}>Fechar</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ClientesTab({ period, setPeriod, months, clientes, drill }: { period: PeriodState; setPeriod: (p: PeriodState) => void; months: string[]; clientes: Cliente[]; drill?: { nonce: number; period?: PeriodState; sub?: string } }) {
   const { from, to, refMonth } = periodRange(period, months);
   const [escopo, setEscopo] = useState<"vitalicio" | "periodo">("vitalicio");
@@ -955,6 +1013,7 @@ function ClientesTab({ period, setPeriod, months, clientes, drill }: { period: P
   const [contratoTab, setContratoTab] = useState<"recorrente" | "pontual">("recorrente");
   const [novoContrato, setNovoContrato] = useState<{ nome: string; valor: string; dia: string; mesInicio: string; mesSeguinte: boolean } | null>(null);
   const [projForm, setProjForm] = useState<ProjForm | null>(null);
+  const [gerOpen, setGerOpen] = useState(false);
   // Drill vindo da Visão Geral: preserva o período e abre a sub-aba certa.
   useEffect(() => {
     if (!drill) return;
@@ -1068,7 +1127,8 @@ function ClientesTab({ period, setPeriod, months, clientes, drill }: { period: P
       <div className="flex items-center gap-2 flex-wrap">
         <PeriodBar period={period} setPeriod={setPeriod} months={months} from={from} to={to} />
         {refClosed && <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30 gap-1"><Lock className="w-3 h-3" /> {formatMes(refMonth)} fechado</Badge>}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setGerOpen(true)}><Users className="w-4 h-4 mr-1" /> Gerenciar clientes</Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild><Button size="sm"><Plus className="w-4 h-4 mr-1" /> Novo</Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
@@ -1326,6 +1386,7 @@ function ClientesTab({ period, setPeriod, months, clientes, drill }: { period: P
       </Dialog>
 
       <EditPontualDialog entry={editPon} onClose={() => setEditPon(null)} onSaved={invRec} label="receita pontual" />
+      <GerenciarClientesDialog open={gerOpen} onClose={() => setGerOpen(false)} />
 
       {/* Dialog novo contrato recorrente (mesmo padrão do colaborador) */}
       <Dialog open={!!novoContrato} onOpenChange={(o) => !o && setNovoContrato(null)}>

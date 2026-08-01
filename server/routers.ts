@@ -257,6 +257,8 @@ import {
   financeReconciliacao,
   listFinanceClientes,
   createFinanceCliente,
+  renameFinanceCliente,
+  mergeFinanceClientes,
   financePnlTrend,
   financeReceitaPorCliente,
   financeReconciliacaoAcumulado,
@@ -757,6 +759,12 @@ const financeRouter = router({
     create: adminProcedure
       .input(z.object({ nome: z.string().min(1).max(120), cor: z.string().max(9).optional() }))
       .mutation(({ input }) => createFinanceCliente(input)),
+    rename: adminProcedure
+      .input(z.object({ id: z.number().int(), nome: z.string().min(1).max(120), cor: z.string().max(9).nullable().optional() }))
+      .mutation(async ({ input }) => { await renameFinanceCliente(input.id, input.nome, input.cor); return { success: true } as const; }),
+    merge: adminProcedure
+      .input(z.object({ sourceId: z.number().int(), targetId: z.number().int() }))
+      .mutation(async ({ input }) => await mergeFinanceClientes(input.sourceId, input.targetId)),
   }),
 
   reembolsos: router({

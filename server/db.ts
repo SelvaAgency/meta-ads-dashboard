@@ -2509,7 +2509,49 @@ export async function financeMonths(): Promise<string[]> {
 export async function listFinanceClientes() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(financeClientes).orderBy(financeClientes.nome);
+  const rows = await db.select().from(financeClientes).orderBy(financeClientes.nome);
+  if (rows.length === 0) return rows.map((r) => ({ ...r, usos: 0 }));
+  // Vínculos por cliente (lançamentos P&L + recorrências + projetos) — ajuda a
+  // decidir a direção do merge (mesclar o vazio/errado no correto).
+  const [pnlC, recC, projC] = await Promise.all([
+    db.select({ cid: financePnlEntries.clienteId, n: sql<number>`count(*)` }).from(financePnlEntries).where(isNotNull(financePnlEntries.clienteId)).groupBy(financePnlEntries.clienteId),
+    db.select({ cid: financeRecorrencia.clienteId, n: sql<number>`count(*)` }).from(financeRecorrencia).where(isNotNull(financeRecorrencia.clienteId)).groupBy(financeRecorrencia.clienteId),
+    db.select({ cid: financeProjetos.clienteId, n: sql<number>`count(*)` }).from(financeProjetos).where(isNotNull(financeProjetos.clienteId)).groupBy(financeProjetos.clienteId),
+  ]);
+  const m = new Map<number, number>();
+  for (const arr of [pnlC, recC, projC]) for (const x of arr) if (x.cid != null) m.set(x.cid, (m.get(x.cid) ?? 0) + Number(x.n));
+  return rows.map((r) => ({ ...r, usos: m.get(r.id) ?? 0 }));
+}
+
+/** Renomeia um cliente (corrige grafia). Nome é único — se já existe outro com o
+ *  nome alvo, orienta a usar Mesclar. */
+export async function renameFinanceCliente(id: number, nome: string, cor?: string | null) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const nomeT = nome.trim();
+  if (!nomeT) throw new Error("Informe o nome.");
+  const dup = await db.select({ id: financeClientes.id }).from(financeClientes).where(eq(financeClientes.nome, nomeT)).limit(1);
+  if (dup[0] && dup[0].id !== id) throw new Error(`Já existe um cliente "${nomeT}". Use Mesclar para unificar os dois.`);
+  await db.update(financeClientes).set({ nome: nomeT, ...(cor !== undefined ? { cor } : {}) }).where(eq(financeClientes.id, id));
+}
+
+/** Mescla o cliente `sourceId` no `targetId`: reassocia todos os lançamentos,
+ *  recorrências e projetos e apaga o registro de origem. Não toca em valores. */
+export async function mergeFinanceClientes(sourceId: number, targetId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  if (sourceId === targetId) throw new Error("Origem e destino são o mesmo cliente.");
+  const [origem] = await db.select({ id: financeClientes.id, nome: financeClientes.nome }).from(financeClientes).where(eq(financeClientes.id, sourceId)).limit(1);
+  const [alvo] = await db.select({ id: financeClientes.id, nome: financeClientes.nome }).from(financeClientes).where(eq(financeClientes.id, targetId)).limit(1);
+  if (!origem || !alvo) throw new Error("Cliente não encontrado.");
+  const nPnl = await db.select({ n: sql<number>`count(*)` }).from(financePnlEntries).where(eq(financePnlEntries.clienteId, sourceId));
+  const nRec = await db.select({ n: sql<number>`count(*)` }).from(financeRecorrencia).where(eq(financeRecorrencia.clienteId, sourceId));
+  const nProj = await db.select({ n: sql<number>`count(*)` }).from(financeProjetos).where(eq(financeProjetos.clienteId, sourceId));
+  await db.update(financePnlEntries).set({ clienteId: targetId }).where(eq(financePnlEntries.clienteId, sourceId));
+  await db.update(financeRecorrencia).set({ clienteId: targetId }).where(eq(financeRecorrencia.clienteId, sourceId));
+  await db.update(financeProjetos).set({ clienteId: targetId }).where(eq(financeProjetos.clienteId, sourceId));
+  await db.delete(financeClientes).where(eq(financeClientes.id, sourceId));
+  return { origem: origem.nome, alvo: alvo.nome, movidos: { pnl: Number(nPnl[0]?.n ?? 0), recorrencia: Number(nRec[0]?.n ?? 0), projetos: Number(nProj[0]?.n ?? 0) } };
 }
 export async function createFinanceCliente(data: { nome: string; cor?: string | null }): Promise<{ id: number; nome: string; cor: string | null }> {
   const db = await getDb();
