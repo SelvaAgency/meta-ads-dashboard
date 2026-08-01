@@ -931,6 +931,83 @@ function GraficoSerieGoogle({ contaId, dias }: { contaId: number; dias: number }
   );
 }
 
+/** Comparativo de dias do Google — mesmo desenho do Meta, reconstruído da série
+ *  diária (o Google não tem endpoint de day-of-week; derivamos do serieDiaria). */
+function ComparativoDiasGoogle({ contaId, dias }: { contaId: number; dias: number }) {
+  const sec = "var(--color-text-secondary)";
+  const serieQ = trpc.googleAds.serieDiaria.useQuery(
+    { accountId: contaId, days: Math.max(dias, 30) }, { enabled: !!contaId, staleTime: 5 * 60_000, refetchOnWindowFocus: false },
+  );
+  const pontos = (serieQ.data?.dias as any[] | undefined) ?? [];
+  const soma = new Array(7).fill(0), cont = new Array(7).fill(0);
+  for (const p of pontos) { const w = new Date(`${p.dia}T00:00:00`).getDay(); soma[w] += Number(p.conversoes ?? 0); cont[w] += 1; }
+  const avg = (w: number) => cont[w] > 0 ? soma[w] / cont[w] : 0;
+  const nomes = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+  const uteis = [1, 2, 3, 4, 5], fds = [0, 6];
+  const maxU = Math.max(...uteis.map(avg), 0.001);
+  const mediaUtil = uteis.reduce((s, w) => s + avg(w), 0) / 5;
+  const mediaFds = (avg(0) + avg(6)) / 2;
+  const delta = mediaUtil > 0 ? ((mediaFds - mediaUtil) / mediaUtil) * 100 : null;
+  const Bar = ({ w }: { w: number }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+      <span style={{ width: 34, fontSize: 11, color: sec }}>{nomes[w]}</span>
+      <span style={{ flex: 1, height: 8, background: "var(--color-background-secondary)", borderRadius: 4, overflow: "hidden" }}><span style={{ display: "block", height: "100%", width: `${(avg(w) / maxU) * 100}%`, background: "#D4537E", borderRadius: 4 }} /></span>
+      <span style={{ width: 54, textAlign: "right", fontSize: 11, color: sec }}>{avg(w) > 0 ? `${avg(w).toFixed(1)}/dia` : "—"}</span>
+    </div>
+  );
+  return (
+    <div style={{ ...gPanel }}>
+      <div style={{ ...gHeader }}><div style={{ fontSize: 12, fontWeight: 500 }}>Comparativo de dias</div><div style={{ fontSize: 11, color: sec }}>últimos 30d · média diária</div></div>
+      <div style={{ padding: "12px 16px" }}>
+        {serieQ.isLoading ? <p style={{ fontSize: 12, color: sec }}>Carregando…</p> : (<>
+          <p style={{ fontSize: 11, color: sec, marginBottom: 6 }}>Dias úteis</p>
+          {uteis.map((w) => <Bar key={w} w={w} />)}
+          <p style={{ fontSize: 11, color: sec, margin: "10px 0 6px" }}>Fim de semana</p>
+          {fds.map((w) => <Bar key={w} w={w} />)}
+          {delta != null && <p style={{ fontSize: 11, marginTop: 8, padding: "6px 10px", background: "var(--color-background-secondary)", borderRadius: 8, color: sec }}>Fim de semana converte {Math.abs(delta).toFixed(0)}% {delta >= 0 ? "mais" : "menos"} que dias úteis.</p>}
+        </>)}
+      </div>
+    </div>
+  );
+}
+
+/** "Melhores" do Google — mesmo card do Meta (abas), mas com Termos de busca e
+ *  Anúncios da conta (Google não tem criativos/públicos por conta). */
+function MelhoresGoogle({ contaId, dias }: { contaId: number; dias: number }) {
+  const sec = "var(--color-text-secondary)";
+  const [aba, setAba] = useState<"termos" | "anuncios">("termos");
+  const termosQ = trpc.googleAds.topTermos.useQuery({ accountId: contaId, days: dias, limit: 5 }, { enabled: !!contaId, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
+  const anunciosQ = trpc.googleAds.topAnuncios.useQuery({ accountId: contaId, days: dias, limit: 5 }, { enabled: !!contaId, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
+  const q = aba === "termos" ? termosQ : anunciosQ;
+  const lista = (q.data as any[] | undefined) ?? [];
+  return (
+    <div style={{ ...gPanel }}>
+      <div style={{ ...gHeader }}>
+        <div style={{ display: "flex" }}>
+          {(["termos", "anuncios"] as const).map((tab) => (
+            <div key={tab} onClick={() => setAba(tab)} style={{ fontSize: 12, cursor: "pointer", color: aba === tab ? "#D4537E" : sec, fontWeight: aba === tab ? 500 : 400, borderBottom: aba === tab ? "2px solid #D4537E" : "2px solid transparent", marginRight: 16, paddingBottom: 3 }}>
+              {tab === "termos" ? "Melhores termos" : "Melhores anúncios"}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ padding: "6px 0" }}>
+        {q.isLoading ? <p style={{ padding: "12px 16px", fontSize: 12, color: sec }}>Carregando…</p>
+          : lista.length === 0 ? <p style={{ padding: "12px 16px", fontSize: 12, color: sec }}>{aba === "termos" ? "Sem termos de busca no período (conta pode ser Shopping/PMax)." : "Sem anúncios com dados no período."}</p>
+            : lista.map((it: any, i: number) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderTop: i > 0 ? "0.5px solid var(--color-border-tertiary)" : "none" }}>
+                <span style={{ width: 18, height: 18, borderRadius: 99, background: "rgba(212,83,126,0.1)", color: "#D4537E", fontSize: 11, fontWeight: 600, display: "grid", placeItems: "center", flexShrink: 0 }}>{i + 1}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={aba === "termos" ? it.termo : it.name}>{aba === "termos" ? it.termo : it.name}</div>
+                  <div style={{ fontSize: 11, color: sec }}>{fmtNum(it.conversions)} conv · {fmtCurrency(it.spend)} · {fmtPct(it.ctr)} CTR{aba === "anuncios" && it.campaignName ? ` · ${it.campaignName}` : ""}</div>
+                </div>
+              </div>
+            ))}
+      </div>
+    </div>
+  );
+}
+
 function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number | null; periodLabel: string; dias: number }) {
   const cfg = trpc.googleAds.isConfigured.useQuery(undefined, { retry: false });
   const conta = trpc.googleAds.contaDoCliente.useQuery(
@@ -1030,17 +1107,14 @@ function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number |
    * há receita — em conta de geração de lead, mostrar "0,00x" sugeriria fracasso
    * onde a métrica simplesmente não se aplica.
    */
+  // Mesma grade de 5 KPIs do Meta; como o Google não tem Alcance/Frequência, os
+  // dois últimos são Impressões e CTR (decisão de produto).
   const kpis: { label: string; val: string }[] = [
     { label: "Investimento", val: fmtCurrency(t.investimento) },
-    { label: "Impressões", val: fmtNum(t.impressoes) },
-    { label: "Cliques", val: fmtNum(t.cliques) },
-    { label: "CTR", val: t.ctr === null ? "—" : fmtPct(t.ctr) },
     { label: "Conversões", val: fmtNum(t.conversoes) },
     { label: "Custo/conversão", val: t.cpa === null ? "—" : fmtCurrency(t.cpa) },
-    ...(t.temReceita ? [
-      { label: "Valor de conversão", val: fmtCurrency(t.valorConversao) },
-      { label: "ROAS", val: t.roas === null ? "—" : `${t.roas.toFixed(2)}x` },
-    ] : []),
+    { label: "Impressões", val: fmtNum(t.impressoes) },
+    { label: "CTR", val: t.ctr === null ? "—" : fmtPct(t.ctr) },
   ];
 
   const cel: React.CSSProperties = { padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap" };
@@ -1068,21 +1142,11 @@ function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number |
 
       <GraficoSerieGoogle contaId={conta.data.id} dias={dias} />
 
-      {/* Leituras rápidas — só as que se sustentam nos dados */}
-      {insights.length > 0 && (
-        <div style={{ ...gPanel, marginBottom: 14 }}>
-          <div style={gHeader}><div style={{ fontSize: 12, fontWeight: 500 }}>Leitura rápida</div></div>
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(insights.length, 5)}, 1fr)` }}>
-            {insights.map((ins, i) => (
-              <div key={ins.chave} style={{ padding: "13px 16px", borderRight: i < insights.length - 1 ? "0.5px solid var(--color-border-tertiary)" : "none" }}>
-                <div style={{ fontSize: 11, color: ins.alerta ? "#C0312F" : sec, marginBottom: 3 }}>{ins.rotulo}</div>
-                <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 2 }}>{ins.valor}</div>
-                <div style={{ fontSize: 11, color: sec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={ins.detalhe}>{ins.detalhe}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Comparativo de dias + Melhores (termos/anúncios) — 2 colunas, como no Meta */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+        <ComparativoDiasGoogle contaId={conta.data.id} dias={dias} />
+        <MelhoresGoogle contaId={conta.data.id} dias={dias} />
+      </div>
 
       {/* Tabela de campanhas */}
       <div style={gPanel}>

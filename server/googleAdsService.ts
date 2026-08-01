@@ -490,6 +490,82 @@ export async function getGoogleAdsAds(
 }
 
 /**
+ * Top anúncios da CONTA inteira (sem filtro de campanha) — para o card "Melhores"
+ * da tela de Campanhas (paralelo ao Meta adTopByCtr). Anúncio do Google é texto
+ * (sem thumbnail); o nome cai para a 1ª headline do RSA quando não tem nome.
+ */
+export async function getGoogleAdsTopAds(
+  config: GoogleAdsConfig, customerId: string, startDate: string, endDate: string, limit = 5,
+) {
+  recusarSeGerenciadora(config, customerId);
+  const query = `
+    SELECT
+      ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.ad.type,
+      ad_group_ad.ad.responsive_search_ad.headlines, campaign.name,
+      metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions,
+      metrics.conversions_value, metrics.ctr, metrics.cost_per_conversion
+    FROM ad_group_ad
+    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+      AND ad_group_ad.status != 'REMOVED' AND metrics.impressions > 0
+    ORDER BY metrics.conversions DESC, metrics.cost_micros DESC
+    LIMIT ${limit}
+  `;
+  const rows = await executeGaql(config, customerId, query);
+  return rows.map((row) => {
+    const ad = row.adGroupAd?.ad ?? {};
+    const m = row.metrics;
+    const spend = (m.costMicros ?? 0) / 1_000_000;
+    return {
+      id: ad.id ?? "",
+      name: ad.name || ad.responsiveSearchAd?.headlines?.[0]?.text || `Anúncio ${ad.id ?? ""}`,
+      campaignName: row.campaign?.name ?? "",
+      spend,
+      impressions: parseInt(m.impressions ?? "0"),
+      clicks: parseInt(m.clicks ?? "0"),
+      conversions: parseFloat(m.conversions ?? "0"),
+      conversionValue: parseFloat(m.conversionsValue ?? "0"),
+      ctr: parseFloat(m.ctr ?? "0") * 100,
+      costPerConversion: (m.costPerConversion ?? 0) / 1_000_000,
+    };
+  });
+}
+
+/**
+ * Top termos de busca da CONTA (search_term_view). Vazio p/ contas sem busca
+ * (Performance Max/Shopping puros) — a tela mostra estado vazio nesse caso.
+ */
+export async function getGoogleAdsTopSearchTerms(
+  config: GoogleAdsConfig, customerId: string, startDate: string, endDate: string, limit = 5,
+) {
+  recusarSeGerenciadora(config, customerId);
+  const query = `
+    SELECT
+      search_term_view.search_term,
+      metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions,
+      metrics.conversions_value, metrics.ctr, metrics.cost_per_conversion
+    FROM search_term_view
+    WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+    ORDER BY metrics.conversions DESC, metrics.clicks DESC
+    LIMIT ${limit}
+  `;
+  const rows = await executeGaql(config, customerId, query);
+  return rows.map((row) => {
+    const m = row.metrics;
+    const spend = (m.costMicros ?? 0) / 1_000_000;
+    return {
+      termo: row.searchTermView?.searchTerm ?? "—",
+      spend,
+      impressions: parseInt(m.impressions ?? "0"),
+      clicks: parseInt(m.clicks ?? "0"),
+      conversions: parseFloat(m.conversions ?? "0"),
+      conversionValue: parseFloat(m.conversionsValue ?? "0"),
+      ctr: parseFloat(m.ctr ?? "0") * 100,
+      costPerConversion: (m.costPerConversion ?? 0) / 1_000_000,
+    };
+  });
+}
+
+/**
  * Get account-level summary metrics.
  */
 export async function getGoogleAdsAccountSummary(

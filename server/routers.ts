@@ -196,6 +196,8 @@ import {
   getGoogleAdsCampaigns,
   getGoogleAdsAdGroups,
   getGoogleAdsAds,
+  getGoogleAdsTopAds,
+  getGoogleAdsTopSearchTerms,
   getGoogleAdsAccountSummary,
   getGoogleAdsDailySeries,
 } from "./googleAdsService";
@@ -4925,6 +4927,32 @@ export const appRouter = router({
         const accountConfig = { ...config, refreshToken: tokenDaConta(account.refreshToken) };
         const { startDate, endDate } = getDateRange(input.days);
         return getGoogleAdsAds(accountConfig, account.customerId, input.campaignId, startDate, endDate);
+      }),
+
+    /** Top anúncios da conta inteira (card "Melhores" da tela de Campanhas). */
+    topAnuncios: protectedProcedure
+      .input(z.object({ accountId: z.number(), days: z.number().min(1).max(90).default(7), limit: z.number().min(1).max(20).default(5) }))
+      .query(async ({ input }) => {
+        const account = await getGoogleAdAccountById(input.accountId);
+        if (!account) throw new Error("Google Ads account not found");
+        const config = getGoogleAdsConfig();
+        if (!config) throw new Error("Google Ads API not configured");
+        const accountConfig = { ...config, refreshToken: tokenDaConta(account.refreshToken) };
+        const { startDate, endDate } = getDateRange(input.days);
+        return getGoogleAdsTopAds(accountConfig, account.customerId, startDate, endDate, input.limit);
+      }),
+
+    /** Top termos de busca da conta (card "Melhores" · aba Termos). */
+    topTermos: protectedProcedure
+      .input(z.object({ accountId: z.number(), days: z.number().min(1).max(90).default(7), limit: z.number().min(1).max(20).default(5) }))
+      .query(async ({ input }) => {
+        const account = await getGoogleAdAccountById(input.accountId);
+        if (!account) throw new Error("Google Ads account not found");
+        const config = getGoogleAdsConfig();
+        if (!config) throw new Error("Google Ads API not configured");
+        const accountConfig = { ...config, refreshToken: tokenDaConta(account.refreshToken) };
+        const { startDate, endDate } = getDateRange(input.days);
+        return getGoogleAdsTopSearchTerms(accountConfig, account.customerId, startDate, endDate, input.limit);
       }),
 
     // Diagnostic: check Google Ads API connectivity
