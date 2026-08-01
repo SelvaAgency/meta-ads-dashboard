@@ -231,8 +231,9 @@ export function AccountHeader({
 
   // ─── Context panel state ────────────────────────────────────────────────
   const [contextOpen, setContextOpen] = useState(false);
-  // Contexto do resumo: PERSISTE no contexto da conta (campo learnings) e é usado
-  // tanto aqui quanto pelo robô noturno — não some mais na regeneração automática.
+  // Contexto do resumo = contexto MANUAL do usuário (campo clientProfile). Persiste
+  // e vale na reanálise (manual e noturna). O histórico automático (learnings) fica
+  // só no backend, alimenta a IA e nunca aparece aqui.
   const [resumoCtxOpen, setResumoCtxOpen] = useState(false);
   const [resumoCtx, setResumoCtx] = useState("");
   const [ctxProfile, setCtxProfile] = useState("");
@@ -258,15 +259,16 @@ export function AccountHeader({
     onError: () => { toast.error("Erro ao salvar contexto"); setCtxSaving(false); },
   });
 
-  // Salva o contexto do resumo (no campo learnings, preservando perfil/regras da
-  // conta) e então reanalisa — o refreshStatus lê o contexto persistido.
+  // Contexto do usuário = campo clientProfile (manual). O `learnings` é histórico
+  // AUTOMÁTICO do sistema (appendAccountLearning) — fica só no backend, alimenta a
+  // IA, e NUNCA é exposto/editado aqui (preservamos ele intacto ao salvar).
   async function salvarContextoDoResumo() {
     if (!selectedAccountId) return;
     await upsertContext.mutateAsync({
       accountId: selectedAccountId,
-      clientProfile: accountCtx?.clientProfile ?? "",
+      clientProfile: resumoCtx,
       operationalRules: accountCtx?.operationalRules ?? "",
-      learnings: resumoCtx,
+      learnings: accountCtx?.learnings ?? "",
     });
     utils.context.getAccount.invalidate({ accountId: selectedAccountId });
     refreshStatus.mutate({ accountId: selectedAccountId });
@@ -550,7 +552,7 @@ export function AccountHeader({
             {statusCfg?.label ?? "Status IA"} — 7 dias
           </span>
           <button
-            onClick={() => { if (!resumoCtxOpen) setResumoCtx(accountCtx?.learnings ?? ""); setResumoCtxOpen(v => !v); }}
+            onClick={() => { if (!resumoCtxOpen) setResumoCtx(accountCtx?.clientProfile ?? ""); setResumoCtxOpen(v => !v); }}
             title="Adicionar contexto e reanalisar"
             style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: resumoCtxOpen ? "#E85BA8" : muted, opacity: resumoCtxOpen ? 1 : 0.5, transition: "opacity 0.15s" }}
             onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
