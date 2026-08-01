@@ -52,6 +52,61 @@ function FunilMidia({ f, goalType, janela }: {
  * 7d na HOME. Some por completo quando não há nem resultado nem funil (conta sem
  * e-commerce). Admin/dev p/ a régua (inclui Google ao vivo).
  */
+/** Awareness/presença: sem funil de conversão — mostra ORIGEM do tráfego (GA4) +
+ *  COMPORTAMENTO (Clarity). Ambos ao vivo, só p/ contas desse objetivo. */
+function AwarenessBlock({ accountId }: { accountId: number }) {
+  const origensQ = trpc.ga4.dados.useQuery(
+    { accountId, bloco: "sources", days: 7, limit: 5 }, { staleTime: 5 * 60_000, refetchOnWindowFocus: false },
+  );
+  const clarityQ = trpc.clarity.ultimo.useQuery({ accountId }, { staleTime: 5 * 60_000, refetchOnWindowFocus: false });
+  const origens = (origensQ.data as any[] | null) ?? [];
+  const cl = clarityQ.data as any;
+  const maxSess = Math.max(...origens.map((o: any) => Number(o.sessions ?? 0)), 1);
+  const fmtDur = (s?: number | null) => s == null ? "—" : `${Math.floor(s / 60)}m${String(Math.round(s % 60)).padStart(2, "0")}s`;
+  const scrollPct = cl?.averageScrollDepth != null ? (cl.averageScrollDepth <= 1 ? cl.averageScrollDepth * 100 : cl.averageScrollDepth) : null;
+
+  const Tile = ({ nome, valor }: { nome: string; valor: string }) => (
+    <div className="rounded-lg border border-border px-3 py-2.5" style={{ background: "var(--color-background-secondary, rgba(0,0,0,0.03))" }}>
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold truncate">{nome}</p>
+      <p className="text-lg font-extrabold text-foreground leading-tight">{valor}</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-sm font-bold text-foreground mb-3">Origem do tráfego <span className="text-[11px] font-normal text-muted-foreground">· GA4 · 7d</span></h2>
+        {origensQ.isLoading ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground py-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando origens…</div>
+        ) : origens.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Sem dados de origem no GA4 (7d).</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {origens.map((o: any, i: number) => (
+              <div key={i} className="flex items-center gap-3">
+                <span className="w-40 flex-shrink-0 text-xs text-muted-foreground truncate">{o.source ?? o.fonte ?? "—"}{o.medium ? ` / ${o.medium}` : ""}</span>
+                <span className="flex-1 h-3 bg-muted rounded overflow-hidden"><span className="block h-full rounded bg-primary" style={{ width: `${(Number(o.sessions ?? 0) / maxSess) * 100}%` }} /></span>
+                <span className="w-16 text-right text-xs font-bold text-foreground">{fmtNumber(Number(o.sessions ?? 0))}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {cl && (
+        <div className="pt-4 border-t border-border/50">
+          <h2 className="text-sm font-bold text-foreground mb-3">Comportamento <span className="text-[11px] font-normal text-muted-foreground">· Clarity</span></h2>
+          <div className="grid grid-cols-3 gap-3">
+            <Tile nome="Scroll médio" valor={scrollPct != null ? `${scrollPct.toFixed(0)}%` : "—"} />
+            <Tile nome="Tempo médio" valor={fmtDur(cl.averageSessionDuration)} />
+            <Tile nome="Rage clicks" valor={cl.rageClicks != null ? fmtNumber(cl.rageClicks) : "—"} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SecaoSite({ accountId, goalType }: { accountId: number; goalType: GoalType }) {
   // Régua p/ todos (é a performance do próprio cliente); o Google dela é
   // preenchido só p/ admin/dev no servidor.
@@ -134,6 +189,13 @@ export function SecaoSite({ accountId, goalType }: { accountId: number; goalType
       {r && !r.ecom && r.funil && !AWARE.has(goalType) && (
         <div className={r ? "pt-4 border-t border-border/50" : ""}>
           <FunilMidia f={r.funil} goalType={goalType} janela={r.janela} />
+        </div>
+      )}
+
+      {/* Awareness/presença: origem do tráfego (GA4) + comportamento (Clarity) */}
+      {r && !r.ecom && AWARE.has(goalType) && (
+        <div className={r ? "pt-4 border-t border-border/50" : ""}>
+          <AwarenessBlock accountId={accountId} />
         </div>
       )}
     </div>
