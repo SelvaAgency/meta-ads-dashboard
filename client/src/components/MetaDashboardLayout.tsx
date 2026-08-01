@@ -210,7 +210,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           </div>
         )}
         {/* Plano de Ação — só admin/dev; colaborador vê "EM BREVE" opaco e não clicável. */}
-        {item.path === "/dashboard" && sidebarOpen && (
+        {item.path === "/campaigns" && sidebarOpen && (
           isManager ? (
             <Link href="/suggestions">
               <div
@@ -230,7 +230,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           )
         )}
         {/* Experimentos — só admin/dev; colaborador vê "EM BREVE" opaco e não clicável. */}
-        {item.path === "/dashboard" && sidebarOpen && (
+        {item.path === "/campaigns" && sidebarOpen && (
           isManager ? (
             <Link href="/experiments">
               <div
