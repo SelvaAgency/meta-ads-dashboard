@@ -746,7 +746,7 @@ export default function Dashboard() {
         </div>
 
         {/* Seção do site — régua de resultado + funil, na MESMA caixa (some se não-ecomm) */}
-        {selectedAccountId && <SecaoSite accountId={selectedAccountId} />}
+        {selectedAccountId && <SecaoSite accountId={selectedAccountId} goalType={goalType} />}
 
         {/* Faixa de alertas críticos da conta — mesmo padrão visual do card "Por conta" da página de Alertas */}
         {criticalAccountAlerts.length > 0 && (

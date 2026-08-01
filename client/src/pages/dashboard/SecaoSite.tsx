@@ -1,8 +1,50 @@
 import { trpc } from "@/lib/trpc";
 import { Loader2 } from "lucide-react";
 import { funilVisual, fmtBRL, type ClientePanorama } from "@shared/panoramaLogic";
-import { fmtNumber } from "@/lib/kpiConfig";
+import { fmtNumber, fmtPercent, type GoalType } from "@/lib/kpiConfig";
 import { Funil } from "../panorama/Visuais";
+
+/** Objetivos de topo: sem funil de conversão (origem+comportamento vem depois). */
+const AWARE = new Set(["AWARENESS", "ENGAGEMENT", "VIDEO", "FOLLOWERS"]);
+
+/** Funil de MÍDIA (não-ecomm): Impressões → Cliques → Resultado, com taxas. Visual
+ *  próprio (não o de e-commerce), pois CTR baixo é normal e não é "queda crítica". */
+function FunilMidia({ f, goalType, janela }: {
+  f: { impressoes: number; cliques: number; resultado: number; sessoes: number | null };
+  goalType: GoalType; janela: string;
+}) {
+  const isTraffic = goalType === "TRAFFIC";
+  const lastLabel = isTraffic ? "Sessões" : goalType === "LEADS" ? "Leads" : goalType === "MESSAGES" ? "Conversas" : "Resultados";
+  const lastVal = isTraffic ? (f.sessoes ?? f.resultado) : f.resultado;
+  const ctr = f.impressoes > 0 ? (f.cliques / f.impressoes) * 100 : null;
+  const cr = f.cliques > 0 ? (lastVal / f.cliques) * 100 : null;
+
+  const Cell = ({ nome, valor }: { nome: string; valor: string }) => (
+    <div className="flex-1 min-w-0 rounded-lg border border-border bg-card-2/40 px-3 py-2.5" style={{ background: "var(--color-background-secondary, rgba(0,0,0,0.03))" }}>
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold truncate">{nome}</p>
+      <p className="text-lg font-extrabold text-foreground leading-tight">{valor}</p>
+    </div>
+  );
+  const Seta = ({ taxa, rot }: { taxa: number | null; rot?: string }) => (
+    <div className="flex flex-col items-center justify-center px-1 flex-shrink-0">
+      <span className="text-muted-foreground/50 text-lg leading-none">→</span>
+      {taxa != null && <span className="text-[10px] font-bold text-muted-foreground mt-0.5">{rot ? `${rot} ` : ""}{fmtPercent(taxa)}</span>}
+    </div>
+  );
+
+  return (
+    <div>
+      <h2 className="text-sm font-bold text-foreground mb-3">Funil de mídia <span className="text-[11px] font-normal text-muted-foreground">· Meta + Google · {janela}</span></h2>
+      <div className="flex items-stretch gap-1">
+        <Cell nome="Impressões" valor={fmtNumber(f.impressoes)} />
+        <Seta taxa={ctr} rot="CTR" />
+        <Cell nome="Cliques" valor={fmtNumber(f.cliques)} />
+        <Seta taxa={cr} />
+        <Cell nome={lastLabel} valor={fmtNumber(lastVal)} />
+      </div>
+    </div>
+  );
+}
 
 /**
  * Seção do SITE em UMA caixa: começa com a régua de resultado (Investimento →
@@ -10,7 +52,7 @@ import { Funil } from "../panorama/Visuais";
  * 7d na HOME. Some por completo quando não há nem resultado nem funil (conta sem
  * e-commerce). Admin/dev p/ a régua (inclui Google ao vivo).
  */
-export function SecaoSite({ accountId }: { accountId: number }) {
+export function SecaoSite({ accountId, goalType }: { accountId: number; goalType: GoalType }) {
   // Régua p/ todos (é a performance do próprio cliente); o Google dela é
   // preenchido só p/ admin/dev no servidor.
   const reguaQ = trpc.dashboard.resultadoEcom.useQuery(
@@ -80,11 +122,18 @@ export function SecaoSite({ accountId }: { accountId: number }) {
         );
       })()}
 
-      {/* Funil de compra */}
+      {/* Funil de compra (e-commerce · GA4) */}
       {funil && (
         <div className={r ? "pt-4 border-t border-border/50" : ""}>
           <h2 className="text-sm font-bold text-foreground mb-3">Funil de compra</h2>
           <Funil funil={funil} />
+        </div>
+      )}
+
+      {/* Funil de mídia (não-ecommerce, exceto awareness/presença) */}
+      {r && !r.ecom && r.funil && !AWARE.has(goalType) && (
+        <div className={r ? "pt-4 border-t border-border/50" : ""}>
+          <FunilMidia f={r.funil} goalType={goalType} janela={r.janela} />
         </div>
       )}
     </div>

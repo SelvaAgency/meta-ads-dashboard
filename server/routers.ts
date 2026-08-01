@@ -2334,9 +2334,11 @@ export const appRouter = router({
         const metaSpend     = metrics.reduce((s, m) => s + Number(m.totalSpend ?? 0), 0);
         const metaConvValue = metrics.reduce((s, m) => s + Number(m.totalConversionValue ?? 0), 0);
         const metaConv      = metrics.reduce((s, m) => s + Number(m.totalConversions ?? 0), 0);
+        const metaImpr      = metrics.reduce((s, m) => s + Number(m.totalImpressions ?? 0), 0);
+        const metaClicks    = metrics.reduce((s, m) => s + Number(m.totalClicks ?? 0), 0);
 
         // Google entra p/ TODOS (a régua é a performance do próprio cliente).
-        let gSpend = 0, gConvValue = 0, gConv = 0, temGoogle = false;
+        let gSpend = 0, gConvValue = 0, gConv = 0, gImpr = 0, gClicks = 0, temGoogle = false;
         const config = getGoogleAdsConfig();
         if (config) {
           const gc = await contaGoogleDoCliente(input.accountId);
@@ -2344,7 +2346,7 @@ export const appRouter = router({
             const gs = await getGoogleAdsAccountSummary(
               { ...config, refreshToken: tokenDaConta(gc.refreshToken) }, gc.customerId, startDate, endDate,
             ).catch(() => null);
-            if (gs) { gSpend = gs.spend; gConvValue = gs.conversionValue; gConv = gs.conversions; temGoogle = true; }
+            if (gs) { gSpend = gs.spend; gConvValue = gs.conversionValue; gConv = gs.conversions; gImpr = gs.impressions; gClicks = gs.clicks; temGoogle = true; }
           }
         }
 
@@ -2365,10 +2367,14 @@ export const appRouter = router({
         const ga4Conv = (ga4snap?.metricsJson as { conversions?: number } | undefined)?.conversions ?? null;
         const atribuidoTotal = metaConv + gConv;
         if (investido.total <= 0 && atribuidoTotal <= 0 && ga4Conv == null) return null;
+        const ga4Sessoes = (ga4snap?.metricsJson as { sessions?: number } | undefined)?.sessions ?? null;
         return {
           ecom: false as const, janela: c.ga4_7d ? "7d" : c.ga4_30d ? "30d" : "7d", temGoogle, investido,
           atribuido: { meta: metaConv, google: gConv, total: atribuidoTotal },
           geral: { valor: ga4Conv, pedidos: null, fonte: "GA4" },
+          // Funil de mídia (Meta+Google): Impressões → Cliques → Resultado. Tráfego
+          // usa Sessões (GA4) como último degrau.
+          funil: { impressoes: metaImpr + gImpr, cliques: metaClicks + gClicks, resultado: atribuidoTotal, sessoes: ga4Sessoes },
         };
       }),
 
