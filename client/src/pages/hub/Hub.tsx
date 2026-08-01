@@ -11,7 +11,7 @@
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Link } from "wouter";
-import { Boxes, FileText, ArrowUpRight } from "lucide-react";
+import { Bot, FileText, ArrowUpRight } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { HubShell } from "./HubShell";
@@ -26,7 +26,7 @@ import { MyCardsCard } from "./MyCardsCard";
 const ATALHOS = [
   {
     href: "/tracker",
-    icon: Boxes,
+    icon: Bot,
     title: "Brand Inteligent Tracker",
     desc: "Performance das campanhas em tempo real",
   },

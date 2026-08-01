@@ -10,6 +10,7 @@ import { fmtCurrency, fmtNumber, fmtPercent, fmtMultiplier, getDayStatus, type G
 import {
   AlertTriangle,
   Bell,
+  Bot,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -427,6 +428,38 @@ export default function SuggestionsHub() {
           aqui sem reestruturar o JSX (ver ordemWidget). */}
       <div className="max-w-4xl mx-auto pb-8 flex flex-col">
 
+        {/* ══ Hero — apresenta o BIT (o robô da SELVA). order:-1 = sempre no topo. */}
+        <div className="px-6 pt-6" style={{ order: -1 }}>
+          <div
+            className="relative overflow-hidden rounded-xl p-6"
+            style={{ background: "linear-gradient(135deg, #12141c 0%, #0a0b11 100%)", border: "1px solid rgba(239,112,27,0.32)" }}
+          >
+            {/* brilho laranja de canto */}
+            <div
+              className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full blur-3xl"
+              style={{ background: "radial-gradient(circle, rgba(239,112,27,0.4), transparent 70%)" }}
+            />
+            <div className="relative flex items-start gap-4">
+              <span
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
+                style={{ background: "rgba(239,112,27,0.16)", border: "1px solid rgba(239,112,27,0.35)", color: "#EF701B" }}
+              >
+                <Bot className="h-6 w-6" />
+              </span>
+              <div className="min-w-0">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.22em]" style={{ color: "#EF701B" }}>
+                  O robô da SELVA
+                </span>
+                <h1 className="mt-1 text-xl font-bold" style={{ color: "#FDFFED" }}>
+                  Brand Inteligent Tracker
+                </h1>
+                <p className="mt-1.5 text-sm max-w-2xl" style={{ color: "rgba(253,255,237,0.6)" }}>
+                  Centraliza e analisa os dados de performance de todos os nossos clientes em um só lugar.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* ══ 1 — Caixa unificada: top bar + briefing + status cards ══════ */}
         {mostrar("midia_geral") && (

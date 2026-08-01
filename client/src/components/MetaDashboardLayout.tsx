@@ -31,6 +31,7 @@ import {
   Loader2,
   Sparkles,
   Wallet,
+  Bot,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -53,8 +54,9 @@ interface MetaDashboardLayoutProps {
 }
 
 // ─── Colour tokens ────────────────────────────────────────────────────────────
-const ACTIVE_BG   = "rgba(212,83,126,0.15)";
-const ACTIVE_CLR  = "#D4537E";
+// BIT usa LARANJA (SELVA) — distingue do rosa do Spaces. Rosa fica só no portal.
+const ACTIVE_BG   = "rgba(239,112,27,0.15)";
+const ACTIVE_CLR  = "#EF701B";
 const HOVER_CLS   = "hover:bg-white/[0.06]";
 const TEXT_NORMAL = "rgba(255,255,255,0.55)";
 const TEXT_DIM    = "rgba(255,255,255,0.35)";
@@ -284,7 +286,13 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
           {/* Logo */}
           <div className={`flex items-center gap-3 mb-3 min-h-[32px] ${sidebarOpen ? "px-1" : "justify-center"}`}>
-            <SelvaLogo size={52} />
+            {/* Ícone do BIT: o robô da SELVA (laranja) — distinto do planeta do Spaces. */}
+            <div
+              className="flex items-center justify-center rounded-xl flex-shrink-0"
+              style={{ width: 44, height: 44, background: "rgba(239,112,27,0.14)", border: "1px solid rgba(239,112,27,0.32)" }}
+            >
+              <Bot className="w-6 h-6" style={{ color: "#EF701B" }} />
+            </div>
             {sidebarOpen && (
               <div className="overflow-hidden min-w-0">
                 <p className="text-xs font-semibold truncate" style={{ letterSpacing: "0.04em", color: "#FDFFED" }}>
@@ -426,7 +434,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                   >
                     <div
                       className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 font-bold text-xs overflow-hidden"
-                      style={{ background: "rgba(212,83,126,0.2)", color: ACTIVE_CLR }}
+                      style={{ background: "rgba(239,112,27,0.2)", color: ACTIVE_CLR }}
                     >
                       {activeAccount?.pictureUrl
                         ? <img src={activeAccount.pictureUrl} alt="" className="w-full h-full object-cover" />
@@ -447,7 +455,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                     className={`w-full h-8 flex items-center justify-center rounded-lg transition-all text-[10px] font-bold overflow-hidden ${HOVER_CLS}`}
                     style={{
                       border: activeClient ? "0.5px solid rgba(255,255,255,0.1)" : "0.5px dashed rgba(255,255,255,0.15)",
-                      background: "rgba(212,83,126,0.12)",
+                      background: "rgba(239,112,27,0.12)",
                       color: ACTIVE_CLR,
                     }}
                   >
@@ -476,7 +484,10 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                       }}
                       className="flex items-center gap-2.5 cursor-pointer py-2"
                     >
-                      <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 font-bold text-[10px] overflow-hidden ${isActiveCa ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
+                      <div
+                        className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 font-bold text-[10px] overflow-hidden ${isActiveCa ? "" : "bg-muted text-muted-foreground"}`}
+                        style={isActiveCa ? { background: "rgba(239,112,27,0.2)", color: ACTIVE_CLR } : undefined}
+                      >
                         {ca.accounts[0]?.pictureUrl
                           ? <img src={ca.accounts[0].pictureUrl} alt="" className="w-full h-full object-cover rounded-md" />
                           : ca.client.shortName}
@@ -485,7 +496,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                         <p className="text-xs font-medium truncate">{ca.client.name}</p>
                         <ChipsDeFonte fontes={fontesDe(ca.accounts[0]?.id)} />
                       </div>
-                      {isActiveCa && <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />}
+                      {isActiveCa && <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: ACTIVE_CLR }} />}
                     </DropdownMenuItem>
                   );
                 })}
@@ -527,7 +538,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             <DropdownMenuTrigger asChild>
               <button className={`w-full flex items-center ${sidebarOpen ? "gap-2.5 px-2" : "justify-center"} py-2 rounded-lg transition-all ${HOVER_CLS}`}>
                 <Avatar className="w-7 h-7 flex-shrink-0">
-                  <AvatarFallback className="text-xs font-bold" style={{ background: "rgba(212,83,126,0.3)", color: ACTIVE_CLR }}>
+                  <AvatarFallback className="text-xs font-bold" style={{ background: "rgba(239,112,27,0.3)", color: ACTIVE_CLR }}>
                     {user?.name?.[0]?.toUpperCase() ?? "U"}
                   </AvatarFallback>
                 </Avatar>

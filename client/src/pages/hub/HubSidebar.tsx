@@ -28,7 +28,7 @@ import {
   KeyRound,
   Bell,
   Settings,
-  Boxes,
+  Bot,
   FileText,
   Lock,
   PanelLeftClose,
@@ -90,7 +90,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Brand Inteligent Tracker (BIT)",
     items: [
       // Apps integrados abrem via iframe dentro do Spaces (ver integratedAppsConfig).
-      { label: "Dashboard", icon: Boxes, kind: "app", href: "/tracker", flyout: true },
+      { label: "Dashboard", icon: Bot, kind: "app", href: "/tracker", flyout: true },
       { label: "Relatórios", icon: FileText, kind: "app", href: "/reports" },
     ],
   },
