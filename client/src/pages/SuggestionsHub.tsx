@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { getClientByMetaAccountId } from "@/config/clientConfig";
 import { fmtCurrency, fmtNumber, fmtPercent, fmtMultiplier, getDayStatus, type GoalType } from "@/lib/kpiConfig";
 import { conectada, type ChaveFonte, type Fonte, type StatusFonte } from "@shared/fontes";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canManageContent } from "@shared/permissions";
 import {
   AlertTriangle,
   Bell,
@@ -122,6 +124,29 @@ function normalizeTotals(m: any) {
     cpc:             Number(m?.avgCpc ?? (clicks > 0 ? spend / clicks : 0)),
     cpm:             Number(m?.avgCpm ?? (impressions > 0 ? (spend / impressions) * 1000 : 0)),
     frequency:       0,
+  };
+}
+
+/** Verba de ads é a SOMA das plataformas ativas da conta. Hoje: Meta + Google
+ * Ads. Contas sem Ads usam normalizeTotals (nada muda). Quando há Ads, os totais
+ * crus são somados e as taxas RECALCULADAS do somado (avg* do Meta não valem mais
+ * p/ o combinado). Alcance fica só do Meta (o resumo do Ads não expõe alcance). */
+type GAdsHoje = { spend: number; clicks: number; impressions: number; conversions: number; conversionValue: number };
+function unifiedTotals(m: any, g: GAdsHoje) {
+  const spend           = Number(m?.totalSpend ?? 0) + g.spend;
+  const clicks          = Number(m?.totalClicks ?? 0) + g.clicks;
+  const impressions     = Number(m?.totalImpressions ?? 0) + g.impressions;
+  const conversions     = Number(m?.totalConversions ?? 0) + g.conversions;
+  const conversionValue = Number(m?.totalConversionValue ?? 0) + g.conversionValue;
+  return {
+    spend, clicks, impressions, conversions, conversionValue,
+    reach:     Number(m?.totalReach ?? 0),
+    roas:      spend > 0 ? conversionValue / spend : 0,
+    cpa:       conversions > 0 ? spend / conversions : 0,
+    ctr:       impressions > 0 ? (clicks / impressions) * 100 : 0,
+    cpc:       clicks > 0 ? spend / clicks : 0,
+    cpm:       impressions > 0 ? (spend / impressions) * 1000 : 0,
+    frequency: 0,
   };
 }
 
@@ -295,6 +320,14 @@ export default function SuggestionsHub() {
   // (Meta, Ads, GA4, Site…). Fase 1 do multi-fonte — ainda não muda as métricas,
   // só sinaliza o que existe por conta (o headline adaptativo vem na Fase 2).
   const { data: fontesTodas } = trpc.fontes.todas.useQuery(undefined, { staleTime: 60_000, refetchOnWindowFocus: false });
+  // Verba unificada: soma Google Ads (hoje, ao vivo) ao Meta no card. Só admin/dev
+  // (Google Ads é gated); carrega assíncrono — os cards Meta aparecem na hora e
+  // os números unificam quando o Ads chega. Se falhar, cai para o total Meta.
+  const { user } = useAuth();
+  const podeGAds = canManageContent(user?.role);
+  const { data: gAdsHoje } = trpc.googleAds.resumoHojeTodas.useQuery(undefined, {
+    enabled: podeGAds, staleTime: 5 * 60_000, refetchOnWindowFocus: false,
+  });
   // Alertas técnicos de site (LCP, headers, Clarity, PageSpeed, SSL, uptime, WAF,
   // sem teste/contexto) saíram da Visão Geral por decisão editorial — são para a
   // página Site/Panorama, não destaque executivo aqui. Só voltam nesta tela se um
@@ -358,6 +391,10 @@ export default function SuggestionsHub() {
     () => new Map((fontesTodas ?? []).map((f) => [f.accountId, f.fontes as Fonte[]])),
     [fontesTodas],
   );
+  const gAdsMap = useMemo(
+    () => new Map(Object.entries(gAdsHoje ?? {}).map(([id, v]) => [Number(id), v as GAdsHoje])),
+    [gAdsHoje],
+  );
 
   const p1ByAccount = suggestions
     .filter((s) => s.priority === "HIGH")
@@ -366,7 +403,8 @@ export default function SuggestionsHub() {
       return acc;
     }, {});
 
-  const totalSpendToday = (todayMetrics ?? []).reduce((sum, m) => sum + Number(m.totalSpend ?? 0), 0);
+  const totalSpendToday = (todayMetrics ?? []).reduce((sum, m) => sum + Number(m.totalSpend ?? 0), 0)
+    + Array.from(gAdsMap.values()).reduce((s, v) => s + v.spend, 0);
   const lastSyncDate    = (accounts ?? []).reduce<Date | null>((latest, a) => {
     if (!a.lastSyncAt) return latest;
     const d = new Date(a.lastSyncAt);
@@ -645,7 +683,8 @@ export default function SuggestionsHub() {
                 return account.aiStatusColor === statusFilter && !account.hasTokenError;
               }).map((account) => {
                 const m          = metricsMap.get(account.id);
-                const totals     = normalizeTotals(m);
+                const g          = gAdsMap.get(account.id);
+                const totals     = g ? unifiedTotals(m, g) : normalizeTotals(m);
                 const p1         = p1ByAccount[account.id] ?? 0;
                 const estado     = estadoConfig[(account as any).aiStatusColor ?? ""] ?? null;
                 const goalType   = ((account as any).goalTypeOverride as string | null) ?? "DEFAULT";
@@ -946,7 +985,8 @@ export default function SuggestionsHub() {
               {/* Rows */}
               {sortedAccounts.map((account, idx) => {
                 const m         = metricsMap.get(account.id);
-                const totals    = normalizeTotals(m);
+                const gAds      = gAdsMap.get(account.id);
+                const totals    = gAds ? unifiedTotals(m, gAds) : normalizeTotals(m);
                 const goalType  = ((account as any).goalTypeOverride as string | null) ?? null;
                 const dayS      = totals.spend > 0
                   ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })

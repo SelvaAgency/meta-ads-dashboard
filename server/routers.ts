@@ -4710,6 +4710,39 @@ export const appRouter = router({
         return getGoogleAdsAccountSummary(accountConfig, account.customerId, startDate, endDate);
       }),
 
+    /**
+     * Resumo de HOJE de todas as contas Google Ads vinculadas — para somar ao
+     * "investido hoje" e às métricas do card UNIFICADO da Visão Geral (Meta +
+     * Ads). Não há persistência do Google Ads, então é ao vivo: em paralelo e
+     * tolerante a falhas (Promise.allSettled) — uma conta que falhar some do mapa
+     * e o card cai para o total Meta. Admin/dev (contentProcedure). Chaveado por
+     * linkedAccountId, que é a conta Meta usada como chave dos cards.
+     */
+    resumoHojeTodas: contentProcedure.query(async () => {
+      type Soma = { spend: number; clicks: number; impressions: number; conversions: number; conversionValue: number };
+      const config = getGoogleAdsConfig();
+      if (!config) return {} as Record<number, Soma>;
+      const contas = (await getAllActiveGoogleAdAccounts())
+        .filter((c) => c.linkedAccountId != null && !c.ignored);
+      if (!contas.length) return {} as Record<number, Soma>;
+      const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+      const resultados = await Promise.allSettled(contas.map(async (c) => {
+        const cfg = { ...config, refreshToken: tokenDaConta(c.refreshToken) };
+        const s = await getGoogleAdsAccountSummary(cfg, c.customerId, hoje, hoje);
+        return { id: c.linkedAccountId as number, spend: s.spend, clicks: s.clicks, impressions: s.impressions, conversions: s.conversions, conversionValue: s.conversionValue };
+      }));
+      const map: Record<number, Soma> = {};
+      for (const r of resultados) {
+        if (r.status !== "fulfilled") { if (r.status === "rejected") logger.warn(`[GAds] resumoHoje falhou: ${(r.reason as Error)?.message ?? r.reason}`); continue; }
+        const { id, ...v } = r.value;
+        const p = map[id];
+        map[id] = p
+          ? { spend: p.spend + v.spend, clicks: p.clicks + v.clicks, impressions: p.impressions + v.impressions, conversions: p.conversions + v.conversions, conversionValue: p.conversionValue + v.conversionValue }
+          : v;
+      }
+      return map;
+    }),
+
     // Campaigns with metrics
     campaigns: protectedProcedure
       .input(z.object({
