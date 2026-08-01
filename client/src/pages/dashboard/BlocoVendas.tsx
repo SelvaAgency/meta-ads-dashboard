@@ -29,16 +29,17 @@ export function BlocoVendas({ accountId }: { accountId: number }) {
     return <Wrapper><p className="text-xs text-muted-foreground">Não foi possível carregar o funil agora.</p></Wrapper>;
   }
 
-  // Monta o shape do Panorama SÓ com o que o funil precisa; o resto é null.
+  // Monta o shape do Panorama SÓ com o que o funil precisa. A HOME fixa em 7d:
+  // os snapshots de 30d ficam null p/ o funilVisual usar só a janela de 7d.
   const c: ClientePanorama = {
     accountId, nome: "", fontes: [],
     loja: q.data.loja,
     uptime: null, seguranca: null, pagespeed: null,
     plataformaLoja: q.data.plataformaLoja,
     ga4_7d: q.data.ga4_7d ? { dia: q.data.ga4_7d.dia, metricsJson: q.data.ga4_7d.metricsJson as any } : null,
-    ga4_30d: q.data.ga4_30d ? { dia: q.data.ga4_30d.dia, metricsJson: q.data.ga4_30d.metricsJson as any } : null,
+    ga4_30d: null,
     loja_7d: q.data.loja_7d ? { dia: q.data.loja_7d.dia, metricsJson: q.data.loja_7d.metricsJson as any } : null,
-    loja_30d: q.data.loja_30d ? { dia: q.data.loja_30d.dia, metricsJson: q.data.loja_30d.metricsJson as any } : null,
+    loja_30d: null,
   };
 
   const funil = funilVisual(c);

@@ -2324,10 +2324,14 @@ export const appRouter = router({
           loja_7d: snap.loja_7d ? { dia: snap.loja_7d.dia, metricsJson: snap.loja_7d.metricsJson as any } : null,
           loja_30d: snap.loja_30d ? { dia: snap.loja_30d.dia, metricsJson: snap.loja_30d.metricsJson as any } : null,
         };
-        const v = vendasDe(c);
+        // A HOME (Visão Geral do cliente) fixa em 7d — leitura "atual". Anulando os
+        // snapshots de 30d, o vendasDe usa só a janela de 7d (loja 7d → GA4 7d). O
+        // aprofundamento em 30d vive nas páginas internas de cada canal.
+        const c7: ClientePanorama = { ...c, loja_30d: null, ga4_30d: null };
+        const v = vendasDe(c7);
         if (!v) return null;
 
-        const dias = v.janela === "30d" ? 30 : 7;
+        const dias = 7;
         const { startDate, endDate } = getDateRange(dias);
         const metrics = await getAccountMetricsSummary(input.accountId, startDate, endDate);
         const metaSpend = metrics.reduce((s, m) => s + Number(m.totalSpend ?? 0), 0);
