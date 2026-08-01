@@ -65,30 +65,31 @@ export const GravityField = memo(function GravityField({ fill = false, active = 
 
     function initBalls() {
       balls.length = 0;
-      // As moedas JÁ começam assentadas no chão (empilhadas de baixo p/ cima) e
-      // DORMINDO — nada de cair do topo a cada abertura. Só se mexem com o mouse.
-      const d = BR * 2 + 3;                                   // passo horizontal
-      const rowH = BR * 1.82;                                 // passo vertical (leve sobreposição)
-      const perRow = Math.max(1, Math.floor((W - 4) / d));
-      const maxRows = Math.max(3, Math.floor((H * .94) / rowH)); // não passa do topo
-      const desired = W < 560 ? 240 : 480;
-      const COUNT = Math.min(desired, perRow * maxRows);      // cabe na altura
+      // Quantidade: limitada por área p/ telas baixas não deixarem moeda além do
+      // topo; desktop mantém o cheio. ~600px² por moeda no empacotamento.
+      const cap = Math.floor((W * H * .7) / 600);
+      const COUNT = Math.min(W < 560 ? 240 : 480, Math.max(30, cap));
       baseCount = COUNT;
       for (let i = 0; i < COUNT; i++) {
-        const row = Math.floor(i / perRow), col = i % perRow;
-        const hexOff = (row % 2) * (d / 2);                   // fileiras alternadas (hex)
-        const rr = BR + (() => { const q = Math.random(); return q < .16 ? 2 + Math.random() * 5 : q < .38 ? -3 : 0; })();
-        const x = Math.max(rr, Math.min(W - rr, BR + hexOff + col * d + (Math.random() - .5) * 3));
-        const y = Math.max(rr, H - rr - row * rowH + (Math.random() - .5) * 3);
         const layer: 'back'|'front' = Math.random() < .42 ? 'back' : 'front';
         balls.push({
-          x, y, vx: 0, vy: 0, r: rr,
+          x: BR + Math.random() * (W - BR * 2),
+          y: H * .3 + Math.random() * (H * .68),   // já começa na metade de baixo → queda curta
+          vx: (Math.random() - .5) * .5,
+          vy: (Math.random() - .5) * .5,
+          r: BR + (() => { const q = Math.random(); return q < .16 ? 2 + Math.random() * 5 : q < .38 ? -3 : 0; })(),
           col: POOL[i % POOL.length],
           layer, pp: Math.random() * 6.28,
-          ps: .008 + Math.random() * .012, pulse: 0,
-          still: REST_FRAMES + 5,                             // já dormindo (estático)
+          ps: .008 + Math.random() * .012, pulse: 0, still: 0,
         });
       }
+      // Pré-assenta com a PRÓPRIA física, sem desenhar: roda a simulação até tudo
+      // cair e acomodar no fundo e então congela. A aba abre já no estado assentado
+      // (igual ao pós-mouse), sem nenhuma animação de queda visível.
+      const mx = ms.x; ms.x = -999;
+      for (let k = 0; k < 380; k++) step();
+      ms.x = mx;
+      for (const b of balls) { b.vx = 0; b.vy = 0; b.still = REST_FRAMES + 5; }
     }
 
     function spawnRipple(x: number, y: number) {
