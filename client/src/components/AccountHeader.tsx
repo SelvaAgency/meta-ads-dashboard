@@ -231,7 +231,8 @@ export function AccountHeader({
 
   // ─── Context panel state ────────────────────────────────────────────────
   const [contextOpen, setContextOpen] = useState(false);
-  // Contexto ad-hoc do resumo 7 dias (não persiste; é enviado na regeneração).
+  // Contexto do resumo: PERSISTE no contexto da conta (campo learnings) e é usado
+  // tanto aqui quanto pelo robô noturno — não some mais na regeneração automática.
   const [resumoCtxOpen, setResumoCtxOpen] = useState(false);
   const [resumoCtx, setResumoCtx] = useState("");
   const [ctxProfile, setCtxProfile] = useState("");
@@ -256,6 +257,20 @@ export function AccountHeader({
     onSuccess: () => { toast.success("Contexto salvo"); setCtxSaving(false); },
     onError: () => { toast.error("Erro ao salvar contexto"); setCtxSaving(false); },
   });
+
+  // Salva o contexto do resumo (no campo learnings, preservando perfil/regras da
+  // conta) e então reanalisa — o refreshStatus lê o contexto persistido.
+  async function salvarContextoDoResumo() {
+    if (!selectedAccountId) return;
+    await upsertContext.mutateAsync({
+      accountId: selectedAccountId,
+      clientProfile: accountCtx?.clientProfile ?? "",
+      operationalRules: accountCtx?.operationalRules ?? "",
+      learnings: resumoCtx,
+    });
+    utils.context.getAccount.invalidate({ accountId: selectedAccountId });
+    refreshStatus.mutate({ accountId: selectedAccountId });
+  }
 
   function saveContext() {
     if (!selectedAccountId) return;
@@ -535,7 +550,7 @@ export function AccountHeader({
             {statusCfg?.label ?? "Status IA"} — 7 dias
           </span>
           <button
-            onClick={() => setResumoCtxOpen(v => !v)}
+            onClick={() => { if (!resumoCtxOpen) setResumoCtx(accountCtx?.learnings ?? ""); setResumoCtxOpen(v => !v); }}
             title="Adicionar contexto e reanalisar"
             style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: resumoCtxOpen ? "#E85BA8" : muted, opacity: resumoCtxOpen ? 1 : 0.5, transition: "opacity 0.15s" }}
             onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
@@ -544,9 +559,9 @@ export function AccountHeader({
             <Brain style={{ width: 11, height: 11 }} />
           </button>
           <button
-            onClick={() => refreshStatus.mutate({ accountId: selectedAccountId, contexto: resumoCtx.trim() || undefined })}
+            onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
             disabled={refreshStatus.isPending}
-            title="Atualizar análise IA"
+            title="Reanalisar (usa o contexto salvo)"
             style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: muted, opacity: 0.5, transition: "opacity 0.15s" }}
             onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
@@ -555,13 +570,15 @@ export function AccountHeader({
           </button>
         </div>
 
-        {/* Contexto ad-hoc: explica os últimos 7 dias; a IA reescreve o resumo. */}
-        {resumoCtxOpen && (
+        {/* Contexto persistente: a IA (aqui e no robô noturno) considera isto. */}
+        {resumoCtxOpen && (() => {
+          const salvando = refreshStatus.isPending || upsertContext.isPending;
+          return (
           <div style={{ marginBottom: 8 }}>
             <textarea
               value={resumoCtx}
               onChange={(e) => setResumoCtx(e.target.value)}
-              placeholder="Contexto dos últimos 7 dias (ex.: campanha de lançamento, feriado, verba reduzida)…"
+              placeholder="Contexto que a IA deve considerar (ex.: sazonalidade, campanha de lançamento, verba reduzida, regra do cliente)…"
               rows={3}
               style={{
                 width: "100%", fontSize: 11, lineHeight: 1.4, padding: "6px 8px",
@@ -570,19 +587,23 @@ export function AccountHeader({
               }}
             />
             <button
-              onClick={() => refreshStatus.mutate({ accountId: selectedAccountId, contexto: resumoCtx.trim() || undefined })}
-              disabled={refreshStatus.isPending || !resumoCtx.trim()}
+              onClick={salvarContextoDoResumo}
+              disabled={salvando}
               style={{
                 marginTop: 5, fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 7,
-                border: "none", cursor: refreshStatus.isPending || !resumoCtx.trim() ? "default" : "pointer",
-                background: refreshStatus.isPending || !resumoCtx.trim() ? "rgba(0,0,0,0.08)" : "#E85BA8",
-                color: refreshStatus.isPending || !resumoCtx.trim() ? "rgba(0,0,0,0.4)" : "white",
+                border: "none", cursor: salvando ? "default" : "pointer",
+                background: salvando ? "rgba(0,0,0,0.08)" : "#E85BA8",
+                color: salvando ? "rgba(0,0,0,0.4)" : "white",
               }}
             >
-              {refreshStatus.isPending ? "Analisando…" : "Atualizar com contexto"}
+              {salvando ? "Salvando…" : "Salvar e reanalisar"}
             </button>
+            <p style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 4 }}>
+              Fica salvo e vale também na reanálise automática noturna.
+            </p>
           </div>
-        )}
+          );
+        })()}
         <p
           ref={summaryRef}
           style={{

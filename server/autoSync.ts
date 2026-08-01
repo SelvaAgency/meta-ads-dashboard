@@ -279,10 +279,23 @@ export async function syncAccount(account: { id: number; accountId: string; acce
       const cpa  = t.conversions > 0 ? (t.spend / t.conversions).toFixed(2) : "0";
       const ctr  = t.impressions > 0 ? ((t.clicks / t.impressions) * 100).toFixed(2) : "0";
 
+      // Contexto salvo da conta (perfil/regras/aprendizados) — mesmo que o botão
+      // "Salvar e reanalisar" grava. Sem isso, o cron sobrescrevia o resumo à
+      // noite ignorando o contexto que a pessoa tinha escrito.
+      const accCtx = await getAccountContext(account.id).catch(() => null);
+      const partesCtx = [
+        accCtx?.clientProfile ? `Perfil do cliente: ${accCtx.clientProfile}` : "",
+        accCtx?.operationalRules ? `Regras operacionais: ${accCtx.operationalRules}` : "",
+        accCtx?.learnings ? `Contexto/observações: ${accCtx.learnings}` : "",
+      ].filter(Boolean);
+      const blocoCtx = partesCtx.length
+        ? `\n\nCONTEXTO (considere ao avaliar e ao escrever o resumo — pode explicar variações que os números não mostram):\n${partesCtx.join("\n")}`
+        : "";
+
       const aiResult = await invokeLLM({
         messages: [{
           role: "user",
-          content: `Analise os dados de performance dos últimos 7 dias e retorne um JSON com dois campos: "color" (green/yellow/red) e "summary" (máx 300 caracteres em português, sem emoji). O summary deve conter: (1) status geral da conta, (2) principal métrica positiva ou problemática com valor, (3) uma ação sugerida objetiva. Verde = conta saudável, Amarelo = atenção necessária, Vermelho = problema crítico.\n\nDados:\n${JSON.stringify({ ...t, roas, cpa, ctr })}`,
+          content: `Analise os dados de performance dos últimos 7 dias e retorne um JSON com dois campos: "color" (green/yellow/red) e "summary" (máx 300 caracteres em português, sem emoji). O summary deve conter: (1) status geral da conta, (2) principal métrica positiva ou problemática com valor, (3) uma ação sugerida objetiva. Verde = conta saudável, Amarelo = atenção necessária, Vermelho = problema crítico.${blocoCtx}\n\nDados:\n${JSON.stringify({ ...t, roas, cpa, ctr })}`,
         }],
         responseFormat: { type: "json_object" },
         thinking: false,
