@@ -34,7 +34,7 @@ import { logger } from "../logger";
 
 // ─── Montagem dos clientes (mesmos readers do Panorama; router intocado) ─────
 
-async function montarClientesPanorama(): Promise<ClientePanorama[]> {
+export async function montarClientesPanorama(): Promise<ClientePanorama[]> {
   const [contas, fontes, snaps, lojas, vndaReal] = await Promise.all([
     getAllActiveMetaAdAccountsForListing(),
     fontesDeTodasAsContas(),

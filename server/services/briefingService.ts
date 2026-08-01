@@ -22,6 +22,8 @@ import {
   getAllActiveMetaAdAccountsForListing, getAccountMetricsSummary,
   getDailyBriefing, saveDailyBriefing,
 } from "../db";
+import { montarClientesPanorama } from "./jornalExecutivo";
+import { achadosDe, vendasDe, type ClientePanorama } from "../../shared/panoramaLogic";
 
 /**
  * O briefing é global, mas a tabela é chaveada por (userId, date). Usamos um
@@ -59,6 +61,18 @@ export async function obterBriefingDoDia(dia = diaAgencia()): Promise<string | n
   const fim = fmt(agora);
 
   const metricas = await Promise.all(contas.map((a) => getAccountMetricsSummary(a.id, inicio, fim)));
+
+  // Sinais de OUTRAS fontes (GA4, loja/vendas reais, site) por conta — mesmo motor
+  // do Panorama/Jornalzinho. Em try/catch: se o panorama falhar, o briefing Meta
+  // (que já funciona) segue normalmente, só sem o enriquecimento multi-fonte.
+  let panoramaPorConta = new Map<number, ClientePanorama>();
+  try {
+    const clientes = await montarClientesPanorama();
+    panoramaPorConta = new Map(clientes.map((c) => [c.accountId, c]));
+  } catch (e) {
+    logger.warn(`[Briefing] Panorama multi-fonte indisponível: ${(e as Error).message}`);
+  }
+
   const linhas = contas.map((a, i) => {
     const rows = metricas[i] ?? [];
     const spend = rows.reduce((s, r) => s + Number(r.totalSpend ?? 0), 0);
@@ -71,15 +85,33 @@ export async function obterBriefingDoDia(dia = diaAgencia()): Promise<string | n
       ? ({ green: "A (saudável)", yellow: "B (atenção)", red: "C (crítico)" } as Record<string, string>)[a.aiStatusColor] ?? "sem análise"
       : "sem análise";
     const resumo = mostraRoas ? (a.aiStatusSummary ?? "Sem análise") : "";
-    return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend.toFixed(2)}${mostraRoas ? `, ROAS ${roas}x` : ` (objetivo: ${goal})`}, ${mostraRoas ? `Conversões: ${conv}` : `Resultados (${goal}): ${conv}`}${spend <= 0 ? " [SEM DADOS — pode estar inativa por decisão estratégica]" : ""}${resumo ? ". " + resumo : ""}`;
+
+    // Enriquecimento multi-fonte: vendas reais (loja/GA4) + sinais do site/tráfego.
+    const pano = panoramaPorConta.get(a.id);
+    let extra = "";
+    if (pano) {
+      const v = vendasDe(pano);
+      const sinais = achadosDe(pano).filter((x) => x.severidade !== "info").slice(0, 2).map((x) => x.texto);
+      const partes: string[] = [];
+      if (v && v.receita != null) {
+        partes.push(`Vendas ${v.rotuloFonte} (${v.janela}): R$${v.receita.toFixed(0)}${v.pedidos != null ? ` em ${v.pedidos} pedido(s)` : ""}`);
+      }
+      if (sinais.length) partes.push(`Sinais de site/tráfego: ${sinais.join("; ")}`);
+      if (partes.length) extra = ` | Outras fontes → ${partes.join(" · ")}`;
+    }
+
+    return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend.toFixed(2)}${mostraRoas ? `, ROAS ${roas}x` : ` (objetivo: ${goal})`}, ${mostraRoas ? `Conversões: ${conv}` : `Resultados (${goal}): ${conv}`}${spend <= 0 ? " [SEM DADOS — pode estar inativa por decisão estratégica]" : ""}${resumo ? ". " + resumo : ""}${extra}`;
   }).join("\n");
 
-  const prompt = `Você é um analista sênior de mídia paga da agência SELVA. Retorne um JSON com exatamente 4 campos: "resumo" (frase executiva fluida descrevendo o estado geral do portfólio — tom direto, termina com ponto final, máx 120 caracteres, NÃO liste apenas contagens), "positivo" (o que está indo bem — contas saudáveis, métricas positivas, 1-2 frases), "atencao" (contas que merecem monitoramento mas não são críticas, 1-2 frases), "critico" (problemas urgentes que precisam de ação imediata, 1-2 frases). Qualquer campo exceto "resumo" pode ser null se não houver nada relevante.
+  const prompt = `Você é um analista sênior de performance da agência SELVA. Você olha o desempenho de cada cliente de forma COMPLETA: não só Meta Ads, mas também vendas reais da loja (WooCommerce/VNDA ou GA4), tráfego (GA4) e saúde do site. Retorne um JSON com exatamente 4 campos: "resumo" (frase executiva fluida descrevendo o estado geral do portfólio — tom direto, termina com ponto final, máx 120 caracteres, NÃO liste apenas contagens), "positivo" (o que está indo bem — contas saudáveis, métricas positivas, 1-2 frases), "atencao" (contas que merecem monitoramento mas não são críticas, 1-2 frases), "critico" (problemas urgentes que precisam de ação imediata, 1-2 frases). Qualquer campo exceto "resumo" pode ser null se não houver nada relevante.
 REGRAS CRÍTICAS:
-- Contas com objetivo MESSAGES, TRAFFIC, ENGAGEMENT, AWARENESS: NUNCA mencione ROAS como problema — não se aplica a esses objetivos
-- Contas marcadas como [SEM DADOS]: não trate como críticas — podem estar inativas por decisão estratégica do cliente
-- Foque nos padrões reais de performance, não em ausência de métricas irrelevantes para o objetivo
-Dados (últimas 48h — hoje + ontem):
+- Considere TODAS as fontes, não só Meta. Para cada conta, destaque o que é mais relevante PARA AQUELA CONTA: e-commerce → vendas reais/ROAS; leads/mensagens → resultados; e sempre a saúde do site/tráfego quando houver sinal.
+- Os dados de cada conta podem trazer um trecho "Outras fontes →" com vendas reais, quedas de tráfego, vazamento de funil (carrinho/checkout), site fora do ar ou SSL. Trate esses sinais como de PRIMEIRA CLASSE.
+- Um problema técnico grave (site fora do ar, SSL vencido) é CRÍTICO mesmo que o Meta esteja saudável — dinheiro em mídia jogando tráfego para um site quebrado é urgente.
+- Contas com objetivo MESSAGES, TRAFFIC, ENGAGEMENT, AWARENESS: NUNCA mencione ROAS como problema — não se aplica a esses objetivos.
+- Contas marcadas como [SEM DADOS]: não trate como críticas — podem estar inativas por decisão estratégica do cliente.
+- Foque nos padrões reais de performance, não em ausência de métricas irrelevantes para o objetivo.
+Dados (últimas 48h — hoje + ontem; "Outras fontes" pode ter janela 7d/30d, o que é normal para site/vendas):
 ${linhas}
 Escreva em português brasileiro, de forma direta e profissional. Destaque padrões, o que está indo bem e o que precisa de atenção imediata. Não use markdown, listas ou tópicos — escreva em prosa corrida. Se os dados de hoje estiverem zerados, baseie-se nos dados de ontem que estão consolidados.`;
 
