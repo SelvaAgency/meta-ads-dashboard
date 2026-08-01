@@ -7,6 +7,7 @@ import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import { toast } from "sonner";
 import { getClientByMetaAccountId } from "@/config/clientConfig";
 import { fmtCurrency, fmtNumber, fmtPercent, fmtMultiplier, getDayStatus, type GoalType } from "@/lib/kpiConfig";
+import { conectada, type ChaveFonte, type Fonte, type StatusFonte } from "@shared/fontes";
 import {
   AlertTriangle,
   Bell,
@@ -26,6 +27,41 @@ const BG_PRIMARY   = "var(--color-background-primary, var(--card))";
 const BG_SECONDARY = "var(--color-background-secondary, hsl(var(--muted)))";
 const BORDER_T     = "var(--color-border-tertiary, var(--border))";
 const RADIUS_LG    = "var(--border-radius-lg, 12px)";
+
+// ─── Selo de fonte (chips por conta) ───────────────────────────────────────────
+// Rótulo curto e cor por status. Só fontes conectadas viram chip; verde = ok,
+// âmbar = precisa de ação, vermelho = falha na última leitura.
+const FONTE_CURTO: Record<ChaveFonte, string> = {
+  meta: "Meta", google_ads: "Ads", ga4: "GA4", clarity: "Clarity", pagespeed: "Speed", site: "Site",
+};
+const FONTE_TOM: Record<StatusFonte, { bg: string; color: string }> = {
+  ok:      { bg: "rgba(16,185,129,0.12)",  color: "#059669" },
+  atencao: { bg: "rgba(245,158,11,0.16)",  color: "#B45309" },
+  erro:    { bg: "rgba(239,68,68,0.14)",   color: "#DC2626" },
+  ausente: { bg: "transparent",            color: "transparent" },
+};
+
+function SeloDeFonte({ fontes }: { fontes: Fonte[] }) {
+  const conectadas = fontes.filter(conectada);
+  if (conectadas.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1 border-t pt-1.5" style={{ borderColor: BORDER_T }}>
+      {conectadas.map((f) => {
+        const tom = FONTE_TOM[f.status];
+        return (
+          <span
+            key={f.chave}
+            title={f.porque ?? f.rotulo}
+            className="text-[8px] font-bold uppercase tracking-wide px-1 py-px rounded"
+            style={{ background: tom.bg, color: tom.color }}
+          >
+            {FONTE_CURTO[f.chave]}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -255,6 +291,10 @@ export default function SuggestionsHub() {
   const { data: todayMetrics }  = trpc.accounts.todayMetrics.useQuery(undefined, { refetchOnWindowFocus: false });
   const { data: urgentAlerts }  = trpc.alerts.listUrgent.useQuery(undefined, { refetchOnWindowFocus: false });
   const { data: briefingData, isLoading: briefingLoading } = trpc.suggestions.getDailyBriefing.useQuery(undefined, { refetchOnWindowFocus: false });
+  // Selo de fonte nos cards: mostra quais fontes cada conta tem conectadas hoje
+  // (Meta, Ads, GA4, Site…). Fase 1 do multi-fonte — ainda não muda as métricas,
+  // só sinaliza o que existe por conta (o headline adaptativo vem na Fase 2).
+  const { data: fontesTodas } = trpc.fontes.todas.useQuery(undefined, { staleTime: 60_000, refetchOnWindowFocus: false });
   // Alertas técnicos de site (LCP, headers, Clarity, PageSpeed, SSL, uptime, WAF,
   // sem teste/contexto) saíram da Visão Geral por decisão editorial — são para a
   // página Site/Panorama, não destaque executivo aqui. Só voltam nesta tela se um
@@ -314,6 +354,10 @@ export default function SuggestionsHub() {
   // ── Derived data ──────────────────────────────────────────────────────────
 
   const metricsMap = new Map((todayMetrics ?? []).map((m) => [m.accountId, m]));
+  const fontesMap = useMemo(
+    () => new Map((fontesTodas ?? []).map((f) => [f.accountId, f.fontes as Fonte[]])),
+    [fontesTodas],
+  );
 
   const p1ByAccount = suggestions
     .filter((s) => s.priority === "HIGH")
@@ -667,6 +711,7 @@ export default function SuggestionsHub() {
                           </div>
                         ))}
                       </div>
+                      <SeloDeFonte fontes={fontesMap.get(account.id) ?? []} />
                     </div>
                   </button>
                 );
