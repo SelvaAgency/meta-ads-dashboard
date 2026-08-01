@@ -32,7 +32,7 @@ import {
   cardsDeTrafego, listasDe, contexto30d, amostraPequena, semTrafego, prepararVendas,
   type MetricasGA4, type ListasGA4, type CardGA4, type Lista as ListaGA4,
 } from "./site/ga4Performance";
-import { PerformanceVisual } from "./site/PerformanceVisual";
+import { PerformanceVisual, Painel, BarrasTop, PizzaDistribuicao } from "./site/PerformanceVisual";
 import { type Fonte, type StatusFonte } from "@shared/fontes";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
@@ -1502,7 +1502,12 @@ function BlocosGA4({ m7, m30, listas, fonteErro }: {
   m7: MetricasGA4 | null; m30: MetricasGA4 | null; listas: ListasGA4 | null; fonteErro?: string;
 }) {
   const cards = cardsDeTrafego(m7);
-  const blocos = listasDe(listas);
+  // Datasets crus (valores numéricos) para os gráficos — listasDe formata em string.
+  const canaisD = (listas?.canais ?? []).slice(0, 7).map((c: any) => ({ nome: c.nome ?? "—", valor: Number(c.sessions ?? 0) })).filter((d) => d.valor > 0);
+  const origensD = (listas?.origens ?? []).slice(0, 7).map((o: any) => ({ nome: o.fonte ?? "—", valor: Number(o.sessions ?? 0) }));
+  const landingD = (listas?.landingPages ?? []).slice(0, 7).map((p: any) => ({ nome: p.url ?? "—", valor: Number(p.sessions ?? 0) }));
+  const paginasD = (listas?.paginas ?? []).slice(0, 7).map((p: any) => ({ nome: p.titulo || p.url || "—", valor: Number(p.views ?? 0) }));
+  const eventosD = (listas?.eventos ?? []).slice(0, 8).map((e: any) => ({ nome: e.nome ?? "—", valor: Number(e.contagem ?? 0) }));
   const contexto = contexto30d(m7, m30);
   const vazio = semTrafego(m7);
   const pouco = amostraPequena(m7);
@@ -1548,27 +1553,15 @@ function BlocosGA4({ m7, m30, listas, fonteErro }: {
             </p>
           )}
 
-          {blocos.length > 0 && (
+          {listas && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-              {blocos.map((b: ListaGA4) => (
-                <div key={b.titulo} className="rounded-lg border border-border overflow-hidden">
-                  <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-                    <p className="text-xs font-medium text-foreground">{b.titulo}</p>
-                    <span className="text-[10px] text-muted-foreground/70">{b.fonte}</span>
-                  </div>
-                  <ul>
-                    {b.itens.map((i) => (
-                      <li key={i.rotulo} className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs border-b border-border/40 last:border-0">
-                        <span className="text-muted-foreground truncate" title={i.rotulo}>{i.rotulo}</span>
-                        <span className="text-foreground flex-shrink-0">{i.valor}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  {b.restantes > 0 && (
-                    <p className="px-3 py-1.5 text-[11px] text-muted-foreground/70">e mais {b.restantes}</p>
-                  )}
-                </div>
-              ))}
+              <Painel titulo="Canais de aquisição" extra="GA4"><PizzaDistribuicao dados={canaisD} /></Painel>
+              <Painel titulo="Origem / mídia" extra="GA4"><BarrasTop dados={origensD} /></Painel>
+              <Painel titulo="Landing pages" extra="GA4"><BarrasTop dados={landingD} /></Painel>
+              <Painel titulo="Páginas mais vistas" extra="GA4"><BarrasTop dados={paginasD} /></Painel>
+              {eventosD.length > 0 && (
+                <div className="lg:col-span-2"><Painel titulo="Eventos principais" extra="GA4"><BarrasTop dados={eventosD} /></Painel></div>
+              )}
             </div>
           )}
         </>
