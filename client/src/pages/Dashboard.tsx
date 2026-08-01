@@ -43,6 +43,7 @@ import { AccountHeader } from "@/components/AccountHeader";
 import { BlocoVendas } from "@/pages/dashboard/BlocoVendas";
 import { BandaResultado } from "@/pages/dashboard/BandaResultado";
 import { GoogleAdsPane } from "@/pages/dashboard/GoogleAdsPane";
+import { GeralPane } from "@/pages/dashboard/GeralPane";
 import { AlertBlock, typeConfig as alertTypeConfig, CRITICAL_TYPES as alertCriticalTypes, initials as alertInitials } from "@/components/AlertBlock";
 import {
   type GoalType, type KpiDef,
@@ -152,8 +153,8 @@ export default function Dashboard() {
   });
   const [creativeTab, setCreativeTab] = useState<"creatives" | "audiences">("creatives");
   const [cardsExpanded, setCardsExpanded] = useState(false);
-  // Aba de plataforma (Detalhes por plataforma · Meta | Google).
-  const [platTab, setPlatTab] = useState<"meta" | "google">("meta");
+  // Aba de plataforma (Detalhes por plataforma · Geral | Meta | Google).
+  const [platTab, setPlatTab] = useState<"geral" | "meta" | "google">("geral");
   const [alertsStripExpanded, setAlertsStripExpanded] = useState(false);
   const [, navigate] = useLocation();
   const { selectedAccountId, accounts } = useSelectedAccount();
@@ -486,9 +487,20 @@ export default function Dashboard() {
           </summary>
           <div className="px-4 pb-4 pt-1 space-y-4">
             <div className="inline-flex gap-1 rounded-lg border border-border bg-muted/40 p-1">
+              <button type="button" onClick={() => setPlatTab("geral")} className={`px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${platTab === "geral" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Geral</button>
               <button type="button" onClick={() => setPlatTab("meta")} className={`px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${platTab === "meta" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}><span className="w-2 h-2 rounded-full" style={{ background: "#1877F2" }} />Meta</button>
               <button type="button" onClick={() => setPlatTab("google")} className={`px-3.5 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${platTab === "google" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}><span className="w-2 h-2 rounded-full" style={{ background: "#EA4335" }} />Google Ads</button>
             </div>
+
+            {platTab === "geral" && selectedAccountId && (
+              <GeralPane
+                metaAccountId={selectedAccountId}
+                days={platDays}
+                metaTimeSeries={(data as any)?.timeSeries}
+                metaSpend={Number(data?.totals?.spend ?? 0)}
+                metaConversions={Number(data?.totals?.conversions ?? 0)}
+              />
+            )}
 
             <div className={platTab === "meta" ? "space-y-6" : "hidden"}>
 
