@@ -41,6 +41,7 @@ import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
 import { AccountHeader } from "@/components/AccountHeader";
 import { BlocoVendas } from "@/pages/dashboard/BlocoVendas";
+import { BandaResultado } from "@/pages/dashboard/BandaResultado";
 import { GoogleAdsPane } from "@/pages/dashboard/GoogleAdsPane";
 import { AlertBlock, typeConfig as alertTypeConfig, CRITICAL_TYPES as alertCriticalTypes, initials as alertInitials } from "@/components/AlertBlock";
 import {
@@ -256,6 +257,18 @@ export default function Dashboard() {
     return getPresetRange(period.preset);
   }, [period]);
 
+  // Dias equivalentes ao período selecionado — o pane Google Ads (que só aceita
+  // `days`) segue o MESMO seletor do topo que o Meta. Custom → diferença de datas.
+  const platDays = useMemo(() => {
+    const qp = queryParams as { days?: number; startDate?: string; endDate?: string };
+    if (typeof qp.days === "number") return Math.max(1, Math.min(90, qp.days));
+    if (qp.startDate && qp.endDate) {
+      const diff = Math.round((new Date(qp.endDate).getTime() - new Date(qp.startDate).getTime()) / 86_400_000) + 1;
+      return Math.max(1, Math.min(90, diff));
+    }
+    return 7;
+  }, [queryParams]);
+
   const { data, isLoading, isError, error, refetch } = trpc.dashboard.overview.useQuery(
     { accountId: selectedAccountId!, ...queryParams },
     { enabled: !!selectedAccountId, refetchInterval: 60000 }
@@ -437,10 +450,11 @@ export default function Dashboard() {
         {/* Account summary header — identity, integrations, daily snapshot, AI status */}
         <AccountHeader goalLabel={objInfo.label} goalEmoji={objInfo.emoji} goalType={goalType} />
 
-        {/* Bloco Comercial do cliente (v1) — card isolado; receita atribuída Meta vem do overview já carregado, mostrada à parte e rotulada */}
-        {selectedAccountId && (
-          <BlocoVendas accountId={selectedAccountId} midiaAtribuida={{ meta: data?.totals?.conversionValue ?? null }} />
-        )}
+        {/* Faixa "Resultado" (régua Investido→Atribuído→Real) — banda própria, fora da faixa do site */}
+        {selectedAccountId && <BandaResultado accountId={selectedAccountId} />}
+
+        {/* Faixa exclusiva do site — só o funil de compra (e-commerce) */}
+        {selectedAccountId && <BlocoVendas accountId={selectedAccountId} />}
 
         {/* Faixa de alertas críticos da conta — mesmo padrão visual do card "Por conta" da página de Alertas */}
         {criticalAccountAlerts.length > 0 && (
@@ -839,10 +853,7 @@ export default function Dashboard() {
 
             </div>{/* fim aba Meta */}
             {platTab === "google" && selectedAccountId && (
-              <GoogleAdsPane
-                metaAccountId={selectedAccountId}
-                days={period.preset === "30d" ? 30 : period.preset === "14d" ? 14 : period.preset === "7d" ? 7 : 30}
-              />
+              <GoogleAdsPane metaAccountId={selectedAccountId} days={platDays} />
             )}
           </div>
         </details>
