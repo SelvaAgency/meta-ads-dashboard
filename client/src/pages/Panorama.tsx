@@ -3,7 +3,8 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { Link } from "wouter";
-import { Globe2, Loader2, AlertTriangle, ArrowUpRight, ShoppingCart } from "lucide-react";
+import { Globe2, Loader2, AlertTriangle, ArrowUpRight, ShoppingCart, NotebookPen, ChevronDown } from "lucide-react";
+import { AbaContexto } from "./Site";
 import {
   avaliarCliente, ordenarClientes, resumoPortfolio,
   celulaSaude, celulaTrafego, celulaFunil, celulaVendas, vendasDe,
@@ -263,6 +264,32 @@ export default function Panorama() {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Contexto dos clientes (edição — área de gestão dev/admin) ── */}
+            {linhas.length > 0 && (
+              <div>
+                <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5 mb-1">
+                  <NotebookPen className="w-4 h-4" /> Contexto dos clientes
+                </h2>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Objetivo, oferta, público, testes e notas de cada cliente. Alimenta os relatórios e o chat do robô —
+                  fica aqui por ser informação de gestão, fora da tela do cliente.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {linhas.map((l) => (
+                    <details key={l.cliente.accountId} className="bg-card border border-border rounded-xl group">
+                      <summary className="cursor-pointer list-none px-5 py-3 flex items-center justify-between text-sm font-semibold text-foreground select-none">
+                        <span>{l.nome}</span>
+                        <ChevronDown className="w-4 h-4 text-muted-foreground transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="px-5 pb-5 pt-2 border-t border-border/50">
+                        <AbaContexto accountId={l.cliente.accountId} podeEditar />
+                      </div>
+                    </details>
+                  ))}
                 </div>
               </div>
             )}

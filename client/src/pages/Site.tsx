@@ -105,7 +105,9 @@ export default function Site() {
    * mais. O mapa leva ao lugar novo com a seção certa já aberta.
    */
   const destino = destinoDaAba(new URLSearchParams(window.location.search).get("aba"));
-  const [aba, setAba] = useState<AbaSite>(destino.aba);
+  // "contexto" saiu da UI do Site — edição vive na Panorama de Sites (dev/admin).
+  // Deep-links antigos (?aba=contexto) caem no Resumo em vez de tela vazia.
+  const [aba, setAba] = useState<AbaSite>(destino.aba === "contexto" ? "resumo" : destino.aba);
   const [secaoDestaque, setSecaoDestaque] = useState<SecaoSite | undefined>(destino.secao);
 
   const enabled = !!activeAccountId;
@@ -171,7 +173,7 @@ export default function Site() {
         </header>
 
         <div className="flex gap-1 border-b border-border">
-          {([["resumo", "Resumo", LayoutDashboard], ["performance", "Performance", Activity], ["tecnico", "Técnico", Gauge], ["relatorios", "Relatórios", FileText], ["contexto", "Contexto", NotebookPen], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
+          {([["resumo", "Resumo", LayoutDashboard], ["performance", "Performance", Activity], ["tecnico", "Técnico", Gauge], ["relatorios", "Relatórios", FileText], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
             <button key={v} onClick={() => { setAba(v); setSecaoDestaque(undefined); }}
               className={`px-4 py-2 text-sm transition border-b-2 -mb-px flex items-center gap-1.5 ${aba === v ? "border-accent text-accent font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
               <Ic className="w-3.5 h-3.5" /> {lbl}
@@ -182,7 +184,6 @@ export default function Site() {
         {aba === "resumo" && <AbaResumo accountId={activeAccountId} onIr={setAba} />}
         {aba === "performance" && <AbaPerformanceSite accountId={activeAccountId} podeConfigurar={podeConfigurar} onConfigurar={() => setConfig(true)} destaque={secaoDestaque} />}
         {aba === "tecnico" && <AbaTecnico accountId={activeAccountId} podeConfigurar={podeConfigurar} destaque={secaoDestaque} />}
-        {aba === "contexto" && <AbaContexto accountId={activeAccountId} podeEditar={podeConfigurar} />}
         {aba === "relatorios" && <AbaRelatorios accountId={activeAccountId} podeGerar={podeConfigurar} />}
         {aba === "chat" && <AbaChat accountId={activeAccountId} nome={activeAccount?.accountName ?? "este cliente"} podeLimpar={podeConfigurar} />}
 
@@ -348,7 +349,7 @@ const CAMPOS = [
   { k: "nextSteps", label: "Próximos passos combinados", ph: "O combinado com o cliente." },
 ] as const;
 
-function AbaContexto({ accountId, podeEditar }: { accountId: number; podeEditar: boolean }) {
+export function AbaContexto({ accountId, podeEditar }: { accountId: number; podeEditar: boolean }) {
   const utils = trpc.useUtils();
   const ctxQ = trpc.siteDiag.contexto.useQuery({ accountId });
   const notasQ = trpc.siteDiag.notas.useQuery({ accountId, limite: 20 });
