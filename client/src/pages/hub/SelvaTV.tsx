@@ -195,7 +195,19 @@ export function SelvaTV({ images, vocePrefere, fixedSlides }: { images: SelvaTVI
       case "vp":
         return <Frame><VocePrefereSlide leftText={vocePrefere!.leftText} rightText={vocePrefere!.rightText} active={active} /></Frame>;
       case "gravity":
-        return <Frame><GravityField fill active={active} /></Frame>;
+        return (
+          <Frame>
+            <GravityField fill active={active} />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center pb-3">
+              <span
+                className="text-[10px] uppercase tracking-[0.22em]"
+                style={{ color: "rgba(253,255,237,0.32)" }}
+              >
+                CREATING COOL SHIT
+              </span>
+            </div>
+          </Frame>
+        );
       case "fixed":
         return <Frame><DvdSlide active={active} /></Frame>;
     }
