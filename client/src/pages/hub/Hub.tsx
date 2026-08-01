@@ -27,14 +27,14 @@ const ATALHOS = [
   {
     href: "/tracker",
     icon: Boxes,
-    title: "Tracker",
+    title: "Brand Inteligent Tracker",
     desc: "Performance das campanhas em tempo real",
   },
   {
     href: "/reports",
     icon: FileText,
     title: "Relatório",
-    desc: "Relatórios prontos para apresentar ao cliente",
+    desc: "Gere relatórios prontos para o cliente",
   },
 ] as const;
 
@@ -46,26 +46,30 @@ function AtalhosRapidos() {
           <Link
             key={href}
             href={href}
-            className="group relative overflow-hidden rounded-xl border border-border bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-[#EF701B]/60 hover:shadow-lg hover:shadow-[#EF701B]/10"
+            className="group relative overflow-hidden rounded-xl p-5 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-[#EF701B]/20"
+            style={{
+              background: "linear-gradient(135deg, #12141c 0%, #0a0b11 100%)",
+              border: "1px solid rgba(253,255,237,0.08)",
+            }}
           >
             {/* brilho laranja de fundo no hover */}
             <div
-              className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
-              style={{ background: "radial-gradient(circle, rgba(239,112,27,0.35), transparent 70%)" }}
+              className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full opacity-40 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
+              style={{ background: "radial-gradient(circle, rgba(239,112,27,0.5), transparent 70%)" }}
             />
             <div className="relative flex items-start gap-4">
               <span
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors group-hover:scale-105"
-                style={{ background: "rgba(239,112,27,0.12)", color: "#EF701B" }}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105"
+                style={{ background: "rgba(239,112,27,0.16)", color: "#EF701B" }}
               >
                 <Icon className="h-5 w-5" />
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <h3 className="font-semibold leading-none">{title}</h3>
-                  <ArrowUpRight className="h-4 w-4 text-muted-foreground transition-all group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-[#EF701B]" />
+                  <h3 className="font-semibold leading-tight" style={{ color: "#FDFFED" }}>{title}</h3>
+                  <ArrowUpRight className="h-4 w-4 shrink-0 transition-all group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-[#EF701B]" style={{ color: "rgba(253,255,237,0.45)" }} />
                 </div>
-                <p className="mt-1.5 text-sm text-muted-foreground">{desc}</p>
+                <p className="mt-1.5 text-sm" style={{ color: "rgba(253,255,237,0.55)" }}>{desc}</p>
               </div>
             </div>
           </Link>

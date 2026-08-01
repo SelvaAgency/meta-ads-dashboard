@@ -83,7 +83,7 @@ const NAV_GLOBAL: NavItem[] = [
   { label: "Acessos", icon: KeyRound, kind: "internal", href: "/access" },
   { label: "Notificações", icon: Bell, kind: "placeholder" },
   { label: "Configurações", icon: Settings, kind: "internal", href: "/settings" },
-  { label: "GAME", icon: LayoutGrid, kind: "internal", href: "/spaces" },
+  { label: "Game", icon: LayoutGrid, kind: "internal", href: "/spaces" },
 ];
 
 // ─── Produtos agrupados por área ─────────────────────────────────────────────

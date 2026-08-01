@@ -26,7 +26,7 @@ export default function SpacesPage() {
               className="text-[10px] uppercase tracking-[0.22em]"
               style={{ color: "rgba(253,255,237,0.28)" }}
             >
-              clique para despejar · mouse empurra
+              CREATING COOL SHIT
             </span>
           </div>
         </div>
