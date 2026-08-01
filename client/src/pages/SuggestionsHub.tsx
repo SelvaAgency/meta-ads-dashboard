@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { getClientByMetaAccountId } from "@/config/clientConfig";
 import { fmtCurrency, fmtNumber, fmtPercent, fmtMultiplier, getDayStatus, type GoalType } from "@/lib/kpiConfig";
 import { conectada, type ChaveFonte, type Fonte, type StatusFonte } from "@shared/fontes";
+import { avaliarCliente, type ClientePanorama, type Nivel } from "@shared/panoramaLogic";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import {
@@ -328,6 +329,12 @@ export default function SuggestionsHub() {
   const { data: gAdsHoje } = trpc.googleAds.resumoHojeTodas.useQuery(undefined, {
     enabled: podeGAds, staleTime: 5 * 60_000, refetchOnWindowFocus: false,
   });
+  // Status combinado: o A/B/C do Meta (aiStatusColor) pode ESCALAR com sinais de
+  // site/GA4 (Panorama) — um site fora do ar é crítico mesmo com Meta verde. Só
+  // escala (nunca melhora) e nunca cria status onde o Meta não tem. Admin/dev.
+  const { data: panoramaSites } = trpc.panorama.sites.useQuery(undefined, {
+    enabled: podeGAds, staleTime: 5 * 60_000, refetchOnWindowFocus: false,
+  });
   // Alertas técnicos de site (LCP, headers, Clarity, PageSpeed, SSL, uptime, WAF,
   // sem teste/contexto) saíram da Visão Geral por decisão editorial — são para a
   // página Site/Panorama, não destaque executivo aqui. Só voltam nesta tela se um
@@ -395,6 +402,24 @@ export default function SuggestionsHub() {
     () => new Map(Object.entries(gAdsHoje ?? {}).map(([id, v]) => [Number(id), v as GAdsHoje])),
     [gAdsHoje],
   );
+  // Nível cross-fonte por conta (site/GA4/loja) + o motivo do pior achado.
+  const nivelMap = useMemo(() => {
+    const m = new Map<number, { nivel: Nivel; motivo: string | null }>();
+    for (const c of (panoramaSites ?? []) as ClientePanorama[]) {
+      const av = avaliarCliente(c);
+      m.set(c.accountId, { nivel: av.nivel, motivo: av.motivos[0] ?? null });
+    }
+    return m;
+  }, [panoramaSites]);
+  // Cor efetiva = pior entre Meta e Panorama. Escala só; sem status Meta = mantém.
+  const corDe = (a: any): string | null => {
+    const meta: string | null = a?.aiStatusColor ?? null;
+    if (!meta) return meta;
+    const sevMeta = ({ green: 1, yellow: 2, red: 3 } as Record<string, number>)[meta] ?? 0;
+    const sevPano = ({ ok: 1, atencao: 2, critico: 3, sem_dados: 0 } as Record<string, number>)[nivelMap.get(a.id)?.nivel ?? "sem_dados"] ?? 0;
+    const s = Math.max(sevMeta, sevPano);
+    return s >= 3 ? "red" : s === 2 ? "yellow" : "green";
+  };
 
   const p1ByAccount = suggestions
     .filter((s) => s.priority === "HIGH")
@@ -414,8 +439,8 @@ export default function SuggestionsHub() {
   const p1Count      = suggestions.filter((s) => s.priority === "HIGH").length;
   const p2Count      = suggestions.filter((s) => s.priority === "MEDIUM").length;
   const p3Count      = suggestions.filter((s) => s.priority === "LOW").length;
-  const healthyCount = (accounts ?? []).filter((a) => (a as any).aiStatusColor === "green").length;
-  const urgencyCount = (accounts ?? []).filter((a) => (a as any).aiStatusColor === "red").length;
+  const healthyCount = (accounts ?? []).filter((a) => corDe(a) === "green").length;
+  const urgencyCount = (accounts ?? []).filter((a) => corDe(a) === "red").length;
 
   // Sorted by today's spend desc (used by carousel)
   const sortedAccounts = useMemo(() => [...(accounts ?? [])].sort((a, b) => {
@@ -429,13 +454,14 @@ export default function SuggestionsHub() {
   const fogoAccounts = useMemo(() => {
     const ids = new Set<number>();
     for (const a of accounts ?? []) {
-      if ((a as any).aiStatusColor === "red") ids.add(a.id);
+      if (corDe(a) === "red") ids.add(a.id);
     }
     for (const alert of urgentAlerts ?? []) {
       if (alert.severity === "CRITICAL" && alert.accountId != null) ids.add(alert.accountId);
     }
     return (accounts ?? []).filter((a) => ids.has(a.id));
-  }, [accounts, urgentAlerts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts, urgentAlerts, nivelMap]);
 
   // Suggestions filtered for active tab
   const tabSuggestions = useMemo(() => {
@@ -625,10 +651,10 @@ export default function SuggestionsHub() {
             {/* Status cards clicáveis */}
             {(() => {
               const statusCounts = {
-                green:  (accounts ?? []).filter((a: any) => a.aiStatusColor === "green").length,
-                yellow: (accounts ?? []).filter((a: any) => a.aiStatusColor === "yellow").length,
-                red:    (accounts ?? []).filter((a: any) => a.aiStatusColor === "red").length,
-                none:   (accounts ?? []).filter((a: any) => !a.aiStatusColor || (a as any).hasTokenError).length,
+                green:  (accounts ?? []).filter((a: any) => corDe(a) === "green").length,
+                yellow: (accounts ?? []).filter((a: any) => corDe(a) === "yellow").length,
+                red:    (accounts ?? []).filter((a: any) => corDe(a) === "red").length,
+                none:   (accounts ?? []).filter((a: any) => !corDe(a) || (a as any).hasTokenError).length,
               };
               const statusDefs = [
                 { key: "green",  label: "Saudável",  sublabel: "Estado A · sem intervenção", color: "#1D9E75", bg: "rgba(29,158,117,0.06)",  activeBg: "rgba(29,158,117,0.12)",  count: statusCounts.green },
@@ -679,14 +705,15 @@ export default function SuggestionsHub() {
             <div className="flex gap-3 pb-1" style={{ overflowX: "auto", scrollbarWidth: "none" }}>
               {sortedAccounts.filter((account: any) => {
                 if (!statusFilter) return true;
-                if (statusFilter === "none") return !account.aiStatusColor || account.hasTokenError;
-                return account.aiStatusColor === statusFilter && !account.hasTokenError;
+                if (statusFilter === "none") return !corDe(account) || account.hasTokenError;
+                return corDe(account) === statusFilter && !account.hasTokenError;
               }).map((account) => {
                 const m          = metricsMap.get(account.id);
                 const g          = gAdsMap.get(account.id);
                 const totals     = g ? unifiedTotals(m, g) : normalizeTotals(m);
                 const p1         = p1ByAccount[account.id] ?? 0;
-                const estado     = estadoConfig[(account as any).aiStatusColor ?? ""] ?? null;
+                const estado     = estadoConfig[corDe(account) ?? ""] ?? null;
+                const motivo     = nivelMap.get(account.id)?.motivo ?? null;
                 const goalType   = ((account as any).goalTypeOverride as string | null) ?? "DEFAULT";
                 const dayS       = totals.spend > 0
                   ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })
@@ -723,11 +750,16 @@ export default function SuggestionsHub() {
                           {displayNameMap.get(account.id) ?? account.accountName ?? account.accountId}
                         </p>
                       </div>
-                      {estado ? (
-                        <Badge variant="outline" className={`text-[10px] font-bold ${estado.cls}`}>Estado {estado.badge}</Badge>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground/50">Sem análise</span>
-                      )}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {estado ? (
+                          <Badge variant="outline" className={`text-[10px] font-bold ${estado.cls}`}>Estado {estado.badge}</Badge>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground/50">Sem análise</span>
+                        )}
+                        {motivo && (
+                          <span className="text-[9px] text-muted-foreground truncate" title={motivo}>· {motivo}</span>
+                        )}
+                      </div>
                       <div className="border-t pt-2" style={{ borderColor: BORDER_T }}>
                         <p className="text-[10px] text-muted-foreground mb-1">Investido hoje</p>
                         <div className="flex items-center justify-between gap-1">
@@ -991,7 +1023,7 @@ export default function SuggestionsHub() {
                 const dayS      = totals.spend > 0
                   ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })
                   : null;
-                const trend     = getTrendBar((account as any).aiStatusColor);
+                const trend     = getTrendBar(corDe(account));
                 const picture   = (account as any).pictureUrl as string | null;
                 const primary   = getPrimaryResult(goalType, totals);
                 const costRes   = getCostPerResult(goalType, totals);
