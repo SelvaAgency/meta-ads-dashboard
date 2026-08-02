@@ -86,8 +86,9 @@ export async function montarContextoDaConta(opts: MontarContextoOpts): Promise<C
   // Eventos e sazonalidades
   add(acc?.events?.length, `- Eventos e sazonalidades:\n${(acc?.events ?? []).map((e) => `  • ${e.date} [${e.type}] ${e.description}`).join("\n")}`);
 
-  // Aprendizados históricos (gerados automaticamente pelo sistema)
-  add(acc?.learnings, `### Aprendizados históricos (automáticos):\n${acc?.learnings}`);
+  // Aprendizados: primeiro os consolidados (padrões duráveis), depois os recentes.
+  add(acc?.learningsConsolidated, `### Aprendizados consolidados (padrões duráveis desta conta):\n${acc?.learningsConsolidated}`);
+  add(acc?.learnings, `### Aprendizados recentes (eventos automáticos):\n${acc?.learnings}`);
 
   const accBlock = L.length ? `## CONTEXTO DESTA CONTA\n${L.join("\n")}` : "";
 

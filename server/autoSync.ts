@@ -2,6 +2,7 @@ import { logger } from "./logger";
 import { resolverTipoDaConta } from "./alertProfiles";
 import { runDailyDigestJob } from "./services/dailyDigestService";
 import { runObservacoesAutomaticas } from "./services/observacoesService";
+import { consolidarLearnings } from "./services/consolidacaoService";
 import { sincronizarGA4 } from "./services/ga4Sync";
 import { sincronizarLojas, resumirCicloLojas } from "./services/lojaSync";
 import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, hojeAgencia, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
@@ -579,6 +580,12 @@ async function runNotificacoesDiarias() {
   await passo("Semanal", async () => {
     const hoje = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", weekday: "short" }).format(new Date());
     if (hoje === "Mon") await runRelatorioSemanalDeContas();
+  });
+  // Consolidação da memória (semanal, domingo): compacta o learnings dos que
+  // passaram do limiar, pra não virar histórico infinito e ruidoso.
+  await passo("Consolidação", async () => {
+    const hoje = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", weekday: "short" }).format(new Date());
+    if (hoje === "Sun") await consolidarLearnings();
   });
   /**
    * Por último: o Jornalzinho. Um e-mail por pessoa, montado pelo papel dela.
