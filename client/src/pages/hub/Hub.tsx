@@ -8,6 +8,7 @@
  *  por usuário, tratados no backend.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Link } from "wouter";
@@ -111,10 +112,18 @@ export default function Hub() {
     title: im.title,
   }));
 
-  const now = new Date();
+  // Relógio leve: re-render a cada 30s mantém hora, saudação e data em dia sem
+  // pesar (nenhuma query é refeita). Granularidade de 30s basta para "HH:mm".
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   const name = u?.name;
   const greeting = `${greetingForHour(now.getHours())}, ${firstName(name)}`;
   const today = format(now, "EEEE, d 'de' MMMM", { locale: ptBR });
+  const hora = format(now, "HH:mm");
 
   // Aviso de aniversário: se hoje = dia/mês do perfil (banco), mensagem fixa.
   const isBirthday = u?.birthdayDay === now.getDate() && u?.birthdayMonth === now.getMonth() + 1;
@@ -130,7 +139,11 @@ export default function Hub() {
             {/* Saudação */}
             <header>
               <h1 className="text-2xl font-bold">{greeting}</h1>
-              <p className="text-sm text-muted-foreground capitalize mt-0.5">{today}</p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                <span className="capitalize">{today}</span>
+                <span className="mx-1.5 opacity-40">·</span>
+                <span className="tabular-nums">{hora}</span>
+              </p>
             </header>
 
             {/* Cards: Agenda (Google Calendar) + Meus cards (Trello) — reais */}

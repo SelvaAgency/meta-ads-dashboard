@@ -137,6 +137,11 @@ export interface AgendaEvent {
   title: string;
   allDay: boolean;
   status?: string;
+  /** Início/fim em epoch ms — para o front destacar o evento em andamento. */
+  startMs?: number;
+  endMs?: number;
+  /** Link do Google Meet (ou outra sala de vídeo), quando houver. */
+  meetingUrl?: string | null;
 }
 
 /** YYYY-MM-DD de hoje no fuso da agência. */
@@ -200,12 +205,28 @@ export async function listDayEvents(accessToken: string, ymd: string): Promise<A
       // Evento privado (organizado por outro) → não expõe detalhes indevidos.
       const isPrivate = ev.visibility === "private" || ev.visibility === "confidential";
       const title = isPrivate && !ev.summary ? "Evento privado" : (ev.summary ?? "(sem título)");
+
+      // Janela do evento (só para eventos com horário — all-day não destaca).
+      const startMs = !allDay && ev.start?.dateTime ? new Date(ev.start.dateTime).getTime() : undefined;
+      const endMs = !allDay && ev.end?.dateTime ? new Date(ev.end.dateTime).getTime() : undefined;
+
+      // Sala de vídeo: hangoutLink (Meet clássico) ou o entry point de vídeo do
+      // conferenceData (Meet novo / outros provedores).
+      let meetingUrl: string | null = ev.hangoutLink ?? null;
+      if (!meetingUrl && Array.isArray(ev.conferenceData?.entryPoints)) {
+        const video = ev.conferenceData.entryPoints.find((e: any) => e?.entryPointType === "video" && e?.uri);
+        meetingUrl = video?.uri ?? null;
+      }
+
       return {
         id: String(ev.id),
         time,
         title,
         allDay,
         status: ev.status as string | undefined,
+        startMs,
+        endMs,
+        meetingUrl,
       };
     });
 }

@@ -13,7 +13,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useEffect, useState } from "react";
-import { CalendarCheck, ChevronLeft, ChevronRight, ExternalLink, Loader2, Plug, RefreshCw } from "lucide-react";
+import { CalendarCheck, ChevronLeft, ChevronRight, ExternalLink, Loader2, Plug, RefreshCw, Video } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
 
@@ -120,16 +120,33 @@ export function AgendaCard() {
   } else if (q.data.events.length === 0) {
     body = <p className="text-sm text-muted-foreground">Nenhum compromisso para {label.toLowerCase()}. 🎉</p>;
   } else {
+    // "Agora" = evento com horário cuja janela contém o instante atual. O tick de
+    // 60s re-renderiza, então o destaque acompanha a passagem do tempo (± 1 min).
+    const now = Date.now();
     body = (
-      <div className="flex flex-col gap-2.5">
-        {q.data.events.map((ev) => (
-          <div key={ev.id} className="flex items-center gap-3 text-sm">
-            <span className={`min-w-[64px] font-semibold ${ev.allDay ? "text-muted-foreground" : "text-foreground"}`}>
-              {ev.time}
-            </span>
-            <span className="truncate">{ev.title}</span>
-          </div>
-        ))}
+      <div className="flex flex-col gap-1 -mx-2">
+        {q.data.events.map((ev) => {
+          const isNow = ev.startMs != null && ev.endMs != null && now >= ev.startMs && now < ev.endMs;
+          const joinable = !!ev.meetingUrl;
+          const cls = `group flex items-center gap-3 text-sm rounded-lg px-2 py-1.5 transition-colors ${isNow ? "bg-primary/10 ring-1 ring-primary/25" : ""} ${joinable ? "cursor-pointer hover:bg-accent/30" : ""}`;
+          const inner = (
+            <>
+              <span className={`min-w-[64px] font-semibold ${isNow ? "text-accent" : ev.allDay ? "text-muted-foreground" : "text-foreground"}`}>
+                {ev.time}
+              </span>
+              <span className="truncate flex-1">{ev.title}</span>
+              {isNow && <span className="text-[10px] font-medium text-accent px-1.5 py-0.5 rounded-full bg-primary/15 flex-shrink-0">agora</span>}
+              {joinable && <Video className={`w-3.5 h-3.5 flex-shrink-0 ${isNow ? "text-accent" : "text-muted-foreground group-hover:text-foreground"}`} />}
+            </>
+          );
+          return joinable ? (
+            <a key={ev.id} href={ev.meetingUrl!} target="_blank" rel="noreferrer" title="Entrar na reunião" className={cls}>
+              {inner}
+            </a>
+          ) : (
+            <div key={ev.id} className={cls}>{inner}</div>
+          );
+        })}
       </div>
     );
   }
