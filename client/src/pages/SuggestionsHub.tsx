@@ -421,6 +421,11 @@ export default function SuggestionsHub() {
     return s >= 3 ? "red" : s === 2 ? "yellow" : "green";
   };
 
+  // Saúde da conta = a MESMA classificação da IA do header (aiStatusColor,
+  // default amarelo). Usada na barra de saúde e no filtro do carrossel — não
+  // confundir com corDe (que combina Panorama e é usado no "Estado A/B/C").
+  const saudeDe = (a: any): string => (a?.hasTokenError ? "none" : ((a?.aiStatusColor ?? "yellow") as string));
+
   const p1ByAccount = suggestions
     .filter((s) => s.priority === "HIGH")
     .reduce<Record<number, number>>((acc, s) => {
@@ -652,10 +657,10 @@ export default function SuggestionsHub() {
                 carrossel). Forma deliberadamente distinta dos stat cards de Ações. */}
             {(() => {
               const statusCounts = {
-                green:  (accounts ?? []).filter((a: any) => corDe(a) === "green").length,
-                yellow: (accounts ?? []).filter((a: any) => corDe(a) === "yellow").length,
-                red:    (accounts ?? []).filter((a: any) => corDe(a) === "red").length,
-                none:   (accounts ?? []).filter((a: any) => !corDe(a) || (a as any).hasTokenError).length,
+                green:  (accounts ?? []).filter((a: any) => saudeDe(a) === "green").length,
+                yellow: (accounts ?? []).filter((a: any) => saudeDe(a) === "yellow").length,
+                red:    (accounts ?? []).filter((a: any) => saudeDe(a) === "red").length,
+                none:   (accounts ?? []).filter((a: any) => saudeDe(a) === "none").length,
               };
               const statusDefs = [
                 { key: "green",  label: "Saudável",  sublabel: "sem intervenção", color: "#1D9E75", count: statusCounts.green },
@@ -710,8 +715,7 @@ export default function SuggestionsHub() {
             <div className="flex gap-3 pb-1" style={{ overflowX: "auto", scrollbarWidth: "none" }}>
               {sortedAccounts.filter((account: any) => {
                 if (!statusFilter) return true;
-                if (statusFilter === "none") return !corDe(account) || account.hasTokenError;
-                return corDe(account) === statusFilter && !account.hasTokenError;
+                return saudeDe(account) === statusFilter;
               }).map((account) => {
                 const m          = metricsMap.get(account.id);
                 const g          = gAdsMap.get(account.id);
