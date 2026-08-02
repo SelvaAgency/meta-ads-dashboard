@@ -91,8 +91,18 @@
    O gutter de 58px à direita é compartilhado pelo gráfico e pelo eixo de baixo
    para que os rótulos de semana continuem alinhados com os pontos. */
 .rv-chart-wrap{position:relative;padding-right:58px}
+/* O tooltip se posiciona em % das coordenadas do viewBox — por isso ele precisa
+   de um pai que seja EXATAMENTE a caixa do svg, sem o gutter da escala. */
+.rv-plot{position:relative}
 .rv-chart{display:block}
 .rv-grid-line{stroke:var(--line);stroke-width:1;stroke-dasharray:3 5}
+.rv-alvo{fill:transparent;cursor:pointer}
+.rv-ponto{transition:r .16s ease,fill .16s ease}
+.rv-tip{position:absolute;transform:translate(-50%,calc(-100% - 14px));background:var(--deep);color:#fffdfa;border-radius:12px;padding:7px 11px;pointer-events:none;box-shadow:0 10px 24px rgba(18,28,24,.22);white-space:nowrap;z-index:2;display:flex;flex-direction:column;gap:1px}
+.rv-tip.borda-esq{transform:translate(-8px,calc(-100% - 14px))}
+.rv-tip.borda-dir{transform:translate(calc(-100% + 8px),calc(-100% - 14px))}
+.rv-tip span{font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;font-weight:700;opacity:.7}
+.rv-tip b{font-size:14px;font-weight:800;font-family:'Montserrat','DM Sans',sans-serif}
 .rv-escala{position:absolute;right:0;width:54px;text-align:right;font-size:10px;font-weight:700;color:var(--muted);line-height:1;transform:translateY(-50%);white-space:nowrap}
 .rv-escala.topo{top:8.42%}
 .rv-escala.meio{top:50%}
@@ -155,3 +165,54 @@
 .rv-prio.alta{background:rgba(244,54,140,.12);color:#9f0c58}
 .rv-prio.media{background:var(--cream);color:#8a6320}
 .rv-prio.baixa{background:var(--sage);color:var(--deep)}
+
+/* ── Movimento ────────────────────────────────────────────────────────────── */
+/* Entrada escalonada das seções. `both` no fill-mode é obrigatório: sem ele o
+   estado inicial (opacity:0) não se aplica e o conteúdo pisca antes de animar.
+   Toda animação daqui morre em @media print e em prefers-reduced-motion. */
+@keyframes rv-entra{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes rv-traca{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes rv-surge{from{opacity:0}to{opacity:1}}
+
+.rv-main > *{animation:rv-entra .55s cubic-bezier(.16,.84,.44,1) both}
+.rv-main > *:nth-child(1){animation-delay:.02s}
+.rv-main > *:nth-child(2){animation-delay:.07s}
+.rv-main > *:nth-child(3){animation-delay:.12s}
+.rv-main > *:nth-child(4){animation-delay:.17s}
+.rv-main > *:nth-child(5){animation-delay:.22s}
+.rv-main > *:nth-child(6){animation-delay:.27s}
+.rv-main > *:nth-child(7){animation-delay:.32s}
+.rv-main > *:nth-child(n+8){animation-delay:.36s}
+
+.rv-linha{stroke-dasharray:1;animation:rv-traca .85s cubic-bezier(.32,.72,.3,1) both}
+.rv-area{animation:rv-surge .7s ease .25s both}
+.rv-ponto{animation:rv-surge .3s ease both}
+
+@media(prefers-reduced-motion:reduce){
+  .rv-main > *,.rv-linha,.rv-area,.rv-ponto{animation:none}
+  .rv-linha{stroke-dasharray:none}
+  .rv-creative-card:hover{transform:none}
+  .report-view *{transition:none !important}
+}
+
+/* ── Impressão / PDF ──────────────────────────────────────────────────────── */
+/* O relatório é enviado por link, mas acaba impresso ou salvo em PDF pelo
+   cliente. Sombra e gradiente viram borrão em papel; a barra fixa se repete
+   em toda página; e as abas do gráfico não fazem sentido — só a selecionada. */
+@media print{
+  .report-view{--inner:100%;--shadow:none;background:#fff}
+  .rv-topbar{position:static;background:#fff;backdrop-filter:none}
+  .rv-main{padding:24px 0 0}
+  .rv-main > *,.rv-linha,.rv-area,.rv-ponto{animation:none}
+  .rv-linha{stroke-dasharray:none}
+  .rv-card,.rv-metric,.rv-creative-card,.rv-audience-row{box-shadow:none}
+  .rv-card,.rv-status-card,.rv-creative-card,.rv-audience-row{break-inside:avoid;page-break-inside:avoid}
+  .rv-h1,.rv-card h3,.rv-status-card h3,.rv-status-card h4{break-after:avoid;page-break-after:avoid}
+  .rv-tab{display:none}
+  .rv-tab.active{display:inline-flex}
+  .rv-tip{display:none}
+  /* Sem isto o navegador descarta os fundos e as pastilhas somem no papel. */
+  .rv-pill,.rv-delta,.rv-prio,.rv-eyebrow,.rv-status-card,.rv-tab.active,.rv-thumb{
+    -webkit-print-color-adjust:exact;print-color-adjust:exact
+  }
+}

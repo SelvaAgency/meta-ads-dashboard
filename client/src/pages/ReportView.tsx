@@ -118,6 +118,9 @@ function GraficoSemanal({ series, metric, tabs, onMetric }: {
   tabs: Array<{ key: Metric; label: string }>;
   onMetric: (m: Metric) => void;
 }) {
+  // `null` = nenhum ponto sob o cursor. Sobrevive à troca de métrica de
+  // propósito: quem está inspecionando uma semana quer vê-la na métrica nova.
+  const [ativo, setAtivo] = useState<number | null>(null);
   const chart = useMemo(() => {
     if (!series.length) return null;
     return { ...buildChartPath(series.map((p) => p.value ?? 0)), semanas: series.map((p) => p.week) };
@@ -143,21 +146,51 @@ function GraficoSemanal({ series, metric, tabs, onMetric }: {
         ))}
       </div>
       <div className="rv-chart-wrap">
-        <svg className="rv-chart" viewBox={`0 0 ${chart.w} ${chart.h}`} width="100%" role="img"
-          aria-label={`Evolução semanal de ${tabs.find((t) => t.key === metric)?.label ?? ""}`}>
-          {linhasY.map((y, i) => (
-            <line key={i} className="rv-grid-line" x1={chart.pad} x2={chart.w - chart.pad} y1={y} y2={y} />
-          ))}
-          <path d={chart.area} fill="rgba(23,63,59,.12)" />
-          <path d={chart.line} fill="none" stroke="#173f3b" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
-          {chart.pts.map((p, i) => {
-            const ultimo = i === chart.pts.length - 1;
-            return (
-              <circle key={i} cx={p[0]} cy={p[1]} r={ultimo ? 6 : 4}
-                fill={ultimo ? "#f4368c" : "#173f3b"} stroke="#fffdfa" strokeWidth={2.5} />
-            );
-          })}
-        </svg>
+        <div className="rv-plot" onPointerLeave={() => setAtivo(null)}>
+          <svg className="rv-chart" viewBox={`0 0 ${chart.w} ${chart.h}`} width="100%" role="img"
+            aria-label={`Evolução semanal de ${tabs.find((t) => t.key === metric)?.label ?? ""}`}>
+            {linhasY.map((y, i) => (
+              <line key={i} className="rv-grid-line" x1={chart.pad} x2={chart.w - chart.pad} y1={y} y2={y} />
+            ))}
+            {/* `key={metric}` remonta o grupo: a linha se redesenha ao trocar de
+                aba, em vez de trocar de forma instantaneamente. */}
+            <g key={metric}>
+              <path className="rv-area" d={chart.area} fill="rgba(23,63,59,.12)" />
+              {/* pathLength=1 normaliza o comprimento: o dash da animação não
+                  depende do tamanho real do traçado, que muda a cada métrica. */}
+              <path className="rv-linha" d={chart.line} pathLength={1} fill="none" stroke="#173f3b"
+                strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+              {chart.pts.map((p, i) => {
+                const ultimo = i === chart.pts.length - 1;
+                const destacado = ativo === i;
+                return (
+                  <circle key={i} className="rv-ponto" cx={p[0]} cy={p[1]}
+                    r={destacado ? 7.5 : ultimo ? 6 : 4}
+                    fill={ultimo || destacado ? "#f4368c" : "#173f3b"} stroke="#fffdfa" strokeWidth={2.5}
+                    style={{ animationDelay: `${240 + i * 55}ms` }} />
+                );
+              })}
+              {/* Faixa invisível de largura inteira por semana: acertar um ponto
+                  de 4px com o dedo não acontece. */}
+              {chart.pts.map((p, i) => {
+                const faixa = chart.w / chart.pts.length;
+                return (
+                  <rect key={`alvo-${i}`} className="rv-alvo" x={p[0] - faixa / 2} y={0} width={faixa} height={chart.h}
+                    onPointerEnter={() => setAtivo(i)} onPointerDown={() => setAtivo(i)} />
+                );
+              })}
+            </g>
+          </svg>
+          {ativo !== null && series[ativo] && (
+            <div
+              className={`rv-tip ${ativo === 0 ? "borda-esq" : ativo === chart.pts.length - 1 ? "borda-dir" : ""}`}
+              style={{ left: `${(chart.pts[ativo][0] / chart.w) * 100}%`, top: `${(chart.pts[ativo][1] / chart.h) * 100}%` }}
+            >
+              <span>semana de {fmtSemana(chart.semanas[ativo])}</span>
+              <b>{dinheiro ? fmtBRL(series[ativo].value) : fmtNum(series[ativo].value)}</b>
+            </div>
+          )}
+        </div>
         {escala.map((e) => (
           <span key={e.pos} className={`rv-escala ${e.pos}`}>{fmtCurto(e.valor, dinheiro)}</span>
         ))}
