@@ -482,6 +482,18 @@ const contextRouter = router({
       events: z.array(z.object({ date: z.string(), type: z.string(), description: z.string() })).optional(),
       freeInput: z.string().optional(),
       focusMoment: z.string().optional(),
+      // Campos de site (tabela unificada — Fase 2/3): editáveis pela seção
+      // "Contexto Geral". Antes só a AbaContexto (Site/Panorama) os gravava.
+      objective: z.string().optional(),
+      offer: z.string().optional(),
+      audience: z.string().optional(),
+      importantPagesJson: z.array(z.string()).optional(),
+      conversionEventsJson: z.array(z.string()).optional(),
+      trackingNotes: z.string().optional(),
+      currentHypotheses: z.string().optional(),
+      constraints: z.string().optional(),
+      previousTests: z.string().optional(),
+      nextSteps: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { accountId, ...values } = input;

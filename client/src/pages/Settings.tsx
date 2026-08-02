@@ -5,7 +5,7 @@ import { canManageContent } from "@shared/permissions";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
 import { useState, useEffect } from "react";
-import { ContextPanel } from "@/components/ContextPanel";
+import { ContextoGeralPanel } from "@/components/ContextoGeralPanel";
 import { toast } from "sonner";
 import {
   Settings2, Check, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
@@ -342,9 +342,9 @@ function AccountCard({ account }: { account: any }) {
         </div>
       )}
 
-      {/* Contexto panel */}
+      {/* Contexto Geral — tela única de contexto (Fase 3) */}
       {contextOpen && (
-        <ContextPanel accountId={account.id} onClose={() => setContextOpen(false)} />
+        <ContextoGeralPanel accountId={account.id} onClose={() => setContextOpen(false)} />
       )}
     </div>
   );
