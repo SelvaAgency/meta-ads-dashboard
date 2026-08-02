@@ -516,9 +516,9 @@ export function AccountHeader({
                 </div>
                 <div className="grid grid-cols-4 gap-x-2">
                   {kpiDefs.map((kpi) => (
-                    <div key={kpi.key}>
+                    <div key={kpi.key} className="min-w-0">
                       <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground truncate mb-0.5">{kpi.label}</div>
-                      <div className="text-lg font-extrabold text-foreground leading-tight whitespace-nowrap tabular-nums">{kpi.format(totals)}</div>
+                      <div className="text-[13px] font-extrabold text-foreground leading-tight truncate tabular-nums">{kpi.format(totals)}</div>
                     </div>
                   ))}
                 </div>
