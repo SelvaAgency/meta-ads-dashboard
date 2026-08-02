@@ -311,6 +311,7 @@ import { parseNubankCsv } from "./services/fatura/parseNubank";
 import { conciliarFatura } from "./services/fatura/classificador";
 import { carregarDicionario, aprenderRegras } from "./services/fatura/dicionario";
 import { fontesDoCliente, fontesDeTodasAsContas, lojasERedesPorConta } from "./services/fontesDoCliente";
+import { saudeDoPortfolio } from "./services/saudePortfolio";
 import { sincronizarGA4 } from "./services/ga4Sync";
 import { testarConexaoWoo, validarUrlDaLoja } from "./services/woocommerce";
 import { testarConexaoVnda, validarUrlVnda, resolverShopHost } from "./services/vnda";
@@ -4414,6 +4415,12 @@ export const appRouter = router({
 
     /** Lojas + Redes por conta (fora do agregador) — só para a matriz do hub. */
     lojasERedes: protectedProcedure.query(() => lojasERedesPorConta()),
+  }),
+
+  // ─── Saúde do portfólio (veredito único por conta) ─────────────────────────
+  saude: router({
+    /** Nível de saúde de cada conta, computado no servidor (fonte única). */
+    portfolio: protectedProcedure.query(() => saudeDoPortfolio()),
   }),
 
   // ─── Google Ads ──────────────────────────────────────────────────────────

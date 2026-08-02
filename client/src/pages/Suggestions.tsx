@@ -1,6 +1,7 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
+import { SAUDE_CFG } from "@shared/saudeConta";
 import {
   Brain, CheckCircle2, ChevronDown, ChevronUp, Clock, DollarSign,
   Lightbulb, Link2, RefreshCw, Target, Users, XCircle, Zap, Eye,
@@ -636,6 +637,7 @@ export default function Suggestions() {
   });
 
   const { data: suggestions, isLoading } = trpc.suggestions.list.useQuery({ accountId: selectedAccountId! }, { enabled: !!selectedAccountId });
+  const { data: saudeData } = trpc.saude.portfolio.useQuery(undefined, { staleTime: 60_000, refetchOnWindowFocus: false });
   const { data: hist = [] } = trpc.suggestions.history.useQuery({ accountId: selectedAccountId! }, { enabled: !!selectedAccountId });
   const { data: accountCtx } = trpc.context.getAccount.useQuery({ accountId: selectedAccountId! }, { enabled: !!selectedAccountId, staleTime: 30_000 });
   const { data: experiments } = trpc.experiments.list.useQuery({ accountId: selectedAccountId! }, { enabled: !!selectedAccountId });
@@ -708,9 +710,9 @@ export default function Suggestions() {
   const p3 = pending.filter((s: any) => ["P3","LOW"].includes(s.priority));
 
   const account = accounts?.find((a: any) => a.id === selectedAccountId);
-  const aiColor = (account as any)?.aiStatusColor as "green" | "yellow" | "red" | null;
-  const stateColors = { green: { color: "#1D9E75", label: "Saudável", bg: "rgba(29,158,117,0.08)", border: "rgba(29,158,117,0.25)" }, yellow: { color: "#EF9F27", label: "Atenção", bg: "rgba(239,159,39,0.08)", border: "rgba(239,159,39,0.25)" }, red: { color: "#E24B4A", label: "Crítico", bg: "rgba(226,75,74,0.08)", border: "rgba(226,75,74,0.25)" } };
-  const stateCfg = aiColor ? stateColors[aiColor] : stateColors.yellow;
+  // Veredito ÚNICO de saúde (servidor) — mesmo motor da Visão Geral e do header.
+  const nivelSaude = (saudeData ?? []).find((s) => s.accountId === selectedAccountId)?.nivel ?? "sem_dados";
+  const saudeCfg = SAUDE_CFG[nivelSaude];
 
   const activeExperiments = (experiments ?? []).filter((e: any) => e.status === "active");
 
@@ -852,9 +854,9 @@ export default function Suggestions() {
           <div>
             <h1 style={{ fontSize: 20, fontWeight: 700, color: "#111", marginBottom: 4 }}>Plano de Ação</h1>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 500, background: stateCfg.bg, color: stateCfg.color, border: `0.5px solid ${stateCfg.border}` }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: stateCfg.color, display: "inline-block" }} />
-                {stateCfg.label}
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${saudeCfg.chip}`}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: saudeCfg.cor, display: "inline-block" }} />
+                {saudeCfg.label}
               </span>
               {account?.accountName && <span style={{ fontSize: 11, color: "rgba(0,0,0,0.4)" }}>{account.accountName}</span>}
             </div>

@@ -10,6 +10,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { KPI_CONFIGS, getDayStatus, type GoalType } from "@/lib/kpiConfig";
 import { type Fonte, type StatusFonte, type ChaveFonte } from "@shared/fontes";
+import { SAUDE_CFG } from "@shared/saudeConta";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 
@@ -132,11 +133,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   GENERAL:            "#E85BA8",
 };
 
-const STATUS_CFG = {
-  green:  { color: "#1D9E75", label: "Saudável" },
-  yellow: { color: "#EF9F27", label: "Atenção"  },
-  red:    { color: "#E24B4A", label: "Crítico"  },
-};
 
 const blockLabel = (text: string) => (
   <p style={{ fontSize: 9, fontWeight: 700, color: "rgba(0,0,0,0.3)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>
@@ -224,6 +220,8 @@ export function AccountHeader({
     { accountId: selectedAccountId! },
     { enabled: !!selectedAccountId, staleTime: 5 * 60 * 1000 }
   );
+  // Veredito ÚNICO de saúde (servidor) — o mesmo que a Visão Geral usa.
+  const { data: saudeData } = trpc.saude.portfolio.useQuery(undefined, { staleTime: 60_000, refetchOnWindowFocus: false });
   const { data: billingSummary } = trpc.accounts.billingSummary.useQuery(
     { accountId: selectedAccountId! },
     { enabled: !!selectedAccountId, staleTime: 30 * 60 * 1000 }
@@ -319,24 +317,18 @@ export function AccountHeader({
 
   if (!selectedAccountId || !activeAccount) return null;
 
-  const rawAiColor = (activeAccount as any)?.aiStatusColor as "green" | "yellow" | "red" | null | undefined;
-  const aiColor   = (rawAiColor ?? "yellow") as "green" | "yellow" | "red";
   const aiSummary: string = (activeAccount as any)?.aiStatusSummary
     ?? "Análise pendente — execute um sync para gerar";
+  // Nível canônico desta conta (regras + IA), vindo do servidor.
+  const nivelSaude = (saudeData ?? []).find((s) => s.accountId === selectedAccountId)?.nivel ?? "sem_dados";
+  const saudeCfg = SAUDE_CFG[nivelSaude];
 
   const accountName: string = (activeAccount as any).displayName ?? activeAccount.accountName ?? activeAccount.accountId;
   const initials  = (activeClient?.shortName ?? accountName.slice(0, 2)).toUpperCase();
   const palette   = ACCOUNT_COLORS[activeClient?.color ?? "fuchsia"] ?? ACCOUNT_COLORS.fuchsia!;
   const pictureUrl: string | null | undefined = (activeAccount as any).pictureUrl ?? activeClient?.pictureUrl;
 
-  const STATE_BORDER: Record<"green" | "yellow" | "red", string> = {
-    green:  "#639922",
-    yellow: "#EF9F27",
-    red:    "#E24B4A",
-  };
-  const block1BorderColor = rawAiColor ? STATE_BORDER[rawAiColor] : null;
-
-  const statusCfg = aiColor ? STATUS_CFG[aiColor] : null;
+  const block1BorderColor = saudeCfg.cor;
   const muted = "rgba(0,0,0,0.4)";
 
   const kpiDefs = KPI_CONFIGS[goalType].slice(0, 4);
@@ -436,11 +428,11 @@ export function AccountHeader({
 
         {/* ── Resumo da IA (destaque, borda-status à esquerda) ── */}
         <div className="rounded-xl border border-border bg-background/30 p-4 flex flex-col"
-          style={block1BorderColor ? { borderLeft: `3px solid ${block1BorderColor}` } : {}}>
+          style={{ borderLeft: `3px solid ${block1BorderColor}` }}>
           <div className="flex items-center gap-2 mb-2.5">
-            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: statusCfg?.color ?? "rgba(0,0,0,0.2)" }} />
-            <span className="text-sm font-bold flex-1" style={{ color: statusCfg?.color ?? muted }}>
-              {statusCfg?.label ?? "Status IA"} <span className="font-medium opacity-70">— 7 dias</span>
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: saudeCfg.cor }} />
+            <span className="text-sm font-bold flex-1" style={{ color: saudeCfg.cor }}>
+              {saudeCfg.label} <span className="font-medium opacity-70">— 7 dias</span>
             </span>
             <button
               onClick={() => { if (!resumoCtxOpen) setResumoCtx((accountCtx as any)?.quickContext ?? ""); setResumoCtxOpen((v) => !v); }}

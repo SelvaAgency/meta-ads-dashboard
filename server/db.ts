@@ -959,6 +959,21 @@ export async function getUrgentAlertsForUser(userId: number) {
     .limit(3);
 }
 
+/**
+ * Sinais de alerta por conta para o veredito de saúde: todos os alertas NÃO
+ * lidos das contas ativas (accountId, severity, type, title). O serviço de saúde
+ * deriva daqui "tem alerta crítico" e "token com erro". Enxuto de propósito.
+ */
+export async function getAlertasParaSaude(): Promise<{ accountId: number | null; severity: string; type: string; title: string }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ accountId: alerts.accountId, severity: alerts.severity, type: alerts.type, title: alerts.title })
+    .from(alerts)
+    .innerJoin(metaAdAccounts, eq(alerts.accountId, metaAdAccounts.id))
+    .where(and(eq(metaAdAccounts.isActive, true), eq(alerts.isRead, false)));
+}
+
 export async function getAllSuggestionsForUser(userId: number) {
   const db = await getDb();
   if (!db) return { suggestions: [], appliedToday: 0 };

@@ -8,8 +8,7 @@ import { toast } from "sonner";
 import { getClientByMetaAccountId } from "@/config/clientConfig";
 import { fmtCurrency, fmtNumber, fmtPercent, fmtMultiplier, getDayStatus, type GoalType } from "@/lib/kpiConfig";
 import { conectada, type ChaveFonte, type Fonte, type StatusFonte } from "@shared/fontes";
-import { avaliarCliente, type ClientePanorama, type Nivel } from "@shared/panoramaLogic";
-import { saudeConta, SAUDE_CFG, ORDEM_SAUDE, type NivelSaude } from "@shared/saudeConta";
+import { SAUDE_CFG, ORDEM_SAUDE, type NivelSaude } from "@shared/saudeConta";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import {
@@ -308,7 +307,10 @@ export default function SuggestionsHub() {
   const { data, isLoading: suggestionsLoading } = trpc.suggestions.listAll.useQuery(undefined, { refetchOnWindowFocus: false });
   const { data: accounts }      = trpc.accounts.list.useQuery(undefined, { refetchOnWindowFocus: false });
   const { data: todayMetrics }  = trpc.accounts.todayMetrics.useQuery(undefined, { refetchOnWindowFocus: false });
-  const { data: urgentAlerts }  = trpc.alerts.listUrgent.useQuery(undefined, { refetchOnWindowFocus: false });
+  // Veredito ÚNICO de saúde por conta — computado no servidor (fonte única, lida
+  // por todas as telas). Substitui o combine local de aiStatusColor + Panorama +
+  // alertas que vivia aqui.
+  const { data: saudeData } = trpc.saude.portfolio.useQuery(undefined, { staleTime: 60_000, refetchOnWindowFocus: false });
   const { data: briefingData, isLoading: briefingLoading } = trpc.suggestions.getDailyBriefing.useQuery(undefined, { refetchOnWindowFocus: false });
   // Selo de fonte nos cards: mostra quais fontes cada conta tem conectadas hoje
   // (Meta, Ads, GA4, Site…). Fase 1 do multi-fonte — ainda não muda as métricas,
@@ -320,12 +322,6 @@ export default function SuggestionsHub() {
   const { user } = useAuth();
   const podeGAds = canManageContent(user?.role);
   const { data: gAdsHoje } = trpc.googleAds.resumoHojeTodas.useQuery(undefined, {
-    enabled: podeGAds, staleTime: 5 * 60_000, refetchOnWindowFocus: false,
-  });
-  // Status combinado: o A/B/C do Meta (aiStatusColor) pode ESCALAR com sinais de
-  // site/GA4 (Panorama) — um site fora do ar é crítico mesmo com Meta verde. Só
-  // escala (nunca melhora) e nunca cria status onde o Meta não tem. Admin/dev.
-  const { data: panoramaSites } = trpc.panorama.sites.useQuery(undefined, {
     enabled: podeGAds, staleTime: 5 * 60_000, refetchOnWindowFocus: false,
   });
   // Alertas técnicos de site (LCP, headers, Clarity, PageSpeed, SSL, uptime, WAF,
@@ -395,30 +391,13 @@ export default function SuggestionsHub() {
     () => new Map(Object.entries(gAdsHoje ?? {}).map(([id, v]) => [Number(id), v as GAdsHoje])),
     [gAdsHoje],
   );
-  // Nível cross-fonte por conta (site/GA4/loja) + o motivo do pior achado.
-  const nivelMap = useMemo(() => {
-    const m = new Map<number, { nivel: Nivel; motivo: string | null }>();
-    for (const c of (panoramaSites ?? []) as ClientePanorama[]) {
-      const av = avaliarCliente(c);
-      m.set(c.accountId, { nivel: av.nivel, motivo: av.motivos[0] ?? null });
-    }
-    return m;
-  }, [panoramaSites]);
-  // Contas com alerta CRÍTICO ativo — um dos sinais do veredito de saúde.
-  const criticalAlertIds = useMemo(
-    () => new Set((urgentAlerts ?? []).filter((x: any) => x.severity === "CRITICAL" && x.accountId != null).map((x: any) => x.accountId as number)),
-    [urgentAlerts],
+  // Veredito ÚNICO de saúde por conta — vem pronto do servidor (saude.portfolio),
+  // que combina IA + Panorama + alertas com o mesmo motor de todas as telas.
+  const saudeMap = useMemo(
+    () => new Map((saudeData ?? []).map((s) => [s.accountId, s])),
+    [saudeData],
   );
-
-  // Veredito ÚNICO de saúde da conta (motor compartilhado): regras definem o piso
-  // (Panorama + alerta crítico + token), a IA refina o resto. Um lugar só — antes
-  // a barra usava só a IA e o carrossel o "pior dos dois", e discordavam.
-  const nivelDe = (a: any): NivelSaude => saudeConta({
-    aiStatusColor: a?.aiStatusColor ?? null,
-    panoramaNivel: nivelMap.get(a?.id)?.nivel ?? null,
-    temAlertaCritico: criticalAlertIds.has(a?.id),
-    temErroToken: !!a?.hasTokenError,
-  });
+  const nivelDe = (a: any): NivelSaude => saudeMap.get(a?.id)?.nivel ?? "sem_dados";
 
   const p1ByAccount = suggestions
     .filter((s) => s.priority === "HIGH")
@@ -453,7 +432,7 @@ export default function SuggestionsHub() {
   const fogoAccounts = useMemo(
     () => (accounts ?? []).filter((a) => nivelDe(a) === "critico"),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [accounts, urgentAlerts, nivelMap, criticalAlertIds],
+    [accounts, saudeMap],
   );
 
   // Suggestions filtered for active tab
@@ -707,7 +686,7 @@ export default function SuggestionsHub() {
                 const p1         = p1ByAccount[account.id] ?? 0;
                 const nivel      = nivelDe(account);
                 const saude      = SAUDE_CFG[nivel];
-                const motivo     = nivelMap.get(account.id)?.motivo ?? null;
+                const motivo     = saudeMap.get(account.id)?.motivo ?? null;
                 const goalType   = ((account as any).goalTypeOverride as string | null) ?? "DEFAULT";
                 const dayS       = totals.spend > 0
                   ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })

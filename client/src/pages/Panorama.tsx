@@ -27,7 +27,7 @@ import {
 const NIVEL_UI: Record<Nivel, { rotulo: string; cls: string; dot: string; tom: "critico" | "atencao" | "ok" | "neutro" }> = {
   critico: { rotulo: "Crítico", cls: "text-red-600 dark:text-red-400", dot: "bg-red-500", tom: "critico" },
   atencao: { rotulo: "Atenção", cls: "text-amber-600 dark:text-amber-400", dot: "bg-amber-500", tom: "atencao" },
-  ok: { rotulo: "Ok", cls: "text-emerald-600 dark:text-emerald-400", dot: "bg-emerald-500", tom: "ok" },
+  ok: { rotulo: "Saudável", cls: "text-emerald-600 dark:text-emerald-400", dot: "bg-emerald-500", tom: "ok" },
   sem_dados: { rotulo: "Sem dados", cls: "text-muted-foreground/70", dot: "bg-muted-foreground/30", tom: "neutro" },
 };
 
