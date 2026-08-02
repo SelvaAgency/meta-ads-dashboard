@@ -7,7 +7,6 @@ import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import { toast } from "sonner";
 import { getClientByMetaAccountId } from "@/config/clientConfig";
 import { fmtCurrency, fmtNumber, fmtPercent, fmtMultiplier, getDayStatus, type GoalType } from "@/lib/kpiConfig";
-import { Painel, PizzaDistribuicao, BarrasTop } from "@/components/kit";
 import { conectada, type ChaveFonte, type Fonte, type StatusFonte } from "@shared/fontes";
 import { avaliarCliente, type ClientePanorama, type Nivel } from "@shared/panoramaLogic";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -529,33 +528,6 @@ export default function SuggestionsHub() {
 
   const briefingParsed = briefingData?.content ? parseBriefing(briefingData.content) : null;
 
-  // ── Datasets dos gráficos do portfólio (Panorama) ─────────────────────────
-  const saudeRaw = (() => {
-    const c = { green: 0, yellow: 0, red: 0, none: 0 };
-    for (const a of accounts ?? []) {
-      const cor = (!corDe(a) || (a as any).hasTokenError) ? "none" : (corDe(a) as string);
-      (c as any)[cor] = ((c as any)[cor] ?? 0) + 1;
-    }
-    return [
-      { nome: "Saudável", valor: c.green, cor: "#1D9E75" },
-      { nome: "Atenção", valor: c.yellow, cor: "#EF9F27" },
-      { nome: "Crítico", valor: c.red, cor: "#E24B4A" },
-      { nome: "Sem dados", valor: c.none, cor: "rgba(120,120,120,0.4)" },
-    ].filter((d) => d.valor > 0);
-  })();
-  const saudeDist = saudeRaw.map(({ nome, valor }) => ({ nome, valor }));
-  const saudeCores = saudeRaw.map((d) => d.cor);
-  const topInvest = (accounts ?? [])
-    .map((a: any) => {
-      const m = metricsMap.get(a.id);
-      const g = gAdsMap.get(a.id);
-      const totals = g ? unifiedTotals(m, g) : normalizeTotals(m);
-      return { nome: displayNameMap.get(a.id) ?? a.accountName ?? String(a.accountId), valor: Number(totals.spend ?? 0) };
-    })
-    .filter((d) => d.valor > 0)
-    .sort((a, b) => b.valor - a.valor)
-    .slice(0, 6);
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -596,22 +568,6 @@ export default function SuggestionsHub() {
             </div>
           </div>
         </div>
-
-        {/* ══ Panorama do portfólio — gráficos (saúde + investimento) ══════ */}
-        {(saudeDist.length > 0 || topInvest.length > 0) && (
-          <div className="px-6 pt-6" style={{ order: -1 }}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Painel titulo="Saúde das contas" extra={`${accounts?.length ?? 0} contas · 7d`}>
-                {saudeDist.length > 0
-                  ? <PizzaDistribuicao dados={saudeDist} cores={saudeCores} />
-                  : <p className="text-xs text-muted-foreground py-4 text-center">Sem análise ainda.</p>}
-              </Painel>
-              <Painel titulo="Investimento por conta" extra="hoje">
-                <BarrasTop dados={topInvest} fmt={fmtCurrency} />
-              </Painel>
-            </div>
-          </div>
-        )}
 
         {/* ══ 1 — Caixa unificada: top bar + briefing + status cards ══════ */}
         {mostrar("midia_geral") && (
@@ -708,27 +664,33 @@ export default function SuggestionsHub() {
               ];
               return (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 0 }}>
-                  {statusDefs.map(({ key, label, sublabel, color, bg, activeBg, count }, i) => (
+                  {statusDefs.map(({ key, label, sublabel, color, bg, activeBg, count }, i) => {
+                    const ativo = statusFilter === key;
+                    return (
                     <button
                       key={key}
-                      onClick={() => setStatusFilter(statusFilter === key ? null : key)}
+                      onClick={() => setStatusFilter(ativo ? null : key)}
                       style={{
-                        padding: "14px 16px",
-                        background: statusFilter === key ? activeBg : bg,
+                        padding: "18px 18px",
+                        background: ativo ? activeBg : bg,
                         borderTop: `0.5px solid ${BORDER_T}`,
                         borderRight: i < 3 ? `0.5px solid ${BORDER_T}` : "none",
-                        borderBottom: statusFilter === key ? `2px solid ${color}` : "none",
+                        borderBottom: `3px solid ${ativo ? color : "transparent"}`,
                         borderLeft: "none",
                         cursor: "pointer",
                         textAlign: "left",
                         transition: "all 0.15s",
                       }}
                     >
-                      <p style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", color, marginBottom: 6 }}>{label} · 7d</p>
-                      <p style={{ fontSize: 26, fontWeight: 500, color, lineHeight: 1, marginBottom: 4 }}>{count}</p>
-                      <p style={{ fontSize: 10, color, opacity: 0.6 }}>{sublabel}</p>
+                      <div className="flex items-center gap-1.5" style={{ marginBottom: 10 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: 99, background: color, flexShrink: 0 }} />
+                        <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color }}>{label}</p>
+                      </div>
+                      <p style={{ fontSize: 34, fontWeight: 800, color, lineHeight: 1, letterSpacing: "-0.02em" }}>{count}</p>
+                      <p style={{ fontSize: 10.5, color, opacity: 0.6, marginTop: 6, lineHeight: 1.3 }}>{sublabel}</p>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               );
             })()}
