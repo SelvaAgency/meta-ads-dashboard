@@ -288,7 +288,14 @@ export async function syncAccount(account: { id: number; accountId: string; acce
       const aiResult = await invokeLLM({
         messages: [{
           role: "user",
-          content: `Analise os dados de performance dos últimos 7 dias e retorne um JSON com dois campos: "color" (green/yellow/red) e "summary" (máx 300 caracteres em português, sem emoji). O summary deve conter: (1) status geral da conta, (2) principal métrica positiva ou problemática com valor, (3) uma ação sugerida objetiva. Verde = conta saudável, Amarelo = atenção necessária, Vermelho = problema crítico.${blocoCtx}\n\nDados:\n${JSON.stringify({ ...t, roas, cpa, ctr })}`,
+          content: `Você classifica a SAÚDE de uma conta de mídia dos últimos 7 dias. Retorne um JSON com "color" (green/yellow/red) e "summary" (máx 300 caracteres em pt-BR, sem emoji: (1) status geral, (2) principal métrica positiva OU problemática com valor, (3) uma ação objetiva).
+
+Classifique SEMPRE em relação às metas desta conta (quando houver, no contexto abaixo) e à própria média/tendência da conta — NUNCA em absoluto:
+- green (Saudável): resultados dentro ou ACIMA das metas/média; nada exige ação hoje. Uma conta indo bem ou melhor que o normal é green, mesmo com pequenos ajustes possíveis.
+- yellow (Atenção): algo piorou, ficou abaixo da meta ou merece um olhar — sem ser emergência.
+- red (Crítico): problema REAL queimando dinheiro ou travando resultado AGORA (ex.: gasto relevante sem conversão, ROAS muito abaixo da meta, queda abrupta de resultado).
+
+Seja CONSERVADOR com o vermelho: uma conta acima da média NUNCA é vermelha. Na dúvida entre dois níveis, escolha o mais brando. A maioria das contas saudáveis deve ser green.${blocoCtx}\n\nDados:\n${JSON.stringify({ ...t, roas, cpa, ctr })}`,
         }],
         responseFormat: { type: "json_object" },
         thinking: false,

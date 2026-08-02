@@ -27,11 +27,9 @@ export async function saudeDoPortfolio(): Promise<SaudeConta[]> {
 
   const panoramaPorConta = new Map(clientes.map((c) => [c.accountId, avaliarCliente(c)]));
 
-  const comAlertaCritico = new Set<number>();
   const comErroToken = new Set<number>();
   for (const a of alertas) {
     if (a.accountId == null) continue;
-    if (a.severity === "CRITICAL") comAlertaCritico.add(a.accountId);
     // Mesma regra do accounts.list: SYNC_ERROR não lido cujo título é "Token expirado…".
     if (a.type === "SYNC_ERROR" && a.title?.startsWith("Token expirado")) comErroToken.add(a.accountId);
   }
@@ -41,7 +39,10 @@ export async function saudeDoPortfolio(): Promise<SaudeConta[]> {
     const nivel = saudeConta({
       aiStatusColor: ((c as { aiStatusColor?: string | null }).aiStatusColor ?? null) as CorIA,
       panoramaNivel: pano?.nivel ?? null,
-      temAlertaCritico: comAlertaCritico.has(c.id),
+      // temAlertaCritico DESLIGADO por ora: o sistema de alertas está pausado e o
+      // backlog de alertas críticos antigos (nunca marcados como lidos) floorava
+      // TODAS as contas para Crítico. Volta na Fase 2, com a taxonomia de alertas
+      // limpa e a fronteira alerta/recomendação definida.
       temErroToken: comErroToken.has(c.id),
     });
     return { accountId: c.id, nivel, motivo: pano?.motivos[0] ?? null };
