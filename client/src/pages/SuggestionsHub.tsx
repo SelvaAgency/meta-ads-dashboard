@@ -574,8 +574,8 @@ export default function SuggestionsHub() {
         <div className="px-6 pt-6" style={{ order: ordemWidget("midia_geral") }}>
           <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, overflow: "hidden" }}>
 
-            {/* Top bar */}
-            <div className="flex items-center gap-2 text-xs text-muted-foreground" style={{ padding: "10px 16px", borderBottom: `0.5px solid ${BORDER_T}` }}>
+            {/* Top bar — faixa de cabeçalho (fundo sutil dá hierarquia à caixa) */}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground" style={{ padding: "11px 20px", borderBottom: `0.5px solid ${BORDER_T}`, background: BG_SECONDARY }}>
               <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
               <span className="text-foreground/80 font-medium">{statusDateLabel()}</span>
               <span className="text-border/60 select-none">·</span>
@@ -602,10 +602,10 @@ export default function SuggestionsHub() {
             </div>
 
             {/* Briefing da IA */}
-            <div style={{ padding: "14px 16px", borderBottom: `0.5px solid ${BORDER_T}` }}>
-              <div className="flex items-center gap-2 mb-2">
-                <Sparkles className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#E85BA8" }} />
-                <span className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "#E85BA8" }}>Resumo do Dia</span>
+            <div style={{ padding: "18px 20px", borderBottom: `0.5px solid ${BORDER_T}` }}>
+              <div className="flex items-center gap-2 mb-2.5">
+                <Sparkles className="w-4 h-4 flex-shrink-0" style={{ color: "#E85BA8" }} />
+                <span className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "#E85BA8" }}>Resumo do Dia</span>
               </div>
               {briefingLoading ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -614,23 +614,23 @@ export default function SuggestionsHub() {
                 </div>
               ) : briefingParsed ? (
                 <div>
-                  {/* Resumo sempre visível */}
+                  {/* Resumo sempre visível — texto principal do dia */}
                   {briefingParsed.resumo && (
-                    <p style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary, var(--foreground))", lineHeight: 1.55, marginBottom: briefingExpanded ? 10 : 0 }}>
+                    <p style={{ fontSize: 14.5, fontWeight: 500, color: "var(--color-text-primary, var(--foreground))", lineHeight: 1.6, marginBottom: briefingExpanded ? 14 : 0 }}>
                       {linkifyAccounts(briefingParsed.resumo, accounts ?? [], handleSelectAccount)}
                     </p>
                   )}
-                  {/* Seções expandidas */}
+                  {/* Seções expandidas — barra de acento à esquerda dá estrutura */}
                   {briefingExpanded && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       {[
                         { key: "positivo", label: "Positivo", color: "#1D9E75", bg: "rgba(29,158,117,0.06)", text: briefingParsed.positivo },
                         { key: "atencao",  label: "Atenção",  color: "#EF9F27", bg: "rgba(239,159,39,0.06)", text: briefingParsed.atencao },
                         { key: "critico",  label: "Crítico",  color: "#E24B4A", bg: "rgba(226,75,74,0.06)",  text: briefingParsed.critico },
                       ].filter(s => s.text).map(s => (
-                        <div key={s.key} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "8px 10px", borderRadius: 8, background: s.bg }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: s.color, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0, marginTop: 2, minWidth: 52 }}>{s.label}</span>
-                          <span style={{ fontSize: 12, color: "var(--color-text-secondary, var(--muted-foreground))", lineHeight: 1.55 }}>
+                        <div key={s.key} style={{ padding: "10px 12px", borderRadius: 8, background: s.bg, borderLeft: `3px solid ${s.color}` }}>
+                          <span style={{ display: "block", fontSize: 10, fontWeight: 700, color: s.color, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>{s.label}</span>
+                          <span style={{ fontSize: 12.5, color: "var(--color-text-secondary, var(--muted-foreground))", lineHeight: 1.55 }}>
                             {linkifyAccounts(s.text!, accounts ?? [], handleSelectAccount)}
                           </span>
                         </div>
@@ -638,7 +638,7 @@ export default function SuggestionsHub() {
                     </div>
                   )}
                   {(briefingParsed.positivo || briefingParsed.atencao || briefingParsed.critico) && (
-                    <button onClick={() => setBriefingExpanded(v => !v)} className="text-[11px] font-medium mt-2 hover:opacity-70" style={{ color: "#E85BA8" }}>
+                    <button onClick={() => setBriefingExpanded(v => !v)} className="text-[11px] font-semibold mt-3 hover:opacity-70" style={{ color: "#E85BA8" }}>
                       {briefingExpanded ? "ver menos" : "ver análise completa"}
                     </button>
                   )}
@@ -697,8 +697,8 @@ export default function SuggestionsHub() {
 
         {/* ══ 2 — Carrossel de clientes ═════════════════════════════════════ */}
         {sortedAccounts.length > 0 && (
-          <div style={{ padding: "12px 16px 16px", borderTop: `0.5px solid ${BORDER_T}` }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ padding: "14px 20px 18px", borderTop: `0.5px solid ${BORDER_T}` }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
                 {statusFilter ? `Contas — ${statusFilter === "green" ? "Saudável" : statusFilter === "yellow" ? "Atenção" : statusFilter === "red" ? "Crítico" : "Sem dados"}` : "Clientes"}
               </p>
