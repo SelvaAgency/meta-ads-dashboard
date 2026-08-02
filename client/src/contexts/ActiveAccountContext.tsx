@@ -147,7 +147,7 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
 
   // Build client-account mapping
   const clientAccounts = useMemo<ClientWithAccounts[]>(() => {
-    return CLIENTS.map(client => {
+    const cadastrados = CLIENTS.map(client => {
       const accs = accounts.filter(a => client.metaAccountIds.includes(a.accountId));
       return {
         client,
@@ -155,6 +155,26 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
         integrations: getIntegrationStatus(client),
       };
     }).filter(ca => ca.accounts.length > 0);
+
+    // Contas ativas SEM entrada no clientConfig (ex.: SPIM GAMING) apareciam em
+    // Configurações mas sumiam do seletor. Agora entram como clientes sintéticos
+    // — a conta manda; o clientConfig só dá identidade visual quando existe.
+    const idsMapeados = new Set(CLIENTS.flatMap(c => c.metaAccountIds));
+    const orfas = accounts.filter(a => !idsMapeados.has(a.accountId));
+    const sinteticos: ClientWithAccounts[] = orfas.map(a => {
+      const nome = (a as any).displayName ?? a.accountName ?? a.accountId;
+      const client: ClientConfig = {
+        slug: `conta-${a.accountId}`,
+        name: nome,
+        shortName: (nome.replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase()) || "?",
+        color: "fuchsia",
+        metaAccountIds: [a.accountId],
+        pictureUrl: (a as any).pictureUrl ?? undefined,
+      };
+      return { client, accounts: [a], integrations: getIntegrationStatus(client) };
+    });
+
+    return [...cadastrados, ...sinteticos];
   }, [accounts]);
 
   // Derive active client from active account
@@ -162,8 +182,11 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
     if (!activeAccountId) return null;
     const acc = accounts.find(a => a.id === activeAccountId);
     if (!acc) return null;
-    return getClientByMetaAccountId(acc.accountId) ?? null;
-  }, [activeAccountId, accounts]);
+    // Cadastrado no clientConfig, ou o client sintético da conta órfã.
+    return getClientByMetaAccountId(acc.accountId)
+      ?? clientAccounts.find(ca => ca.accounts.some(a => a.id === activeAccountId))?.client
+      ?? null;
+  }, [activeAccountId, accounts, clientAccounts]);
 
   const setActiveAccountId = (id: number) => {
     setActiveAccountIdState(id);

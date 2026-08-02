@@ -566,13 +566,17 @@ export async function updateAccountPicture(id: number, pictureUrl: string | null
     .where(eq(metaAdAccounts.id, id));
 }
 
-export async function deleteMetaAdAccount(id: number, userId: number) {
+export async function deleteMetaAdAccount(id: number, _userId?: number) {
   const db = await getDb();
   if (!db) return;
+  // Soft-delete GLOBAL (só por id): a listagem de contas é global e ignora
+  // userId, então filtrar a desativação por userId fazia o UPDATE casar 0 linhas
+  // quando a conta havia sido importada por outro usuário — desconectar "dava
+  // certo" (toast) mas a conta voltava. Contas são globais; desconectar também.
   await db
     .update(metaAdAccounts)
     .set({ isActive: false })
-    .where(and(eq(metaAdAccounts.id, id), eq(metaAdAccounts.userId, userId)));
+    .where(eq(metaAdAccounts.id, id));
 }
 
 // ─── Campaigns ────────────────────────────────────────────────────────────────
