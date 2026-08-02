@@ -279,17 +279,12 @@ export async function syncAccount(account: { id: number; accountId: string; acce
       const cpa  = t.conversions > 0 ? (t.spend / t.conversions).toFixed(2) : "0";
       const ctr  = t.impressions > 0 ? ((t.clicks / t.impressions) * 100).toFixed(2) : "0";
 
-      // Contexto salvo da conta (perfil/regras/aprendizados) — mesmo que o botão
-      // "Salvar e reanalisar" grava. Sem isso, o cron sobrescrevia o resumo à
-      // noite ignorando o contexto que a pessoa tinha escrito.
-      const accCtx = await getAccountContext(account.id).catch(() => null);
-      const partesCtx = [
-        accCtx?.clientProfile ? `Perfil do cliente: ${accCtx.clientProfile}` : "",
-        accCtx?.operationalRules ? `Regras operacionais: ${accCtx.operationalRules}` : "",
-        accCtx?.learnings ? `Contexto/observações: ${accCtx.learnings}` : "",
-      ].filter(Boolean);
-      const blocoCtx = partesCtx.length
-        ? `\n\nCONTEXTO (considere ao avaliar e ao escrever o resumo — pode explicar variações que os números não mostram):\n${partesCtx.join("\n")}`
+      // Contexto pela FONTE ÚNICA — o mesmo que todas as IAs leem. Sem isto, o
+      // cron sobrescrevia o resumo à noite ignorando o contexto salvo.
+      const { montarContextoDaConta } = await import("./services/contextoConta");
+      const { texto: ctxTexto } = await montarContextoDaConta({ accountId: account.id, userId: account.userId }).catch(() => ({ texto: "" }));
+      const blocoCtx = ctxTexto
+        ? `\n\nCONTEXTO (considere ao avaliar e ao escrever o resumo — pode explicar variações que os números não mostram):\n${ctxTexto}`
         : "";
 
       const aiResult = await invokeLLM({
@@ -309,8 +304,20 @@ export async function syncAccount(account: { id: number; accountId: string; acce
         if (typeof parsed.summary === "string") summary = parsed.summary.slice(0, 300);
       } catch { /* keep defaults */ }
 
+      // Aprendizado RESULTS-DRIVEN (não depende de sugestão): a mudança de estado
+      // da conta é um evento memorável. Só grava quando o estado realmente muda —
+      // reaproveita o summary (que já traz o driver) e não gera ruído noturno.
+      const prevColor = (await getMetaAdAccountById(account.id).catch(() => null))?.aiStatusColor as string | null | undefined;
+
       await updateAccountAiStatus(account.id, color, summary);
       logger.info(`[AutoSync] ✓ AI status refreshed for "${label}": ${color}`);
+
+      if (prevColor && prevColor !== color) {
+        const rot = (c: string) => c === "green" ? "Saudável (A)" : c === "yellow" ? "Atenção (B)" : c === "red" ? "Crítico (C)" : c;
+        const nota = `Mudança de estado: ${rot(prevColor)} → ${rot(color)}. ${summary}`;
+        await appendAccountLearning(account.id, nota, "auto-observacao").catch(() => {});
+        logger.info(`[AutoSync] 🧠 Aprendizado registrado (transição de estado) para "${label}"`);
+      }
       // Throttle AI calls — 2s gap between accounts to avoid Claude rate limit (429)
       await new Promise((r) => setTimeout(r, 2000));
     } catch (aiErr) {
