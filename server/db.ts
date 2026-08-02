@@ -32,7 +32,6 @@ import {
   selvatvPollVotes,
   aiSuggestions,
   alerts,
-  anomalies,
   campaignMetrics,
   campaigns,
   metaAdAccounts,
@@ -47,7 +46,6 @@ import {
   dailyBriefings,
   type InsertAiSuggestion,
   type InsertAlert,
-  type InsertAnomaly,
   type InsertCampaign,
   type InsertCampaignMetrics,
   type InsertMetaAdAccount,
@@ -879,106 +877,6 @@ export async function upsertCampaignMetrics(data: InsertCampaignMetrics) {
   }
 }
 
-// ─── Anomalies ────────────────────────────────────────────────────────────────
-
-export async function getAnomaliesByAccountId(accountId: number, limit = 50) {
-  const db = await getDb();
-  if (!db) return [];
-  return db
-    .select()
-    .from(anomalies)
-    .where(eq(anomalies.accountId, accountId))
-    .orderBy(desc(anomalies.detectedAt))
-    .limit(limit);
-}
-
-export async function getUnreadAnomaliesCount(accountId: number) {
-  const db = await getDb();
-  if (!db) return 0;
-  const result = await db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(anomalies)
-    .where(and(eq(anomalies.accountId, accountId), eq(anomalies.isRead, false)));
-  return result[0]?.count ?? 0;
-}
-
-export async function createAnomaly(data: InsertAnomaly) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const result = await db.insert(anomalies).values(data);
-  return result;
-}
-
-
-/**
- * Creates an anomaly ONLY if no unresolved anomaly with the same
- * accountId + type + metricName exists within the last 24 hours.
- * This prevents the hourly autoSync from creating duplicate entries.
- */
-export async function createAnomalyIfNotExists(data: InsertAnomaly): Promise<any | null> {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-
-  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-  const existing = await db
-    .select({ id: anomalies.id })
-    .from(anomalies)
-    .where(
-      and(
-        eq(anomalies.accountId, data.accountId),
-        eq(anomalies.type, data.type),
-        eq(anomalies.metricName, data.metricName ?? ""),
-        eq(anomalies.isResolved, false),
-        gte(anomalies.detectedAt, twentyFourHoursAgo)
-      )
-    )
-    .limit(1);
-
-  if (existing.length > 0) {
-    return null; // Anomalia idêntica já existe, não duplicar
-  }
-
-  const result = await db.insert(anomalies).values(data);
-  return result;
-}
-
-export async function markAnomalyRead(id: number) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(anomalies).set({ isRead: true }).where(eq(anomalies.id, id));
-}
-
-export async function markAnomalyResolved(id: number) {
-  const db = await getDb();
-  if (!db) return;
-  await db
-    .update(anomalies)
-    .set({ isResolved: true, resolvedAt: new Date() })
-    .where(eq(anomalies.id, id));
-}
-
-/**
- * Deleta anomalias que foram marcadas como lidas (isRead = true)
- * e foram detectadas há mais de 30 dias.
- * Chamada diária pelo cron job de limpeza.
- */
-export async function purgeOldReadAnomalies() {
-  const db = await getDb();
-  if (!db) return 0;
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 30);
-  const result = await db
-    .delete(anomalies)
-    .where(
-      and(
-        eq(anomalies.isRead, true),
-        lt(anomalies.detectedAt, cutoff)
-      )
-    );
-  return (result as any).affectedRows ?? 0;
-}
-
 // ─── AI Suggestions ───────────────────────────────────────────────────────────
 
 // Get active suggestions (pending + applied/monitoring)
@@ -1133,25 +1031,6 @@ export async function getSuggestionsHistory(accountId: number, limit = 100) {
     .limit(limit);
 }
 
-// Get suggestions being monitored (applied, monitorUntil in the future)
-export async function getSuggestionsUnderMonitoring(accountId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  const now = new Date();
-  return db
-    .select()
-    .from(aiSuggestions)
-    .where(
-      and(
-        eq(aiSuggestions.accountId, accountId),
-        eq(aiSuggestions.status, "applied"),
-        sql`${aiSuggestions.monitorUntil} IS NOT NULL`,
-        sql`${aiSuggestions.monitorUntil} > ${now}`,
-        sql`${aiSuggestions.monitorResult} IS NULL`
-      )
-    );
-}
-
 export async function createAiSuggestion(data: InsertAiSuggestion) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
@@ -1252,13 +1131,6 @@ export async function updateSuggestionStatus(
       console.warn("[updateSuggestionStatus] Failed to create action outcome:", err);
     }
   }
-}
-
-// Save monitoring result after 7 days
-export async function saveSuggestionMonitorResult(id: number, result: string) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(aiSuggestions).set({ monitorResult: result }).where(eq(aiSuggestions.id, id));
 }
 
 // ─── Scheduled Reports ────────────────────────────────────────────────────────
@@ -1542,12 +1414,6 @@ export async function markAlertEmailSent(id: number) {
   await db.update(alerts).set({ emailSentAt: new Date() }).where(eq(alerts.id, id));
 }
 
-export async function markAnomalyEmailSent(id: number) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(anomalies).set({ emailSentAt: new Date() }).where(eq(anomalies.id, id));
-}
-
 /**
  * Marcar como lida é UPDATE, não DELETE. Além de o histórico sobreviver (e o
  * filtro lida/nova existir), é o que faz o dedup funcionar: createNotification
@@ -1586,27 +1452,6 @@ export async function clearAllNotifications(userId: number) {
     eq(alerts.userId, userId),
     inArray(alerts.type, notificationTypes as any)
   ));
-}
-
-/**
- * Remove anomalias duplicadas não resolvidas, mantendo apenas a mais recente
- * de cada combinação accountId + type + metricName.
- */
-export async function purgeDuplicateAnomalies(): Promise<number> {
-  const db = await getDb();
-  if (!db) return 0;
-
-  const result = await db.execute(sql`
-    DELETE a1 FROM anomalies a1
-    INNER JOIN anomalies a2
-      ON a1.accountId = a2.accountId
-      AND a1.type = a2.type
-      AND COALESCE(a1.metricName, '') = COALESCE(a2.metricName, '')
-      AND a1.isResolved = false
-      AND a2.isResolved = false
-      AND a1.id < a2.id
-  `);
-  return (result as any)[0]?.affectedRows ?? 0;
 }
 
 // ─── Google Ad Accounts ─────────────────────────────────────────────────────

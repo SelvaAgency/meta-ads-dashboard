@@ -230,7 +230,7 @@ export function AccountHeader({
   );
 
   const monitoringItems = (suggestions ?? []).filter(
-    (s: any) => s.status === "applied" && s.monitorUntil && (daysLeft(s.monitorUntil) ?? 0) > 0 && !s.monitorResult
+    (s: any) => s.status === "applied" && s.monitorUntil && (daysLeft(s.monitorUntil) ?? 0) > 0
   );
 
   const refreshStatus = trpc.accounts.refreshStatus.useMutation({

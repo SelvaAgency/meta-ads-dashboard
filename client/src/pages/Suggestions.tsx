@@ -83,7 +83,7 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand, accountI
     onSuccess: () => { utils.suggestions.list.invalidate(); utils.suggestions.history.invalidate(); },
   });
 
-  const isMonitoringNow = s.status === "applied" && s.monitorUntil && (daysLeft(s.monitorUntil) ?? 0) > 0 && !s.monitorResult;
+  const isMonitoringNow = s.status === "applied" && s.monitorUntil && (daysLeft(s.monitorUntil) ?? 0) > 0;
   const appliedAtStr = s.appliedAt ? (() => {
     const d = new Date(s.appliedAt);
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -115,7 +115,7 @@ function SuggestionCard({ s, onStatusChange, accountMetaId, autoExpand, accountI
   const pri = priorityConfig[s.priority] ?? priorityConfig.P3;
   const isApplied = s.status === "applied";
   const isRejected = s.status === "rejected";
-  const isMonitoring = isApplied && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult;
+  const isMonitoring = isApplied && s.monitorUntil && daysLeft(s.monitorUntil)! > 0;
 
   const parsedActionItems: any[] = (() => {
     if (!s.actionItems) return [];
@@ -701,7 +701,7 @@ export default function Suggestions() {
   const recentApplied = (suggestions ?? []).filter((s: any) => s.status === "applied" && !isInHistory(s));
   const historyItems = [...(suggestions ?? []).filter(isInHistory), ...hist.filter((h: any) => !(suggestions ?? []).some((s: any) => s.id === h.id))];
   const historyDeduped = Array.from(new Map(historyItems.map((s: any) => [s.id, s])).values());
-  const monitoring = (suggestions ?? []).filter((s: any) => s.status === "applied" && s.monitorUntil && daysLeft(s.monitorUntil)! > 0 && !s.monitorResult);
+  const monitoring = (suggestions ?? []).filter((s: any) => s.status === "applied" && s.monitorUntil && daysLeft(s.monitorUntil)! > 0);
 
   const p1 = pending.filter((s: any) => ["P1","HIGH","CRITICAL"].includes(s.priority));
   const p2 = pending.filter((s: any) => ["P2","MEDIUM"].includes(s.priority));

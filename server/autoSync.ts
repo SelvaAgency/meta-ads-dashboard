@@ -36,21 +36,17 @@ import {
   upsertCampaignMetrics,
   getAccountMetricsSummary,
   getCampaignPerformanceSummary,
-  createAnomalyIfNotExists,
   createAlert,
   createAlertIfNotExists,
   getAccountThresholds,
   getActiveCampaignMetaIdsWithRecentSpend,
   getExperimentBasicInfo,
   purgeDuplicateAlerts,
-  purgeDuplicateAnomalies,
-  markAnomalyEmailSent,
   markAlertEmailSent,
   getMetaAdAccountsByUserId,
   getMetaAdAccountById,
   getDueScheduledReports,
   updateScheduledReport,
-  purgeOldReadAnomalies,
   getPendingCheckpointsForDate,
   getExperimentCampaignMetrics,
   markCheckpointDone,
@@ -1208,18 +1204,6 @@ export async function startAutoSync() {
   // cron fixo não conseguiria acompanhar sem reiniciar o processo.
   cron.schedule("0 * * * * *", runNotificacoesSeForHora, TZ);
 
-  // Daily cleanup of old read anomalies (09:05 UTC)
-  cron.schedule("0 5 6 * * *", async () => {
-    try {
-      const deleted = await purgeOldReadAnomalies();
-      if (deleted > 0) {
-        logger.info(`[AutoSync] Purged ${deleted} old read anomalies (>30 days)`);
-      }
-    } catch (err) {
-      console.error("[AutoSync] Error purging old anomalies:", err);
-    }
-  }, TZ);
-
   // Polling fallback for scheduled reports (every 5 minutes)
   cron.schedule("0 */5 * * * *", runScheduledReports); // a cada 5 min — fuso é irrelevante
 
@@ -1239,16 +1223,6 @@ export async function startAutoSync() {
       }
     } catch (err) {
       console.error("[AutoSync] Error purging duplicate alerts:", err);
-    }
-
-    // Purge duplicate anomalies from backlog on startup
-    try {
-      const purgedAnomalies = await purgeDuplicateAnomalies();
-      if (purgedAnomalies > 0) {
-        logger.info(`[AutoSync] Purged ${purgedAnomalies} duplicate anomalies on startup`);
-      }
-    } catch (err) {
-      console.error("[AutoSync] Error purging duplicate anomalies:", err);
     }
 
     await runAutoSync();

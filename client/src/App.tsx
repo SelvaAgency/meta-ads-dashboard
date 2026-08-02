@@ -119,7 +119,6 @@ function Router() {
       <Route path="/experiments" component={() => <Interna><Experiments /></Interna>} />
       <Route path="/experiments/:id" component={() => <Interna><ExperimentDetail /></Interna>} />
       {/* Redirects for removed nav items */}
-      <Route path="/anomalies" component={() => <RedirectTo to="/alerts" />} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

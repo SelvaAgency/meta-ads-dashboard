@@ -105,7 +105,6 @@ import {
   snapshotsDeVendaDaConta,
   vndaContaComoLojaReal,
   getScheduledReportsByUserId,
-  getAnomaliesByAccountId,
   getSuggestionsByAccountId,
   getTodayMetricsForAllAccounts,
   getUrgentAlertsForUser,
@@ -114,14 +113,9 @@ import {
   getAllSuggestionsForUser,
   getSuggestionsHistory,
   updateSuggestionStatus,
-  saveSuggestionMonitorResult,
-  getSuggestionsUnderMonitoring,
   getUnreadAlertsCount,
-  getUnreadAnomaliesCount,
   markAlertRead,
   markAllAlertsRead,
-  markAnomalyRead,
-  markAnomalyResolved,
   updateScheduledReport,
   upsertCampaign,
   upsertCampaignMetrics,
@@ -2408,11 +2402,10 @@ export const appRouter = router({
         prevStart.setDate(prevStart.getDate() - (periodDays - 1));
         const prevStartStr = prevStart.toISOString().split("T")[0];
         const prevEndStr = prevEnd.toISOString().split("T")[0];
-        const [metrics, campaigns, unreadAlerts, unreadAnomalies, prevMetrics] = await Promise.all([
+        const [metrics, campaigns, unreadAlerts, prevMetrics] = await Promise.all([
           getAccountMetricsSummary(input.accountId, startDate, endDate),
           getCampaignPerformanceSummary(input.accountId, startDate, endDate),
           getUnreadAlertsCount(ctx.user.id),
-          getUnreadAnomaliesCount(input.accountId),
           getAccountMetricsSummary(input.accountId, prevStartStr, prevEndStr),
         ]);
 
@@ -2459,7 +2452,6 @@ export const appRouter = router({
           timeSeries: metrics,
           campaigns,
           unreadAlerts,
-          unreadAnomalies,
           dominantGoal,
           goalProfile: {
             label: goalProfile.label,
@@ -2960,118 +2952,6 @@ export const appRouter = router({
           campaignsResponse: campData,
           tokenPrefix: account.accessToken?.substring(0, 20) + "...",
         };
-      }),
-  }),
-
-  // ─── Anomalies ─────────────────────────────────────────────────────────────
-  anomalies: router({
-    list: protectedProcedure
-      .input(z.object({ accountId: z.number() }))
-      .query(async ({ ctx, input }) => {
-        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
-        return getAnomaliesByAccountId(input.accountId);
-      }),
-
-    markRead: protectedProcedure
-      .input(z.object({ anomalyId: z.number() }))
-      .mutation(async ({ input }) => {
-        await markAnomalyRead(input.anomalyId);
-        return { success: true };
-      }),
-
-    resolve: protectedProcedure
-      .input(z.object({ anomalyId: z.number() }))
-      .mutation(async ({ input }) => {
-        await markAnomalyResolved(input.anomalyId);
-        return { success: true };
-      }),
-
-    runDetection: protectedProcedure
-      .input(z.object({ accountId: z.number() }))
-      .mutation(async ({ ctx, input }) => {
-        const account = await getVerifiedAccount(input.accountId, ctx.user.id);
-
-        const today = new Date().toISOString().split("T")[0];
-        const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
-        const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().split("T")[0];
-
-        const [recentMetrics, prevMetrics] = await Promise.all([
-          getAccountMetricsSummary(input.accountId, yesterday, today),
-          getAccountMetricsSummary(input.accountId, sevenDaysAgo, yesterday),
-        ]);
-
-        if (recentMetrics.length === 0 || prevMetrics.length === 0) {
-          return { detected: 0 };
-        }
-
-        const recent = recentMetrics[recentMetrics.length - 1];
-        const prev = prevMetrics.reduce(
-          (acc, m) => ({
-            roas: acc.roas + Number(m.avgRoas ?? 0),
-            cpa: acc.cpa + Number(m.avgCpa ?? 0),
-            ctr: acc.ctr + Number(m.avgCtr ?? 0),
-            spend: acc.spend + Number(m.totalSpend ?? 0),
-            frequency: acc.frequency + 0,
-          }),
-          { roas: 0, cpa: 0, ctr: 0, spend: 0, frequency: 0 }
-        );
-        const n = prevMetrics.length;
-        const avgPrev = {
-          roas: prev.roas / n,
-          cpa: prev.cpa / n,
-          ctr: prev.ctr / n,
-          spend: prev.spend / n,
-          frequency: 0,
-        };
-
-        const detected = detectAnomalies(
-          {
-            roas: Number(recent.avgRoas),
-            cpa: Number(recent.avgCpa),
-            ctr: Number(recent.avgCtr),
-            spend: Number(recent.totalSpend),
-            frequency: 0,
-          },
-          {
-            roas: Number(avgPrev.roas),
-            cpa: Number(avgPrev.cpa),
-            ctr: Number(avgPrev.ctr),
-            spend: Number(avgPrev.spend),
-          },
-          {
-            roas: Number(avgPrev.roas),
-            cpa: Number(avgPrev.cpa),
-            ctr: Number(avgPrev.ctr),
-            spend: Number(avgPrev.spend),
-          },
-          {
-            roas: Number(avgPrev.roas),
-            cpa: Number(avgPrev.cpa),
-            ctr: Number(avgPrev.ctr),
-            spend: Number(avgPrev.spend),
-          },
-          // Mesmo tipo de conta que o cron usa — os dois caminhos não podem
-          // divergir sobre o que é alerta relevante para este cliente.
-          { tipo: resolverTipoDaConta(account, account.goalTypeOverride ? [] : await objetivosDasCampanhas(input.accountId).catch(() => [])) }
-        );
-
-        for (const anomaly of detected) {
-          await createAlertIfNotExists({
-            userId: ctx.user.id,
-            accountId: input.accountId,
-            title: anomaly.title,
-            message: anomaly.description,
-            type: "ANOMALY",
-            severity: "WARNING",
-          });
-          // Notificar o dono da conta para toda anomalia detectada (sem filtro por prioridade)
-          await notifyOwner({
-            title: `⚠️ Anomalia detectada: ${anomaly.title}`,
-            content: anomaly.description,
-          });
-        }
-
-        return { detected: detected.length };
       }),
   }),
 
