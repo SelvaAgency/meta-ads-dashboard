@@ -53,20 +53,19 @@ function iaParaNivel(cor: CorIA): NivelSaude | null {
 export type SinaisSaude = {
   /** Classificação da IA sobre os RESULTADOS (aiStatusColor). Guia o veredito. */
   aiStatusColor?: CorIA;
-  /** Token/conexão com erro — impede ver os resultados → puxa para Atenção. */
-  temErroToken?: boolean;
 };
 
 /**
  * O veredito único da conta — guiado pelos RESULTADOS (mídia/IA). Achados
- * técnicos (site/loja) NÃO entram aqui: eles não rebaixam o nível, viram adendo
- * (ver AdendoSaude, montado no servidor a partir do Panorama).
+ * técnicos (site/loja) NÃO entram aqui: viram adendo (ver AdendoSaude).
  *
- *  · token com erro → Atenção (não dá pra confiar/ver o resultado; reconectar);
- *  · senão → a cor da IA sobre os resultados;
- *  · sem classificação da IA → Sem dados.
+ *  · a cor da IA sobre os resultados; sem classificação → Sem dados.
+ *
+ * Sinais derivados de alerta (token quebrado, alerta crítico) estão FORA por ora:
+ * o sistema de alertas está pausado e o backlog de alertas antigos não-lidos
+ * (ex.: "Token expirado" de contas que já reconectaram) floorava TODAS as contas.
+ * Voltam na Fase 2, com a taxonomia de alertas limpa e uma fonte confiável.
  */
 export function saudeConta(s: SinaisSaude): NivelSaude {
-  if (s.temErroToken) return "atencao";
   return iaParaNivel(s.aiStatusColor) ?? "sem_dados";
 }
