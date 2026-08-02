@@ -312,6 +312,7 @@ import { conciliarFatura } from "./services/fatura/classificador";
 import { carregarDicionario, aprenderRegras } from "./services/fatura/dicionario";
 import { fontesDoCliente, fontesDeTodasAsContas, lojasERedesPorConta } from "./services/fontesDoCliente";
 import { saudeDoPortfolio } from "./services/saudePortfolio";
+import { refreshAccountAiStatus } from "./services/aiStatusService";
 import { sincronizarGA4 } from "./services/ga4Sync";
 import { testarConexaoWoo, validarUrlDaLoja } from "./services/woocommerce";
 import { testarConexaoVnda, validarUrlVnda, resolverShopHost } from "./services/vnda";
@@ -1957,60 +1958,25 @@ export const appRouter = router({
       .input(z.object({ accountId: z.number(), contexto: z.string().max(2000).optional() }))
       .mutation(async ({ ctx, input }) => {
         await getVerifiedAccount(input.accountId, ctx.user.id);
-        const accountData = await getMetaAdAccountById(input.accountId);
-        const goalType = (accountData as any)?.goalTypeOverride ?? "DEFAULT";
-        const roasGoals = ["SALES", "VALUE"];
-        const roasApplies = roasGoals.includes(goalType);
-        const { startDate, endDate } = getDateRange(7);
-        const metrics = await getAccountMetricsSummary(input.accountId, startDate, endDate);
-
-        // Contexto: o resumo deve considerar o contexto da conta (perfil/regras/
-        // aprendizados) e o contexto ad-hoc que a pessoa escreveu agora sobre os
-        // últimos 7 dias — números sozinhos não explicam sazonalidade, campanha
-        // de lançamento, feriado, etc.
-        // Contexto unificado (fonte única) + o input ad-hoc que a pessoa digitou
-        // agora sobre estes 7 dias.
-        const { montarContextoDaConta } = await import("./services/contextoConta");
-        const { texto: ctxTexto } = await montarContextoDaConta({ accountId: input.accountId, userId: ctx.user.id }).catch(() => ({ texto: "" }));
-        const adhoc = input.contexto?.trim() ? `Contexto informado agora sobre estes 7 dias: ${input.contexto.trim()}` : "";
-        const blocoCtx = (ctxTexto || adhoc)
-          ? `\n\nCONTEXTO (considere ao avaliar e ao escrever o resumo — pode explicar variações que os números não mostram):\n${ctxTexto}${adhoc ? `\n${adhoc}` : ""}`
-          : "";
-
-        const totals = metrics.reduce(
-          (acc, m) => ({
-            spend: acc.spend + Number(m.totalSpend ?? 0),
-            impressions: acc.impressions + Number(m.totalImpressions ?? 0),
-            clicks: acc.clicks + Number(m.totalClicks ?? 0),
-            conversions: acc.conversions + Number(m.totalConversions ?? 0),
-            conversionValue: acc.conversionValue + Number(m.totalConversionValue ?? 0),
-          }),
-          { spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionValue: 0 }
-        );
-        const roas = totals.spend > 0 ? totals.conversionValue / totals.spend : 0;
-        const cpa = totals.conversions > 0 ? totals.spend / totals.conversions : 0;
-        const ctr = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
-
-        const result = await invokeLLM({
-          messages: [{
-            role: "user",
-            content: `Analise os dados de performance dos últimos 7 dias e retorne um JSON com dois campos: "color" (green/yellow/red) e "summary" (máx 300 caracteres em português, sem emoji). O summary deve conter: (1) status geral da conta, (2) principal métrica positiva ou problemática com valor, (3) uma ação sugerida objetiva. Verde = conta saudável, Amarelo = atenção necessária, Vermelho = problema crítico.\n\nObjetivo da conta: ${goalType}${!roasApplies ? " — IMPORTANTE: esta conta é de " + goalType + ", NÃO de e-commerce. NUNCA mencione ROAS, valor de conversão ou rastreamento de receita como problema. Avalie APENAS: volume de resultados (mensagens/cliques/alcance), custo por resultado e CTR." : ""}${blocoCtx}\n\nDados:\n${JSON.stringify(roasApplies ? { ...totals, roas: roas.toFixed(2), cpa: cpa.toFixed(2), ctr: ctr.toFixed(2) } : { spend: totals.spend, conversions: totals.conversions, clicks: totals.clicks, impressions: totals.impressions, cpa: cpa.toFixed(2), ctr: ctr.toFixed(2) })}`,
-          }],
-          responseFormat: { type: "json_object" },
-          thinking: false,
-        });
-
-        let color: "green" | "yellow" | "red" = "yellow";
-        let summary = "Análise pendente";
-        try {
-          const parsed = JSON.parse(extractTextContent(result));
-          if (["green", "yellow", "red"].includes(parsed.color)) color = parsed.color;
-          if (typeof parsed.summary === "string") summary = parsed.summary.slice(0, 300);
-        } catch { /* keep defaults */ }
-
-        await updateAccountAiStatus(input.accountId, color, summary);
-        return { color, summary };
+        return refreshAccountAiStatus(input.accountId, ctx.user.id, { adhocContexto: input.contexto });
       }),
+
+    /** Reanalisa o status da IA de TODAS as contas ativas (admin). Sequencial e
+     *  com throttle para não estourar o rate limit do LLM. */
+    refreshAllStatus: adminProcedure.mutation(async ({ ctx }) => {
+      const contas = await getAllActiveMetaAdAccountsForListing();
+      let ok = 0;
+      for (const c of contas) {
+        try {
+          await refreshAccountAiStatus(c.id, (c as any).userId ?? ctx.user.id);
+          ok++;
+        } catch (e) {
+          console.warn(`[refreshAllStatus] falhou para conta ${c.id}:`, e);
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      return { total: contas.length, ok };
+    }),
   }),
 
   // ─── Dashboard ─────────────────────────────────────────────────────────────

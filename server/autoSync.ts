@@ -3,6 +3,7 @@ import { resolverTipoDaConta } from "./alertProfiles";
 import { runDailyDigestJob } from "./services/dailyDigestService";
 import { runObservacoesAutomaticas } from "./services/observacoesService";
 import { consolidarLearnings } from "./services/consolidacaoService";
+import { refreshAccountAiStatus } from "./services/aiStatusService";
 import { sincronizarGA4 } from "./services/ga4Sync";
 import { sincronizarLojas, resumirCicloLojas } from "./services/lojaSync";
 import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, hojeAgencia, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
@@ -259,70 +260,12 @@ export async function syncAccount(account: { id: number; accountId: string; acce
 
     logger.info(`[AutoSync] ✓ Account "${label}" synced — ${metaCampaigns.length} campaigns, ${insights.length} insight rows`);
 
-    // Refresh AI status summary (non-blocking — failure must not abort sync)
+    // Refresh AI status summary (non-blocking — failure must not abort sync).
+    // Prompt/lógica na fonte única refreshAccountAiStatus (usada aqui e na
+    // reanálise manual/em massa) — não duplicar.
     try {
-      const { startDate: s7, endDate: e7 } = getDateRange(7);
-      const metrics7 = await getAccountMetricsSummary(account.id, s7, e7);
-      const t = metrics7.reduce(
-        (acc, m) => ({
-          spend: acc.spend + Number(m.totalSpend ?? 0),
-          conversions: acc.conversions + Number(m.totalConversions ?? 0),
-          conversionValue: acc.conversionValue + Number(m.totalConversionValue ?? 0),
-          impressions: acc.impressions + Number(m.totalImpressions ?? 0),
-          clicks: acc.clicks + Number(m.totalClicks ?? 0),
-        }),
-        { spend: 0, conversions: 0, conversionValue: 0, impressions: 0, clicks: 0 }
-      );
-      const roas = t.spend > 0 ? (t.conversionValue / t.spend).toFixed(2) : "0";
-      const cpa  = t.conversions > 0 ? (t.spend / t.conversions).toFixed(2) : "0";
-      const ctr  = t.impressions > 0 ? ((t.clicks / t.impressions) * 100).toFixed(2) : "0";
-
-      // Contexto pela FONTE ÚNICA — o mesmo que todas as IAs leem. Sem isto, o
-      // cron sobrescrevia o resumo à noite ignorando o contexto salvo.
-      const { montarContextoDaConta } = await import("./services/contextoConta");
-      const { texto: ctxTexto } = await montarContextoDaConta({ accountId: account.id, userId: account.userId }).catch(() => ({ texto: "" }));
-      const blocoCtx = ctxTexto
-        ? `\n\nCONTEXTO (considere ao avaliar e ao escrever o resumo — pode explicar variações que os números não mostram):\n${ctxTexto}`
-        : "";
-
-      const aiResult = await invokeLLM({
-        messages: [{
-          role: "user",
-          content: `Você classifica a SAÚDE de uma conta de mídia dos últimos 7 dias. Retorne um JSON com "color" (green/yellow/red) e "summary" (máx 300 caracteres em pt-BR, sem emoji: (1) status geral, (2) principal métrica positiva OU problemática com valor, (3) uma ação objetiva).
-
-Classifique SEMPRE em relação às metas desta conta (quando houver, no contexto abaixo) e à própria média/tendência da conta — NUNCA em absoluto:
-- green (Saudável): resultados dentro ou ACIMA das metas/média; nada exige ação hoje. Uma conta indo bem ou melhor que o normal é green, mesmo com pequenos ajustes possíveis.
-- yellow (Atenção): algo piorou, ficou abaixo da meta ou merece um olhar — sem ser emergência.
-- red (Crítico): problema REAL queimando dinheiro ou travando resultado AGORA (ex.: gasto relevante sem conversão, ROAS muito abaixo da meta, queda abrupta de resultado).
-
-Seja CONSERVADOR com o vermelho: uma conta acima da média NUNCA é vermelha. Na dúvida entre dois níveis, escolha o mais brando. A maioria das contas saudáveis deve ser green.${blocoCtx}\n\nDados:\n${JSON.stringify({ ...t, roas, cpa, ctr })}`,
-        }],
-        responseFormat: { type: "json_object" },
-        thinking: false,
-      });
-
-      let color: "green" | "yellow" | "red" = "yellow";
-      let summary = "Análise pendente";
-      try {
-        const parsed = JSON.parse(extractTextContent(aiResult));
-        if (["green", "yellow", "red"].includes(parsed.color)) color = parsed.color;
-        if (typeof parsed.summary === "string") summary = parsed.summary.slice(0, 300);
-      } catch { /* keep defaults */ }
-
-      // Aprendizado RESULTS-DRIVEN (não depende de sugestão): a mudança de estado
-      // da conta é um evento memorável. Só grava quando o estado realmente muda —
-      // reaproveita o summary (que já traz o driver) e não gera ruído noturno.
-      const prevColor = (await getMetaAdAccountById(account.id).catch(() => null))?.aiStatusColor as string | null | undefined;
-
-      await updateAccountAiStatus(account.id, color, summary);
+      const { color } = await refreshAccountAiStatus(account.id, account.userId);
       logger.info(`[AutoSync] ✓ AI status refreshed for "${label}": ${color}`);
-
-      if (prevColor && prevColor !== color) {
-        const rot = (c: string) => c === "green" ? "Saudável (A)" : c === "yellow" ? "Atenção (B)" : c === "red" ? "Crítico (C)" : c;
-        const nota = `Mudança de estado: ${rot(prevColor)} → ${rot(color)}. ${summary}`;
-        await appendAccountLearning(account.id, nota, "auto-observacao").catch(() => {});
-        logger.info(`[AutoSync] 🧠 Aprendizado registrado (transição de estado) para "${label}"`);
-      }
       // Throttle AI calls — 2s gap between accounts to avoid Claude rate limit (429)
       await new Promise((r) => setTimeout(r, 2000));
     } catch (aiErr) {

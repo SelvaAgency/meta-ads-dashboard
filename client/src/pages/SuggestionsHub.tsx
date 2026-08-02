@@ -321,6 +321,16 @@ export default function SuggestionsHub() {
   // os números unificam quando o Ads chega. Se falhar, cai para o total Meta.
   const { user } = useAuth();
   const podeGAds = canManageContent(user?.role);
+  // Reanalisar o status da IA de TODAS as contas agora (admin) — aplica o prompt
+  // atual sem esperar o ciclo noturno. Leva ~40s (sequencial, com throttle).
+  const reanalisarTodas = trpc.accounts.refreshAllStatus.useMutation({
+    onSuccess: (r) => {
+      toast.success(`${r.ok}/${r.total} contas reanalisadas.`);
+      utils.saude.portfolio.invalidate();
+      utils.accounts.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const { data: gAdsHoje } = trpc.googleAds.resumoHojeTodas.useQuery(undefined, {
     enabled: podeGAds, staleTime: 5 * 60_000, refetchOnWindowFocus: false,
   });
@@ -634,7 +644,19 @@ export default function SuggestionsHub() {
               const total = statusDefs.reduce((s, d) => s + d.count, 0) || 1;
               return (
                 <div style={{ padding: "16px 20px", borderTop: `0.5px solid ${BORDER_T}` }}>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-2.5">Saúde do portfólio</p>
+                  <div className="flex items-center justify-between gap-3 mb-2.5">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Saúde do portfólio</p>
+                    {podeGAds && (
+                      <button
+                        onClick={() => reanalisarTodas.mutate()}
+                        disabled={reanalisarTodas.isPending}
+                        title="Reanalisa o status da IA de todas as contas agora (~40s)"
+                        className="inline-flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-60 transition-colors">
+                        <RefreshCw className={`w-3 h-3 ${reanalisarTodas.isPending ? "animate-spin" : ""}`} />
+                        {reanalisarTodas.isPending ? "Reanalisando… ~40s" : "Reanalisar todas"}
+                      </button>
+                    )}
+                  </div>
                   {/* Barra de proporção */}
                   <div className="flex h-2.5 w-full rounded-full overflow-hidden bg-muted">
                     {statusDefs.filter((d) => d.count > 0).map((d) => (
