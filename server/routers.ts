@@ -173,7 +173,7 @@ import {
 import { detectDominantGoal, getPerformanceGoalProfile } from "./campaignObjectives";
 import { resolverTipoDaConta } from "./alertProfiles";
 import { generateAiSuggestions, generateAgencyReport, detectAnomalies } from "./analysisService";
-import { assembleReportData, generateReportNarrative } from "./reportService";
+import { assembleReportData } from "./reportService";
 import { nanoid } from "nanoid";
 import { invokeLLM, extractTextContent } from "./_core/llm";
 import {
@@ -3408,51 +3408,6 @@ export const appRouter = router({
       return getScheduledReportsByUserId(ctx.user.id);
     }),
 
-    // TEMPORÁRIO — só pra validar o dado bruto visualmente. Remover quando
-    // o fluxo de geração de verdade (reportService -> snapshot -> token público) existir.
-    previewData: protectedProcedure
-      .input(z.object({
-        accountId: z.number(),
-        periodStart: z.string(),
-        periodEnd: z.string(),
-        contextNotes: z.string().optional(),
-        withNarrative: z.boolean().optional(),
-      }))
-      .query(async ({ ctx, input }) => {
-        await getVerifiedAccount(input.accountId, ctx.user.id);
-        const data = await assembleReportData(input.accountId, input.periodStart, input.periodEnd);
-        if (!input.withNarrative) return { data, narrative: null };
-        const narrative = await generateReportNarrative(data, input.contextNotes);
-        return { data, narrative };
-      }),
-
-    generate: protectedProcedure
-      .input(z.object({
-        accountId: z.number(),
-        periodStart: z.string(),
-        periodEnd: z.string(),
-        tier: z.enum(["CURTO", "MEDIO", "COMPLETO"]).default("CURTO"),
-        contextNotes: z.string().optional(),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        await getVerifiedAccount(input.accountId, ctx.user.id);
-        const data = await assembleReportData(input.accountId, input.periodStart, input.periodEnd);
-        const narrative = await generateReportNarrative(data, input.contextNotes);
-        const publicToken = nanoid(24);
-        await createReportSnapshot({
-          accountId: input.accountId,
-          tier: input.tier,
-          publicToken,
-          periodStart: input.periodStart,
-          periodEnd: input.periodEnd,
-          contextNotes: input.contextNotes ?? null,
-          dataSnapshot: JSON.stringify(data),
-          narrative: JSON.stringify(narrative),
-          generatedByUserId: ctx.user.id,
-        });
-        return { publicToken };
-      }),
-
     getPublic: publicProcedure
       .input(z.object({ token: z.string() }))
       .query(async ({ input }) => {
@@ -3460,10 +3415,9 @@ export const appRouter = router({
         if (!snapshot || !snapshot.isActive) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Relatório não encontrado" });
         }
-        // `modulos` distingue os dois formatos: relatório modular tem outra
-        // forma de narrative (fatos/hipóteses/pendências) e não tem
-        // dataSnapshot. Sem esta marca, a página renderizaria o modular como
-        // se fosse legado — e sairia quase em branco no link do cliente.
+        // `modulos` ausente marca snapshot do formato antigo: mídia na raiz do
+        // dataSnapshot e narrative com outros nomes de campo. A página adapta
+        // esses para o formato atual — sem a marca, ela não saberia que precisa.
         return {
           tier: snapshot.tier,
           period: { start: snapshot.periodStart, end: snapshot.periodEnd },

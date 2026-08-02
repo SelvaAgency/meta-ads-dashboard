@@ -3,6 +3,18 @@ import { useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
 import "./ReportView.css";
 
+/**
+ * Relatório público (/r/:token) — a peça que o CLIENTE recebe.
+ *
+ * Quem lê é o dono da conta, não a agência. Isso decide o que entra: até
+ * 02/ago/2026 a metade de baixo era fatos/interpretações/hipóteses/pendências
+ * (análise interna) e foi substituída por quatro blocos — o que aconteceu, o
+ * que vamos fazer, o que vamos medir, o que esperamos.
+ *
+ * Identidade "papel" própria, de propósito: é um documento entregue, não uma
+ * tela do painel. Não migrar para o kit do app.
+ */
+
 type Metric = "investment" | "reach" | "conversions" | "costPerConversion";
 
 /**
@@ -36,7 +48,7 @@ function fmtPct(n: number | null | undefined): string {
   return typeof n === "number" && Number.isFinite(n) ? `${n.toFixed(2)}%` : "—";
 }
 
-/** Rótulo curto para o eixo do gráfico: 4200 → "4,2 mil", 18 → "18". */
+/** Rótulo curto para o eixo do gráfico: 4200 → "4,2mil", 18 → "18". */
 function fmtCurto(n: number, dinheiro: boolean): string {
   const abs = Math.abs(n);
   let s: string;
@@ -85,9 +97,7 @@ function buildChartPath(values: number[], w = 640, h = 190, pad = 16) {
 
 const rotuloStatus = (s?: string) => (s === "good" ? "Performando bem" : s === "warn" ? "Atenção" : "Estável");
 
-// ── Blocos compartilhados pelas duas vistas ─────────────────────────────────
-// Legado e modular renderizavam o mesmo gráfico/criativos em código duplicado.
-// Toda correção precisava ser feita duas vezes — e nem sempre era.
+// ── Blocos visuais ──────────────────────────────────────────────────────────
 
 type Kpi = { label: string; valor: string; delta: { label: string; cls: string } };
 
@@ -204,8 +214,14 @@ function GraficoSemanal({ series, metric, tabs, onMetric }: {
 
 type Criativo = {
   adId: string; adName: string; ctr?: number | null; costPerResult?: number | null;
-  thumbnailUrl?: string | null; status?: string;
+  thumbnailUrl?: string | null; status?: string; managerUrl?: string | null;
 };
+
+/** Só o preview público da Meta vira link. O fallback de `managerUrl` é uma URL
+ *  do Ads Manager, que exige login com acesso à conta — mandar o cliente para
+ *  lá parece link quebrado, então o card fica sem clique. */
+const ehPreviewPublico = (url?: string | null) =>
+  !!url && !url.includes("adsmanager.facebook.com");
 
 function CriativosDestaque({ criativos }: { criativos: Criativo[] }) {
   if (!criativos.length) return null;
@@ -213,20 +229,26 @@ function CriativosDestaque({ criativos }: { criativos: Criativo[] }) {
     <div className="rv-card">
       <h3>Criativos em destaque</h3>
       <div className="rv-creative-grid">
-        {criativos.map((c) => (
-          <div key={c.adId} className="rv-creative-card">
-            <div className={`rv-thumb ${c.thumbnailUrl ? "" : "vazio"}`}
-              style={c.thumbnailUrl ? { backgroundImage: `url(${c.thumbnailUrl})` } : undefined}>
-              {!c.thumbnailUrl && "sem prévia"}
-            </div>
-            <div className="rv-creative-info">
-              <p className="fmt">{c.adName}</p>
-              <div className="rv-stat"><span>CTR</span><b>{fmtPct(c.ctr)}</b></div>
-              <div className="rv-stat"><span>Custo/resultado</span><b>{fmtBRL(c.costPerResult)}</b></div>
-              <span className={`rv-pill ${c.status ?? "neutral"}`}>{rotuloStatus(c.status)}</span>
-            </div>
-          </div>
-        ))}
+        {criativos.map((c) => {
+          const link = ehPreviewPublico(c.managerUrl) ? c.managerUrl! : null;
+          const Tag = link ? "a" : "div";
+          return (
+            <Tag key={c.adId} className={`rv-creative-card ${link ? "clicavel" : ""}`}
+              {...(link ? { href: link, target: "_blank", rel: "noopener noreferrer", title: "Abrir o criativo" } : {})}>
+              <div className={`rv-thumb ${c.thumbnailUrl ? "" : "vazio"}`}
+                style={c.thumbnailUrl ? { backgroundImage: `url(${c.thumbnailUrl})` } : undefined}>
+                {!c.thumbnailUrl && "sem prévia"}
+                {link && <span className="rv-abrir" aria-hidden="true">↗</span>}
+              </div>
+              <div className="rv-creative-info">
+                <p className="fmt">{c.adName}</p>
+                <div className="rv-stat"><span>CTR</span><b>{fmtPct(c.ctr)}</b></div>
+                <div className="rv-stat"><span>Custo/result.</span><b>{fmtBRL(c.costPerResult)}</b></div>
+                <span className={`rv-pill ${c.status ?? "neutral"}`}>{rotuloStatus(c.status)}</span>
+              </div>
+            </Tag>
+          );
+        })}
       </div>
     </div>
   );
@@ -275,116 +297,7 @@ function kpisDeMidia(m: Metricas, resultLabel: string): Kpi[] {
   ];
 }
 
-function Cabecalho({ conta, periodo }: { conta?: string; periodo?: { start: string; end: string } }) {
-  return (
-    <header className="rv-topbar">
-      <div className="rv-topbar-inner">
-        <div className="rv-brand"><div className="rv-mark">S</div><span>Selva Agency</span></div>
-        <div className="rv-meta"><b>{conta}</b> · {periodo?.start} a {periodo?.end}</div>
-      </div>
-    </header>
-  );
-}
-
-function Rodape() {
-  return (
-    <footer className="rv-footer">
-      <div className="rv-footer-inner">Relatório gerado automaticamente a partir dos dados da conta. Powered by SELVA Agency.</div>
-    </footer>
-  );
-}
-
-// ── Página ──────────────────────────────────────────────────────────────────
-
-export default function ReportView() {
-  const [, params] = useRoute<{ token: string }>("/r/:token");
-  const token = params?.token ?? "";
-  const [metric, setMetric] = useState<Metric>("investment");
-
-  const { data: result, isLoading, error } = trpc.reports.getPublic.useQuery(
-    { token },
-    { enabled: !!token, retry: false }
-  );
-
-  if (isLoading) {
-    return <div className="report-view"><div className="rv-loading">Carregando relatório…</div></div>;
-  }
-
-  if (error || !result) {
-    return <div className="report-view"><div className="rv-error">Não encontramos esse relatório. Verifique o link recebido.</div></div>;
-  }
-
-  // Relatório modular: outra forma de narrative (fatos/hipóteses/pendências) e
-  // sem dataSnapshot no formato legado. Renderizar com o layout antigo — que
-  // assume métricas de mídia sempre presentes — sairia praticamente em branco.
-  if ((result as { modulos?: string[] | null }).modulos?.length) {
-    return <RelatorioModularView result={result as never} />;
-  }
-
-  const { data, narrative, period } = result;
-  const resultLabel = data.resultLabel ?? "Resultados";
-  const serie = (data.weeklyTrend?.[metric] ?? []) as Serie;
-
-  return (
-    <div className="report-view">
-      <Cabecalho conta={data.account?.name} periodo={period} />
-
-      <main className="rv-main">
-        <span className="rv-eyebrow">Relatório de performance</span>
-        <h1 className="rv-h1">{narrative?.headline ?? "Resumo do período"}</h1>
-        {narrative?.resumo && <p className="rv-lead">{narrative.resumo}</p>}
-
-        <GradeKpis kpis={kpisDeMidia(data.metrics, resultLabel)} />
-
-        <GraficoSemanal series={serie} metric={metric} tabs={abasDeMetrica(resultLabel)} onMetric={setMetric} />
-        <CriativosDestaque criativos={data.creatives ?? []} />
-        <PublicosTestados publicos={data.audiences ?? []} />
-
-        {(narrative?.positivo || narrative?.atencao) && (
-          <div className="rv-status-grid">
-            {narrative?.positivo && (
-              <div className="rv-status-card positivo">
-                <h3>O que funcionou</h3>
-                <p>{narrative.positivo}</p>
-              </div>
-            )}
-            {narrative?.atencao && (
-              <div className="rv-status-card atencao">
-                <h3>O que pede atenção</h3>
-                <p>{narrative.atencao}</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {narrative?.proximosPassos && narrative.proximosPassos.length > 0 && (
-          <div className="rv-card rv-next">
-            <h3>Próximos passos</h3>
-            <ol>
-              {narrative.proximosPassos.map((step: string, i: number) => (
-                <li key={i}><span className="dot" />{step}</li>
-              ))}
-            </ol>
-          </div>
-        )}
-      </main>
-
-      <Rodape />
-    </div>
-  );
-}
-
-/**
- * Relatório modular — vista pública.
- *
- * Formato próprio porque a promessa é outra: o relatório legado assume que
- * sempre há métricas de mídia e mostra números grandes. O modular pode ser só
- * técnico, só de mídia, ou parcial — e precisa dizer o que NÃO olhou.
- *
- * A seção "O que não foi medido" não é rodapé burocrático: sem ela, um relatório
- * magro é indistinguível de um cliente saudável quando alguém reabre o link
- * meses depois. É o que separa "está tudo bem" de "ninguém mediu".
- */
+// ── Dados do relatório ──────────────────────────────────────────────────────
 
 const ehNumRV = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const fmtMsRV = (v: unknown) => (ehNumRV(v) ? (v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${Math.round(v)}ms`) : "—");
@@ -405,6 +318,53 @@ type DadosSiteRV = {
   uptime?: Record<string, unknown>;
   clarity?: Record<string, unknown>;
 };
+/** Narrativa voltada ao cliente. Os campos internos (fatos, hipóteses,
+ *  recomendações com prioridade, pendências) foram removidos em 02/ago/2026. */
+type Narrativa = {
+  titulo?: string;
+  resumoExecutivo?: string;
+  oQueAconteceu?: string;
+  proximosPassos?: string[];
+  oQueVamosMedir?: string[];
+  expectativa?: string;
+};
+type Relatorio = {
+  period?: { start: string; end: string };
+  modulos?: string[] | null;
+  narrative: Narrativa | null;
+  fontes?: { rotulo: string; presente: boolean; porque?: string }[] | null;
+  data?: { midia?: DadosMidia | null; site?: DadosSiteRV | null };
+};
+
+/**
+ * Snapshots gerados antes do formato modular guardam a mídia na raiz do
+ * dataSnapshot e uma narrativa com outros nomes. Adaptar sai muito mais barato
+ * que manter uma segunda vista inteira só para eles — e os links que já estão
+ * na mão dos clientes continuam abrindo.
+ */
+function adaptarLegado(bruto: {
+  period?: { start: string; end: string };
+  data?: Record<string, unknown>;
+  narrative?: Record<string, unknown> | null;
+}): Relatorio {
+  const n = (bruto.narrative ?? {}) as {
+    headline?: string; resumo?: string; positivo?: string; atencao?: string; proximosPassos?: string[];
+  };
+  return {
+    period: bruto.period,
+    modulos: ["midia"],
+    fontes: null,
+    data: { midia: (bruto.data ?? null) as DadosMidia | null, site: null },
+    narrative: {
+      titulo: n.headline ?? "",
+      resumoExecutivo: n.resumo ?? "",
+      oQueAconteceu: [n.positivo, n.atencao].filter(Boolean).join(" "),
+      proximosPassos: Array.isArray(n.proximosPassos) ? n.proximosPassos : [],
+      oQueVamosMedir: [],
+      expectativa: "",
+    },
+  };
+}
 
 /** Nomeia a peça pelo que ela de fato olhou — "Relatório" genérico não ajuda
  *  quem reabre o link seis meses depois. */
@@ -419,44 +379,50 @@ function tipoDeRelatorio(modulos: string[] | null | undefined): string {
   return "Relatório";
 }
 
-function RelatorioModularView({ result }: {
-  result: {
-    period?: { start: string; end: string };
-    modulos?: string[] | null;
-    narrative: {
-      titulo?: string;
-      resumoExecutivo?: string;
-      fatos?: string[];
-      interpretacoes?: string[];
-      hipoteses?: string[];
-      recomendacoes?: { acao: string; porque: string; prioridade: string }[];
-      pendencias?: string[];
-    } | null;
-    fontes?: { rotulo: string; presente: boolean; porque?: string }[] | null;
-    data?: { midia?: DadosMidia | null; site?: DadosSiteRV | null };
-  };
-}) {
-  const n = result.narrative;
-  const usadas = (result.fontes ?? []).filter((f) => f.presente);
-  const faltando = (result.fontes ?? []).filter((f) => !f.presente);
-  const midia = result.data?.midia ?? null;
-  const site = result.data?.site ?? null;
-  const nomeConta = midia?.account?.name ?? "";
-  const resultLabel = midia?.resultLabel ?? "Resultados";
+// ── Página ──────────────────────────────────────────────────────────────────
 
+export default function ReportView() {
+  const [, params] = useRoute<{ token: string }>("/r/:token");
+  const token = params?.token ?? "";
   const [metric, setMetric] = useState<Metric>("investment");
-  const serie = midia?.weeklyTrend?.[metric] ?? [];
 
+  const { data: bruto, isLoading, error } = trpc.reports.getPublic.useQuery(
+    { token },
+    { enabled: !!token, retry: false }
+  );
+
+  if (isLoading) {
+    return <div className="report-view"><div className="rv-loading">Carregando relatório…</div></div>;
+  }
+  if (error || !bruto) {
+    return <div className="report-view"><div className="rv-error">Não encontramos esse relatório. Verifique o link recebido.</div></div>;
+  }
+
+  // Sem `modulos` é snapshot do formato antigo — adaptado, não renderizado por
+  // uma vista paralela.
+  const r: Relatorio = bruto.modulos?.length ? (bruto as unknown as Relatorio) : adaptarLegado(bruto as never);
+
+  const n = r.narrative;
+  const usadas = (r.fontes ?? []).filter((f) => f.presente);
+  const midia = r.data?.midia ?? null;
+  const site = r.data?.site ?? null;
+  const resultLabel = midia?.resultLabel ?? "Resultados";
+  const serie = midia?.weeklyTrend?.[metric] ?? [];
   const m = midia?.metrics;
   const ps = (site?.pagespeed ?? null) as Record<string, unknown> | null;
   const seg = (site?.seguranca ?? null) as Record<string, unknown> | null;
 
   return (
     <div className="report-view">
-      <Cabecalho conta={nomeConta} periodo={result.period} />
+      <header className="rv-topbar">
+        <div className="rv-topbar-inner">
+          <div className="rv-brand"><div className="rv-mark">S</div><span>Selva Agency</span></div>
+          <div className="rv-meta"><b>{midia?.account?.name ?? ""}</b> · {r.period?.start} a {r.period?.end}</div>
+        </div>
+      </header>
 
       <main className="rv-main">
-        <span className="rv-eyebrow">{tipoDeRelatorio(result.modulos)}</span>
+        <span className="rv-eyebrow">{tipoDeRelatorio(r.modulos)}</span>
         {/* Relatórios antigos não têm `titulo` — daí o fallback. */}
         <h1 className="rv-h1">{n?.titulo || "Resumo do período"}</h1>
         {n?.resumoExecutivo && <p className="rv-lead">{n.resumoExecutivo}</p>}
@@ -473,7 +439,6 @@ function RelatorioModularView({ result }: {
         <CriativosDestaque criativos={midia?.creatives ?? []} />
         <PublicosTestados publicos={midia?.audiences ?? []} />
 
-        {/* Site: performance técnica e segurança em cards */}
         {(ps || seg) && (
           <div className="rv-card">
             <h3>Site</h3>
@@ -494,62 +459,47 @@ function RelatorioModularView({ result }: {
           </div>
         )}
 
-        {/* Fato e interpretação lado a lado, ambos neutros: verde/creme aqui
-            sinalizava um veredito ("isso é bom", "isso é alerta") que o conteúdo
-            não tem. A distinção é feita pelo rótulo, não pelo fundo. */}
-        {(n?.fatos?.length || n?.interpretacoes?.length) ? (
-          <div className="rv-status-grid">
-            {n?.fatos && n.fatos.length > 0 && (
-              <div className="rv-status-card fato">
-                <h4>Fatos</h4>
-                <ul className="rv-lista">{n.fatos.map((x, i) => <li key={i}>{x}</li>)}</ul>
-              </div>
-            )}
-            {n?.interpretacoes && n.interpretacoes.length > 0 && (
-              <div className="rv-status-card leitura">
-                <h4>O que os dados sugerem</h4>
-                <ul className="rv-lista">{n.interpretacoes.map((x, i) => <li key={i}>{x}</li>)}</ul>
-              </div>
-            )}
-          </div>
-        ) : null}
+        {/* ── Os quatro blocos: passado explicado, futuro combinado ───────── */}
 
-        {n?.hipoteses && n.hipoteses.length > 0 && (
+        {n?.oQueAconteceu && (
           <section className="rv-card">
-            <h3>Hipóteses a confirmar</h3>
-            <ul className="rv-lista">{n.hipoteses.map((x, i) => <li key={i}>{x}</li>)}</ul>
+            <h3>O que aconteceu no período</h3>
+            <p className="rv-prosa">{n.oQueAconteceu}</p>
           </section>
         )}
 
-        {n?.recomendacoes && n.recomendacoes.length > 0 && (
-          <div className="rv-card rv-next">
-            <h3>Recomendações</h3>
+        {n?.proximosPassos && n.proximosPassos.length > 0 && (
+          <section className="rv-card rv-next">
+            <h3>Próximos passos</h3>
             <ol>
-              {n.recomendacoes.map((r, i) => (
-                <li key={i}>
-                  <span className={`rv-prio ${r.prioridade}`}>{r.prioridade}</span>
-                  <div>
-                    <p className="rv-rec-acao">{r.acao}</p>
-                    {r.porque && <p className="rv-rec-porque">{r.porque}</p>}
-                  </div>
-                </li>
+              {n.proximosPassos.map((p, i) => (
+                <li key={i}><span className="rv-passo">{i + 1}</span><span>{p}</span></li>
               ))}
             </ol>
-          </div>
+          </section>
         )}
 
-        {(n?.pendencias?.length || faltando.length > 0) && (
+        {n?.oQueVamosMedir && n.oQueVamosMedir.length > 0 && (
           <section className="rv-card">
-            <h3>O que não foi medido</h3>
-            <p className="rv-card-sub">Ausência de dado não significa ausência de problema.</p>
-            <ul className="rv-lista">
-              {(n?.pendencias ?? []).map((x, i) => <li key={i}>{x}</li>)}
+            <h3>O que vamos medir</h3>
+            <p className="rv-card-sub">Os indicadores que vão dizer se os passos acima funcionaram.</p>
+            <ul className="rv-lista rv-medir">
+              {n.oQueVamosMedir.map((x, i) => <li key={i}>{x}</li>)}
             </ul>
+          </section>
+        )}
+
+        {n?.expectativa && (
+          <section className="rv-expectativa">
+            <h3>Expectativa para o próximo período</h3>
+            <p>{n.expectativa}</p>
           </section>
         )}
       </main>
 
-      <Rodape />
+      <footer className="rv-footer">
+        <div className="rv-footer-inner">Relatório gerado automaticamente a partir dos dados da conta. Powered by SELVA Agency.</div>
+      </footer>
     </div>
   );
 }

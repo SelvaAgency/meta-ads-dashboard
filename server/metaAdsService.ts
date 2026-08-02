@@ -1258,7 +1258,11 @@ export async function getAdsWithInsights(
     for (const chunk of adIdChunks) {
       const chunkAds = await metaFetchAll<AdRow>(`act_${accountId}/ads`, {
         access_token: accessToken,
-        fields: "id,name,adset_id,campaign_id,status,effective_status,ad_preview_shareable_link,creative{id,object_type,thumbnail_url,image_url}",
+        // thumbnail_url sem parâmetro volta em ~64px e fica borrado ao ser
+        // ampliado no relatório do cliente. O `.width().height()` é o jeito de
+        // pedir um tamanho à Graph API — só afeta o fallback, já que image_url
+        // (CDN, resolução cheia) tem preferência quando existe.
+        fields: "id,name,adset_id,campaign_id,status,effective_status,ad_preview_shareable_link,creative{id,object_type,thumbnail_url.width(600).height(600),image_url}",
         filtering: JSON.stringify([{ field: "id", operator: "IN", value: chunk }]),
         limit: "50",
       }, 1);

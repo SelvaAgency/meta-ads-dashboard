@@ -111,18 +111,24 @@
 .rv-axis span{font-size:10px;color:var(--muted);font-weight:600;white-space:nowrap}
 
 /* ── Criativos ────────────────────────────────────────────────────────────── */
-.rv-creative-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-@media(min-width:560px){.rv-creative-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
-.rv-creative-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-md);overflow:hidden;box-shadow:var(--shadow);transition:transform .18s ease,box-shadow .18s ease}
-.rv-creative-card:hover{transform:translateY(-2px);box-shadow:0 20px 46px rgba(18,28,24,.10)}
-.rv-thumb{aspect-ratio:1;background:var(--bg) center/cover no-repeat}
+/* Cards menores de propósito: a Meta nem sempre devolve o criativo em resolução
+   cheia, e ampliar 64px num card de 230px produz borrão. Em ~130px a mesma
+   imagem fica nítida — e quem quiser ver grande clica e abre o preview. */
+.rv-creative-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:12px}
+.rv-creative-card{position:relative;display:block;color:inherit;text-decoration:none;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-md);overflow:hidden;box-shadow:var(--shadow);transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+.rv-creative-card.clicavel{cursor:pointer}
+.rv-creative-card.clicavel:hover{transform:translateY(-2px);box-shadow:0 20px 46px rgba(18,28,24,.12);border-color:rgba(244,54,140,.45)}
+.rv-creative-card.clicavel:focus-visible{outline:2px solid var(--pink);outline-offset:2px}
+.rv-thumb{position:relative;aspect-ratio:1;background:var(--bg) center/cover no-repeat}
 /* Sem thumbnail o bloco cinza mudo parecia erro de carregamento — agora ele diz
    que a prévia não veio, e não que o criativo não existe. */
-.rv-thumb.vazio{display:grid;place-items:center;background:linear-gradient(135deg,var(--sage),var(--cream));color:var(--muted);font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;text-align:center;padding:8px}
-.rv-creative-info{padding:12px}
-.rv-creative-info .fmt{font-size:11.5px;font-weight:700;margin:0 0 6px;line-height:1.3}
-.rv-stat{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:8px;margin-top:2px}
-.rv-stat b{color:var(--ink);font-weight:700}
+.rv-thumb.vazio{display:grid;place-items:center;background:linear-gradient(135deg,var(--sage),var(--cream));color:var(--muted);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;text-align:center;padding:6px}
+.rv-abrir{position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:999px;display:grid;place-items:center;background:rgba(255,253,250,.92);color:var(--deep);font-size:11px;font-weight:800;opacity:0;transition:opacity .18s ease;box-shadow:0 2px 8px rgba(18,28,24,.18)}
+.rv-creative-card.clicavel:hover .rv-abrir,.rv-creative-card.clicavel:focus-visible .rv-abrir{opacity:1}
+.rv-creative-info{padding:10px}
+.rv-creative-info .fmt{font-size:10.5px;font-weight:700;margin:0 0 5px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.rv-stat{font-size:10px;color:var(--muted);display:flex;justify-content:space-between;gap:6px;margin-top:2px}
+.rv-stat b{color:var(--ink);font-weight:700;font-size:10.5px}
 
 /* ── Pastilhas ────────────────────────────────────────────────────────────── */
 .rv-pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;background:var(--sage);color:var(--deep)}
@@ -141,30 +147,24 @@
 .rv-nums span{display:flex;flex-direction:column;gap:2px}
 .rv-nums b{color:var(--ink);font-size:14px;font-weight:800;letter-spacing:0;text-transform:none}
 
-/* ── Blocos de leitura (fatos / interpretações / o que funcionou) ──────────── */
-.rv-status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:24px}
-@media(max-width:620px){.rv-status-grid{grid-template-columns:1fr}}
-.rv-status-card{border-radius:var(--radius-lg);padding:22px;border:1px solid var(--line);background:var(--paper);box-shadow:var(--shadow)}
-/* Verde/creme só onde a cor SIGNIFICA algo (funcionou / pede atenção). Fato e
-   interpretação são neutros: pintá-los sinalizava um veredito que não existe. */
-.rv-status-card.positivo{background:var(--sage);box-shadow:none}
-.rv-status-card.atencao{background:var(--cream);box-shadow:none}
-.rv-status-card h3,.rv-status-card h4{font-size:12.5px;text-transform:uppercase;letter-spacing:.1em;font-weight:800;margin:0 0 10px}
-.rv-status-card.fato h4{color:var(--deep)}
-.rv-status-card.leitura h4{color:#9f0c58}
-.rv-status-card p{margin:0;font-size:14px;line-height:1.55;color:#2d312f}
-.rv-status-card .rv-lista{padding-left:16px;line-height:1.7}
+/* ── Os quatro blocos do fecho ────────────────────────────────────────────── */
+/* Passado explicado, futuro combinado. A prosa aqui é maior que a das outras
+   seções de propósito: é o que o cliente lê de fato, não legenda de card. */
+.rv-prosa{margin:0;font-size:15px;line-height:1.7;color:#2d312f}
 
-/* ── Próximos passos / recomendações ──────────────────────────────────────── */
-.rv-next ol{margin:0;padding:0;list-style:none;display:grid;gap:14px}
-.rv-next li{display:flex;gap:10px;font-size:14px;line-height:1.5;color:#2d312f}
-.rv-next .dot{flex:none;width:7px;height:7px;border-radius:999px;background:var(--deep);margin-top:7px}
-.rv-rec-acao{margin:0;font-weight:600;color:var(--ink)}
-.rv-rec-porque{margin:3px 0 0;font-size:12.5px;line-height:1.5;color:var(--muted)}
-.rv-prio{flex:none;margin-top:1px;padding:3px 9px;border-radius:999px;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;background:var(--bg);color:var(--muted)}
-.rv-prio.alta{background:rgba(244,54,140,.12);color:#9f0c58}
-.rv-prio.media{background:var(--cream);color:#8a6320}
-.rv-prio.baixa{background:var(--sage);color:var(--deep)}
+.rv-next ol{margin:0;padding:0;list-style:none;display:grid;gap:12px}
+.rv-next li{display:flex;gap:11px;font-size:14.5px;line-height:1.55;color:#2d312f;align-items:flex-start}
+.rv-passo{flex:none;width:22px;height:22px;border-radius:999px;background:var(--deep);color:#fffdfa;display:grid;place-items:center;font-size:11px;font-weight:800;font-family:'Montserrat','DM Sans',sans-serif;margin-top:1px}
+
+.rv-medir{list-style:none;padding-left:0;font-size:14.5px}
+.rv-medir li{position:relative;padding-left:20px}
+.rv-medir li::before{content:"";position:absolute;left:2px;top:.62em;width:7px;height:7px;border-radius:999px;border:2px solid var(--pink)}
+
+/* A expectativa é a única promessa do documento — por isso é o único bloco com
+   fundo cheio. É o que o cliente vai cobrar no relatório seguinte. */
+.rv-expectativa{background:var(--sage);border:1px solid var(--line);border-radius:var(--radius-lg);padding:24px;margin-bottom:24px}
+.rv-expectativa h3{font-size:12.5px;text-transform:uppercase;letter-spacing:.1em;font-weight:800;margin:0 0 10px;color:var(--deep)}
+.rv-expectativa p{margin:0;font-size:15px;line-height:1.7;color:#22403a}
 
 /* ── Movimento ────────────────────────────────────────────────────────────── */
 /* Entrada escalonada das seções. `both` no fill-mode é obrigatório: sem ele o
@@ -206,13 +206,13 @@
   .rv-main > *,.rv-linha,.rv-area,.rv-ponto{animation:none}
   .rv-linha{stroke-dasharray:none}
   .rv-card,.rv-metric,.rv-creative-card,.rv-audience-row{box-shadow:none}
-  .rv-card,.rv-status-card,.rv-creative-card,.rv-audience-row{break-inside:avoid;page-break-inside:avoid}
-  .rv-h1,.rv-card h3,.rv-status-card h3,.rv-status-card h4{break-after:avoid;page-break-after:avoid}
+  .rv-card,.rv-expectativa,.rv-creative-card,.rv-audience-row{break-inside:avoid;page-break-inside:avoid}
+  .rv-h1,.rv-card h3,.rv-expectativa h3{break-after:avoid;page-break-after:avoid}
   .rv-tab{display:none}
   .rv-tab.active{display:inline-flex}
-  .rv-tip{display:none}
+  .rv-tip,.rv-abrir{display:none}
   /* Sem isto o navegador descarta os fundos e as pastilhas somem no papel. */
-  .rv-pill,.rv-delta,.rv-prio,.rv-eyebrow,.rv-status-card,.rv-tab.active,.rv-thumb{
+  .rv-pill,.rv-delta,.rv-passo,.rv-eyebrow,.rv-expectativa,.rv-tab.active,.rv-thumb{
     -webkit-print-color-adjust:exact;print-color-adjust:exact
   }
 }

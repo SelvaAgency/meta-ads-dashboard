@@ -8,16 +8,20 @@
  *  relatório dizendo coisas diferentes sobre o mesmo cliente no mesmo dia é o
  *  tipo de erro que faz a equipe parar de confiar nos dois.
  *
- *  ── O que este arquivo se recusa a fazer ──
+ *  ── Para QUEM este relatório é escrito ──
+ *
+ *  Para o CLIENTE, não para a agência. Isso não é detalhe de tom: define o que
+ *  entra. Até 02/ago/2026 a narrativa saía em fatos/interpretações/hipóteses/
+ *  pendências — material de análise interna, útil para quem opera a conta e
+ *  ruído para quem recebe o link. Foi substituída por quatro blocos que
+ *  respondem o que o cliente pergunta: o que aconteceu, o que vamos fazer, o
+ *  que vamos medir e o que esperamos.
  *
  *  Nunca bloqueia por fonte ausente. Marcar Clarity num cliente sem Clarity
- *  gera o relatório do mesmo jeito: a seção é omitida e a ausência vira
- *  PENDÊNCIA declarada. O relatório magro precisa dizer que é magro — senão,
- *  seis meses depois, ele é indistinguível de um cliente saudável.
- *
- *  Separa fato de interpretação de hipótese. Fato tem número. Interpretação
- *  liga números. Hipótese é palpite honesto, rotulado, com o dado que a
- *  resolveria. Misturar os três é o que transforma relatório em ficção.
+ *  gera o relatório do mesmo jeito — a seção some. O registro do que NÃO foi
+ *  medido continua existindo em `fontesJson` e aparece na lista de relatórios
+ *  do painel ("sem: Clarity, PageSpeed"), que é onde a agência precisa vê-lo.
+ *  Ele deixou de virar prosa no link do cliente, não deixou de ser gravado.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { invokeLLM, extractTextContent } from "../_core/llm";
@@ -36,11 +40,14 @@ export type RelatorioModular = {
    *  com "Resumo do período" fixo, e o cliente lia um título que não dizia nada. */
   titulo: string;
   resumoExecutivo: string;
-  fatos: string[];
-  interpretacoes: string[];
-  hipoteses: string[];
-  recomendacoes: { acao: string; porque: string; prioridade: "alta" | "media" | "baixa" }[];
-  pendencias: string[];
+  /** Explicação do que os números do período mostram — e por quê. */
+  oQueAconteceu: string;
+  /** O que a agência vai fazer/testar no próximo período. */
+  proximosPassos: string[];
+  /** Os indicadores que vão dizer se os próximos passos funcionaram. */
+  oQueVamosMedir: string[];
+  /** O resultado esperado, e o que acontece se não vier. */
+  expectativa: string;
 };
 
 /** Presets: atalhos para as combinações que a equipe usa toda semana. */
@@ -51,25 +58,29 @@ export const PRESETS: { id: string; nome: string; descricao: string; modulos: Mo
   { id: "completo", nome: "Completo", descricao: "Tudo que existir para este cliente.", modulos: ["midia", "campanhas", "site", "clarity", "pagespeed", "seguranca", "uptime", "contexto", "alertas", "relatorios"] },
 ];
 
-const SISTEMA = `Você é o analista de performance da SELVA escrevendo um relatório sobre UM cliente.
+const SISTEMA = `Você é o analista de performance da SELVA escrevendo PARA O CLIENTE de uma conta.
+
+QUEM VAI LER: o dono do negócio ou o marketing dele. Ele quer entender o que aconteceu com o dinheiro dele e o que vem a seguir. Ele NÃO quer sua análise interna, sua lista de hipóteses nem o inventário do que a agência ainda não configurou.
 
 REGRAS INEGOCIÁVEIS:
-1. Use SOMENTE o dossiê. Jamais invente número, página, campanha ou data.
-2. Fonte "SEM DADOS" significa que NINGUÉM MEDIU — não que está bem. Nunca conclua saúde a partir de ausência. Sem Clarity você não sabe como as pessoas se comportam; sem PageSpeed você não sabe se o site é lento.
-3. Separe rigorosamente:
-   - titulo: manchete do período, máx 90 caracteres. O achado principal, não um rótulo genérico. Sem ponto final. Se não houver achado claro, descreva o período de forma factual.
-   - fatos: afirmações com número do dossiê. Cite a fonte entre colchetes.
-   - interpretacoes: o que os fatos, cruzados, sugerem. Ainda ancorado em número.
-   - hipoteses: palpite honesto. Diga QUAL DADO confirmaria ou derrubaria.
-   - recomendacoes: ação concreta, com o porquê e prioridade.
-   - pendencias: o que falta medir/preencher e o que isso impede de saber.
-4. Português do Brasil, direto. Sem jargão vazio.
+1. Use SOMENTE o dossiê. Jamais invente número, campanha, público ou data.
+2. Escreva na primeira pessoa do plural pela agência ("concentramos a verba", "vamos testar"). O cliente é "você"/"sua conta" — nunca escreva sobre ele na terceira pessoa.
+3. Fonte "SEM DADOS" significa que ninguém mediu — não que está bem. Nunca conclua saúde a partir de ausência. Se falta uma fonte, simplesmente NÃO fale do assunto: não invente e também não gaste o relatório do cliente listando o que a agência não mediu.
+4. Nada de jargão vazio nem de elogio a si mesmo. Se o período foi ruim, diga que foi ruim e o que vai ser feito.
 5. Bot não é gente: desconte ao julgar tráfego.
 6. HTTP 403 no uptime é WAF, não queda.
 7. Se o dossiê só tem mídia, o relatório é de mídia — não invente uma seção de site.
 
+OS CAMPOS:
+- titulo: manchete do período, máx 90 caracteres, sem ponto final. O achado principal, não um rótulo genérico. Se não houver achado claro, descreva o período de forma factual.
+- resumoExecutivo: 2 a 3 frases ligando investimento e resultado. É o parágrafo que alguém lê se ler só uma coisa.
+- oQueAconteceu: 3 a 5 frases explicando o que os números mostram E POR QUÊ. Ligue causa e efeito quando o dossiê permitir ("o custo caiu depois que concentramos verba em X"). Se um número piorou por uma decisão deliberada, diga isso. Prosa corrida, sem bullets, sem markdown.
+- proximosPassos: 2 a 4 ações CONCRETAS que a agência vai executar no próximo período. Cada uma começa com verbo no futuro ou infinitivo. Cite criativo, público ou campanha pelo nome quando o dossiê tiver. Nada de "continuar monitorando".
+- oQueVamosMedir: 2 a 4 indicadores que vão dizer se os próximos passos funcionaram. Cada item liga um número a um passo. Não repita a lista de passos com outras palavras.
+- expectativa: 1 a 3 frases sobre o resultado esperado no próximo período e o que será feito se ele não vier. Seja honesto sobre incerteza — não prometa número que o dossiê não sustenta.
+
 Responda APENAS com JSON válido neste formato:
-{"titulo":"...","resumoExecutivo":"...","fatos":["..."],"interpretacoes":["..."],"hipoteses":["..."],"recomendacoes":[{"acao":"...","porque":"...","prioridade":"alta|media|baixa"}],"pendencias":["..."]}`;
+{"titulo":"...","resumoExecutivo":"...","oQueAconteceu":"...","proximosPassos":["..."],"oQueVamosMedir":["..."],"expectativa":"..."}`;
 
 /**
  * Dados de SITE já estruturados para virarem cards no relatório visual —
@@ -104,7 +115,7 @@ export async function gerarRelatorioModular(
   const blocoContaAgencia = ctxContaAgencia ? `\n\n════ CONTEXTO DA CONTA E DA AGÊNCIA ════\n${ctxContaAgencia}` : "";
 
   // Cards de site: só os blocos que existem viram dados. Ausente não vira card
-  // vazio — vira pendência, lá embaixo.
+  // vazio — a seção simplesmente some, e a ausência fica registrada em `fontes`.
   const dadosSite: DadosSite = {
     pagespeed: ctx.pagespeed.presente ? (ctx.pagespeed.dados as { metricas?: Record<string, unknown> })?.metricas : undefined,
     seguranca: ctx.seguranca.presente ? (ctx.seguranca.dados as { metricas?: Record<string, unknown> })?.metricas : undefined,
@@ -119,11 +130,10 @@ export async function gerarRelatorioModular(
     const relatorio: RelatorioModular = {
       titulo: "Sem dados no período",
       resumoExecutivo: `Não há dados para os módulos pedidos no período de ${periodo.inicio} a ${periodo.fim}.`,
-      fatos: [],
-      interpretacoes: [],
-      hipoteses: [],
-      recomendacoes: [],
-      pendencias: fontes.map((f) => `${f.rotulo}: ${f.porque}`),
+      oQueAconteceu: "",
+      proximosPassos: [],
+      oQueVamosMedir: [],
+      expectativa: "",
     };
     return { relatorio, fontes, markdown: paraMarkdown(nome, periodo, relatorio, fontes), dadosSite };
   }
@@ -151,29 +161,22 @@ export async function gerarRelatorioModular(
   }
 
   // O modelo pode omitir campos; a tela não pode quebrar por isso.
+  const lista = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && !!x.trim()) : []);
   relatorio = {
     titulo: (relatorio.titulo ?? "").trim(),
     resumoExecutivo: relatorio.resumoExecutivo ?? "",
-    fatos: relatorio.fatos ?? [],
-    interpretacoes: relatorio.interpretacoes ?? [],
-    hipoteses: relatorio.hipoteses ?? [],
-    recomendacoes: relatorio.recomendacoes ?? [],
-    pendencias: relatorio.pendencias ?? [],
+    oQueAconteceu: relatorio.oQueAconteceu ?? "",
+    proximosPassos: lista(relatorio.proximosPassos),
+    oQueVamosMedir: lista(relatorio.oQueVamosMedir),
+    expectativa: relatorio.expectativa ?? "",
   };
-
-  // As pendências não dependem do modelo: quem faltou, faltou. Garante que
-  // toda fonte ausente apareça, mesmo se o LLM esquecer de citá-la.
-  const faltando = fontes.filter((f) => !f.presente).map((f) => `${f.rotulo}: ${f.porque}`);
-  for (const p of faltando) {
-    if (!relatorio.pendencias.some((x) => x.toLowerCase().includes(p.split(":")[0].toLowerCase()))) {
-      relatorio.pendencias.push(p);
-    }
-  }
 
   return { relatorio, fontes, markdown: paraMarkdown(nome, periodo, relatorio, fontes), dadosSite };
 }
 
-/** Markdown para colar no WhatsApp/e-mail. */
+/** Markdown para colar no WhatsApp/e-mail. Mesma estrutura do link público:
+ *  se o texto colado no WhatsApp disser algo diferente do que o cliente lê no
+ *  link, quem perde a confiança é a agência. */
 export function paraMarkdown(
   nome: string,
   periodo: Periodo,
@@ -189,14 +192,11 @@ export function paraMarkdown(
   const usadas = fontes.filter((f) => f.presente).map((f) => f.rotulo);
   l.push(`\n## Fontes usadas\n${usadas.length ? usadas.join(" · ") : "nenhuma"}`);
 
-  if (r.fatos.length) l.push(`\n## Fatos\n${r.fatos.map((x) => `- ${x}`).join("\n")}`);
-  if (r.interpretacoes.length) l.push(`\n## O que os dados sugerem\n${r.interpretacoes.map((x) => `- ${x}`).join("\n")}`);
-  if (r.hipoteses.length) l.push(`\n## Hipóteses (a confirmar)\n${r.hipoteses.map((x) => `- ${x}`).join("\n")}`);
-  if (r.recomendacoes.length) {
-    l.push(`\n## Recomendações\n${r.recomendacoes.map((x) => `- **[${x.prioridade}]** ${x.acao}\n  _${x.porque}_`).join("\n")}`);
-  }
-  if (r.pendencias.length) l.push(`\n## Pendências de dados\n${r.pendencias.map((x) => `- ${x}`).join("\n")}`);
-  l.push(`\n---\n_Relatório gerado pelo SELVA Spaces. As pendências acima indicam o que NÃO foi medido — não que esteja tudo certo._`);
+  if (r.oQueAconteceu) l.push(`\n## O que aconteceu no período\n${r.oQueAconteceu}`);
+  if (r.proximosPassos.length) l.push(`\n## Próximos passos\n${r.proximosPassos.map((x, i) => `${i + 1}. ${x}`).join("\n")}`);
+  if (r.oQueVamosMedir.length) l.push(`\n## O que vamos medir\n${r.oQueVamosMedir.map((x) => `- ${x}`).join("\n")}`);
+  if (r.expectativa) l.push(`\n## Expectativa para o próximo período\n${r.expectativa}`);
+  l.push(`\n---\n_Relatório gerado pelo SELVA Spaces._`);
   return l.join("\n");
 }
 
