@@ -1,6 +1,7 @@
 import { logger } from "./logger";
 import { resolverTipoDaConta } from "./alertProfiles";
 import { runDailyDigestJob } from "./services/dailyDigestService";
+import { runObservacoesAutomaticas } from "./services/observacoesService";
 import { sincronizarGA4 } from "./services/ga4Sync";
 import { sincronizarLojas, resumirCicloLojas } from "./services/lojaSync";
 import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, hojeAgencia, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
@@ -571,6 +572,9 @@ async function runNotificacoesDiarias() {
   await passo("Clarity", runClarityAlertas);
   await passo("Trello", runTrelloPrazos);
   await passo("Aniversários", runAniversarios);
+  // Aprendizado results-driven: grava achados multi-fonte novos no learnings ANTES
+  // do briefing/jornalzinho, pra o contexto do dia já valer neles.
+  await passo("Observações", runObservacoesAutomaticas);
   await passo("Briefing", runBriefingDiario);
   await passo("Semanal", async () => {
     const hoje = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", weekday: "short" }).format(new Date());
