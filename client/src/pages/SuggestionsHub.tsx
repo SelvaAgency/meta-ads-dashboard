@@ -902,10 +902,13 @@ export default function SuggestionsHub() {
                             {summary && (
                               <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">{summary}</p>
                             )}
-                            <div className="flex items-center justify-between border-t pt-1.5" style={{ borderColor: BORDER_T }}>
-                              <span className="text-[11px] font-medium text-foreground">{fmtCurrency(totals.spend)}</span>
+                            <div className="flex items-end justify-between border-t pt-2" style={{ borderColor: BORDER_T }}>
+                              <div>
+                                <span className="block text-[8px] uppercase tracking-wide text-muted-foreground/70 font-semibold mb-0.5">Investido hoje</span>
+                                <span className="text-sm font-extrabold text-foreground tabular-nums leading-none">{fmtCurrency(totals.spend)}</span>
+                              </div>
                               {p1 > 0 && (
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white" style={{ background: "#ef4444" }}>
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white flex-shrink-0" style={{ background: "#ef4444" }}>
                                   {p1} P1
                                 </span>
                               )}

@@ -245,3 +245,27 @@
     color: #555555;
   }
 }
+
+/* ═══ Micro-animações globais — caixas e botões (BIT-wide) ═══════════════════
+   Transições suaves + "press" nos botões/elementos clicáveis, e um leve
+   hover-lift nos cards (Tailwind rounded-xl + border). Respeita quem prefere
+   menos movimento. */
+@media (prefers-reduced-motion: no-preference) {
+  button,
+  [role="button"],
+  a {
+    transition: transform 0.12s ease, box-shadow 0.15s ease, background-color 0.15s ease,
+      border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease, filter 0.15s ease;
+  }
+  button:not(:disabled):active,
+  [role="button"]:not([aria-disabled="true"]):active {
+    transform: scale(0.97);
+  }
+  [class~="rounded-xl"][class~="border"] {
+    transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  }
+  [class~="rounded-xl"][class~="border"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px -12px rgba(0, 0, 0, 0.20);
+  }
+}

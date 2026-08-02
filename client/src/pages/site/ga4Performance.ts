@@ -86,7 +86,7 @@ export function variacao(atual: unknown, anterior: unknown): Variacao {
   return { pct, sobe: pct >= 0 };
 }
 
-export type CardGA4 = { chave: string; rotulo: string; valor: string; variacao: Variacao; dica?: string };
+export type CardGA4 = { chave: string; rotulo: string; valor: string; variacao: Variacao; dica?: string; anterior?: string };
 
 const int = (v: number) => v >= 10000 ? `${(v / 1000).toFixed(1).replace(".", ",")}k` : v.toLocaleString("pt-BR");
 const pct1 = (v: number) => `${v.toFixed(1).replace(".", ",")}%`;
@@ -105,10 +105,12 @@ export function cardsDeTrafego(m: MetricasGA4 | null | undefined): CardGA4[] {
   const ant = m.anterior ?? null;
   const card = (chave: string, rotulo: string, bruto: unknown, fmt: (v: number) => string, anteriorBruto?: unknown): CardGA4 => {
     const v = n(bruto);
+    const va = n(anteriorBruto);
     return {
       chave, rotulo,
       valor: v === null ? "—" : fmt(v),
       variacao: variacao(bruto, anteriorBruto),
+      anterior: va === null ? undefined : fmt(va),
     };
   };
   return [
@@ -118,7 +120,8 @@ export function cardsDeTrafego(m: MetricasGA4 | null | undefined): CardGA4[] {
     card("pageviews", "Visualizações", m.pageviews, int, ant?.pageviews),
     card("engagementRate", "Taxa de engajamento", m.engagementRate, pct1, ant?.engagementRate),
     { chave: "duracao", rotulo: "Duração média", valor: duracao(m.avgEngagementDuration),
-      variacao: variacao(m.avgEngagementDuration, ant?.avgEngagementDuration) },
+      variacao: variacao(m.avgEngagementDuration, ant?.avgEngagementDuration),
+      anterior: ant?.avgEngagementDuration != null ? duracao(ant.avgEngagementDuration) : undefined },
   ];
 }
 

@@ -35,7 +35,7 @@ export function PerformanceVisual({ accountId, periodo, m, listas }: { accountId
       {/* KPIs de tráfego */}
       {cards.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          {cards.map((c) => <KpiTile key={c.chave} rotulo={c.rotulo} valor={c.valor} variacao={c.variacao} />)}
+          {cards.map((c) => <KpiTile key={c.chave} rotulo={c.rotulo} valor={c.valor} variacao={c.variacao} prevValor={c.anterior} />)}
         </div>
       )}
 
