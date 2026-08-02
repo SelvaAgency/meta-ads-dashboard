@@ -9,6 +9,7 @@ import { getClientByMetaAccountId } from "@/config/clientConfig";
 import { fmtCurrency, fmtNumber, fmtPercent, fmtMultiplier, getDayStatus, type GoalType } from "@/lib/kpiConfig";
 import { conectada, type ChaveFonte, type Fonte, type StatusFonte } from "@shared/fontes";
 import { avaliarCliente, type ClientePanorama, type Nivel } from "@shared/panoramaLogic";
+import { saudeConta, SAUDE_CFG, ORDEM_SAUDE, type NivelSaude } from "@shared/saudeConta";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import {
@@ -76,12 +77,6 @@ const categoryConfig: Record<string, { label: string; color: string }> = {
   SCHEDULE:  { label: "Programação", color: "text-teal-400" },
   AUDIENCE:  { label: "Audiência",   color: "text-cyan-400" },
   GENERAL:   { label: "Geral",       color: "text-muted-foreground" },
-};
-
-const estadoConfig: Record<string, { badge: string; cls: string; border: string }> = {
-  green:  { badge: "A", cls: "text-emerald-400 border-emerald-400/30 bg-emerald-400/10", border: "#34d399" },
-  yellow: { badge: "B", cls: "text-amber-400 border-amber-400/30 bg-amber-400/10",       border: "#fbbf24" },
-  red:    { badge: "C", cls: "text-red-400 border-red-400/30 bg-red-400/10",             border: "#f87171" },
 };
 
 // ─── Secondary metrics per goal type ─────────────────────────────────────────
@@ -287,12 +282,10 @@ function getCostPerResult(goalType: string | null | undefined, t: ReturnType<typ
   }
 }
 
-// Trend bar from AI status color
-function getTrendBar(aiStatusColor: string | null | undefined): { width: string; color: string; label: string } {
-  if (aiStatusColor === "green")  return { width: "75%", color: "#10b981", label: "A" };
-  if (aiStatusColor === "yellow") return { width: "50%", color: "#f59e0b", label: "B" };
-  if (aiStatusColor === "red")    return { width: "25%", color: "#ef4444", label: "C" };
-  return { width: "30%", color: "hsl(var(--muted-foreground))", label: "—" };
+// Barra de tendência a partir do nível de saúde unificado.
+function getTrendBar(nivel: NivelSaude): { width: string; color: string; label: string } {
+  const w: Record<NivelSaude, string> = { saudavel: "75%", atencao: "50%", critico: "25%", sem_dados: "30%" };
+  return { width: w[nivel], color: SAUDE_CFG[nivel].cor, label: SAUDE_CFG[nivel].label };
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -411,20 +404,21 @@ export default function SuggestionsHub() {
     }
     return m;
   }, [panoramaSites]);
-  // Cor efetiva = pior entre Meta e Panorama. Escala só; sem status Meta = mantém.
-  const corDe = (a: any): string | null => {
-    const meta: string | null = a?.aiStatusColor ?? null;
-    if (!meta) return meta;
-    const sevMeta = ({ green: 1, yellow: 2, red: 3 } as Record<string, number>)[meta] ?? 0;
-    const sevPano = ({ ok: 1, atencao: 2, critico: 3, sem_dados: 0 } as Record<string, number>)[nivelMap.get(a.id)?.nivel ?? "sem_dados"] ?? 0;
-    const s = Math.max(sevMeta, sevPano);
-    return s >= 3 ? "red" : s === 2 ? "yellow" : "green";
-  };
+  // Contas com alerta CRÍTICO ativo — um dos sinais do veredito de saúde.
+  const criticalAlertIds = useMemo(
+    () => new Set((urgentAlerts ?? []).filter((x: any) => x.severity === "CRITICAL" && x.accountId != null).map((x: any) => x.accountId as number)),
+    [urgentAlerts],
+  );
 
-  // Saúde da conta = a MESMA classificação da IA do header (aiStatusColor,
-  // default amarelo). Usada na barra de saúde e no filtro do carrossel — não
-  // confundir com corDe (que combina Panorama e é usado no "Estado A/B/C").
-  const saudeDe = (a: any): string => (a?.hasTokenError ? "none" : ((a?.aiStatusColor ?? "yellow") as string));
+  // Veredito ÚNICO de saúde da conta (motor compartilhado): regras definem o piso
+  // (Panorama + alerta crítico + token), a IA refina o resto. Um lugar só — antes
+  // a barra usava só a IA e o carrossel o "pior dos dois", e discordavam.
+  const nivelDe = (a: any): NivelSaude => saudeConta({
+    aiStatusColor: a?.aiStatusColor ?? null,
+    panoramaNivel: nivelMap.get(a?.id)?.nivel ?? null,
+    temAlertaCritico: criticalAlertIds.has(a?.id),
+    temErroToken: !!a?.hasTokenError,
+  });
 
   const p1ByAccount = suggestions
     .filter((s) => s.priority === "HIGH")
@@ -444,8 +438,8 @@ export default function SuggestionsHub() {
   const p1Count      = suggestions.filter((s) => s.priority === "HIGH").length;
   const p2Count      = suggestions.filter((s) => s.priority === "MEDIUM").length;
   const p3Count      = suggestions.filter((s) => s.priority === "LOW").length;
-  const healthyCount = (accounts ?? []).filter((a) => corDe(a) === "green").length;
-  const urgencyCount = (accounts ?? []).filter((a) => corDe(a) === "red").length;
+  const healthyCount = (accounts ?? []).filter((a) => nivelDe(a) === "saudavel").length;
+  const urgencyCount = (accounts ?? []).filter((a) => nivelDe(a) === "critico").length;
 
   // Sorted by today's spend desc (used by carousel)
   const sortedAccounts = useMemo(() => [...(accounts ?? [])].sort((a, b) => {
@@ -455,18 +449,12 @@ export default function SuggestionsHub() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [accounts, todayMetrics]);
 
-  // "O que está pegando fogo": Estado C + accounts with critical alerts
-  const fogoAccounts = useMemo(() => {
-    const ids = new Set<number>();
-    for (const a of accounts ?? []) {
-      if (corDe(a) === "red") ids.add(a.id);
-    }
-    for (const alert of urgentAlerts ?? []) {
-      if (alert.severity === "CRITICAL" && alert.accountId != null) ids.add(alert.accountId);
-    }
-    return (accounts ?? []).filter((a) => ids.has(a.id));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, urgentAlerts, nivelMap]);
+  // "O que está pegando fogo": contas Críticas (o motor já dobra o alerta crítico).
+  const fogoAccounts = useMemo(
+    () => (accounts ?? []).filter((a) => nivelDe(a) === "critico"),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [accounts, urgentAlerts, nivelMap, criticalAlertIds],
+  );
 
   // Suggestions filtered for active tab
   const tabSuggestions = useMemo(() => {
@@ -523,7 +511,7 @@ export default function SuggestionsHub() {
     // filtradas por prioridade. Antes "Urgentes" usava urgencyCount (só contas
     // "red") e divergia dos cards; "Em monitoramento" usava urgentAlerts.length
     // em vez do p3Count que a aba P3 mostra.
-    { label: "Urgentes",          value: fogoAccounts.length,                  color: fogoAccounts.length > 0 ? "#ef4444" : "var(--foreground)",        icon: Flame,         subtitle: "Estado C · agir agora", tab: "URGENT" },
+    { label: "Urgentes",          value: fogoAccounts.length,                  color: fogoAccounts.length > 0 ? "#ef4444" : "var(--foreground)",        icon: Flame,         subtitle: "Crítico · agir agora", tab: "URGENT" },
     { label: "Alta prioridade",   value: suggestionsLoading ? null : p1Count,  color: p1Count > 0 ? "#f59e0b" : "var(--foreground)",                    icon: AlertTriangle, subtitle: "P1 · requerem ação",    tab: "P1" },
     { label: "Média prioridade",  value: suggestionsLoading ? null : p2Count,  color: "var(--foreground)",                                               icon: Bell,          subtitle: "P2 · monitorar",        tab: "P2" },
     { label: "Em monitoramento",  value: suggestionsLoading ? null : p3Count,  color: p3Count > 0 ? "#3b82f6" : "var(--foreground)",                    icon: Bell,          subtitle: "P3 · em andamento",     tab: "P3" },
@@ -656,18 +644,14 @@ export default function SuggestionsHub() {
             {/* Saúde do portfólio — barra segmentada + legenda clicável (filtra o
                 carrossel). Forma deliberadamente distinta dos stat cards de Ações. */}
             {(() => {
-              const statusCounts = {
-                green:  (accounts ?? []).filter((a: any) => saudeDe(a) === "green").length,
-                yellow: (accounts ?? []).filter((a: any) => saudeDe(a) === "yellow").length,
-                red:    (accounts ?? []).filter((a: any) => saudeDe(a) === "red").length,
-                none:   (accounts ?? []).filter((a: any) => saudeDe(a) === "none").length,
-              };
-              const statusDefs = [
-                { key: "green",  label: "Saudável",  sublabel: "sem intervenção", color: "#1D9E75", count: statusCounts.green },
-                { key: "yellow", label: "Atenção",   sublabel: "monitorar",       color: "#EF9F27", count: statusCounts.yellow },
-                { key: "red",    label: "Crítico",   sublabel: "agir agora",      color: "#E24B4A", count: statusCounts.red },
-                { key: "none",   label: "Sem dados", sublabel: "token expirado",  color: "#9aa0a6", count: statusCounts.none },
-              ];
+              const SUB: Record<NivelSaude, string> = { saudavel: "sem intervenção", atencao: "monitorar", critico: "agir agora", sem_dados: "sem sinal" };
+              const statusDefs = ORDEM_SAUDE.map((nivel) => ({
+                key: nivel,
+                label: SAUDE_CFG[nivel].label,
+                sublabel: SUB[nivel],
+                color: SAUDE_CFG[nivel].cor,
+                count: (accounts ?? []).filter((a: any) => nivelDe(a) === nivel).length,
+              }));
               const total = statusDefs.reduce((s, d) => s + d.count, 0) || 1;
               return (
                 <div style={{ padding: "16px 20px", borderTop: `0.5px solid ${BORDER_T}` }}>
@@ -704,7 +688,7 @@ export default function SuggestionsHub() {
           <div style={{ padding: "14px 20px 18px", borderTop: `0.5px solid ${BORDER_T}` }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-                {statusFilter ? `Contas — ${statusFilter === "green" ? "Saudável" : statusFilter === "yellow" ? "Atenção" : statusFilter === "red" ? "Crítico" : "Sem dados"}` : "Clientes"}
+                {statusFilter ? `Contas — ${SAUDE_CFG[statusFilter as NivelSaude]?.label ?? ""}` : "Clientes"}
               </p>
               {statusFilter && (
                 <button onClick={() => setStatusFilter(null)} style={{ fontSize: 10, color: "#E85BA8", background: "none", border: "none", cursor: "pointer" }}>
@@ -715,13 +699,14 @@ export default function SuggestionsHub() {
             <div className="flex gap-3 pb-1" style={{ overflowX: "auto", scrollbarWidth: "none" }}>
               {sortedAccounts.filter((account: any) => {
                 if (!statusFilter) return true;
-                return saudeDe(account) === statusFilter;
+                return nivelDe(account) === statusFilter;
               }).map((account) => {
                 const m          = metricsMap.get(account.id);
                 const g          = gAdsMap.get(account.id);
                 const totals     = g ? unifiedTotals(m, g) : normalizeTotals(m);
                 const p1         = p1ByAccount[account.id] ?? 0;
-                const estado     = estadoConfig[corDe(account) ?? ""] ?? null;
+                const nivel      = nivelDe(account);
+                const saude      = SAUDE_CFG[nivel];
                 const motivo     = nivelMap.get(account.id)?.motivo ?? null;
                 const goalType   = ((account as any).goalTypeOverride as string | null) ?? "DEFAULT";
                 const dayS       = totals.spend > 0
@@ -738,7 +723,7 @@ export default function SuggestionsHub() {
                       width: 200,
                       background: BG_PRIMARY,
                       border: `0.5px solid ${BORDER_T}`,
-                      borderLeft: `3px solid ${estado?.border ?? BORDER_T}`,
+                      borderLeft: `3px solid ${saude.cor}`,
                       borderRadius: RADIUS_LG,
                     }}
                   >
@@ -760,11 +745,7 @@ export default function SuggestionsHub() {
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 min-w-0">
-                        {estado ? (
-                          <Badge variant="outline" className={`text-[10px] font-bold ${estado.cls}`}>Estado {estado.badge}</Badge>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground/50">Sem análise</span>
-                        )}
+                        <Badge variant="outline" className={`text-[10px] font-bold ${saude.chip}`}>{saude.label}</Badge>
                         {motivo && (
                           <span className="text-[9px] text-muted-foreground truncate" title={motivo}>· {motivo}</span>
                         )}
@@ -889,8 +870,8 @@ export default function SuggestionsHub() {
                                 {displayNameMap.get(account.id) ?? account.accountName}
                               </p>
                             </div>
-                            <Badge variant="outline" className="text-[10px] font-bold text-red-400 border-red-400/30 bg-red-400/10">
-                              Estado C
+                            <Badge variant="outline" className={`text-[10px] font-bold ${SAUDE_CFG.critico.chip}`}>
+                              {SAUDE_CFG.critico.label}
                             </Badge>
                             {summary && (
                               <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">{summary}</p>
@@ -1044,7 +1025,7 @@ export default function SuggestionsHub() {
                 const dayS      = totals.spend > 0
                   ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })
                   : null;
-                const trend     = getTrendBar(corDe(account));
+                const trend     = getTrendBar(nivelDe(account));
                 const picture   = (account as any).pictureUrl as string | null;
                 const primary   = getPrimaryResult(goalType, totals);
                 const costRes   = getCostPerResult(goalType, totals);
