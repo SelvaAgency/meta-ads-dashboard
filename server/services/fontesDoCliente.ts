@@ -20,6 +20,7 @@ import { and, eq, isNotNull, inArray } from "drizzle-orm";
 import { getDb } from "../db";
 import {
   metaAdAccounts, googleAdAccounts, ga4Accounts, clientClaritySettings, userIntegrations,
+  ecommerceConnections, clientSocialAccounts,
 } from "../../drizzle/schema";
 import { classificarFontes, type Fonte, type ConexaoBruta } from "../../shared/fontes";
 
@@ -30,6 +31,24 @@ export type FontesDaConta = { accountId: number; fontes: Fonte[] };
  * número de consultas — são sempre cinco, independentemente da quantidade de
  * clientes.
  */
+/**
+ * Lojas e Redes por conta — fora do agregador de `fontes` de propósito: adicionar
+ * chaves novas ao ChaveFonte quebraria os chips espalhados. Aqui é só para a
+ * matriz de status do hub de Conexões.
+ */
+export async function lojasERedesPorConta(): Promise<{ accountId: number; loja: boolean; redes: boolean }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const [contas, lojas, redes] = await Promise.all([
+    db.select({ id: metaAdAccounts.id }).from(metaAdAccounts).where(eq(metaAdAccounts.isActive, true)),
+    db.select({ accountId: ecommerceConnections.accountId }).from(ecommerceConnections).where(eq(ecommerceConnections.active, true)),
+    db.select({ accountId: clientSocialAccounts.accountId }).from(clientSocialAccounts).where(eq(clientSocialAccounts.enabled, true)),
+  ]);
+  const comLoja = new Set(lojas.map((l) => l.accountId));
+  const comRedes = new Set(redes.map((r) => r.accountId));
+  return contas.map((a) => ({ accountId: a.id, loja: comLoja.has(a.id), redes: comRedes.has(a.id) }));
+}
+
 export async function fontesDeTodasAsContas(apenas?: number[]): Promise<FontesDaConta[]> {
   const db = await getDb();
   if (!db) return [];

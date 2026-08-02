@@ -318,7 +318,7 @@ import { gerarEPersistirExecutivo, lerUltimoExecutivo } from "./services/jornalE
 import { parseNubankCsv } from "./services/fatura/parseNubank";
 import { conciliarFatura } from "./services/fatura/classificador";
 import { carregarDicionario, aprenderRegras } from "./services/fatura/dicionario";
-import { fontesDoCliente, fontesDeTodasAsContas } from "./services/fontesDoCliente";
+import { fontesDoCliente, fontesDeTodasAsContas, lojasERedesPorConta } from "./services/fontesDoCliente";
 import { sincronizarGA4 } from "./services/ga4Sync";
 import { testarConexaoWoo, validarUrlDaLoja } from "./services/woocommerce";
 import { testarConexaoVnda, validarUrlVnda, resolverShopHost } from "./services/vnda";
@@ -4553,6 +4553,9 @@ export const appRouter = router({
 
     /** De todos — o seletor de clientes desenha chips de uma vez só. */
     todas: protectedProcedure.query(() => fontesDeTodasAsContas()),
+
+    /** Lojas + Redes por conta (fora do agregador) — só para a matriz do hub. */
+    lojasERedes: protectedProcedure.query(() => lojasERedesPorConta()),
   }),
 
   // ─── Google Ads ──────────────────────────────────────────────────────────

@@ -332,9 +332,12 @@ function GooglePlugs() {
 }
 function ConexoesPanel() {
   const { data: fontes } = trpc.fontes.todas.useQuery(undefined, { staleTime: 60_000 });
+  const { data: extras } = trpc.fontes.lojasERedes.useQuery(undefined, { staleTime: 60_000 });
   const { data: accounts } = trpc.accounts.list.useQuery(undefined, { staleTime: 60_000 });
   const nome = (id: number) => (accounts as any)?.find((a: any) => a.id === id)?.accountName ?? String(id);
   const statusDe = (row: any, chave: string) => row.fontes.find((f: any) => f.chave === chave)?.status ?? "ausente";
+  const extraMap = new Map((extras ?? []).map((e: any) => [e.accountId, e]));
+  const extraStatus = (id: number, chave: "loja" | "redes") => (extraMap.get(id)?.[chave] ? "ok" : "ausente");
 
   return (
     <div className="flex flex-col gap-6">
@@ -356,11 +359,13 @@ function ConexoesPanel() {
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Cliente</th>
                 {CONEXAO_COLS.map((c) => <th key={c.chave} className="px-3 py-2 text-center font-semibold text-muted-foreground whitespace-nowrap">{c.label}</th>)}
+                <th className="px-3 py-2 text-center font-semibold text-muted-foreground whitespace-nowrap">Loja</th>
+                <th className="px-3 py-2 text-center font-semibold text-muted-foreground whitespace-nowrap">Redes</th>
               </tr>
             </thead>
             <tbody>
               {(fontes ?? []).length === 0 && (
-                <tr><td colSpan={CONEXAO_COLS.length + 1} className="px-3 py-4 text-center text-muted-foreground">Carregando…</td></tr>
+                <tr><td colSpan={CONEXAO_COLS.length + 3} className="px-3 py-4 text-center text-muted-foreground">Carregando…</td></tr>
               )}
               {(fontes ?? []).map((row: any) => (
                 <tr key={row.accountId} className="border-b border-border/40 last:border-0">
@@ -369,6 +374,14 @@ function ConexoesPanel() {
                     const s = statusDe(row, c.chave);
                     return (
                       <td key={c.chave} className="px-3 py-2 text-center">
+                        <span title={s} className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: tomFonte(s) }} />
+                      </td>
+                    );
+                  })}
+                  {(["loja", "redes"] as const).map((k) => {
+                    const s = extraStatus(row.accountId, k);
+                    return (
+                      <td key={k} className="px-3 py-2 text-center">
                         <span title={s} className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: tomFonte(s) }} />
                       </td>
                     );
