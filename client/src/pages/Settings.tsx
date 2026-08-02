@@ -11,6 +11,7 @@ import { GoogleAdsVinculos } from "@/components/conexoes/GoogleAdsVinculos";
 import { GA4Vinculos } from "@/components/conexoes/GA4Vinculos";
 import { LojasVinculos } from "@/components/conexoes/LojasVinculos";
 import { ClarityVinculos } from "@/components/conexoes/ClarityVinculos";
+import { RedesVinculos } from "@/components/conexoes/RedesVinculos";
 import { toast } from "sonner";
 import {
   Settings2, Check, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
@@ -302,16 +303,28 @@ function tomFonte(s: string): string {
   return s === "ok" ? "#1D9E75" : s === "atencao" ? "#EF9F27" : s === "erro" ? "#E24B4A" : "rgba(120,120,120,0.35)";
 }
 
-// Plugs de OAuth da agência (Google Ads e GA4). Descobrir/vincular por cliente
-// segue nas páginas por ora — entra no hub numa próxima fatia.
-function GooglePlugs() {
-  const utils = trpc.useUtils();
-  const gads = trpc.googleAds.isConfigured.useQuery(undefined, { staleTime: 60_000 });
-  const ga4 = trpc.ga4.statusConexao.useQuery(undefined, { staleTime: 60_000 });
-  const descGads = trpc.googleAds.desconectarOAuth.useMutation({ onSuccess: () => { toast.success("Google Ads desconectado"); utils.googleAds.isConfigured.invalidate(); }, onError: (e) => toast.error(e.message) });
-  const descGa4 = trpc.ga4.desconectarOAuth.useMutation({ onSuccess: () => { toast.success("GA4 desconectado"); utils.ga4.statusConexao.invalidate(); }, onError: (e) => toast.error(e.message) });
+// Seção colapsável do hub. Cada canal/plataforma vem FECHADO por padrão — a
+// página tem muita opção, e abrir só o que interessa mantém a leitura enxuta.
+function SecaoConexao({ titulo, subtitulo, children, defaultOpen = false }: { titulo: string; subtitulo?: string; children: React.ReactNode; defaultOpen?: boolean }) {
+  const [aberto, setAberto] = useState(defaultOpen);
+  return (
+    <div className="rounded-xl border border-border overflow-hidden">
+      <button onClick={() => setAberto((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/30 transition-colors">
+        <div>
+          <p className="text-sm font-semibold text-foreground">{titulo}</p>
+          {subtitulo && <p className="text-[11px] text-muted-foreground mt-0.5">{subtitulo}</p>}
+        </div>
+        <ChevronDown className={`w-4 h-4 text-muted-foreground flex-shrink-0 transition-transform ${aberto ? "rotate-180" : ""}`} />
+      </button>
+      {aberto && <div className="px-4 pb-4 pt-1 border-t border-border flex flex-col gap-3">{children}</div>}
+    </div>
+  );
+}
 
-  const Plug = ({ nome, conectado, como, state, onDesc, pending }: { nome: string; conectado: boolean; como?: string | null; state: string; onDesc: () => void; pending: boolean }) => (
+// Linha de plug OAuth (conectar/desconectar). Compartilhada pelos plugs Google.
+function PlugRow({ nome, conectado, como, state, onDesc, pending }: { nome: string; conectado: boolean; como?: string | null; state: string; onDesc: () => void; pending: boolean }) {
+  return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 flex-wrap">
       <div className="flex items-center gap-2.5">
         {conectado ? <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" /> : <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: "rgba(120,120,120,0.4)" }} />}
@@ -325,14 +338,20 @@ function GooglePlugs() {
         : <a href={`/api/google/auth?state=${state}`} target="_top" className="inline-flex h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-medium items-center gap-1.5 flex-shrink-0"><Link2 className="w-3.5 h-3.5" /> Conectar</a>}
     </div>
   );
+}
 
-  return (
-    <div className="flex flex-col gap-2">
-      <Plug nome="Google Ads" conectado={!!gads.data?.oauthConectado} como={gads.data?.contaConectada} state="googleads" onDesc={() => descGads.mutate()} pending={descGads.isPending} />
-      <Plug nome="Google Analytics (GA4)" conectado={!!ga4.data?.oauthConectado} como={ga4.data?.conectadoComo} state="ga4" onDesc={() => descGa4.mutate()} pending={descGa4.isPending} />
-      <p className="text-[10px] text-muted-foreground/70">Depois de conectar, descobrir e vincular as contas a cada cliente segue nas páginas Google Ads / GA4 por ora (vem pro hub em breve).</p>
-    </div>
-  );
+function GoogleAdsPlug() {
+  const utils = trpc.useUtils();
+  const gads = trpc.googleAds.isConfigured.useQuery(undefined, { staleTime: 60_000 });
+  const desc = trpc.googleAds.desconectarOAuth.useMutation({ onSuccess: () => { toast.success("Google Ads desconectado"); utils.googleAds.isConfigured.invalidate(); }, onError: (e) => toast.error(e.message) });
+  return <PlugRow nome="OAuth da agência" conectado={!!gads.data?.oauthConectado} como={gads.data?.contaConectada} state="googleads" onDesc={() => desc.mutate()} pending={desc.isPending} />;
+}
+
+function GA4Plug() {
+  const utils = trpc.useUtils();
+  const ga4 = trpc.ga4.statusConexao.useQuery(undefined, { staleTime: 60_000 });
+  const desc = trpc.ga4.desconectarOAuth.useMutation({ onSuccess: () => { toast.success("GA4 desconectado"); utils.ga4.statusConexao.invalidate(); }, onError: (e) => toast.error(e.message) });
+  return <PlugRow nome="OAuth da agência" conectado={!!ga4.data?.oauthConectado} como={ga4.data?.conectadoComo} state="ga4" onDesc={() => desc.mutate()} pending={desc.isPending} />;
 }
 function ConexoesPanel() {
   const { data: fontes } = trpc.fontes.todas.useQuery(undefined, { staleTime: 60_000 });
@@ -343,80 +362,83 @@ function ConexoesPanel() {
   const extraMap = new Map((extras ?? []).map((e: any) => [e.accountId, e]));
   const extraStatus = (id: number, chave: "loja" | "redes") => (extraMap.get(id)?.[chave] ? "ok" : "ausente");
 
-  return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Meta Ads · token da agência</p>
-        <TokenSection />
-      </div>
-
-      <div>
-        <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Google · OAuth da agência (Ads + GA4)</p>
-        <GooglePlugs />
-      </div>
-
-      {/* Google Ads · descobrir/vincular contas do MCC (só admin + OAuth conectado) */}
-      <GoogleAdsVinculos />
-
-      {/* GA4 · descobrir/sincronizar/vincular propriedades (só admin + OAuth conectado) */}
-      <GA4Vinculos />
-
-      {/* Lojas · conexões de e-commerce por cliente (Woo/VNDA) */}
-      <div>
-        <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Lojas · e-commerce</p>
-        <LojasVinculos />
-      </div>
-
-      {/* Clarity · configuração de comportamento por cliente */}
-      <div>
-        <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Microsoft Clarity</p>
-        <ClarityVinculos />
-      </div>
-
-      <div>
-        <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Fontes conectadas por cliente</p>
-        <div className="overflow-x-auto rounded-xl border border-border">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-border bg-muted/30">
-                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Cliente</th>
-                {CONEXAO_COLS.map((c) => <th key={c.chave} className="px-3 py-2 text-center font-semibold text-muted-foreground whitespace-nowrap">{c.label}</th>)}
-                <th className="px-3 py-2 text-center font-semibold text-muted-foreground whitespace-nowrap">Loja</th>
-                <th className="px-3 py-2 text-center font-semibold text-muted-foreground whitespace-nowrap">Redes</th>
+  const matriz = (
+    <>
+      <div className="overflow-x-auto rounded-xl border border-border">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-border bg-muted/30">
+              <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Cliente</th>
+              {CONEXAO_COLS.map((c) => <th key={c.chave} className="px-3 py-2 text-center font-semibold text-muted-foreground whitespace-nowrap">{c.label}</th>)}
+              <th className="px-3 py-2 text-center font-semibold text-muted-foreground whitespace-nowrap">Loja</th>
+              <th className="px-3 py-2 text-center font-semibold text-muted-foreground whitespace-nowrap">Redes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(fontes ?? []).length === 0 && (
+              <tr><td colSpan={CONEXAO_COLS.length + 3} className="px-3 py-4 text-center text-muted-foreground">Carregando…</td></tr>
+            )}
+            {(fontes ?? []).map((row: any) => (
+              <tr key={row.accountId} className="border-b border-border/40 last:border-0">
+                <td className="px-3 py-2 text-foreground font-medium truncate max-w-[220px]">{nome(row.accountId)}</td>
+                {CONEXAO_COLS.map((c) => {
+                  const s = statusDe(row, c.chave);
+                  return (
+                    <td key={c.chave} className="px-3 py-2 text-center">
+                      <span title={s} className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: tomFonte(s) }} />
+                    </td>
+                  );
+                })}
+                {(["loja", "redes"] as const).map((k) => {
+                  const s = extraStatus(row.accountId, k);
+                  return (
+                    <td key={k} className="px-3 py-2 text-center">
+                      <span title={s} className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: tomFonte(s) }} />
+                    </td>
+                  );
+                })}
               </tr>
-            </thead>
-            <tbody>
-              {(fontes ?? []).length === 0 && (
-                <tr><td colSpan={CONEXAO_COLS.length + 3} className="px-3 py-4 text-center text-muted-foreground">Carregando…</td></tr>
-              )}
-              {(fontes ?? []).map((row: any) => (
-                <tr key={row.accountId} className="border-b border-border/40 last:border-0">
-                  <td className="px-3 py-2 text-foreground font-medium truncate max-w-[220px]">{nome(row.accountId)}</td>
-                  {CONEXAO_COLS.map((c) => {
-                    const s = statusDe(row, c.chave);
-                    return (
-                      <td key={c.chave} className="px-3 py-2 text-center">
-                        <span title={s} className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: tomFonte(s) }} />
-                      </td>
-                    );
-                  })}
-                  {(["loja", "redes"] as const).map((k) => {
-                    const s = extraStatus(row.accountId, k);
-                    return (
-                      <td key={k} className="px-3 py-2 text-center">
-                        <span title={s} className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: tomFonte(s) }} />
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="text-[10px] text-muted-foreground/70 mt-2">
-          ● verde = conectado · amarelo = atenção · vermelho = erro · cinza = não conectado. Conectar/vincular Google, GA4, Lojas, Clarity e Redes vai entrar aqui nas próximas fatias.
-        </p>
+            ))}
+          </tbody>
+        </table>
       </div>
+      <p className="text-[10px] text-muted-foreground/70 mt-2">
+        ● verde = conectado · amarelo = atenção · vermelho = erro · cinza = não conectado.
+      </p>
+    </>
+  );
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <SecaoConexao titulo="Visão geral" subtitulo="Status de todas as fontes, por cliente">
+        {matriz}
+      </SecaoConexao>
+
+      <SecaoConexao titulo="Meta Ads" subtitulo="Token da agência">
+        <TokenSection />
+      </SecaoConexao>
+
+      <SecaoConexao titulo="Google Ads" subtitulo="OAuth da agência + contas do MCC por cliente">
+        <GoogleAdsPlug />
+        <GoogleAdsVinculos />
+      </SecaoConexao>
+
+      <SecaoConexao titulo="Google Analytics (GA4)" subtitulo="OAuth da agência + propriedades por cliente">
+        <GA4Plug />
+        <GA4Vinculos />
+      </SecaoConexao>
+
+      <SecaoConexao titulo="Lojas · e-commerce" subtitulo="WooCommerce e VNDA/Olist por cliente">
+        <LojasVinculos />
+      </SecaoConexao>
+
+      <SecaoConexao titulo="Microsoft Clarity" subtitulo="Comportamento no site, por cliente">
+        <ClarityVinculos />
+      </SecaoConexao>
+
+      <SecaoConexao titulo="Redes sociais" subtitulo="Cadastro de perfis por cliente (coleta ainda não automática)">
+        <RedesVinculos />
+      </SecaoConexao>
     </div>
   );
 }
