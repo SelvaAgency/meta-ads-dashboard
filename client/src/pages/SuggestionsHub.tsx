@@ -648,7 +648,8 @@ export default function SuggestionsHub() {
               )}
             </div>
 
-            {/* Status cards clicáveis */}
+            {/* Saúde do portfólio — barra segmentada + legenda clicável (filtra o
+                carrossel). Forma deliberadamente distinta dos stat cards de Ações. */}
             {(() => {
               const statusCounts = {
                 green:  (accounts ?? []).filter((a: any) => corDe(a) === "green").length,
@@ -657,40 +658,38 @@ export default function SuggestionsHub() {
                 none:   (accounts ?? []).filter((a: any) => !corDe(a) || (a as any).hasTokenError).length,
               };
               const statusDefs = [
-                { key: "green",  label: "Saudável",  sublabel: "Estado A · sem intervenção", color: "#1D9E75", bg: "rgba(29,158,117,0.06)",  activeBg: "rgba(29,158,117,0.12)",  count: statusCounts.green },
-                { key: "yellow", label: "Atenção",   sublabel: "Estado B · monitorar",       color: "#EF9F27", bg: "rgba(239,159,39,0.06)",  activeBg: "rgba(239,159,39,0.12)",  count: statusCounts.yellow },
-                { key: "red",    label: "Crítico",   sublabel: "Estado C · agir agora",      color: "#E24B4A", bg: "rgba(226,75,74,0.06)",   activeBg: "rgba(226,75,74,0.12)",   count: statusCounts.red },
-                { key: "none",   label: "Sem dados", sublabel: "token expirado",             color: "rgba(0,0,0,0.35)", bg: "rgba(0,0,0,0.02)", activeBg: "rgba(0,0,0,0.06)", count: statusCounts.none },
+                { key: "green",  label: "Saudável",  sublabel: "sem intervenção", color: "#1D9E75", count: statusCounts.green },
+                { key: "yellow", label: "Atenção",   sublabel: "monitorar",       color: "#EF9F27", count: statusCounts.yellow },
+                { key: "red",    label: "Crítico",   sublabel: "agir agora",      color: "#E24B4A", count: statusCounts.red },
+                { key: "none",   label: "Sem dados", sublabel: "token expirado",  color: "#9aa0a6", count: statusCounts.none },
               ];
+              const total = statusDefs.reduce((s, d) => s + d.count, 0) || 1;
               return (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 0 }}>
-                  {statusDefs.map(({ key, label, sublabel, color, bg, activeBg, count }, i) => {
-                    const ativo = statusFilter === key;
-                    return (
-                    <button
-                      key={key}
-                      onClick={() => setStatusFilter(ativo ? null : key)}
-                      style={{
-                        padding: "18px 18px",
-                        background: ativo ? activeBg : bg,
-                        borderTop: `0.5px solid ${BORDER_T}`,
-                        borderRight: i < 3 ? `0.5px solid ${BORDER_T}` : "none",
-                        borderBottom: `3px solid ${ativo ? color : "transparent"}`,
-                        borderLeft: "none",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        transition: "all 0.15s",
-                      }}
-                    >
-                      <div className="flex items-center gap-1.5" style={{ marginBottom: 10 }}>
-                        <span style={{ width: 7, height: 7, borderRadius: 99, background: color, flexShrink: 0 }} />
-                        <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color }}>{label}</p>
-                      </div>
-                      <p style={{ fontSize: 34, fontWeight: 800, color, lineHeight: 1, letterSpacing: "-0.02em" }}>{count}</p>
-                      <p style={{ fontSize: 10.5, color, opacity: 0.6, marginTop: 6, lineHeight: 1.3 }}>{sublabel}</p>
-                    </button>
-                    );
-                  })}
+                <div style={{ padding: "16px 20px", borderTop: `0.5px solid ${BORDER_T}` }}>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-2.5">Saúde do portfólio</p>
+                  {/* Barra de proporção */}
+                  <div className="flex h-2.5 w-full rounded-full overflow-hidden bg-muted">
+                    {statusDefs.filter((d) => d.count > 0).map((d) => (
+                      <div key={d.key} title={`${d.label}: ${d.count}`}
+                        style={{ width: `${(d.count / total) * 100}%`, background: d.color, opacity: statusFilter && statusFilter !== d.key ? 0.28 : 1, transition: "opacity 0.15s" }} />
+                    ))}
+                  </div>
+                  {/* Legenda clicável */}
+                  <div className="flex flex-wrap gap-x-5 gap-y-2 mt-3">
+                    {statusDefs.map((d) => {
+                      const ativo = statusFilter === d.key;
+                      const apagado = !!statusFilter && !ativo;
+                      return (
+                        <button key={d.key} onClick={() => setStatusFilter(ativo ? null : d.key)}
+                          className="flex items-baseline gap-1.5 transition-opacity" style={{ opacity: apagado ? 0.4 : 1 }}>
+                          <span className="self-center" style={{ width: 8, height: 8, borderRadius: 99, background: d.color, flexShrink: 0 }} />
+                          <span style={{ fontSize: 15, fontWeight: 700, color: d.color, lineHeight: 1 }}>{d.count}</span>
+                          <span className="text-xs font-semibold text-foreground">{d.label}</span>
+                          <span className="text-[11px] text-muted-foreground hidden md:inline">· {d.sublabel}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               );
             })()}
@@ -769,7 +768,7 @@ export default function SuggestionsHub() {
                       <div className="border-t pt-2" style={{ borderColor: BORDER_T }}>
                         <p className="text-[9px] uppercase tracking-wide text-muted-foreground/70 font-semibold mb-1">Investido hoje</p>
                         <div className="flex items-baseline justify-between gap-1">
-                          <span className="text-xl font-extrabold text-foreground leading-none tabular-nums">{fmtCurrency(totals.spend)}</span>
+                          <span className="text-lg font-bold text-foreground leading-none tabular-nums">{fmtCurrency(totals.spend)}</span>
                           {dayS && (
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
                               style={{ background: dayS.bg, color: dayS.color, border: `0.5px solid ${dayS.border}` }}>
@@ -834,7 +833,7 @@ export default function SuggestionsHub() {
                       <span style={{ width: 26, height: 26, borderRadius: 7, display: "grid", placeItems: "center", background: soft, color, flexShrink: 0 }}>
                         <Icon className="w-3.5 h-3.5" />
                       </span>
-                      <span className="text-[26px] font-extrabold leading-none tabular-nums" style={{ color }}>{value ?? "—"}</span>
+                      <span className="text-[22px] font-bold leading-none tabular-nums" style={{ color }}>{value ?? "—"}</span>
                     </div>
                     <p className="text-[11px] font-bold text-foreground leading-tight truncate">{label}</p>
                     <p className="text-[10px] text-muted-foreground/70 mt-0.5 truncate">{subtitle}</p>
@@ -906,7 +905,7 @@ export default function SuggestionsHub() {
                             <div className="flex items-end justify-between border-t pt-2" style={{ borderColor: BORDER_T }}>
                               <div>
                                 <span className="block text-[8px] uppercase tracking-wide text-muted-foreground/70 font-semibold mb-0.5">Investido hoje</span>
-                                <span className="text-sm font-extrabold text-foreground tabular-nums leading-none">{fmtCurrency(totals.spend)}</span>
+                                <span className="text-sm font-bold text-foreground tabular-nums leading-none">{fmtCurrency(totals.spend)}</span>
                               </div>
                               {p1 > 0 && (
                                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white flex-shrink-0" style={{ background: "#ef4444" }}>
