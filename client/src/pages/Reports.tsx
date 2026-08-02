@@ -8,9 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, Link2, Copy, Loader2, CheckCircle2, Clock, ExternalLink, Sparkles, Check,
+import { FileText, Link2, Copy, Loader2, CheckCircle2, Clock, ExternalLink, Sparkles, Check, ChevronDown,
   Megaphone, BarChart3, Globe, Gauge, ShieldCheck, Wifi, Bell, MousePointerClick, NotebookPen, History } from "lucide-react";
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState, Fragment, type ComponentType } from "react";
 import { toast } from "sonner";
 
 /** Ícone por módulo — dá leitura visual rápida na seleção do relatório. */
@@ -61,6 +61,15 @@ function fmtDateBR(s: string | null | undefined) {
   return `${d}/${m}/${y}`;
 }
 
+/** "Agosto 2026" (com inicial maiúscula) — usado para agrupar os relatórios. */
+function mesLabel(d: string | Date | null | undefined): string {
+  if (!d) return "Sem data";
+  const s = new Date(d).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+const LIMITE_RELATORIOS = 4;
+
 export default function Reports() {
   const { selectedAccountId: activeAccountId, accounts } = useSelectedAccount();
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
@@ -71,6 +80,7 @@ export default function Reports() {
   const [contextNotes, setContextNotes] = useState("");
   const [lastGeneratedUrl, setLastGeneratedUrl] = useState<string | null>(null);
   const [modulos, setModulos] = useState<string[]>(["midia", "campanhas"]);
+  const [verTodos, setVerTodos] = useState(false);
 
   // Deep-link da seção Site: /reports?modulos=site,pagespeed,... já marca os
   // módulos. O gerador mora aqui; a seção Site apenas pré-configura.
@@ -143,6 +153,11 @@ export default function Reports() {
     toast.success("Link copiado!");
   }
 
+  // Relatórios gerados: os mais recentes primeiro, o resto recolhido.
+  const reports = listQuery.data ?? [];
+  const visiveis = verTodos ? reports : reports.slice(0, LIMITE_RELATORIOS);
+  const restantes = reports.length - visiveis.length;
+
   return (
     <MetaDashboardLayout>
       <div className="max-w-3xl mx-auto py-6 space-y-6">
@@ -163,45 +178,48 @@ export default function Reports() {
             <CardTitle className="text-base">Gerar novo relatório</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Conta</Label>
-                <Select value={accountId ? String(accountId) : undefined} onValueChange={(v) => setSelectedAccountId(Number(v))}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Selecione a conta" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accounts?.map((a: any) => (
-                      <SelectItem key={a.id} value={String(a.id)}>{a.accountName ?? a.accountId}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Atalhos</Label>
-                <div className="flex gap-1.5 flex-wrap mt-1.5">
-                  {(opcoesQuery.data?.presets ?? []).map((p) => (
-                    <button
-                      key={p.id}
-                      title={p.descricao}
-                      onClick={() => setModulos(p.modulos)}
-                      className="px-2.5 py-1 rounded-md border border-border text-xs hover:bg-accent/40 transition-colors"
-                    >
-                      {p.nome}
-                    </button>
+            <div>
+              <Label>Conta</Label>
+              <Select value={accountId ? String(accountId) : undefined} onValueChange={(v) => setSelectedAccountId(Number(v))}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Selecione a conta" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts?.map((a: any) => (
+                    <SelectItem key={a.id} value={String(a.id)}>{a.accountName ?? a.accountId}</SelectItem>
                   ))}
-                </div>
-              </div>
+                </SelectContent>
+              </Select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Período — início</Label>
-                <Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} className="mt-1" />
+            <div>
+              <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+                <Label className="mb-0">Período</Label>
+                <div className="flex gap-1">
+                  {[7, 14, 30].map((d) => {
+                    const ativo = periodStart === daysAgoStr(d) && periodEnd === todayStr();
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => { setPeriodStart(daysAgoStr(d)); setPeriodEnd(todayStr()); }}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${ativo ? "border-primary/50 bg-primary/[0.08] text-primary" : "border-border text-muted-foreground hover:bg-accent/30"}`}
+                      >
+                        {d} dias
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <div>
-                <Label>Período — fim</Label>
-                <Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} className="mt-1" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">De</span>
+                  <Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} className="mt-0.5" />
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Até</span>
+                  <Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} className="mt-0.5" />
+                </div>
               </div>
             </div>
 
@@ -210,6 +228,22 @@ export default function Reports() {
                 só é omitida e a ausência vira pendência declarada. */}
             <div>
               <Label>O que incluir</Label>
+              {(opcoesQuery.data?.presets ?? []).length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap mt-1.5 mb-2">
+                  <span className="text-[11px] text-muted-foreground">Atalhos:</span>
+                  {(opcoesQuery.data?.presets ?? []).map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      title={p.descricao}
+                      onClick={() => setModulos(p.modulos)}
+                      className="px-2.5 py-1 rounded-lg border border-border text-[11px] font-medium text-muted-foreground hover:border-primary/30 hover:text-foreground hover:bg-accent/30 transition-colors"
+                    >
+                      {p.nome}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-1.5">
                 {ORDEM_MODULOS.map((m) => {
                   const f = temFonte(FONTE_DO_MODULO[m] ?? m);
@@ -304,7 +338,10 @@ export default function Reports() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Relatórios gerados</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2">
+              Relatórios gerados
+              {reports.length > 0 && <span className="text-xs font-medium text-muted-foreground">· {reports.length}</span>}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {listQuery.isLoading && (
@@ -312,14 +349,20 @@ export default function Reports() {
                 <Loader2 className="w-4 h-4 animate-spin" /> Carregando...
               </div>
             )}
-            {!listQuery.isLoading && (listQuery.data?.length ?? 0) === 0 && (
+            {!listQuery.isLoading && reports.length === 0 && (
               <p className="text-sm text-muted-foreground">Nenhum relatório gerado ainda pra essa conta.</p>
             )}
             <div className="grid gap-2.5">
-              {listQuery.data?.map((r) => {
+              {visiveis.map((r, i) => {
                 const url = `${window.location.origin}/r/${r.publicToken}`;
+                const mes = mesLabel(r.generatedAt);
+                const novoMes = i === 0 || mes !== mesLabel(visiveis[i - 1].generatedAt);
                 return (
-                  <div key={r.id} className="anim-card flex items-center justify-between gap-3 flex-wrap p-3.5 border border-border rounded-xl bg-card">
+                  <Fragment key={r.id}>
+                  {novoMes && (
+                    <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground/60 pt-1 first:pt-0">{mes}</p>
+                  )}
+                  <div className="anim-card flex items-center justify-between gap-3 flex-wrap p-3.5 border border-border rounded-xl bg-card">
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                         <FileText className="h-4 w-4" />
@@ -359,9 +402,19 @@ export default function Reports() {
                       </Button>
                     </div>
                   </div>
+                  </Fragment>
                 );
               })}
             </div>
+            {reports.length > LIMITE_RELATORIOS && (
+              <button
+                onClick={() => setVerTodos((v) => !v)}
+                className="mt-3.5 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:opacity-70"
+              >
+                {verTodos ? "Mostrar menos" : `Mostrar mais ${restantes}`}
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${verTodos ? "rotate-180" : ""}`} />
+              </button>
+            )}
           </CardContent>
         </Card>
       </div>
