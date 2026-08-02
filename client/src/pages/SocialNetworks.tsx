@@ -849,7 +849,7 @@ export default function SocialNetworks() {
           <p className="text-muted-foreground mb-6 max-w-sm">
             Conecte sua conta Meta Ads para visualizar redes sociais.
           </p>
-          <Button onClick={() => navigate("/connect")} className="gap-2">
+          <Button onClick={() => navigate("/settings")} className="gap-2">
             <Zap className="w-4 h-4" />
             Conectar conta
           </Button>

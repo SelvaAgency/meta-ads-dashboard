@@ -415,7 +415,7 @@ function AgencyBar({ totalAccounts }: { totalAccounts: number }) {
             }}
           >
             <Brain className="w-3 h-3" />
-            Base de Conhecimento
+            Contexto da Agência
           </button>
         </div>
       </div>
@@ -579,7 +579,7 @@ export default function Settings() {
         {/* Contas */}
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contas Meta Ads</h2>
+            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contas</h2>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => refreshPictures.mutate()}
