@@ -8,9 +8,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, Link2, Copy, Loader2, CheckCircle2, Clock, ExternalLink, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { FileText, Link2, Copy, Loader2, CheckCircle2, Clock, ExternalLink, Sparkles, Check,
+  Megaphone, BarChart3, Globe, Gauge, ShieldCheck, Wifi, Bell, MousePointerClick, NotebookPen, History } from "lucide-react";
+import { useEffect, useState, type ComponentType } from "react";
 import { toast } from "sonner";
+
+/** Ícone por módulo — dá leitura visual rápida na seleção do relatório. */
+const MODULO_ICON: Record<string, ComponentType<{ className?: string }>> = {
+  midia: Megaphone, campanhas: BarChart3, site: Globe, clarity: MousePointerClick,
+  pagespeed: Gauge, seguranca: ShieldCheck, uptime: Wifi, contexto: NotebookPen,
+  alertas: Bell, relatorios: History,
+};
 
 /**
  * Rótulo de cada módulo. A disponibilidade NÃO vem daqui — vem do servidor,
@@ -138,13 +146,16 @@ export default function Reports() {
   return (
     <MetaDashboardLayout>
       <div className="max-w-3xl mx-auto py-6 space-y-6">
-        <div>
-          <h1 className="text-xl font-bold flex items-center gap-2">
-            <FileText className="w-5 h-5" /> Relatórios
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Gere relatórios de performance com link público pra enviar ao cliente.
-          </p>
+        <div className="flex items-start gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <FileText className="h-5 w-5" />
+          </span>
+          <div>
+            <h1 className="text-xl font-extrabold text-foreground">Relatórios</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Gere relatórios de performance com link público pra enviar ao cliente.
+            </p>
+          </div>
         </div>
 
         <Card>
@@ -199,23 +210,33 @@ export default function Reports() {
                 só é omitida e a ausência vira pendência declarada. */}
             <div>
               <Label>O que incluir</Label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 mt-1.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-1.5">
                 {ORDEM_MODULOS.map((m) => {
                   const f = temFonte(FONTE_DO_MODULO[m] ?? m);
                   const semDado = f && !f.presente;
                   const marcado = modulos.includes(m);
+                  const Icon = MODULO_ICON[m] ?? FileText;
                   return (
-                    <label
+                    <button
                       key={m}
+                      type="button"
+                      onClick={() => toggle(m)}
                       title={semDado ? f?.porque : undefined}
-                      className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs cursor-pointer transition-colors ${
-                        marcado ? "border-primary/40 bg-primary/5" : "border-border hover:bg-accent/30"
+                      className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                        marcado ? "border-primary/50 bg-primary/[0.06] shadow-sm" : "border-border hover:border-primary/30 hover:bg-accent/30"
                       }`}
                     >
-                      <input type="checkbox" checked={marcado} onChange={() => toggle(m)} className="cursor-pointer" />
-                      <span className={semDado ? "text-muted-foreground" : ""}>{MODULO_LABEL[m]}</span>
-                      {semDado && <span className="ml-auto text-[10px] text-amber-600 flex-shrink-0">sem dado</span>}
-                    </label>
+                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors ${marcado ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>
+                        <Icon className="h-3.5 w-3.5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className={`block text-xs font-semibold truncate ${semDado ? "text-muted-foreground" : "text-foreground"}`}>{MODULO_LABEL[m]}</span>
+                        {semDado && <span className="block text-[10px] text-amber-600 leading-tight">sem dado</span>}
+                      </span>
+                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-all ${marcado ? "border-primary bg-primary text-white" : "border-border text-transparent"}`}>
+                        <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                      </span>
+                    </button>
                   );
                 })}
               </div>
@@ -254,7 +275,7 @@ export default function Reports() {
               </p>
             </div>
 
-            <Button onClick={handleGenerate} disabled={generateMutation.isPending || !accountId}>
+            <Button size="lg" onClick={handleGenerate} disabled={generateMutation.isPending || !accountId} className="w-full sm:w-auto">
               {generateMutation.isPending ? (
                 <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Gerando...</>
               ) : (
@@ -263,12 +284,12 @@ export default function Reports() {
             </Button>
 
             {lastGeneratedUrl && (
-              <div className="flex items-center justify-between gap-3 flex-wrap p-3 rounded-md border border-border bg-muted/30">
-                <div className="flex items-center gap-2 text-sm">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                  <span className="break-all">{lastGeneratedUrl}</span>
+              <div className="flex items-center justify-between gap-3 flex-wrap p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
+                <div className="flex items-center gap-2 text-sm min-w-0">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span className="break-all text-foreground">{lastGeneratedUrl}</span>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                   <Button size="sm" variant="outline" onClick={() => copyLink(lastGeneratedUrl)}>
                     <Copy className="w-3.5 h-3.5 mr-1.5" /> Copiar
                   </Button>
@@ -298,36 +319,42 @@ export default function Reports() {
               {listQuery.data?.map((r) => {
                 const url = `${window.location.origin}/r/${r.publicToken}`;
                 return (
-                  <div key={r.id} className="flex items-center justify-between gap-3 flex-wrap p-3 border border-border rounded-md">
-                    <div className="flex items-center gap-2.5">
-                      {/* Relatório antigo não tem módulos — mostra o tier dele. */}
-                      <Badge variant="secondary">{r.modulos?.length ? `${r.modulos.length} módulos` : r.tier}</Badge>
-                      <div>
-                        <div className="text-sm font-semibold">
+                  <div key={r.id} className="anim-card flex items-center justify-between gap-3 flex-wrap p-3.5 border border-border rounded-xl bg-card">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <FileText className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-foreground">
                           {fmtDateBR(r.periodStart)} — {fmtDateBR(r.periodEnd)}
                         </div>
-                        <div className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> gerado em {r.generatedAt ? new Date(r.generatedAt).toLocaleDateString("pt-BR") : "—"}
+                        <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {r.generatedAt ? new Date(r.generatedAt).toLocaleDateString("pt-BR") : "—"}</span>
+                          <span className="text-border/70">·</span>
+                          {/* Relatório antigo não tem módulos — mostra o tier dele. */}
+                          <Badge variant="secondary" className="text-[10px] font-medium">{r.modulos?.length ? `${r.modulos.length} módulos` : r.tier}</Badge>
                         </div>
                         {r.modulos?.length ? (
-                          <div className="text-[11px] text-muted-foreground mt-0.5">
-                            {r.modulos.map((m) => MODULO_LABEL[m] ?? m).join(" · ")}
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {r.modulos.map((m) => (
+                              <span key={m} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{MODULO_LABEL[m] ?? m}</span>
+                            ))}
                           </div>
                         ) : null}
                         {/* Fonte que faltou fica registrada: seis meses depois,
                             um relatório magro precisa dizer que era magro. */}
                         {r.fontes?.some((f) => !f.presente) && (
-                          <div className="text-[11px] text-amber-600/80 mt-0.5">
+                          <div className="text-[10px] text-amber-600/80 mt-1">
                             sem: {r.fontes.filter((f) => !f.presente).map((f) => f.rotulo).join(", ")}
                           </div>
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="ghost" onClick={() => copyLink(url)}>
+                    <div className="flex gap-1.5 shrink-0">
+                      <Button size="sm" variant="outline" onClick={() => copyLink(url)}>
                         <Link2 className="w-3.5 h-3.5 mr-1.5" /> Copiar link
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => window.open(url, "_blank")}>
+                      <Button size="sm" variant="outline" onClick={() => window.open(url, "_blank")}>
                         <ExternalLink className="w-3.5 h-3.5" />
                       </Button>
                     </div>

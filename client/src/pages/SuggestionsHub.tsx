@@ -616,7 +616,7 @@ export default function SuggestionsHub() {
                 <div>
                   {/* Resumo sempre visível — texto principal do dia */}
                   {briefingParsed.resumo && (
-                    <p style={{ fontSize: 14.5, fontWeight: 500, color: "var(--color-text-primary, var(--foreground))", lineHeight: 1.6, marginBottom: briefingExpanded ? 14 : 0 }}>
+                    <p style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary, var(--foreground))", lineHeight: 1.55, marginBottom: briefingExpanded ? 14 : 0 }}>
                       {linkifyAccounts(briefingParsed.resumo, accounts ?? [], handleSelectAccount)}
                     </p>
                   )}
@@ -630,7 +630,7 @@ export default function SuggestionsHub() {
                       ].filter(s => s.text).map(s => (
                         <div key={s.key} style={{ padding: "10px 12px", borderRadius: 8, background: s.bg, borderLeft: `3px solid ${s.color}` }}>
                           <span style={{ display: "block", fontSize: 10, fontWeight: 700, color: s.color, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>{s.label}</span>
-                          <span style={{ fontSize: 12.5, color: "var(--color-text-secondary, var(--muted-foreground))", lineHeight: 1.55 }}>
+                          <span style={{ fontSize: 11.5, color: "var(--color-text-secondary, var(--muted-foreground))", lineHeight: 1.5 }}>
                             {linkifyAccounts(s.text!, accounts ?? [], handleSelectAccount)}
                           </span>
                         </div>
