@@ -142,155 +142,6 @@ function NotConfigured({ faltando }: { faltando?: string[] }) {
   );
 }
 
-// ─── Passo 1: Conectar Google Ads via OAuth ──────────────────────────────────
-// Abre o consentimento do Google; o callback salva o refresh token
-// criptografado (ver googleOAuthCallback). Sensível → admin/developer.
-// Enquanto não conecta, este é o ÚNICO passo mostrado — o cadastro de customer
-// ID só aparece depois, para a ordem ficar óbvia.
-function PassoConectar({ oauthConectado, contaConectada, onMudou }: {
-  oauthConectado: boolean; contaConectada?: string | null; onMudou: () => void;
-}) {
-  const desconectar = trpc.googleAds.desconectarOAuth.useMutation({
-    onSuccess: () => { toast.success("Google Ads desconectado."); onMudou(); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const numero = (n: string, ativo: boolean) => (
-    <span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
-      style={ativo ? { background: "#D4537E", color: "#fff" } : { background: "var(--muted)", color: "var(--muted-foreground)" }}>{n}</span>
-  );
-
-  if (!oauthConectado) {
-    return (
-      <div className="bg-card border border-border rounded-xl p-5">
-        <div className="flex items-start gap-3">
-          {numero("1", true)}
-          <div className="flex-1">
-            <h3 className="text-sm font-bold text-foreground mb-1">Conectar Google Ads via OAuth</h3>
-            <p className="text-xs text-muted-foreground max-w-md mb-3">
-              Autorize com a conta do Google que administra o MCC. O acesso é salvo criptografado —
-              você não precisa colar refresh token em lugar nenhum.
-            </p>
-            {/* target="_top": o Google BLOQUEIA o consentimento dentro de iframe
-                (proteção contra clickjacking → 403). Esta tela roda no iframe do
-                Spaces, então o OAuth precisa navegar o top-level window, fora do
-                iframe. O iframe não tem sandbox, então _top funciona. */}
-            <a
-              href="/api/google/auth?state=googleads"
-              target="_top"
-              className="inline-flex h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium items-center gap-1.5"
-            >
-              <Link2 className="w-4 h-4" /> Conectar Google Ads
-            </a>
-          </div>
-        </div>
-        <div className="flex items-start gap-3 mt-3 opacity-40">
-          {numero("2", false)}
-          <p className="text-xs text-muted-foreground pt-0.5">Descobrir contas / adicionar Customer ID <span className="italic">(depois de conectar)</span></p>
-        </div>
-      </div>
-    );
-  }
-
-  // Conectado: status com o email (ponto 7).
-  return (
-    <div className="bg-card border border-border rounded-xl p-5 flex items-center justify-between gap-4 flex-wrap">
-      <div className="flex items-center gap-2.5">
-        <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0" />
-        <div>
-          <h3 className="text-sm font-bold text-foreground">Google Ads conectado</h3>
-          <p className="text-xs text-muted-foreground">
-            {contaConectada ? <>como <strong>{contaConectada}</strong></> : "autorização salva"} · descubra as contas abaixo
-          </p>
-        </div>
-      </div>
-      <button onClick={() => desconectar.mutate()} disabled={desconectar.isPending}
-        className="h-9 px-3 rounded-lg border border-border text-xs text-muted-foreground hover:text-destructive flex-shrink-0">
-        Desconectar
-      </button>
-    </div>
-  );
-}
-
-// ─── Passo 2: Descobrir contas ───────────────────────────────────────────────
-function PassoDescobrir({ onMudou }: { onMudou: () => void }) {
-  const descobrir = trpc.googleAds.descobrirContas.useMutation({
-    onSuccess: (r) => { toast.success(r.criadas > 0 ? `${r.criadas} conta(s) conectada(s).` : "Nenhuma conta nova encontrada."); onMudou(); },
-    onError: (e) => toast.error(e.message),
-  });
-  return (
-    <div className="bg-card border border-border rounded-xl p-5 flex items-center justify-between gap-4 flex-wrap">
-      <div>
-        <h3 className="text-sm font-bold text-foreground mb-1">Descobrir contas do MCC</h3>
-        <p className="text-xs text-muted-foreground max-w-md">
-          Busca automaticamente todas as contas sob o seu MCC e conecta cada uma. Ou adicione um
-          Customer ID específico abaixo.
-        </p>
-      </div>
-      <Button size="sm" className="h-9 gap-1.5 flex-shrink-0" onClick={() => descobrir.mutate()} disabled={descobrir.isPending}>
-        {descobrir.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-        Descobrir contas
-      </Button>
-    </div>
-  );
-}
-
-// ─── Connect Account Form ───────────────────────────────────────────────────
-
-function ConnectAccountForm({ onSuccess }: { onSuccess: () => void }) {
-  const [customerId, setCustomerId] = useState("");
-  const [accountName, setAccountName] = useState("");
-  const connectMutation = trpc.googleAds.connectAccount.useMutation({
-    onSuccess: () => {
-      setCustomerId("");
-      setAccountName("");
-      onSuccess();
-    },
-  });
-
-  return (
-    <div className="bg-card border border-border rounded-xl p-5">
-      <h3 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
-        <Plus className="w-4 h-4 text-primary" />
-        Conectar Conta Google Ads
-      </h3>
-      <div className="flex gap-3 items-end">
-        <div className="flex-1">
-          <label className="text-xs text-muted-foreground font-medium mb-1 block">Customer ID</label>
-          <input
-            type="text"
-            placeholder="123-456-7890"
-            value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm text-foreground focus:border-primary focus:outline-none"
-          />
-        </div>
-        <div className="flex-1">
-          <label className="text-xs text-muted-foreground font-medium mb-1 block">Nome (opcional)</label>
-          <input
-            type="text"
-            placeholder="Ex: ULTRAMALHAS"
-            value={accountName}
-            onChange={(e) => setAccountName(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm text-foreground focus:border-primary focus:outline-none"
-          />
-        </div>
-        <Button
-          size="sm"
-          className="h-9 gap-1.5"
-          onClick={() => connectMutation.mutate({ customerId, accountName: accountName || undefined })}
-          disabled={connectMutation.isPending || !customerId.trim()}
-        >
-          {connectMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-          Conectar
-        </Button>
-      </div>
-      {connectMutation.error && (
-        <p className="text-xs text-destructive mt-2">{connectMutation.error.message}</p>
-      )}
-    </div>
-  );
-}
 
 // ─── Campaign Row ───────────────────────────────────────────────────────────
 
@@ -563,11 +414,6 @@ export default function GoogleAds() {
     { enabled: podeVer && !!selectedAccountId && configStatus?.configured === true }
   );
 
-  // Gestão (admin/dev): todas as contas descobertas, para vincular.
-  const { data: contasGestao } = trpc.googleAds.contasParaGerenciar.useQuery(
-    undefined,
-    { enabled: podeVer && podeGerenciar && configStatus?.configured === true }
-  );
 
   const contasVisiveis = contaDoCliente ? [contaDoCliente] : [];
 
@@ -647,31 +493,6 @@ export default function GoogleAds() {
           </div>
         </div>
 
-        {/* ── GESTÃO (admin/dev) — conectar, descobrir e vincular ──────────
-            Some por completo para usuário comum: ele não precisa saber que o
-            MCC tem 23 contas, só ver o cliente dele. */}
-        {podeGerenciar && (
-          <>
-            <PassoConectar
-              oauthConectado={!!configStatus?.oauthConectado}
-              contaConectada={configStatus?.contaConectada}
-              onMudou={() => { utils.googleAds.isConfigured.invalidate(); utils.googleAds.contasParaGerenciar.invalidate(); }}
-            />
-            {configStatus?.oauthConectado && (
-              <>
-                <PassoDescobrir onMudou={() => utils.googleAds.contasParaGerenciar.invalidate()} />
-                <TabelaVinculos
-                  contas={contasGestao ?? []}
-                  clientes={metaAccounts ?? []}
-                  onMudou={() => {
-                    utils.googleAds.contasParaGerenciar.invalidate();
-                    utils.googleAds.contaDoCliente.invalidate();
-                  }}
-                />
-              </>
-            )}
-          </>
-        )}
 
         {/* ── DADOS DO CLIENTE SELECIONADO — o que todo mundo vê ──────────── */}
         {loadingConta ? (
@@ -692,7 +513,7 @@ export default function GoogleAds() {
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 {podeGerenciar
-                  ? "Descubra as contas do MCC acima e vincule uma delas a este cliente."
+                  ? "Vincule uma conta do MCC a este cliente em Configurações › Conexões."
                   : "Peça a um administrador para vincular a conta do Google Ads deste cliente."}
               </p>
             </div>
@@ -700,108 +521,6 @@ export default function GoogleAds() {
         )}
       </div>
     </MetaDashboardLayout>
-  );
-}
-
-// ─── Gestão: vincular conta do MCC ao cliente do Tracker ─────────────────────
-/**
- * O MCC tem ~23 contas para ~10 clientes ativos — muitas são antigas. Esta
- * tabela é a ponte: cada conta descoberta recebe um cliente, ou é marcada como
- * ignorada e some da gestão (sem apagar, porque apagar perderia o histórico
- * de que ela existe no MCC).
- *
- * Só admin/dev chegam aqui; o backend recusa de qualquer forma.
- */
-function TabelaVinculos({ contas, clientes, onMudou }: {
-  contas: any[];
-  clientes: any[];
-  onMudou: () => void;
-}) {
-  const [mostrarIgnoradas, setMostrarIgnoradas] = useState(false);
-  const vincular = trpc.googleAds.vincularConta.useMutation({
-    onSuccess: () => { toast.success("Vínculo atualizado."); onMudou(); },
-    onError: (e) => toast.error(e.message),
-  });
-  const ignorar = trpc.googleAds.ignorarConta.useMutation({
-    onSuccess: () => onMudou(),
-    onError: (e) => toast.error(e.message),
-  });
-
-  const visiveis = mostrarIgnoradas ? contas : contas.filter((c) => !c.ignored);
-  const qtdIgnoradas = contas.filter((c) => c.ignored).length;
-  const semVinculo = contas.filter((c) => !c.ignored && !c.linkedAccountId).length;
-
-  if (contas.length === 0) {
-    return (
-      <div className="bg-card border border-border rounded-xl p-5">
-        <h3 className="text-sm font-bold text-foreground mb-1">Vincular contas aos clientes</h3>
-        <p className="text-xs text-muted-foreground">
-          Nenhuma conta descoberta ainda. Use "Descobrir contas" acima.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-card border border-border rounded-xl p-5">
-      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-        <div>
-          <h3 className="text-sm font-bold text-foreground">Vincular contas aos clientes</h3>
-          <p className="text-xs text-muted-foreground">
-            {contas.length} conta(s) no MCC · {semVinculo > 0 ? `${semVinculo} sem vínculo` : "todas vinculadas"}
-            {qtdIgnoradas > 0 && ` · ${qtdIgnoradas} ignorada(s)`}
-          </p>
-        </div>
-        {qtdIgnoradas > 0 && (
-          <button onClick={() => setMostrarIgnoradas((v) => !v)}
-            className="text-xs text-muted-foreground hover:text-foreground underline">
-            {mostrarIgnoradas ? "Ocultar ignoradas" : `Mostrar ignoradas (${qtdIgnoradas})`}
-          </button>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        {visiveis.map((c) => (
-          <div key={c.id}
-            className="flex items-center gap-3 rounded-lg border border-border px-3 py-2 flex-wrap"
-            style={c.ignored ? { opacity: 0.5 } : undefined}>
-            <div className="flex-1 min-w-[180px]">
-              <p className="text-xs font-medium text-foreground">{c.accountName ?? fmtCustomerId(c.customerId)}</p>
-              <p className="text-[11px] text-muted-foreground font-mono">{fmtCustomerId(c.customerId)}</p>
-            </div>
-            {/* Status do vínculo — de relance, o que ainda falta configurar. */}
-            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
-              style={c.ignored
-                ? { background: "rgba(0,0,0,0.06)", color: "var(--muted-foreground)" }
-                : c.linkedAccountId
-                  ? { background: "rgba(29,158,117,0.12)", color: "#1D9E75" }
-                  : { background: "rgba(239,159,39,0.14)", color: "#BA7517" }}>
-              {c.ignored ? "ignorada" : c.linkedAccountId ? "vinculada" : "sem vínculo"}
-            </span>
-
-            <select
-              value={c.linkedAccountId ?? ""}
-              onChange={(e) => vincular.mutate({ id: c.id, linkedAccountId: e.target.value ? Number(e.target.value) : null })}
-              disabled={c.ignored}
-              className="text-xs border border-border rounded-md px-2 py-1.5 bg-background min-w-[180px]"
-            >
-              <option value="">— sem vínculo —</option>
-              {clientes.map((cl: any) => (
-                <option key={cl.id} value={cl.id}>{cl.displayName ?? cl.accountName}</option>
-              ))}
-            </select>
-
-            <button
-              onClick={() => ignorar.mutate({ id: c.id, ignored: !c.ignored })}
-              title={c.ignored ? "Voltar a considerar esta conta" : "Conta antiga/sem uso — ocultar da gestão"}
-              className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border flex-shrink-0"
-            >
-              {c.ignored ? "Restaurar" : "Ignorar"}
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }
 

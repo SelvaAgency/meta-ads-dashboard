@@ -7,6 +7,7 @@ import { trpc } from "@/lib/trpc";
 import { useState, useEffect } from "react";
 import { ContextoGeralPanel } from "@/components/ContextoGeralPanel";
 import { ThresholdsPanel } from "@/components/ThresholdsPanel";
+import { GoogleAdsVinculos } from "@/components/conexoes/GoogleAdsVinculos";
 import { toast } from "sonner";
 import {
   Settings2, Check, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
@@ -350,6 +351,9 @@ function ConexoesPanel() {
         <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Google · OAuth da agência (Ads + GA4)</p>
         <GooglePlugs />
       </div>
+
+      {/* Google Ads · descobrir/vincular contas do MCC (só admin + OAuth conectado) */}
+      <GoogleAdsVinculos />
 
       <div>
         <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Fontes conectadas por cliente</p>
