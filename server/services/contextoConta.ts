@@ -5,20 +5,19 @@
  *  Antes cada IA (sugestões, resumo do header, chat, relatórios, jornalzinho)
  *  montava seu próprio bloco de contexto lendo tabelas diferentes — divergindo.
  *  Este builder lê TODAS as fontes de contexto por conta (account_context +
- *  client_context + client_notes) e, opcionalmente, o agency_context, e devolve
- *  UM bloco de texto consistente. Toda IA deve injetar isto — nunca remontar.
+ *  client_context + client_notes) e devolve UM bloco de texto consistente. Toda
+ *  IA deve injetar isto — nunca remontar.
  *
- *  Fase 1 da centralização de contexto: as 3 tabelas continuam no banco; aqui
- *  só unificamos a LEITURA. A UI única e a unificação das tabelas vêm depois.
+ *  O agency_context (conhecimento institucional da agência) foi aposentado: ficou
+ *  vazio desde o início e não influenciava as análises. A tabela segue no banco,
+ *  dormente, caso um dia queiramos reintroduzir o nível-agência de propósito.
  */
-import { getAccountContext, getAgencyContext, listClientNotes, getAccountThresholds } from "../db";
+import { getAccountContext, listClientNotes, getAccountThresholds } from "../db";
 
 export type MontarContextoOpts = {
   accountId: number;
-  /** userId dono do agency_context (conhecimento da agência). Sem ele, não inclui. */
+  /** Mantido por compatibilidade dos chamadores; hoje não altera o contexto. */
   userId?: number | null;
-  /** Incluir bloco da agência (default: true quando há userId). */
-  incluirAgencia?: boolean;
   /** Incluir notas recentes da equipe (default: true). */
   incluirNotas?: boolean;
   limiteNotas?: number;
@@ -35,12 +34,10 @@ export type ContextoMontado = { texto: string; temContexto: boolean };
 
 /** Monta o bloco de contexto único da conta. Campos ausentes são omitidos. */
 export async function montarContextoDaConta(opts: MontarContextoOpts): Promise<ContextoMontado> {
-  const { accountId, userId, incluirNotas = true, limiteNotas = 8, incluirSite = true } = opts;
-  const incluirAgencia = opts.incluirAgencia ?? !!userId;
+  const { accountId, incluirNotas = true, limiteNotas = 8, incluirSite = true } = opts;
 
-  const [acc, ag, notas, thr] = await Promise.all([
+  const [acc, notas, thr] = await Promise.all([
     getAccountContext(accountId),
-    incluirAgencia && userId ? getAgencyContext(userId) : Promise.resolve(null),
     incluirNotas ? listClientNotes(accountId, limiteNotas) : Promise.resolve([]),
     getAccountThresholds(accountId).catch(() => null),
   ]);
@@ -92,14 +89,6 @@ export async function montarContextoDaConta(opts: MontarContextoOpts): Promise<C
     ? `### Notas recentes da equipe:\n${notas.map((n) => `- ${new Date(n.createdAt).toLocaleDateString("pt-BR")}: ${n.body}`).join("\n")}`
     : "";
 
-  const agBlock = (ag && (ag.benchmarks || ag.patterns || ag.institutionalKnowledge))
-    ? `## CONTEXTO DA AGÊNCIA (SELVA — conhecimento institucional)\n${[
-        ag.benchmarks && `### Benchmarks internos:\n${ag.benchmarks}`,
-        ag.patterns && `### Padrões nas contas:\n${ag.patterns}`,
-        ag.institutionalKnowledge && `### Conhecimento institucional:\n${ag.institutionalKnowledge}`,
-      ].filter(Boolean).join("\n")}`
-    : "";
-
   // Metas de performance da conta — a IA classifica Bom/Regular/Ruim por elas.
   const metas: string[] = [];
   if (thr?.roasGood || thr?.roasRegular) metas.push(`- ROAS: Bom ≥ ${thr.roasGood ?? "?"}x${thr.roasRegular ? ` · Regular ≥ ${thr.roasRegular}x` : ""} · abaixo = Ruim`);
@@ -108,7 +97,7 @@ export async function montarContextoDaConta(opts: MontarContextoOpts): Promise<C
   const metasBlock = metas.length ? `## METAS DE PERFORMANCE DESTA CONTA (classifique Bom/Regular/Ruim por elas)\n${metas.join("\n")}` : "";
 
   const corpo = [accBlock, notasBlock].filter(Boolean).join("\n\n");
-  const partes = [agBlock, metasBlock, corpo].filter(Boolean);
+  const partes = [metasBlock, corpo].filter(Boolean);
   const texto = partes.length ? `${partes.join("\n\n")}\n---\n` : "";
   return { texto, temContexto: partes.length > 0 };
 }

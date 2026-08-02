@@ -4,7 +4,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { ContextoGeralPanel } from "@/components/ContextoGeralPanel";
 import { ThresholdsPanel } from "@/components/ThresholdsPanel";
 import { GoogleAdsVinculos } from "@/components/conexoes/GoogleAdsVinculos";
@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import {
   Settings2, Check, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
   CreditCard, Wallet, Key, ExternalLink, Link2, ChevronRight, Zap,
-  Trash2, Loader2, SlidersHorizontal, RefreshCw, Brain, BookOpen, Save, Cable} from "lucide-react";
+  Trash2, Loader2, SlidersHorizontal, RefreshCw, Brain, Cable} from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type GoalType = "SALES"|"VALUE"|"LEADS"|"MESSAGES"|"TRAFFIC"|"ENGAGEMENT"|"AWARENESS"|"VIDEO"|"FOLLOWERS"|"APP";
@@ -533,8 +533,8 @@ function NotificationsSection() {
 
 // ─── Agency bar ───────────────────────────────────────────────────────────────
 function AgencyBar({ totalAccounts }: { totalAccounts: number }) {
-  const [openPanel, setOpenPanel] = useState<"token" | "knowledge" | null>(null);
-  const toggle = (p: "token" | "knowledge") => setOpenPanel(v => v === p ? null : p);
+  const [openPanel, setOpenPanel] = useState<"token" | null>(null);
+  const toggle = (p: "token") => setOpenPanel(v => v === p ? null : p);
 
   return (
     <div className="rounded-xl border border-border bg-card/60 overflow-hidden">
@@ -564,18 +564,6 @@ function AgencyBar({ totalAccounts }: { totalAccounts: number }) {
             <Cable className="w-3 h-3" />
             Conexões
           </button>
-          <button
-            onClick={() => toggle("knowledge")}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors"
-            style={{
-              background: openPanel === "knowledge" ? "rgba(232,91,168,0.1)" : "transparent",
-              borderColor: openPanel === "knowledge" ? "rgba(232,91,168,0.4)" : "rgba(0,0,0,0.12)",
-              color: openPanel === "knowledge" ? "#E85BA8" : "rgba(0,0,0,0.45)",
-            }}
-          >
-            <Brain className="w-3 h-3" />
-            Contexto da Agência
-          </button>
         </div>
       </div>
 
@@ -585,130 +573,11 @@ function AgencyBar({ totalAccounts }: { totalAccounts: number }) {
           <ConexoesPanel />
         </div>
       )}
-
-      {/* Knowledge panel */}
-      {openPanel === "knowledge" && (
-        <div className="border-t border-border px-6 py-5">
-          <KnowledgeBaseSection />
-        </div>
-      )}
     </div>
   );
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
-// ─── Knowledge Base section ───────────────────────────────────────────────────
-function KnowledgeBaseSection() {
-  const { data: user } = trpc.auth.me.useQuery();
-  const { data: agencyCtx, refetch } = trpc.context.getAgency.useQuery(undefined, { staleTime: 30_000 });
-
-  const [benchmarks, setBenchmarks] = useState("");
-  const [patterns, setPatterns] = useState("");
-  const [knowledge, setKnowledge] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (agencyCtx) {
-      setBenchmarks(agencyCtx.benchmarks ?? "");
-      setPatterns(agencyCtx.patterns ?? "");
-      setKnowledge(agencyCtx.institutionalKnowledge ?? "");
-    }
-  }, [agencyCtx]);
-
-  const upsert = trpc.context.upsertAgency.useMutation({
-    onSuccess: () => { toast.success("Base de conhecimento salva"); setSaving(false); refetch(); },
-    onError: () => { toast.error("Erro ao salvar"); setSaving(false); },
-  });
-
-  function save() {
-    setSaving(true);
-    upsert.mutate({ benchmarks, patterns, institutionalKnowledge: knowledge });
-  }
-
-  const fieldStyle = {
-    width: "100%", fontSize: 12, lineHeight: 1.6,
-    padding: "10px 12px", borderRadius: 8,
-    border: "1px solid rgba(0,0,0,0.12)",
-    background: "white", resize: "vertical" as const,
-    fontFamily: "inherit", outline: "none", color: "#111",
-    minHeight: 100,
-  };
-
-  const labelStyle = {
-    fontSize: 11, fontWeight: 600 as const,
-    color: "rgba(0,0,0,0.45)",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.06em",
-    display: "block", marginBottom: 6,
-  };
-
-  return (
-    <div className="rounded-xl border border-border bg-card p-5 space-y-5">
-      <div className="space-y-1">
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          Estas informações são injetadas em <strong>todas as análises</strong> da IA — para todas as contas. Quanto mais preciso, melhor a qualidade das sugestões.
-        </p>
-        {agencyCtx?.updatedAt && (
-          <p className="text-xs text-muted-foreground opacity-60">
-            Última atualização: {new Date(agencyCtx.updatedAt).toLocaleDateString("pt-BR")}
-          </p>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 gap-4">
-        <div>
-          <label style={labelStyle}>Benchmarks do portfólio</label>
-          <textarea
-            value={benchmarks}
-            onChange={e => setBenchmarks(e.target.value)}
-            placeholder={"CPA médio e-commerce moda: R$180-220\nCTR saudável para MESSAGES: >0.8%\nFrequência máxima antes de degradar: 2.8 (contas de remarketing)\nROAS mínimo aceitável SALES: 2.5x"}
-            style={fieldStyle}
-            rows={5}
-            onFocus={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.5)"}
-            onBlur={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"}
-          />
-        </div>
-        <div>
-          <label style={labelStyle}>Padrões identificados nas contas</label>
-          <textarea
-            value={patterns}
-            onChange={e => setPatterns(e.target.value)}
-            placeholder={"Contas de moda performam melhor com criativos estáticos de produto isolado\nAudiências lookalike 2% superam 5% em contas com menos de R$5k/mês\nCampanhas de MESSAGES com advantage+ tendem a saturar após 45 dias"}
-            style={fieldStyle}
-            rows={5}
-            onFocus={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.5)"}
-            onBlur={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"}
-          />
-        </div>
-        <div>
-          <label style={labelStyle}>Conhecimento institucional</label>
-          <textarea
-            value={knowledge}
-            onChange={e => setKnowledge(e.target.value)}
-            placeholder={"SELVA é uma boutique de branding e performance digital em SP\nClientes são majoritariamente marcas de moda, lifestyle e serviços premium\nFilosofia: intervenção mínima — só mexer quando os dados comprovam necessidade"}
-            style={fieldStyle}
-            rows={4}
-            onFocus={e => e.currentTarget.style.borderColor = "rgba(232,91,168,0.5)"}
-            onBlur={e => e.currentTarget.style.borderColor = "rgba(0,0,0,0.12)"}
-          />
-        </div>
-      </div>
-
-      <div className="flex justify-end">
-        <button
-          onClick={save}
-          disabled={saving}
-          className="flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg text-white disabled:opacity-75"
-          style={{ background: "#E85BA8", border: "none", cursor: saving ? "not-allowed" : "pointer" }}
-        >
-          <Save className="w-3.5 h-3.5" />
-          {saving ? "Salvando..." : "Salvar base de conhecimento"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export default function Settings() {
   const { user } = useAuth();
   const { accounts } = useSelectedAccount();
