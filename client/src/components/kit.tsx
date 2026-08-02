@@ -27,13 +27,14 @@ export const KIT = {
 export type Variacao = { sobe: boolean; pct: number } | null | undefined;
 
 // ── Tooltip padrão (inteiros formatados em pt-BR) ─────────────────────────────
-export function TooltipInt({ active, payload, label }: any) {
+export function TooltipInt({ active, payload, label, fmt }: any) {
   if (!active || !payload?.length) return null;
+  const f = (fmt ?? fmtNumber) as (v: number) => string;
   return (
     <div className="bg-popover border border-border rounded-lg p-2.5 shadow-xl text-xs">
       {label != null && label !== "" && <p className="text-muted-foreground mb-1">{label}</p>}
       {payload.map((p: any) => (
-        <p key={p.name} className="font-medium text-foreground">{p.name}: {fmtNumber(p.value)}</p>
+        <p key={p.name} className="font-medium text-foreground">{p.name}: {f(p.value)}</p>
       ))}
     </div>
   );
@@ -73,14 +74,14 @@ export function Painel({ titulo, extra, children }: { titulo: string; extra?: st
 }
 
 // ── Barras horizontais (rankings) ─────────────────────────────────────────────
-export function BarrasTop({ dados, corLabel }: { dados: { nome: string; valor: number }[]; corLabel?: string }) {
+export function BarrasTop({ dados, corLabel, fmt }: { dados: { nome: string; valor: number }[]; corLabel?: string; fmt?: (v: number) => string }) {
   if (dados.length === 0) return <p className="text-xs text-muted-foreground py-4 text-center">Sem dados no período.</p>;
   return (
     <ResponsiveContainer width="100%" height={Math.max(120, dados.length * 34)}>
       <BarChart data={dados} layout="vertical" margin={{ left: 4, right: 16, top: 0, bottom: 0 }}>
         <XAxis type="number" hide />
         <YAxis type="category" dataKey="nome" width={140} tick={{ fontSize: 10, fill: KIT.axis }} tickFormatter={(v: string) => v.length > 22 ? `${v.slice(0, 22)}…` : v} />
-        <Tooltip content={<TooltipInt />} cursor={{ fill: "rgba(232,91,168,0.06)" }} />
+        <Tooltip content={<TooltipInt fmt={fmt} />} cursor={{ fill: "rgba(232,91,168,0.06)" }} />
         <Bar dataKey="valor" radius={[0, 4, 4, 0]} name={corLabel ?? "valor"}>
           {dados.map((_, i) => <Cell key={i} fill={i === 0 ? KIT.pink : KIT.pinkSoft} />)}
         </Bar>
@@ -90,16 +91,18 @@ export function BarrasTop({ dados, corLabel }: { dados: { nome: string; valor: n
 }
 
 // ── Distribuição (donut) com legenda + % ──────────────────────────────────────
-export function PizzaDistribuicao({ dados }: { dados: { nome: string; valor: number }[] }) {
+// `cores` opcional para distribuições semânticas (saúde: verde/amarelo/vermelho).
+export function PizzaDistribuicao({ dados, cores }: { dados: { nome: string; valor: number }[]; cores?: string[] }) {
   if (dados.length === 0) return <p className="text-xs text-muted-foreground py-4 text-center">Sem dados no período.</p>;
   const total = dados.reduce((s, d) => s + d.valor, 0) || 1;
+  const cor = (i: number) => (cores ?? KIT.paleta)[i % (cores ?? KIT.paleta).length];
   return (
     <div className="flex items-center gap-3">
       <div className="w-[46%] flex-shrink-0">
         <ResponsiveContainer width="100%" height={168}>
           <PieChart>
             <Pie data={dados} dataKey="valor" nameKey="nome" innerRadius={40} outerRadius={72} paddingAngle={2} strokeWidth={0}>
-              {dados.map((_, i) => <Cell key={i} fill={KIT.paleta[i % KIT.paleta.length]} />)}
+              {dados.map((_, i) => <Cell key={i} fill={cor(i)} />)}
             </Pie>
             <Tooltip content={<TooltipInt />} />
           </PieChart>
@@ -108,7 +111,7 @@ export function PizzaDistribuicao({ dados }: { dados: { nome: string; valor: num
       <ul className="flex-1 min-w-0 flex flex-col gap-1.5">
         {dados.map((d, i) => (
           <li key={d.nome} className="flex items-center gap-2 text-xs">
-            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: KIT.paleta[i % KIT.paleta.length] }} />
+            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: cor(i) }} />
             <span className="text-muted-foreground truncate flex-1" title={d.nome}>{d.nome}</span>
             <span className="text-foreground font-medium flex-shrink-0 tabular-nums">{fmtNumber(d.valor)}</span>
             <span className="text-muted-foreground/60 flex-shrink-0 w-8 text-right tabular-nums">{Math.round((d.valor / total) * 100)}%</span>
