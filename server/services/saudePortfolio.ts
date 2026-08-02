@@ -12,11 +12,11 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { avaliarCliente } from "../../shared/panoramaLogic";
-import { saudeConta, type NivelSaude, type CorIA } from "../../shared/saudeConta";
+import { saudeConta, type NivelSaude, type CorIA, type AdendoSaude } from "../../shared/saudeConta";
 import { montarClientesPanorama } from "./jornalExecutivo";
 import { getAllActiveMetaAdAccountsForListing, getAlertasParaSaude } from "../db";
 
-export type SaudeConta = { accountId: number; nivel: NivelSaude; motivo: string | null };
+export type SaudeConta = { accountId: number; nivel: NivelSaude; adendo: AdendoSaude | null };
 
 export async function saudeDoPortfolio(): Promise<SaudeConta[]> {
   const [contas, clientes, alertas] = await Promise.all([
@@ -35,16 +35,19 @@ export async function saudeDoPortfolio(): Promise<SaudeConta[]> {
   }
 
   return contas.map((c) => {
-    const pano = panoramaPorConta.get(c.id);
+    // Nível = RESULTADOS (IA) + token. Achados técnicos não rebaixam.
     const nivel = saudeConta({
       aiStatusColor: ((c as { aiStatusColor?: string | null }).aiStatusColor ?? null) as CorIA,
-      panoramaNivel: pano?.nivel ?? null,
-      // temAlertaCritico DESLIGADO por ora: o sistema de alertas está pausado e o
-      // backlog de alertas críticos antigos (nunca marcados como lidos) floorava
-      // TODAS as contas para Crítico. Volta na Fase 2, com a taxonomia de alertas
-      // limpa e a fronteira alerta/recomendação definida.
       temErroToken: comErroToken.has(c.id),
     });
-    return { accountId: c.id, nivel, motivo: pano?.motivos[0] ?? null };
+
+    // Adendo técnico = o pior achado do Panorama (crítico > atenção). Só informa,
+    // não muda o nível — "saudável, mas há um problema técnico a olhar".
+    const achados = panoramaPorConta.get(c.id)?.achados ?? [];
+    const pick = achados.find((a) => a.severidade === "critico")
+      ?? achados.find((a) => a.severidade === "atencao");
+    const adendo: AdendoSaude | null = pick ? { severidade: pick.severidade as "critico" | "atencao", texto: pick.texto } : null;
+
+    return { accountId: c.id, nivel, adendo };
   });
 }

@@ -3,7 +3,7 @@ import { ContextoGeralPanel } from "@/components/ContextoGeralPanel";
 import { ThresholdsPanel } from "@/components/ThresholdsPanel";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId } from "@/config/clientConfig";
-import { RefreshCw, ChevronDown, ChevronUp, Check, Brain, Eye, CheckCircle2 } from "lucide-react";
+import { RefreshCw, ChevronDown, ChevronUp, Check, Brain, Eye, CheckCircle2, AlertTriangle } from "lucide-react";
 import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, Tooltip } from "recharts";
 import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useLocation } from "wouter";
@@ -320,7 +320,9 @@ export function AccountHeader({
   const aiSummary: string = (activeAccount as any)?.aiStatusSummary
     ?? "Análise pendente — execute um sync para gerar";
   // Nível canônico desta conta (regras + IA), vindo do servidor.
-  const nivelSaude = (saudeData ?? []).find((s) => s.accountId === selectedAccountId)?.nivel ?? "sem_dados";
+  const saudeConta = (saudeData ?? []).find((s) => s.accountId === selectedAccountId);
+  const nivelSaude = saudeConta?.nivel ?? "sem_dados";
+  const adendoSaude = saudeConta?.adendo ?? null;
   const saudeCfg = SAUDE_CFG[nivelSaude];
 
   const accountName: string = (activeAccount as any).displayName ?? activeAccount.accountName ?? activeAccount.accountId;
@@ -481,6 +483,13 @@ export function AccountHeader({
             style={{ maxHeight: expanded ? "none" : CLAMP_HEIGHT, transition: "max-height 0.2s ease" }}>
             {aiSummary}
           </p>
+          {adendoSaude && (
+            <div className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug"
+              style={{ color: adendoSaude.severidade === "critico" ? "#E24B4A" : "#EF9F27" }}>
+              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+              <span><strong>Ponto técnico:</strong> {adendoSaude.texto} — não muda o resultado, mas pode estar limitando.</span>
+            </div>
+          )}
           {summaryOverflows && (
             <button onClick={() => setExpanded((v) => !v)} className="flex items-center gap-1 mt-1.5 text-xs font-medium text-muted-foreground/70 hover:text-foreground transition-colors">
               {expanded ? <>Ver menos <ChevronUp className="w-3.5 h-3.5" /></> : <>Ver mais <ChevronDown className="w-3.5 h-3.5" /></>}

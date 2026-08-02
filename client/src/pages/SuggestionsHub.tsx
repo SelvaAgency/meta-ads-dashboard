@@ -686,7 +686,7 @@ export default function SuggestionsHub() {
                 const p1         = p1ByAccount[account.id] ?? 0;
                 const nivel      = nivelDe(account);
                 const saude      = SAUDE_CFG[nivel];
-                const motivo     = saudeMap.get(account.id)?.motivo ?? null;
+                const adendo     = saudeMap.get(account.id)?.adendo ?? null;
                 const goalType   = ((account as any).goalTypeOverride as string | null) ?? "DEFAULT";
                 const dayS       = totals.spend > 0
                   ? quickDayStatus({ spend: totals.spend, conversions: totals.conversions, ctr: totals.ctr })
@@ -725,8 +725,11 @@ export default function SuggestionsHub() {
                       </div>
                       <div className="flex items-center gap-1.5 min-w-0">
                         <Badge variant="outline" className={`text-[10px] font-bold ${saude.chip}`}>{saude.label}</Badge>
-                        {motivo && (
-                          <span className="text-[9px] text-muted-foreground truncate" title={motivo}>· {motivo}</span>
+                        {adendo && (
+                          <span className="text-[9px] truncate" title={`Ponto técnico: ${adendo.texto}`}
+                            style={{ color: adendo.severidade === "critico" ? "#E24B4A" : "#EF9F27" }}>
+                            ⚠ {adendo.texto}
+                          </span>
                         )}
                       </div>
                       <div className="border-t pt-2" style={{ borderColor: BORDER_T }}>

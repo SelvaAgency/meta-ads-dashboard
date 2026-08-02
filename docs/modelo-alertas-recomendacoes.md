@@ -59,7 +59,19 @@ vocabulário para todo o produto:
 Aposentar os vocabulários paralelos (A/B/C; Ok/Sem-dados) e unificar os ~5 motores de
 classificação que hoje discordam entre si.
 
-**Lar:** o cabeçalho da conta e a barra de saúde do portfólio na Visão Geral.
+**A saúde é guiada pelos RESULTADOS (mídia/IA).** Uma conta com bons resultados é
+Saudável mesmo que tenha uma falha técnica no site — a falha **não rebaixa** o nível.
+Ela vira um **adendo** ("Saudável, mas há um ponto técnico que pode estar limitando"),
+surfaced à parte, no resumo/card, e levado em conta — sem mudar o veredito. O que
+impede *ver* o resultado (token quebrado) puxa para Atenção. Achados técnicos vêm do
+Panorama (`avaliarCliente`) e viram `AdendoSaude`; nunca entram no nível.
+
+(Isto refina a regra anterior "regras=piso": para a SAÚDE, só os resultados definem o
+nível. As regras de site continuam valendo — mas como adendo/alerta, não como piso.)
+
+**Lar:** o cabeçalho da conta e a barra de saúde do portfólio na Visão Geral. Motor em
+`shared/saudeConta.ts`; veredito único computado no servidor em
+`server/services/saudePortfolio.ts` (query `saude.portfolio`).
 
 ## Plano de fases
 
