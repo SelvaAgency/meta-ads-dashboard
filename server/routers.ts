@@ -313,6 +313,7 @@ import { carregarDicionario, aprenderRegras } from "./services/fatura/dicionario
 import { fontesDoCliente, fontesDeTodasAsContas, lojasERedesPorConta } from "./services/fontesDoCliente";
 import { saudeDoPortfolio } from "./services/saudePortfolio";
 import { refreshAccountAiStatus } from "./services/aiStatusService";
+import { gerarRecomendacoesDaConta } from "./services/recomendacoesService";
 import { sincronizarGA4 } from "./services/ga4Sync";
 import { testarConexaoWoo, validarUrlDaLoja } from "./services/woocommerce";
 import { testarConexaoVnda, validarUrlVnda, resolverShopHost } from "./services/vnda";
@@ -2922,47 +2923,7 @@ export const appRouter = router({
       .input(z.object({ accountId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const account = await getVerifiedAccount(input.accountId, ctx.user.id);
-        const { startDate, endDate } = getDateRange(30);
-        const campaignData = await getCampaignPerformanceSummary(input.accountId, startDate, endDate);
-        const historyRaw = await getSuggestionsHistory(input.accountId);
-        const rejectedFeedback = historyRaw
-          .filter((s) => s.status === "rejected" && s.rejectionReason)
-          .slice(0, 10)
-          .map((s) => ({ title: s.title, rejectionReason: s.rejectionReason }));
-        const mapped = campaignData.map((c) => ({
-          campaignId: c.campaignId,
-          campaignName: c.campaignName ?? "Campanha",
-          campaignStatus: c.campaignStatus ?? "ACTIVE",
-          totalSpend: Number(c.totalSpend ?? 0),
-          totalImpressions: Number(c.totalImpressions ?? 0),
-          totalClicks: Number(c.totalClicks ?? 0),
-          totalConversions: Number(c.totalConversions ?? 0),
-          totalConversionValue: Number(c.totalConversionValue ?? 0),
-          avgRoas: Number(c.avgRoas ?? 0),
-          avgCpa: Number(c.avgCpa ?? 0),
-          avgCtr: Number(c.avgCtr ?? 0),
-          optimizationGoal: c.campaignOptimizationGoal ?? undefined,
-          resultLabel: c.campaignResultLabel ?? undefined,
-        }));
-        // Fetch 3-level data for richer AI analysis
-        let adsetInsights: Awaited<ReturnType<typeof getAdSetsWithInsights>> = [];
-        let adInsights: Awaited<ReturnType<typeof getAdsWithInsights>> = [];
-        const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
-          Promise.race([promise, new Promise<T>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))]);
-        try {
-          adsetInsights = await withTimeout(getAdSetsWithInsights(account.accountId, account.accessToken, startDate, endDate), 15000);
-          // Build adset->goal map for correct result extraction at ad level
-          const adsetGoalMap = new Map(adsetInsights.map(a => [a.id, a.optimization_goal]));
-          adInsights = await withTimeout(getAdsWithInsights(account.accountId, account.accessToken, startDate, endDate, adsetGoalMap), 15000);
-        } catch (e: any) {
-          if (e?.message === "timeout") {
-            console.warn("[suggestions.generate] adInsights timeout — falling back to campaign-only");
-          } else {
-            console.error("[suggestions.generate] 3-level fetch failed, falling back to campaign-only:", e);
-          }
-        }
-        const result = await generateAiSuggestions(input.accountId, ctx.user.id, account.goalTypeOverride ?? null, mapped, rejectedFeedback, adsetInsights, adInsights);
-        return result;
+        return gerarRecomendacoesDaConta(account, ctx.user.id);
       }),
     updateStatus: protectedProcedure
       .input(z.object({

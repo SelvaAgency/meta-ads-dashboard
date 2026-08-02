@@ -3,6 +3,7 @@ import { runDailyDigestJob } from "./services/dailyDigestService";
 import { runObservacoesAutomaticas } from "./services/observacoesService";
 import { consolidarLearnings } from "./services/consolidacaoService";
 import { refreshAccountAiStatus } from "./services/aiStatusService";
+import { gerarRecomendacoesDaConta } from "./services/recomendacoesService";
 import { sincronizarGA4 } from "./services/ga4Sync";
 import { sincronizarLojas, resumirCicloLojas } from "./services/lojaSync";
 import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runTrelloPrazos, runAniversarios, hojeAgencia, criarAlertaDeConta } from "./notificationJobs";
@@ -29,6 +30,7 @@ import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailSe
 import { notifyOwner } from "./_core/notification";
 import {
   getAllActiveMetaAdAccounts,
+  getSuggestionsByAccountId,
   getCampaignsByAccountId,
   updateMetaAdAccountSync,
   updateAccountAiStatus,
@@ -340,6 +342,34 @@ async function runAutoSync() {
     await new Promise((r) => setTimeout(r, 15000));
   }
   logger.info(`[AutoSync] Daily sync complete — ${accounts.length} account(s) processed.`);
+}
+
+/**
+ * Geração automática HÍBRIDA de recomendações. Gera só para contas Atenção/Crítico
+ * (aiStatusColor yellow/red — onde há o que agir) que ainda NÃO têm sugestão
+ * pendente recente (últimos 5 dias). Saudáveis e regeneração seguem sob demanda.
+ * Roda depois do ciclo noturno, com as cores já frescas.
+ */
+async function runGeracaoRecomendacoes() {
+  logger.info("[Recomendacoes] Geração híbrida (Atenção/Crítico sem sugestão recente)…");
+  const contas = await getAllActiveMetaAdAccounts();
+  const CINCO_DIAS = 5 * 24 * 60 * 60 * 1000;
+  let geradas = 0, puladas = 0;
+  for (const c of contas) {
+    const cor = (c as { aiStatusColor?: string | null }).aiStatusColor;
+    if (cor !== "yellow" && cor !== "red") { puladas++; continue; } // só onde há o que agir
+    try {
+      const ativas = await getSuggestionsByAccountId(c.id);
+      const temRecente = ativas.some((s) => s.status === "pending" && s.generatedAt && (Date.now() - new Date(s.generatedAt).getTime()) < CINCO_DIAS);
+      if (temRecente) { puladas++; continue; } // já tem pendente recente
+      await gerarRecomendacoesDaConta(c, c.userId);
+      geradas++;
+    } catch (err) {
+      logger.warn(`[Recomendacoes] Falha na conta ${c.id}: ${(err as Error)?.message}`);
+    }
+    await new Promise((r) => setTimeout(r, 3000)); // throttle LLM
+  }
+  logger.info(`[Recomendacoes] Geração híbrida completa — ${geradas} gerada(s), ${puladas} pulada(s).`);
 }
 
 // ─── Auto Anomaly Detection ────────────────────────────────────────────────────
@@ -1109,6 +1139,10 @@ export async function startAutoSync() {
 
   // Segurança básica + uptime (07:25 BRT). Leves e sem cota: rodam todo dia.
   cron.schedule("0 25 7 * * *", runSiteHealthChecks, TZ);
+
+  // Geração híbrida de recomendações (07:45 BRT) — depois do ciclo noturno, com
+  // as cores da IA já frescas. Só contas Atenção/Crítico sem sugestão recente.
+  cron.schedule("0 45 7 * * *", runGeracaoRecomendacoes, TZ);
 
   // Anomalias de mídia (09:20 UTC) — depois do sync das 09:00.
 
