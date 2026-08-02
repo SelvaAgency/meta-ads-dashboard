@@ -443,94 +443,6 @@ function ConexoesPanel() {
   );
 }
 
-// ─── Notifications section ────────────────────────────────────────────────────
-function NotificationsSection() {
-  const utils = trpc.useUtils();
-  const { data: saved, isLoading } = trpc.notifications.get.useQuery();
-  const upsert = trpc.notifications.upsert.useMutation({
-    onSuccess: () => { utils.notifications.get.invalidate(); toast.success("Configurações salvas"); },
-    onError: () => toast.error("Erro ao salvar"),
-  });
-
-  const [local, setLocal] = useState<Record<string, any>>({});
-
-  function val(key: string, fallback: any) {
-    return local[key] !== undefined ? local[key] : ((saved as any)?.[key] ?? fallback);
-  }
-  function set(key: string, v: any) { setLocal(prev => ({ ...prev, [key]: v })); }
-
-  function handleSave() { upsert.mutate(local as any); }
-
-  if (isLoading) return <div className="text-sm text-muted-foreground">Carregando...</div>;
-
-  return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
-      {/* Email */}
-      <div className="flex items-center justify-between gap-4 p-4 border-b border-border/50">
-        <p className="text-xs text-muted-foreground font-medium">Email de destino</p>
-        <input
-          type="email"
-          placeholder="seu@email.com"
-          value={val("emailDestination", "")}
-          onChange={e => set("emailDestination", e.target.value)}
-          className="text-xs border border-border rounded-md px-2 py-1.5 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary w-56"
-        />
-      </div>
-
-      {/* Alerts */}
-      {[
-        { key: "alertCpaEnabled",          label: "CPA acima do limite",       desc: "Dispara quando o CPA supera o threshold Ruim",               thresholdKey: "alertCpaThreshold",    thresholdLabel: "> R$",  defaultThreshold: "120" },
-        { key: "alertRoasEnabled",         label: "ROAS abaixo do mínimo",     desc: "Dispara quando o ROAS cai abaixo do threshold Ruim",         thresholdKey: "alertRoasThreshold",   thresholdLabel: "< ",    defaultThreshold: "1.0" },
-        { key: "alertTokenExpiredEnabled", label: "Token expirado",            desc: "Notifica quando uma conta precisa reconectar o token",       thresholdKey: null,                   thresholdLabel: null,    defaultThreshold: null  },
-        { key: "alertBudgetEnabled",       label: "Orçamento quase esgotado",  desc: "Dispara quando o gasto diário atinge % do limite",           thresholdKey: "alertBudgetPercent",   thresholdLabel: "> ",    defaultThreshold: "85"  },
-      ].map(({ key, label, desc, thresholdKey, thresholdLabel, defaultThreshold }) => (
-        <div key={key} className="flex items-center gap-3 p-4 border-b border-border/50 last:border-b-0">
-          {/* Toggle */}
-          <button
-            onClick={() => set(key, !val(key, key === "alertCpaEnabled" || key === "alertRoasEnabled" || key === "alertTokenExpiredEnabled"))}
-            className={`relative w-8 h-4.5 rounded-full transition-colors flex-shrink-0 ${val(key, key !== "alertBudgetEnabled") ? "bg-primary" : "bg-muted-foreground/30"}`}
-            style={{ height: "18px", width: "32px" }}
-          >
-            <span className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-all ${val(key, key !== "alertBudgetEnabled") ? "left-[14px]" : "left-0.5"}`} />
-          </button>
-
-          <div className="flex-1">
-            <p className="text-sm text-foreground">{label}</p>
-            <p className="text-xs text-muted-foreground">{desc}</p>
-          </div>
-
-          {thresholdKey && thresholdLabel ? (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-shrink-0">
-              <span>{thresholdLabel}</span>
-              <input
-                type="number"
-                step="0.01"
-                value={val(thresholdKey, defaultThreshold)}
-                onChange={e => set(thresholdKey, e.target.value)}
-                className="w-16 text-xs border border-border rounded px-1.5 py-1 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary text-center"
-              />
-              {key === "alertBudgetEnabled" && <span>%</span>}
-            </div>
-          ) : (
-            <span className="text-xs text-muted-foreground flex-shrink-0">sempre</span>
-          )}
-        </div>
-      ))}
-
-      {/* Save */}
-      <div className="p-4 border-t border-border/50">
-        <button
-          onClick={handleSave}
-          disabled={upsert.isPending || Object.keys(local).length === 0}
-          className="text-xs px-3 py-1.5 rounded-md border border-border bg-card text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
-        >
-          {upsert.isPending ? "Salvando..." : "Salvar configurações"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ─── Agency bar ───────────────────────────────────────────────────────────────
 function AgencyBar({ totalAccounts }: { totalAccounts: number }) {
   const [openPanel, setOpenPanel] = useState<"token" | null>(null);
@@ -627,9 +539,10 @@ export default function Settings() {
 
         </section>
 
-        {/* Bloco "Limites de alerta de mídia" (NotificationsSection) removido —
-            as notificações estão pausadas por ora. A seção e o componente
-            continuam no código para quando religarmos. */}
+        {/* O config de alerta de mídia (CPA/ROAS/orçamento) foi removido: os
+            toggles nunca estavam ligados à geração. O config real, atrelado aos
+            thresholds Bom/Regular/Ruim, nasce na revisão de Alertas (Fase 1-2).
+            Ver docs/modelo-alertas-recomendacoes.md. */}
 
       </div>
     </MetaDashboardLayout>

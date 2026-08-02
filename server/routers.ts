@@ -130,8 +130,6 @@ import {
   saveDailyBriefing,
   getAccountThresholds,
   upsertAccountThresholds,
-  getNotificationSettings,
-  upsertNotificationSettings,
   getAccountContext,
   upsertAccountContext,
   createAiSuggestion,
@@ -2268,26 +2266,6 @@ export const appRouter = router({
         if (!tipoEditavelPor(def, ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Este aviso é institucional e não pode ser desativado." });
         await upsertNotificationPref(ctx.user.id, input.tipo, { inApp: input.inApp, emailModo: input.emailModo });
         return { success: true } as const;
-      }),
-    get: protectedProcedure
-      .query(async ({ ctx }) => {
-        return getNotificationSettings(ctx.user.id);
-      }),
-
-    upsert: protectedProcedure
-      .input(z.object({
-        emailDestination:          z.string().email().optional().nullable(),
-        alertCpaEnabled:           z.boolean().optional(),
-        alertRoasEnabled:          z.boolean().optional(),
-        alertTokenExpiredEnabled:  z.boolean().optional(),
-        alertBudgetEnabled:        z.boolean().optional(),
-        alertCpaThreshold:         z.string().optional().nullable(),
-        alertRoasThreshold:        z.string().optional().nullable(),
-        alertBudgetPercent:        z.number().min(1).max(100).optional(),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        await upsertNotificationSettings(ctx.user.id, input);
-        return { success: true };
       }),
   }),
 

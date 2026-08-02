@@ -1948,30 +1948,6 @@ export async function upsertAccountThresholds(
     .onDuplicateKeyUpdate({ set: { ...values } });
 }
 
-// ─── Notification Settings ────────────────────────────────────────────────────
-export async function getNotificationSettings(userId: number) {
-  const db = await getDb();
-  if (!db) return null;
-  const rows = await db
-    .select()
-    .from(notificationSettings)
-    .where(eq(notificationSettings.userId, userId))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-export async function upsertNotificationSettings(
-  userId: number,
-  values: Partial<Omit<typeof notificationSettings.$inferInsert, "id" | "userId" | "createdAt" | "updatedAt">>,
-) {
-  const db = await getDb();
-  if (!db) return;
-  await db
-    .insert(notificationSettings)
-    .values({ userId, ...values })
-    .onDuplicateKeyUpdate({ set: { ...values } });
-}
-
 export async function markSyncErrorAlertsRead(userId: number, accountId: number) {
   const db = await getDb();
   if (!db) return;
