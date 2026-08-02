@@ -319,7 +319,7 @@ export function AccountHeader({
   const todayTotals = mergeGAds(buildTotals(todayData?.totals), gAdsDias?.hoje);
   const yestTotals  = mergeGAds(buildTotals(yestData?.totals), gAdsDias?.ontem);
 
-  const CLAMP_HEIGHT = 72;
+  const CLAMP_HEIGHT = 104;
 
   // ── Linha de sync (dot + "sync há Xmin"), reaproveitada no header hero ──
   const syncLine = (activeAccount as any)?.lastSyncAt && (() => {
@@ -401,94 +401,94 @@ export function AccountHeader({
       </div>
 
       {/* ══ Corpo: Resumo da IA + Resultados ════════════════════════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 px-4 pb-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
 
         {/* ── Resumo da IA (destaque, borda-status à esquerda) ── */}
-        <div className="rounded-lg border border-border p-3"
+        <div className="rounded-xl border border-border bg-background/30 p-4 flex flex-col"
           style={block1BorderColor ? { borderLeft: `3px solid ${block1BorderColor}` } : {}}>
-          <div className="flex items-center gap-1.5 mb-2">
-            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: statusCfg?.color ?? "rgba(0,0,0,0.2)" }} />
-            <span className="text-xs font-semibold flex-1" style={{ color: statusCfg?.color ?? muted }}>
-              {statusCfg?.label ?? "Status IA"} — 7 dias
+          <div className="flex items-center gap-2 mb-2.5">
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: statusCfg?.color ?? "rgba(0,0,0,0.2)" }} />
+            <span className="text-sm font-bold flex-1" style={{ color: statusCfg?.color ?? muted }}>
+              {statusCfg?.label ?? "Status IA"} <span className="font-medium opacity-70">— 7 dias</span>
             </span>
             <button
               onClick={() => { if (!resumoCtxOpen) setResumoCtx(accountCtx?.clientProfile ?? ""); setResumoCtxOpen((v) => !v); }}
               title="Adicionar contexto e reanalisar"
-              className="p-1 rounded hover:bg-black/5 transition-colors"
+              className="p-1.5 rounded-md hover:bg-black/5 transition-colors"
               style={{ color: resumoCtxOpen ? "#E85BA8" : muted }}
             >
-              <Brain className="w-3.5 h-3.5" />
+              <Brain className="w-4 h-4" />
             </button>
             <button
               onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
               disabled={refreshStatus.isPending}
               title="Reanalisar (usa o contexto salvo)"
-              className="p-1 rounded hover:bg-black/5 transition-colors"
+              className="p-1.5 rounded-md hover:bg-black/5 transition-colors"
               style={{ color: muted }}
             >
-              <RefreshCw className="w-3 h-3" style={{ animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
+              <RefreshCw className="w-3.5 h-3.5" style={{ animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
             </button>
           </div>
 
           {resumoCtxOpen && (() => {
             const salvando = refreshStatus.isPending || upsertContext.isPending;
             return (
-              <div className="mb-2">
+              <div className="mb-3">
                 <textarea
                   value={resumoCtx}
                   onChange={(e) => setResumoCtx(e.target.value)}
                   placeholder="Contexto que a IA deve considerar (ex.: sazonalidade, campanha de lançamento, verba reduzida, regra do cliente)…"
                   rows={3}
-                  className="w-full text-[11px] leading-snug px-2 py-1.5 rounded-lg border border-border bg-background resize-y outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full text-xs leading-snug px-2.5 py-2 rounded-lg border border-border bg-background resize-y outline-none focus:ring-1 focus:ring-primary"
                 />
                 <button
                   onClick={salvarContextoDoResumo}
                   disabled={salvando}
-                  className="mt-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-md text-white disabled:opacity-60"
+                  className="mt-2 text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-60"
                   style={{ background: salvando ? "rgba(0,0,0,0.2)" : "#E85BA8" }}
                 >
                   {salvando ? "Salvando…" : "Salvar e reanalisar"}
                 </button>
-                <p className="text-[9px] text-muted-foreground mt-1">Fica salvo e vale também na reanálise automática noturna.</p>
+                <p className="text-[10px] text-muted-foreground mt-1.5">Fica salvo e vale também na reanálise automática noturna.</p>
               </div>
             );
           })()}
 
-          <p ref={summaryRef} className="text-[11px] leading-relaxed text-muted-foreground overflow-hidden"
+          <p ref={summaryRef} className="text-[13px] leading-relaxed text-foreground/70 overflow-hidden"
             style={{ maxHeight: expanded ? "none" : CLAMP_HEIGHT, transition: "max-height 0.2s ease" }}>
             {aiSummary}
           </p>
           {summaryOverflows && (
-            <button onClick={() => setExpanded((v) => !v)} className="flex items-center gap-0.5 mt-1 text-muted-foreground/60 hover:text-muted-foreground transition-colors">
-              {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            <button onClick={() => setExpanded((v) => !v)} className="flex items-center gap-1 mt-1.5 text-xs font-medium text-muted-foreground/70 hover:text-foreground transition-colors">
+              {expanded ? <>Ver menos <ChevronUp className="w-3.5 h-3.5" /></> : <>Ver mais <ChevronDown className="w-3.5 h-3.5" /></>}
             </button>
           )}
         </div>
 
         {/* ── Resultados (Hoje / Ontem) + faturamento ── */}
-        <div className="rounded-lg border border-border p-3">
-          {secLabel("Resultados")}
+        <div className="rounded-xl border border-border bg-background/30 p-4">
+          <p className="text-sm font-bold text-foreground mb-3">Resultados</p>
           {[
             { period: "Hoje", totals: todayTotals, color: "#E85BA8" },
             { period: "Ontem", totals: yestTotals, color: muted },
           ].map(({ period, totals, color }, i) => {
             const tag = getDayStatus(goalType, totals);
             return (
-              <div key={period} className={i === 0 ? "mb-2.5" : ""}>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-[10px] font-semibold" style={{ color }}>{period}</span>
+              <div key={period} className={i === 0 ? "mb-3 pb-3 border-b border-border/50" : ""}>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color }}>{period}</span>
                   {tag && (
-                    <span className="text-[9px] font-semibold leading-none px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                    <span className="text-[9px] font-bold leading-none px-1.5 py-0.5 rounded-full whitespace-nowrap"
                       style={{ background: tag.bg, color: tag.color, border: `1px solid ${tag.border}` }}>
                       {tag.label}
                     </span>
                   )}
                 </div>
-                <div className="grid grid-cols-4 gap-x-1.5">
+                <div className="grid grid-cols-4 gap-x-2">
                   {kpiDefs.map((kpi) => (
                     <div key={kpi.key}>
-                      <div className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground truncate mb-0.5">{kpi.label}</div>
-                      <div className="text-xs font-semibold text-foreground whitespace-nowrap tabular-nums">{kpi.format(totals)}</div>
+                      <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground truncate mb-0.5">{kpi.label}</div>
+                      <div className="text-lg font-extrabold text-foreground leading-tight whitespace-nowrap tabular-nums">{kpi.format(totals)}</div>
                     </div>
                   ))}
                 </div>
@@ -497,11 +497,11 @@ export function AccountHeader({
           })}
 
           {billingSummary && (
-            <div className="mt-2.5 pt-2 border-t border-border/60">
+            <div className="mt-3 pt-2.5 border-t border-border/60">
               {!billingSummary.isPrePaid ? (
                 <div className="flex items-center gap-1.5">
                   <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#16a34a" }} />
-                  <span className="text-[10px] font-semibold" style={{ color: "#16a34a" }}>Cartao de credito - OK</span>
+                  <span className="text-[11px] font-semibold" style={{ color: "#16a34a" }}>Cartao de credito - OK</span>
                 </div>
               ) : (() => {
                 const balance = billingSummary.remainingBalance ?? 0;
@@ -514,15 +514,15 @@ export function AccountHeader({
                   <div>
                     <div className="flex items-center gap-1.5 mb-0.5">
                       <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: color }} />
-                      <span className="text-[10px] font-semibold" style={{ color }}>Saldo: {fmtMoney(balance)}</span>
+                      <span className="text-[11px] font-semibold" style={{ color }}>Saldo: {fmtMoney(balance)}</span>
                       {low && (
-                        <span className="text-[9px] font-semibold leading-none px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                        <span className="text-[9px] font-bold leading-none px-1.5 py-0.5 rounded-full whitespace-nowrap"
                           style={{ background: "rgba(220,38,38,0.1)", color: "#dc2626", border: "1px solid rgba(220,38,38,0.3)" }}>
                           Recarregar
                         </span>
                       )}
                     </div>
-                    <div className="text-[9px] text-muted-foreground">
+                    <div className="text-[10px] text-muted-foreground">
                       {days !== null
                         ? `Projecao: ~${Math.floor(days)} dia${Math.floor(days) === 1 ? "" : "s"} restante${Math.floor(days) === 1 ? "" : "s"} (media 30d)`
                         : "Sem historico de gasto suficiente para projecao"}
