@@ -74,14 +74,8 @@ export async function montarContextoDaConta(opts: MontarContextoOpts): Promise<C
   add(cli?.trackingNotes, `- Tracking: ${cli?.trackingNotes}`);
   add(pages.length, `- Páginas importantes: ${pages.join(", ")}`);
 
-  // Hipóteses / testes / próximos passos
-  add(cli?.currentHypotheses, `- Hipóteses atuais: ${cli?.currentHypotheses}`);
-  add(cli?.previousTests, `- Já testado: ${cli?.previousTests}`);
-  add(cli?.nextSteps, `- Próximos passos: ${cli?.nextSteps}`);
-
-  // Perfil livre / contexto adicional
-  add(acc?.clientProfile, `- Perfil do cliente:\n${acc?.clientProfile}`);
-  add(acc?.freeInput, `- Contexto adicional:\n${acc?.freeInput}`);
+  // Perfil do cliente (fundido: perfil + objetivo + oferta na tela nova).
+  add(acc?.clientProfile, `- Sobre o cliente e a oferta:\n${acc?.clientProfile}`);
   add(acc?.quickContext, `- Observação recente da equipe (input rápido):\n${acc?.quickContext}`);
 
   // Eventos e sazonalidades
