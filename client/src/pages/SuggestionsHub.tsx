@@ -812,42 +812,31 @@ export default function SuggestionsHub() {
           </div>
           <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, padding: 16 }}>
 
-            {/* Stats — 4 buckets de prioridade (chip de ícone + número foco) */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              {statCards.map(({ label, value, color, icon: Icon, subtitle, tab }) => {
+            {/* Abas de prioridade — trocam o conteúdo abaixo; contador em badge.
+                Antes eram 4 stat-cards grandes; viraram uma tab bar enxuta. */}
+            <div className="flex flex-wrap gap-1.5 border-b mb-4" style={{ borderColor: BORDER_T, paddingBottom: 12 }}>
+              {statCards.map(({ label, value, color, icon: Icon, tab }) => {
                 const ativo = fogoTab === tab;
                 const isHex = color.startsWith("#");
-                const soft = isHex ? `${color}14` : "rgba(120,120,120,0.10)";
                 return (
-                  <div
+                  <button
                     key={label}
                     onClick={() => tab && setFogoTab(tab)}
-                    className="anim-card"
-                    style={{
-                      background: BG_PRIMARY,
-                      border: `0.5px solid ${ativo && isHex ? `${color}66` : BORDER_T}`,
-                      borderBottom: `2.5px solid ${ativo ? color : "transparent"}`,
-                      borderRadius: 10,
-                      padding: "13px 14px",
-                      cursor: tab ? "pointer" : "default",
-                      transition: "all 0.15s",
-                    }}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ${ativo ? "" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}
+                    style={ativo ? { background: isHex ? `${color}14` : "rgba(120,120,120,0.12)", color: isHex ? color : "var(--foreground)" } : {}}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <span style={{ width: 26, height: 26, borderRadius: 7, display: "grid", placeItems: "center", background: soft, color, flexShrink: 0 }}>
-                        <Icon className="w-3.5 h-3.5" />
-                      </span>
-                      <span className="text-[22px] font-bold leading-none tabular-nums" style={{ color }}>{value ?? "—"}</span>
-                    </div>
-                    <p className="text-[11px] font-bold text-foreground leading-tight truncate">{label}</p>
-                    <p className="text-[10px] text-muted-foreground/70 mt-0.5 truncate">{subtitle}</p>
-                  </div>
+                    <Icon className="w-4 h-4" style={{ color: ativo && isHex ? color : undefined }} />
+                    <span>{label}</span>
+                    <span
+                      className="text-[11px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center leading-none tabular-nums"
+                      style={ativo ? { background: isHex ? color : "var(--foreground)", color: "white" } : { background: "rgba(120,120,120,0.15)" }}
+                    >
+                      {value ?? "—"}
+                    </span>
+                  </button>
                 );
               })}
             </div>
-
-            {/* Divider */}
-            <div style={{ borderTop: `0.5px solid ${BORDER_T}`, margin: "16px 0" }} />
 
             {/* O que está pegando fogo — com tabs */}
             <div>
