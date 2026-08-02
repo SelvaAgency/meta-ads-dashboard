@@ -730,7 +730,7 @@ export default function SuggestionsHub() {
                   <button
                     key={account.id}
                     onClick={() => handleSelectAccount(account.id)}
-                    className="flex-shrink-0 rounded-xl text-left transition-all hover:shadow-md relative overflow-hidden"
+                    className="anim-card flex-shrink-0 rounded-xl text-left relative overflow-hidden"
                     style={{
                       width: 200,
                       background: BG_PRIMARY,
@@ -819,6 +819,7 @@ export default function SuggestionsHub() {
                   <div
                     key={label}
                     onClick={() => tab && setFogoTab(tab)}
+                    className="anim-card"
                     style={{
                       background: BG_PRIMARY,
                       border: `0.5px solid ${ativo && isHex ? `${color}66` : BORDER_T}`,
@@ -874,7 +875,7 @@ export default function SuggestionsHub() {
                         <button
                           key={account.id}
                           onClick={() => handleSelectAccount(account.id)}
-                          className="rounded-xl text-left transition-all hover:shadow-sm"
+                          className="anim-card rounded-xl text-left"
                           style={{
                             background: "var(--color-background-secondary)",
                             border: `0.5px solid ${BORDER_T}`,

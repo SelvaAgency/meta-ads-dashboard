@@ -3,6 +3,7 @@ import { ContextPanel } from "@/components/ContextPanel";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId } from "@/config/clientConfig";
 import { RefreshCw, ChevronDown, ChevronUp, Check, Brain, Eye, CheckCircle2 } from "lucide-react";
+import { ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, Tooltip } from "recharts";
 import { useMemo, useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -142,6 +143,22 @@ const blockLabel = (text: string) => (
   </p>
 );
 
+/** Tooltip do mini-gráfico do header: Investimento em R$, Resultado como número. */
+function HeaderChartTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const fmt = (name: string, v: number) => name === "Investimento"
+    ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v)
+    : Number(v).toLocaleString("pt-BR");
+  return (
+    <div className="bg-popover border border-border rounded-lg p-2 shadow-xl text-xs">
+      <p className="text-muted-foreground mb-1">{label}</p>
+      {payload.map((p: any) => (
+        <p key={p.name} className="font-medium text-foreground">{p.name}: {fmt(p.name, p.value)}</p>
+      ))}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function AccountHeader({
@@ -168,6 +185,7 @@ export function AccountHeader({
 
   const today     = toIsoLocal(new Date());
   const yesterday = toIsoLocal(new Date(Date.now() - 86_400_000));
+  const trintaAtras = toIsoLocal(new Date(Date.now() - 29 * 86_400_000));
 
   const { data: todayData } = trpc.dashboard.overview.useQuery(
     { accountId: selectedAccountId!, startDate: today, endDate: today },
@@ -176,6 +194,11 @@ export function AccountHeader({
   const { data: yestData } = trpc.dashboard.overview.useQuery(
     { accountId: selectedAccountId!, startDate: yesterday, endDate: yesterday },
     { enabled: !!selectedAccountId, staleTime: 60_000 }
+  );
+  // Série de 30 dias (investimento + resultado) para contextualizar o resumo.
+  const { data: serie30Data } = trpc.dashboard.overview.useQuery(
+    { accountId: selectedAccountId!, startDate: trintaAtras, endDate: today },
+    { enabled: !!selectedAccountId, staleTime: 5 * 60_000 }
   );
 
   /**
@@ -319,7 +342,14 @@ export function AccountHeader({
   const todayTotals = mergeGAds(buildTotals(todayData?.totals), gAdsDias?.hoje);
   const yestTotals  = mergeGAds(buildTotals(yestData?.totals), gAdsDias?.ontem);
 
-  const CLAMP_HEIGHT = 104;
+  // Série 30d (investimento + resultado) para o gráfico do header.
+  const serie30 = (((serie30Data as any)?.timeSeries ?? []) as any[]).map((d) => ({
+    dia: String(d.date ?? "").slice(5).replace("-", "/"),
+    Investimento: Math.round(Number(d.totalSpend ?? 0) * 100) / 100,
+    Resultado: Math.round(Number(d.totalConversions ?? 0)),
+  }));
+
+  const CLAMP_HEIGHT = 96;
 
   // ── Linha de sync (dot + "sync há Xmin"), reaproveitada no header hero ──
   const syncLine = (activeAccount as any)?.lastSyncAt && (() => {
@@ -401,7 +431,7 @@ export function AccountHeader({
       </div>
 
       {/* ══ Corpo: Resumo da IA + Resultados ════════════════════════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pb-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 px-4 pb-4">
 
         {/* ── Resumo da IA (destaque, borda-status à esquerda) ── */}
         <div className="rounded-xl border border-border bg-background/30 p-4 flex flex-col"
@@ -454,7 +484,7 @@ export function AccountHeader({
             );
           })()}
 
-          <p ref={summaryRef} className="text-[13px] leading-relaxed text-foreground/70 overflow-hidden"
+          <p ref={summaryRef} className="text-[12px] leading-normal text-foreground/70 overflow-hidden"
             style={{ maxHeight: expanded ? "none" : CLAMP_HEIGHT, transition: "max-height 0.2s ease" }}>
             {aiSummary}
           </p>
@@ -531,6 +561,40 @@ export function AccountHeader({
                 );
               })()}
             </div>
+          )}
+        </div>
+
+        {/* ── Tendência 30d: Investimento (área) + Resultado (linha) ── */}
+        <div className="rounded-xl border border-border bg-background/30 p-4 flex flex-col">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-bold text-foreground">Investimento × Resultado</p>
+            <span className="text-[11px] text-muted-foreground">30 dias</span>
+          </div>
+          {serie30.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center text-[11px] text-muted-foreground py-6">Sem série no período.</div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={124}>
+                <ComposedChart data={serie30} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="hdrInv" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#E85BA8" stopOpacity={0.22} />
+                      <stop offset="95%" stopColor="#E85BA8" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="dia" tick={{ fontSize: 9, fill: "#9a9a9a" }} interval="preserveStartEnd" minTickGap={26} />
+                  <YAxis yAxisId="inv" hide />
+                  <YAxis yAxisId="res" orientation="right" hide />
+                  <Tooltip content={<HeaderChartTooltip />} />
+                  <Area yAxisId="inv" type="monotone" dataKey="Investimento" stroke="#E85BA8" strokeWidth={2} fill="url(#hdrInv)" />
+                  <Line yAxisId="res" type="monotone" dataKey="Resultado" stroke="#1D9E75" strokeWidth={2} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+              <div className="flex items-center gap-3 mt-1.5">
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground"><span className="w-2 h-2 rounded-sm" style={{ background: "#E85BA8" }} /> Investimento</span>
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground"><span className="w-2 h-2 rounded-sm" style={{ background: "#1D9E75" }} /> Resultado</span>
+              </div>
+            </>
           )}
         </div>
       </div>

@@ -269,3 +269,14 @@
     box-shadow: 0 8px 22px -12px rgba(0, 0, 0, 0.20);
   }
 }
+
+/* Cards inline-styled (ex.: Visão Geral) — opt-in ao mesmo hover-lift. */
+@media (prefers-reduced-motion: no-preference) {
+  .anim-card {
+    transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  }
+  .anim-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px -12px rgba(0, 0, 0, 0.20);
+  }
+}
