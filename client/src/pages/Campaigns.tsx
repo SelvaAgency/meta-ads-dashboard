@@ -730,17 +730,17 @@ export default function Campaigns() {
               )}
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)" }}>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 p-4">
             {[
               { label: "Investimento", val: fmtCurrency(kpiData.spend) },
               { label: cleanResultLabel(accountResultLabel), val: fmtNum(kpiData.conversions) },
               { label: `Custo/${cleanResultLabel(accountResultLabel).toLowerCase()}`, val: fmtCurrency(kpiCostPerResult) },
               { label: "Alcance total", val: fmtNum(kpiData.reach) },
               { label: "Frequência média", val: kpiFreq > 0 ? `${kpiFreq.toFixed(2)}x` : "—" },
-            ].map((k, i, arr) => (
-              <div key={k.label} style={{ padding: "14px 16px", borderRight: i < arr.length - 1 ? "0.5px solid var(--color-border-tertiary)" : "none", background: "#FFFFFF" }}>
-                <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4 }}>{k.label}</div>
-                <div style={{ fontSize: 20, fontWeight: 500 }}>{k.val}</div>
+            ].map((k) => (
+              <div key={k.label} className="rounded-xl border border-border bg-card p-4">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold truncate">{k.label}</p>
+                <p className="text-2xl font-extrabold text-foreground mt-1 tabular-nums">{k.val}</p>
               </div>
             ))}
           </div>
@@ -1130,11 +1130,11 @@ function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number |
           </div>
           {linkDedicada}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${kpis.length}, 1fr)` }}>
-          {kpis.map((k, i) => (
-            <div key={k.label} style={{ padding: "14px 16px", borderRight: i < kpis.length - 1 ? "0.5px solid var(--color-border-tertiary)" : "none" }}>
-              <div style={{ fontSize: 11, color: sec, marginBottom: 4 }}>{k.label}</div>
-              <div style={{ fontSize: 20, fontWeight: 500 }}>{k.val}</div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 p-4">
+          {kpis.map((k) => (
+            <div key={k.label} className="rounded-xl border border-border bg-card p-4">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold truncate">{k.label}</p>
+              <p className="text-2xl font-extrabold text-foreground mt-1 tabular-nums">{k.val}</p>
             </div>
           ))}
         </div>
