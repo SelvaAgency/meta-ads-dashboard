@@ -28,7 +28,6 @@ export const ROTAS_INTERNAS = [
   "/panorama",
   "/dashboard",
   "/campaigns",
-  "/alerts",
   "/site",
   "/clarity",
   "/suggestions",

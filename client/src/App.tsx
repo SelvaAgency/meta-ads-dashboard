@@ -18,7 +18,6 @@ import Finance from "./pages/Finance";
 import Admin from "./pages/Admin";
 import ReportView from "./pages/ReportView";
 
-import AlertsPage from "./pages/AlertsPage";
 import GoogleAds from "./pages/GoogleAds";
 import SocialNetworks from "./pages/SocialNetworks";
 
@@ -105,7 +104,9 @@ function Router() {
       <Route path="/panorama" component={() => <Interna><Panorama /></Interna>} />
       <Route path="/dashboard" component={() => <Interna><Dashboard /></Interna>} />
       <Route path="/campaigns" component={() => <Interna><Campaigns /></Interna>} />
-      <Route path="/alerts" component={() => <Interna><AlertsPage /></Interna>} />
+      {/* /alerts aposentada — a caixa única é /notificacoes (renderiza no shell
+          do Tracker quando embutida). Redireciona preservando compatibilidade. */}
+      <Route path="/alerts" component={() => <RedirectTo to="/notificacoes" />} />
       <Route path="/ga4" component={() => <Interna><Analytics /></Interna>} />
       <Route path="/lojas" component={() => <Interna><Lojas /></Interna>} />
       <Route path="/site" component={() => <Interna><Site /></Interna>} />

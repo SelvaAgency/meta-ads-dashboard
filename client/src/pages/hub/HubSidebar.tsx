@@ -89,7 +89,7 @@ const NAV_GLOBAL: NavItem[] = [
   { label: "Home", icon: Home, kind: "internal", href: "/" },
   { label: "Tarefas", icon: CalendarCheck, kind: "placeholder" },
   { label: "Acessos", icon: KeyRound, kind: "internal", href: "/access" },
-  { label: "Notificações", icon: Bell, kind: "placeholder" },
+  { label: "Notificações", icon: Bell, kind: "internal", href: "/notificacoes" },
   { label: "Configurações", icon: Settings, kind: "internal", href: "/settings" },
 ];
 

@@ -517,9 +517,9 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
                 {/* Alertas — badge mostra o total entre todas as contas */}
                 {(() => {
-                  const isActive = location === "/alerts";
+                  const isActive = location === "/notificacoes" || location === "/alerts";
                   return (
-                    <Link href="/alerts">
+                    <Link href="/notificacoes">
                       <div
                         className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
                         style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}

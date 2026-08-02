@@ -13,7 +13,7 @@
 import { useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, Bell, CalendarClock, Cake, CheckCheck, DollarSign,
-  Loader2, Megaphone, Pin, Send, TrendingUp, Users, X, Mail, Sunrise,
+  Loader2, Megaphone, Pin, Send, TrendingUp, Users, X, Mail, Sunrise, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -23,6 +23,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { HubShell } from "./HubShell";
 import { EmBreve } from "./EmBreve";
+import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { isEmbedded } from "./embed";
 import { NOTIF_DOMINIOS, dominioLabel, type NotifDominio } from "@shared/notifications";
 
 const ICONE: Record<string, typeof Bell> = {
@@ -140,6 +142,11 @@ export default function NotificacoesPage() {
   const markAll = trpc.alerts.markAllRead.useMutation({
     onSuccess: () => { inval(); toast.success("Tudo marcado como lido."); },
   });
+  // Herdado da antiga /alerts: puxa alertas técnicos frescos das contas do usuário.
+  const sync = trpc.alerts.sync.useMutation({
+    onSuccess: () => { inval(); toast.success("Sincronizado."); },
+    onError: (e) => toast.error(e.message),
+  });
 
   const total = useMemo(() => {
     const c = contagemQ.data;
@@ -159,9 +166,8 @@ export default function NotificacoesPage() {
     );
   }
 
-  return (
-    <HubShell>
-      <main className="flex-1 overflow-auto p-6 md:p-8">
+  const conteudo = (
+    <>
         <div className="max-w-4xl mx-auto flex flex-col gap-6">
           <header className="flex items-center gap-3 flex-wrap">
             <span className="w-10 h-10 rounded-xl bg-primary/20 text-accent flex items-center justify-center flex-shrink-0">
@@ -173,6 +179,11 @@ export default function NotificacoesPage() {
                 {total > 0 ? `${total} não lida(s)` : "Tudo em dia por aqui."}
               </p>
             </div>
+            <button onClick={() => sync.mutate()} disabled={sync.isPending}
+              title="Buscar alertas técnicos novos das contas"
+              className="rounded-lg border border-border text-sm font-medium px-3 py-2 hover:bg-muted/40 flex items-center gap-2 disabled:opacity-60">
+              <RefreshCw className={`w-4 h-4 ${sync.isPending ? "animate-spin" : ""}`} /> Sincronizar
+            </button>
             {isAdmin && (
               <button onClick={() => setCompor(true)} className="rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 hover:opacity-90 flex items-center gap-2">
                 <Megaphone className="w-4 h-4" /> Novo comunicado
@@ -285,12 +296,16 @@ export default function NotificacoesPage() {
             </>
           )}
         </div>
-      </main>
-
       {compor && <ComporComunicado onClose={() => setCompor(false)} />}
       {disparar && <DispararResumo onClose={() => setDisparar(false)} />}
-    </HubShell>
+    </>
   );
+
+  // Caixa ÚNICA: no Tracker (iframe) renderiza no shell do Tracker; no Spaces, no
+  // HubShell. Mesma tela, um lar só — a antiga /alerts foi aposentada.
+  return isEmbedded()
+    ? <MetaDashboardLayout title="Alertas">{conteudo}</MetaDashboardLayout>
+    : <HubShell><main className="flex-1 overflow-auto p-6 md:p-8">{conteudo}</main></HubShell>;
 }
 
 function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
