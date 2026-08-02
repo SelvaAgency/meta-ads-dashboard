@@ -4,7 +4,7 @@ import { montarSerie, METRICAS_GRAFICO, formatarMetrica, taxasDoDia, type Metric
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
 import { Input } from "@/components/ui/input";
-import { Search, Film, Image, LayoutGrid, ShoppingBag, Loader2, Link2, Zap, Calendar, ChevronDown, ChevronRight, Circle, ExternalLink, TrendingUp } from "lucide-react";
+import { Search, Film, Image, LayoutGrid, ShoppingBag, Loader2, Link2, Zap, Calendar, ChevronDown, ChevronRight, Circle, ExternalLink, TrendingUp, TrendingDown } from "lucide-react";
 import React, { useState, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
@@ -30,6 +30,33 @@ const fmtFreq = (v: number | null | undefined) => {
   if (v == null || v === 0) return "—";
   return `${Number(v).toFixed(2)}x`;
 };
+
+/** Variação % vs período anterior. undefined quando não há base (evita ∞%). */
+function pct(cur: number, prev: number): string | undefined {
+  if (!prev || prev === 0) return undefined;
+  const d = ((cur - prev) / prev) * 100;
+  return `${d >= 0 ? "+" : ""}${d.toFixed(1)}%`;
+}
+
+/** Pill de variação (padrão do dashboard): ▲ verde / ▼ vermelho + hover com o bruto. */
+function TrendPill({ trend, prev }: { trend?: string; prev?: string }) {
+  if (!trend) return null;
+  const neg = trend.startsWith("-");
+  return (
+    <div className="relative group">
+      <span className={`flex items-center gap-1 text-[11px] font-bold px-1.5 py-0.5 rounded-md cursor-default ${neg ? "text-red-500 bg-red-50 dark:bg-red-500/10" : "text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10"}`}>
+        {neg ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+        {trend}
+      </span>
+      {prev && (
+        <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block bg-popover border border-border rounded-lg px-3 py-2 shadow-xl whitespace-nowrap">
+          <p className="text-xs text-muted-foreground">Período anterior</p>
+          <p className="text-sm font-bold text-foreground">{prev}</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function cleanResultLabel(label: string | undefined | null): string {
   if (!label) return "Resultados";
@@ -606,6 +633,40 @@ export default function Campaigns() {
   const kpiCostPerResult = kpiData.conversions > 0 ? kpiData.spend / kpiData.conversions : 0;
   const kpiFreq = filtered.length > 0 ? filtered.reduce((s: number, c: any) => s + Number(c.avgFrequency ?? 0), 0) / filtered.length : 0;
 
+  // ── Período anterior (mesma janela, deslocada) para o comparativo dos KPIs ──
+  const prevDateParams = useMemo(() => {
+    const parse = (s: string) => { const [Y, M, D] = s.split("-").map(Number); return new Date(Y, M - 1, D); };
+    const fmt = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    let curStart: Date, curEnd: Date;
+    if (dateParams.startDate && dateParams.endDate) {
+      curStart = parse(dateParams.startDate); curEnd = parse(dateParams.endDate);
+    } else {
+      const t = new Date(); t.setHours(0, 0, 0, 0);
+      curEnd = t;
+      curStart = new Date(t); curStart.setDate(t.getDate() - (dateParams.days - 1));
+    }
+    const span = Math.round((curEnd.getTime() - curStart.getTime()) / 86_400_000) + 1;
+    const prevEnd = new Date(curStart); prevEnd.setDate(curStart.getDate() - 1);
+    const prevStart = new Date(prevEnd); prevStart.setDate(prevEnd.getDate() - (span - 1));
+    return { span, startDate: fmt(prevStart), endDate: fmt(prevEnd) };
+  }, [dateParams]);
+
+  const { data: prevCampaigns } = trpc.campaigns.performance.useQuery(
+    { accountId: selectedAccountId!, days: prevDateParams.span, startDate: prevDateParams.startDate, endDate: prevDateParams.endDate, includeToday: false },
+    { enabled: !!selectedAccountId },
+  );
+  const prevKpi = useMemo(() => {
+    const src = (prevCampaigns ?? []).filter((c: any) => selectedMetaCampaignId ? String(c.metaCampaignId) === selectedMetaCampaignId : Number(c.totalSpend ?? 0) > 0);
+    const base = src.reduce((a: any, c: any) => ({
+      spend: a.spend + Number(c.totalSpend ?? 0),
+      conversions: a.conversions + Number(c.totalConversions ?? 0),
+      reach: a.reach + Number(c.totalReach ?? 0),
+    }), { spend: 0, conversions: 0, reach: 0 });
+    const withSpend = (prevCampaigns ?? []).filter((c: any) => Number(c.totalSpend ?? 0) > 0);
+    const freq = withSpend.length ? withSpend.reduce((s: number, c: any) => s + Number(c.avgFrequency ?? 0), 0) / withSpend.length : 0;
+    return { ...base, cpr: base.conversions > 0 ? base.spend / base.conversions : 0, freq };
+  }, [prevCampaigns, selectedMetaCampaignId]);
+
   const accountResultLabel = useMemo(() => {
     const first = mergedCampaigns?.[0];
     return first?.campaignResultLabel ?? first?.campaignOptimizationGoal ?? null;
@@ -732,14 +793,17 @@ export default function Campaigns() {
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 p-4">
             {[
-              { label: "Investimento", val: fmtCurrency(kpiData.spend) },
-              { label: cleanResultLabel(accountResultLabel), val: fmtNum(kpiData.conversions) },
-              { label: `Custo/${cleanResultLabel(accountResultLabel).toLowerCase()}`, val: fmtCurrency(kpiCostPerResult) },
-              { label: "Alcance total", val: fmtNum(kpiData.reach) },
-              { label: "Frequência média", val: kpiFreq > 0 ? `${kpiFreq.toFixed(2)}x` : "—" },
+              { label: "Investimento", val: fmtCurrency(kpiData.spend), trend: pct(kpiData.spend, prevKpi.spend), prev: fmtCurrency(prevKpi.spend) },
+              { label: cleanResultLabel(accountResultLabel), val: fmtNum(kpiData.conversions), trend: pct(kpiData.conversions, prevKpi.conversions), prev: fmtNum(prevKpi.conversions) },
+              { label: `Custo/${cleanResultLabel(accountResultLabel).toLowerCase()}`, val: fmtCurrency(kpiCostPerResult), trend: pct(kpiCostPerResult, prevKpi.cpr), prev: fmtCurrency(prevKpi.cpr) },
+              { label: "Alcance total", val: fmtNum(kpiData.reach), trend: pct(kpiData.reach, prevKpi.reach), prev: fmtNum(prevKpi.reach) },
+              { label: "Frequência média", val: kpiFreq > 0 ? `${kpiFreq.toFixed(2)}x` : "—", trend: pct(kpiFreq, prevKpi.freq), prev: prevKpi.freq > 0 ? `${prevKpi.freq.toFixed(2)}x` : "—" },
             ].map((k) => (
               <div key={k.label} className="rounded-xl border border-border bg-card p-4">
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold truncate">{k.label}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold truncate">{k.label}</p>
+                  <TrendPill trend={k.trend} prev={k.prev} />
+                </div>
                 <p className="text-2xl font-extrabold text-foreground mt-1 tabular-nums">{k.val}</p>
               </div>
             ))}
@@ -1018,6 +1082,27 @@ function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number |
     { accountId: conta.data?.id!, days: Math.min(Math.max(dias || 30, 1), 90), activeOnly: false },
     { enabled: !!conta.data?.id, retry: false },
   );
+  // Período anterior: metade mais antiga da série de dias*2 (serieDiaria limita 90).
+  const janela = Math.min(Math.max(dias || 30, 1), 90);
+  const serie2Q = trpc.googleAds.serieDiaria.useQuery(
+    { accountId: conta.data?.id!, days: Math.min(janela * 2, 90) },
+    { enabled: !!conta.data?.id, staleTime: 5 * 60_000, refetchOnWindowFocus: false },
+  );
+  const prevT = useMemo(() => {
+    const ds = (serie2Q.data?.dias ?? []) as any[];
+    const older = ds.slice(0, Math.max(0, ds.length - janela));
+    const s = older.reduce((a: any, d: any) => ({
+      investimento: a.investimento + Number(d.custo ?? 0),
+      conversoes: a.conversoes + Number(d.conversoes ?? 0),
+      impressoes: a.impressoes + Number(d.impressoes ?? 0),
+      cliques: a.cliques + Number(d.cliques ?? 0),
+    }), { investimento: 0, conversoes: 0, impressoes: 0, cliques: 0 });
+    return {
+      ...s,
+      cpa: s.conversoes > 0 ? s.investimento / s.conversoes : null,
+      ctr: s.impressoes > 0 ? (s.cliques / s.impressoes) * 100 : null,
+    };
+  }, [serie2Q.data, janela]);
 
   const painel: React.CSSProperties = {
     background: "var(--color-background-primary, var(--card))",
@@ -1109,12 +1194,12 @@ function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number |
    */
   // Mesma grade de 5 KPIs do Meta; como o Google não tem Alcance/Frequência, os
   // dois últimos são Impressões e CTR (decisão de produto).
-  const kpis: { label: string; val: string }[] = [
-    { label: "Investimento", val: fmtCurrency(t.investimento) },
-    { label: "Conversões", val: fmtNum(t.conversoes) },
-    { label: "Custo/conversão", val: t.cpa === null ? "—" : fmtCurrency(t.cpa) },
-    { label: "Impressões", val: fmtNum(t.impressoes) },
-    { label: "CTR", val: t.ctr === null ? "—" : fmtPct(t.ctr) },
+  const kpis: { label: string; val: string; trend?: string; prev?: string }[] = [
+    { label: "Investimento", val: fmtCurrency(t.investimento), trend: pct(t.investimento, prevT.investimento), prev: fmtCurrency(prevT.investimento) },
+    { label: "Conversões", val: fmtNum(t.conversoes), trend: pct(t.conversoes, prevT.conversoes), prev: fmtNum(prevT.conversoes) },
+    { label: "Custo/conversão", val: t.cpa === null ? "—" : fmtCurrency(t.cpa), trend: t.cpa != null && prevT.cpa != null ? pct(t.cpa, prevT.cpa) : undefined, prev: prevT.cpa != null ? fmtCurrency(prevT.cpa) : "—" },
+    { label: "Impressões", val: fmtNum(t.impressoes), trend: pct(t.impressoes, prevT.impressoes), prev: fmtNum(prevT.impressoes) },
+    { label: "CTR", val: t.ctr === null ? "—" : fmtPct(t.ctr), trend: t.ctr != null && prevT.ctr != null ? pct(t.ctr, prevT.ctr) : undefined, prev: prevT.ctr != null ? fmtPct(prevT.ctr) : "—" },
   ];
 
   const cel: React.CSSProperties = { padding: "9px 12px", textAlign: "right", whiteSpace: "nowrap" };
@@ -1133,7 +1218,10 @@ function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number |
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 p-4">
           {kpis.map((k) => (
             <div key={k.label} className="rounded-xl border border-border bg-card p-4">
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold truncate">{k.label}</p>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold truncate">{k.label}</p>
+                <TrendPill trend={k.trend} prev={k.prev} />
+              </div>
               <p className="text-2xl font-extrabold text-foreground mt-1 tabular-nums">{k.val}</p>
             </div>
           ))}
