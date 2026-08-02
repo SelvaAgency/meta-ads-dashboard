@@ -767,9 +767,9 @@ export default function SuggestionsHub() {
                         )}
                       </div>
                       <div className="border-t pt-2" style={{ borderColor: BORDER_T }}>
-                        <p className="text-[10px] text-muted-foreground mb-1">Investido hoje</p>
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="text-lg font-medium text-foreground leading-none">{fmtCurrency(totals.spend)}</span>
+                        <p className="text-[9px] uppercase tracking-wide text-muted-foreground/70 font-semibold mb-1">Investido hoje</p>
+                        <div className="flex items-baseline justify-between gap-1">
+                          <span className="text-xl font-extrabold text-foreground leading-none tabular-nums">{fmtCurrency(totals.spend)}</span>
                           {dayS && (
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
                               style={{ background: dayS.bg, color: dayS.color, border: `0.5px solid ${dayS.border}` }}>
@@ -809,18 +809,37 @@ export default function SuggestionsHub() {
           </div>
           <div style={{ background: BG_PRIMARY, border: `0.5px solid ${BORDER_T}`, borderRadius: RADIUS_LG, padding: 16 }}>
 
-            {/* Stats — 4 cards compactos */}
-            <div className="grid grid-cols-4 gap-2">
-              {statCards.map(({ label, value, color, icon: Icon, subtitle, tab }) => (
-                <div key={label} onClick={() => tab && setFogoTab(tab)} style={{ background: fogoTab === tab ? `${color}12` : "var(--color-background-secondary, rgba(0,0,0,0.04))", border: fogoTab === tab ? `1px solid ${color}40` : `0.5px solid ${BORDER_T}`, borderRadius: 8, padding: "10px 12px", cursor: tab ? "pointer" : "default", transition: "all 0.15s" }}>
-                  <div className="flex items-center gap-1.5 mb-1.5">
-                    <Icon className="w-3 h-3 flex-shrink-0" style={{ color }} />
-                    <span className="text-[10px] text-muted-foreground leading-none truncate">{label}</span>
+            {/* Stats — 4 buckets de prioridade (chip de ícone + número foco) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {statCards.map(({ label, value, color, icon: Icon, subtitle, tab }) => {
+                const ativo = fogoTab === tab;
+                const isHex = color.startsWith("#");
+                const soft = isHex ? `${color}14` : "rgba(120,120,120,0.10)";
+                return (
+                  <div
+                    key={label}
+                    onClick={() => tab && setFogoTab(tab)}
+                    style={{
+                      background: BG_PRIMARY,
+                      border: `0.5px solid ${ativo && isHex ? `${color}66` : BORDER_T}`,
+                      borderBottom: `2.5px solid ${ativo ? color : "transparent"}`,
+                      borderRadius: 10,
+                      padding: "13px 14px",
+                      cursor: tab ? "pointer" : "default",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span style={{ width: 26, height: 26, borderRadius: 7, display: "grid", placeItems: "center", background: soft, color, flexShrink: 0 }}>
+                        <Icon className="w-3.5 h-3.5" />
+                      </span>
+                      <span className="text-[26px] font-extrabold leading-none tabular-nums" style={{ color }}>{value ?? "—"}</span>
+                    </div>
+                    <p className="text-[11px] font-bold text-foreground leading-tight truncate">{label}</p>
+                    <p className="text-[10px] text-muted-foreground/70 mt-0.5 truncate">{subtitle}</p>
                   </div>
-                  <p className="text-[18px] font-bold leading-none" style={{ color }}>{value ?? "—"}</p>
-                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">{subtitle}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Divider */}
