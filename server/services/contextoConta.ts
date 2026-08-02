@@ -11,7 +11,7 @@
  *  Fase 1 da centralização de contexto: as 3 tabelas continuam no banco; aqui
  *  só unificamos a LEITURA. A UI única e a unificação das tabelas vêm depois.
  */
-import { getAccountContext, getAgencyContext, listClientNotes } from "../db";
+import { getAccountContext, getAgencyContext, listClientNotes, getAccountThresholds } from "../db";
 
 export type MontarContextoOpts = {
   accountId: number;
@@ -38,10 +38,11 @@ export async function montarContextoDaConta(opts: MontarContextoOpts): Promise<C
   const { accountId, userId, incluirNotas = true, limiteNotas = 8, incluirSite = true } = opts;
   const incluirAgencia = opts.incluirAgencia ?? !!userId;
 
-  const [acc, ag, notas] = await Promise.all([
+  const [acc, ag, notas, thr] = await Promise.all([
     getAccountContext(accountId),
     incluirAgencia && userId ? getAgencyContext(userId) : Promise.resolve(null),
     incluirNotas ? listClientNotes(accountId, limiteNotas) : Promise.resolve([]),
+    getAccountThresholds(accountId).catch(() => null),
   ]);
   // Tabela única: os campos de site (objective/offer/…) já vivem em account_context.
   const cli = incluirSite ? acc : null;
@@ -99,8 +100,15 @@ export async function montarContextoDaConta(opts: MontarContextoOpts): Promise<C
       ].filter(Boolean).join("\n")}`
     : "";
 
+  // Metas de performance da conta — a IA classifica Bom/Regular/Ruim por elas.
+  const metas: string[] = [];
+  if (thr?.roasGood || thr?.roasRegular) metas.push(`- ROAS: Bom ≥ ${thr.roasGood ?? "?"}x${thr.roasRegular ? ` · Regular ≥ ${thr.roasRegular}x` : ""} · abaixo = Ruim`);
+  if (thr?.cpaGood || thr?.cpaRegular) metas.push(`- CPA (menor é melhor): Bom ≤ R$${thr.cpaGood ?? "?"}${thr.cpaRegular ? ` · Regular ≤ R$${thr.cpaRegular}` : ""} · acima = Ruim`);
+  if (thr?.ctrGood || thr?.ctrRegular) metas.push(`- CTR: Bom ≥ ${thr.ctrGood ?? "?"}%${thr.ctrRegular ? ` · Regular ≥ ${thr.ctrRegular}%` : ""} · abaixo = Ruim`);
+  const metasBlock = metas.length ? `## METAS DE PERFORMANCE DESTA CONTA (classifique Bom/Regular/Ruim por elas)\n${metas.join("\n")}` : "";
+
   const corpo = [accBlock, notasBlock].filter(Boolean).join("\n\n");
-  const partes = [agBlock, corpo].filter(Boolean);
+  const partes = [agBlock, metasBlock, corpo].filter(Boolean);
   const texto = partes.length ? `${partes.join("\n\n")}\n---\n` : "";
   return { texto, temContexto: partes.length > 0 };
 }
