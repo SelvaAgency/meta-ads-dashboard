@@ -977,6 +977,17 @@ async function runActionOutcomeClosures() {
 
         if (!suggestion) continue;
 
+        // Baseline = métricas no momento da aplicação (gravadas na sugestão). Sem
+        // isso, a IA media o "depois" no vácuo — agora ela compara antes × depois.
+        const baseline = (suggestion.metricsSnapshot ?? null) as Record<string, number> | null;
+        const linhaBaseline = baseline
+          ? `SNAPSHOT NA APLICAÇÃO (ANTES):
+- ROAS: ${baseline.roas ?? "?"}x
+- CPA: R$${baseline.cpa ?? "?"}
+- CTR: ${baseline.ctr ?? "?"}%
+- Conversões: ${baseline.conversions ?? "?"}`
+          : "SNAPSHOT NA APLICAÇÃO (ANTES): não disponível";
+
         // Gerar aprendizado via IA
         const learningPrompt = `Você é um analista de performance de Meta Ads. Uma ação foi aplicada e seu período de monitoramento encerrou.
 
@@ -988,7 +999,9 @@ Prioridade: ${suggestion.priority}
 Impacto esperado: ${suggestion.expectedImpact ?? "não especificado"}
 Aplicada em: ${outcome.appliedAt.toLocaleDateString("pt-BR")}
 
-SNAPSHOT DE MÉTRICAS (7 dias pós-aplicação):
+${linhaBaseline}
+
+SNAPSHOT ATUAL (7 dias, DEPOIS):
 - ROAS: ${snapshot.roas}x
 - CPA: R$${snapshot.cpa}
 - CTR: ${snapshot.ctr}%
@@ -997,10 +1010,10 @@ SNAPSHOT DE MÉTRICAS (7 dias pós-aplicação):
 
 ${outcome.manualCorrection ? `CORREÇÃO MANUAL DA EQUIPE: ${outcome.manualCorrection}` : ""}
 
-Gere um aprendizado conciso (máx 3 linhas) no formato:
-"[Tipo de ação]: O que foi feito → resultado observado → o que isso indica para futuras decisões nesta conta."
+Compare ANTES × DEPOIS e gere um aprendizado conciso (máx 3 linhas) no formato:
+"[Tipo de ação]: O que foi feito → resultado observado (melhorou/piorou/estável, com números) → o que isso indica para futuras decisões nesta conta."
 
-Seja objetivo. Não invente dados. Se os resultados são inconclusivos, diga isso.`;
+Seja objetivo. Não invente dados. Se a comparação é inconclusiva (ex.: sem baseline, ou variação dentro do ruído), diga isso.`;
 
         const aiResponse = await invokeLLM({
           messages: [{ role: "user", content: learningPrompt }],

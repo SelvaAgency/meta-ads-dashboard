@@ -2090,14 +2090,27 @@ export async function updateActionOutcome(
 export async function getPendingOutcomeClosures() {
   const db = await getDb();
   if (!db) return [];
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const now = new Date();
+  // Fecha quando a janela ESCOLHIDA pelo usuário (monitorUntil da sugestão)
+  // vence — não mais 7 dias fixos. Quem escolhe 30d espera 30d. Fallback: se a
+  // sugestão não tem monitorUntil (dado legado), cai nos 7 dias.
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   return await db
-    .select()
+    .select({
+      suggestionId: actionOutcomes.suggestionId,
+      accountId: actionOutcomes.accountId,
+      appliedAt: actionOutcomes.appliedAt,
+      manualCorrection: actionOutcomes.manualCorrection,
+    })
     .from(actionOutcomes)
+    .innerJoin(aiSuggestions, eq(actionOutcomes.suggestionId, aiSuggestions.id))
     .where(
       and(
-        lte(actionOutcomes.appliedAt, sevenDaysAgo),
-        sql`${actionOutcomes.observedAt} IS NULL`
+        isNull(actionOutcomes.observedAt),
+        or(
+          lte(aiSuggestions.monitorUntil, now),
+          and(isNull(aiSuggestions.monitorUntil), lte(actionOutcomes.appliedAt, sevenDaysAgo)),
+        ),
       )
     );
 }
