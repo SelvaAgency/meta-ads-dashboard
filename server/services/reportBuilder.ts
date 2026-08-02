@@ -32,6 +32,9 @@ import {
 } from "./clientIntelligence";
 
 export type RelatorioModular = {
+  /** Manchete do período — é o <h1> do link público. Sem ela o relatório abria
+   *  com "Resumo do período" fixo, e o cliente lia um título que não dizia nada. */
+  titulo: string;
   resumoExecutivo: string;
   fatos: string[];
   interpretacoes: string[];
@@ -54,6 +57,7 @@ REGRAS INEGOCIÁVEIS:
 1. Use SOMENTE o dossiê. Jamais invente número, página, campanha ou data.
 2. Fonte "SEM DADOS" significa que NINGUÉM MEDIU — não que está bem. Nunca conclua saúde a partir de ausência. Sem Clarity você não sabe como as pessoas se comportam; sem PageSpeed você não sabe se o site é lento.
 3. Separe rigorosamente:
+   - titulo: manchete do período, máx 90 caracteres. O achado principal, não um rótulo genérico. Sem ponto final. Se não houver achado claro, descreva o período de forma factual.
    - fatos: afirmações com número do dossiê. Cite a fonte entre colchetes.
    - interpretacoes: o que os fatos, cruzados, sugerem. Ainda ancorado em número.
    - hipoteses: palpite honesto. Diga QUAL DADO confirmaria ou derrubaria.
@@ -65,7 +69,7 @@ REGRAS INEGOCIÁVEIS:
 7. Se o dossiê só tem mídia, o relatório é de mídia — não invente uma seção de site.
 
 Responda APENAS com JSON válido neste formato:
-{"resumoExecutivo":"...","fatos":["..."],"interpretacoes":["..."],"hipoteses":["..."],"recomendacoes":[{"acao":"...","porque":"...","prioridade":"alta|media|baixa"}],"pendencias":["..."]}`;
+{"titulo":"...","resumoExecutivo":"...","fatos":["..."],"interpretacoes":["..."],"hipoteses":["..."],"recomendacoes":[{"acao":"...","porque":"...","prioridade":"alta|media|baixa"}],"pendencias":["..."]}`;
 
 /**
  * Dados de SITE já estruturados para virarem cards no relatório visual —
@@ -113,6 +117,7 @@ export async function gerarRelatorioModular(
     // Sem nenhuma fonte não há o que interpretar. Chamar o LLM aqui só
     // produziria prosa bonita sobre o nada — e custaria dinheiro para isso.
     const relatorio: RelatorioModular = {
+      titulo: "Sem dados no período",
       resumoExecutivo: `Não há dados para os módulos pedidos no período de ${periodo.inicio} a ${periodo.fim}.`,
       fatos: [],
       interpretacoes: [],
@@ -147,6 +152,7 @@ export async function gerarRelatorioModular(
 
   // O modelo pode omitir campos; a tela não pode quebrar por isso.
   relatorio = {
+    titulo: (relatorio.titulo ?? "").trim(),
     resumoExecutivo: relatorio.resumoExecutivo ?? "",
     fatos: relatorio.fatos ?? [],
     interpretacoes: relatorio.interpretacoes ?? [],
@@ -177,6 +183,7 @@ export function paraMarkdown(
   const br = (s: string) => s.split("-").reverse().join("/");
   const l: string[] = [];
   l.push(`# ${nome} — ${br(periodo.inicio)} a ${br(periodo.fim)}`);
+  if (r.titulo) l.push(`\n**${r.titulo}**`);
   l.push(`\n## Resumo\n${r.resumoExecutivo}`);
 
   const usadas = fontes.filter((f) => f.presente).map((f) => f.rotulo);

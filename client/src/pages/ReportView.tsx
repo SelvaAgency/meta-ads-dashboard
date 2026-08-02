@@ -5,6 +5,23 @@ import "./ReportView.css";
 
 type Metric = "investment" | "reach" | "conversions" | "costPerConversion";
 
+/**
+ * Direção "boa" de cada métrica. Sem isto a variação vira ▲ verde sempre — e um
+ * custo por resultado 40% mais caro aparece como boa notícia no link do cliente.
+ * Investimento é neutro de propósito: gastar mais não é bom nem ruim sozinho.
+ */
+type Direcao = "maiorMelhor" | "menorMelhor" | "neutro";
+const DIRECAO: Record<Metric, Direcao> = {
+  investment: "neutro",
+  reach: "maiorMelhor",
+  conversions: "maiorMelhor",
+  costPerConversion: "menorMelhor",
+};
+/** Métricas em dinheiro — formatação e eixo do gráfico mudam. */
+const EH_DINHEIRO: Record<Metric, boolean> = {
+  investment: true, reach: false, conversions: false, costPerConversion: true,
+};
+
 function fmtBRL(n: number | null | undefined): string {
   if (n === null || n === undefined) return "N/D";
   return `R$ ${n.toFixed(2).replace(".", ",")}`;
@@ -15,12 +32,39 @@ function fmtNum(n: number | null | undefined): string {
   return n.toLocaleString("pt-BR");
 }
 
-function pctDelta(curr: number, prev: number): { label: string; cls: string } {
+function fmtPct(n: number | null | undefined): string {
+  return typeof n === "number" && Number.isFinite(n) ? `${n.toFixed(2)}%` : "—";
+}
+
+/** Rótulo curto para o eixo do gráfico: 4200 → "4,2 mil", 18 → "18". */
+function fmtCurto(n: number, dinheiro: boolean): string {
+  const abs = Math.abs(n);
+  let s: string;
+  if (abs >= 1000000) s = `${(n / 1000000).toFixed(1).replace(".", ",")}mi`;
+  else if (abs >= 1000) s = `${(n / 1000).toFixed(1).replace(".", ",")}mil`;
+  else s = n.toLocaleString("pt-BR", { maximumFractionDigits: abs < 10 ? 2 : 0 });
+  return dinheiro ? `R$ ${s}` : s;
+}
+
+const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+/** "2026-07-05" → "5/jul". O eixo mostrava a data ISO crua para o cliente. */
+function fmtSemana(iso: string): string {
+  const [, m, d] = iso.split("-");
+  const mi = Number(m) - 1;
+  if (!d || mi < 0 || mi > 11) return iso;
+  return `${Number(d)}/${MESES[mi]}`;
+}
+
+function pctDelta(curr: number, prev: number, dir: Direcao = "neutro"): { label: string; cls: string } {
   if (prev === 0) return { label: "novo", cls: "" };
   const pct = ((curr - prev) / prev) * 100;
   if (Math.abs(pct) < 2) return { label: "≈ estável", cls: "" };
-  const arrow = pct > 0 ? "▲" : "▼";
-  return { label: `${arrow} ${Math.abs(pct).toFixed(0)}%`, cls: pct > 0 ? "rv-up" : "rv-down" };
+  const subiu = pct > 0;
+  const arrow = subiu ? "▲" : "▼";
+  let cls = "";
+  if (dir === "maiorMelhor") cls = subiu ? "rv-bom" : "rv-ruim";
+  else if (dir === "menorMelhor") cls = subiu ? "rv-ruim" : "rv-bom";
+  return { label: `${arrow} ${Math.abs(pct).toFixed(0)}%`, cls };
 }
 
 function buildChartPath(values: number[], w = 640, h = 190, pad = 16) {
@@ -36,8 +80,188 @@ function buildChartPath(values: number[], w = 640, h = 190, pad = 16) {
   });
   const line = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
   const area = `${line} L ${pts[pts.length - 1][0].toFixed(1)} ${h - pad} L ${pts[0][0].toFixed(1)} ${h - pad} Z`;
-  return { pts, line, area, w, h };
+  return { pts, line, area, w, h, pad, min, max };
 }
+
+const rotuloStatus = (s?: string) => (s === "good" ? "Performando bem" : s === "warn" ? "Atenção" : "Estável");
+
+// ── Blocos compartilhados pelas duas vistas ─────────────────────────────────
+// Legado e modular renderizavam o mesmo gráfico/criativos em código duplicado.
+// Toda correção precisava ser feita duas vezes — e nem sempre era.
+
+type Kpi = { label: string; valor: string; delta: { label: string; cls: string } };
+
+function GradeKpis({ kpis }: { kpis: Kpi[] }) {
+  return (
+    <div className="rv-metric-grid">
+      {kpis.map((k) => (
+        <div key={k.label} className="rv-metric">
+          <small>{k.label}</small>
+          <span className="num">{k.valor}</span>
+          {k.delta.label && <span className={`rv-delta ${k.delta.cls}`}>{k.delta.label}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type Serie = Array<{ week: string; value: number | null }>;
+
+/**
+ * Gráfico das 8 semanas. Sem biblioteca de propósito: o relatório é impresso e
+ * enviado por link, e um SVG estático abre em qualquer lugar. As linhas de grade
+ * e os rótulos de valor existem porque a curva sozinha não dizia a escala.
+ */
+function GraficoSemanal({ series, metric, tabs, onMetric }: {
+  series: Serie;
+  metric: Metric;
+  tabs: Array<{ key: Metric; label: string }>;
+  onMetric: (m: Metric) => void;
+}) {
+  const chart = useMemo(() => {
+    if (!series.length) return null;
+    return { ...buildChartPath(series.map((p) => p.value ?? 0)), semanas: series.map((p) => p.week) };
+  }, [series]);
+  if (!chart) return null;
+
+  const dinheiro = EH_DINHEIRO[metric];
+  const escala = [
+    { pos: "topo", valor: chart.max },
+    { pos: "meio", valor: (chart.min + chart.max) / 2 },
+    { pos: "base", valor: chart.min },
+  ];
+  const linhasY = [chart.pad, chart.h / 2, chart.h - chart.pad];
+
+  return (
+    <div className="rv-card">
+      <h3>Comparativo semanal</h3>
+      <div className="rv-tabs">
+        {tabs.map((t) => (
+          <button key={t.key} type="button" className={`rv-tab ${metric === t.key ? "active" : ""}`} onClick={() => onMetric(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="rv-chart-wrap">
+        <svg className="rv-chart" viewBox={`0 0 ${chart.w} ${chart.h}`} width="100%" role="img"
+          aria-label={`Evolução semanal de ${tabs.find((t) => t.key === metric)?.label ?? ""}`}>
+          {linhasY.map((y, i) => (
+            <line key={i} className="rv-grid-line" x1={chart.pad} x2={chart.w - chart.pad} y1={y} y2={y} />
+          ))}
+          <path d={chart.area} fill="rgba(23,63,59,.12)" />
+          <path d={chart.line} fill="none" stroke="#173f3b" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+          {chart.pts.map((p, i) => {
+            const ultimo = i === chart.pts.length - 1;
+            return (
+              <circle key={i} cx={p[0]} cy={p[1]} r={ultimo ? 6 : 4}
+                fill={ultimo ? "#f4368c" : "#173f3b"} stroke="#fffdfa" strokeWidth={2.5} />
+            );
+          })}
+        </svg>
+        {escala.map((e) => (
+          <span key={e.pos} className={`rv-escala ${e.pos}`}>{fmtCurto(e.valor, dinheiro)}</span>
+        ))}
+      </div>
+      <div className="rv-axis">
+        {chart.semanas.map((w) => <span key={w}>{fmtSemana(w)}</span>)}
+      </div>
+    </div>
+  );
+}
+
+type Criativo = {
+  adId: string; adName: string; ctr?: number | null; costPerResult?: number | null;
+  thumbnailUrl?: string | null; status?: string;
+};
+
+function CriativosDestaque({ criativos }: { criativos: Criativo[] }) {
+  if (!criativos.length) return null;
+  return (
+    <div className="rv-card">
+      <h3>Criativos em destaque</h3>
+      <div className="rv-creative-grid">
+        {criativos.map((c) => (
+          <div key={c.adId} className="rv-creative-card">
+            <div className={`rv-thumb ${c.thumbnailUrl ? "" : "vazio"}`}
+              style={c.thumbnailUrl ? { backgroundImage: `url(${c.thumbnailUrl})` } : undefined}>
+              {!c.thumbnailUrl && "sem prévia"}
+            </div>
+            <div className="rv-creative-info">
+              <p className="fmt">{c.adName}</p>
+              <div className="rv-stat"><span>CTR</span><b>{fmtPct(c.ctr)}</b></div>
+              <div className="rv-stat"><span>Custo/resultado</span><b>{fmtBRL(c.costPerResult)}</b></div>
+              <span className={`rv-pill ${c.status ?? "neutral"}`}>{rotuloStatus(c.status)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type Publico = { adsetId: string; adsetName: string; ctr?: number | null; costPerResult?: number | null; status?: string };
+
+function PublicosTestados({ publicos }: { publicos: Publico[] }) {
+  if (!publicos.length) return null;
+  return (
+    <div className="rv-card">
+      <h3>Públicos testados</h3>
+      {publicos.map((a) => (
+        <div key={a.adsetId} className="rv-audience-row">
+          <div>
+            <span className="name">{a.adsetName}</span>
+            <span className={`rv-pill ${a.status ?? "neutral"}`}>{rotuloStatus(a.status)}</span>
+          </div>
+          <div className="rv-nums">
+            <span>CTR<b>{fmtPct(a.ctr)}</b></span>
+            <span>Custo/resultado<b>{fmtBRL(a.costPerResult)}</b></span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function abasDeMetrica(resultLabel: string): Array<{ key: Metric; label: string }> {
+  return [
+    { key: "investment", label: "Investimento" },
+    { key: "reach", label: "Alcance" },
+    { key: "conversions", label: resultLabel },
+    { key: "costPerConversion", label: "Custo/resultado" },
+  ];
+}
+
+type Metricas = Record<Metric, { current: number | null; previous: number | null }>;
+
+function kpisDeMidia(m: Metricas, resultLabel: string): Kpi[] {
+  return [
+    { label: "Investimento", valor: fmtBRL(m.investment.current), delta: pctDelta(m.investment.current ?? 0, m.investment.previous ?? 0, DIRECAO.investment) },
+    { label: "Alcance", valor: fmtNum(m.reach.current), delta: pctDelta(m.reach.current ?? 0, m.reach.previous ?? 0, DIRECAO.reach) },
+    { label: resultLabel, valor: fmtNum(m.conversions.current), delta: pctDelta(m.conversions.current ?? 0, m.conversions.previous ?? 0, DIRECAO.conversions) },
+    { label: `Custo/${resultLabel.toLowerCase()}`, valor: fmtBRL(m.costPerConversion.current), delta: pctDelta(m.costPerConversion.current ?? 0, m.costPerConversion.previous ?? 0, DIRECAO.costPerConversion) },
+  ];
+}
+
+function Cabecalho({ conta, periodo }: { conta?: string; periodo?: { start: string; end: string } }) {
+  return (
+    <header className="rv-topbar">
+      <div className="rv-topbar-inner">
+        <div className="rv-brand"><div className="rv-mark">S</div><span>Selva Agency</span></div>
+        <div className="rv-meta"><b>{conta}</b> · {periodo?.start} a {periodo?.end}</div>
+      </div>
+    </header>
+  );
+}
+
+function Rodape() {
+  return (
+    <footer className="rv-footer">
+      <div className="rv-footer-inner">Relatório gerado automaticamente a partir dos dados da conta. Powered by SELVA Agency.</div>
+    </footer>
+  );
+}
+
+// ── Página ──────────────────────────────────────────────────────────────────
 
 export default function ReportView() {
   const [, params] = useRoute<{ token: string }>("/r/:token");
@@ -49,13 +273,6 @@ export default function ReportView() {
     { enabled: !!token, retry: false }
   );
 
-  const chart = useMemo(() => {
-    if (!result?.data?.weeklyTrend) return null;
-    const series = result.data.weeklyTrend[metric] as Array<{ week: string; value: number | null }>;
-    const values = series.map((p) => p.value ?? 0);
-    return { ...buildChartPath(values), weeks: series.map((p) => p.week) };
-  }, [result, metric]);
-
   if (isLoading) {
     return <div className="report-view"><div className="rv-loading">Carregando relatório…</div></div>;
   }
@@ -64,123 +281,31 @@ export default function ReportView() {
     return <div className="report-view"><div className="rv-error">Não encontramos esse relatório. Verifique o link recebido.</div></div>;
   }
 
-  const { data, narrative, period } = result;
-
   // Relatório modular: outra forma de narrative (fatos/hipóteses/pendências) e
-  // sem dataSnapshot. Renderizar com o layout legado — que assume métricas de
-  // mídia sempre presentes — sairia praticamente em branco no link do cliente.
+  // sem dataSnapshot no formato legado. Renderizar com o layout antigo — que
+  // assume métricas de mídia sempre presentes — sairia praticamente em branco.
   if ((result as { modulos?: string[] | null }).modulos?.length) {
     return <RelatorioModularView result={result as never} />;
   }
 
+  const { data, narrative, period } = result;
   const resultLabel = data.resultLabel ?? "Resultados";
-
-  const METRIC_TABS: Array<{ key: Metric; label: string }> = [
-    { key: "investment", label: "Investimento" },
-    { key: "reach", label: "Alcance" },
-    { key: "conversions", label: resultLabel },
-    { key: "costPerConversion", label: "Custo/resultado" },
-  ];
+  const serie = (data.weeklyTrend?.[metric] ?? []) as Serie;
 
   return (
     <div className="report-view">
-      <header className="rv-topbar">
-        <div className="rv-topbar-inner">
-          <div className="rv-brand"><div className="rv-mark">S</div><span>Selva Agency</span></div>
-          <div className="rv-meta"><b>{data.account?.name}</b> · {period?.start} a {period?.end}</div>
-        </div>
-      </header>
+      <Cabecalho conta={data.account?.name} periodo={period} />
 
       <main className="rv-main">
         <span className="rv-eyebrow">Relatório de performance</span>
         <h1 className="rv-h1">{narrative?.headline ?? "Resumo do período"}</h1>
         {narrative?.resumo && <p className="rv-lead">{narrative.resumo}</p>}
 
-        <div className="rv-metric-grid">
-          <div className="rv-metric">
-            <small>Investimento</small>
-            <span className="num">{fmtBRL(data.metrics.investment.current)}</span>
-            <span>{pctDelta(data.metrics.investment.current ?? 0, data.metrics.investment.previous ?? 0).label}</span>
-          </div>
-          <div className="rv-metric">
-            <small>Alcance</small>
-            <span className="num">{fmtNum(data.metrics.reach.current)}</span>
-            <span>{pctDelta(data.metrics.reach.current ?? 0, data.metrics.reach.previous ?? 0).label}</span>
-          </div>
-          <div className="rv-metric">
-            <small>{resultLabel}</small>
-            <span className="num">{fmtNum(data.metrics.conversions.current)}</span>
-            <span>{pctDelta(data.metrics.conversions.current ?? 0, data.metrics.conversions.previous ?? 0).label}</span>
-          </div>
-          <div className="rv-metric">
-            <small>Custo/{resultLabel.toLowerCase()}</small>
-            <span className="num">{fmtBRL(data.metrics.costPerConversion.current)}</span>
-            <span>{pctDelta(data.metrics.costPerConversion.current ?? 0, data.metrics.costPerConversion.previous ?? 0).label}</span>
-          </div>
-        </div>
+        <GradeKpis kpis={kpisDeMidia(data.metrics, resultLabel)} />
 
-        <div className="rv-card">
-          <h3>Comparativo semanal</h3>
-          <div className="rv-tabs">
-            {METRIC_TABS.map((t) => (
-              <button key={t.key} className={`rv-tab ${metric === t.key ? "active" : ""}`} onClick={() => setMetric(t.key)}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-          {chart && (
-            <>
-              <svg viewBox={`0 0 ${chart.w} ${chart.h}`} width="100%">
-                <path d={chart.area} fill="rgba(23,63,59,.12)" />
-                <path d={chart.line} fill="none" stroke="#173f3b" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
-                {chart.pts.map((p, i) => (
-                  <circle key={i} cx={p[0]} cy={p[1]} r={i === chart.pts.length - 1 ? 6 : 4}
-                    fill={i === chart.pts.length - 1 ? "#f4368c" : "#173f3b"} stroke="#fffdfa" strokeWidth={2.5} />
-                ))}
-              </svg>
-              <div className="rv-axis">
-                {chart.weeks.map((w) => <span key={w}>{w}</span>)}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="rv-card">
-          <h3>Criativos em destaque</h3>
-          <div className="rv-creative-grid">
-            {data.creatives?.map((c: any) => (
-              <div key={c.adId} className="rv-creative-card">
-                <div className="rv-thumb" style={c.thumbnailUrl ? { backgroundImage: `url(${c.thumbnailUrl})` } : undefined} />
-                <div className="rv-creative-info">
-                  <p className="fmt">{c.adName}</p>
-                  <div className="rv-stat"><span>CTR</span><span>{c.ctr?.toFixed(2)}%</span></div>
-                  <div className="rv-stat"><span>Custo/resultado</span><span>{fmtBRL(c.costPerResult)}</span></div>
-                  <span className={`rv-pill ${c.status}`}>
-                    {c.status === "good" ? "Performando bem" : c.status === "warn" ? "Atenção" : "Estável"}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rv-card">
-          <h3>Públicos testados</h3>
-          {data.audiences?.map((a: any) => (
-            <div key={a.adsetId} className="rv-audience-row">
-              <div>
-                <span className="name">{a.adsetName}</span>
-                <span className={`rv-pill ${a.status}`}>
-                  {a.status === "good" ? "Performando bem" : a.status === "warn" ? "Atenção" : "Estável"}
-                </span>
-              </div>
-              <div className="rv-nums">
-                <span>CTR<b>{a.ctr?.toFixed(2)}%</b></span>
-                <span>Custo/resultado<b>{fmtBRL(a.costPerResult)}</b></span>
-              </div>
-            </div>
-          ))}
-        </div>
+        <GraficoSemanal series={serie} metric={metric} tabs={abasDeMetrica(resultLabel)} onMetric={setMetric} />
+        <CriativosDestaque criativos={data.creatives ?? []} />
+        <PublicosTestados publicos={data.audiences ?? []} />
 
         {(narrative?.positivo || narrative?.atencao) && (
           <div className="rv-status-grid">
@@ -211,9 +336,7 @@ export default function ReportView() {
         )}
       </main>
 
-      <footer className="rv-footer">
-        <div className="rv-footer-inner">Relatório gerado automaticamente a partir dos dados da conta. Powered by SELVA Agency.</div>
-      </footer>
+      <Rodape />
     </div>
   );
 }
@@ -225,11 +348,10 @@ export default function ReportView() {
  * sempre há métricas de mídia e mostra números grandes. O modular pode ser só
  * técnico, só de mídia, ou parcial — e precisa dizer o que NÃO olhou.
  *
- * A seção "Pendências" não é rodapé burocrático: sem ela, um relatório magro
- * é indistinguível de um cliente saudável quando alguém reabre o link meses
- * depois. É o que separa "está tudo bem" de "ninguém mediu".
+ * A seção "O que não foi medido" não é rodapé burocrático: sem ela, um relatório
+ * magro é indistinguível de um cliente saudável quando alguém reabre o link
+ * meses depois. É o que separa "está tudo bem" de "ninguém mediu".
  */
-// ── Relatório modular: helpers de site ────────────────────────────────────────
 
 const ehNumRV = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const fmtMsRV = (v: unknown) => (ehNumRV(v) ? (v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${Math.round(v)}ms`) : "—");
@@ -239,9 +361,10 @@ const corScoreRV = (v: unknown) => (!ehNumRV(v) ? "#666a66" : v >= 90 ? "#1D9E75
 type DadosMidia = {
   account?: { name?: string };
   resultLabel?: string;
-  metrics?: Record<Metric, { current: number | null; previous: number | null }>;
-  weeklyTrend?: Record<Metric, Array<{ week: string; value: number | null }>>;
-  creatives?: Array<{ adId: string; adName: string; ctr?: number; costPerResult?: number | null; thumbnailUrl?: string | null; status?: string; managerUrl?: string }>;
+  metrics?: Metricas;
+  weeklyTrend?: Record<Metric, Serie>;
+  creatives?: Criativo[];
+  audiences?: Publico[];
 };
 type DadosSiteRV = {
   pagespeed?: Record<string, unknown>;
@@ -250,16 +373,25 @@ type DadosSiteRV = {
   clarity?: Record<string, unknown>;
 };
 
-/**
- * Vista do relatório MODULAR — visual, não parede de texto (D2.13).
- * Cada seção é condicional ao módulo: um relatório Técnico não mostra cards de
- * investimento vazios; um de mídia não inventa cards de site. O que falta vira
- * "O que não foi medido" no rodapé — visível, sem dominar.
- */
+/** Nomeia a peça pelo que ela de fato olhou — "Relatório" genérico não ajuda
+ *  quem reabre o link seis meses depois. */
+function tipoDeRelatorio(modulos: string[] | null | undefined): string {
+  const m = modulos ?? [];
+  if (!m.length) return "Relatório";
+  const midia = m.some((x) => x === "midia" || x === "campanhas");
+  const site = m.some((x) => ["site", "pagespeed", "seguranca", "uptime", "clarity"].includes(x));
+  if (midia && site) return "Relatório de performance";
+  if (midia) return "Relatório de mídia paga";
+  if (site) return "Relatório técnico";
+  return "Relatório";
+}
+
 function RelatorioModularView({ result }: {
   result: {
     period?: { start: string; end: string };
+    modulos?: string[] | null;
     narrative: {
+      titulo?: string;
       resumoExecutivo?: string;
       fatos?: string[];
       interpretacoes?: string[];
@@ -281,106 +413,32 @@ function RelatorioModularView({ result }: {
 
   const [metric, setMetric] = useState<Metric>("investment");
   const serie = midia?.weeklyTrend?.[metric] ?? [];
-  const chart = serie.length ? { ...buildChartPath(serie.map((p) => p.value ?? 0)), weeks: serie.map((p) => p.week) } : null;
 
-  const METRIC_TABS: Array<{ key: Metric; label: string }> = [
-    { key: "investment", label: "Investimento" },
-    { key: "reach", label: "Alcance" },
-    { key: "conversions", label: resultLabel },
-    { key: "costPerConversion", label: "Custo/resultado" },
-  ];
-
-  // KPIs só quando há métrica de mídia — condicional ao módulo.
   const m = midia?.metrics;
-  const kpis = m ? [
-    { label: "Investimento", val: fmtBRL(m.investment.current), delta: pctDelta(m.investment.current ?? 0, m.investment.previous ?? 0) },
-    { label: "Alcance", val: fmtNum(m.reach.current), delta: pctDelta(m.reach.current ?? 0, m.reach.previous ?? 0) },
-    { label: resultLabel, val: fmtNum(m.conversions.current), delta: pctDelta(m.conversions.current ?? 0, m.conversions.previous ?? 0) },
-    { label: `Custo/${resultLabel.toLowerCase()}`, val: fmtBRL(m.costPerConversion.current), delta: pctDelta(m.costPerConversion.current ?? 0, m.costPerConversion.previous ?? 0) },
-  ] : [];
-
   const ps = (site?.pagespeed ?? null) as Record<string, unknown> | null;
   const seg = (site?.seguranca ?? null) as Record<string, unknown> | null;
 
   return (
     <div className="report-view">
-      <header className="rv-topbar">
-        <div className="rv-topbar-inner">
-          <div className="rv-brand"><div className="rv-mark">S</div><span>Selva Agency</span></div>
-          <div className="rv-meta">
-            <b>{nomeConta}</b> · {result.period?.start} a {result.period?.end}
-          </div>
-        </div>
-      </header>
+      <Cabecalho conta={nomeConta} periodo={result.period} />
 
       <main className="rv-main">
-        <span className="rv-eyebrow">Relatório</span>
-        <h1 className="rv-h1">Resumo do período</h1>
+        <span className="rv-eyebrow">{tipoDeRelatorio(result.modulos)}</span>
+        {/* Relatórios antigos não têm `titulo` — daí o fallback. */}
+        <h1 className="rv-h1">{n?.titulo || "Resumo do período"}</h1>
         {n?.resumoExecutivo && <p className="rv-lead">{n.resumoExecutivo}</p>}
 
         {usadas.length > 0 && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 12 }}>
+          <div className="rv-fontes">
             {usadas.map((f) => <span key={f.rotulo} className="rv-pill">{f.rotulo}</span>)}
           </div>
         )}
 
-        {/* KPIs de mídia com comparação vs. período anterior */}
-        {kpis.length > 0 && (
-          <div className="rv-metric-grid">
-            {kpis.map((k) => (
-              <div key={k.label} className="rv-metric">
-                <small>{k.label}</small>
-                <span className="num">{k.val}</span>
-                <span className={k.delta.cls}>{k.delta.label}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        {m && <GradeKpis kpis={kpisDeMidia(m, resultLabel)} />}
 
-        {/* Gráfico de 8 semanas, com abas por métrica */}
-        {chart && (
-          <div className="rv-card">
-            <h3>Comparativo semanal</h3>
-            <div className="rv-tabs">
-              {METRIC_TABS.map((t) => (
-                <button key={t.key} className={`rv-tab ${metric === t.key ? "active" : ""}`} onClick={() => setMetric(t.key)}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <svg viewBox={`0 0 ${chart.w} ${chart.h}`} width="100%">
-              <path d={chart.area} fill="rgba(23,63,59,.12)" />
-              <path d={chart.line} fill="none" stroke="#173f3b" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
-              {chart.pts.map((p, i) => (
-                <circle key={i} cx={p[0]} cy={p[1]} r={i === chart.pts.length - 1 ? 6 : 4}
-                  fill={i === chart.pts.length - 1 ? "#f4368c" : "#173f3b"} stroke="#fffdfa" strokeWidth={2.5} />
-              ))}
-            </svg>
-            <div className="rv-axis">{chart.weeks.map((w) => <span key={w}>{w}</span>)}</div>
-          </div>
-        )}
-
-        {/* Criativos com thumbnail */}
-        {midia?.creatives && midia.creatives.length > 0 && (
-          <div className="rv-card">
-            <h3>Criativos em destaque</h3>
-            <div className="rv-creative-grid">
-              {midia.creatives.map((c) => (
-                <div key={c.adId} className="rv-creative-card">
-                  <div className="rv-thumb" style={c.thumbnailUrl ? { backgroundImage: `url(${c.thumbnailUrl})` } : undefined} />
-                  <div className="rv-creative-info">
-                    <p className="fmt">{c.adName}</p>
-                    <div className="rv-stat"><span>CTR</span><span>{ehNumRV(c.ctr) ? `${c.ctr.toFixed(2)}%` : "—"}</span></div>
-                    <div className="rv-stat"><span>Custo/resultado</span><span>{fmtBRL(c.costPerResult)}</span></div>
-                    <span className={`rv-pill ${c.status ?? "neutral"}`}>
-                      {c.status === "good" ? "Performando bem" : c.status === "warn" ? "Atenção" : "Estável"}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <GraficoSemanal series={serie} metric={metric} tabs={abasDeMetrica(resultLabel)} onMetric={setMetric} />
+        <CriativosDestaque criativos={midia?.creatives ?? []} />
+        <PublicosTestados publicos={midia?.audiences ?? []} />
 
         {/* Site: performance técnica e segurança em cards */}
         {(ps || seg) && (
@@ -403,40 +461,44 @@ function RelatorioModularView({ result }: {
           </div>
         )}
 
-        {/* Diagnóstico em blocos: fatos e interpretações lado a lado */}
+        {/* Fato e interpretação lado a lado, ambos neutros: verde/creme aqui
+            sinalizava um veredito ("isso é bom", "isso é alerta") que o conteúdo
+            não tem. A distinção é feita pelo rótulo, não pelo fundo. */}
         {(n?.fatos?.length || n?.interpretacoes?.length) ? (
           <div className="rv-status-grid">
             {n?.fatos && n.fatos.length > 0 && (
-              <div className="rv-status-card positivo">
+              <div className="rv-status-card fato">
                 <h4>Fatos</h4>
-                <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.7 }}>{n.fatos.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                <ul className="rv-lista">{n.fatos.map((x, i) => <li key={i}>{x}</li>)}</ul>
               </div>
             )}
             {n?.interpretacoes && n.interpretacoes.length > 0 && (
-              <div className="rv-status-card atencao">
+              <div className="rv-status-card leitura">
                 <h4>O que os dados sugerem</h4>
-                <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.7 }}>{n.interpretacoes.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                <ul className="rv-lista">{n.interpretacoes.map((x, i) => <li key={i}>{x}</li>)}</ul>
               </div>
             )}
           </div>
         ) : null}
 
         {n?.hipoteses && n.hipoteses.length > 0 && (
-          <section className="rv-card" style={{ marginTop: 16 }}>
+          <section className="rv-card">
             <h3>Hipóteses a confirmar</h3>
-            <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>{n.hipoteses.map((x, i) => <li key={i}>{x}</li>)}</ul>
+            <ul className="rv-lista">{n.hipoteses.map((x, i) => <li key={i}>{x}</li>)}</ul>
           </section>
         )}
 
-        {/* Recomendações — clicáveis para o Manager quando o criativo tem link */}
         {n?.recomendacoes && n.recomendacoes.length > 0 && (
-          <div className="rv-next">
+          <div className="rv-card rv-next">
             <h3>Recomendações</h3>
             <ol>
               {n.recomendacoes.map((r, i) => (
                 <li key={i}>
-                  <b>[{r.prioridade}]</b> {r.acao}
-                  {r.porque && <div style={{ opacity: 0.7, fontSize: "0.92em" }}>{r.porque}</div>}
+                  <span className={`rv-prio ${r.prioridade}`}>{r.prioridade}</span>
+                  <div>
+                    <p className="rv-rec-acao">{r.acao}</p>
+                    {r.porque && <p className="rv-rec-porque">{r.porque}</p>}
+                  </div>
                 </li>
               ))}
             </ol>
@@ -444,21 +506,17 @@ function RelatorioModularView({ result }: {
         )}
 
         {(n?.pendencias?.length || faltando.length > 0) && (
-          <section className="rv-card" style={{ marginTop: 16 }}>
+          <section className="rv-card">
             <h3>O que não foi medido</h3>
-            <p style={{ opacity: 0.75, marginBottom: 8, fontSize: 13 }}>
-              Ausência de dado não significa ausência de problema.
-            </p>
-            <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+            <p className="rv-card-sub">Ausência de dado não significa ausência de problema.</p>
+            <ul className="rv-lista">
               {(n?.pendencias ?? []).map((x, i) => <li key={i}>{x}</li>)}
             </ul>
           </section>
         )}
       </main>
 
-      <footer className="rv-footer">
-        <div className="rv-footer-inner">Relatório gerado automaticamente a partir dos dados da conta. Powered by SELVA Agency.</div>
-      </footer>
+      <Rodape />
     </div>
   );
 }
