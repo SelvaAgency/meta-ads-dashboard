@@ -1097,6 +1097,19 @@ export const accountContext = mysqlTable("account_context", {
   events: json("events").$type<Array<{ date: string; type: string; description: string }>>(),
   freeInput: text("freeInput"),
   focusMoment: text("focusMoment"),
+  // ── Contexto de site (unificado — migrado de client_context) ──
+  objective: text("objective"),
+  offer: text("offer"),
+  audience: text("audience"),
+  importantPagesJson: json("importantPagesJson").$type<string[]>(),
+  conversionEventsJson: json("conversionEventsJson").$type<string[]>(),
+  trackingNotes: text("trackingNotes"),
+  currentHypotheses: text("currentHypotheses"),
+  constraints: text("constraints"),
+  previousTests: text("previousTests"),
+  nextSteps: text("nextSteps"),
+  // Consolidação periódica do learnings (append-only → resumo compacto).
+  learningsConsolidated: text("learningsConsolidated"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   updatedBy: varchar("updatedBy", { length: 255 }),
 });

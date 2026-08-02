@@ -4120,10 +4120,26 @@ export async function serieClaritySnapshots(accountId: number, limite = 30) {
 
 // ─── Contexto, notas e relatórios de site por cliente ────────────────────────
 
+// Contexto de site — agora vive na tabela ÚNICA account_context (Fase 2 da
+// unificação). client_context permanece como backup, mas leitura/escrita passam
+// por account_context. A forma retornada é a mesma de antes (compatível).
 export async function getClientContext(accountId: number) {
   const db = await getDb();
   if (!db) return null;
-  const r = await db.select().from(clientContext).where(eq(clientContext.accountId, accountId)).limit(1);
+  const r = await db.select({
+    accountId: accountContext.accountId,
+    objective: accountContext.objective,
+    offer: accountContext.offer,
+    audience: accountContext.audience,
+    importantPagesJson: accountContext.importantPagesJson,
+    conversionEventsJson: accountContext.conversionEventsJson,
+    trackingNotes: accountContext.trackingNotes,
+    currentHypotheses: accountContext.currentHypotheses,
+    constraints: accountContext.constraints,
+    previousTests: accountContext.previousTests,
+    nextSteps: accountContext.nextSteps,
+    updatedAt: accountContext.updatedAt,
+  }).from(accountContext).where(eq(accountContext.accountId, accountId)).limit(1);
   return r[0] ?? null;
 }
 
@@ -4133,9 +4149,10 @@ export async function upsertClientContext(accountId: number, v: Partial<InsertCl
   const conta = await db.select({ id: metaAdAccounts.id }).from(metaAdAccounts)
     .where(eq(metaAdAccounts.id, accountId)).limit(1);
   if (conta.length === 0) throw new Error("Cliente não encontrado.");
-  const patch = { ...v, updatedByUserId: actorUserId };
-  delete (patch as { accountId?: number }).accountId;
-  await db.insert(clientContext).values({ accountId, ...patch }).onDuplicateKeyUpdate({ set: patch });
+  // client_context tinha updatedByUserId; account_context usa updatedBy (varchar).
+  const { updatedByUserId: _u, accountId: _a, ...rest } = v as Record<string, unknown>;
+  const patch = { ...rest, updatedBy: String(actorUserId) };
+  await db.insert(accountContext).values({ accountId, ...patch }).onDuplicateKeyUpdate({ set: patch });
 }
 
 export async function listClientNotes(accountId: number, limite = 20) {

@@ -11,7 +11,7 @@
  *  Fase 1 da centralização de contexto: as 3 tabelas continuam no banco; aqui
  *  só unificamos a LEITURA. A UI única e a unificação das tabelas vêm depois.
  */
-import { getAccountContext, getAgencyContext, getClientContext, listClientNotes } from "../db";
+import { getAccountContext, getAgencyContext, listClientNotes } from "../db";
 
 export type MontarContextoOpts = {
   accountId: number;
@@ -38,13 +38,13 @@ export async function montarContextoDaConta(opts: MontarContextoOpts): Promise<C
   const { accountId, userId, incluirNotas = true, limiteNotas = 8, incluirSite = true } = opts;
   const incluirAgencia = opts.incluirAgencia ?? !!userId;
 
-  const [acc, cliRaw, ag, notas] = await Promise.all([
+  const [acc, ag, notas] = await Promise.all([
     getAccountContext(accountId),
-    incluirSite ? getClientContext(accountId) : Promise.resolve(null),
     incluirAgencia && userId ? getAgencyContext(userId) : Promise.resolve(null),
     incluirNotas ? listClientNotes(accountId, limiteNotas) : Promise.resolve([]),
   ]);
-  const cli = incluirSite ? cliRaw : null;
+  // Tabela única: os campos de site (objective/offer/…) já vivem em account_context.
+  const cli = incluirSite ? acc : null;
 
   const L: string[] = [];
   const add = (cond: unknown, linha: string) => { if (cond) L.push(linha); };

@@ -920,6 +920,63 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · finance_merchant_map garantida");
 
+    // ── Unificação de contexto: account_context absorve client_context ──────────
+    //  Fase 2 da centralização. account_context vira a tabela ÚNICA de contexto
+    //  por conta. client_context PERMANECE (backup / rollback). Aditivo + idempotente.
+    if (await tableExists(conn, "account_context")) {
+      const ctxCols = [
+        { name: "objective",            ddl: "ADD COLUMN `objective` TEXT NULL" },
+        { name: "offer",                ddl: "ADD COLUMN `offer` TEXT NULL" },
+        { name: "audience",             ddl: "ADD COLUMN `audience` TEXT NULL" },
+        { name: "importantPagesJson",   ddl: "ADD COLUMN `importantPagesJson` JSON NULL" },
+        { name: "conversionEventsJson", ddl: "ADD COLUMN `conversionEventsJson` JSON NULL" },
+        { name: "trackingNotes",        ddl: "ADD COLUMN `trackingNotes` TEXT NULL" },
+        { name: "currentHypotheses",    ddl: "ADD COLUMN `currentHypotheses` TEXT NULL" },
+        { name: "constraints",          ddl: "ADD COLUMN `constraints` TEXT NULL" },
+        { name: "previousTests",        ddl: "ADD COLUMN `previousTests` TEXT NULL" },
+        { name: "nextSteps",            ddl: "ADD COLUMN `nextSteps` TEXT NULL" },
+        { name: "learningsConsolidated", ddl: "ADD COLUMN `learningsConsolidated` TEXT NULL" },
+      ];
+      for (const col of ctxCols) {
+        if (await columnExists(conn, "account_context", col.name)) {
+          console.log(`[ensure-schema] ok  · account_context.${col.name} já existe`);
+          continue;
+        }
+        await conn.query(`ALTER TABLE \`account_context\` ${col.ddl}`);
+        console.log(`[ensure-schema] +   · account_context.${col.name} adicionada`);
+      }
+
+      // Migração idempotente client_context → account_context. COALESCE nunca
+      // sobrescreve o que já existe; nunca apaga. Roda a cada boot sem efeito
+      // após a 1ª vez (campos já preenchidos).
+      if (await tableExists(conn, "client_context")) {
+        // 1) Garante uma linha em account_context para cada conta com client_context.
+        await conn.query(`
+          INSERT INTO \`account_context\` (accountId)
+          SELECT cc.accountId FROM \`client_context\` cc
+          LEFT JOIN \`account_context\` ac ON ac.accountId = cc.accountId
+          WHERE ac.id IS NULL
+        `);
+        // 2) Copia os campos onde account_context está vazio.
+        await conn.query(`
+          UPDATE \`account_context\` ac
+          JOIN \`client_context\` cc ON cc.accountId = ac.accountId
+          SET
+            ac.objective            = COALESCE(NULLIF(ac.objective, ''), cc.objective),
+            ac.offer                = COALESCE(NULLIF(ac.offer, ''), cc.offer),
+            ac.audience             = COALESCE(NULLIF(ac.audience, ''), cc.audience),
+            ac.importantPagesJson   = COALESCE(ac.importantPagesJson, cc.importantPagesJson),
+            ac.conversionEventsJson = COALESCE(ac.conversionEventsJson, cc.conversionEventsJson),
+            ac.trackingNotes        = COALESCE(NULLIF(ac.trackingNotes, ''), cc.trackingNotes),
+            ac.currentHypotheses    = COALESCE(NULLIF(ac.currentHypotheses, ''), cc.currentHypotheses),
+            ac.constraints          = COALESCE(NULLIF(ac.constraints, ''), cc.constraints),
+            ac.previousTests        = COALESCE(NULLIF(ac.previousTests, ''), cc.previousTests),
+            ac.nextSteps            = COALESCE(NULLIF(ac.nextSteps, ''), cc.nextSteps)
+        `);
+        console.log("[ensure-schema] ok  · contexto unificado (client_context → account_context)");
+      }
+    }
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();
