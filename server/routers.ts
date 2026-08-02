@@ -588,14 +588,13 @@ const contextRouter = router({
       const toLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 
       const conta = await getMetaAdAccountById(input.accountId);
-      const [accountCtx, agencyCtx, metrics, suggestions, site] = await Promise.all([
-        getAccountContext(input.accountId),
-        getAgencyContext((ctx.user as any).id),
+      const { montarContextoDaConta } = await import("./services/contextoConta");
+      const [ctxUnif, metrics, suggestions, site] = await Promise.all([
+        // Contexto da conta pela FONTE ÚNICA (account + client + agência + notas).
+        montarContextoDaConta({ accountId: input.accountId, userId: (ctx.user as any).id }),
         getCampaignPerformanceSummary(input.accountId, toLocal(startDate), toLocal(endDate)),
         getSuggestionsByAccountId(input.accountId),
-        // Site vem do MESMO builder que alimenta o robô e o relatório. Só os
-        // módulos técnicos: mídia e contexto este chat já tem, dos próprios
-        // blocos abaixo (benchmarks, regras, aprendizados) — que o robô não tem.
+        // Site: só os módulos TÉCNICOS (o contexto de site já entra pela fonte única).
         buildClientIntelligenceContext(
           input.accountId,
           conta?.accountName ?? String(input.accountId),
@@ -620,13 +619,9 @@ const contextRouter = router({
         .join("\n");
 
       const contextBlocks = [
-        agencyCtx?.benchmarks ? `BENCHMARKS DA AGÊNCIA:\n${agencyCtx.benchmarks}` : "",
-        agencyCtx?.institutionalKnowledge ? `CONHECIMENTO INSTITUCIONAL:\n${agencyCtx.institutionalKnowledge}` : "",
-        agencyCtx?.patterns ? `PADRÕES DO PORTFÓLIO:\n${agencyCtx.patterns}` : "",
-        accountCtx?.clientProfile ? `PERFIL DO CLIENTE:\n${accountCtx.clientProfile}` : "",
-        accountCtx?.operationalRules ? `REGRAS OPERACIONAIS:\n${accountCtx.operationalRules}` : "",
-        (accountCtx as any)?.focusMoment ? `FOCO DO MOMENTO (prioridade máxima):\n${(accountCtx as any).focusMoment}` : "",
-        accountCtx?.learnings ? `APRENDIZADOS HISTÓRICOS:\n${accountCtx.learnings}` : "",
+        // Contexto da conta pela fonte única (perfil, regras, foco, aprendizados,
+        // contexto de site, agência, notas) — o mesmo que o robô e os relatórios veem.
+        ctxUnif.texto || "",
         perfLines ? `PERFORMANCE DOS ÚLTIMOS 30 DIAS:\n${perfLines}` : "",
         pendingSuggestions ? `SUGESTÕES PENDENTES DA IA:\n${pendingSuggestions}` : "",
         // O que acontece DEPOIS do clique. Sem isto, este chat recomendava mexer
@@ -1967,15 +1962,13 @@ export const appRouter = router({
         // aprendizados) e o contexto ad-hoc que a pessoa escreveu agora sobre os
         // últimos 7 dias — números sozinhos não explicam sazonalidade, campanha
         // de lançamento, feriado, etc.
-        const accCtx = await getAccountContext(input.accountId).catch(() => null);
-        const partesCtx = [
-          accCtx?.clientProfile ? `Perfil do cliente: ${accCtx.clientProfile}` : "",
-          accCtx?.operationalRules ? `Regras operacionais: ${accCtx.operationalRules}` : "",
-          accCtx?.learnings ? `Aprendizados históricos: ${accCtx.learnings}` : "",
-          input.contexto?.trim() ? `Contexto informado agora sobre estes 7 dias: ${input.contexto.trim()}` : "",
-        ].filter(Boolean);
-        const blocoCtx = partesCtx.length
-          ? `\n\nCONTEXTO (considere ao avaliar e ao escrever o resumo — pode explicar variações que os números não mostram):\n${partesCtx.join("\n")}`
+        // Contexto unificado (fonte única) + o input ad-hoc que a pessoa digitou
+        // agora sobre estes 7 dias.
+        const { montarContextoDaConta } = await import("./services/contextoConta");
+        const { texto: ctxTexto } = await montarContextoDaConta({ accountId: input.accountId, userId: ctx.user.id }).catch(() => ({ texto: "" }));
+        const adhoc = input.contexto?.trim() ? `Contexto informado agora sobre estes 7 dias: ${input.contexto.trim()}` : "";
+        const blocoCtx = (ctxTexto || adhoc)
+          ? `\n\nCONTEXTO (considere ao avaliar e ao escrever o resumo — pode explicar variações que os números não mostram):\n${ctxTexto}${adhoc ? `\n${adhoc}` : ""}`
           : "";
 
         const totals = metrics.reduce(

@@ -482,40 +482,11 @@ export async function generateAiSuggestions(
   const avgCpa = campaignsWithData.reduce((s, c) => s + c.avgCpa, 0) / Math.max(1, campaignsWithData.filter(c => c.avgCpa > 0).length || 1);
   const totalConversions = campaignsWithData.reduce((s, c) => s + c.totalConversions, 0);
 
-  // ─── Carregar contextos de memória ───────────────────────────────────────
-  const { getAccountContext, getAgencyContext } = await import("./db");
-  const [accountCtx, agencyCtx] = await Promise.all([
-    getAccountContext(accountId),
-    getAgencyContext(userId),
-  ]);
+  // ─── Contexto unificado (fonte única para TODAS as IAs) ───────────────────
+  const { montarContextoDaConta } = await import("./services/contextoConta");
+  const { texto: contextoBlock } = await montarContextoDaConta({ accountId, userId });
 
-  const agencyContextBlock = (agencyCtx?.benchmarks || agencyCtx?.patterns || agencyCtx?.institutionalKnowledge)
-    ? `## CONTEXTO DA AGÊNCIA (SELVA Agency — conhecimento institucional)
-${agencyCtx.benchmarks ? `### Benchmarks internos do portfólio:\n${agencyCtx.benchmarks}` : ""}
-${agencyCtx.patterns ? `### Padrões identificados nas contas:\n${agencyCtx.patterns}` : ""}
-${agencyCtx.institutionalKnowledge ? `### Conhecimento institucional:\n${agencyCtx.institutionalKnowledge}` : ""}
----`
-    : "";
-
-  const hasStructuredCtx = accountCtx && (
-    accountCtx.businessType || accountCtx.audienceAge || accountCtx.restrictions?.length ||
-    accountCtx.events?.length || accountCtx.freeInput || accountCtx.clientProfile || accountCtx.learnings
-  );
-
-  const accountContextBlock = hasStructuredCtx ? `## CONTEXTO DESTA CONTA
-${accountCtx!.businessType ? `- Tipo de negócio: ${accountCtx!.businessType}` : ""}
-${accountCtx!.ticketRange ? `- Ticket médio: ${accountCtx!.ticketRange}` : ""}
-${accountCtx!.audienceAge ? `- Faixa etária principal: ${accountCtx!.audienceAge}` : ""}
-${accountCtx!.audienceGender ? `- Gênero predominante: ${accountCtx!.audienceGender}` : ""}
-${accountCtx!.audienceGeo ? `- Geografia: ${accountCtx!.audienceGeo}` : ""}
-${accountCtx!.restrictions?.length ? `- Restrições operacionais (RESPEITE SEMPRE):\n${accountCtx!.restrictions.map(r => `  • ${r}`).join("\n")}` : ""}
-${accountCtx!.events?.length ? `- Eventos e sazonalidades:\n${accountCtx!.events.map(e => `  • ${e.date} [${e.type}] ${e.description}`).join("\n")}` : ""}
-${accountCtx!.focusMoment ? `- FOCO DO MOMENTO (prioridade máxima — todas as análises devem considerar isso):\n${accountCtx!.focusMoment}` : ""}
-${accountCtx!.freeInput ? `- Contexto adicional:\n${accountCtx!.freeInput}` : ""}
-${accountCtx!.learnings ? `### Aprendizados históricos (gerados automaticamente):\n${accountCtx!.learnings}` : ""}
----` : "";
-
-  const prompt = `${agencyContextBlock}${accountContextBlock}Você é um estrategista sênior de Meta Ads com mais de 10 anos de experiência. Você é uma CONSELHEIRA, não uma máquina de sugestões automáticas.
+  const prompt = `${contextoBlock}Você é um estrategista sênior de Meta Ads com mais de 10 anos de experiência. Você é uma CONSELHEIRA, não uma máquina de sugestões automáticas.
 
 Gerar sugestões desnecessárias é TÃO PREJUDICIAL quanto não alertar sobre problemas reais. Sugestões sem fundamento levam o gestor a mexer em campanhas que estavam funcionando, quebrando performance por intervenção excessiva.
 
