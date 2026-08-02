@@ -297,6 +297,39 @@ const CONEXAO_COLS: { chave: string; label: string }[] = [
 function tomFonte(s: string): string {
   return s === "ok" ? "#1D9E75" : s === "atencao" ? "#EF9F27" : s === "erro" ? "#E24B4A" : "rgba(120,120,120,0.35)";
 }
+
+// Plugs de OAuth da agência (Google Ads e GA4). Descobrir/vincular por cliente
+// segue nas páginas por ora — entra no hub numa próxima fatia.
+function GooglePlugs() {
+  const utils = trpc.useUtils();
+  const gads = trpc.googleAds.isConfigured.useQuery(undefined, { staleTime: 60_000 });
+  const ga4 = trpc.ga4.statusConexao.useQuery(undefined, { staleTime: 60_000 });
+  const descGads = trpc.googleAds.desconectarOAuth.useMutation({ onSuccess: () => { toast.success("Google Ads desconectado"); utils.googleAds.isConfigured.invalidate(); }, onError: (e) => toast.error(e.message) });
+  const descGa4 = trpc.ga4.desconectarOAuth.useMutation({ onSuccess: () => { toast.success("GA4 desconectado"); utils.ga4.statusConexao.invalidate(); }, onError: (e) => toast.error(e.message) });
+
+  const Plug = ({ nome, conectado, como, state, onDesc, pending }: { nome: string; conectado: boolean; como?: string | null; state: string; onDesc: () => void; pending: boolean }) => (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 flex-wrap">
+      <div className="flex items-center gap-2.5">
+        {conectado ? <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" /> : <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: "rgba(120,120,120,0.4)" }} />}
+        <div>
+          <p className="text-sm font-semibold text-foreground">{nome}</p>
+          <p className="text-[11px] text-muted-foreground">{conectado ? (como ? `conectado como ${como}` : "OAuth autorizado") : "não conectado"}</p>
+        </div>
+      </div>
+      {conectado
+        ? <button onClick={onDesc} disabled={pending} className="h-8 px-3 rounded-lg border border-border text-xs text-muted-foreground hover:text-destructive flex-shrink-0 disabled:opacity-50">Desconectar</button>
+        : <a href={`/api/google/auth?state=${state}`} target="_top" className="inline-flex h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-medium items-center gap-1.5 flex-shrink-0"><Link2 className="w-3.5 h-3.5" /> Conectar</a>}
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Plug nome="Google Ads" conectado={!!gads.data?.oauthConectado} como={gads.data?.contaConectada} state="googleads" onDesc={() => descGads.mutate()} pending={descGads.isPending} />
+      <Plug nome="Google Analytics (GA4)" conectado={!!ga4.data?.oauthConectado} como={ga4.data?.conectadoComo} state="ga4" onDesc={() => descGa4.mutate()} pending={descGa4.isPending} />
+      <p className="text-[10px] text-muted-foreground/70">Depois de conectar, descobrir e vincular as contas a cada cliente segue nas páginas Google Ads / GA4 por ora (vem pro hub em breve).</p>
+    </div>
+  );
+}
 function ConexoesPanel() {
   const { data: fontes } = trpc.fontes.todas.useQuery(undefined, { staleTime: 60_000 });
   const { data: accounts } = trpc.accounts.list.useQuery(undefined, { staleTime: 60_000 });
@@ -308,6 +341,11 @@ function ConexoesPanel() {
       <div>
         <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Meta Ads · token da agência</p>
         <TokenSection />
+      </div>
+
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Google · OAuth da agência (Ads + GA4)</p>
+        <GooglePlugs />
       </div>
 
       <div>
