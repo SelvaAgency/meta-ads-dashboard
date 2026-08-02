@@ -413,6 +413,8 @@ export default function Dashboard() {
                 days={platDays}
                 metaSpend={Number(data?.totals?.spend ?? 0)}
                 metaConversions={Number(data?.totals?.conversions ?? 0)}
+                prevMetaSpend={prevTotals ? Number((prevTotals as any).spend ?? 0) : undefined}
+                prevMetaConversions={prevTotals ? Number((prevTotals as any).conversions ?? 0) : undefined}
               />
             )}
 

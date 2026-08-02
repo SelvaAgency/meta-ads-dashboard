@@ -1,8 +1,16 @@
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
+import { TrendingUp, TrendingDown } from "lucide-react";
 import { CustomTooltip } from "@/pages/dashboard/atoms";
 import { fmtCurrency, fmtNumber } from "@/lib/kpiConfig";
+
+/** Variação % vs período anterior. undefined quando não há base (evita ∞%). */
+function pct(cur: number, prev: number): string | undefined {
+  if (!prev || prev === 0) return undefined;
+  const d = ((cur - prev) / prev) * 100;
+  return `${d >= 0 ? "+" : ""}${d.toFixed(1)}%`;
+}
 
 /**
  * Aba "Geral" dos Detalhes por plataforma — soma bruta Meta+Google.
@@ -23,8 +31,9 @@ function useGoogle(metaAccountId: number, days: number) {
   return { gId, sumQ, serieQ };
 }
 
-export function KpisPlataformas({ metaAccountId, days, metaSpend, metaConversions }: {
+export function KpisPlataformas({ metaAccountId, days, metaSpend, metaConversions, prevMetaSpend, prevMetaConversions }: {
   metaAccountId: number; days: number; metaSpend: number; metaConversions: number;
+  prevMetaSpend?: number; prevMetaConversions?: number;
 }) {
   const { gId, sumQ } = useGoogle(metaAccountId, days);
   const gSpend = sumQ.data?.spend ?? 0;
@@ -34,11 +43,32 @@ export function KpisPlataformas({ metaAccountId, days, metaSpend, metaConversion
   const custoPorResultado = resultado > 0 ? investimento / resultado : 0;
   const semGoogle = !gId;
 
+  // Período anterior: Meta vem de previousTotals (pai); Google, da metade mais
+  // antiga da série de days*2 (serieDiaria limita em 90). Só busca ao comparar.
+  const temComparativo = prevMetaSpend != null || prevMetaConversions != null;
+  const days2 = Math.min(days * 2, 90);
+  const serie2Q = trpc.googleAds.serieDiaria.useQuery(
+    { accountId: gId!, days: days2 },
+    { enabled: !!gId && temComparativo, staleTime: 5 * 60_000, refetchOnWindowFocus: false },
+  );
+  const dias2 = serie2Q.data?.dias ?? [];
+  const older = dias2.slice(0, Math.max(0, dias2.length - days)); // janela anterior
+  const gPrevSpend = older.reduce((s, d: any) => s + Number(d.custo ?? 0), 0);
+  const gPrevConv = older.reduce((s, d: any) => s + Number(d.conversoes ?? 0), 0);
+
+  const prevInvest = (prevMetaSpend ?? 0) + gPrevSpend;
+  const prevResultado = (prevMetaConversions ?? 0) + gPrevConv;
+  const prevCusto = prevResultado > 0 ? prevInvest / prevResultado : 0;
+
+  const tInvest = prevMetaSpend != null ? pct(investimento, prevInvest) : undefined;
+  const tResult = prevMetaConversions != null ? pct(resultado, prevResultado) : undefined;
+  const tCusto = temComparativo && resultado > 0 ? pct(custoPorResultado, prevCusto) : undefined;
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <Tile label="Investimento" value={fmtCurrency(investimento)} sub={semGoogle ? "só Meta" : `Meta ${fmtCurrency(metaSpend)} · Google ${fmtCurrency(gSpend)}`} />
-      <Tile label="Resultado" value={resultado > 0 ? fmtNumber(resultado) : "—"} sub={semGoogle ? "só Meta" : `Meta ${fmtNumber(metaConversions)} · Google ${fmtNumber(gConv)}`} />
-      <Tile label="Custo por resultado" value={resultado > 0 ? fmtCurrency(custoPorResultado) : "—"} sub="investimento ÷ resultado" />
+      <Tile label="Investimento" value={fmtCurrency(investimento)} trendPercent={tInvest} sub={semGoogle ? "só Meta" : `Meta ${fmtCurrency(metaSpend)} · Google ${fmtCurrency(gSpend)}`} />
+      <Tile label="Resultado" value={resultado > 0 ? fmtNumber(resultado) : "—"} trendPercent={tResult} sub={semGoogle ? "só Meta" : `Meta ${fmtNumber(metaConversions)} · Google ${fmtNumber(gConv)}`} />
+      <Tile label="Custo por resultado" value={resultado > 0 ? fmtCurrency(custoPorResultado) : "—"} trendPercent={tCusto} sub="investimento ÷ resultado" />
     </div>
   );
 }
@@ -76,10 +106,19 @@ export function GraficosPlataformas({ metaAccountId, days, metaTimeSeries }: {
   );
 }
 
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Tile({ label, value, sub, trendPercent }: { label: string; value: string; sub?: string; trendPercent?: string }) {
+  const neg = trendPercent?.startsWith("-");
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
+        {trendPercent && (
+          <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${neg ? "text-red-500 bg-red-50 dark:bg-red-500/10" : "text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10"}`}>
+            {neg ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+            {trendPercent}
+          </span>
+        )}
+      </div>
       <p className="text-2xl font-extrabold text-foreground mt-1">{value}</p>
       {sub && <p className="text-[11px] text-muted-foreground mt-1 truncate">{sub}</p>}
     </div>
