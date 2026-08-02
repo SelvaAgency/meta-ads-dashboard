@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc";
-import { Loader2 } from "lucide-react";
+import { Loader2, ArrowRight, Wallet, Target, Store, Activity } from "lucide-react";
 import { funilVisual, fmtBRL, type ClientePanorama } from "@shared/panoramaLogic";
 import { fmtNumber, fmtPercent, type GoalType } from "@/lib/kpiConfig";
 import { Funil } from "../panorama/Visuais";
@@ -141,11 +141,23 @@ export function SecaoSite({ accountId, goalType }: { accountId: number; goalType
   }
   if (!r && !funil) return null;
 
-  const cell = (lbl: string, big: string, sub?: string, tone?: string) => (
-    <div className="flex-1 min-w-0">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{lbl}</p>
-      <p className={`text-2xl font-extrabold leading-tight ${tone ?? "text-foreground"}`}>{big}</p>
+  const cell = (lbl: string, big: string, sub?: string, opts?: { tone?: string; Icon?: React.ComponentType<{ className?: string }>; tint?: string }) => (
+    <div className={`flex-1 min-w-0 rounded-xl border border-border p-4 ${opts?.tint ?? ""}`}
+      style={opts?.tint ? undefined : { background: "var(--color-background-secondary, rgba(0,0,0,0.03))" }}>
+      <div className="flex items-center gap-1.5 mb-1">
+        {opts?.Icon && <opts.Icon className="w-3.5 h-3.5 text-muted-foreground/70" />}
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold truncate">{lbl}</p>
+      </div>
+      <p className={`text-2xl font-extrabold leading-tight ${opts?.tone ?? "text-foreground"}`}>{big}</p>
       {sub && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{sub}</p>}
+    </div>
+  );
+
+  const Arrow = () => (
+    <div className="hidden sm:flex items-center flex-shrink-0">
+      <div className="w-7 h-7 rounded-full border border-border bg-card flex items-center justify-center">
+        <ArrowRight className="w-3.5 h-3.5 text-muted-foreground/60" />
+      </div>
     </div>
   );
 
@@ -160,13 +172,16 @@ export function SecaoSite({ accountId, goalType }: { accountId: number; goalType
         const c3Sub = r.ecom ? `${g.pedidos ?? "—"} pedido(s)` : "medido pelo GA4 (todas as fontes)";
         return (
           <div>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-stretch gap-3">
               {cell("Investimento", fmtBRL(r.investido.total),
-                r.temGoogle ? `Meta ${fmtBRL(r.investido.meta)} · Google ${fmtBRL(r.investido.google)}` : "só Meta")}
-              <span className="hidden sm:block text-muted-foreground/50 text-lg">→</span>
-              {cell(r.ecom ? "Receita atribuída" : "Resultado atribuído", c2Val, "o que os anúncios reivindicam")}
-              <span className="hidden sm:block text-muted-foreground/50 text-lg">→</span>
-              {cell(c3Label, c3Val, c3Sub, "text-emerald-600 dark:text-emerald-400")}
+                r.temGoogle ? `Meta ${fmtBRL(r.investido.meta)} · Google ${fmtBRL(r.investido.google)}` : "só Meta",
+                { Icon: Wallet })}
+              <Arrow />
+              {cell(r.ecom ? "Receita atribuída" : "Resultado atribuído", c2Val, "o que os anúncios reivindicam",
+                { Icon: Target })}
+              <Arrow />
+              {cell(c3Label, c3Val, c3Sub,
+                { tone: "text-emerald-600 dark:text-emerald-400", Icon: r.ecom ? Store : Activity, tint: "bg-emerald-50 dark:bg-emerald-500/10" })}
             </div>
             <p className="text-[11px] text-muted-foreground mt-3">
               {r.ecom

@@ -66,9 +66,9 @@ export function KpisPlataformas({ metaAccountId, days, metaSpend, metaConversion
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <Tile label="Investimento" value={fmtCurrency(investimento)} trendPercent={tInvest} sub={semGoogle ? "só Meta" : `Meta ${fmtCurrency(metaSpend)} · Google ${fmtCurrency(gSpend)}`} />
-      <Tile label="Resultado" value={resultado > 0 ? fmtNumber(resultado) : "—"} trendPercent={tResult} sub={semGoogle ? "só Meta" : `Meta ${fmtNumber(metaConversions)} · Google ${fmtNumber(gConv)}`} />
-      <Tile label="Custo por resultado" value={resultado > 0 ? fmtCurrency(custoPorResultado) : "—"} trendPercent={tCusto} sub="investimento ÷ resultado" />
+      <Tile label="Investimento" value={fmtCurrency(investimento)} trendPercent={tInvest} trendPrevValue={fmtCurrency(prevInvest)} sub={semGoogle ? "só Meta" : `Meta ${fmtCurrency(metaSpend)} · Google ${fmtCurrency(gSpend)}`} />
+      <Tile label="Resultado" value={resultado > 0 ? fmtNumber(resultado) : "—"} trendPercent={tResult} trendPrevValue={prevResultado > 0 ? fmtNumber(prevResultado) : "—"} sub={semGoogle ? "só Meta" : `Meta ${fmtNumber(metaConversions)} · Google ${fmtNumber(gConv)}`} />
+      <Tile label="Custo por resultado" value={resultado > 0 ? fmtCurrency(custoPorResultado) : "—"} trendPercent={tCusto} trendPrevValue={prevCusto > 0 ? fmtCurrency(prevCusto) : "—"} sub="investimento ÷ resultado" />
     </div>
   );
 }
@@ -106,17 +106,25 @@ export function GraficosPlataformas({ metaAccountId, days, metaTimeSeries }: {
   );
 }
 
-function Tile({ label, value, sub, trendPercent }: { label: string; value: string; sub?: string; trendPercent?: string }) {
+function Tile({ label, value, sub, trendPercent, trendPrevValue }: { label: string; value: string; sub?: string; trendPercent?: string; trendPrevValue?: string }) {
   const neg = trendPercent?.startsWith("-");
   return (
     <div className="rounded-xl border border-border bg-card p-4">
       <div className="flex items-start justify-between gap-2">
         <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
         {trendPercent && (
-          <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md ${neg ? "text-red-500 bg-red-50 dark:bg-red-500/10" : "text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10"}`}>
-            {neg ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
-            {trendPercent}
-          </span>
+          <div className="relative group">
+            <span className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md cursor-default ${neg ? "text-red-500 bg-red-50 dark:bg-red-500/10" : "text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10"}`}>
+              {neg ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+              {trendPercent}
+            </span>
+            {trendPrevValue && (
+              <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover:block bg-popover border border-border rounded-lg px-3 py-2 shadow-xl whitespace-nowrap">
+                <p className="text-xs text-muted-foreground">Período anterior</p>
+                <p className="text-sm font-bold text-foreground">{trendPrevValue}</p>
+              </div>
+            )}
+          </div>
         )}
       </div>
       <p className="text-2xl font-extrabold text-foreground mt-1">{value}</p>
