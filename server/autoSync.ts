@@ -1,15 +1,14 @@
 import { logger } from "./logger";
-import { resolverTipoDaConta } from "./alertProfiles";
 import { runDailyDigestJob } from "./services/dailyDigestService";
 import { runObservacoesAutomaticas } from "./services/observacoesService";
 import { consolidarLearnings } from "./services/consolidacaoService";
 import { refreshAccountAiStatus } from "./services/aiStatusService";
 import { sincronizarGA4 } from "./services/ga4Sync";
 import { sincronizarLojas, resumirCicloLojas } from "./services/lojaSync";
-import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runAnomaliasNotif, runTrelloPrazos, runAniversarios, hojeAgencia, criarAlertaDeConta, type AnomaliaNotif } from "./notificationJobs";
+import { runFinanceAtrasos, runBriefingDiario, runRelatorioSemanal, runTrelloPrazos, runAniversarios, hojeAgencia, criarAlertaDeConta } from "./notificationJobs";
 import { runClaritySnapshots, runPerformanceSnapshots, runSiteHealthChecks } from "./clarityJobs";
 import { runClarityAlertas } from "./services/clarityAlertService";
-import { getDigestSettings, getDigestOverride, objetivosDasCampanhas, setAppSetting } from "./db";
+import { getDigestSettings, getDigestOverride, setAppSetting } from "./db";
 /**
  * autoSync.ts — Cron job para sincronização automática diária de todas as contas Meta Ads.
  *
@@ -43,6 +42,7 @@ import {
   getActiveCampaignMetaIdsWithRecentSpend,
   getExperimentBasicInfo,
   purgeDuplicateAlerts,
+  purgeOldAlerts,
   markAlertEmailSent,
   getMetaAdAccountsByUserId,
   getMetaAdAccountById,
@@ -78,7 +78,7 @@ import {
   checkRealTimeAlerts,
   validateToken,
 } from "./metaAdsService";
-import { detectAnomalies, generateAgencyReport } from "./analysisService";
+import { generateAgencyReport } from "./analysisService";
 import type { CampaignReportData } from "./analysisService";
 
 const SYNC_DAYS = 30; // Always sync 30 days to ensure complete data for all dashboard filters
@@ -371,13 +371,6 @@ function aggregateCampaignRows(rows: Awaited<ReturnType<typeof getCampaignPerfor
 }
 
 /**
- * Anomalias de mídia (Ajustes: notificações). Antes, detectAnomalies só rodava
- * quando alguém apertava o botão no front — o caminho automático nunca a usava.
- * Aqui ela roda no ciclo diário, com as três janelas calculadas de verdade
- * (7/14/30): a validação multi-período do detector exige 2 de 3 confirmando, e
- * passar a mesma média nas três (como faz o caller do front) desliga esse filtro.
- */
-/**
  * Sincroniza o GA4 das propriedades vinculadas e guarda o resumo do ciclo.
  *
  * Só orquestra: a leitura, o dedup, o status por propriedade e o isolamento de
@@ -425,59 +418,6 @@ async function runWooSync() {
   } finally {
     rodandoWoo = false;
   }
-}
-
-async function runAnomaliasDeMidia() {
-  const accounts = await getAllActiveMetaAdAccounts();
-  if (accounts.length === 0) return;
-  const dia = (d: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() - d * 86400000));
-  const hoje = dia(0), ontem = dia(1);
-  const achadas: AnomaliaNotif[] = [];
-
-  for (const account of accounts) {
-    try {
-      const janela = async (dias: number) => {
-        const rows = await getAccountMetricsSummary(account.id, dia(dias), ontem);
-        if (rows.length === 0) return null;
-        const n = rows.length;
-        const somaR = rows.reduce((a, m) => ({
-          roas: a.roas + Number(m.avgRoas ?? 0), cpa: a.cpa + Number(m.avgCpa ?? 0), ctr: a.ctr + Number(m.avgCtr ?? 0),
-          spend: a.spend + Number(m.totalSpend ?? 0), impressions: a.impressions + Number(m.totalImpressions ?? 0),
-          conversions: a.conversions + Number(m.totalConversions ?? 0),
-        }), { roas: 0, cpa: 0, ctr: 0, spend: 0, impressions: 0, conversions: 0 });
-        return { roas: somaR.roas / n, cpa: somaR.cpa / n, ctr: somaR.ctr / n, spend: somaR.spend / n, impressions: somaR.impressions / n, conversions: somaR.conversions / n };
-      };
-      const atualRows = await getAccountMetricsSummary(account.id, ontem, hoje);
-      if (atualRows.length === 0) continue;
-      const r = atualRows[atualRows.length - 1];
-      const atual = {
-        roas: Number(r.avgRoas ?? 0), cpa: Number(r.avgCpa ?? 0), ctr: Number(r.avgCtr ?? 0),
-        spend: Number(r.totalSpend ?? 0), impressions: Number(r.totalImpressions ?? 0), conversions: Number(r.totalConversions ?? 0), frequency: 0,
-      };
-      const [a7, a14, a30] = await Promise.all([janela(7), janela(14), janela(30)]);
-      if (!a7 || !a14 || !a30) continue;
-      // Menos de 30 dias de série = thresholds dobrados no detector.
-      const hist = await getAccountMetricsSummary(account.id, dia(30), hoje);
-      // O tipo da conta decide QUAIS regras valem e com que peso. Override
-      // manual vence a detecção — ver resolverTipoDaConta.
-      // Só consulta campanhas quando não há override — na maioria das contas
-      // o override existe e a consulta seria desperdício.
-      const objetivos = account.goalTypeOverride ? [] : await objetivosDasCampanhas(account.id).catch(() => []);
-      const tipo = resolverTipoDaConta(account, objetivos);
-      const anomalias = detectAnomalies(atual, a7, a14, a30, { hasLimitedHistory: hist.length < 14, tipo });
-      for (const an of anomalias) {
-        achadas.push({
-          accountId: account.id, accountName: account.accountName ?? account.accountId,
-          type: an.type, severity: an.severity, title: an.title, description: an.description,
-        });
-      }
-    } catch (err) {
-      logger.error(`[Anomalias] Falha na conta ${account.accountId}: ${(err as Error)?.message}`);
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  if (achadas.length > 0) await runAnomaliasNotif(achadas);
-  logger.info(`[Anomalias] Ciclo completo — ${achadas.length} anomalia(s) em ${accounts.length} conta(s).`);
 }
 
 /**
@@ -1139,6 +1079,17 @@ export async function startAutoSync() {
   // dado já estará fresco — mudar horário depois é mais chato que acertar agora.
   cron.schedule("0 50 6 * * *", runGA4Sync, TZ);
 
+  // Expiração de alertas antigos (>30d) — diária, 06:10 BRT. Impede o backlog de
+  // acumular; não há valor em alerta operacional de 30+ dias.
+  cron.schedule("0 10 6 * * *", async () => {
+    try {
+      const n = await purgeOldAlerts(30);
+      if (n > 0) logger.info(`[AutoSync] Expired ${n} old alerts (>30d)`);
+    } catch (err) {
+      console.error("[AutoSync] Error expiring old alerts:", err);
+    }
+  }, TZ);
+
   // Performance técnica (07:00 BRT). Depois do Clarity e antes do expediente:
   // cada teste é um carregamento real de 10–30s.
   cron.schedule("0 0 7 * * *", runPerformanceSnapshots, TZ);
@@ -1147,7 +1098,6 @@ export async function startAutoSync() {
   cron.schedule("0 25 7 * * *", runSiteHealthChecks, TZ);
 
   // Anomalias de mídia (09:20 UTC) — depois do sync das 09:00.
-  cron.schedule("0 20 9 * * *", runAnomaliasDeMidia, TZ);
 
   // Notificações do dia. Roda de minuto em minuto e o próprio job decide se é a
   // hora — porque o horário mora no banco (o admin muda em Configurações) e um
@@ -1173,6 +1123,14 @@ export async function startAutoSync() {
       }
     } catch (err) {
       console.error("[AutoSync] Error purging duplicate alerts:", err);
+    }
+
+    // Expira alertas antigos (>30d) no boot — limpa o backlog pré-pausa.
+    try {
+      const expirados = await purgeOldAlerts(30);
+      if (expirados > 0) logger.info(`[AutoSync] Expired ${expirados} old alerts (>30d) on startup`);
+    } catch (err) {
+      console.error("[AutoSync] Error expiring old alerts:", err);
     }
 
     await runAutoSync();

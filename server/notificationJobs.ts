@@ -264,32 +264,6 @@ export async function runRelatorioSemanal(conteudo: string): Promise<{ notificad
   return { notificados: notificados.length, emails };
 }
 
-// ─── PERFORMANCE: anomalias de mídia ─────────────────────────────────────────
-
-export type AnomaliaNotif = { accountId: number; accountName: string; type: string; severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"; title: string; description: string };
-
-/** Uma notificação por anomalia, deduplicada por (conta, tipo, dia). */
-export async function runAnomaliasNotif(anomalias: AnomaliaNotif[]): Promise<number> {
-  const dia = hojeAgencia();
-  let criadas = 0;
-  for (const a of anomalias) {
-    const sev = a.severity === "CRITICAL" ? "CRITICAL" : a.severity === "HIGH" ? "WARNING" : "INFO";
-    const users = await createNotification({
-      tipo: "ANOMALIA", alertType: "ANOMALY", severity: sev,
-      title: `${a.accountName}: ${a.title}`.slice(0, 255), message: a.description,
-      referencia: `${a.accountId}:${a.type}`, dia, accountId: a.accountId,
-    });
-    if (users.length) criadas++;
-    if (sev === "CRITICAL") {
-      const dedupKey = `ANOMALIA:${a.accountId}:${a.type}:${dia}`;
-      await enviarEmails("ANOMALIA", dedupKey, `[SELVA] ${a.accountName}: ${a.title}`,
-        layout(`${a.accountName}: ${a.title}`, `<p style="margin:0;font-size:14px;color:#333">${a.description}</p>`), a.description);
-    }
-  }
-  logger.info(`[Notif] Anomalias: ${criadas} nova(s) de ${anomalias.length} detectada(s)`);
-  return criadas;
-}
-
 /**
  * Alerta técnico preso a uma conta (token, saldo, anúncio recusado…).
  *

@@ -1423,6 +1423,20 @@ export async function purgeDuplicateAlerts(): Promise<number> {
   return (result as any)?.[0]?.affectedRows ?? (result as any)?.affectedRows ?? 0;
 }
 
+/**
+ * Expiração de alertas: apaga tudo criado há mais de `dias` (default 30). Limpa o
+ * backlog pré-pausa e impede que a caixa acumule para sempre — não há valor em
+ * alerta operacional de 30+ dias. A dedup é por dia/24h, então apagar antigos não
+ * faz o cron recriar. Roda no boot e diariamente.
+ */
+export async function purgeOldAlerts(dias = 30): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const cutoff = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+  const result = await db.delete(alerts).where(lt(alerts.createdAt, cutoff));
+  return (result as any)?.affectedRows ?? (result as any)?.[0]?.affectedRows ?? 0;
+}
+
 export async function markAlertEmailSent(id: number) {
   const db = await getDb();
   if (!db) return;
