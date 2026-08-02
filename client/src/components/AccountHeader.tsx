@@ -321,318 +321,223 @@ export function AccountHeader({
 
   const CLAMP_HEIGHT = 72;
 
+  // ── Linha de sync (dot + "sync há Xmin"), reaproveitada no header hero ──
+  const syncLine = (activeAccount as any)?.lastSyncAt && (() => {
+    const syncDate = new Date((activeAccount as any).lastSyncAt);
+    const diffMs = Date.now() - syncDate.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffH = Math.floor(diffMs / 3600000);
+    const label = diffMin < 60
+      ? `sync há ${diffMin}min`
+      : diffH < 24
+        ? `sync há ${diffH}h`
+        : `sync ${syncDate.getDate().toString().padStart(2, "0")}/${(syncDate.getMonth() + 1).toString().padStart(2, "0")}`;
+    const isStale = diffH >= 25;
+    return (
+      <p className="text-[11px] flex items-center gap-1.5 mt-0.5" style={{ color: isStale ? "#EF9F27" : "rgba(0,0,0,0.4)" }}>
+        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: isStale ? "#EF9F27" : "#1D9E75" }} />
+        {label}
+      </p>
+    );
+  })();
+
+  const secLabel = (t: string) => (
+    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">{t}</p>
+  );
+
   return (
-    <div style={{
-      display: "grid",
-      gridTemplateColumns: "220px 1fr 1fr",
-      background: "white",
-      border: "1px solid rgba(0,0,0,0.08)",
-      borderRadius: "12px",
-      marginBottom: "16px",
-      overflow: "hidden",
-    }}>
+    <div className="rounded-xl border border-border bg-card mb-4 overflow-hidden">
 
-      {/* ══ Block 1 — Identity ══════════════════════════════════════════════ */}
-      <div style={{
-        padding: "12px 16px",
-        display: "flex",
-        flexDirection: "column",
-        borderRight: "1px solid rgba(0,0,0,0.06)",
-        ...(block1BorderColor ? {
-          borderLeft: `3px solid ${block1BorderColor}`,
-          borderRadius: "12px 0 0 12px",
-        } : {}),
-      }}>
-
-        {/* Avatar + name */}
-        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6, overflow: "hidden" }}>
-          <div style={{
-            width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
-            background: palette.bg, color: palette.color,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
-            overflow: "hidden",
-          }}>
-            {pictureUrl
-              ? <img src={pictureUrl} alt={initials} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              : initials}
-          </div>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {accountName}
-          </span>
+      {/* ══ Faixa de identidade ═════════════════════════════════════════════ */}
+      <div className="flex items-start gap-3 p-4">
+        {/* Avatar */}
+        <div className="w-11 h-11 rounded-full flex-shrink-0 flex items-center justify-center overflow-hidden text-sm font-bold"
+          style={{ background: palette.bg, color: palette.color, letterSpacing: 0.5 }}>
+          {pictureUrl
+            ? <img src={pictureUrl} alt={initials} className="w-full h-full object-cover" />
+            : initials}
         </div>
 
-        {/* Last sync info */}
-        {(activeAccount as any)?.lastSyncAt && (() => {
-          const syncDate = new Date((activeAccount as any).lastSyncAt);
-          const now = new Date();
-          const diffMs = now.getTime() - syncDate.getTime();
-          const diffMin = Math.floor(diffMs / 60000);
-          const diffH = Math.floor(diffMs / 3600000);
-          const diffD = Math.floor(diffMs / 86400000);
-          const label = diffMin < 60
-            ? `sync há ${diffMin}min`
-            : diffH < 24
-              ? `sync há ${diffH}h`
-              : `sync ${syncDate.getDate().toString().padStart(2,"0")}/${(syncDate.getMonth()+1).toString().padStart(2,"0")}`;
-          const isStale = diffH >= 25;
-          return (
-            <p style={{ fontSize: 10, color: isStale ? "#EF9F27" : "rgba(0,0,0,0.3)", marginBottom: 4, display: "flex", alignItems: "center", gap: 3 }}>
-              <span style={{ width: 5, height: 5, borderRadius: "50%", background: isStale ? "#EF9F27" : "#1D9E75", display: "inline-block", flexShrink: 0 }} />
-              {label}
-            </p>
-          );
-        })()}
-        {/* Goal badge */}
-        {goalLabel && (
-          <div style={{ marginBottom: 6 }}>
-            <span style={{
-              fontSize: 10, fontWeight: 500,
-              padding: "2px 8px", borderRadius: 99,
-              background: "rgba(232,91,168,0.1)", color: "#E85BA8",
-              border: "1px solid rgba(232,91,168,0.25)",
-              whiteSpace: "nowrap",
-            }}>
-              {goalEmoji} {goalLabel}
-            </span>
+        {/* Nome + goal + sync + fontes */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-lg font-extrabold text-foreground truncate leading-tight">{accountName}</h2>
+            {goalLabel && (
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
+                style={{ background: "rgba(232,91,168,0.1)", color: "#E85BA8", border: "1px solid rgba(232,91,168,0.25)" }}>
+                {goalEmoji} {goalLabel}
+              </span>
+            )}
           </div>
-        )}
-
-        {/* Fontes conectadas — lidas do BANCO, não do clientConfig hardcoded. */}
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
-          {(fontes ?? []).filter((f) => CHIPS_NO_HEADER.includes(f.chave)).map((f) => (
-            <ChipFonte key={f.chave} fonte={f} />
-          ))}
+          {syncLine}
+          <div className="flex gap-1 flex-wrap mt-2">
+            {(fontes ?? []).filter((f) => CHIPS_NO_HEADER.includes(f.chave)).map((f) => (
+              <ChipFonte key={f.chave} fonte={f} />
+            ))}
+          </div>
         </div>
 
-        {/* Contexto button */}
-        <div style={{ marginBottom: 6 }}>
+        {/* Ações */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
-            onClick={() => setContextOpen(v => !v)}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 4,
-              fontSize: 10, fontWeight: 500,
-              padding: "2px 8px", borderRadius: 99,
-              background: contextOpen ? "rgba(232,91,168,0.12)" : "rgba(0,0,0,0.04)",
-              border: contextOpen ? "1px solid rgba(232,91,168,0.35)" : "1px solid rgba(0,0,0,0.12)",
-              color: contextOpen ? "#E85BA8" : "rgba(0,0,0,0.4)",
-              cursor: "pointer",
-            }}
+            onClick={() => setContextOpen((v) => !v)}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors"
+            style={contextOpen
+              ? { background: "rgba(232,91,168,0.12)", borderColor: "rgba(232,91,168,0.35)", color: "#E85BA8" }
+              : { background: "transparent", borderColor: "rgba(0,0,0,0.12)", color: "rgba(0,0,0,0.5)" }}
           >
-            <Brain style={{ width: 10, height: 10 }} />
-            Contexto
+            <Brain className="w-3.5 h-3.5" /> Contexto
           </button>
-        </div>
-
-        {/* Sync button — fills remaining height */}
-        <div style={{ flex: 1, display: "flex", alignItems: "flex-end" }}>
           <button
             onClick={() => sync.mutate({ accountId: selectedAccountId, days: 30 })}
             disabled={sync.isPending}
-            style={{
-              width: "100%",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              background: "#E85BA8", borderRadius: 8, padding: "7px 12px",
-              cursor: sync.isPending ? "not-allowed" : "pointer",
-              border: "none", opacity: sync.isPending ? 0.75 : 1,
-              transition: "opacity 0.15s",
-            }}
-            onMouseEnter={(e) => { if (!sync.isPending) e.currentTarget.style.opacity = "0.88"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = sync.isPending ? "0.75" : "1"; }}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg text-white transition-opacity"
+            style={{ background: "#E85BA8", opacity: sync.isPending ? 0.75 : 1, cursor: sync.isPending ? "not-allowed" : "pointer" }}
           >
-            <RefreshCw style={{ width: 13, height: 13, color: "white", flexShrink: 0, animation: sync.isPending ? "spin 1s linear infinite" : undefined }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: "white", whiteSpace: "nowrap" }}>
-              {sync.isPending ? "Sincronizando..." : "Sincronizar"}
+            <RefreshCw className="w-3.5 h-3.5" style={{ animation: sync.isPending ? "spin 1s linear infinite" : undefined }} />
+            {sync.isPending ? "Sincronizando..." : "Sincronizar"}
+          </button>
+        </div>
+      </div>
+
+      {/* ══ Corpo: Resumo da IA + Resultados ════════════════════════════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 px-4 pb-4">
+
+        {/* ── Resumo da IA (destaque, borda-status à esquerda) ── */}
+        <div className="rounded-lg border border-border p-3"
+          style={block1BorderColor ? { borderLeft: `3px solid ${block1BorderColor}` } : {}}>
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: statusCfg?.color ?? "rgba(0,0,0,0.2)" }} />
+            <span className="text-xs font-semibold flex-1" style={{ color: statusCfg?.color ?? muted }}>
+              {statusCfg?.label ?? "Status IA"} — 7 dias
             </span>
-          </button>
-        </div>
-      </div>
-
-      {/* ══ Block 2 — Resultados (Hoje / Ontem) ═════════════════════════════ */}
-      <div style={{ padding: "12px 16px", borderRight: "1px solid rgba(0,0,0,0.06)" }}>
-        {blockLabel("Resultados")}
-
-        {[
-          { period: "Hoje",  totals: todayTotals, color: "#E85BA8" },
-          { period: "Ontem", totals: yestTotals,  color: muted     },
-        ].map(({ period, totals, color }, i) => {
-          const tag = getDayStatus(goalType, totals);
-          return (
-          <div key={period} style={{ marginBottom: i === 0 ? 10 : 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
-              <span style={{ fontSize: 10, fontWeight: 600, color }}>
-                {period}
-              </span>
-              {tag && (
-                <span style={{
-                  fontSize: 9, fontWeight: 600, lineHeight: 1,
-                  padding: "2px 6px", borderRadius: 99,
-                  background: tag.bg, color: tag.color,
-                  border: `1px solid ${tag.border}`,
-                  whiteSpace: "nowrap",
-                }}>
-                  {tag.label}
-                </span>
-              )}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0 6px" }}>
-              {kpiDefs.map((kpi) => (
-                <div key={kpi.key}>
-                  <div style={{
-                    fontSize: 9, color: muted, fontWeight: 500,
-                    textTransform: "uppercase", letterSpacing: 0.4,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    marginBottom: 1,
-                  }}>
-                    {kpi.label}
-                  </div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#111", whiteSpace: "nowrap" }}>
-                    {kpi.format(totals)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          );
-        })}
-        {/* Payment / balance status */}
-        {billingSummary && (
-          <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.06)" }}>
-            {!billingSummary.isPrePaid ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: "#16a34a" }} />
-                <span style={{ fontSize: 10, color: "#16a34a", fontWeight: 600 }}>
-                  Cartao de credito - OK
-                </span>
-              </div>
-            ) : (() => {
-              const balance = billingSummary.remainingBalance ?? 0;
-              const days = billingSummary.daysRemaining;
-              const low = days !== null && days <= 7;
-              const color = low ? "#dc2626" : "#16a34a";
-              const currency = billingSummary.currency ?? "BRL";
-              const fmtMoney = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(v);
-              return (
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                    <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: color }} />
-                    <span style={{ fontSize: 10, fontWeight: 600, color }}>
-                      Saldo: {fmtMoney(balance)}
-                    </span>
-                    {low && (
-                      <span style={{
-                        fontSize: 9, fontWeight: 600, lineHeight: 1,
-                        padding: "2px 6px", borderRadius: 99,
-                        background: "rgba(220,38,38,0.1)", color: "#dc2626",
-                        border: "1px solid rgba(220,38,38,0.3)",
-                        whiteSpace: "nowrap",
-                      }}>
-                        Recarregar
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 9, color: muted }}>
-                    {days !== null
-                      ? `Projecao: ~${Math.floor(days)} dia${Math.floor(days) === 1 ? "" : "s"} restante${Math.floor(days) === 1 ? "" : "s"} (media 30d)`
-                      : "Sem historico de gasto suficiente para projecao"}
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        )}
-      </div>
-
-      {/* ══ Block 3 — Resumo Geral ═══════════════════════════════════════════ */}
-      <div style={{ padding: "12px 16px", borderRight: "1px solid rgba(0,0,0,0.06)" }}>
-        {blockLabel("Resumo Geral")}
-        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
-          <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: statusCfg?.color ?? "rgba(0,0,0,0.2)" }} />
-          <span style={{ fontSize: 11, fontWeight: 500, color: statusCfg?.color ?? muted, flex: 1 }}>
-            {statusCfg?.label ?? "Status IA"} — 7 dias
-          </span>
-          <button
-            onClick={() => { if (!resumoCtxOpen) setResumoCtx(accountCtx?.clientProfile ?? ""); setResumoCtxOpen(v => !v); }}
-            title="Adicionar contexto e reanalisar"
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: resumoCtxOpen ? "#E85BA8" : muted, opacity: resumoCtxOpen ? 1 : 0.5, transition: "opacity 0.15s" }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = resumoCtxOpen ? "1" : "0.5")}
-          >
-            <Brain style={{ width: 11, height: 11 }} />
-          </button>
-          <button
-            onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
-            disabled={refreshStatus.isPending}
-            title="Reanalisar (usa o contexto salvo)"
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: muted, opacity: 0.5, transition: "opacity 0.15s" }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
-          >
-            <RefreshCw style={{ width: 10, height: 10, animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
-          </button>
-        </div>
-
-        {/* Contexto persistente: a IA (aqui e no robô noturno) considera isto. */}
-        {resumoCtxOpen && (() => {
-          const salvando = refreshStatus.isPending || upsertContext.isPending;
-          return (
-          <div style={{ marginBottom: 8 }}>
-            <textarea
-              value={resumoCtx}
-              onChange={(e) => setResumoCtx(e.target.value)}
-              placeholder="Contexto que a IA deve considerar (ex.: sazonalidade, campanha de lançamento, verba reduzida, regra do cliente)…"
-              rows={3}
-              style={{
-                width: "100%", fontSize: 11, lineHeight: 1.4, padding: "6px 8px",
-                border: "1px solid rgba(0,0,0,0.12)", borderRadius: 8, resize: "vertical",
-                color: "#111", background: "rgba(0,0,0,0.015)", outline: "none",
-              }}
-            />
             <button
-              onClick={salvarContextoDoResumo}
-              disabled={salvando}
-              style={{
-                marginTop: 5, fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 7,
-                border: "none", cursor: salvando ? "default" : "pointer",
-                background: salvando ? "rgba(0,0,0,0.08)" : "#E85BA8",
-                color: salvando ? "rgba(0,0,0,0.4)" : "white",
-              }}
+              onClick={() => { if (!resumoCtxOpen) setResumoCtx(accountCtx?.clientProfile ?? ""); setResumoCtxOpen((v) => !v); }}
+              title="Adicionar contexto e reanalisar"
+              className="p-1 rounded hover:bg-black/5 transition-colors"
+              style={{ color: resumoCtxOpen ? "#E85BA8" : muted }}
             >
-              {salvando ? "Salvando…" : "Salvar e reanalisar"}
+              <Brain className="w-3.5 h-3.5" />
             </button>
-            <p style={{ fontSize: 9, color: "rgba(0,0,0,0.35)", marginTop: 4 }}>
-              Fica salvo e vale também na reanálise automática noturna.
-            </p>
+            <button
+              onClick={() => refreshStatus.mutate({ accountId: selectedAccountId })}
+              disabled={refreshStatus.isPending}
+              title="Reanalisar (usa o contexto salvo)"
+              className="p-1 rounded hover:bg-black/5 transition-colors"
+              style={{ color: muted }}
+            >
+              <RefreshCw className="w-3 h-3" style={{ animation: refreshStatus.isPending ? "spin 1s linear infinite" : undefined }} />
+            </button>
           </div>
-          );
-        })()}
-        <p
-          ref={summaryRef}
-          style={{
-            fontSize: 11, lineHeight: 1.45, color: muted,
-            overflow: "hidden",
-            maxHeight: expanded ? "none" : CLAMP_HEIGHT,
-            transition: "max-height 0.2s ease",
-          }}
-        >
-          {aiSummary}
-        </p>
-        {summaryOverflows && (
-          <button
-            onClick={() => setExpanded(v => !v)}
-            style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 3, background: "none", border: "none", padding: 0, cursor: "pointer", color: muted, opacity: 0.5, fontSize: 10, transition: "opacity 0.2s ease" }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
-          >
-            {expanded ? <ChevronUp style={{ width: 10, height: 10 }} /> : <ChevronDown style={{ width: 10, height: 10 }} />}
-          </button>
-        )}
-      </div>
 
+          {resumoCtxOpen && (() => {
+            const salvando = refreshStatus.isPending || upsertContext.isPending;
+            return (
+              <div className="mb-2">
+                <textarea
+                  value={resumoCtx}
+                  onChange={(e) => setResumoCtx(e.target.value)}
+                  placeholder="Contexto que a IA deve considerar (ex.: sazonalidade, campanha de lançamento, verba reduzida, regra do cliente)…"
+                  rows={3}
+                  className="w-full text-[11px] leading-snug px-2 py-1.5 rounded-lg border border-border bg-background resize-y outline-none focus:ring-1 focus:ring-primary"
+                />
+                <button
+                  onClick={salvarContextoDoResumo}
+                  disabled={salvando}
+                  className="mt-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-md text-white disabled:opacity-60"
+                  style={{ background: salvando ? "rgba(0,0,0,0.2)" : "#E85BA8" }}
+                >
+                  {salvando ? "Salvando…" : "Salvar e reanalisar"}
+                </button>
+                <p className="text-[9px] text-muted-foreground mt-1">Fica salvo e vale também na reanálise automática noturna.</p>
+              </div>
+            );
+          })()}
+
+          <p ref={summaryRef} className="text-[11px] leading-relaxed text-muted-foreground overflow-hidden"
+            style={{ maxHeight: expanded ? "none" : CLAMP_HEIGHT, transition: "max-height 0.2s ease" }}>
+            {aiSummary}
+          </p>
+          {summaryOverflows && (
+            <button onClick={() => setExpanded((v) => !v)} className="flex items-center gap-0.5 mt-1 text-muted-foreground/60 hover:text-muted-foreground transition-colors">
+              {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+          )}
+        </div>
+
+        {/* ── Resultados (Hoje / Ontem) + faturamento ── */}
+        <div className="rounded-lg border border-border p-3">
+          {secLabel("Resultados")}
+          {[
+            { period: "Hoje", totals: todayTotals, color: "#E85BA8" },
+            { period: "Ontem", totals: yestTotals, color: muted },
+          ].map(({ period, totals, color }, i) => {
+            const tag = getDayStatus(goalType, totals);
+            return (
+              <div key={period} className={i === 0 ? "mb-2.5" : ""}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-[10px] font-semibold" style={{ color }}>{period}</span>
+                  {tag && (
+                    <span className="text-[9px] font-semibold leading-none px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                      style={{ background: tag.bg, color: tag.color, border: `1px solid ${tag.border}` }}>
+                      {tag.label}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-4 gap-x-1.5">
+                  {kpiDefs.map((kpi) => (
+                    <div key={kpi.key}>
+                      <div className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground truncate mb-0.5">{kpi.label}</div>
+                      <div className="text-xs font-semibold text-foreground whitespace-nowrap tabular-nums">{kpi.format(totals)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          {billingSummary && (
+            <div className="mt-2.5 pt-2 border-t border-border/60">
+              {!billingSummary.isPrePaid ? (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#16a34a" }} />
+                  <span className="text-[10px] font-semibold" style={{ color: "#16a34a" }}>Cartao de credito - OK</span>
+                </div>
+              ) : (() => {
+                const balance = billingSummary.remainingBalance ?? 0;
+                const days = billingSummary.daysRemaining;
+                const low = days !== null && days <= 7;
+                const color = low ? "#dc2626" : "#16a34a";
+                const currency = billingSummary.currency ?? "BRL";
+                const fmtMoney = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(v);
+                return (
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: color }} />
+                      <span className="text-[10px] font-semibold" style={{ color }}>Saldo: {fmtMoney(balance)}</span>
+                      {low && (
+                        <span className="text-[9px] font-semibold leading-none px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                          style={{ background: "rgba(220,38,38,0.1)", color: "#dc2626", border: "1px solid rgba(220,38,38,0.3)" }}>
+                          Recarregar
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[9px] text-muted-foreground">
+                      {days !== null
+                        ? `Projecao: ~${Math.floor(days)} dia${Math.floor(days) === 1 ? "" : "s"} restante${Math.floor(days) === 1 ? "" : "s"} (media 30d)`
+                        : "Sem historico de gasto suficiente para projecao"}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ══ Painel de Contexto (inline, expande abaixo) ══════════════════ */}
       {contextOpen && selectedAccountId && (
-        <div style={{ gridColumn: "1 / -1" }}>
+        <div className="px-4 pb-4">
           <ContextPanel accountId={selectedAccountId} onClose={() => setContextOpen(false)} />
         </div>
       )}
