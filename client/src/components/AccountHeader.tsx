@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { ContextoGeralPanel } from "@/components/ContextoGeralPanel";
+import { ThresholdsPanel } from "@/components/ThresholdsPanel";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { getClientByMetaAccountId } from "@/config/clientConfig";
 import { RefreshCw, ChevronDown, ChevronUp, Check, Brain, Eye, CheckCircle2 } from "lucide-react";
@@ -602,7 +603,11 @@ export function AccountHeader({
       {/* ══ Painel de Contexto (inline, expande abaixo) ══════════════════ */}
       {contextOpen && selectedAccountId && (
         <div className="px-4 pb-4">
-          <ContextoGeralPanel accountId={selectedAccountId} onClose={() => setContextOpen(false)} />
+          <ContextoGeralPanel
+            accountId={selectedAccountId}
+            onClose={() => setContextOpen(false)}
+            metasSlot={<ThresholdsPanel account={{ id: selectedAccountId, goalTypeOverride: goalType }} />}
+          />
         </div>
       )}
     </div>

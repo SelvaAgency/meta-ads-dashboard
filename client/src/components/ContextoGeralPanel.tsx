@@ -62,7 +62,7 @@ function Campo({ label, value, onChange, rows = 2, placeholder }: { label?: stri
   );
 }
 
-export function ContextoGeralPanel({ accountId, onClose }: { accountId: number; onClose?: () => void }) {
+export function ContextoGeralPanel({ accountId, onClose, metasSlot }: { accountId: number; onClose?: () => void; metasSlot?: ReactNode }) {
   const [sobreCliente, setSobreCliente] = useState("");   // perfil + objetivo + oferta (fundidos)
   const [businessType, setBusinessType] = useState("");
   const [ticketRange, setTicketRange] = useState("");
@@ -203,6 +203,13 @@ export function ContextoGeralPanel({ accountId, onClose }: { accountId: number; 
           </Secao>
         </div>
       </div>
+
+      {/* Metas de performance (thresholds) — a IA classifica Bom/Regular/Ruim por elas */}
+      {metasSlot && (
+        <div className="mt-4 rounded-xl border border-border bg-card px-4 pt-3 pb-4">
+          {metasSlot}
+        </div>
+      )}
 
       {/* Memória automática (read-only) */}
       {((ctx as any)?.learningsConsolidated || (ctx as any)?.learnings) && (
