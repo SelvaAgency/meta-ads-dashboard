@@ -10,6 +10,7 @@ import { ThresholdsPanel } from "@/components/ThresholdsPanel";
 import { GoogleAdsVinculos } from "@/components/conexoes/GoogleAdsVinculos";
 import { GA4Vinculos } from "@/components/conexoes/GA4Vinculos";
 import { LojasVinculos } from "@/components/conexoes/LojasVinculos";
+import { ClarityVinculos } from "@/components/conexoes/ClarityVinculos";
 import { toast } from "sonner";
 import {
   Settings2, Check, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
@@ -364,6 +365,12 @@ function ConexoesPanel() {
       <div>
         <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Lojas · e-commerce</p>
         <LojasVinculos />
+      </div>
+
+      {/* Clarity · configuração de comportamento por cliente */}
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Microsoft Clarity</p>
+        <ClarityVinculos />
       </div>
 
       <div>

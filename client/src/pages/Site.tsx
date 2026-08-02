@@ -17,12 +17,13 @@
 import { useEffect, useState } from "react";
 import {
   Activity, AlertTriangle, ExternalLink, Eye, Loader2, MousePointerClick,
-  RefreshCw, Settings2, TrendingUp, Users, X, Clock, ArrowDownWideNarrow,
+  RefreshCw, Settings2, TrendingUp, Users, Clock, ArrowDownWideNarrow,
   FileText, NotebookPen, Sparkles, Copy, Trash2, Check, MessageSquare, Send,
   Globe, Gauge, LayoutDashboard, Zap, ArrowRight, ShieldCheck, Wifi, Lock, ShieldAlert,
   CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Link } from "wouter";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Secao, FonteAusente } from "@/components/Secao";
@@ -91,7 +92,6 @@ export default function Site() {
   const podeConfigurar = canManageContent((user as { role?: string } | null)?.role);
   const { activeAccountId, activeAccount, setActiveAccountId } = useActiveAccount();
   const utils = trpc.useUtils();
-  const [config, setConfig] = useState(false);
 
   // Deep-link de notificação: /clarity?account=15 abre já no cliente certo.
   // Sem isto, o alerta levaria para a tela do cliente que estivesse selecionado.
@@ -165,10 +165,10 @@ export default function Site() {
             </button>
           )}
           {podeConfigurar && (
-            <button onClick={() => setConfig(true)}
+            <Link href="/settings"
               className="h-9 px-3 rounded-lg border border-border text-xs flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
               <Settings2 className="w-3.5 h-3.5" /> Configurar
-            </button>
+            </Link>
           )}
         </header>
 
@@ -182,16 +182,12 @@ export default function Site() {
         </div>
 
         {aba === "resumo" && <AbaResumo accountId={activeAccountId} onIr={setAba} />}
-        {aba === "performance" && <AbaPerformanceSite accountId={activeAccountId} podeConfigurar={podeConfigurar} onConfigurar={() => setConfig(true)} destaque={secaoDestaque} />}
+        {aba === "performance" && <AbaPerformanceSite accountId={activeAccountId} podeConfigurar={podeConfigurar} destaque={secaoDestaque} />}
         {aba === "tecnico" && <AbaTecnico accountId={activeAccountId} podeConfigurar={podeConfigurar} destaque={secaoDestaque} />}
         {aba === "relatorios" && <AbaRelatorios accountId={activeAccountId} podeGerar={podeConfigurar} />}
         {aba === "chat" && <AbaChat accountId={activeAccountId} nome={activeAccount?.accountName ?? "este cliente"} podeLimpar={podeConfigurar} />}
 
       </div>
-
-      {config && activeAccountId && (
-        <DialogConfig accountId={activeAccountId} atual={cfg ?? null} onClose={() => setConfig(false)} />
-      )}
     </MetaDashboardLayout>
   );
 }
@@ -232,104 +228,6 @@ function Lista({ titulo, itens, vazio }: { titulo: string; itens: { rotulo: stri
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── Configuração (admin/dev) ────────────────────────────────────────────────
-
-type Cfg = { enabled: boolean; projectId: string | null; hasToken: boolean; domain: string | null; importantUrlsJson: unknown; notes: string | null };
-
-function DialogConfig({ accountId, atual, onClose }: { accountId: number; atual: Cfg | null; onClose: () => void }) {
-  const utils = trpc.useUtils();
-  const [enabled, setEnabled] = useState(atual?.enabled ?? false);
-  const [projectId, setProjectId] = useState(atual?.projectId ?? "");
-  const [apiToken, setApiToken] = useState("");
-  const [domain, setDomain] = useState(atual?.domain ?? "");
-  const [urls, setUrls] = useState(((atual?.importantUrlsJson as string[] | null) ?? []).join("\n"));
-  const [notes, setNotes] = useState(atual?.notes ?? "");
-
-  const salvar = trpc.clarity.upsert.useMutation({
-    onSuccess: () => { utils.clarity.settings.invalidate(); toast.success("Clarity configurado."); onClose(); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-card border border-border rounded-2xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 p-4 border-b border-border">
-          <Settings2 className="w-4 h-4 text-accent" />
-          <p className="text-sm font-semibold flex-1">Configurar Clarity</p>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
-        </div>
-
-        <div className="p-4 flex flex-col gap-3">
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-            Clarity habilitado para este cliente
-          </label>
-
-          <Campo label="Token da API" hint={atual?.hasToken ? "Já existe um token salvo. Preencha só para substituir." : "Clarity → Settings → Data Export → Generate new API token."}>
-            <input type="password" value={apiToken} onChange={(e) => setApiToken(e.target.value)}
-              placeholder={atual?.hasToken ? "•••••••• (mantém o atual)" : "Cole o token aqui"}
-              className="w-full text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary" />
-          </Campo>
-
-          <Campo label="Project ID" hint="Só para o link do painel. A API não usa — quem identifica o projeto é o token.">
-            <input value={projectId} onChange={(e) => setProjectId(e.target.value)} placeholder="ex.: 3t0wlogvdz"
-              className="w-full text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary" />
-          </Campo>
-
-          <Campo label="Domínio principal">
-            <input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="exemplo.com.br"
-              className="w-full text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary" />
-          </Campo>
-
-          <Campo label="URLs importantes" hint="Uma por linha — as páginas que mais importam para este cliente.">
-            <textarea value={urls} onChange={(e) => setUrls(e.target.value)} rows={3}
-              placeholder={"https://exemplo.com.br/\nhttps://exemplo.com.br/orcamento"}
-              className="w-full text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary resize-y" />
-          </Campo>
-
-          <Campo label="Observações de tracking">
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
-              placeholder="Ex.: o pixel dispara só após aceitar cookies."
-              className="w-full text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary resize-y" />
-          </Campo>
-
-          <p className="text-[11px] text-muted-foreground border-t border-border pt-3">
-            O token é gravado criptografado e nunca volta para o navegador. A API do Clarity só entrega os
-            últimos 3 dias e aceita 10 consultas por dia — por isso guardamos um retrato diário para formar o histórico.
-          </p>
-        </div>
-
-        <div className="flex justify-end gap-2 p-4 border-t border-border">
-          <button onClick={onClose} className="text-sm px-4 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground">Cancelar</button>
-          <button
-            onClick={() => salvar.mutate({
-              accountId, enabled,
-              projectId: projectId.trim() || null,
-              ...(apiToken ? { apiToken } : {}),
-              domain: domain.trim() || null,
-              importantUrls: urls.split("\n").map((u) => u.trim()).filter(Boolean),
-              notes: notes.trim() || null,
-            })}
-            disabled={salvar.isPending}
-            className="text-sm px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium disabled:opacity-50">
-            {salvar.isPending ? "Salvando…" : "Salvar"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Campo({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label className="text-[11px] text-muted-foreground">{label}</label>
-      {children}
-      {hint && <p className="text-[10px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -1388,8 +1286,8 @@ function PastilhaFonte({ fonte }: { fonte: Fonte }) {
  * Comportamento e acesso do site. Hoje só Clarity; o slot de GA4 fica pronto e
  * OCULTO — fonte não conectada não vira card vazio (regra da F1).
  */
-function AbaPerformanceSite({ accountId, podeConfigurar, onConfigurar, destaque }: {
-  accountId: number; podeConfigurar: boolean; onConfigurar: () => void; destaque?: SecaoSite;
+function AbaPerformanceSite({ accountId, podeConfigurar, destaque }: {
+  accountId: number; podeConfigurar: boolean; destaque?: SecaoSite;
 }) {
   const cfgQ = trpc.clarity.settings.useQuery({ accountId });
   const snapQ = trpc.clarity.ultimo.useQuery({ accountId });
@@ -1422,7 +1320,7 @@ function AbaPerformanceSite({ accountId, podeConfigurar, onConfigurar, destaque 
         texto={podeConfigurar
           ? "Conecte o Microsoft Clarity para ver comportamento, ou vincule uma propriedade do Google Analytics para ver tráfego e aquisição."
           : "Peça a um administrador para conectar o Clarity ou o Google Analytics deste cliente."}
-        acao={podeConfigurar ? <button onClick={onConfigurar} className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-medium">Configurar Clarity</button> : undefined} />
+        acao={podeConfigurar ? <Link href="/settings" className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-medium">Configurar Clarity</Link> : undefined} />
     );
   }
 
