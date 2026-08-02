@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import {
   Settings2, Check, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
   CreditCard, Wallet, Key, ExternalLink, Link2, ChevronRight, Zap,
-  Trash2, Loader2, SlidersHorizontal, RefreshCw, Brain, BookOpen, Save} from "lucide-react";
+  Trash2, Loader2, SlidersHorizontal, RefreshCw, Brain, BookOpen, Save, Cable} from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type GoalType = "SALES"|"VALUE"|"LEADS"|"MESSAGES"|"TRAFFIC"|"ENGAGEMENT"|"AWARENESS"|"VIDEO"|"FOLLOWERS"|"APP";
@@ -284,6 +284,70 @@ function TokenSection() {
   );
 }
 
+// ─── Conexões / Integrações (hub) ─────────────────────────────────────────────
+//  Camada 1: Meta (token da agência). + Matriz de status por cliente (do
+//  agregador fontes.todas). Google/GA4/Lojas/Clarity/Redes ganham ação de
+//  conectar aqui nas próximas fatias.
+const CONEXAO_COLS: { chave: string; label: string }[] = [
+  { chave: "meta", label: "Meta Ads" },
+  { chave: "google_ads", label: "Google Ads" },
+  { chave: "ga4", label: "GA4" },
+  { chave: "clarity", label: "Clarity" },
+];
+function tomFonte(s: string): string {
+  return s === "ok" ? "#1D9E75" : s === "atencao" ? "#EF9F27" : s === "erro" ? "#E24B4A" : "rgba(120,120,120,0.35)";
+}
+function ConexoesPanel() {
+  const { data: fontes } = trpc.fontes.todas.useQuery(undefined, { staleTime: 60_000 });
+  const { data: accounts } = trpc.accounts.list.useQuery(undefined, { staleTime: 60_000 });
+  const nome = (id: number) => (accounts as any)?.find((a: any) => a.id === id)?.accountName ?? String(id);
+  const statusDe = (row: any, chave: string) => row.fontes.find((f: any) => f.chave === chave)?.status ?? "ausente";
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Meta Ads · token da agência</p>
+        <TokenSection />
+      </div>
+
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2.5">Fontes conectadas por cliente</p>
+        <div className="overflow-x-auto rounded-xl border border-border">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Cliente</th>
+                {CONEXAO_COLS.map((c) => <th key={c.chave} className="px-3 py-2 text-center font-semibold text-muted-foreground whitespace-nowrap">{c.label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {(fontes ?? []).length === 0 && (
+                <tr><td colSpan={CONEXAO_COLS.length + 1} className="px-3 py-4 text-center text-muted-foreground">Carregando…</td></tr>
+              )}
+              {(fontes ?? []).map((row: any) => (
+                <tr key={row.accountId} className="border-b border-border/40 last:border-0">
+                  <td className="px-3 py-2 text-foreground font-medium truncate max-w-[220px]">{nome(row.accountId)}</td>
+                  {CONEXAO_COLS.map((c) => {
+                    const s = statusDe(row, c.chave);
+                    return (
+                      <td key={c.chave} className="px-3 py-2 text-center">
+                        <span title={s} className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: tomFonte(s) }} />
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[10px] text-muted-foreground/70 mt-2">
+          ● verde = conectado · amarelo = atenção · vermelho = erro · cinza = não conectado. Conectar/vincular Google, GA4, Lojas, Clarity e Redes vai entrar aqui nas próximas fatias.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Notifications section ────────────────────────────────────────────────────
 function NotificationsSection() {
   const utils = trpc.useUtils();
@@ -402,8 +466,8 @@ function AgencyBar({ totalAccounts }: { totalAccounts: number }) {
               color: openPanel === "token" ? "#E85BA8" : "rgba(0,0,0,0.45)",
             }}
           >
-            <Key className="w-3 h-3" />
-            Token
+            <Cable className="w-3 h-3" />
+            Conexões
           </button>
           <button
             onClick={() => toggle("knowledge")}
@@ -420,10 +484,10 @@ function AgencyBar({ totalAccounts }: { totalAccounts: number }) {
         </div>
       </div>
 
-      {/* Token panel */}
+      {/* Conexões panel */}
       {openPanel === "token" && (
         <div className="border-t border-border px-6 py-5">
-          <TokenSection />
+          <ConexoesPanel />
         </div>
       )}
 
