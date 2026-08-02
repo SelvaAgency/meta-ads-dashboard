@@ -35,11 +35,19 @@ import {
   type FontesUsadas,
 } from "./clientIntelligence";
 
+/** Uma caixa da leitura estratégica: manchete curta + uma ou duas frases. */
+export type Destaque = { resumo: string; detalhe: string };
+
 export type RelatorioModular = {
   /** Manchete do período — é o <h1> do link público. Sem ela o relatório abria
    *  com "Resumo do período" fixo, e o cliente lia um título que não dizia nada. */
   titulo: string;
   resumoExecutivo: string;
+  /** Leitura estratégica em três caixas, logo abaixo dos KPIs: o que funcionou,
+   *  o que custou e onde está a abertura do próximo período. */
+  pontoAlto: Destaque;
+  pontoFraco: Destaque;
+  oportunidade: Destaque;
   /** Explicação do que os números do período mostram — e por quê. */
   oQueAconteceu: string;
   /** O que a agência vai fazer/testar no próximo período. */
@@ -74,13 +82,17 @@ REGRAS INEGOCIÁVEIS:
 OS CAMPOS:
 - titulo: manchete do período, máx 90 caracteres, sem ponto final. O achado principal, não um rótulo genérico. Se não houver achado claro, descreva o período de forma factual.
 - resumoExecutivo: 2 a 3 frases ligando investimento e resultado. É o parágrafo que alguém lê se ler só uma coisa.
-- oQueAconteceu: 3 a 5 frases explicando o que os números mostram E POR QUÊ. Ligue causa e efeito quando o dossiê permitir ("o custo caiu depois que concentramos verba em X"). Se um número piorou por uma decisão deliberada, diga isso. Prosa corrida, sem bullets, sem markdown.
+- pontoAlto, pontoFraco, oportunidade: três caixas curtas, a leitura estratégica do período. Cada uma tem "resumo" (manchete de até 60 caracteres, sem ponto final) e "detalhe" (1 a 2 frases com o número que sustenta a manchete).
+  · pontoAlto: o que mais funcionou NESTE período.
+  · pontoFraco: o que ficou abaixo NESTE período. Todo período tem um ponto mais fraco que os outros — nomeie o real, com número. Só devolva "resumo" vazio se o dossiê genuinamente não permitir apontar nenhum; jamais invente um problema para preencher a caixa.
+  · oportunidade: a abertura ainda NÃO explorada, olhando para o próximo período. É onde dá para ganhar, não a ação em si — a ação vai em proximosPassos, e as duas não podem ser a mesma frase reescrita.
+- oQueAconteceu: 3 a 5 frases explicando o que os números mostram E POR QUÊ. É a narrativa que COSTURA as três caixas acima numa história de causa e efeito ("o custo caiu depois que concentramos verba em X, e foi isso que derrubou o alcance") — não é para repeti-las em outras palavras. Se um número piorou por uma decisão deliberada, diga isso. Prosa corrida, sem bullets, sem markdown.
 - proximosPassos: 2 a 4 ações CONCRETAS que a agência vai executar no próximo período. Cada uma começa com verbo no futuro ou infinitivo. Cite criativo, público ou campanha pelo nome quando o dossiê tiver. Nada de "continuar monitorando".
 - oQueVamosMedir: 2 a 4 indicadores que vão dizer se os próximos passos funcionaram. Cada item liga um número a um passo. Não repita a lista de passos com outras palavras.
 - expectativa: 1 a 3 frases sobre o resultado esperado no próximo período e o que será feito se ele não vier. Seja honesto sobre incerteza — não prometa número que o dossiê não sustenta.
 
 Responda APENAS com JSON válido neste formato:
-{"titulo":"...","resumoExecutivo":"...","oQueAconteceu":"...","proximosPassos":["..."],"oQueVamosMedir":["..."],"expectativa":"..."}`;
+{"titulo":"...","resumoExecutivo":"...","pontoAlto":{"resumo":"...","detalhe":"..."},"pontoFraco":{"resumo":"...","detalhe":"..."},"oportunidade":{"resumo":"...","detalhe":"..."},"oQueAconteceu":"...","proximosPassos":["..."],"oQueVamosMedir":["..."],"expectativa":"..."}`;
 
 /**
  * Dados de SITE já estruturados para virarem cards no relatório visual —
@@ -130,6 +142,9 @@ export async function gerarRelatorioModular(
     const relatorio: RelatorioModular = {
       titulo: "Sem dados no período",
       resumoExecutivo: `Não há dados para os módulos pedidos no período de ${periodo.inicio} a ${periodo.fim}.`,
+      pontoAlto: { resumo: "", detalhe: "" },
+      pontoFraco: { resumo: "", detalhe: "" },
+      oportunidade: { resumo: "", detalhe: "" },
       oQueAconteceu: "",
       proximosPassos: [],
       oQueVamosMedir: [],
@@ -162,9 +177,18 @@ export async function gerarRelatorioModular(
 
   // O modelo pode omitir campos; a tela não pode quebrar por isso.
   const lista = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && !!x.trim()) : []);
+  // Caixa sem manchete não aparece na tela — melhor duas caixas honestas que
+  // três com uma inventada para preencher a grade.
+  const destaque = (v: unknown): Destaque => {
+    const d = (v ?? {}) as Partial<Destaque>;
+    return { resumo: (d.resumo ?? "").trim(), detalhe: (d.detalhe ?? "").trim() };
+  };
   relatorio = {
     titulo: (relatorio.titulo ?? "").trim(),
     resumoExecutivo: relatorio.resumoExecutivo ?? "",
+    pontoAlto: destaque(relatorio.pontoAlto),
+    pontoFraco: destaque(relatorio.pontoFraco),
+    oportunidade: destaque(relatorio.oportunidade),
     oQueAconteceu: relatorio.oQueAconteceu ?? "",
     proximosPassos: lista(relatorio.proximosPassos),
     oQueVamosMedir: lista(relatorio.oQueVamosMedir),
@@ -191,6 +215,15 @@ export function paraMarkdown(
 
   const usadas = fontes.filter((f) => f.presente).map((f) => f.rotulo);
   l.push(`\n## Fontes usadas\n${usadas.length ? usadas.join(" · ") : "nenhuma"}`);
+
+  const caixa = (rotulo: string, d: Destaque) =>
+    d.resumo ? `\n**${rotulo}:** ${d.resumo}${d.detalhe ? `\n${d.detalhe}` : ""}` : "";
+  const leitura = [
+    caixa("Ponto alto", r.pontoAlto),
+    caixa("Ponto fraco", r.pontoFraco),
+    caixa("Oportunidade", r.oportunidade),
+  ].filter(Boolean);
+  if (leitura.length) l.push(`\n## Leitura do período${leitura.join("\n")}`);
 
   if (r.oQueAconteceu) l.push(`\n## O que aconteceu no período\n${r.oQueAconteceu}`);
   if (r.proximosPassos.length) l.push(`\n## Próximos passos\n${r.proximosPassos.map((x, i) => `${i + 1}. ${x}`).join("\n")}`);

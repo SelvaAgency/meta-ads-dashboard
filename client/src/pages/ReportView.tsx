@@ -59,12 +59,36 @@ function fmtCurto(n: number, dinheiro: boolean): string {
 }
 
 const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const MESES_LONGOS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
 /** "2026-07-05" → "5/jul". O eixo mostrava a data ISO crua para o cliente. */
 function fmtSemana(iso: string): string {
   const [, m, d] = iso.split("-");
   const mi = Number(m) - 1;
   if (!d || mi < 0 || mi > 11) return iso;
   return `${Number(d)}/${MESES[mi]}`;
+}
+
+/**
+ * Período por extenso — "1 a 15 de julho de 2026", "28 de junho a 12 de julho
+ * de 2026". Repetir mês e ano quando não mudam é ruído; omitir quando mudam é
+ * ambíguo. Sem o período, os números do relatório não querem dizer nada.
+ */
+function fmtPeriodo(inicio?: string, fim?: string): { rotulo: string; dias: number } | null {
+  if (!inicio || !fim) return null;
+  const [ai, mi, di] = inicio.split("-").map(Number);
+  const [af, mf, df] = fim.split("-").map(Number);
+  if (!ai || !af || !mi || !mf) return null;
+  const mesI = MESES_LONGOS[mi - 1];
+  const mesF = MESES_LONGOS[mf - 1];
+  let rotulo: string;
+  if (ai === af && mi === mf) rotulo = `${di} a ${df} de ${mesF} de ${af}`;
+  else if (ai === af) rotulo = `${di} de ${mesI} a ${df} de ${mesF} de ${af}`;
+  else rotulo = `${di} de ${mesI} de ${ai} a ${df} de ${mesF} de ${af}`;
+  const dias = Math.round(
+    (Date.UTC(af, mf - 1, df) - Date.UTC(ai, mi - 1, di)) / 86400000
+  ) + 1;
+  return { rotulo, dias };
 }
 
 function pctDelta(curr: number, prev: number, dir: Direcao = "neutro"): { label: string; cls: string } {
@@ -97,7 +121,30 @@ function buildChartPath(values: number[], w = 640, h = 190, pad = 16) {
 
 const rotuloStatus = (s?: string) => (s === "good" ? "Performando bem" : s === "warn" ? "Atenção" : "Estável");
 
+/** Cor da série no gráfico. Mesma semântica do BIT: rosa para dinheiro, verde
+ *  para volume de resultado. */
+const COR_METRICA: Record<Metric, string> = {
+  investment: "#E85BA8", costPerConversion: "#E85BA8",
+  reach: "#1D9E75", conversions: "#1D9E75",
+};
+
 // ── Blocos visuais ──────────────────────────────────────────────────────────
+
+/** Card de seção no padrão do BIT: título em caixa normal à esquerda,
+ *  complemento em cinza à direita. */
+function Secao({ titulo, meta, className, children }: {
+  titulo: string; meta?: string; className?: string; children: React.ReactNode;
+}) {
+  return (
+    <section className={`rv-card ${className ?? ""}`}>
+      <div className="rv-card-head">
+        <h3>{titulo}</h3>
+        {meta && <span className="rv-card-meta">{meta}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
 
 type Kpi = { label: string; valor: string; delta: { label: string; cls: string } };
 
@@ -138,6 +185,8 @@ function GraficoSemanal({ series, metric, tabs, onMetric }: {
   if (!chart) return null;
 
   const dinheiro = EH_DINHEIRO[metric];
+  const cor = COR_METRICA[metric];
+  const gradId = `rv-grad-${metric}`;
   const escala = [
     { pos: "topo", valor: chart.max },
     { pos: "meio", valor: (chart.min + chart.max) / 2 },
@@ -146,8 +195,7 @@ function GraficoSemanal({ series, metric, tabs, onMetric }: {
   const linhasY = [chart.pad, chart.h / 2, chart.h - chart.pad];
 
   return (
-    <div className="rv-card">
-      <h3>Comparativo semanal</h3>
+    <Secao titulo="Comparativo semanal" meta={`${series.length} semanas`}>
       <div className="rv-tabs">
         {tabs.map((t) => (
           <button key={t.key} type="button" className={`rv-tab ${metric === t.key ? "active" : ""}`} onClick={() => onMetric(t.key)}>
@@ -159,24 +207,32 @@ function GraficoSemanal({ series, metric, tabs, onMetric }: {
         <div className="rv-plot" onPointerLeave={() => setAtivo(null)}>
           <svg className="rv-chart" viewBox={`0 0 ${chart.w} ${chart.h}`} width="100%" role="img"
             aria-label={`Evolução semanal de ${tabs.find((t) => t.key === metric)?.label ?? ""}`}>
+            {/* Gradiente em vez de preenchimento chapado — o mesmo tratamento do
+                gráfico do BIT (.22 → 0). */}
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={cor} stopOpacity={0.24} />
+                <stop offset="95%" stopColor={cor} stopOpacity={0} />
+              </linearGradient>
+            </defs>
             {linhasY.map((y, i) => (
               <line key={i} className="rv-grid-line" x1={chart.pad} x2={chart.w - chart.pad} y1={y} y2={y} />
             ))}
             {/* `key={metric}` remonta o grupo: a linha se redesenha ao trocar de
                 aba, em vez de trocar de forma instantaneamente. */}
             <g key={metric}>
-              <path className="rv-area" d={chart.area} fill="rgba(23,63,59,.12)" />
+              <path className="rv-area" d={chart.area} fill={`url(#${gradId})`} />
               {/* pathLength=1 normaliza o comprimento: o dash da animação não
                   depende do tamanho real do traçado, que muda a cada métrica. */}
-              <path className="rv-linha" d={chart.line} pathLength={1} fill="none" stroke="#173f3b"
-                strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+              <path className="rv-linha" d={chart.line} pathLength={1} fill="none" stroke={cor}
+                strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
               {chart.pts.map((p, i) => {
                 const ultimo = i === chart.pts.length - 1;
                 const destacado = ativo === i;
                 return (
                   <circle key={i} className="rv-ponto" cx={p[0]} cy={p[1]}
-                    r={destacado ? 7.5 : ultimo ? 6 : 4}
-                    fill={ultimo || destacado ? "#f4368c" : "#173f3b"} stroke="#fffdfa" strokeWidth={2.5}
+                    r={destacado ? 7 : ultimo ? 5.5 : 3.5}
+                    fill={cor} stroke="#fffdfa" strokeWidth={2.5}
                     style={{ animationDelay: `${240 + i * 55}ms` }} />
                 );
               })}
@@ -208,7 +264,7 @@ function GraficoSemanal({ series, metric, tabs, onMetric }: {
       <div className="rv-axis">
         {chart.semanas.map((w) => <span key={w}>{fmtSemana(w)}</span>)}
       </div>
-    </div>
+    </Secao>
   );
 }
 
@@ -226,8 +282,7 @@ const ehPreviewPublico = (url?: string | null) =>
 function CriativosDestaque({ criativos }: { criativos: Criativo[] }) {
   if (!criativos.length) return null;
   return (
-    <div className="rv-card">
-      <h3>Criativos em destaque</h3>
+    <Secao titulo="Criativos em destaque" meta={`${criativos.length} melhores por custo/resultado`}>
       <div className="rv-creative-grid">
         {criativos.map((c) => {
           const link = ehPreviewPublico(c.managerUrl) ? c.managerUrl! : null;
@@ -250,7 +305,7 @@ function CriativosDestaque({ criativos }: { criativos: Criativo[] }) {
           );
         })}
       </div>
-    </div>
+    </Secao>
   );
 }
 
@@ -259,8 +314,7 @@ type Publico = { adsetId: string; adsetName: string; ctr?: number | null; costPe
 function PublicosTestados({ publicos }: { publicos: Publico[] }) {
   if (!publicos.length) return null;
   return (
-    <div className="rv-card">
-      <h3>Públicos testados</h3>
+    <Secao titulo="Públicos testados" meta={`${publicos.length} conjuntos`}>
       {publicos.map((a) => (
         <div key={a.adsetId} className="rv-audience-row">
           <div>
@@ -271,6 +325,39 @@ function PublicosTestados({ publicos }: { publicos: Publico[] }) {
             <span>CTR<b>{fmtPct(a.ctr)}</b></span>
             <span>Custo/resultado<b>{fmtBRL(a.costPerResult)}</b></span>
           </div>
+        </div>
+      ))}
+    </Secao>
+  );
+}
+
+type Destaque = { resumo?: string; detalhe?: string };
+
+/**
+ * Leitura estratégica em três caixas. É o que o cliente lê antes de olhar
+ * qualquer número: o que funcionou, o que custou e onde está a abertura do
+ * próximo período. Caixa sem `resumo` simplesmente não aparece — melhor duas
+ * caixas honestas que três com uma inventada.
+ */
+function LeituraEstrategica({ alto, fraco, oportunidade }: {
+  alto?: Destaque; fraco?: Destaque; oportunidade?: Destaque;
+}) {
+  const caixas = [
+    { chave: "alto", rotulo: "Ponto alto", d: alto },
+    { chave: "fraco", rotulo: "Ponto fraco", d: fraco },
+    { chave: "oportunidade", rotulo: "Oportunidade", d: oportunidade },
+  ].filter((c) => c.d?.resumo);
+  if (!caixas.length) return null;
+  return (
+    <div className="rv-leitura">
+      {caixas.map((c) => (
+        <div key={c.chave} className={`rv-leitura-card ${c.chave}`}>
+          <div className="rv-leitura-head">
+            <span className="ponto" />
+            <span>{c.rotulo}</span>
+          </div>
+          <h4>{c.d!.resumo}</h4>
+          {c.d!.detalhe && <p>{c.d!.detalhe}</p>}
         </div>
       ))}
     </div>
@@ -323,6 +410,9 @@ type DadosSiteRV = {
 type Narrativa = {
   titulo?: string;
   resumoExecutivo?: string;
+  pontoAlto?: Destaque;
+  pontoFraco?: Destaque;
+  oportunidade?: Destaque;
   oQueAconteceu?: string;
   proximosPassos?: string[];
   oQueVamosMedir?: string[];
@@ -411,13 +501,16 @@ export default function ReportView() {
   const m = midia?.metrics;
   const ps = (site?.pagespeed ?? null) as Record<string, unknown> | null;
   const seg = (site?.seguranca ?? null) as Record<string, unknown> | null;
+  const periodo = fmtPeriodo(r.period?.start, r.period?.end);
 
   return (
     <div className="report-view">
       <header className="rv-topbar">
         <div className="rv-topbar-inner">
           <div className="rv-brand"><div className="rv-mark">S</div><span>Selva Agency</span></div>
-          <div className="rv-meta"><b>{midia?.account?.name ?? ""}</b> · {r.period?.start} a {r.period?.end}</div>
+          {/* O período saiu daqui: em ISO, apertado e em cinza, ele não dava
+              sentido a nada. Agora tem bloco próprio abaixo do título. */}
+          <div className="rv-meta">{midia?.account?.name ?? ""}</div>
         </div>
       </header>
 
@@ -425,6 +518,15 @@ export default function ReportView() {
         <span className="rv-eyebrow">{tipoDeRelatorio(r.modulos)}</span>
         {/* Relatórios antigos não têm `titulo` — daí o fallback. */}
         <h1 className="rv-h1">{n?.titulo || "Resumo do período"}</h1>
+
+        {periodo && (
+          <div className="rv-periodo">
+            <span className="ponto" />
+            <b>{periodo.rotulo}</b>
+            <span className="dias">{periodo.dias} {periodo.dias === 1 ? "dia" : "dias"}</span>
+          </div>
+        )}
+
         {n?.resumoExecutivo && <p className="rv-lead">{n.resumoExecutivo}</p>}
 
         {usadas.length > 0 && (
@@ -435,13 +537,14 @@ export default function ReportView() {
 
         {m && <GradeKpis kpis={kpisDeMidia(m, resultLabel)} />}
 
+        <LeituraEstrategica alto={n?.pontoAlto} fraco={n?.pontoFraco} oportunidade={n?.oportunidade} />
+
         <GraficoSemanal series={serie} metric={metric} tabs={abasDeMetrica(resultLabel)} onMetric={setMetric} />
         <CriativosDestaque criativos={midia?.creatives ?? []} />
         <PublicosTestados publicos={midia?.audiences ?? []} />
 
         {(ps || seg) && (
-          <div className="rv-card">
-            <h3>Site</h3>
+          <Secao titulo="Site">
             <div className="rv-metric-grid">
               {ps && (
                 <>
@@ -456,37 +559,34 @@ export default function ReportView() {
                 </>
               )}
             </div>
-          </div>
+          </Secao>
         )}
 
-        {/* ── Os quatro blocos: passado explicado, futuro combinado ───────── */}
+        {/* ── O fecho: passado explicado, futuro combinado ────────────────── */}
 
         {n?.oQueAconteceu && (
-          <section className="rv-card">
-            <h3>O que aconteceu no período</h3>
+          <Secao titulo="O que aconteceu no período">
             <p className="rv-prosa">{n.oQueAconteceu}</p>
-          </section>
+          </Secao>
         )}
 
         {n?.proximosPassos && n.proximosPassos.length > 0 && (
-          <section className="rv-card rv-next">
-            <h3>Próximos passos</h3>
+          <Secao titulo="Próximos passos" className="rv-next">
             <ol>
               {n.proximosPassos.map((p, i) => (
                 <li key={i}><span className="rv-passo">{i + 1}</span><span>{p}</span></li>
               ))}
             </ol>
-          </section>
+          </Secao>
         )}
 
         {n?.oQueVamosMedir && n.oQueVamosMedir.length > 0 && (
-          <section className="rv-card">
-            <h3>O que vamos medir</h3>
+          <Secao titulo="O que vamos medir">
             <p className="rv-card-sub">Os indicadores que vão dizer se os passos acima funcionaram.</p>
             <ul className="rv-lista rv-medir">
               {n.oQueVamosMedir.map((x, i) => <li key={i}>{x}</li>)}
             </ul>
-          </section>
+          </Secao>
         )}
 
         {n?.expectativa && (

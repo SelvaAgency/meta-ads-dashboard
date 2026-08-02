@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, Link2, Copy, Loader2, CheckCircle2, Clock, ExternalLink, Sparkles, Check, ChevronDown,
+import { FileText, Link2, Copy, Loader2, CheckCircle2, Clock, ExternalLink, Sparkles, Check, ChevronDown, Trash2,
   Megaphone, BarChart3, Globe, Gauge, ShieldCheck, Wifi, Bell, MousePointerClick, NotebookPen, History } from "lucide-react";
 import { useEffect, useState, Fragment, type ComponentType } from "react";
 import { toast } from "sonner";
@@ -68,7 +68,115 @@ function mesLabel(d: string | Date | null | undefined): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-const LIMITE_RELATORIOS = 4;
+/**
+ * Card de um relatório gerado. `destaque` é o último — fica aberto e maior;
+ * os anteriores vivem colapsados atrás de "Todos", porque a pergunta de quem
+ * abre esta tela é quase sempre "cadê o que eu acabei de gerar".
+ */
+function CardRelatorio({ r, destaque, onCopiar, onExcluir, excluindo }: {
+  r: {
+    id: number; publicToken: string; periodStart: string; periodEnd: string;
+    generatedAt: string | Date | null; tier: string;
+    modulos: string[] | null; fontes: { rotulo: string; presente: boolean }[] | null;
+    contextNotes: string | null;
+  };
+  destaque?: boolean;
+  onCopiar: (url: string) => void;
+  onExcluir: (id: number) => void;
+  excluindo: boolean;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [confirmando, setConfirmando] = useState(false);
+  const url = `${window.location.origin}/r/${r.publicToken}`;
+  const semFonte = r.fontes?.filter((f) => !f.presente) ?? [];
+
+  return (
+    <div className={`anim-card p-3.5 border rounded-xl bg-card ${destaque ? "border-primary/40 bg-primary/[0.03]" : "border-border"}`}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className={`flex shrink-0 items-center justify-center rounded-lg ${destaque ? "h-10 w-10 bg-primary/15 text-primary" : "h-9 w-9 bg-primary/10 text-primary"}`}>
+            <FileText className={destaque ? "h-4.5 w-4.5" : "h-4 w-4"} />
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`font-bold text-foreground ${destaque ? "text-[15px]" : "text-sm"}`}>
+                {fmtDateBR(r.periodStart)} — {fmtDateBR(r.periodEnd)}
+              </span>
+              {destaque && <Badge className="text-[10px] font-semibold">Mais recente</Badge>}
+            </div>
+            <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-0.5 flex-wrap">
+              <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {r.generatedAt ? new Date(r.generatedAt).toLocaleDateString("pt-BR") : "—"}</span>
+              <span className="text-border/70">·</span>
+              {/* Relatório antigo não tem módulos — mostra o tier dele. */}
+              <Badge variant="secondary" className="text-[10px] font-medium">{r.modulos?.length ? `${r.modulos.length} módulos` : r.tier}</Badge>
+            </div>
+            {r.modulos?.length ? (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {r.modulos.map((m) => (
+                  <span key={m} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{MODULO_LABEL[m] ?? m}</span>
+                ))}
+              </div>
+            ) : null}
+            {/* Fonte que faltou fica registrada: seis meses depois, um
+                relatório magro precisa dizer que era magro. */}
+            {semFonte.length > 0 && (
+              <div className="text-[10px] text-amber-600/80 mt-1">
+                sem: {semFonte.map((f) => f.rotulo).join(", ")}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-1.5 shrink-0">
+          <Button size="sm" variant="outline" onClick={() => onCopiar(url)}>
+            <Link2 className="w-3.5 h-3.5 mr-1.5" /> Copiar link
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => window.open(url, "_blank")} title="Abrir relatório">
+            <ExternalLink className="w-3.5 h-3.5" />
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setConfirmando((v) => !v)} disabled={excluindo}
+            title="Excluir relatório"
+            className="text-muted-foreground hover:text-destructive">
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Confirmação inline. Excluir aqui derruba o link público junto — e não
+          dá para saber se ele já foi enviado a alguém. */}
+      {confirmando && (
+        <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/[0.05] p-3">
+          <p className="text-xs text-foreground">
+            Excluir de vez? <strong>O link público para de funcionar</strong> — se ele já foi enviado ao cliente, vai virar "relatório não encontrado".
+          </p>
+          <div className="flex gap-2 mt-2">
+            <Button size="sm" variant="destructive" disabled={excluindo} onClick={() => onExcluir(r.id)}>
+              {excluindo ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Excluindo…</> : "Excluir"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmando(false)}>Cancelar</Button>
+          </div>
+        </div>
+      )}
+
+      {r.contextNotes && (
+        <>
+          <button
+            onClick={() => setAberto((v) => !v)}
+            className="mt-2.5 inline-flex items-center gap-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {aberto ? "Ver menos" : "Ver mais"}
+            <ChevronDown className={`w-3 h-3 transition-transform ${aberto ? "rotate-180" : ""}`} />
+          </button>
+          {aberto && (
+            <div className="mt-2 rounded-lg border border-border bg-muted/40 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">Contexto informado na geração</p>
+              <p className="text-xs text-foreground/80 whitespace-pre-wrap leading-relaxed">{r.contextNotes}</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function Reports() {
   const { selectedAccountId: activeAccountId, accounts } = useSelectedAccount();
@@ -81,6 +189,7 @@ export default function Reports() {
   const [lastGeneratedUrl, setLastGeneratedUrl] = useState<string | null>(null);
   const [modulos, setModulos] = useState<string[]>(["midia", "campanhas"]);
   const [verTodos, setVerTodos] = useState(false);
+  const [excluindoId, setExcluindoId] = useState<number | null>(null);
 
   // Deep-link da seção Site: /reports?modulos=site,pagespeed,... já marca os
   // módulos. O gerador mora aqui; a seção Site apenas pré-configura.
@@ -121,6 +230,21 @@ export default function Reports() {
     },
   });
 
+  const excluirMutation = trpc.reports.excluir.useMutation({
+    onSuccess: () => {
+      toast.success("Relatório excluído");
+      listQuery.refetch();
+    },
+    onError: (err) => toast.error("Não consegui excluir: " + err.message),
+    onSettled: () => setExcluindoId(null),
+  });
+
+  function excluir(id: number) {
+    if (!accountId) return;
+    setExcluindoId(id);
+    excluirMutation.mutate({ accountId, id });
+  }
+
   const toggle = (m: string) =>
     setModulos((atual) => (atual.includes(m) ? atual.filter((x) => x !== m) : [...atual, m]));
 
@@ -153,10 +277,11 @@ export default function Reports() {
     toast.success("Link copiado!");
   }
 
-  // Relatórios gerados: os mais recentes primeiro, o resto recolhido.
+  // Só o último aparece por padrão. A pergunta de quem abre esta tela é quase
+  // sempre "cadê o que eu acabei de gerar" — o histórico fica atrás de "Todos".
   const reports = listQuery.data ?? [];
-  const visiveis = verTodos ? reports : reports.slice(0, LIMITE_RELATORIOS);
-  const restantes = reports.length - visiveis.length;
+  const ultimo = reports[0] ?? null;
+  const anteriores = reports.slice(1);
 
   return (
     <MetaDashboardLayout>
@@ -352,68 +477,41 @@ export default function Reports() {
             {!listQuery.isLoading && reports.length === 0 && (
               <p className="text-sm text-muted-foreground">Nenhum relatório gerado ainda pra essa conta.</p>
             )}
-            <div className="grid gap-2.5">
-              {visiveis.map((r, i) => {
-                const url = `${window.location.origin}/r/${r.publicToken}`;
-                const mes = mesLabel(r.generatedAt);
-                const novoMes = i === 0 || mes !== mesLabel(visiveis[i - 1].generatedAt);
-                return (
-                  <Fragment key={r.id}>
-                  {novoMes && (
-                    <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground/60 pt-1 first:pt-0">{mes}</p>
-                  )}
-                  <div className="anim-card flex items-center justify-between gap-3 flex-wrap p-3.5 border border-border rounded-xl bg-card">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <FileText className="h-4 w-4" />
-                      </span>
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold text-foreground">
-                          {fmtDateBR(r.periodStart)} — {fmtDateBR(r.periodEnd)}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-0.5 flex-wrap">
-                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {r.generatedAt ? new Date(r.generatedAt).toLocaleDateString("pt-BR") : "—"}</span>
-                          <span className="text-border/70">·</span>
-                          {/* Relatório antigo não tem módulos — mostra o tier dele. */}
-                          <Badge variant="secondary" className="text-[10px] font-medium">{r.modulos?.length ? `${r.modulos.length} módulos` : r.tier}</Badge>
-                        </div>
-                        {r.modulos?.length ? (
-                          <div className="flex flex-wrap gap-1 mt-1.5">
-                            {r.modulos.map((m) => (
-                              <span key={m} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{MODULO_LABEL[m] ?? m}</span>
-                            ))}
-                          </div>
-                        ) : null}
-                        {/* Fonte que faltou fica registrada: seis meses depois,
-                            um relatório magro precisa dizer que era magro. */}
-                        {r.fontes?.some((f) => !f.presente) && (
-                          <div className="text-[10px] text-amber-600/80 mt-1">
-                            sem: {r.fontes.filter((f) => !f.presente).map((f) => f.rotulo).join(", ")}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex gap-1.5 shrink-0">
-                      <Button size="sm" variant="outline" onClick={() => copyLink(url)}>
-                        <Link2 className="w-3.5 h-3.5 mr-1.5" /> Copiar link
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => window.open(url, "_blank")}>
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
+
+            {ultimo && (
+              <CardRelatorio r={ultimo} destaque onCopiar={copyLink} onExcluir={excluir}
+                excluindo={excluindoId === ultimo.id} />
+            )}
+
+            {anteriores.length > 0 && (
+              <>
+                <button
+                  onClick={() => setVerTodos((v) => !v)}
+                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:opacity-70 transition-opacity"
+                >
+                  Todos
+                  <span className="text-muted-foreground font-medium">· {anteriores.length} anteriores</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${verTodos ? "rotate-180" : ""}`} />
+                </button>
+
+                {verTodos && (
+                  <div className="grid gap-2.5 mt-3">
+                    {anteriores.map((r, i) => {
+                      const mes = mesLabel(r.generatedAt);
+                      const novoMes = i === 0 || mes !== mesLabel(anteriores[i - 1].generatedAt);
+                      return (
+                        <Fragment key={r.id}>
+                          {novoMes && (
+                            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground/60 pt-1 first:pt-0">{mes}</p>
+                          )}
+                          <CardRelatorio r={r} onCopiar={copyLink} onExcluir={excluir}
+                            excluindo={excluindoId === r.id} />
+                        </Fragment>
+                      );
+                    })}
                   </div>
-                  </Fragment>
-                );
-              })}
-            </div>
-            {reports.length > LIMITE_RELATORIOS && (
-              <button
-                onClick={() => setVerTodos((v) => !v)}
-                className="mt-3.5 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:opacity-70"
-              >
-                {verTodos ? "Mostrar menos" : `Mostrar mais ${restantes}`}
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${verTodos ? "rotate-180" : ""}`} />
-              </button>
+                )}
+              </>
             )}
           </CardContent>
         </Card>

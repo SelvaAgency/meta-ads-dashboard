@@ -1179,6 +1179,18 @@ export async function getReportSnapshotByToken(token: string) {
   return result[0];
 }
 
+/**
+ * Apaga um relatório. Exclusão de verdade, não `isActive = false`: o link
+ * público morre junto, e é isso que quem clica em "excluir" espera. Só a rota
+ * chama isto, e ela confere antes que o relatório é da conta do usuário.
+ */
+export async function deleteReportSnapshot(id: number, accountId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.delete(reportSnapshots)
+    .where(and(eq(reportSnapshots.id, id), eq(reportSnapshots.accountId, accountId)));
+}
+
 export async function getReportSnapshotsByAccountId(accountId: number) {
   const db = await getDb();
   if (!db) return [];

@@ -1,10 +1,13 @@
 /**
  * Estilo do relatório público (/r/:token).
  *
- * Identidade própria — "papel": creme, verde-profundo e o rosa da marca. É de
- * propósito que não use o tema do app: isto é um documento entregue ao cliente,
- * não uma tela do painel. A tipografia, essa sim, é a da marca (DM Sans +
- * Montserrat), já carregadas em index.html.
+ * Identidade "papel": creme e verde-profundo — é um documento entregue ao
+ * cliente, não uma tela do painel. Mas a ANATOMIA e os SINAIS vêm do BIT
+ * (client/src/components/AccountHeader.tsx), por decisão de 02/ago/2026:
+ * título de seção em caixa normal com meta à direita, números tabulares,
+ * badges com o trio fundo+cor+borda, ponto colorido antes do rótulo, e o
+ * rosa/verde/âmbar do painel nos sinais. O relatório é irmão do BIT, não um
+ * print dele.
  *
  * Regra: nada de estilo inline no ReportView.tsx. Se falta um bloco, ele nasce
  * aqui — foi assim que classes fantasma (rv-up, rv-nums) passaram despercebidas.
@@ -18,25 +21,36 @@
   --deep:#173f3b;
   --sage:#e7f0ea;
   --cream:#f4eadb;
-  --pink:#f4368c;
-  /* Bom/ruim são semânticos, não "subiu/desceu": custo por resultado subindo
-     é ruim. Quem decide a direção é o componente, não a cor. */
-  --bom:#1f6b45;
-  --bom-bg:rgba(31,107,69,.10);
-  --ruim:#b03a3a;
-  --ruim-bg:rgba(176,58,58,.10);
+  /* Sinais — os mesmos do BIT. Não inventar tom novo aqui: se o painel diz que
+     verde é bom e âmbar é atenção, o relatório precisa dizer igual. */
+  --pink:#E85BA8;
+  --verde:#1D9E75;
+  --verde-forte:#177f5e;
+  --ambar:#EF9F27;
+  --ambar-forte:#a06508;
+  --vermelho:#E24B4A;
+  --vermelho-forte:#c0403f;
+  --bom-bg:rgba(29,158,117,.10);
+  --bom-borda:rgba(29,158,117,.28);
+  --ruim-bg:rgba(226,75,74,.10);
+  --ruim-borda:rgba(226,75,74,.28);
   --radius-lg:24px;
   --radius-md:18px;
   --inner:min(760px, calc(100vw - 48px));
   --shadow:0 16px 44px rgba(18,28,24,.06);
   min-height:100vh;
-  background:radial-gradient(circle at 8% 0, rgba(244,54,140,.06), transparent 32vw), var(--bg);
+  background:radial-gradient(circle at 8% 0, rgba(232,91,168,.06), transparent 32vw), var(--bg);
   color:var(--ink);
   font-family:'DM Sans', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
   -webkit-font-smoothing:antialiased;
 }
 .report-view h1,.report-view h2,.report-view h3,.report-view h4,.report-view .num,.report-view .rv-mark{
   font-family:'Montserrat', 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+}
+/* Número que muda de valor não pode mudar de largura: sem isto as colunas
+   dançam a cada troca de aba do gráfico. */
+.rv-metric .num,.rv-nums b,.rv-stat b,.rv-tip b,.rv-periodo b,.rv-escala,.rv-axis span{
+  font-variant-numeric:tabular-nums;
 }
 
 /* ── Topo e rodapé ─────────────────────────────────────────────────────────── */
@@ -45,8 +59,7 @@
 .rv-brand{display:flex;align-items:center;gap:10px}
 .rv-mark{width:34px;height:21px;border:2px solid var(--ink);border-radius:999px;display:grid;place-items:center;font-weight:900;font-size:11px}
 .rv-brand span{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.16em;color:var(--muted)}
-.rv-meta{text-align:right;font-size:12.5px;color:var(--muted);line-height:1.4}
-.rv-meta b{color:var(--ink);font-weight:700}
+.rv-meta{text-align:right;font-size:13px;color:var(--ink);font-weight:700;line-height:1.4}
 .rv-footer{border-top:1px solid var(--line);padding:22px 0}
 .rv-footer-inner{width:var(--inner);margin:0 auto;font-size:12px;color:var(--muted)}
 .rv-loading,.rv-error{width:var(--inner);margin:0 auto;padding:80px 0;text-align:center;color:var(--muted)}
@@ -54,38 +67,66 @@
 /* ── Abertura ─────────────────────────────────────────────────────────────── */
 .rv-main{width:var(--inner);margin:0 auto;padding:40px 0 56px}
 .rv-eyebrow{display:inline-flex;align-items:center;padding:7px 12px;border-radius:999px;background:var(--sage);border:1px solid var(--line);color:#3d6e67;font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;margin-bottom:16px}
-.rv-h1{font-size:clamp(28px,4vw,40px);line-height:1.12;letter-spacing:-.03em;font-weight:800;margin:0 0 14px}
+.rv-h1{font-size:clamp(28px,4vw,40px);line-height:1.12;letter-spacing:-.03em;font-weight:800;margin:0 0 16px}
 .rv-lead{color:var(--muted);font-size:16px;line-height:1.6;margin:0 0 28px;max-width:60ch}
 
-/* Fontes que alimentaram o relatório. A pastilha base PRECISA ter fundo: sem
-   isto, "fontes usadas" sai como texto solto e invisível. */
+/* O período não é rodapé: sem ele os números não querem dizer nada. Fica logo
+   abaixo do título, em bloco próprio, e não escondido na barra do topo. */
+.rv-periodo{display:inline-flex;align-items:center;gap:10px;margin:0 0 20px;padding:10px 15px;border-radius:14px;background:var(--paper);border:1px solid var(--line);box-shadow:var(--shadow);flex-wrap:wrap}
+.rv-periodo .ponto{width:7px;height:7px;border-radius:999px;background:var(--pink);flex:none}
+.rv-periodo b{font-size:14.5px;font-weight:700;color:var(--ink)}
+.rv-periodo .dias{font-size:11px;font-weight:700;color:var(--muted);padding:2px 8px;border-radius:999px;background:var(--bg);border:1px solid var(--line)}
+
 .rv-fontes{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 28px}
 
 /* ── KPIs ─────────────────────────────────────────────────────────────────── */
-.rv-metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:28px}
+.rv-metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:24px}
 @media(min-width:560px){.rv-metric-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
-.rv-metric{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-md);padding:16px;box-shadow:var(--shadow)}
-.rv-metric small{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px}
-.rv-metric .num{display:block;font-size:clamp(18px,2.2vw,24px);font-weight:800;letter-spacing:-.02em;line-height:1.2}
+.rv-metric{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-md);padding:16px;box-shadow:var(--shadow);transition:border-color .18s ease,box-shadow .18s ease}
+.rv-metric:hover{border-color:rgba(20,25,24,.2);box-shadow:0 18px 46px rgba(18,28,24,.09)}
+.rv-metric small{display:block;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px}
+.rv-metric .num{display:block;font-size:clamp(18px,2.2vw,23px);font-weight:800;letter-spacing:-.02em;line-height:1.2}
 
 /* Variação vs. período anterior. rv-bom/rv-ruim vêm da DIREÇÃO da métrica. */
-.rv-delta{display:inline-flex;align-items:center;gap:4px;margin-top:8px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:var(--bg);color:var(--muted);border:1px solid var(--line)}
-.rv-delta.rv-bom{background:var(--bom-bg);color:var(--bom);border-color:transparent}
-.rv-delta.rv-ruim{background:var(--ruim-bg);color:var(--ruim);border-color:transparent}
+.rv-delta{display:inline-flex;align-items:center;gap:4px;margin-top:8px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+.rv-delta.rv-bom{background:var(--bom-bg);color:var(--verde-forte);border-color:var(--bom-borda)}
+.rv-delta.rv-ruim{background:var(--ruim-bg);color:var(--vermelho-forte);border-color:var(--ruim-borda)}
 
 /* ── Cards de seção ───────────────────────────────────────────────────────── */
-.rv-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-lg);padding:22px 24px;box-shadow:var(--shadow);margin-bottom:24px}
-.rv-card h3{font-size:12.5px;text-transform:uppercase;letter-spacing:.1em;font-weight:800;margin:0 0 14px}
-.rv-card-sub{font-size:12.5px;color:var(--muted);margin:-8px 0 14px;line-height:1.5}
+.rv-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px 22px;box-shadow:var(--shadow);margin-bottom:20px}
+/* Caixa alta espaçada era o que deixava o relatório duro. O BIT usa caixa
+   normal em negrito, com o complemento em cinza à direita. */
+.rv-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.rv-card h3{font-size:14px;font-weight:700;letter-spacing:-.01em;text-transform:none;margin:0;color:var(--ink)}
+.rv-card-meta{font-size:11px;color:var(--muted);font-weight:600;white-space:nowrap}
+.rv-card-sub{font-size:12.5px;color:var(--muted);margin:-6px 0 12px;line-height:1.5}
 .rv-lista{margin:0;padding-left:18px;line-height:1.75;font-size:14px;color:#2d312f}
 .rv-lista li{margin-bottom:6px}
 .rv-lista li:last-child{margin-bottom:0}
+
+/* ── Leitura estratégica: ponto alto / ponto fraco / oportunidade ─────────── */
+/* Borda colorida à esquerda + ponto no rótulo — o mesmo idioma do cartão de
+   saúde do BIT. Três cores, três significados: verde funcionou, vermelho
+   custou, rosa é o que ainda não foi explorado. */
+.rv-leitura{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:24px}
+@media(max-width:720px){.rv-leitura{grid-template-columns:1fr}}
+.rv-leitura-card{background:var(--paper);border:1px solid var(--line);border-left:3px solid var(--cor);border-radius:var(--radius-md);padding:16px 18px;box-shadow:var(--shadow);transition:transform .18s ease,box-shadow .18s ease}
+.rv-leitura-card:hover{transform:translateY(-2px);box-shadow:0 20px 46px rgba(18,28,24,.10)}
+.rv-leitura-card.alto{--cor:var(--verde)}
+.rv-leitura-card.fraco{--cor:var(--vermelho)}
+.rv-leitura-card.oportunidade{--cor:var(--pink)}
+.rv-leitura-head{display:flex;align-items:center;gap:7px;margin-bottom:9px}
+.rv-leitura-head .ponto{width:7px;height:7px;border-radius:999px;background:var(--cor);flex:none}
+.rv-leitura-head span{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--cor)}
+.rv-leitura-card h4{font-size:14px;font-weight:700;line-height:1.35;margin:0 0 6px;color:var(--ink);font-family:'Montserrat','DM Sans',sans-serif}
+.rv-leitura-card p{margin:0;font-size:12.5px;line-height:1.6;color:var(--muted)}
 
 /* ── Gráfico semanal ──────────────────────────────────────────────────────── */
 .rv-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
 .rv-tab{border:1px solid var(--line);background:var(--bg);color:var(--muted);border-radius:999px;padding:6px 12px;font-size:11.5px;font-weight:700;cursor:pointer;transition:background .18s ease,color .18s ease,border-color .18s ease}
 .rv-tab:hover{border-color:rgba(23,63,59,.35);color:var(--ink)}
 .rv-tab.active{background:var(--deep);border-color:var(--deep);color:#fff}
+.rv-tab:focus-visible{outline:2px solid var(--pink);outline-offset:2px}
 /* A escala fica em HTML, não em <text> do SVG: dentro do viewBox a fonte encolhe
    junto com a largura e vira 4px no celular — e o cliente abre o link no celular.
    O gutter de 58px à direita é compartilhado pelo gráfico e pelo eixo de baixo
@@ -97,18 +138,18 @@
 .rv-chart{display:block}
 .rv-grid-line{stroke:var(--line);stroke-width:1;stroke-dasharray:3 5}
 .rv-alvo{fill:transparent;cursor:pointer}
-.rv-ponto{transition:r .16s ease,fill .16s ease}
-.rv-tip{position:absolute;transform:translate(-50%,calc(-100% - 14px));background:var(--deep);color:#fffdfa;border-radius:12px;padding:7px 11px;pointer-events:none;box-shadow:0 10px 24px rgba(18,28,24,.22);white-space:nowrap;z-index:2;display:flex;flex-direction:column;gap:1px}
-.rv-tip.borda-esq{transform:translate(-8px,calc(-100% - 14px))}
-.rv-tip.borda-dir{transform:translate(calc(-100% + 8px),calc(-100% - 14px))}
-.rv-tip span{font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;font-weight:700;opacity:.7}
-.rv-tip b{font-size:14px;font-weight:800;font-family:'Montserrat','DM Sans',sans-serif}
+.rv-ponto{transition:r .16s ease}
 .rv-escala{position:absolute;right:0;width:54px;text-align:right;font-size:10px;font-weight:700;color:var(--muted);line-height:1;transform:translateY(-50%);white-space:nowrap}
 .rv-escala.topo{top:8.42%}
 .rv-escala.meio{top:50%}
 .rv-escala.base{top:91.58%}
 .rv-axis{display:flex;justify-content:space-between;gap:4px;margin-top:6px;padding-right:58px}
 .rv-axis span{font-size:10px;color:var(--muted);font-weight:600;white-space:nowrap}
+.rv-tip{position:absolute;transform:translate(-50%,calc(-100% - 14px));background:var(--deep);color:#fffdfa;border-radius:12px;padding:7px 11px;pointer-events:none;box-shadow:0 10px 24px rgba(18,28,24,.22);white-space:nowrap;z-index:2;display:flex;flex-direction:column;gap:1px}
+.rv-tip.borda-esq{transform:translate(-8px,calc(-100% - 14px))}
+.rv-tip.borda-dir{transform:translate(calc(-100% + 8px),calc(-100% - 14px))}
+.rv-tip span{font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;font-weight:700;opacity:.7}
+.rv-tip b{font-size:14px;font-weight:800;font-family:'Montserrat','DM Sans',sans-serif}
 
 /* ── Criativos ────────────────────────────────────────────────────────────── */
 /* Cards menores de propósito: a Meta nem sempre devolve o criativo em resolução
@@ -117,7 +158,7 @@
 .rv-creative-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:12px}
 .rv-creative-card{position:relative;display:block;color:inherit;text-decoration:none;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-md);overflow:hidden;box-shadow:var(--shadow);transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
 .rv-creative-card.clicavel{cursor:pointer}
-.rv-creative-card.clicavel:hover{transform:translateY(-2px);box-shadow:0 20px 46px rgba(18,28,24,.12);border-color:rgba(244,54,140,.45)}
+.rv-creative-card.clicavel:hover{transform:translateY(-2px);box-shadow:0 20px 46px rgba(18,28,24,.12);border-color:rgba(232,91,168,.5)}
 .rv-creative-card.clicavel:focus-visible{outline:2px solid var(--pink);outline-offset:2px}
 .rv-thumb{position:relative;aspect-ratio:1;background:var(--bg) center/cover no-repeat}
 /* Sem thumbnail o bloco cinza mudo parecia erro de carregamento — agora ele diz
@@ -131,25 +172,25 @@
 .rv-stat b{color:var(--ink);font-weight:700;font-size:10.5px}
 
 /* ── Pastilhas ────────────────────────────────────────────────────────────── */
-.rv-pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;background:var(--sage);color:var(--deep)}
+/* Trio fundo + cor + borda, como as tags do BIT. Só fundo deixava a pastilha
+   flutuando no card; a borda é o que a assenta. */
+.rv-pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;background:var(--sage);color:var(--deep);border:1px solid var(--line)}
 .rv-creative-info .rv-pill,.rv-audience-row .rv-pill{margin-top:8px}
-.rv-pill.good{background:var(--bom-bg);color:var(--bom)}
-.rv-pill.warn{background:var(--cream);color:#9f0c58}
-.rv-pill.neutral{background:var(--bg);color:var(--muted)}
-.rv-pill.ausente{background:var(--bg);color:var(--muted);opacity:.75}
+.rv-pill.good{background:var(--bom-bg);color:var(--verde-forte);border-color:var(--bom-borda)}
+.rv-pill.warn{background:rgba(239,159,39,.12);color:var(--ambar-forte);border-color:rgba(239,159,39,.32)}
+.rv-pill.neutral{background:var(--bg);color:var(--muted);border-color:var(--line)}
 
 /* ── Públicos ─────────────────────────────────────────────────────────────── */
-.rv-audience-row{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-md);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.rv-audience-row{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-md);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;transition:border-color .18s ease,background .18s ease}
+.rv-audience-row:hover{border-color:rgba(20,25,24,.2);background:#fff}
 .rv-audience-row:last-child{margin-bottom:0}
 .rv-audience-row .name{font-weight:700;font-size:13.5px;display:block}
 .rv-audience-row .rv-pill{margin-top:6px}
-.rv-nums{display:flex;gap:18px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+.rv-nums{display:flex;gap:18px;font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:700}
 .rv-nums span{display:flex;flex-direction:column;gap:2px}
 .rv-nums b{color:var(--ink);font-size:14px;font-weight:800;letter-spacing:0;text-transform:none}
 
 /* ── Os quatro blocos do fecho ────────────────────────────────────────────── */
-/* Passado explicado, futuro combinado. A prosa aqui é maior que a das outras
-   seções de propósito: é o que o cliente lê de fato, não legenda de card. */
 .rv-prosa{margin:0;font-size:15px;line-height:1.7;color:#2d312f}
 
 .rv-next ol{margin:0;padding:0;list-style:none;display:grid;gap:12px}
@@ -162,8 +203,8 @@
 
 /* A expectativa é a única promessa do documento — por isso é o único bloco com
    fundo cheio. É o que o cliente vai cobrar no relatório seguinte. */
-.rv-expectativa{background:var(--sage);border:1px solid var(--line);border-radius:var(--radius-lg);padding:24px;margin-bottom:24px}
-.rv-expectativa h3{font-size:12.5px;text-transform:uppercase;letter-spacing:.1em;font-weight:800;margin:0 0 10px;color:var(--deep)}
+.rv-expectativa{background:var(--sage);border:1px solid var(--line);border-radius:var(--radius-lg);padding:22px;margin-bottom:20px}
+.rv-expectativa h3{font-size:14px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px;color:var(--deep)}
 .rv-expectativa p{margin:0;font-size:15px;line-height:1.7;color:#22403a}
 
 /* ── Movimento ────────────────────────────────────────────────────────────── */
@@ -191,7 +232,7 @@
 @media(prefers-reduced-motion:reduce){
   .rv-main > *,.rv-linha,.rv-area,.rv-ponto{animation:none}
   .rv-linha{stroke-dasharray:none}
-  .rv-creative-card:hover{transform:none}
+  .rv-creative-card.clicavel:hover,.rv-leitura-card:hover{transform:none}
   .report-view *{transition:none !important}
 }
 
@@ -205,14 +246,15 @@
   .rv-main{padding:24px 0 0}
   .rv-main > *,.rv-linha,.rv-area,.rv-ponto{animation:none}
   .rv-linha{stroke-dasharray:none}
-  .rv-card,.rv-metric,.rv-creative-card,.rv-audience-row{box-shadow:none}
-  .rv-card,.rv-expectativa,.rv-creative-card,.rv-audience-row{break-inside:avoid;page-break-inside:avoid}
-  .rv-h1,.rv-card h3,.rv-expectativa h3{break-after:avoid;page-break-after:avoid}
+  .rv-card,.rv-metric,.rv-creative-card,.rv-audience-row,.rv-leitura-card,.rv-periodo{box-shadow:none}
+  .rv-card,.rv-expectativa,.rv-creative-card,.rv-audience-row,.rv-leitura-card{break-inside:avoid;page-break-inside:avoid}
+  .rv-h1,.rv-card h3,.rv-expectativa h3,.rv-leitura-card h4{break-after:avoid;page-break-after:avoid}
   .rv-tab{display:none}
   .rv-tab.active{display:inline-flex}
   .rv-tip,.rv-abrir{display:none}
   /* Sem isto o navegador descarta os fundos e as pastilhas somem no papel. */
-  .rv-pill,.rv-delta,.rv-passo,.rv-eyebrow,.rv-expectativa,.rv-tab.active,.rv-thumb{
+  .rv-pill,.rv-delta,.rv-passo,.rv-eyebrow,.rv-expectativa,.rv-tab.active,.rv-thumb,
+  .rv-leitura-card,.rv-leitura-head .ponto,.rv-periodo .ponto{
     -webkit-print-color-adjust:exact;print-color-adjust:exact
   }
 }

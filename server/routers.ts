@@ -140,6 +140,7 @@ import {
   createReportSnapshot,
   getReportSnapshotByToken,
   getReportSnapshotsByAccountId,
+  deleteReportSnapshot,
 } from "./db";
 import {
   validateToken,
@@ -3446,7 +3447,19 @@ export const appRouter = router({
           fontes: (r.fontesJson ?? null) as { rotulo: string; presente: boolean }[] | null,
           geradoPor: r.generatedByUserId,
           temMarkdown: !!r.markdown,
+          // Contexto que a equipe escreveu na geração. Sem isto, meses depois
+          // ninguém lembra por que aquele período teve números estranhos.
+          contextNotes: r.contextNotes ?? null,
         }));
+      }),
+
+    /** Exclusão definitiva — o link público para de funcionar junto. */
+    excluir: protectedProcedure
+      .input(z.object({ accountId: z.number(), id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id);
+        await deleteReportSnapshot(input.id, input.accountId);
+        return { ok: true };
       }),
 
     /** Catálogo de módulos + o que ESTE cliente tem de fato. Sem LLM. */
