@@ -287,11 +287,11 @@ export function AccountHeader({
   // IA, e NUNCA é exposto/editado aqui (preservamos ele intacto ao salvar).
   async function salvarContextoDoResumo() {
     if (!selectedAccountId) return;
+    // Grava no campo PRÓPRIO (quickContext) — não sobrescreve o perfil, que agora
+    // é editado só pela seção "Contexto Geral". Upsert parcial: não toca o resto.
     await upsertContext.mutateAsync({
       accountId: selectedAccountId,
-      clientProfile: resumoCtx,
-      operationalRules: accountCtx?.operationalRules ?? "",
-      learnings: accountCtx?.learnings ?? "",
+      quickContext: resumoCtx,
     });
     utils.context.getAccount.invalidate({ accountId: selectedAccountId });
     refreshStatus.mutate({ accountId: selectedAccountId });
@@ -442,7 +442,7 @@ export function AccountHeader({
               {statusCfg?.label ?? "Status IA"} <span className="font-medium opacity-70">— 7 dias</span>
             </span>
             <button
-              onClick={() => { if (!resumoCtxOpen) setResumoCtx(accountCtx?.clientProfile ?? ""); setResumoCtxOpen((v) => !v); }}
+              onClick={() => { if (!resumoCtxOpen) setResumoCtx((accountCtx as any)?.quickContext ?? ""); setResumoCtxOpen((v) => !v); }}
               title="Adicionar contexto e reanalisar"
               className="p-1.5 rounded-md hover:bg-black/5 transition-colors"
               style={{ color: resumoCtxOpen ? "#E85BA8" : muted }}

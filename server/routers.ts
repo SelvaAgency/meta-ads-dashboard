@@ -482,6 +482,7 @@ const contextRouter = router({
       events: z.array(z.object({ date: z.string(), type: z.string(), description: z.string() })).optional(),
       freeInput: z.string().optional(),
       focusMoment: z.string().optional(),
+      quickContext: z.string().optional(),
       // Campos de site (tabela unificada — Fase 2/3): editáveis pela seção
       // "Contexto Geral". Antes só a AbaContexto (Site/Panorama) os gravava.
       objective: z.string().optional(),

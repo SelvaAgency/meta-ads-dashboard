@@ -1110,6 +1110,8 @@ export const accountContext = mysqlTable("account_context", {
   nextSteps: text("nextSteps"),
   // Consolidação periódica do learnings (append-only → resumo compacto).
   learningsConsolidated: text("learningsConsolidated"),
+  // Input pontual da caixa "Leitura de IA" do header — NÃO sobrescreve o perfil.
+  quickContext: text("quickContext"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   updatedBy: varchar("updatedBy", { length: 255 }),
 });

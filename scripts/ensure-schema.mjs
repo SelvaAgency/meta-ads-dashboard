@@ -936,6 +936,7 @@ async function main() {
         { name: "previousTests",        ddl: "ADD COLUMN `previousTests` TEXT NULL" },
         { name: "nextSteps",            ddl: "ADD COLUMN `nextSteps` TEXT NULL" },
         { name: "learningsConsolidated", ddl: "ADD COLUMN `learningsConsolidated` TEXT NULL" },
+        { name: "quickContext",          ddl: "ADD COLUMN `quickContext` TEXT NULL" },
       ];
       for (const col of ctxCols) {
         if (await columnExists(conn, "account_context", col.name)) {

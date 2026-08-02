@@ -82,6 +82,7 @@ export async function montarContextoDaConta(opts: MontarContextoOpts): Promise<C
   // Perfil livre / contexto adicional
   add(acc?.clientProfile, `- Perfil do cliente:\n${acc?.clientProfile}`);
   add(acc?.freeInput, `- Contexto adicional:\n${acc?.freeInput}`);
+  add(acc?.quickContext, `- Observação recente da equipe (input rápido):\n${acc?.quickContext}`);
 
   // Eventos e sazonalidades
   add(acc?.events?.length, `- Eventos e sazonalidades:\n${(acc?.events ?? []).map((e) => `  • ${e.date} [${e.type}] ${e.description}`).join("\n")}`);
