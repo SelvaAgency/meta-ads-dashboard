@@ -111,7 +111,7 @@ export async function agregarClarity(accountId: number, inicio: string, fim: str
 const diasEntre = (a: string, b: string) =>
   Math.max(1, Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000) + 1);
 
-export async function gerarSiteReport(accountId: number, nomeConta: string, inicio: string, fim: string): Promise<SiteReport> {
+export async function gerarSiteReport(accountId: number, nomeConta: string, inicio: string, fim: string, userId?: number): Promise<SiteReport> {
   const [midia, clarity, ctx, notas, cfg] = await Promise.all([
     agregarMidia(accountId, inicio, fim),
     agregarClarity(accountId, inicio, fim),
@@ -140,7 +140,12 @@ export async function gerarSiteReport(accountId: number, nomeConta: string, inic
     };
   }
 
-  const prompt = montarPrompt(nomeConta, inicio, fim, midia, clarity, ctx, notas, cfg?.domain ?? null, fontes);
+  // Soma o contexto de conta + agência (fonte única) ao prompt — o client_context
+  // já entra por `ctx` acima, então aqui `incluirSite:false`/`incluirNotas:false`.
+  const { montarContextoDaConta } = await import("./contextoConta");
+  const { texto: ctxContaAgencia } = await montarContextoDaConta({ accountId, userId, incluirSite: false, incluirNotas: false });
+  const prompt = montarPrompt(nomeConta, inicio, fim, midia, clarity, ctx, notas, cfg?.domain ?? null, fontes)
+    + (ctxContaAgencia ? `\n\n════ CONTEXTO DA CONTA E DA AGÊNCIA ════\n${ctxContaAgencia}` : "");
   let ia: Partial<SiteReport> = {};
   try {
     const resp = await invokeLLM({

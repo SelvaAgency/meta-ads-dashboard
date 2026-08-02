@@ -20,7 +20,7 @@ import { invokeLLM, extractTextContent } from "../_core/llm";
 import { logger } from "../logger";
 import {
   getAllActiveMetaAdAccountsForListing, getAccountMetricsSummary,
-  getDailyBriefing, saveDailyBriefing,
+  getDailyBriefing, saveDailyBriefing, getAccountContext,
 } from "../db";
 import { montarClientesPanorama } from "./jornalExecutivo";
 import { achadosDe, vendasDe, type ClientePanorama } from "../../shared/panoramaLogic";
@@ -61,6 +61,8 @@ export async function obterBriefingDoDia(dia = diaAgencia()): Promise<string | n
   const fim = fmt(agora);
 
   const metricas = await Promise.all(contas.map((a) => getAccountMetricsSummary(a.id, inicio, fim)));
+  // Só o FOCO DO MOMENTO por conta (contexto leve e de alto sinal p/ o read diário).
+  const contextos = await Promise.all(contas.map((a) => getAccountContext(a.id).catch(() => null)));
 
   // Sinais de OUTRAS fontes (GA4, loja/vendas reais, site) por conta — mesmo motor
   // do Panorama/Jornalzinho. Em try/catch: se o panorama falhar, o briefing Meta
@@ -100,7 +102,9 @@ export async function obterBriefingDoDia(dia = diaAgencia()): Promise<string | n
       if (partes.length) extra = ` | Outras fontes → ${partes.join(" · ")}`;
     }
 
-    return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend.toFixed(2)}${mostraRoas ? `, ROAS ${roas}x` : ` (objetivo: ${goal})`}, ${mostraRoas ? `Conversões: ${conv}` : `Resultados (${goal}): ${conv}`}${spend <= 0 ? " [SEM DADOS — pode estar inativa por decisão estratégica]" : ""}${resumo ? ". " + resumo : ""}${extra}`;
+    const foco = contextos[i]?.focusMoment?.trim();
+    const focoTxt = foco ? ` | FOCO DO MOMENTO: ${foco}` : "";
+    return `- ${a.accountName ?? a.accountId}: Estado ${estado}, Investido R$${spend.toFixed(2)}${mostraRoas ? `, ROAS ${roas}x` : ` (objetivo: ${goal})`}, ${mostraRoas ? `Conversões: ${conv}` : `Resultados (${goal}): ${conv}`}${spend <= 0 ? " [SEM DADOS — pode estar inativa por decisão estratégica]" : ""}${resumo ? ". " + resumo : ""}${extra}${focoTxt}`;
   }).join("\n");
 
   const prompt = `Você é um analista sênior de performance da agência SELVA. Você olha o desempenho de cada cliente de forma COMPLETA: não só Meta Ads, mas também vendas reais da loja (WooCommerce/VNDA ou GA4), tráfego (GA4) e saúde do site. Retorne um JSON com exatamente 4 campos: "resumo" (frase executiva fluida descrevendo o estado geral do portfólio — tom direto, termina com ponto final, máx 120 caracteres, NÃO liste apenas contagens), "positivo" (o que está indo bem — contas saudáveis, métricas positivas, 1-2 frases), "atencao" (contas que merecem monitoramento mas não são críticas, 1-2 frases), "critico" (problemas urgentes que precisam de ação imediata, 1-2 frases). Qualquer campo exceto "resumo" pode ser null se não houver nada relevante.

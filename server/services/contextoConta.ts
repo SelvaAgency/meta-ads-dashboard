@@ -22,21 +22,29 @@ export type MontarContextoOpts = {
   /** Incluir notas recentes da equipe (default: true). */
   incluirNotas?: boolean;
   limiteNotas?: number;
+  /**
+   * Incluir os campos vindos do client_context (contexto de SITE: objetivo,
+   * oferta, tracking, hipóteses, etc.). Default: true. Os relatórios já têm um
+   * módulo "contexto" próprio com esses campos, então passam `false` para não
+   * duplicar — recebendo só account_context + agência + notas.
+   */
+  incluirSite?: boolean;
 };
 
 export type ContextoMontado = { texto: string; temContexto: boolean };
 
 /** Monta o bloco de contexto único da conta. Campos ausentes são omitidos. */
 export async function montarContextoDaConta(opts: MontarContextoOpts): Promise<ContextoMontado> {
-  const { accountId, userId, incluirNotas = true, limiteNotas = 8 } = opts;
+  const { accountId, userId, incluirNotas = true, limiteNotas = 8, incluirSite = true } = opts;
   const incluirAgencia = opts.incluirAgencia ?? !!userId;
 
-  const [acc, cli, ag, notas] = await Promise.all([
+  const [acc, cliRaw, ag, notas] = await Promise.all([
     getAccountContext(accountId),
-    getClientContext(accountId),
+    incluirSite ? getClientContext(accountId) : Promise.resolve(null),
     incluirAgencia && userId ? getAgencyContext(userId) : Promise.resolve(null),
     incluirNotas ? listClientNotes(accountId, limiteNotas) : Promise.resolve([]),
   ]);
+  const cli = incluirSite ? cliRaw : null;
 
   const L: string[] = [];
   const add = (cond: unknown, linha: string) => { if (cond) L.push(linha); };

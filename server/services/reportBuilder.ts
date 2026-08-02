@@ -85,10 +85,19 @@ export async function gerarRelatorioModular(
   periodo: Periodo,
   modulos: readonly Modulo[],
   notasDeQuemGerou?: string,
+  userId?: number,
 ): Promise<{ relatorio: RelatorioModular; fontes: FontesUsadas; markdown: string; dadosSite: DadosSite }> {
   const ctx = await buildClientIntelligenceContext(accountId, nome, periodo, modulos);
   const fontes = fontesDe(ctx);
   const dossie = contextoParaTexto(ctx);
+
+  // Contexto da conta + agência pela FONTE ÚNICA. `incluirSite:false` e
+  // `incluirNotas:false` porque o dossiê acima já traz o módulo "contexto"
+  // (client_context) e "notas" — aqui só somamos o que faltava: perfil/regras/
+  // aprendizados da conta e o conhecimento da agência.
+  const { montarContextoDaConta } = await import("./contextoConta");
+  const { texto: ctxContaAgencia } = await montarContextoDaConta({ accountId, userId, incluirSite: false, incluirNotas: false });
+  const blocoContaAgencia = ctxContaAgencia ? `\n\n════ CONTEXTO DA CONTA E DA AGÊNCIA ════\n${ctxContaAgencia}` : "";
 
   // Cards de site: só os blocos que existem viram dados. Ausente não vira card
   // vazio — vira pendência, lá embaixo.
@@ -121,7 +130,7 @@ export async function gerarRelatorioModular(
   let relatorio: RelatorioModular;
   try {
     const resp = await invokeLLM({
-      messages: [{ role: "user", content: `${SISTEMA}\n\n════ DOSSIÊ ════\n${dossie}${extra}\n════ FIM ════` }],
+      messages: [{ role: "user", content: `${SISTEMA}\n\n════ DOSSIÊ ════\n${dossie}${blocoContaAgencia}${extra}\n════ FIM ════` }],
       // 4000: o teto antigo de 1600 cortava o JSON no meio e o parse falhava em
       // silêncio, fazendo o relatório parecer vazio em vez de quebrado.
       maxTokens: 4000,

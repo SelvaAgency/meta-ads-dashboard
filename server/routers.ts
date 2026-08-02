@@ -3387,7 +3387,7 @@ export const appRouter = router({
         const conta = await getMetaAdAccountById(input.accountId);
         if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
         const nome = conta.accountName ?? conta.accountId;
-        const r = await gerarSiteReport(input.accountId, nome, input.rangeStart, input.rangeEnd);
+        const r = await gerarSiteReport(input.accountId, nome, input.rangeStart, input.rangeEnd, ctx.user.id);
         const md = siteReportMarkdown(r, nome, input.rangeStart, input.rangeEnd);
         const id = await salvarSiteReport({
           accountId: input.accountId, rangeStart: input.rangeStart, rangeEnd: input.rangeEnd,
@@ -3727,7 +3727,7 @@ export const appRouter = router({
         const periodo = { inicio: input.inicio, fim: input.fim };
 
         const { relatorio, fontes, markdown, dadosSite } = await gerarRelatorioModular(
-          input.accountId, nome, periodo, input.modulos, input.notas,
+          input.accountId, nome, periodo, input.modulos, input.notas, ctx.user.id,
         );
 
         // Visual de mídia (KPIs com comparação, gráfico de 8 semanas, criativos
