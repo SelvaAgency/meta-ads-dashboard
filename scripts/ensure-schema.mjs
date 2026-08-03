@@ -113,6 +113,38 @@ async function main() {
       console.log(`[ensure-schema] +   · user_integrations.${col.name} adicionada`);
     }
 
+    // 3.0.1) Verificação de saúde por integração (Gmail e futuras). "Conectado"
+    //        é promessa do dia da autorização — consentimento revogado e refresh
+    //        token expirado não avisam ninguém.
+    for (const col of [
+      { name: "lastCheckAt", ddl: "ADD COLUMN `lastCheckAt` TIMESTAMP NULL" },
+      { name: "lastCheckStatus", ddl: "ADD COLUMN `lastCheckStatus` VARCHAR(12) NULL" },
+      { name: "lastCheckError", ddl: "ADD COLUMN `lastCheckError` TEXT NULL" },
+    ]) {
+      if (await columnExists(conn, "user_integrations", col.name)) {
+        console.log(`[ensure-schema] ok  · user_integrations.${col.name} já existe`);
+        continue;
+      }
+      await conn.query(`ALTER TABLE \`user_integrations\` ${col.ddl}`);
+      console.log(`[ensure-schema] +   · user_integrations.${col.name} adicionada`);
+    }
+
+    // 3.0.2) Auditoria de e-mail: com mais de um provider, "quem mandou" e
+    //        "quanto demorou" deixam de ser dedutíveis do resto da linha.
+    if (await tableExists(conn, "email_send_log")) {
+      for (const col of [
+        { name: "remetente", ddl: "ADD COLUMN `remetente` VARCHAR(320) NULL" },
+        { name: "duracaoMs", ddl: "ADD COLUMN `duracaoMs` INT NULL" },
+      ]) {
+        if (await columnExists(conn, "email_send_log", col.name)) {
+          console.log(`[ensure-schema] ok  · email_send_log.${col.name} já existe`);
+          continue;
+        }
+        await conn.query(`ALTER TABLE \`email_send_log\` ${col.ddl}`);
+        console.log(`[ensure-schema] +   · email_send_log.${col.name} adicionada`);
+      }
+    }
+
     // 3.1) Foto do cliente enviada à mão. Coluna PRÓPRIA, separada da
     //      `pictureUrl` que vem da Meta: o import de contas reescreve aquela, e
     //      uma foto escolhida pelo time não pode sumir por causa disso.

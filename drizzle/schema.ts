@@ -78,6 +78,17 @@ export const userIntegrations = mysqlTable("user_integrations", {
   connectedAt: timestamp("connectedAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   disconnectedAt: timestamp("disconnectedAt"),
+  /**
+   * Última vez que a conexão foi EXERCITADA de verdade (não só cadastrada).
+   * "Conectado" é uma promessa do dia da autorização; consentimento revogado,
+   * senha trocada e refresh token expirado não avisam ninguém. Sem isto a tela
+   * mostraria "conectado" para uma integração morta há semanas.
+   */
+  lastCheckAt: timestamp("lastCheckAt"),
+  /** ok | erro — resultado da última verificação. */
+  lastCheckStatus: varchar("lastCheckStatus", { length: 12 }),
+  /** Motivo da falha, já sanitizado. Nunca guarda token. */
+  lastCheckError: text("lastCheckError"),
 }, (table) => ({
   uqUserProvider: uniqueIndex("uq_user_provider").on(table.userId, table.provider),
 }));
@@ -449,8 +460,17 @@ export const emailSendLog = mysqlTable("email_send_log", {
   redirecionado: boolean("redirecionado").default(false).notNull(),
   /** sent | failed | dry_run */
   status: varchar("status", { length: 12 }).notNull(),
-  /** resend | smtp | nenhum — por onde a entrega saiu (ou tentou sair). */
+  /** gmail | resend | smtp | nenhum — por onde a entrega saiu (ou tentou sair). */
   transporte: varchar("transporte", { length: 12 }).default("smtp").notNull(),
+  /**
+   * Endereço que assinou o envio. Com mais de um provider ativo, "quem mandou"
+   * deixa de ser dedutível do tipo: Resend usa EMAIL_FROM, Gmail usa a conta
+   * conectada. Sem esta coluna, um envio pelo remetente errado só apareceria na
+   * caixa de quem recebeu.
+   */
+  remetente: varchar("remetente", { length: 320 }),
+  /** Quanto a entrega demorou. Diferencia "falhou" de "travou". */
+  duracaoMs: int("duracaoMs"),
   /** Digest: papel de quem recebeu e quais blocos entraram — o "por que este conteúdo". */
   role: varchar("role", { length: 20 }),
   blocos: varchar("blocos", { length: 160 }),

@@ -8,6 +8,7 @@ import { ENV } from "./_core/env";
 import { sdk } from "./_core/sdk";
 import { upsertUserIntegration } from "./db";
 import { encryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
+import { GMAIL_SCOPE } from "./services/email/gmailProvider";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
@@ -50,9 +51,12 @@ export function registerGoogleOAuthRoutes(app: Express) {
      * O `state` decide o fluxo — e agora é EXPLÍCITO. O default era "ga4", então
      * uma chamada sem parâmetro caía no fluxo do Analytics por acidente.
      */
-    const state = req.query.state === "googleads" ? "googleads" : req.query.state === "ga4" ? "ga4" : null;
+    const state = req.query.state === "googleads" ? "googleads"
+      : req.query.state === "ga4" ? "ga4"
+      : req.query.state === "gmail" ? "gmail"
+      : null;
     if (!state) {
-      return res.status(400).json({ error: "Informe state=ga4 ou state=googleads." });
+      return res.status(400).json({ error: "Informe state=ga4, state=googleads ou state=gmail." });
     }
 
     /**
@@ -66,7 +70,12 @@ export function registerGoogleOAuthRoutes(app: Express) {
      */
     const escopoDoFluxo = state === "googleads"
       ? ["https://www.googleapis.com/auth/adwords"]
-      : ["https://www.googleapis.com/auth/analytics.readonly"];
+      : state === "gmail"
+        // gmail.send ENVIA e não lê. É a diferença entre um vazamento que manda
+        // e-mail e um que lê todo o histórico da agência. Nunca peça
+        // gmail.readonly / gmail.modify aqui.
+        ? [GMAIL_SCOPE]
+        : ["https://www.googleapis.com/auth/analytics.readonly"];
     const scope = [...escopoDoFluxo, "openid", "https://www.googleapis.com/auth/userinfo.email"].join(" ");
 
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -241,6 +250,70 @@ export function registerGoogleOAuthRoutes(app: Express) {
         }
         // Volta para o SHELL, não para a rota crua: o OAuth roda em top-level
         // (target="_top") e /settings sozinho ficaria fora do Spaces.
+        return res.redirect("/tracker?rota=%2Fsettings&painel=conexoes&conectado=1");
+      }
+
+      /**
+       * ─── Gmail (envio) ───────────────────────────────────────────────────
+       * Ramo próprio, separado de GA4 e Google Ads de propósito: o escopo é
+       * outro, o provider é outro, e uma conexão de ENVIO não pode ser
+       * criada/renovada de carona num fluxo de leitura.
+       *
+       * Aqui a checagem de escopo é feita de verdade, não presumida: o Google
+       * devolve o que foi REALMENTE concedido, e a tela de consentimento tem
+       * caixinhas que a pessoa pode desmarcar. Guardar um refresh token sem
+       * gmail.send produziria uma conexão "verde" que falha no primeiro envio.
+       */
+      if (state === "gmail") {
+        try {
+          const user = await sdk.authenticateRequest(req);
+          if (!canManageContent(user.role)) {
+            throw new Error("Apenas administradores e desenvolvedores podem conectar o Gmail.");
+          }
+          if (!isEncryptionConfigured()) throw new Error("INTEGRATIONS_ENCRYPTION_KEY ausente — não dá para guardar o token com segurança.");
+
+          const concedidos: string[] = String(tokenData.scope ?? "").split(/\s+/).filter(Boolean);
+          if (!concedidos.includes(GMAIL_SCOPE)) {
+            throw new Error("O consentimento não incluiu a permissão de envio (gmail.send). Refaça a conexão marcando a permissão de enviar e-mail.");
+          }
+          // Escopo de LEITURA de caixa nunca deve aparecer aqui. Se aparecer, é
+          // configuração errada do app no Google Cloud — recusar é mais seguro
+          // do que guardar um token mais poderoso do que o necessário.
+          const leituraProibida = concedidos.filter((s) => /gmail\./.test(s) && s !== GMAIL_SCOPE);
+          if (leituraProibida.length > 0) {
+            throw new Error(`O consentimento concedeu escopos de Gmail além do envio (${leituraProibida.join(", ")}). Ajuste o app no Google Cloud para pedir apenas gmail.send.`);
+          }
+
+          let email: string | null = null;
+          try {
+            const idToken = (tokenData as { id_token?: string }).id_token;
+            if (idToken) {
+              const payload = JSON.parse(Buffer.from(idToken.split(".")[1], "base64").toString("utf8"));
+              email = payload.email ?? null;
+            }
+          } catch { /* sem email; a tela mostra "conectado" genérico */ }
+
+          await upsertUserIntegration({
+            userId: user.id,
+            provider: "gmail",
+            providerAccountEmail: email,
+            refreshTokenEncrypted: encryptSecret(refreshToken),
+            accessTokenEncrypted: accessToken ? encryptSecret(accessToken) : null,
+            scopes: concedidos.join(" "),
+            active: true,
+            lastCheckAt: new Date(),
+            lastCheckStatus: "ok",
+            lastCheckError: null,
+          });
+        } catch (e) {
+          return res.status(400).send(`
+            <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
+              <h2 style="color:#dc2626;">Não foi possível conectar o Gmail</h2>
+              <p>${(e as Error).message}</p>
+              <p><a href="/tracker?rota=%2Fsettings&painel=conexoes" style="color:#2563eb;">← Voltar a Conexões</a></p>
+            </body></html>
+          `);
+        }
         return res.redirect("/tracker?rota=%2Fsettings&painel=conexoes&conectado=1");
       }
 

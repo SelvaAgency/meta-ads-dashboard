@@ -14,6 +14,7 @@ import { DominioVinculos } from "@/components/conexoes/DominioVinculos";
 import { FotoDoCliente } from "@/components/FotoDoCliente";
 import { pediuConexoes } from "@/pages/hub/trackerRoutes";
 import { RedesVinculos } from "@/components/conexoes/RedesVinculos";
+import { GmailVinculos } from "@/components/conexoes/GmailVinculos";
 import { toast } from "sonner";
 import {
   Settings2, Check, ChevronDown, ChevronUp, AlertCircle, CheckCircle2,
@@ -445,6 +446,12 @@ function ConexoesPanel() {
 
       <SecaoConexao titulo="Redes sociais" subtitulo="Cadastro de perfis por cliente (coleta ainda não automática)">
         <RedesVinculos />
+      </SecaoConexao>
+
+      {/* Gmail é conexão de SAÍDA (envio), não de leitura de dados de cliente —
+          por isso fica por último, separada das fontes. */}
+      <SecaoConexao titulo="Gmail · envio" subtitulo="Conta remetente da agência para Jornalzinho e alertas">
+        <GmailVinculos />
       </SecaoConexao>
     </div>
   );

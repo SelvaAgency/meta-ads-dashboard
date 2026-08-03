@@ -307,7 +307,12 @@ import { isPageSpeedConfigured } from "./services/sitePerformanceService";
 import { gerarSiteReport, siteReportMarkdown } from "./services/siteReportService";
 import { obterBriefingDoDia } from "./services/briefingService";
 import { dispararResumoManual, previewResumoManual, hojeAgencia } from "./notificationJobs";
-import { emailMode, destinatariosDeTeste, transporteAtivo } from "./emailService";
+import { emailMode, destinatariosDeTeste, transporteAtivo, providerConfigurado, porqueNaoEnvia, envioAutomaticoHabilitado } from "./emailService";
+// ─── Gmail (envio) ───────────────────────────────────────────────────────────
+import { GMAIL_SCOPE, verificarConexaoGmail, limparCacheToken, sanitizarErroGmail } from "./services/email/gmailProvider";
+import { previaTesteGmail, enviarTesteGmail, TIPO_TESTE_GMAIL } from "./services/email/gmailTeste";
+import { getConexaoGmailAgencia, registrarVerificacaoIntegracao } from "./db";
+import { isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
 import { gerarEPersistirExecutivo, lerUltimoExecutivo } from "./services/jornalExecutivo";
 import { parseNubankCsv } from "./services/fatura/parseNubank";
@@ -5446,6 +5451,105 @@ export const appRouter = router({
    * Gestão (conectar, vincular, desconectar) é admin/dev. Leitura segue o
    * mesmo nível do resto dos dados de cliente no Tracker.
    */
+  /**
+   * ─── Gmail (envio) ─────────────────────────────────────────────────────────
+   * Conexão da conta remetente dedicada + teste manual controlado.
+   *
+   * TUDO aqui é `contentProcedure` (admin/dev). Não existe procedure de leitura
+   * pública: o colaborador não vê nem o e-mail da conta conectada, nem o status,
+   * nem o histórico. A proteção é do servidor — esconder só na UI deixaria os
+   * dados a uma chamada de distância.
+   *
+   * Nenhuma procedure daqui liga o envio automático. `EMAIL_AUTOMATION_ENABLED`
+   * não é lida, escrita nem contornada por nada deste router — exceto pelo
+   * teste manual, que é o único caminho desenhado para isso e tem travas
+   * próprias (ver gmailTeste.ts).
+   */
+  gmail: router({
+    /** Estado da conexão. Nunca devolve token — nem mascarado. */
+    status: contentProcedure.query(async () => {
+      const c = await getConexaoGmailAgencia();
+      const escopos = (c?.scopes ?? "").split(/\s+/).filter(Boolean);
+      return {
+        credenciaisApp: !!(process.env.GOOGLE_ADS_CLIENT_ID && process.env.GOOGLE_ADS_CLIENT_SECRET),
+        criptografiaOk: isEncryptionConfigured(),
+        conectado: !!c?.refreshTokenEncrypted,
+        conectadoComo: c?.providerAccountEmail ?? null,
+        conectadoEm: c?.connectedAt ?? null,
+        escopos,
+        // A tela precisa saber se o escopo de ENVIO está lá: uma conexão sem
+        // ele parece saudável e falha no primeiro disparo.
+        temEscopoEnvio: escopos.includes(GMAIL_SCOPE),
+        ultimaVerificacaoEm: c?.lastCheckAt ?? null,
+        ultimaVerificacaoStatus: c?.lastCheckStatus ?? null,
+        ultimaVerificacaoErro: c?.lastCheckError ?? null,
+        providerAtivo: providerConfigurado(),
+        porqueNaoEnvia: porqueNaoEnvia(),
+        automacaoHabilitada: envioAutomaticoHabilitado(),
+      };
+    }),
+
+    /**
+     * Exercita a conexão de verdade (renova o access token) SEM enviar e-mail.
+     * "Conectado" é promessa do dia da autorização; consentimento revogado e
+     * senha trocada não avisam ninguém.
+     */
+    verificar: contentProcedure.mutation(async () => {
+      const c = await getConexaoGmailAgencia();
+      if (!c?.refreshTokenEncrypted) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Gmail não conectado." });
+      }
+      if (!isEncryptionConfigured()) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "INTEGRATIONS_ENCRYPTION_KEY ausente." });
+      }
+      try {
+        await verificarConexaoGmail({
+          clientId: process.env.GOOGLE_ADS_CLIENT_ID || "",
+          clientSecret: process.env.GOOGLE_ADS_CLIENT_SECRET || "",
+          refreshToken: decryptSecret(c.refreshTokenEncrypted),
+        });
+        await registrarVerificacaoIntegracao(c.id, "ok", null);
+        return { ok: true as const, verificadoEm: new Date() };
+      } catch (e) {
+        const erro = sanitizarErroGmail((e as Error)?.message ?? String(e));
+        await registrarVerificacaoIntegracao(c.id, "erro", erro);
+        return { ok: false as const, erro, verificadoEm: new Date() };
+      }
+    }),
+
+    /** O que vai ser enviado, antes de enviar. Não dispara nada. */
+    previaTeste: contentProcedure
+      .input(z.object({ destinatario: z.string().min(3).max(320) }))
+      .query(({ input }) => previaTesteGmail(input.destinatario)),
+
+    /**
+     * Envio de teste. UM destinatário, conteúdo fixo, só Gmail, fora dos crons.
+     * As travas reais vivem no serviço para nenhum caminho novo escapar delas.
+     */
+    enviarTeste: contentProcedure
+      .input(z.object({ destinatario: z.string().min(3).max(320) }))
+      .mutation(({ ctx, input }) =>
+        enviarTesteGmail(input.destinatario, { id: ctx.user.id, nome: ctx.user.name ?? null })),
+
+    /** Desconecta e APAGA os tokens do banco (deactivateUserIntegration). */
+    desconectar: contentProcedure.mutation(async () => {
+      const c = await getConexaoGmailAgencia();
+      if (!c) return { success: true as const };
+      // Esquece o access token em memória também: sem isto, uma sessão viva
+      // continuaria enviando por até uma hora depois de "desconectado".
+      if (c.refreshTokenEncrypted && isEncryptionConfigured()) {
+        try { await limparCacheToken(decryptSecret(c.refreshTokenEncrypted)); } catch { await limparCacheToken(); }
+      } else {
+        await limparCacheToken();
+      }
+      await deactivateUserIntegration(c.userId, "gmail");
+      return { success: true as const };
+    }),
+
+    /** Histórico só dos testes — separado do envio de verdade. */
+    ultimosTestes: contentProcedure.query(() => ultimosEnviosEmail(20, TIPO_TESTE_GMAIL)),
+  }),
+
   ga4: router({
     isConfigured: protectedProcedure.query(() => ({ configured: isGA4Configured() })),
 

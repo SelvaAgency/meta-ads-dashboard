@@ -1679,6 +1679,38 @@ export async function listarTodasContasGA4() {
  * A conexão GA4 da AGÊNCIA. Como no Google Ads, o OAuth é único e vale para
  * todas as propriedades — não é por usuário.
  */
+/**
+ * Conexão Gmail da AGÊNCIA — a conta remetente dedicada.
+ *
+ * Mesmo padrão do GA4/Google Ads: a linha é gravada sob o userId de quem
+ * autorizou, mas quem manda e-mail é o sistema, não a pessoa. Por isso a busca
+ * ignora o usuário e pega a conexão ativa mais recente. Se o admin que conectou
+ * sair da empresa, o envio não pode parar junto.
+ */
+export async function getConexaoGmailAgencia() {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(userIntegrations).where(and(
+    eq(userIntegrations.provider, "gmail"),
+    eq(userIntegrations.active, true),
+    isNotNull(userIntegrations.refreshTokenEncrypted),
+  )).orderBy(desc(userIntegrations.connectedAt)).limit(1);
+  return r[0] ?? null;
+}
+
+/** Resultado da última verificação — "conectado" vira fato, não promessa. */
+export async function registrarVerificacaoIntegracao(
+  id: number,
+  status: "ok" | "erro",
+  erro?: string | null,
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(userIntegrations)
+    .set({ lastCheckAt: new Date(), lastCheckStatus: status, lastCheckError: erro ? String(erro).slice(0, 1000) : null })
+    .where(eq(userIntegrations.id, id));
+}
+
 export async function getConexaoGA4Agencia() {
   const db = await getDb();
   if (!db) return null;
@@ -4541,6 +4573,9 @@ export type EnvioEmailRegistro = {
   erro?: string | null;
   userId?: number | null;
   messageId?: string | null;
+  /** Quem assinou o envio: EMAIL_FROM (Resend/SMTP) ou a conta conectada (Gmail). */
+  remetente?: string | null;
+  duracaoMs?: number | null;
 };
 
 /**
@@ -4566,6 +4601,8 @@ export async function registrarEnvioEmail(r: EnvioEmailRegistro): Promise<void> 
       erro: r.erro ? String(r.erro).slice(0, 4000) : null,
       userId: r.userId ?? null,
       messageId: r.messageId ?? null,
+      remetente: r.remetente ? r.remetente.slice(0, 320) : null,
+      duracaoMs: r.duracaoMs ?? null,
     });
   } catch (e) {
     console.error("[EmailLog] falhou ao gravar auditoria de envio:", (e as Error)?.message, r);
