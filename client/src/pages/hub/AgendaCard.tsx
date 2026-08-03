@@ -53,6 +53,17 @@ function formatUpdated(ts: number): string {
   return `Atualizado às ${hhmm}`;
 }
 
+/** Quanto antes do início o evento já fica em destaque âmbar. */
+const JANELA_EM_BREVE_MIN = 60;
+
+/** "em 5 min" · "em 45 min" · "em 1h". Arredonda para cima no limite para não
+ *  mostrar "em 60 min", que soa mais longe do que "em 1h". */
+function faltaLabel(min: number): string {
+  if (min >= 60) return "em 1h";
+  return `em ${min} min`;
+}
+
+
 function ConnectCTA({ reconnect = false }: { reconnect?: boolean }) {
   return (
     <div className="flex flex-col items-start gap-2">
@@ -120,23 +131,51 @@ export function AgendaCard() {
   } else if (q.data.events.length === 0) {
     body = <p className="text-sm text-muted-foreground">Nenhum compromisso para {label.toLowerCase()}. 🎉</p>;
   } else {
-    // "Agora" = evento com horário cuja janela contém o instante atual. O tick de
-    // 60s re-renderiza, então o destaque acompanha a passagem do tempo (± 1 min).
+    // Três estados no tempo, não dois: "agora" (rosa) já existia, e o cartão
+    // ficava todo branco no resto do dia — inclusive nos minutos que antecedem a
+    // reunião, que é justamente quando ele deveria chamar atenção. "Em breve"
+    // (âmbar) cobre a última hora antes de começar. O tick de 60s re-renderiza,
+    // então tanto o destaque quanto a contagem acompanham o relógio (± 1 min).
     const now = Date.now();
     body = (
       <div className="flex flex-col gap-1 -mx-2">
         {q.data.events.map((ev) => {
           const isNow = ev.startMs != null && ev.endMs != null && now >= ev.startMs && now < ev.endMs;
+          // `ceil` em vez de `round`: faltando 20 segundos ainda é "em 1 min", e
+          // o evento não pisca de volta ao branco na virada para o início.
+          // Evento de dia inteiro fica de fora — ele "começa" à meia-noite, e
+          // sem isso todo compromisso do dia acenderia às 23h da véspera.
+          const faltamMin = ev.startMs != null && !isNow && !ev.allDay
+            ? Math.ceil((ev.startMs - now) / 60000)
+            : null;
+          const emBreve = faltamMin != null && faltamMin > 0 && faltamMin <= JANELA_EM_BREVE_MIN;
           const joinable = !!ev.meetingUrl;
-          const cls = `group flex items-center gap-3 text-sm rounded-lg px-2 py-1.5 transition-colors ${isNow ? "bg-primary/10 ring-1 ring-primary/25" : ""} ${joinable ? "cursor-pointer hover:bg-accent/30" : ""}`;
+          const destaque = isNow
+            ? "bg-primary/10 ring-1 ring-primary/25"
+            : emBreve
+              ? "bg-amber-500/10 ring-1 ring-amber-500/30"
+              : "";
+          const corHora = isNow
+            ? "text-accent"
+            : emBreve
+              ? "text-amber-600 dark:text-amber-400"
+              : ev.allDay ? "text-muted-foreground" : "text-foreground";
+          const cls = `group flex items-center gap-3 text-sm rounded-lg px-2 py-1.5 transition-colors ${destaque} ${joinable ? "cursor-pointer hover:bg-accent/30" : ""}`;
           const inner = (
             <>
-              <span className={`min-w-[64px] font-semibold ${isNow ? "text-accent" : ev.allDay ? "text-muted-foreground" : "text-foreground"}`}>
+              <span className={`min-w-[64px] font-semibold ${corHora}`}>
                 {ev.time}
               </span>
               <span className="truncate flex-1">{ev.title}</span>
               {isNow && <span className="text-[10px] font-medium text-accent px-1.5 py-0.5 rounded-full bg-primary/15 flex-shrink-0">agora</span>}
-              {joinable && <Video className={`w-3.5 h-3.5 flex-shrink-0 ${isNow ? "text-accent" : "text-muted-foreground group-hover:text-foreground"}`} />}
+              {/* A cor sozinha diz "é logo"; o texto diz QUANTO falta — que é a
+                  informação de quem decide se dá tempo de começar outra coisa. */}
+              {emBreve && (
+                <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded-full bg-amber-500/15 flex-shrink-0">
+                  {faltaLabel(faltamMin!)}
+                </span>
+              )}
+              {joinable && <Video className={`w-3.5 h-3.5 flex-shrink-0 ${isNow ? "text-accent" : emBreve ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground group-hover:text-foreground"}`} />}
             </>
           );
           return joinable ? (
