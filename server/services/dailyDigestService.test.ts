@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { BLOCOS_POR_PAPEL, type Papel, type BlocoDigest } from "./dailyDigestService";
+import { BLOCOS_POR_PAPEL, statusDoRecibo, type Papel, type BlocoDigest } from "./dailyDigestService";
+import { consomeDedupDeDigest, type StatusDigest } from "../db";
 
 /**
  * A matriz papel → blocos É a regra de privacidade do Jornalzinho. Um `push`
@@ -67,5 +68,82 @@ describe("matriz de blocos por papel", () => {
     for (const p of papeis) {
       expect(BLOCOS_POR_PAPEL[p].length).toBe(new Set(BLOCOS_POR_PAPEL[p]).size);
     }
+  });
+});
+
+/**
+ * ─── Recibo do digest × trava de duplicata ──────────────────────────────────
+ * A trava existe para impedir DUPLICATA, não para registrar tentativa. Só
+ * `sent` pode consumi-la.
+ *
+ * O caso real que motivou isto: rodar a simulação em dry-run de manhã queimava
+ * a vaga do dia. Ao remover EMAIL_DRY_RUN à tarde, ninguém recebia e a tela
+ * dizia "já enviado" — parecendo sucesso enquanto o e-mail nunca saiu.
+ */
+describe("status do recibo do digest", () => {
+  it("pausado é 'paused', NÃO 'dry_run'", () => {
+    // Pegadinha: a pausa mestre também devolve dryRun=true. Se a ordem das
+    // checagens inverter, toda pausa vira ensaio no histórico.
+    expect(statusDoRecibo({ ok: true, dryRun: true, pausado: true })).toBe("paused");
+  });
+
+  it("bloqueado é 'blocked', não se esconde entre os 'failed'", () => {
+    expect(statusDoRecibo({ ok: false, dryRun: false, bloqueado: true })).toBe("blocked");
+  });
+
+  it("pulado é 'skipped'", () => {
+    expect(statusDoRecibo({ ok: false, dryRun: false, pulado: true })).toBe("skipped");
+  });
+
+  it("ensaio é 'dry_run'", () => {
+    expect(statusDoRecibo({ ok: true, dryRun: true })).toBe("dry_run");
+  });
+
+  it("entrega é 'sent' e falha de transporte é 'failed'", () => {
+    expect(statusDoRecibo({ ok: true, dryRun: false })).toBe("sent");
+    expect(statusDoRecibo({ ok: false, dryRun: false })).toBe("failed");
+  });
+
+  /**
+   * O contrato inteiro em uma asserção: de todos os desfechos possíveis, só um
+   * representa entrega — e só ele pode impedir um envio real no mesmo dia.
+   */
+  it("APENAS 'sent' representa entrega confirmada", () => {
+    const desfechos = [
+      { ok: true,  dryRun: true,  pausado: true },
+      { ok: false, dryRun: false, bloqueado: true },
+      { ok: false, dryRun: false, pulado: true },
+      { ok: true,  dryRun: true },
+      { ok: false, dryRun: false },
+      { ok: true,  dryRun: false },
+    ];
+    const entregues = desfechos.map(statusDoRecibo).filter((s) => s === "sent");
+    expect(entregues).toHaveLength(1);
+  });
+});
+
+/**
+ * A outra metade da regra: a consulta de duplicata só conta `sent`.
+ *
+ * `consomeDedupDeDigest` e a cláusula WHERE de `emailDigestJaEnviado` usam a
+ * MESMA constante (STATUS_DIGEST_ENTREGUE), então este teste não verifica uma
+ * cópia da regra — verifica a regra.
+ */
+describe("o que consome a trava de duplicata", () => {
+  const TODOS: StatusDigest[] = ["sent", "failed", "dry_run", "paused", "blocked", "skipped"];
+
+  it("só 'sent' consome", () => {
+    expect(TODOS.filter(consomeDedupDeDigest)).toEqual(["sent"]);
+  });
+
+  it.each(["dry_run", "paused", "blocked", "skipped", "failed"])(
+    "%s NÃO impede um envio real no mesmo dia",
+    (s) => expect(consomeDedupDeDigest(s)).toBe(false),
+  );
+
+  /** O caso que motivou a correção, escrito por extenso. */
+  it("ensaio de manhã não impede o envio real da tarde", () => {
+    expect(consomeDedupDeDigest(statusDoRecibo({ ok: true, dryRun: true }))).toBe(false);
+    expect(consomeDedupDeDigest(statusDoRecibo({ ok: true, dryRun: false }))).toBe(true);
   });
 });

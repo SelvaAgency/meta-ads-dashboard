@@ -20,7 +20,7 @@ import { logger } from "../logger";
 import { sendEmail, isEmailConfigured, isDryRun, destinatariosDeTeste, transporteAtivo } from "../emailService";
 import {
   financeAtrasos, aniversariantesDe, alertasDoDia, usuariosAtivosComEmail,
-  registrarEnvioDigest, emailDigestJaEnviado, listarComunicados,
+  registrarEnvioDigest, emailDigestJaEnviado, listarComunicados, type StatusDigest,
 } from "../db";
 import { obterBriefingDoDia } from "./briefingService";
 import { getJornalExecutivo } from "./jornalExecutivo";
@@ -341,6 +341,23 @@ export type ResultadoDigestUsuario = {
   blocos: BlocoDigest[]; erro?: string;
 };
 
+/**
+ * Traduz o resultado do sendEmail no status do recibo.
+ *
+ * Puro e exportado para ser testável: é ele que decide, indiretamente, quem
+ * consome a trava de duplicata — só `sent` consome. Uma tradução errada aqui
+ * significa ou digest duplicado, ou digest que nunca sai.
+ */
+export function statusDoRecibo(envio: {
+  ok: boolean; dryRun: boolean; pausado?: boolean; bloqueado?: boolean; pulado?: boolean;
+}): StatusDigest {
+  if (envio.pausado) return "paused";   // antes de dryRun: pausa também devolve dryRun=true
+  if (envio.bloqueado) return "blocked";
+  if (envio.pulado) return "skipped";
+  if (envio.dryRun) return "dry_run";
+  return envio.ok ? "sent" : "failed";
+}
+
 export async function sendDailyDigestToUser(
   u: { id: number; name: string | null; email: string; role: string | null },
   dia: string,
@@ -363,7 +380,12 @@ export async function sendDailyDigestToUser(
 
   // O recibo grava o que REALMENTE aconteceu. Marcar "enviado" numa falha é o
   // que fazia o job parecer bem-sucedido enquanto ninguém recebia nada.
-  await registrarEnvioDigest(u.id, dedupDe(dia), u.email, envio.dryRun ? "dry_run" : envio.ok ? "sent" : "failed");
+  //
+  // A ordem importa: `pausado` também devolve dryRun=true, então checá-lo
+  // primeiro é o que impede uma pausa ser registrada como ensaio. E `bloqueado`
+  // precisa vir antes do genérico "falhou" — destinatário fora da política é
+  // erro de configuração, não falha de entrega, e some no meio dos `failed`.
+  await registrarEnvioDigest(u.id, dedupDe(dia), u.email, statusDoRecibo(envio));
 
   return envio.ok
     ? { ...base, status: "enviado", blocos: d.blocos }

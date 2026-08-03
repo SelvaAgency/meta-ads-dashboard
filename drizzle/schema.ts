@@ -430,7 +430,12 @@ export const dailyDigestRecipients = mysqlTable("daily_digest_recipients", {
   dedupKey: varchar("dedupKey", { length: 180 }).notNull(),
   userId: int("userId").notNull(),
   email: varchar("email", { length: 320 }),
-  status: varchar("status", { length: 12 }).default("sent").notNull(), // sent | failed | dry_run
+  /**
+   * sent | failed | dry_run | paused | blocked | skipped
+   * SÓ `sent` consome a trava de duplicata — os outros não entregaram nada.
+   * Ver emailDigestJaEnviado.
+   */
+  status: varchar("status", { length: 12 }).default("sent").notNull(),
   sentAt: timestamp("sentAt").defaultNow().notNull(),
 }, (table) => ({
   uqEnvio: uniqueIndex("uq_digest_recipient").on(table.dedupKey, table.userId),

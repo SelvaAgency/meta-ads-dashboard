@@ -4485,7 +4485,14 @@ export async function contasComPerformance(): Promise<{ accountId: number; nome:
  * que criava o ciclo db ↔ emailService — e o ciclo impedia o emailService de
  * gravar a própria auditoria, que é justamente o que faltava.
  */
-export async function registrarEnvioDigest(userId: number, dedupKey: string, email: string | null, status: "sent" | "failed" | "dry_run" = "sent") {
+/**
+ * Recibo do digest. Grava o que REALMENTE aconteceu — só `sent` consome a trava
+ * de duplicata (ver emailDigestJaEnviado). Os demais status existem para o
+ * histórico explicar por que a pessoa não recebeu.
+ */
+export type StatusDigest = "sent" | "failed" | "dry_run" | "paused" | "blocked" | "skipped";
+
+export async function registrarEnvioDigest(userId: number, dedupKey: string, email: string | null, status: StatusDigest = "sent") {
   const db = await getDb();
   if (!db) return;
   await db.insert(dailyDigestRecipients).values({ dedupKey, userId, email, status })
@@ -4766,11 +4773,46 @@ export async function resumoEnviosEmail(dias = 7) {
   };
 }
 
+/**
+ * "Já enviou o digest de hoje para esta pessoa?" — e a resposta só é SIM quando
+ * houve entrega de verdade (`status = "sent"`).
+ *
+ * A trava existe para impedir DUPLICATA, não para registrar tentativa. Antes ela
+ * olhava só a existência da linha, então um ensaio (`dry_run`) queimava a vaga
+ * do dia: quem rodasse a simulação de manhã e ligasse o envio real à tarde não
+ * receberia nada, e a tela diria "já enviado" — o pior tipo de falha, porque
+ * parece que funcionou.
+ *
+ * Mesma lógica para `paused`, `blocked`, `skipped` e `failed`: nenhum deles
+ * entregou nada, então nenhum pode impedir a entrega. `failed` inclusive: sem
+ * confirmação de entrega, bloquear a nova tentativa transformaria uma falha
+ * temporária em silêncio permanente naquele dia.
+ *
+ * O índice único (dedupKey, userId) + onDuplicateKeyUpdate garante que a linha
+ * do ensaio seja ATUALIZADA para "sent" quando o envio real acontece — não há
+ * duplicata nem corrida.
+ */
+/**
+ * O ÚNICO status que representa entrega — e portanto o único que pode impedir
+ * um reenvio no mesmo dia. A consulta abaixo e o predicado usam esta mesma
+ * constante, para a regra não existir em duas versões que podem divergir.
+ */
+export const STATUS_DIGEST_ENTREGUE = "sent" as const;
+
+/** Este status consome a trava de duplicata? Puro, para ser testável. */
+export function consomeDedupDeDigest(status: string): boolean {
+  return status === STATUS_DIGEST_ENTREGUE;
+}
+
 export async function emailDigestJaEnviado(userId: number, dedupKey: string): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
   const r = await db.select({ id: dailyDigestRecipients.id }).from(dailyDigestRecipients)
-    .where(and(eq(dailyDigestRecipients.userId, userId), eq(dailyDigestRecipients.dedupKey, dedupKey))).limit(1);
+    .where(and(
+      eq(dailyDigestRecipients.userId, userId),
+      eq(dailyDigestRecipients.dedupKey, dedupKey),
+      eq(dailyDigestRecipients.status, STATUS_DIGEST_ENTREGUE),
+    )).limit(1);
   return r.length > 0;
 }
 
