@@ -148,6 +148,18 @@ async function main() {
       }
     }
 
+    // 3.0.3) Foto própria do cliente do COFRE. Não reaproveita a do Tracker:
+    //        "Santé" e "Carol Garrafa" são dois clientes aqui e uma conta de
+    //        mídia lá, e há cliente com acesso que nunca teve acompanhamento.
+    if (await tableExists(conn, "access_clients")) {
+      if (await columnExists(conn, "access_clients", "pictureKey")) {
+        console.log("[ensure-schema] ok  · access_clients.pictureKey já existe");
+      } else {
+        await conn.query("ALTER TABLE `access_clients` ADD COLUMN `pictureKey` VARCHAR(512) NULL");
+        console.log("[ensure-schema] +   · access_clients.pictureKey adicionada");
+      }
+    }
+
     // 3.1) Foto do cliente enviada à mão. Coluna PRÓPRIA, separada da
     //      `pictureUrl` que vem da Meta: o import de contas reescreve aquela, e
     //      uma foto escolhida pelo time não pode sumir por causa disso.

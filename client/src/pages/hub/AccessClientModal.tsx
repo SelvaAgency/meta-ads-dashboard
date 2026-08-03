@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import { AvatarUpload } from "@/components/AvatarUpload";
 import { Badge } from "@/components/ui/badge";
 import { AccessFormModal, type AccessItem } from "./AccessFormModal";
 
@@ -33,6 +35,10 @@ export function AccessClientModal({
   const deactivateItem = trpc.access.deactivateItem.useMutation({ onSuccess: invalidate });
   const reveal = trpc.access.revealPassword.useMutation();
   const updateClient = trpc.access.updateClient.useMutation({ onSuccess: () => utils.access.clientsList.invalidate() });
+  const removerFoto = trpc.access.removerFotoCliente.useMutation({
+    onSuccess: () => { utils.access.clientsList.invalidate(); toast.success("Foto removida."); },
+    onError: (e) => toast.error(e.message),
+  });
   // Soft delete do cliente (admin/dev). Desativa junto os acessos vinculados.
   const deactivateClient = trpc.access.deactivateClient.useMutation({
     onSuccess: () => { utils.access.clientsList.invalidate(); onClose(); },
@@ -105,9 +111,22 @@ export function AccessClientModal({
               </>
             ) : (
               <>
-                {foto && (
-                  <img src={foto} alt="" className="w-7 h-7 rounded-md object-cover flex-shrink-0" />
-                )}
+                {/* O avatar É o botão: quem quer trocar a foto de um cliente
+                    clica na foto dele, não procura um botão em outro canto.
+                    Vale também para o cliente interno (SELVA). */}
+                <AvatarUpload
+                  nome={nameDraft}
+                  pictureUrl={foto}
+                  podeEditar={canEdit}
+                  endpoint="/api/uploads/access-client-picture"
+                  campoId="accessClientId"
+                  id={clientId}
+                  onAtualizado={() => utils.access.clientsList.invalidate()}
+                  onRemover={foto ? () => removerFoto.mutate({ id: clientId }) : undefined}
+                  removendo={removerFoto.isPending}
+                  className="w-9 h-9 rounded-md"
+                  textoClasse="text-[11px]"
+                />
                 <h2 className="text-lg font-bold truncate">{nameDraft}</h2>
                 {isInternal && <Badge className="bg-primary/20 text-accent border-0">Interno</Badge>}
                 {canEdit && !isInternal && <button onClick={() => setRenaming(true)} className="text-muted-foreground hover:text-foreground" title="Editar cliente"><Pencil className="w-3.5 h-3.5" /></button>}

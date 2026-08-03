@@ -13,7 +13,10 @@ import multer from "multer";
 import { sdk } from "./_core/sdk";
 import { canManageContent } from "@shared/permissions";
 import { isStorageConfigured, uploadImage, uploadComprovante, getReadUrl, deleteObject, MAX_IMAGE_BYTES } from "./storage/storageService";
-import { getUserById, updateUserAvatar, getMetaAdAccountById, updateAccountPictureKey } from "./db";
+import {
+  getUserById, updateUserAvatar, getMetaAdAccountById, updateAccountPictureKey,
+  getAccessClientById, updateAccessClient,
+} from "./db";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_IMAGE_BYTES } });
 
@@ -119,6 +122,45 @@ export function registerUploadRoutes(app: Express) {
         const anterior = conta.pictureKey ?? null;
         await updateAccountPictureKey(accountId, key);
         if (anterior && anterior !== key) deleteObject(anterior); // remove a foto antiga
+        return res.json({ pictureUrl: await getReadUrl(key) });
+      } catch (e: any) {
+        return res.status(400).json({ error: e?.message ?? "Falha no upload." });
+      }
+    });
+  });
+
+  // ── Foto do cliente do COFRE de acessos — admin + developer ─────────────────
+  // Entidade diferente da conta do Tracker, e por isso foto própria: "Santé" e
+  // "Carol Garrafa" são dois clientes aqui e uma única conta de mídia lá, e há
+  // cliente com acesso guardado que nunca teve acompanhamento no Tracker.
+  app.post("/api/uploads/access-client-picture", (req: Request, res: Response) => {
+    upload.single("file")(req, res, async (err: unknown) => {
+      if (err) return res.status(400).json({ error: "Falha no upload (arquivo muito grande?)." });
+      let user;
+      try {
+        user = await sdk.authenticateRequest(req);
+      } catch {
+        return res.status(401).json({ error: "Não autenticado." });
+      }
+      // Mesmo nível de quem cria/edita cliente no cofre (contentProcedure).
+      if (!canManageContent(user.role)) return res.status(403).json({ error: "Sem permissão." });
+      if (!isStorageConfigured()) return res.status(503).json({ error: "Upload indisponível: storage não configurado." });
+      if (!req.file) return res.status(400).json({ error: "Arquivo ausente." });
+
+      const accessClientId = Number(req.body?.accessClientId);
+      if (!Number.isInteger(accessClientId) || accessClientId <= 0) {
+        return res.status(400).json({ error: "Cliente inválido." });
+      }
+      // Confere que o cliente existe ANTES de subir: id torto deixaria um objeto
+      // órfão no bucket que ninguém viria limpar.
+      const cliente = await getAccessClientById(accessClientId);
+      if (!cliente) return res.status(404).json({ error: "Cliente não encontrado." });
+
+      try {
+        const key = await uploadImage(req.file.buffer, req.file.mimetype, `acessos/${accessClientId}`);
+        const anterior = cliente.pictureKey ?? null;
+        await updateAccessClient(accessClientId, { pictureKey: key, updatedByUserId: user.id });
+        if (anterior && anterior !== key) deleteObject(anterior);
         return res.json({ pictureUrl: await getReadUrl(key) });
       } catch (e: any) {
         return res.status(400).json({ error: e?.message ?? "Falha no upload." });

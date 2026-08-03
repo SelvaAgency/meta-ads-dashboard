@@ -134,6 +134,16 @@ export const accessClients = mysqlTable("access_clients", {
   isInternal: boolean("isInternal").default(false).notNull(),
   active: boolean("active").default(true).notNull(),
   sortOrder: int("sortOrder").default(0).notNull(),
+  /**
+   * Foto PRÓPRIA do cliente do cofre (key no storage).
+   *
+   * Não reaproveita a foto do Tracker porque as duas entidades não são a mesma
+   * coisa: "Santé" e "Carol Garrafa" são dois clientes distintos aqui e uma
+   * única conta de mídia lá, e há cliente com acesso guardado que nunca teve
+   * acompanhamento no Tracker. Amarrar a foto àquela tabela deixaria esses
+   * casos permanentemente sem imagem.
+   */
+  pictureKey: varchar("pictureKey", { length: 512 }),
   createdByUserId: int("createdByUserId"),
   updatedByUserId: int("updatedByUserId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

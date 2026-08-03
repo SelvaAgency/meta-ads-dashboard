@@ -1559,7 +1559,7 @@ export const appRouter = router({
       await ensureSelvaInternalClient(ctx.user.id);
       const clients = await getActiveAccessClients();
       const items = await getAllActiveAccessItems();
-      return clients.map((c) => {
+      const base = clients.map((c) => {
         const its = items.filter((i) => i.clientId === c.id);
         const platforms = Array.from(new Set(its.map((i) => i.platform).filter(Boolean)));
         const tags = its.flatMap((i) => parseTags(i.tagsJson));
@@ -1576,10 +1576,29 @@ export const appRouter = router({
         const lastUpdated = its.reduce<Date>((acc, i) => (i.updatedAt > acc ? i.updatedAt : acc), c.updatedAt);
         return {
           id: c.id, name: c.name, slug: c.slug, isInternal: c.isInternal,
+          pictureKey: c.pictureKey ?? null,
           itemCount: its.length, platforms: platforms.slice(0, 4), lastUpdated, searchBlob,
         };
       });
+      // A key vira URL aqui (assinada e temporária em bucket privado), então a
+      // tela nunca precisa saber onde o arquivo mora. Storage desligado → sem
+      // foto, e o card cai nas iniciais.
+      return Promise.all(base.map(async (c) => ({
+        ...c,
+        pictureUrl: c.pictureKey ? await getReadUrl(c.pictureKey).catch(() => null) : null,
+      })));
     }),
+
+    /** Remove a foto do cliente do cofre — volta para as iniciais. */
+    removerFotoCliente: contentProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ ctx, input }) => {
+        const c = await getAccessClientById(input.id);
+        if (!c) throw new TRPCError({ code: "NOT_FOUND" });
+        await updateAccessClient(input.id, { pictureKey: null, updatedByUserId: ctx.user.id });
+        if (c.pictureKey) deleteObject(c.pictureKey); // limpeza best-effort
+        return { success: true } as const;
+      }),
 
     createClient: contentProcedure
       .input(z.object({ name: z.string().min(1).max(255) }))
