@@ -19,9 +19,12 @@ import { Badge } from "@/components/ui/badge";
 import { AccessFormModal, type AccessItem } from "./AccessFormModal";
 
 export function AccessClientModal({
-  clientId, clientName, isInternal, encryptionReady, canEdit, onClose,
+  clientId, clientName, isInternal, encryptionReady, canEdit, foto, onClose,
 }: {
-  clientId: number; clientName: string; isInternal: boolean; encryptionReady: boolean; canEdit: boolean; onClose: () => void;
+  clientId: number; clientName: string; isInternal: boolean; encryptionReady: boolean; canEdit: boolean;
+  /** Foto do cliente, resolvida pela lista. Opcional: sem ela o título fica só texto. */
+  foto?: string | null;
+  onClose: () => void;
 }) {
   const utils = trpc.useUtils();
   const itemsQ = trpc.access.itemsByClient.useQuery({ clientId });
@@ -102,6 +105,9 @@ export function AccessClientModal({
               </>
             ) : (
               <>
+                {foto && (
+                  <img src={foto} alt="" className="w-7 h-7 rounded-md object-cover flex-shrink-0" />
+                )}
                 <h2 className="text-lg font-bold truncate">{nameDraft}</h2>
                 {isInternal && <Badge className="bg-primary/20 text-accent border-0">Interno</Badge>}
                 {canEdit && !isInternal && <button onClick={() => setRenaming(true)} className="text-muted-foreground hover:text-foreground" title="Editar cliente"><Pencil className="w-3.5 h-3.5" /></button>}

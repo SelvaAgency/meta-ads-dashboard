@@ -8,7 +8,7 @@
  *  — NUNCA o valor da senha.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { KeyRound, Search, Plus, Building2, Star, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { HubShell } from "./HubShell";
 import { AccessClientModal } from "./AccessClientModal";
+import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 
 function fmtDate(d: string | Date): string {
   const date = new Date(d);
@@ -29,7 +30,38 @@ type ClientCard = {
   itemCount: number; platforms: string[]; lastUpdated: string | Date; searchBlob: string;
 };
 
-function ClientCardView({ c, onOpen, highlight = false }: { c: ClientCard; onOpen: () => void; highlight?: boolean }) {
+/**
+ * ─── A foto do cliente vem do Tracker, não de um upload próprio ──────────────
+ * O cofre tem a sua PRÓPRIA tabela de clientes (`access_clients`), criada
+ * digitando um nome. Não há vínculo com `meta_ad_accounts`, e os slugs não
+ * batem: "Ultra Malhas" vira `ultra-malhas` aqui e é `ultramalhas` lá;
+ * "Scaffold Play" vira `scaffold-play` e é `play`.
+ *
+ * Por isso o casamento é por NOME normalizado (sem acento, caixa ou separador).
+ * É exato depois da normalização — não é busca aproximada, então não corre o
+ * risco de trocar um cliente por outro de nome parecido.
+ *
+ * A alternativa seria dar upload próprio ao cofre. Seria sempre "certo", e
+ * exatamente por isso é pior: a mesma logo passaria a existir em dois lugares,
+ * e na primeira troca de marca alguém atualizaria só um. Aqui existe UMA foto
+ * por cliente, trocada nas Configurações do Tracker.
+ *
+ * Quem não casa não fica feio: cai nas iniciais, que já é melhor do que o ícone
+ * genérico que todos os cards tinham antes.
+ */
+function chaveDeNome(nome: string): string {
+  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function iniciaisDe(nome: string): string {
+  const partes = nome.trim().split(/\s+/).filter(Boolean);
+  const letras = partes.length >= 2 ? partes[0][0] + partes[1][0] : nome.trim().slice(0, 2);
+  return (letras || "?").toUpperCase();
+}
+
+function ClientCardView({ c, foto, onOpen, highlight = false }: {
+  c: ClientCard; foto?: string | null; onOpen: () => void; highlight?: boolean;
+}) {
   return (
     <button
       onClick={onOpen}
@@ -38,8 +70,12 @@ function ClientCardView({ c, onOpen, highlight = false }: { c: ClientCard; onOpe
       }`}
     >
       <div className="flex items-center gap-2.5">
-        <span className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${highlight ? "bg-primary/25 text-accent" : "bg-muted text-muted-foreground"}`}>
-          {highlight ? <Star className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
+        <span className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden text-[11px] font-bold ${highlight ? "bg-primary/25 text-accent" : "bg-muted text-muted-foreground"}`}>
+          {foto
+            ? <img src={foto} alt="" className="w-full h-full object-cover" />
+            : highlight ? <Star className="w-4 h-4" />
+            : c.name ? iniciaisDe(c.name)
+            : <Building2 className="w-4 h-4" />}
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold truncate">{c.name}</p>
@@ -73,6 +109,27 @@ export default function HubAccess() {
   const createClient = trpc.access.createClient.useMutation({
     onSuccess: () => { utils.access.clientsList.invalidate(); setAdding(false); setNewName(""); },
   });
+
+  /**
+   * Mapa nome-normalizado → foto, montado do mesmo lugar que a sidebar do
+   * Tracker usa. `clientAccounts` já resolve a precedência (foto enviada à mão
+   * > foto da Meta), então aqui não há segunda regra para divergir da primeira.
+   */
+  const { clientAccounts } = useActiveAccount();
+  const fotoPorNome = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const { client, accounts } of clientAccounts) {
+      const foto = client.pictureUrl ?? accounts[0]?.pictureUrl ?? null;
+      if (!foto) continue;
+      m.set(chaveDeNome(client.name), foto);
+      // O nome da conta da Meta às vezes difere do nome de exibição
+      // ("BAESH" vs "BAESH - Trafego"); indexar os dois aumenta o acerto sem
+      // afrouxar a comparação, que continua exata depois de normalizada.
+      for (const a of accounts) if (a.accountName) m.set(chaveDeNome(a.accountName), foto);
+    }
+    return m;
+  }, [clientAccounts]);
+  const fotoDe = (nome: string) => fotoPorNome.get(chaveDeNome(nome)) ?? null;
 
   const clients = (clientsQ.data ?? []) as ClientCard[];
   const q = search.trim().toLowerCase();
@@ -131,7 +188,7 @@ export default function HubAccess() {
           {internal.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {internal.map((c) => (
-                <ClientCardView key={c.id} c={c} highlight onOpen={() => setOpen({ id: c.id, name: c.name, isInternal: c.isInternal })} />
+                <ClientCardView key={c.id} c={c} foto={fotoDe(c.name)} highlight onOpen={() => setOpen({ id: c.id, name: c.name, isInternal: c.isInternal })} />
               ))}
             </div>
           )}
@@ -139,7 +196,7 @@ export default function HubAccess() {
           {/* Demais clientes */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {others.map((c) => (
-              <ClientCardView key={c.id} c={c} onOpen={() => setOpen({ id: c.id, name: c.name, isInternal: c.isInternal })} />
+              <ClientCardView key={c.id} c={c} foto={fotoDe(c.name)} onOpen={() => setOpen({ id: c.id, name: c.name, isInternal: c.isInternal })} />
             ))}
           </div>
           {!clientsQ.isLoading && filtered.length === 0 && (
@@ -155,6 +212,7 @@ export default function HubAccess() {
           isInternal={open.isInternal}
           encryptionReady={encReady}
           canEdit={canEdit}
+          foto={fotoDe(open.name)}
           onClose={() => setOpen(null)}
         />
       )}
