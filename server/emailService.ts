@@ -38,6 +38,9 @@ import nodemailer from "nodemailer";
 import { registrarEnvioEmail, getConexaoGmailAgencia } from "./db";
 import { decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { enviarPeloGmail, sanitizarErroGmail, type GmailCredenciais } from "./services/email/gmailProvider";
+import {
+  modoDestinatarios, porqueModoInvalido, resolverDestinatariosAdminDev, validarDestinatarios,
+} from "./services/email/destinatarios";
 
 const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
 const SMTP_PORT = Number(process.env.SMTP_PORT || "587");
@@ -211,6 +214,10 @@ export interface ResultadoEnvio {
   erro?: string;
   /** true quando o interruptor mestre está desligado: nada foi enviado. */
   pausado?: boolean;
+  /** Recusado pela trava de destinatários/provider — erro de configuração. */
+  bloqueado?: boolean;
+  /** Não havia a quem enviar. Não é erro: é ausência de destinatário. */
+  pulado?: boolean;
 }
 
 export interface SendEmailOptions {
@@ -365,22 +372,82 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
       await registrarEnvioEmail({
         tipo, assunto: opts.subject, destinatarioOriginal: destinoOriginal, destinatarioFinal: destinoOriginal,
         redirecionado: false, status: "paused", transporte: transporteAtivo(),
+        recipientMode: process.env.EMAIL_RECIPIENT_MODE || null,
         role: opts.role, blocos: opts.blocos, userId: opts.userId,
       });
     }
     return { ok: true, dryRun: true, redirecionado: false, pausado: true, entregas };
   }
 
-  const dryRun = isDryRun();
-  const teste = destinatariosDeTeste();
-  const redirecionado = teste.length > 0;
+  /**
+   * ── FASE RESTRITA: só admin/dev recebem ──────────────────────────────────
+   * Roda logo depois da pausa mestre e ANTES de qualquer coisa que possa
+   * produzir um envio: escolha de transporte, dry-run e desvio de teste. É a
+   * mesma razão da pausa estar em primeiro lugar — trava que mora no meio do
+   * fluxo é trava que um caminho novo contorna sem querer.
+   *
+   * Ordem (aprovada): provider → modo → resolver → validar → blocked/skipped.
+   */
+  const bloquear = async (motivo: string, status: "blocked" | "skipped") => {
+    const entregas: EntregaEmail[] = [];
+    for (const destinoOriginal of destinos) {
+      logger[status === "blocked" ? "error" : "warn"](
+        `[EmailService] ${status.toUpperCase()} · ${tipo} · ${destinoOriginal} · "${opts.subject}" · ${motivo}`,
+      );
+      entregas.push({ para: destinoOriginal, destinoOriginal, ok: false, erro: motivo, dryRun: false, redirecionado: false });
+      await registrarEnvioEmail({
+        tipo, assunto: opts.subject, destinatarioOriginal: destinoOriginal, destinatarioFinal: destinoOriginal,
+        redirecionado: false, status, transporte: transporteAtivo(), recipientMode: process.env.EMAIL_RECIPIENT_MODE || null,
+        role: opts.role, blocos: opts.blocos, userId: opts.userId, erro: motivo,
+      });
+    }
+    return { ok: false, dryRun: false, redirecionado: false, entregas, erro: motivo, bloqueado: status === "blocked", pulado: status === "skipped" };
+  };
 
-  // Com desvio ligado, cada destino original vira um envio para CADA endereço de
-  // teste — e cada par (original → teste) é registrado separado. Sem desvio,
-  // um envio por destinatário real.
-  const pares: { destinoOriginal: string; para: string }[] = redirecionado
-    ? destinos.flatMap((orig) => teste.map((t) => ({ destinoOriginal: orig, para: t })))
-    : destinos.map((d) => ({ destinoOriginal: d, para: d }));
+  // 3 — o transporte tem que ser o Gmail. Resend segue existindo como legado,
+  //     mas envio automático por ele está fora desta fase.
+  if (providerConfigurado() !== "gmail") {
+    return bloquear(
+      `Envio automático exige EMAIL_PROVIDER=gmail nesta fase (atual: ${providerConfigurado() ?? "não definida"}).`,
+      "blocked",
+    );
+  }
+
+  // 4 — o modo de destinatários tem que ser o restrito.
+  const modo = modoDestinatarios();
+  if (!modo) return bloquear(porqueModoInvalido() ?? "Modo de destinatários inválido.", "blocked");
+
+  // 5 — quem PODE receber, resolvido do banco (nunca de constante no código).
+  const permitidos = await resolverDestinatariosAdminDev();
+  if (permitidos.length === 0) {
+    return bloquear("Nenhum usuário admin/dev ativo com e-mail — nada a enviar.", "skipped");
+  }
+
+  // 6/7 — todos os pedidos têm que estar na lista. Um fora derruba o lote: filtrar
+  //       em silêncio transformaria erro de configuração em envio parcial que
+  //       parece ter dado certo.
+  const v = validarDestinatarios(destinos, permitidos.map((p) => p.email));
+  if (!v.ok) {
+    return bloquear(
+      `Destinatário fora de admin/dev: ${v.invalidos.join(", ")}. Envio bloqueado por EMAIL_RECIPIENT_MODE=${modo}.`,
+      "blocked",
+    );
+  }
+
+  // 8 — pedido vazio (ou só endereços em branco).
+  if (v.validos.length === 0) return bloquear("Sem destinatário válido no pedido.", "skipped");
+
+  const dryRun = isDryRun();
+  /**
+   * O desvio por EMAIL_TEST_RECIPIENT NÃO vale na fase restrita.
+   *
+   * Ele foi a causa direta do incidente (todo envio real caindo numa caixa só),
+   * e agora seria pior: o desvio poderia mandar para um endereço que a validação
+   * acabou de aprovar para OUTRA pessoa. Nesta fase quem recebe é exatamente
+   * quem foi validado.
+   */
+  const redirecionado = false;
+  const pares: { destinoOriginal: string; para: string }[] = destinos.map((d) => ({ destinoOriginal: d, para: d }));
 
   const entregas: EntregaEmail[] = [];
 
@@ -394,7 +461,8 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
       entregas.push({ ...base, ok: true });
       await registrarEnvioEmail({
         tipo, assunto, destinatarioOriginal: destinoOriginal, destinatarioFinal: para,
-        redirecionado, status: "dry_run", transporte: transporteAtivo(), role: opts.role, blocos: opts.blocos, userId: opts.userId,
+        redirecionado, status: "dry_run", transporte: transporteAtivo(), recipientMode: modo,
+        role: opts.role, blocos: opts.blocos, userId: opts.userId,
       });
       continue;
     }
@@ -408,8 +476,8 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
       entregas.push({ ...base, ok: true, messageId });
       await registrarEnvioEmail({
         tipo, assunto, destinatarioOriginal: destinoOriginal, destinatarioFinal: para,
-        redirecionado, status: "sent", transporte: transporteAtivo(), role: opts.role, blocos: opts.blocos,
-        messageId, userId: opts.userId, remetente, duracaoMs,
+        redirecionado, status: "sent", transporte: transporteAtivo(), recipientMode: modo,
+        role: opts.role, blocos: opts.blocos, messageId, userId: opts.userId, remetente, duracaoMs,
       });
     } catch (err) {
       // Sanitiza SEMPRE: o erro vai para o log e para a auditoria, e a resposta
@@ -420,8 +488,8 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
       entregas.push({ ...base, ok: false, erro: msg });
       await registrarEnvioEmail({
         tipo, assunto, destinatarioOriginal: destinoOriginal, destinatarioFinal: para,
-        redirecionado, status: "failed", transporte: transporteAtivo(), role: opts.role, blocos: opts.blocos,
-        erro: msg, userId: opts.userId, duracaoMs,
+        redirecionado, status: "failed", transporte: transporteAtivo(), recipientMode: modo,
+        role: opts.role, blocos: opts.blocos, erro: msg, userId: opts.userId, duracaoMs,
       });
     }
   }
@@ -438,7 +506,18 @@ export function isEmailConfigured(): boolean {
   return transporteAtivo() !== "nenhum";
 }
 
-/** Destinatários padrão do report diário SELVA */
+/**
+ * @deprecated NÃO é mais fonte de destinatário. Mantida só porque duas
+ * procedures manuais de admin (`sendDailyReport`/`sendDailyProgress`) ainda a
+ * referenciam; os dois crons que a usavam foram desativados em 22/07/2026.
+ *
+ * Uma lista fixa no código é exatamente o que produziu o incidente original: ela
+ * decide quem recebe num lugar que ninguém revisa. Na fase restrita ela é
+ * INERTE — a validação admin/dev do sendEmail bloqueia qualquer endereço daqui
+ * que não seja um usuário admin/dev ativo, e o envio inteiro vira `blocked`.
+ *
+ * Quem precisar de destinatários: `resolverDestinatariosAdminDev()`.
+ */
 export const DAILY_REPORT_RECIPIENTS = [
   "felberg@selva.agency",
   "natalia@selva.agency",

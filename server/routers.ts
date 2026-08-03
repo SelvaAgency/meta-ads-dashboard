@@ -311,6 +311,7 @@ import { emailMode, destinatariosDeTeste, transporteAtivo, providerConfigurado, 
 // ─── Gmail (envio) ───────────────────────────────────────────────────────────
 import { GMAIL_SCOPE, verificarConexaoGmail, limparCacheToken, sanitizarErroGmail } from "./services/email/gmailProvider";
 import { previaTesteGmail, enviarTesteGmail, TIPO_TESTE_GMAIL } from "./services/email/gmailTeste";
+import { simularDestinatarios } from "./services/email/destinatarios";
 import { getConexaoGmailAgencia, registrarVerificacaoIntegracao } from "./db";
 import { isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
@@ -5548,6 +5549,35 @@ export const appRouter = router({
 
     /** Histórico só dos testes — separado do envio de verdade. */
     ultimosTestes: contentProcedure.query(() => ultimosEnviosEmail(20, TIPO_TESTE_GMAIL)),
+
+    /**
+     * SIMULAÇÃO: quem receberia e quem seria bloqueado se a automação fosse
+     * ligada agora. Lê o estado real (banco + envs) e NÃO envia nada — nenhum
+     * transporte é tocado.
+     *
+     * Existe para a decisão de religar ser tomada olhando nomes, não a promessa
+     * de que a regra funciona.
+     */
+    simularDestinatarios: contentProcedure.query(async () => {
+      const sim = await simularDestinatarios();
+      return {
+        ...sim,
+        // O retrato completo das travas, no mesmo lugar: religar depende das
+        // três, e conferir uma de cada vez é como se liga a que faltava.
+        automacaoHabilitada: envioAutomaticoHabilitado(),
+        provider: providerConfigurado(),
+        providerOk: providerConfigurado() === "gmail",
+        enviariaAgora:
+          envioAutomaticoHabilitado() && providerConfigurado() === "gmail" &&
+          !!sim.modo && sim.receberiam.length > 0,
+      };
+    }),
+
+    /** Últimos envios AUTOMÁTICOS (fora os testes) — mostra paused/blocked/skipped. */
+    ultimosAutomaticos: contentProcedure.query(async () => {
+      const linhas = await ultimosEnviosEmail(30);
+      return linhas.filter((l) => l.tipo !== TIPO_TESTE_GMAIL);
+    }),
   }),
 
   ga4: router({

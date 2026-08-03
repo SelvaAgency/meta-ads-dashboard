@@ -122,21 +122,26 @@ describe("EMAIL_PROVIDER", () => {
     vi.stubEnv("EMAIL_DRY_RUN", "false");           // e sem dry-run: queremos a tentativa real
     vi.stubEnv("EMAIL_TEST_RECIPIENT", "");
     vi.stubEnv("EMAIL_PROVIDER", "gmail");
+    // Destinatário PERMITIDO e modo válido: sem isso o envio seria barrado pela
+    // trava de destinatários e o teste não chegaria a exercitar o transporte —
+    // que é justamente o que ele existe para verificar.
+    vi.stubEnv("EMAIL_RECIPIENT_MODE", "admin_dev");
     vi.stubEnv("RESEND_API_KEY", "re_chave_que_funcionaria"); // o fallback ESTÁ disponível
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
-    const r = await sendEmail({ to: "a@selva.agency", subject: "x", html: "<p>x</p>", tipo: "digest" });
+    const r = await sendEmail({ to: "admin@selva.agency", subject: "x", html: "<p>x</p>", tipo: "digest" });
 
     expect(r.ok).toBe(false);
-    // Sem banco no teste, a conexão do Gmail não existe → falha com motivo claro.
+    // Sem conexão Gmail no banco → falha com motivo claro, no transporte.
     expect(r.erro).toMatch(/gmail/i);
+    expect(r.bloqueado).toBeFalsy(); // passou pelas travas; quebrou no envio
     // O que importa: NENHUMA chamada ao Resend aconteceu.
     const chamouResend = fetchSpy.mock.calls.some(([url]) => String(url).includes("api.resend.com"));
     expect(chamouResend).toBe(false);
     fetchSpy.mockRestore();
   });
 
-  it("sem provider e com automação ligada: falha em vez de adivinhar", async () => {
+  it("sem provider e com automação ligada: bloqueia em vez de adivinhar", async () => {
     vi.stubEnv("EMAIL_AUTOMATION_ENABLED", "true");
     vi.stubEnv("EMAIL_DRY_RUN", "false");
     vi.stubEnv("EMAIL_TEST_RECIPIENT", "");
@@ -150,5 +155,128 @@ describe("EMAIL_PROVIDER", () => {
     expect(r.erro).toMatch(/EMAIL_PROVIDER/);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+});
+
+/**
+ * ─── Fase restrita: só admin/dev ────────────────────────────────────────────
+ * A simulação end-to-end da ordem aprovada:
+ *   pausa → provider → modo → resolver → validar → blocked/skipped → gmail.
+ *
+ * O elenco tem um COORDENADOR (`role=user` + `operationalRole=coordinator`) de
+ * propósito: ele é destinatário natural de alerta de site, então é quem passaria
+ * despercebido numa trava mal feita.
+ */
+vi.mock("./db", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./db")>();
+  return {
+    ...real,
+    registrarEnvioEmail: vi.fn(async () => {}),
+    getConexaoGmailAgencia: vi.fn(async () => null),
+    usuariosAtivosComEmail: vi.fn(async () => ([
+      { id: 1, name: "Admin", email: "admin@selva.agency", role: "admin" },
+      { id: 2, name: "Dev", email: "dev@selva.agency", role: "developer" },
+      { id: 3, name: "Colab", email: "colab@selva.agency", role: "user" },
+      { id: 4, name: "Coord", email: "coord@selva.agency", role: "user" },
+    ])),
+  };
+});
+
+describe("fase restrita admin/dev", () => {
+  /** Automação e provider ligados: queremos exercitar a trava de DESTINATÁRIO. */
+  const ligarTudo = () => {
+    vi.stubEnv("EMAIL_AUTOMATION_ENABLED", "true");
+    vi.stubEnv("EMAIL_PROVIDER", "gmail");
+    vi.stubEnv("EMAIL_RECIPIENT_MODE", "admin_dev");
+    vi.stubEnv("EMAIL_DRY_RUN", "true"); // dry-run: prova a trava sem tocar na rede
+    vi.stubEnv("EMAIL_TEST_RECIPIENT", "");
+  };
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("admin e developer passam pela validação", async () => {
+    ligarTudo();
+    const r = await sendEmail({ to: ["admin@selva.agency", "dev@selva.agency"], subject: "x", html: "<p>x</p>", tipo: "digest" });
+    expect(r.bloqueado).toBeFalsy();
+    expect(r.pulado).toBeFalsy();
+    expect(r.entregas).toHaveLength(2);
+  });
+
+  it("colaborador BLOQUEIA o envio", async () => {
+    ligarTudo();
+    const r = await sendEmail({ to: "colab@selva.agency", subject: "x", html: "<p>x</p>", tipo: "digest" });
+    expect(r.bloqueado).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(r.erro).toMatch(/colab@selva\.agency/);
+  });
+
+  it("coordenador com role=user BLOQUEIA — operationalRole não concede nada", async () => {
+    ligarTudo();
+    const r = await sendEmail({ to: "coord@selva.agency", subject: "x", html: "<p>x</p>", tipo: "site_critico" });
+    expect(r.bloqueado).toBe(true);
+  });
+
+  /** O ponto central: NÃO filtrar. Um inválido no meio derruba o lote inteiro. */
+  it("um inválido no meio de válidos derruba o lote — nada é enviado em silêncio", async () => {
+    ligarTudo();
+    const r = await sendEmail({
+      to: ["admin@selva.agency", "colab@selva.agency", "dev@selva.agency"],
+      subject: "x", html: "<p>x</p>", tipo: "digest",
+    });
+    expect(r.bloqueado).toBe(true);
+    expect(r.entregas.every((e) => !e.ok)).toBe(true);
+  });
+
+  it.each([
+    ["cliente externo", "contato@clientequalquer.com.br"],
+    ["contato@ da agência", "contato@selva.agency"],
+    ["endereço que não é usuário", "qualquer@selva.agency"],
+  ])("bloqueia %s", async (_n, email) => {
+    ligarTudo();
+    const r = await sendEmail({ to: email, subject: "x", html: "<p>x</p>", tipo: "digest" });
+    expect(r.bloqueado).toBe(true);
+  });
+
+  it("EMAIL_TEST_RECIPIENT é IGNORADO na fase restrita", async () => {
+    ligarTudo();
+    vi.stubEnv("EMAIL_TEST_RECIPIENT", "colab@selva.agency"); // desvio configurado
+    const r = await sendEmail({ to: "admin@selva.agency", subject: "x", html: "<p>x</p>", tipo: "digest" });
+    expect(r.redirecionado).toBe(false);
+    // O desvio foi a causa direta do incidente: ninguém pode ser redirecionado.
+    expect(r.entregas.every((e) => e.para === "admin@selva.agency")).toBe(true);
+  });
+
+  it("modo ausente bloqueia, mesmo com automação e provider corretos", async () => {
+    ligarTudo();
+    vi.stubEnv("EMAIL_RECIPIENT_MODE", "");
+    const r = await sendEmail({ to: "admin@selva.agency", subject: "x", html: "<p>x</p>", tipo: "digest" });
+    expect(r.bloqueado).toBe(true);
+    expect(r.erro).toMatch(/EMAIL_RECIPIENT_MODE/);
+  });
+
+  it("modo 'all' é recusado — não existe destravar por env", async () => {
+    ligarTudo();
+    vi.stubEnv("EMAIL_RECIPIENT_MODE", "all");
+    const r = await sendEmail({ to: "admin@selva.agency", subject: "x", html: "<p>x</p>", tipo: "digest" });
+    expect(r.bloqueado).toBe(true);
+  });
+
+  it("provider resend bloqueia o automático — Resend é legado, não automação", async () => {
+    ligarTudo();
+    vi.stubEnv("EMAIL_PROVIDER", "resend");
+    vi.stubEnv("RESEND_API_KEY", "re_chave");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const r = await sendEmail({ to: "admin@selva.agency", subject: "x", html: "<p>x</p>", tipo: "digest" });
+    expect(r.bloqueado).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  /** A pausa mestre continua sendo a PRIMEIRA coisa — antes de qualquer trava nova. */
+  it("com automação pausada, o resultado é paused (não blocked)", async () => {
+    ligarTudo();
+    vi.stubEnv("EMAIL_AUTOMATION_ENABLED", "false");
+    const r = await sendEmail({ to: "colab@selva.agency", subject: "x", html: "<p>x</p>", tipo: "digest" });
+    expect(r.pausado).toBe(true);
+    expect(r.bloqueado).toBeFalsy();
   });
 });

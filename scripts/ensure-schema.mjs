@@ -135,6 +135,9 @@ async function main() {
       for (const col of [
         { name: "remetente", ddl: "ADD COLUMN `remetente` VARCHAR(320) NULL" },
         { name: "duracaoMs", ddl: "ADD COLUMN `duracaoMs` INT NULL" },
+        // Sob qual regra de destinatários o envio (ou o bloqueio) aconteceu. A
+        // regra muda entre fases; sem isto o histórico fica ambíguo.
+        { name: "recipientMode", ddl: "ADD COLUMN `recipientMode` VARCHAR(16) NULL" },
       ]) {
         if (await columnExists(conn, "email_send_log", col.name)) {
           console.log(`[ensure-schema] ok  · email_send_log.${col.name} já existe`);

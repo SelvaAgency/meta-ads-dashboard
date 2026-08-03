@@ -458,8 +458,21 @@ export const emailSendLog = mysqlTable("email_send_log", {
   /** Para quem realmente foi (difere quando EMAIL_TEST_RECIPIENT desvia). */
   destinatarioFinal: varchar("destinatarioFinal", { length: 320 }).notNull(),
   redirecionado: boolean("redirecionado").default(false).notNull(),
-  /** sent | failed | dry_run */
+  /**
+   * sent | failed | dry_run | paused | blocked | skipped
+   *
+   * `blocked` e `skipped` são diferentes de propósito: bloqueado é erro de
+   * CONFIGURAÇÃO (destinatário fora de admin/dev, provider errado) e pede ação;
+   * pulado é ausência de destinatário e é estado normal. Tratar os dois como
+   * "falhou" faria o time parar de olhar para os dois.
+   */
   status: varchar("status", { length: 12 }).notNull(),
+  /**
+   * Modo de destinatários em vigor no momento do envio (ex.: admin_dev). Sem
+   * isto, um `blocked` no histórico não diz sob qual regra foi bloqueado — e a
+   * regra muda entre fases.
+   */
+  recipientMode: varchar("recipientMode", { length: 16 }),
   /** gmail | resend | smtp | nenhum — por onde a entrega saiu (ou tentou sair). */
   transporte: varchar("transporte", { length: 12 }).default("smtp").notNull(),
   /**

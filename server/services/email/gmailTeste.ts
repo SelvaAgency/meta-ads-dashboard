@@ -14,9 +14,11 @@
  *    1. UM destinatário. Não é lista, não é array, não aceita vírgula. Um
  *       laço aqui viraria disparo em massa por um caminho que não tem trava
  *       mestre.
- *    2. Digitado pelo admin na hora. Não lê DAILY_REPORT_RECIPIENTS, não lê
- *       EMAIL_TEST_RECIPIENT, não cai em contato@. Nenhuma lista real é
- *       alcançável daqui, nem por engano de configuração.
+ *    2. Digitado pelo admin na hora E validado contra admin/dev. Não lê
+ *       DAILY_REPORT_RECIPIENTS, não lê EMAIL_TEST_RECIPIENT, não cai em
+ *       contato@. Nenhuma lista real é alcançável daqui, e nenhum endereço
+ *       arbitrário passa: na fase restrita, este era o último campo que ainda
+ *       aceitava qualquer e-mail.
  *    3. Conteúdo fixo. O corpo não vem do chamador: é sempre o mesmo texto de
  *       teste. Sem isso, este vira um endpoint de envio arbitrário sem trava.
  *    4. Só Gmail. Não toca no Resend nem no SMTP em nenhuma hipótese.
@@ -30,6 +32,7 @@ import { logger } from "../../logger";
 import { getConexaoGmailAgencia, registrarEnvioEmail, registrarVerificacaoIntegracao } from "../../db";
 import { decryptSecret, isEncryptionConfigured } from "../../_core/integrationsCrypto";
 import { enviarPeloGmail, sanitizarErroGmail } from "./gmailProvider";
+import { resolverDestinatariosAdminDev, validarDestinatarios, normalizarEmail, MODO_ADMIN_DEV } from "./destinatarios";
 
 /** Rótulo próprio na auditoria: separa teste de envio de verdade num filtro. */
 export const TIPO_TESTE_GMAIL = "GMAIL_TEST";
@@ -113,7 +116,30 @@ export async function previaTesteGmail(destinatario: string): Promise<PreviaTest
   if (!ehDestinatarioUnicoValido(destinatario)) {
     return { ...base, impedimento: "Informe UM endereço válido (sem vírgulas nem listas)." };
   }
+  const fora = await destinatarioForaDaFaseRestrita(destinatario);
+  if (fora) return { ...base, impedimento: fora };
   return base;
+}
+
+/**
+ * Na fase restrita, nem o teste manual aceita endereço arbitrário.
+ *
+ * Diferente do envio automático, aqui a checagem NÃO depende de
+ * `EMAIL_RECIPIENT_MODE`: o teste roda justamente enquanto as variáveis ainda
+ * não foram configuradas, e amarrar a trava a uma env não-definida deixaria o
+ * campo aberto exatamente na janela em que ele é usado. A lista admin/dev vem
+ * do banco e vale sempre.
+ *
+ * Devolve o motivo do bloqueio, ou `null` se o endereço é permitido.
+ */
+async function destinatarioForaDaFaseRestrita(destinatario: string): Promise<string | null> {
+  const permitidos = await resolverDestinatariosAdminDev();
+  if (permitidos.length === 0) {
+    return "Nenhum usuário admin/dev ativo com e-mail cadastrado — não há destinatário permitido.";
+  }
+  const v = validarDestinatarios([destinatario], permitidos.map((p) => p.email));
+  if (v.ok) return null;
+  return `${normalizarEmail(destinatario)} não é um usuário admin/dev ativo. Nesta fase o teste só pode ir para admin ou developer.`;
 }
 
 export interface ResultadoTesteGmail {
@@ -137,11 +163,13 @@ export async function enviarTesteGmail(
 ): Promise<ResultadoTesteGmail> {
   const para = destinatario.trim();
 
-  // Revalidação no SERVIDOR. A regra "um destinatário" não pode viver só na
-  // tela: quem chama a API direto pularia a validação do formulário.
+  // Revalidação no SERVIDOR. As regras não podem viver só na tela: quem chama a
+  // API direto pularia a validação do formulário inteira.
   if (!ehDestinatarioUnicoValido(para)) {
     throw new Error("Informe UM endereço de e-mail válido (sem vírgulas, ponto-e-vírgula ou espaços).");
   }
+  const fora = await destinatarioForaDaFaseRestrita(para);
+  if (fora) throw new Error(fora);
 
   const quando = new Intl.DateTimeFormat("pt-BR", {
     timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short",
@@ -165,6 +193,9 @@ export async function enviarTesteGmail(
       tipo: TIPO_TESTE_GMAIL, assunto: ASSUNTO_TESTE,
       destinatarioOriginal: para, destinatarioFinal: para,
       redirecionado: false, status: "sent", transporte: "gmail",
+      // A regra aplicada aqui é a da fase restrita, independente da env — é ela
+      // que o histórico precisa registrar, não o que estava configurado.
+      recipientMode: MODO_ADMIN_DEV,
       messageId: r.messageId, userId: quem.id, remetente: c.remetente, duracaoMs,
     });
     return { ok: true, remetente: c.remetente, destinatario: para, assunto: ASSUNTO_TESTE, messageId: r.messageId, threadId: r.threadId, duracaoMs };
@@ -179,6 +210,7 @@ export async function enviarTesteGmail(
       tipo: TIPO_TESTE_GMAIL, assunto: ASSUNTO_TESTE,
       destinatarioOriginal: para, destinatarioFinal: para,
       redirecionado: false, status: "failed", transporte: "gmail",
+      recipientMode: MODO_ADMIN_DEV,
       erro, userId: quem.id, remetente, duracaoMs,
     });
     return { ok: false, remetente, destinatario: para, assunto: ASSUNTO_TESTE, erro, duracaoMs };

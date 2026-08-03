@@ -4566,8 +4566,14 @@ export type EnvioEmailRegistro = {
   destinatarioOriginal: string;
   destinatarioFinal: string;
   redirecionado: boolean;
-  status: "sent" | "failed" | "dry_run" | "paused";
+  /**
+   * `blocked` = recusado pela trava (config errada, pede ação).
+   * `skipped`  = não havia destinatário (estado normal, não é erro).
+   */
+  status: "sent" | "failed" | "dry_run" | "paused" | "blocked" | "skipped";
   transporte: string;
+  /** Modo de destinatários vigente (ex.: admin_dev). */
+  recipientMode?: string | null;
   role?: string | null;
   blocos?: string[] | null;
   erro?: string | null;
@@ -4603,6 +4609,7 @@ export async function registrarEnvioEmail(r: EnvioEmailRegistro): Promise<void> 
       messageId: r.messageId ?? null,
       remetente: r.remetente ? r.remetente.slice(0, 320) : null,
       duracaoMs: r.duracaoMs ?? null,
+      recipientMode: r.recipientMode ? r.recipientMode.slice(0, 16) : null,
     });
   } catch (e) {
     console.error("[EmailLog] falhou ao gravar auditoria de envio:", (e as Error)?.message, r);

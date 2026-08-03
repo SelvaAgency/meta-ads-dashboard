@@ -32,6 +32,20 @@ import {
 const fmtData = (d: string | Date | null | undefined) =>
   d ? new Date(d).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
 
+/**
+ * `blocked` e `skipped` têm cores diferentes de propósito: bloqueado é erro de
+ * configuração e pede ação; pulado é ausência de destinatário e é normal. Pintar
+ * os dois de vermelho faria o time parar de olhar para os dois.
+ */
+const TOM_STATUS: Record<string, string> = {
+  sent: "bg-emerald-500/15 text-emerald-600",
+  failed: "bg-red-500/15 text-red-600",
+  blocked: "bg-amber-500/15 text-amber-700",
+  skipped: "bg-muted text-muted-foreground",
+  paused: "bg-blue-500/15 text-blue-600",
+  dry_run: "bg-muted text-muted-foreground",
+};
+
 function Linha({ k, v, tom }: { k: string; v: React.ReactNode; tom?: "ok" | "alerta" | "erro" }) {
   const cor = tom === "ok" ? "text-emerald-600" : tom === "erro" ? "text-destructive" : tom === "alerta" ? "text-amber-600" : "text-foreground";
   return (
@@ -49,6 +63,9 @@ export function GmailVinculos() {
   const utils = trpc.useUtils();
   const statusQ = trpc.gmail.status.useQuery(undefined, { enabled: podeGerenciar, staleTime: 30_000 });
   const testesQ = trpc.gmail.ultimosTestes.useQuery(undefined, { enabled: podeGerenciar, staleTime: 30_000 });
+  const simQ = trpc.gmail.simularDestinatarios.useQuery(undefined, { enabled: podeGerenciar, staleTime: 30_000 });
+  const automaticosQ = trpc.gmail.ultimosAutomaticos.useQuery(undefined, { enabled: podeGerenciar, staleTime: 30_000 });
+  const sim = simQ.data;
 
   const [destinatario, setDestinatario] = useState("");
   const [confirmando, setConfirmando] = useState(false);
@@ -184,26 +201,112 @@ export function GmailVinculos() {
       {/* ── Estado do ENVIO — separado da conexão de propósito ─────────────── */}
       <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-2">
         <p className="text-xs font-semibold text-foreground">Envio automático</p>
-        <Linha k="Provider ativo (EMAIL_PROVIDER)" v={s?.providerAtivo ?? "não definido"} tom={s?.providerAtivo ? undefined : "alerta"} />
+        <Linha k="Provider (EMAIL_PROVIDER)" v={s?.providerAtivo ?? "não definido"} tom={s?.providerAtivo === "gmail" ? "ok" : "alerta"} />
+        <Linha
+          k="Modo de destinatários (EMAIL_RECIPIENT_MODE)"
+          v={sim?.modo ?? sim?.modoBruto ?? "não definido"}
+          tom={sim?.modo ? "ok" : "alerta"}
+        />
         <Linha
           k="Automação (EMAIL_AUTOMATION_ENABLED)"
           v={s?.automacaoHabilitada ? "LIGADA" : "pausada"}
           tom={s?.automacaoHabilitada ? "alerta" : "ok"}
         />
         {s?.porqueNaoEnvia && <p className="text-[11px] text-muted-foreground">{s.porqueNaoEnvia}</p>}
+        {sim?.porqueModoInvalido && <p className="text-[11px] text-muted-foreground">{sim.porqueModoInvalido}</p>}
+        <p className={`text-[11px] font-medium ${sim?.enviariaAgora ? "text-amber-600" : "text-emerald-600"}`}>
+          {sim?.enviariaAgora
+            ? "As três travas estão abertas: e-mail automático SAIRIA agora."
+            : "Nenhum e-mail automático sai agora — pelo menos uma trava está fechada."}
+        </p>
         <p className="text-[11px] text-muted-foreground border-t border-border pt-2">
-          Conectar o Gmail <strong>não</strong> religa o envio automático. Enquanto a automação estiver
-          pausada, Jornalzinho e alertas continuam gerando conteúdo e auditando, sem enviar nada.
+          Conectar o Gmail <strong>não</strong> religa o envio automático. As três precisam estar
+          abertas ao mesmo tempo; enquanto isso, Jornalzinho e alertas geram conteúdo e auditam sem enviar.
         </p>
       </div>
+
+      {/* ── Simulação: quem receberia, quem seria bloqueado ────────────────── */}
+      <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
+        <div>
+          <p className="text-xs font-semibold text-foreground">Se a automação fosse ligada agora</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Simulação sobre os usuários reais. Não envia nada — nesta fase, só admin e developer recebem.
+          </p>
+        </div>
+
+        {simQ.isLoading ? (
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Simulando…
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <p className="text-[11px] font-semibold text-emerald-600 mb-1">
+                Receberiam ({sim?.receberiam.length ?? 0})
+              </p>
+              {(sim?.receberiam ?? []).length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">Ninguém — o envio viraria “skipped”.</p>
+              ) : (
+                <ul className="flex flex-col gap-0.5">
+                  {(sim?.receberiam ?? []).map((p) => (
+                    <li key={p.id} className="text-[11px] flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600 flex-shrink-0" />
+                      <span className="truncate">{p.email}</span>
+                      <span className="text-muted-foreground flex-shrink-0">· {p.role}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold text-muted-foreground mb-1">
+                Não receberiam ({sim?.bloqueados.length ?? 0})
+              </p>
+              {(sim?.bloqueados ?? []).length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">Ninguém fora da lista.</p>
+              ) : (
+                <ul className="flex flex-col gap-0.5">
+                  {(sim?.bloqueados ?? []).map((b) => (
+                    <li key={b.id} className="text-[11px]">
+                      <span className="truncate">{b.email}</span>
+                      <span className="text-muted-foreground"> — {b.motivo}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Últimos envios automáticos: paused / blocked / skipped ─────────── */}
+      {(automaticosQ.data ?? []).length > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-2">
+          <p className="text-xs font-semibold text-foreground">Últimos envios automáticos</p>
+          <div className="flex flex-col gap-1">
+            {(automaticosQ.data ?? []).slice(0, 12).map((l: any) => (
+              <div key={l.id} className="flex items-center gap-2 text-[11px] py-0.5 border-b border-border/30 last:border-0">
+                <span className={`px-1.5 rounded flex-shrink-0 ${TOM_STATUS[l.status] ?? "bg-muted text-muted-foreground"}`}>
+                  {l.status}
+                </span>
+                <span className="truncate">{l.destinatarioFinal}</span>
+                <span className="text-muted-foreground truncate">{l.tipo}</span>
+                <span className="text-muted-foreground flex-shrink-0 ml-auto">
+                  {l.recipientMode ?? "—"} · {fmtData(l.criadoEm)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Teste controlado ───────────────────────────────────────────────── */}
       <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
         <div>
           <p className="text-xs font-semibold text-foreground">Enviar e-mail de teste</p>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Um único endereço, escolhido por você. Não usa lista de destinatários real, não passa pelos
-            crons e não altera a trava do envio automático.
+            Um único endereço, e ele precisa ser de um usuário <strong>admin ou developer</strong> ativo.
+            Não usa lista de destinatários real, não passa pelos crons e não altera a trava do envio automático.
           </p>
         </div>
 
@@ -211,7 +314,7 @@ export function GmailVinculos() {
           <input
             value={destinatario}
             onChange={(e) => { setDestinatario(e.target.value); setConfirmando(false); }}
-            placeholder="voce@selva.agency"
+            placeholder="admin ou developer @selva.agency"
             className="flex-1 min-w-[220px] text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary"
           />
           {!confirmando ? (
