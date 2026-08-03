@@ -8,7 +8,6 @@ import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import {
   Users,
   BarChart3,
-  Store,
   Bell,
   ChevronDown,
   ChevronRight,
@@ -21,7 +20,6 @@ import {
   LogOut,
   Lightbulb,
   Lock,
-  TrendingUp,
   Activity,
   Globe,
   Instagram,
@@ -173,14 +171,10 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
     { path: "/site", label: "Site", icon: Globe },
     { path: "/reports", label: "Relatórios", icon: FileText },
   ];
-  // Ocultos para colaboradores — só admin/dev. Ficam sob o divisor
-  // "Oculto para colaboradores". Redes sociais saiu daqui: agora é "EM BREVE"
-  // para todos, logo abaixo de Site (ver renderAccountItem).
-  const managerNavItems = [
-    { path: "/google-ads", label: "Google Ads", icon: TrendingUp },
-    { path: "/ga4", label: "Google Analytics", icon: BarChart3 },
-    { path: "/lojas", label: "Lojas", icon: Store },
-  ];
+  // Google Ads, Google Analytics e Lojas saíram do menu: viraram seções do hub
+  // de Conexões (Configurações). Eram páginas de CONEXÃO, não de leitura por
+  // cliente — manter cada uma como item de menu duplicava a mesma verdade em
+  // dois lugares. As rotas antigas ainda existem e caem em Conexões (App.tsx).
 
   const renderAccountItem = (item: { path: string; label: string; icon: typeof Home }) => {
     const isActive = location === item.path;
@@ -494,8 +488,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             {baseNavItems.map(renderAccountItem)}
 
             {/* ── Oculto para colaboradores (admin/dev) — caixa ÚNICA ──────────
-                Reúne tudo que o colaborador não vê: gestão cross-client
-                (Panorama, Alertas) + fontes por cliente (Google Ads, GA4, Lojas). */}
+                Gestão cross-client: Panorama e Alertas. */}
             {isManager && (
               <HiddenForUsersGroup open={sidebarOpen}>
 
@@ -539,8 +532,6 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                     </Link>
                   );
                 })()}
-
-                {managerNavItems.map(renderAccountItem)}
               </HiddenForUsersGroup>
             )}
           </div>

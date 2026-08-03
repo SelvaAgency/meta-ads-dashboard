@@ -1123,10 +1123,13 @@ function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number |
     </div>
   );
 
+  // A página /google-ads foi aposentada: conectar a agência e vincular a conta
+  // do cliente é feito no hub de Conexões (Configurações). O link vai direto
+  // para lá — mandar para uma rota que só redireciona custaria um salto a mais.
   const linkDedicada = (
-    <a href={accountId ? `/google-ads?account=${accountId}` : "/google-ads"}
+    <a href={accountId ? `/settings?painel=conexoes&account=${accountId}` : "/settings?painel=conexoes"}
       style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500, color: "#D4537E", textDecoration: "none", border: "0.5px solid rgba(212,83,126,0.4)", borderRadius: 8, padding: "8px 14px" }}>
-      Abrir Google Ads <ExternalLink className="w-3.5 h-3.5" />
+      Abrir Conexões <ExternalLink className="w-3.5 h-3.5" />
     </a>
   );
 
@@ -1143,14 +1146,14 @@ function PainelGoogleAds({ accountId, periodLabel, dias }: { accountId: number |
   // Agência não conectada: nenhum cliente consegue ler, por mais vinculado que esteja.
   if (!cfg.data?.oauthConectado) {
     return <Vazio titulo="Agência não conectada ao Google Ads"
-      texto="A conexão do Google Ads é única para a agência e ainda não foi autorizada."
+      texto="A conexão do Google Ads é única para a agência e ainda não foi autorizada. A autorização é feita em Configurações → Conexões."
       acao={linkDedicada} />;
   }
 
   // Cliente sem conta vinculada: AQUI sim é caso de vincular.
   if (!conta.data) {
     return <Vazio titulo="Nenhuma conta do Google Ads vinculada a este cliente"
-      texto="A agência está conectada, mas este cliente ainda não tem uma conta de anúncios vinculada. O vínculo é feito na tela dedicada."
+      texto="A agência está conectada, mas este cliente ainda não tem uma conta de anúncios vinculada. O vínculo é feito em Configurações → Conexões."
       acao={linkDedicada} />;
   }
 

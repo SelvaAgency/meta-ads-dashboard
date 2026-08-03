@@ -123,7 +123,7 @@ import {
   updateAccountAiStatus,
   updateAccountNote,
   updateAccountGoalType,
-  updateAccountPicture,
+  updateAccountPictureKey,
   markStaleCampaignsArchived,
   forceUpdateAllTokens,
   getDailyBriefing,
@@ -1605,7 +1605,17 @@ export const appRouter = router({
           const hasTokenError = recentAlerts.some(
             (a) => a.type === "SYNC_ERROR" && !a.isRead && a.title.startsWith("Token expirado")
           );
-          return { ...acc, hasTokenError };
+          /**
+           * Foto enviada à mão GANHA da que veio da Meta — é escolha explícita
+           * do time contra um default automático. A key vira URL aqui (num
+           * bucket privado é assinada e expira), então a tela nunca precisa
+           * saber onde o arquivo mora. Storage desligado → cai na foto da Meta.
+           */
+          let pictureUrl = acc.pictureUrl ?? null;
+          if (acc.pictureKey) {
+            try { pictureUrl = await getReadUrl(acc.pictureKey); } catch { /* storage off */ }
+          }
+          return { ...acc, pictureUrl, hasTokenError };
         })
       );
       return accountsWithStatus;
@@ -1689,26 +1699,22 @@ export const appRouter = router({
         return { success: true, message: "Token atualizado para todas as contas ativas." };
       }),
 
-    // Refresh picture URLs for all accounts from Meta API
-    refreshPictures: protectedProcedure
-      .mutation(async ({ ctx }) => {
-        const dbAccounts = await getMetaAdAccountsByUserId(ctx.user.id);
-        if (!dbAccounts.length) return { updated: 0 };
-        const token = dbAccounts[0].accessToken;
-        const metaAccounts = await getAdAccounts(token);
-        const pictureMap = new Map<string, string | undefined>();
-        for (const acc of metaAccounts) {
-          pictureMap.set(acc.id.replace("act_", ""), acc.pictureUrl);
-        }
-        let updated = 0;
-        for (const acc of dbAccounts) {
-          const url = pictureMap.get(acc.accountId) ?? null;
-          await updateAccountPicture(acc.id, url);
-          updated++;
-        }
-        return { updated };
+    /**
+     * Remove a foto enviada à mão. Volta para a foto da Meta se houver, e para
+     * as iniciais se não houver — nunca deixa o cliente sem representação.
+     *
+     * O binário sobe por /api/uploads/account-picture (multipart não passa bem
+     * por tRPC); só a remoção mora aqui.
+     */
+    removerFoto: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .mutation(async ({ input }) => {
+        const conta = await getMetaAdAccountById(input.accountId);
+        if (!conta) throw new TRPCError({ code: "NOT_FOUND", message: "Conta não encontrada." });
+        await updateAccountPictureKey(input.accountId, null);
+        if (conta.pictureKey) deleteObject(conta.pictureKey); // limpeza best-effort
+        return { success: true } as const;
       }),
-
 
     getThresholds: protectedProcedure
       .input(z.object({ accountId: z.number() }))

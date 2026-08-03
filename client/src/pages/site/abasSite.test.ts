@@ -32,6 +32,11 @@ describe("destino das abas do Site", () => {
       expect(destinoDaAba("visao")).toEqual({ aba: "resumo" });
     });
 
+    /** A aba Relatórios saiu do Site — o gerador vive na página Relatórios. */
+    it("relatorios abre Resumo em vez de tela vazia", () => {
+      expect(destinoDaAba("relatorios")).toEqual({ aba: "resumo" });
+    });
+
     it("todo nome antigo aponta para uma seção que existe de verdade", () => {
       for (const antigo of ["clarity", "perf", "seguranca", "uptime"]) {
         const d = destinoDaAba(antigo);
@@ -46,7 +51,7 @@ describe("destino das abas do Site", () => {
     });
 
     it("as ferramentas continuam alcançáveis por link direto", () => {
-      for (const t of ["relatorios", "contexto", "chat"] as AbaSite[]) {
+      for (const t of ["contexto", "chat"] as AbaSite[]) {
         expect(destinoDaAba(t).aba).toBe(t);
       }
     });

@@ -18,7 +18,6 @@ import Finance from "./pages/Finance";
 import Admin from "./pages/Admin";
 import ReportView from "./pages/ReportView";
 
-import GoogleAds from "./pages/GoogleAds";
 import SocialNetworks from "./pages/SocialNetworks";
 
 import Experiments from "./pages/Experiments";
@@ -29,8 +28,6 @@ import Hub from "./pages/hub/Hub";
 import HubAccess from "./pages/hub/HubAccess";
 import NotificacoesPage from "./pages/hub/NotificacoesPage";
 import Site from "./pages/Site";
-import Analytics from "@/pages/Analytics";
-import Lojas from "@/pages/Lojas";
 import Panorama from "@/pages/Panorama";
 import HubApp from "./pages/hub/HubApp";
 import HubSettings from "./pages/hub/HubSettings";
@@ -39,11 +36,30 @@ import ChangePassword from "./pages/hub/ChangePassword";
 import TrelloCallback from "./pages/hub/TrelloCallback";
 import { AdminOnly } from "./pages/hub/AdminOnly";
 import { isEmbedded } from "./pages/hub/embed";
-import { urlDoShellPara } from "./pages/hub/trackerRoutes";
+import { urlDoShellPara, destinoDeConexoes } from "./pages/hub/trackerRoutes";
 
 function RedirectTo({ to }: { to: string }) {
   const [, navigate] = useLocation();
   useEffect(() => { navigate(to, { replace: true }); }, []);
+  return null;
+}
+
+/**
+ * As páginas soltas de Google Ads, Google Analytics e Lojas foram absorvidas
+ * pelo hub de Conexões (dentro de Configurações do Tracker). As rotas antigas
+ * continuam existindo — e não morrem em 404 — porque duas coisas ainda apontam
+ * para elas: deep-links salvos por quem usava o menu antigo, e o retorno do
+ * OAuth do Google (`/tracker?rota=/ga4`). Todas caem em Conexões.
+ *
+ * O destino depende de onde a rota foi aberta: dentro do iframe basta navegar;
+ * no topo é preciso passar pelo shell do Spaces, senão /settings renderiza as
+ * configurações do PORTAL, que não é onde Conexões mora.
+ */
+function ParaConexoes() {
+  const [, navigate] = useLocation();
+  useEffect(() => {
+    navigate(destinoDeConexoes(window.location.search, isEmbedded()), { replace: true });
+  }, []);
   return null;
 }
 
@@ -107,18 +123,25 @@ function Router() {
       {/* /alerts aposentada — a caixa única é /notificacoes (renderiza no shell
           do Tracker quando embutida). Redireciona preservando compatibilidade. */}
       <Route path="/alerts" component={() => <RedirectTo to="/notificacoes" />} />
-      <Route path="/ga4" component={() => <Interna><Analytics /></Interna>} />
-      <Route path="/lojas" component={() => <Interna><Lojas /></Interna>} />
       <Route path="/site" component={() => <Interna><Site /></Interna>} />
       {/* Alertas antigos apontam para /clarity — preserva o destino deles. */}
       <Route path="/clarity" component={() => <Interna><Site /></Interna>} />
       <Route path="/suggestions" component={() => <Interna><Suggestions /></Interna>} />
       <Route path="/suggestions-hub" component={() => <RedirectTo to="/overview" />} />
       <Route path="/admin" component={() => <Interna><Admin /></Interna>} />
-      <Route path="/google-ads" component={() => <Interna><GoogleAds /></Interna>} />
       <Route path="/social-networks" component={() => <Interna><SocialNetworks /></Interna>} />
       <Route path="/experiments" component={() => <Interna><Experiments /></Interna>} />
       <Route path="/experiments/:id" component={() => <Interna><ExperimentDetail /></Interna>} />
+
+      {/* ── Páginas de conexão aposentadas → hub de Conexões ─────────────────
+          Google Ads, Google Analytics e Lojas saíram do menu: o que elas
+          faziam agora vive em Conexões. As rotas ficam só para não quebrar
+          link antigo nem o retorno do OAuth do Google. */}
+      <Route path="/conexoes" component={ParaConexoes} />
+      <Route path="/google-ads" component={ParaConexoes} />
+      <Route path="/ga4" component={ParaConexoes} />
+      <Route path="/lojas" component={ParaConexoes} />
+
       {/* Redirects for removed nav items */}
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />

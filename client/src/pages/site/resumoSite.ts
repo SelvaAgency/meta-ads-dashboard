@@ -15,7 +15,7 @@
  */
 import type { Fonte } from "@shared/fontes";
 
-export type AbaDestino = "resumo" | "performance" | "tecnico" | "relatorios" | "contexto" | "chat";
+export type AbaDestino = "resumo" | "performance" | "tecnico" | "contexto" | "chat";
 
 export type AcaoResumo = {
   texto: string;

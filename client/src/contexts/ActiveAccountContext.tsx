@@ -52,7 +52,7 @@ function guardar(id: number | null) {
  */
 const SECOES_POR_CLIENTE = new Set([
   "/dashboard", "/campaigns", "/alerts", "/suggestions", "/experiments",
-  "/reports", "/site", "/clarity", "/google-ads", "/social-networks",
+  "/reports", "/site", "/clarity", "/social-networks",
 ]);
 
 /**
@@ -83,7 +83,10 @@ interface AdAccount {
   currency: string | null;
   timezone: string | null;
   lastSyncAt: Date | null;
+  /** URL já resolvida pelo servidor: a foto enviada à mão ganha da da Meta. */
   pictureUrl: string | null;
+  /** Key da foto enviada à mão. Só existe para saber se dá para removê-la. */
+  pictureKey?: string | null;
 }
 
 interface ClientWithAccounts {
@@ -149,10 +152,16 @@ export function ActiveAccountProvider({ children }: { children: React.ReactNode 
   const clientAccounts = useMemo<ClientWithAccounts[]>(() => {
     const cadastrados = CLIENTS.map(client => {
       const accs = accounts.filter(a => client.metaAccountIds.includes(a.accountId));
+      // A foto da CONTA ganha da do clientConfig: é ela que o time troca à mão
+      // nas Configurações do Tracker, e o config é um arquivo estático que
+      // ninguém edita para isso. Sem foto, quem exibe cai nas iniciais.
+      const comFoto: ClientConfig = accs[0]?.pictureUrl
+        ? { ...client, pictureUrl: accs[0].pictureUrl }
+        : client;
       return {
-        client,
+        client: comFoto,
         accounts: accs,
-        integrations: getIntegrationStatus(client),
+        integrations: getIntegrationStatus(comFoto),
       };
     }).filter(ca => ca.accounts.length > 0);
 

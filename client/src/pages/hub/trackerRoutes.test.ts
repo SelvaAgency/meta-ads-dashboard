@@ -10,19 +10,28 @@
  *     nenhum, que é o pior tipo de quebra.
  */
 import { describe, expect, it } from "vitest";
-import { ehRotaInterna, rotaInternaSegura, urlDoShellPara, urlEmbutidaPara } from "./trackerRoutes";
+import {
+  destinoDeConexoes, ehRotaInterna, pediuConexoes, rotaInternaSegura, urlDoShellPara,
+  urlEmbutidaPara,
+} from "./trackerRoutes";
 
 /**
- * O callback do OAuth do Google Analytics volta para /tracker?rota=/ga4. Se a
- * rota não estiver na allowlist, o retorno cai em tela vazia depois do
- * consentimento — e o usuário não tem como saber se conectou ou não.
+ * O callback do OAuth do Google volta para /tracker?rota=… . Se a rota não
+ * estiver na allowlist, o retorno cai em tela vazia depois do consentimento —
+ * e o usuário não tem como saber se conectou ou não.
+ *
+ * Hoje o callback aponta para /settings (onde o hub de Conexões vive), mas
+ * /ga4 e /google-ads continuam na allowlist: há links salvos apontando para
+ * elas, e quem chega lá é levado a Conexões em vez de tomar 404.
  */
-describe("rota do Google Analytics", () => {
-  it("/ga4 é rota interna válida", async () => {
-    const { ehRotaInterna, rotaInternaSegura } = await import("./trackerRoutes");
-    expect(ehRotaInterna("/ga4")).toBe(true);
-    expect(rotaInternaSegura("/ga4")).toBe("/ga4");
-  });
+describe("rotas de conexão", () => {
+  it.each(["/settings", "/conexoes", "/ga4", "/google-ads", "/lojas"])(
+    "%s é rota interna válida",
+    (rota) => {
+      expect(ehRotaInterna(rota)).toBe(true);
+      expect(rotaInternaSegura(rota)).toBe(rota);
+    },
+  );
 });
 
 /** O item da sidebar e o deep-link /tracker?rota=/panorama dependem disto. */
@@ -30,6 +39,70 @@ describe("rota do Panorama de Sites", () => {
   it("/panorama é rota interna válida", () => {
     expect(ehRotaInterna("/panorama")).toBe(true);
     expect(rotaInternaSegura("/panorama")).toBe("/panorama");
+  });
+});
+
+/**
+ * Google Ads, Google Analytics e Lojas saíram do menu — o que elas faziam vive
+ * no hub de Conexões. As rotas continuam existindo só para redirecionar.
+ *
+ * O caso que este bloco protege é o do TOPO: /settings no topo renderiza as
+ * configurações do PORTAL, não as do Tracker. Um redirect ingênuo para
+ * /settings entregaria a tela errada com ar de acerto — o pior tipo de quebra,
+ * porque parece ter funcionado. Por isso, fora do iframe, o destino tem que
+ * passar pelo shell.
+ */
+describe("rotas aposentadas de conexão → hub de Conexões", () => {
+  it("dentro do iframe navega direto para o painel", () => {
+    expect(destinoDeConexoes("", true)).toBe("/settings?painel=conexoes");
+  });
+
+  it("no topo passa pelo shell — /settings solto seria o portal, não o Tracker", () => {
+    expect(destinoDeConexoes("", false)).toBe("/tracker?painel=conexoes&rota=%2Fsettings");
+  });
+
+  it("preserva a query do link antigo (?account=) nos dois casos", () => {
+    expect(destinoDeConexoes("?account=4", true)).toBe("/settings?account=4&painel=conexoes");
+    expect(destinoDeConexoes("?account=4", false)).toBe(
+      "/tracker?account=4&painel=conexoes&rota=%2Fsettings",
+    );
+  });
+
+  /** O `?conectado=1` do retorno do OAuth do Google não pode se perder. */
+  it("preserva o ?conectado=1 do retorno do OAuth", () => {
+    expect(destinoDeConexoes("?conectado=1", true)).toBe("/settings?conectado=1&painel=conexoes");
+  });
+
+  /** `rota=` é instrução do shell; repassá-la ao app de dentro é lixo na URL. */
+  it("descarta o `rota=` ao entrar no iframe", () => {
+    expect(destinoDeConexoes("?rota=%2Fga4&conectado=1", true)).toBe(
+      "/settings?conectado=1&painel=conexoes",
+    );
+  });
+
+  /**
+   * Cadeia COMPLETA do topo até o que o iframe carrega — é o percurso real de
+   * quem digita /ga4 na barra de endereço ou volta do consentimento do Google.
+   */
+  it("do topo até o iframe, a tela final é Conexões expandido", () => {
+    const noTopo = destinoDeConexoes("?conectado=1", false);
+    expect(noTopo).toBe("/tracker?conectado=1&painel=conexoes&rota=%2Fsettings");
+
+    const busca = noTopo.slice(noTopo.indexOf("?"));
+    const rota = rotaInternaSegura(new URLSearchParams(busca).get("rota"));
+    expect(rota).toBe("/settings"); // fora da allowlist, o iframe cairia no Tracker genérico
+
+    const src = urlEmbutidaPara(rota!, busca);
+    expect(src).toBe("/settings?conectado=1&painel=conexoes");
+    // …e a tela que carrega nessa URL abre o hub expandido. Fechar a cadeia
+    // aqui é o que impede o par escrever/ler de divergir em silêncio.
+    expect(pediuConexoes(src.slice(src.indexOf("?")))).toBe(true);
+  });
+
+  it("Configurações aberta por conta própria NÃO abre o hub sozinha", () => {
+    expect(pediuConexoes("")).toBe(false);
+    expect(pediuConexoes("?account=4")).toBe(false);
+    expect(pediuConexoes("?painel=outro")).toBe(false);
   });
 });
 

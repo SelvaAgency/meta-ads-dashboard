@@ -547,7 +547,14 @@ export const metaAdAccounts = mysqlTable("meta_ad_accounts", {
   aiStatusColor: mysqlEnum("aiStatusColor", ["green", "yellow", "red"]),
   accountNote: text("accountNote"),
   goalTypeOverride: varchar("goalTypeOverride", { length: 64 }),
+  /** Foto vinda da Meta. Pode ser sobrescrita a cada import de contas. */
   pictureUrl: varchar("pictureUrl", { length: 1024 }),
+  /**
+   * Foto ENVIADA à mão (key no storage), separada da `pictureUrl` de propósito:
+   * o import de contas reescreve a da Meta, e uma foto escolhida pelo time não
+   * pode sumir porque alguém renovou o token. Quando existe, ganha da Meta.
+   */
+  pictureKey: varchar("pictureKey", { length: 512 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

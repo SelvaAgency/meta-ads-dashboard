@@ -113,6 +113,18 @@ async function main() {
       console.log(`[ensure-schema] +   · user_integrations.${col.name} adicionada`);
     }
 
+    // 3.1) Foto do cliente enviada à mão. Coluna PRÓPRIA, separada da
+    //      `pictureUrl` que vem da Meta: o import de contas reescreve aquela, e
+    //      uma foto escolhida pelo time não pode sumir por causa disso.
+    if (await tableExists(conn, "meta_ad_accounts")) {
+      if (await columnExists(conn, "meta_ad_accounts", "pictureKey")) {
+        console.log("[ensure-schema] ok  · meta_ad_accounts.pictureKey já existe");
+      } else {
+        await conn.query("ALTER TABLE `meta_ad_accounts` ADD COLUMN `pictureKey` VARCHAR(512) NULL");
+        console.log("[ensure-schema] +   · meta_ad_accounts.pictureKey adicionada");
+      }
+    }
+
     // 4) News bar persistente.
     await conn.query(`
       CREATE TABLE IF NOT EXISTS \`news_items\` (

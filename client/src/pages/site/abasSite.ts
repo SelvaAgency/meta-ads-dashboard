@@ -4,8 +4,10 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *
  *  A seção Site tinha oito abas; cinco eram painéis de dado e viraram três:
- *  Resumo, Performance e Técnico. Relatórios, Contexto e Perguntar são
- *  ferramentas e ficaram como estavam.
+ *  Resumo, Performance e Técnico. Sobrou o Perguntar como ferramenta.
+ *
+ *  Relatórios saiu daqui: a página Relatórios já gera relatório de site, e duas
+ *  portas para o mesmo gerador viravam duas verdades sobre o mesmo cliente.
  *
  *  O problema é que os alertas gravam o destino no banco, em texto:
  *
@@ -20,18 +22,17 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-export type AbaSite = "resumo" | "performance" | "tecnico" | "relatorios" | "contexto" | "chat";
+export type AbaSite = "resumo" | "performance" | "tecnico" | "contexto" | "chat";
 
 /** Seções recolhíveis dentro das abas de dado. */
 export type SecaoSite = "comportamento" | "paginas" | "carregamento" | "seguranca" | "disponibilidade";
 
-export const ABAS_SITE: AbaSite[] = ["resumo", "performance", "tecnico", "relatorios", "contexto", "chat"];
+export const ABAS_SITE: AbaSite[] = ["resumo", "performance", "tecnico", "contexto", "chat"];
 
 export const ROTULO_ABA: Record<AbaSite, string> = {
   resumo: "Resumo",
   performance: "Performance",
   tecnico: "Técnico",
-  relatorios: "Relatórios",
   contexto: "Contexto",
   chat: "Perguntar",
 };
@@ -53,6 +54,9 @@ export function destinoDaAba(valor: string | null | undefined): Destino {
   // Nomes antigos → aba nova + a seção onde o conteúdo foi parar.
   const legado: Record<string, Destino> = {
     visao: { aba: "resumo" },
+    // A aba Relatórios foi removida do Site (o gerador vive em Relatórios).
+    // Quem chega por link antigo abre o Resumo, não uma tela vazia.
+    relatorios: { aba: "resumo" },
     clarity: { aba: "performance", secao: "comportamento" },
     perf: { aba: "tecnico", secao: "carregamento" },
     performance_tecnica: { aba: "tecnico", secao: "carregamento" },

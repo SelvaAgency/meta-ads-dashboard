@@ -187,14 +187,15 @@ export function registerGoogleOAuthRoutes(app: Express) {
             <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
               <h2 style="color:#dc2626;">Não foi possível salvar a conexão</h2>
               <p>${(e as Error).message}</p>
-              <p><a href="/google-ads" style="color:#2563eb;">← Voltar ao Google Ads</a></p>
+              <p><a href="/tracker?rota=%2Fsettings&painel=conexoes" style="color:#2563eb;">← Voltar a Conexões</a></p>
             </body></html>
           `);
         }
-        // Sucesso → volta para o SHELL do Spaces com o Google Ads embutido.
-        // O OAuth rodou no top-level (target="_top"), então voltamos para a
-        // rota do shell, não para /google-ads cru — que ficaria fora do iframe.
-        return res.redirect("/tracker?rota=/google-ads&conectado=1");
+        // Sucesso → volta para o SHELL do Spaces com Conexões aberto. O OAuth
+        // roda no top-level (target="_top"), então voltamos para a rota do
+        // shell: /settings cru ficaria fora do iframe (e no topo é a tela de
+        // configurações do PORTAL, que não é onde Conexões mora).
+        return res.redirect("/tracker?rota=%2Fsettings&painel=conexoes&conectado=1");
       }
 
       /**
@@ -234,13 +235,13 @@ export function registerGoogleOAuthRoutes(app: Express) {
             <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
               <h2 style="color:#dc2626;">Não foi possível salvar a conexão</h2>
               <p>${(e as Error).message}</p>
-              <p><a href="/tracker?rota=/ga4" style="color:#2563eb;">← Voltar ao Google Analytics</a></p>
+              <p><a href="/tracker?rota=%2Fsettings&painel=conexoes" style="color:#2563eb;">← Voltar a Conexões</a></p>
             </body></html>
           `);
         }
         // Volta para o SHELL, não para a rota crua: o OAuth roda em top-level
-        // (target="_top") e /ga4 sozinho ficaria fora do Spaces.
-        return res.redirect("/tracker?rota=/ga4&conectado=1");
+        // (target="_top") e /settings sozinho ficaria fora do Spaces.
+        return res.redirect("/tracker?rota=%2Fsettings&painel=conexoes&conectado=1");
       }
 
       return res.status(400).send(`

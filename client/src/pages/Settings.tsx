@@ -10,7 +10,9 @@ import { ThresholdsPanel } from "@/components/ThresholdsPanel";
 import { GoogleAdsVinculos } from "@/components/conexoes/GoogleAdsVinculos";
 import { GA4Vinculos } from "@/components/conexoes/GA4Vinculos";
 import { LojasVinculos } from "@/components/conexoes/LojasVinculos";
-import { ClarityVinculos } from "@/components/conexoes/ClarityVinculos";
+import { DominioVinculos } from "@/components/conexoes/DominioVinculos";
+import { FotoDoCliente } from "@/components/FotoDoCliente";
+import { pediuConexoes } from "@/pages/hub/trackerRoutes";
 import { RedesVinculos } from "@/components/conexoes/RedesVinculos";
 import { toast } from "sonner";
 import {
@@ -67,7 +69,7 @@ function BillingInfo({ accountId }: { accountId: number }) {
 // ─── Thresholds panel ─────────────────────────────────────────────────────────
 
 // ─── Account card ─────────────────────────────────────────────────────────────
-function AccountCard({ account }: { account: any }) {
+function AccountCard({ account, podeEditar }: { account: any; podeEditar: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -94,13 +96,14 @@ function AccountCard({ account }: { account: any }) {
     <div className={`rounded-xl border bg-card transition-colors ${isExpired ? "border-destructive/40" : "border-border"}`}>
       {/* Main row */}
       <div className="flex items-center gap-3 p-4">
-        {/* Avatar */}
-        <div className="w-10 h-10 rounded-full bg-muted border border-border flex-shrink-0 overflow-hidden flex items-center justify-center">
-          {account.pictureUrl
-            ? <img src={account.pictureUrl} alt={account.accountName ?? ""} className="w-full h-full object-cover" />
-            : <span className="text-xs font-medium text-muted-foreground">{(account.accountName ?? "??").slice(0, 2).toUpperCase()}</span>
-          }
-        </div>
+        {/* Avatar — clicar troca a foto do cliente (ver FotoDoCliente) */}
+        <FotoDoCliente
+          accountId={account.id}
+          nome={account.accountName}
+          pictureUrl={account.pictureUrl}
+          temFotoPropria={!!account.pictureKey}
+          podeEditar={podeEditar}
+        />
 
         {/* Name + ID */}
         <div className="flex-1 min-w-0">
@@ -432,8 +435,12 @@ function ConexoesPanel() {
         <LojasVinculos />
       </SecaoConexao>
 
-      <SecaoConexao titulo="Microsoft Clarity" subtitulo="Comportamento no site, por cliente">
-        <ClarityVinculos />
+      {/* Era "Microsoft Clarity". O que se cadastra aqui é o DOMÍNIO — ele
+          habilita as leituras técnicas do site (segurança, disponibilidade,
+          carregamento/LiteSpeed) mesmo sem Clarity. O Clarity é uma das
+          leituras que ele destrava, e continua funcionando igual. */}
+      <SecaoConexao titulo="Domínio do site" subtitulo="Habilita leituras técnicas, Clarity e performance — por cliente">
+        <DominioVinculos />
       </SecaoConexao>
 
       <SecaoConexao titulo="Redes sociais" subtitulo="Cadastro de perfis por cliente (coleta ainda não automática)">
@@ -444,8 +451,15 @@ function ConexoesPanel() {
 }
 
 // ─── Agency bar ───────────────────────────────────────────────────────────────
+// `?painel=conexoes` abre o hub já expandido. É por aqui que chegam as rotas
+// aposentadas (/google-ads, /ga4, /lojas) e o retorno do OAuth do Google — sem
+// isto cairiam em Configurações com o painel fechado, ou seja, na tela certa
+// sem sinal nenhum de que chegaram nela. Quem lê o parâmetro é o mesmo módulo
+// que o escreve (trackerRoutes), para os dois lados não divergirem.
 function AgencyBar({ totalAccounts }: { totalAccounts: number }) {
-  const [openPanel, setOpenPanel] = useState<"token" | null>(null);
+  const [openPanel, setOpenPanel] = useState<"token" | null>(
+    typeof window !== "undefined" && pediuConexoes(window.location.search) ? "token" : null,
+  );
   const toggle = (p: "token") => setOpenPanel(v => v === p ? null : p);
 
   return (
@@ -493,14 +507,11 @@ function AgencyBar({ totalAccounts }: { totalAccounts: number }) {
 export default function Settings() {
   const { user } = useAuth();
   const { accounts } = useSelectedAccount();
-  const refreshPictures = trpc.accounts.refreshPictures.useMutation({
-    onSuccess: (data) => toast.success(`Fotos atualizadas (${data.updated} conta(s))`),
-    onError: () => toast.error("Erro ao atualizar fotos"),
-  });
+  const podeEditar = canManageContent(user?.role);
 
   // Configurações do Tracker é restrita a admin/dev (visibilidade + acesso).
   // Guard depois dos hooks para respeitar as regras de hooks.
-  if (!canManageContent(user?.role)) {
+  if (!podeEditar) {
     return (
       <SemAcessoTracker
         title="Configurações"
@@ -520,20 +531,14 @@ export default function Settings() {
         <section>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Contas</h2>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => refreshPictures.mutate()}
-                disabled={refreshPictures.isPending}
-                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${refreshPictures.isPending ? "animate-spin" : ""}`} />
-                Atualizar fotos
-              </button>
-            </div>
+            {/* O botão "Atualizar fotos" saiu daqui: ele repuxava as fotos da
+                Meta e, na prática, não trazia nada. A foto agora é escolhida —
+                clique no avatar do cliente. */}
+            <p className="text-[11px] text-muted-foreground">Clique na foto do cliente para trocá-la</p>
           </div>
           <div className="space-y-3">
             {(accounts ?? []).map((account: any) => (
-              <AccountCard key={account.id} account={account} />
+              <AccountCard key={account.id} account={account} podeEditar={podeEditar} />
             ))}
           </div>
 

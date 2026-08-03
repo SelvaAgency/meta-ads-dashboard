@@ -4,8 +4,11 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *  Aba do Tracker (irmã de Dashboard/Campanhas/Relatórios), lendo o cliente
  *  ativo do ActiveAccountContext. Clarity é UMA das partes, não o todo:
- *  comportamento (Clarity) + performance técnica (PageSpeed) + relatórios +
- *  contexto + chat.
+ *  comportamento (Clarity) + performance técnica (PageSpeed) + contexto + chat.
+ *
+ *  Relatório de site NÃO se gera daqui: quem gera é a página Relatórios, com o
+ *  gerador modular. Uma segunda porta para o mesmo gerador virava uma segunda
+ *  verdade sobre o mesmo cliente.
  *
  *  A API do Clarity só devolve os últimos 1–3 dias — por isso o que aparece aqui
  *  vem dos SNAPSHOTS que tiramos todo dia, e não de uma consulta ao vivo. Dia
@@ -18,7 +21,7 @@ import { useEffect, useState } from "react";
 import {
   Activity, AlertTriangle, ExternalLink, Eye, Loader2, MousePointerClick,
   RefreshCw, Settings2, TrendingUp, Users, Clock, ArrowDownWideNarrow,
-  FileText, NotebookPen, Sparkles, Copy, Trash2, Check, MessageSquare, Send,
+  FileText, NotebookPen, Trash2, MessageSquare, Send,
   Globe, Gauge, LayoutDashboard, Zap, ArrowRight, ShieldCheck, Wifi, Lock, ShieldAlert,
   CheckCircle2,
 } from "lucide-react";
@@ -165,7 +168,7 @@ export default function Site() {
             </button>
           )}
           {podeConfigurar && (
-            <Link href="/settings"
+            <Link href="/settings?painel=conexoes"
               className="h-9 px-3 rounded-lg border border-border text-xs flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
               <Settings2 className="w-3.5 h-3.5" /> Configurar
             </Link>
@@ -173,7 +176,7 @@ export default function Site() {
         </header>
 
         <div className="flex gap-1 border-b border-border">
-          {([["resumo", "Resumo", LayoutDashboard], ["performance", "Performance", Activity], ["tecnico", "Técnico", Gauge], ["relatorios", "Relatórios", FileText], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
+          {([["resumo", "Resumo", LayoutDashboard], ["performance", "Performance", Activity], ["tecnico", "Técnico", Gauge], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
             <button key={v} onClick={() => { setAba(v); setSecaoDestaque(undefined); }}
               className={`px-4 py-2 text-sm transition border-b-2 -mb-px flex items-center gap-1.5 ${aba === v ? "border-accent text-accent font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
               <Ic className="w-3.5 h-3.5" /> {lbl}
@@ -184,8 +187,7 @@ export default function Site() {
         {aba === "resumo" && <AbaResumo accountId={activeAccountId} onIr={setAba} />}
         {aba === "performance" && <AbaPerformanceSite accountId={activeAccountId} podeConfigurar={podeConfigurar} destaque={secaoDestaque} />}
         {aba === "tecnico" && <AbaTecnico accountId={activeAccountId} podeConfigurar={podeConfigurar} destaque={secaoDestaque} />}
-        {aba === "relatorios" && <AbaRelatorios accountId={activeAccountId} podeGerar={podeConfigurar} />}
-        {aba === "chat" && <AbaChat accountId={activeAccountId} nome={activeAccount?.accountName ?? "este cliente"} podeLimpar={podeConfigurar} />}
+        {aba === "chat" &&<AbaChat accountId={activeAccountId} nome={activeAccount?.accountName ?? "este cliente"} podeLimpar={podeConfigurar} />}
 
       </div>
     </MetaDashboardLayout>
@@ -354,182 +356,6 @@ export function AbaContexto({ accountId, podeEditar }: { accountId: number; pode
   );
 }
 
-// ─── Aba Relatórios ──────────────────────────────────────────────────────────
-
-const hojeStr = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-const diasAtras = (n: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() - n * 86400000));
-
-const ORIGEM_LABEL: Record<string, string> = {
-  midia: "Mídia", site: "Site/página", oferta: "Oferta", tracking: "Tracking",
-  tecnico: "Técnico", indeterminado: "Indeterminado",
-};
-const ORIGEM_COR: Record<string, string> = {
-  midia: "bg-amber-500/15 text-amber-600", site: "bg-blue-500/15 text-blue-600",
-  oferta: "bg-purple-500/15 text-purple-600", tracking: "bg-orange-500/15 text-orange-600",
-  tecnico: "bg-red-500/15 text-red-600", indeterminado: "bg-muted text-muted-foreground",
-};
-
-type Fontes = { midia: boolean; clarity: boolean; contexto: boolean; notas: boolean; diasClarity: number; diasPeriodo: number };
-type Relatorio = {
-  resumoExecutivo: string; diagnostico: string; origemProvavel: string;
-  problemas: string[]; hipoteses: string[]; proximasAcoes: string[]; observacoesTracking: string[];
-  midia: Record<string, number | null>; site: Record<string, number | null>; fontes: Fontes;
-};
-
-function AbaRelatorios({ accountId, podeGerar }: { accountId: number; podeGerar: boolean }) {
-  const utils = trpc.useUtils();
-  const [inicio, setInicio] = useState(diasAtras(6));
-  const [fim, setFim] = useState(hojeStr());
-  const [aberto, setAberto] = useState<number | null>(null);
-  const [copiado, setCopiado] = useState(false);
-
-  const listaQ = trpc.siteDiag.relatorios.useQuery({ accountId });
-  const detalheQ = trpc.siteDiag.relatorio.useQuery({ id: aberto! }, { enabled: !!aberto });
-
-  const gerar = trpc.siteDiag.gerarRelatorio.useMutation({
-    onSuccess: (r) => { utils.siteDiag.relatorios.invalidate(); setAberto(r.id); toast.success("Relatório gerado."); },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const r = (detalheQ.data?.reportJson ?? null) as Relatorio | null;
-  const md = detalheQ.data?.markdown ?? "";
-
-  return (
-    <div className="flex flex-col gap-4">
-      {podeGerar && (
-        <div className="rounded-xl border border-border bg-card p-4 flex items-end gap-3 flex-wrap">
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-muted-foreground">De</label>
-            <input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)}
-              className="text-sm border border-border rounded-md px-2 py-1.5 bg-background" />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-muted-foreground">Até</label>
-            <input type="date" value={fim} onChange={(e) => setFim(e.target.value)}
-              className="text-sm border border-border rounded-md px-2 py-1.5 bg-background" />
-          </div>
-          <button onClick={() => gerar.mutate({ accountId, rangeStart: inicio, rangeEnd: fim })} disabled={gerar.isPending}
-            className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-1.5 disabled:opacity-60">
-            {gerar.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            {gerar.isPending ? "Analisando…" : "Gerar relatório"}
-          </button>
-          <p className="text-[11px] text-muted-foreground flex-1 min-w-[200px]">
-            Cruza a mídia do período com o comportamento no site e o contexto. Só usa o que existe — o que faltar, ele diz.
-          </p>
-        </div>
-      )}
-
-      {/* O gerador modular mora em Relatórios; aqui só pré-configuramos os
-          módulos de Site. Uma segunda cópia do gerador seria uma segunda
-          verdade sobre o mesmo cliente. */}
-      {podeGerar && (
-        <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3 flex-wrap">
-          <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-          <p className="text-xs text-muted-foreground flex-1 min-w-[220px]">
-            Precisa de um relatório para o cliente, escolhendo o que entra (mídia, Clarity, performance,
-            segurança)? O gerador completo fica em Relatórios.
-          </p>
-          <a
-            href={`/reports?modulos=site,clarity,pagespeed,seguranca,uptime&account=${accountId}`}
-            className="h-8 px-3 rounded-lg border border-border text-xs flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Gerar relatório com dados de Site
-          </a>
-        </div>
-      )}
-
-      {aberto && detalheQ.isLoading && <Carregando />}
-
-      {aberto && r && (
-        <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-4">
-          <div className="flex items-start gap-2 flex-wrap">
-            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${ORIGEM_COR[r.origemProvavel] ?? ORIGEM_COR.indeterminado}`}>
-              Origem provável: {ORIGEM_LABEL[r.origemProvavel] ?? r.origemProvavel}
-            </span>
-            <div className="ml-auto flex gap-2">
-              <button onClick={() => { navigator.clipboard.writeText(md); setCopiado(true); setTimeout(() => setCopiado(false), 1500); }}
-                className="text-[11px] px-2 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground flex items-center gap-1">
-                {copiado ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />} {copiado ? "Copiado" : "Copiar resumo"}
-              </button>
-              <button onClick={() => setAberto(null)} className="text-[11px] px-2 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground">Fechar</button>
-            </div>
-          </div>
-
-          <FontesBadges f={r.fontes} />
-          <p className="text-sm text-foreground">{r.resumoExecutivo}</p>
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground mb-1">Diagnóstico</p>
-            <p className="text-sm text-muted-foreground whitespace-pre-line">{r.diagnostico}</p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <BlocoLista titulo="Problemas encontrados" itens={r.problemas} />
-            <BlocoLista titulo="Hipóteses a testar" itens={r.hipoteses} />
-            <BlocoLista titulo="Próximas ações" itens={r.proximasAcoes} />
-            <BlocoLista titulo="Observações de tracking" itens={r.observacoesTracking} />
-          </div>
-        </div>
-      )}
-
-      <div className="rounded-xl border border-border bg-card p-4">
-        <p className="text-xs font-semibold text-muted-foreground mb-2">Histórico</p>
-        {listaQ.isLoading ? <p className="text-xs text-muted-foreground py-2">Carregando…</p>
-          : (listaQ.data ?? []).length === 0 ? <p className="text-xs text-muted-foreground py-2">Nenhum relatório gerado ainda.</p> : (
-          <div className="flex flex-col gap-1.5">
-            {(listaQ.data ?? []).map((x) => {
-              const rj = x.reportJson as Relatorio | null;
-              return (
-                <button key={x.id} onClick={() => setAberto(x.id)}
-                  className={`flex items-center gap-2 text-xs p-2 rounded-md border transition text-left ${aberto === x.id ? "border-accent bg-primary/5" : "border-border hover:border-accent/40"}`}>
-                  <span className="font-medium">{x.rangeStart} → {x.rangeEnd}</span>
-                  {rj?.origemProvavel && (
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${ORIGEM_COR[rj.origemProvavel] ?? ORIGEM_COR.indeterminado}`}>
-                      {ORIGEM_LABEL[rj.origemProvavel] ?? rj.origemProvavel}
-                    </span>
-                  )}
-                  <span className="ml-auto text-muted-foreground">{x.autorNome ?? "—"} · {new Date(x.createdAt).toLocaleDateString("pt-BR")}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Diz na cara quais fontes o relatório teve — é o que separa diagnóstico de chute. */
-function FontesBadges({ f }: { f: Fontes }) {
-  const item = (ok: boolean, label: string, detalhe?: string) => (
-    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${ok ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600" : "border-border text-muted-foreground"}`}>
-      {ok ? "✓" : "✕"} {label}{detalhe ? ` · ${detalhe}` : ""}
-    </span>
-  );
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {item(f.midia, "Mídia paga")}
-      {item(f.clarity, "Clarity", f.clarity ? `${f.diasClarity} de ${f.diasPeriodo} dias` : undefined)}
-      {item(f.contexto, "Contexto")}
-      {item(f.notas, "Notas")}
-    </div>
-  );
-}
-
-function BlocoLista({ titulo, itens }: { titulo: string; itens: string[] }) {
-  if (!itens.length) return null;
-  return (
-    <div>
-      <p className="text-xs font-semibold text-muted-foreground mb-1">{titulo}</p>
-      <ul className="flex flex-col gap-1">
-        {itens.map((x, i) => (
-          <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
-            <span className="text-accent flex-shrink-0">·</span><span>{x}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 function Carregando() {
   return (
     <div className="flex items-center gap-2 py-12 justify-center text-sm text-muted-foreground">
@@ -678,7 +504,6 @@ function AbaResumo({ accountId, onIr }: { accountId: number; onIr: (a: AbaSite) 
   const perfQ = trpc.clarity.perfUltimo.useQuery({ accountId });
   const saudeQ = trpc.clarity.saude.useQuery({ accountId });
   const ctxQ = trpc.siteDiag.contexto.useQuery({ accountId });
-  const repQ = trpc.siteDiag.relatorios.useQuery({ accountId });
   const fontesQ = trpc.fontes.doCliente.useQuery({ accountId });
   const ga4Q = trpc.siteDiag.ga4Snapshot.useQuery({ accountId });
   const [periodo, setPeriodo] = useState<7 | 30>(7);
@@ -707,7 +532,7 @@ function AbaResumo({ accountId, onIr }: { accountId: number; onIr: (a: AbaSite) 
   if (!clarityOn && !perfOn && !temDominio) {
     return (
       <Vazio icone={<Globe className="w-8 h-8" />} titulo="Site ainda não configurado para este cliente"
-        texto="Informe o domínio principal para verificar segurança e disponibilidade. Conecte o Clarity para ver o comportamento das pessoas, e ative a performance técnica para medir o carregamento." />
+        texto="Cadastre o domínio do site em Configurações → Conexões para verificar segurança e disponibilidade. O domínio também habilita o Clarity (comportamento das pessoas) e a performance técnica (carregamento)." />
     );
   }
 
@@ -1040,7 +865,7 @@ function AbaSeguranca({ accountId, podeConfigurar }: { accountId: number; podeCo
 
   if (!temDominio) {
     return <Vazio icone={<ShieldCheck className="w-8 h-8" />} titulo="Domínio do site não configurado"
-      texto="Informe o domínio principal em Performance técnica ou na configuração do Clarity para verificar a segurança." />;
+      texto="Cadastre o domínio do site em Configurações → Conexões (ou informe a URL em Performance técnica) para verificar a segurança." />;
   }
 
   return (
@@ -1318,9 +1143,9 @@ function AbaPerformanceSite({ accountId, podeConfigurar, destaque }: {
     return (
       <Vazio icone={<Activity className="w-8 h-8" />} titulo="Nenhuma fonte de performance conectada"
         texto={podeConfigurar
-          ? "Conecte o Microsoft Clarity para ver comportamento, ou vincule uma propriedade do Google Analytics para ver tráfego e aquisição."
-          : "Peça a um administrador para conectar o Clarity ou o Google Analytics deste cliente."}
-        acao={podeConfigurar ? <Link href="/settings" className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-medium">Configurar Clarity</Link> : undefined} />
+          ? "Cadastre o domínio do site e ligue o Clarity para ver comportamento, ou vincule uma propriedade do Google Analytics para ver tráfego e aquisição."
+          : "Peça a um administrador para cadastrar o domínio do site ou o Google Analytics deste cliente."}
+        acao={podeConfigurar ? <Link href="/settings?painel=conexoes" className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-medium">Abrir Conexões</Link> : undefined} />
     );
   }
 

@@ -32,11 +32,19 @@ export const ROTAS_INTERNAS = [
   "/clarity",
   "/suggestions",
   "/admin",
+  "/social-networks",
+  "/experiments",
+  // Configurações do Tracker — é onde o hub de Conexões mora. Precisa estar na
+  // allowlist porque as rotas aposentadas (/google-ads, /ga4, /lojas) mandam
+  // para cá pelo shell: /tracker?rota=/settings&painel=conexoes.
+  "/settings",
+  // Rotas aposentadas: continuam válidas só para redirecionar para Conexões.
+  // Sair da allowlist quebraria os deep-links antigos e o retorno do OAuth do
+  // Google, que ainda chega como /tracker?rota=/ga4.
+  "/conexoes",
   "/google-ads",
   "/ga4",
   "/lojas",
-  "/social-networks",
-  "/experiments",
 ] as const;
 
 /** /experiments/42 é interna também — é a única rota interna com parâmetro. */
@@ -78,4 +86,35 @@ export function urlEmbutidaPara(rota: string, busca: string): string {
   p.delete("rota");
   const qs = p.toString();
   return qs ? `${rota}?${qs}` : rota;
+}
+
+/** Onde o hub de Conexões mora de verdade: um painel de Configurações. */
+export const ROTA_CONEXOES = "/settings";
+
+/**
+ * Destino de quem caiu numa rota aposentada de conexão (/google-ads, /ga4,
+ * /lojas) ou pediu /conexoes direto.
+ *
+ * Dentro do iframe basta navegar. NO TOPO é obrigatório passar pelo shell: a
+ * rota /settings no topo renderiza as configurações do PORTAL, não as do
+ * Tracker — mandar para lá direto entregaria a tela errada com ar de acerto.
+ *
+ * A query original é preservada (o `?account=` de link antigo, o `?conectado=1`
+ * do OAuth) e o `rota=` é descartado: ele é instrução do shell, não do app.
+ */
+export function destinoDeConexoes(busca: string, embutido: boolean): string {
+  const p = new URLSearchParams(busca);
+  p.delete("rota");
+  p.set("painel", "conexoes");
+  const qs = `?${p.toString()}`;
+  return embutido ? `${ROTA_CONEXOES}${qs}` : urlDoShellPara(ROTA_CONEXOES, qs);
+}
+
+/**
+ * A outra ponta de `destinoDeConexoes`: a tela de Configurações pergunta aqui
+ * se deve abrir o hub já expandido. Mora no MESMO módulo de propósito — quem
+ * escreve o parâmetro e quem o lê não podem divergir sem quebrar um teste.
+ */
+export function pediuConexoes(busca: string): boolean {
+  return new URLSearchParams(busca).get("painel") === "conexoes";
 }

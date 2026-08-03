@@ -555,12 +555,17 @@ export async function updateAccountAiStatus(id: number, color: "green" | "yellow
     .where(eq(metaAdAccounts.id, id));
 }
 
-export async function updateAccountPicture(id: number, pictureUrl: string | null) {
+/**
+ * Foto do cliente ENVIADA à mão (key do storage). Coluna própria: a `pictureUrl`
+ * é reescrita pelo import de contas da Meta, e a foto escolhida pelo time não
+ * pode sumir por causa disso. `null` volta para a foto da Meta / iniciais.
+ */
+export async function updateAccountPictureKey(id: number, pictureKey: string | null) {
   const db = await getDb();
   if (!db) return;
   await db
     .update(metaAdAccounts)
-    .set({ pictureUrl })
+    .set({ pictureKey })
     .where(eq(metaAdAccounts.id, id));
 }
 
