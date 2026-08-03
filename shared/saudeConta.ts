@@ -38,8 +38,14 @@ export const SAUDE_CFG: Record<NivelSaude, {
   sem_dados: { label: "Sem dados", cor: "rgba(120,120,120,0.55)", chip: "text-muted-foreground bg-muted/40 border-border",               texto: "text-muted-foreground" },
 };
 
-/** Ordem canônica (pior → melhor → neutro) para barras e listas. */
-export const ORDEM_SAUDE: NivelSaude[] = ["critico", "atencao", "saudavel", "sem_dados"];
+/**
+ * Ordem canônica para barras e listas: melhor → pior, com o neutro no fim.
+ *
+ * "Sem dados" fica parado no fim de propósito — ele não é um degrau da escala
+ * de gravidade, é ausência de sinal. Enfiá-lo dentro do gradiente faria a barra
+ * sugerir que não medir é melhor (ou pior) que estar crítico.
+ */
+export const ORDEM_SAUDE: NivelSaude[] = ["saudavel", "atencao", "critico", "sem_dados"];
 
 export type CorIA = "green" | "yellow" | "red" | null | undefined;
 
