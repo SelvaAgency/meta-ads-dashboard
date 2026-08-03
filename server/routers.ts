@@ -3495,6 +3495,10 @@ export const appRouter = router({
           proximosPassos: z.array(z.string().max(1000)).max(12).default([]),
           oQueVamosMedir: z.array(z.string().max(1000)).max(12).default([]),
           expectativa: z.string().max(4000).default(""),
+          // Ordem das seções no corpo do relatório. A vista higieniza chave
+          // desconhecida e completa a que faltar, então aqui basta não deixar
+          // crescer sem limite.
+          ordem: z.array(z.string().max(40)).max(12).default([]),
         }),
       }))
       .mutation(async ({ ctx, input }) => {

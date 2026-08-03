@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { useRoute } from "wouter";
 import { trpc } from "@/lib/trpc";
 import "./ReportView.css";
@@ -16,8 +16,6 @@ import "./ReportView.css";
  */
 
 type Metric = "investment" | "reach" | "conversions" | "costPerConversion";
-/** A aba "Todas" sobrepõe as quatro séries — por isso não é uma Metric. */
-type Aba = Metric | "todas";
 const METRICAS: Metric[] = ["investment", "reach", "conversions", "costPerConversion"];
 
 /**
@@ -133,10 +131,12 @@ function caminho(valores: number[], min: number, max: number) {
 const faixaDe = (valores: number[]) => ({ min: Math.min(...valores), max: Math.max(...valores) });
 
 const rotuloStatus = (s?: string) => (s === "good" ? "Performando bem" : s === "warn" ? "Atenção" : "Estável");
+/** O card de criativo tem ~110px úteis: "Performando bem" quebrava em duas
+ *  linhas e estourava a caixa. */
+const rotuloStatusCurto = (s?: string) => (s === "good" ? "Bom" : s === "warn" ? "Atenção" : "Estável");
 
-/** Cor de cada série — a mesma na aba individual e na combinada, senão a
- *  legenda de "Todas" não ensina nada sobre as outras abas. Tirada da paleta
- *  categórica do kit (KIT.paleta). */
+/** Cor de cada série — a mesma na legenda, na linha e no tooltip, senão clicar
+ *  para destacar não ensina qual linha é qual. Da paleta categórica do kit. */
 const COR_METRICA: Record<Metric, string> = {
   investment: "#E85BA8",
   reach: "#8B5CF6",
@@ -193,22 +193,25 @@ function GradeKpis({ kpis }: { kpis: Kpi[] }) {
 type Serie = Array<{ week: string; value: number | null }>;
 
 /**
- * Gráfico das 8 semanas. Sem biblioteca de propósito: o relatório é impresso e
- * enviado por link, e um SVG estático abre em qualquer lugar.
+ * Gráfico das 8 semanas — um só, com as quatro séries sempre visíveis.
  *
- * A aba "Todas" sobrepõe as quatro séries. Elas têm ordens de grandeza
- * incompatíveis (R$ 400 de investimento contra 50 mil de alcance), então cada
- * uma é normalizada contra ELA MESMA: o gráfico compara FORMATOS, não valores.
- * Por isso a escala numérica some nessa aba e o tooltip passa a mostrar os
- * quatro valores reais — sem isso, seria um gráfico bonito dizendo mentira.
+ * Elas têm ordens de grandeza incompatíveis (R$ 400 de investimento contra 50
+ * mil de alcance), então cada uma é normalizada contra ELA MESMA: o gráfico
+ * compara FORMATOS, não valores. Por isso o tooltip mostra os quatro valores
+ * reais — sem isso, seria um gráfico bonito dizendo mentira.
+ *
+ * Clicar numa métrica a destaca e apaga as outras. Era um seletor de abas que
+ * trocava o gráfico inteiro; destacar dentro do mesmo desenho deixa a métrica
+ * escolhida legível SEM perder as outras como referência — que é justamente o
+ * motivo de sobrepor as séries.
  */
 function GraficoSemanal({ trend, resultLabel }: {
   trend: Record<Metric, Serie> | undefined;
   resultLabel: string;
 }) {
-  const [aba, setAba] = useState<Aba>("todas");
-  // `null` = nenhum ponto sob o cursor. Sobrevive à troca de aba de propósito:
-  // quem está inspecionando uma semana quer vê-la na métrica nova.
+  // `null` = nenhuma métrica destacada; todas com o mesmo peso.
+  const [destaque, setDestaque] = useState<Metric | null>(null);
+  // `null` = nenhum ponto sob o cursor.
   const [ativo, setAtivo] = useState<number | null>(null);
 
   const rotulos: Record<Metric, string> = {
@@ -233,40 +236,38 @@ function GraficoSemanal({ trend, resultLabel }: {
 
   if (!dados) return null;
 
-  const combinado = aba === "todas";
-  const visiveis = combinado ? dados.series : dados.series.filter((s) => s.metric === aba);
-  const foco = visiveis[0];
-  const dinheiro = !combinado && EH_DINHEIRO[aba as Metric];
-
-  const abas: Array<{ key: Aba; label: string }> = [
-    { key: "todas", label: "Todas" },
-    ...METRICAS.map((m) => ({ key: m as Aba, label: rotulos[m] })),
-  ];
+  const foco = destaque ? dados.series.find((s) => s.metric === destaque)! : null;
 
   return (
     <Secao titulo="Comparativo semanal" meta={`${dados.semanas.length} semanas`}>
-      <div className="rv-tabs">
-        {abas.map((t) => (
-          <button key={t.key} type="button" className={`rv-tab ${aba === t.key ? "active" : ""}`} onClick={() => setAba(t.key)}>
-            {t.label}
+      {/* A legenda É o controle: clicar destaca, clicar de novo solta. */}
+      <div className="rv-tabs" role="group" aria-label="Destacar uma métrica">
+        {METRICAS.map((m) => (
+          <button
+            key={m}
+            type="button"
+            aria-pressed={destaque === m}
+            className={`rv-chip ${destaque === m ? "ativo" : ""} ${destaque && destaque !== m ? "apagado" : ""}`}
+            style={{ "--cor": COR_METRICA[m] } as React.CSSProperties}
+            onClick={() => setDestaque((d) => (d === m ? null : m))}
+          >
+            <i /> {rotulos[m]}
           </button>
         ))}
       </div>
 
-      {combinado && (
-        <p className="rv-card-sub">
-          Escala relativa: cada métrica é comparada com ela mesma no período, para caberem no mesmo gráfico.
-          Passe o cursor sobre uma semana para ver os valores reais.
-        </p>
-      )}
+      <p className="rv-card-sub">
+        {foco
+          ? `Escala de ${rotulos[foco.metric].toLowerCase()} à direita. Clique de novo para voltar a comparar as quatro.`
+          : "Escala relativa: cada métrica é comparada com ela mesma no período, para caberem no mesmo gráfico. Clique numa delas para destacá-la."}
+      </p>
 
-      <div className={`rv-chart-wrap ${combinado ? "sem-escala" : ""}`}>
+      <div className={`rv-chart-wrap ${foco ? "" : "sem-escala"}`}>
         <div className="rv-plot" onPointerLeave={() => setAtivo(null)}>
           <svg className="rv-chart" viewBox={`0 0 ${W} ${H}`} width="100%" role="img"
-            aria-label={combinado ? "Evolução semanal de todas as métricas" : `Evolução semanal de ${rotulos[aba as Metric]}`}>
-            {/* Gradiente em vez de preenchimento chapado — o mesmo tratamento do
-                gráfico do BIT (.22 → 0). Só na aba individual: quatro áreas
-                sobrepostas viram sopa. */}
+            aria-label={foco ? `Evolução semanal, com ${rotulos[foco.metric]} em destaque` : "Evolução semanal de todas as métricas"}>
+            {/* Gradiente só sob a série destacada — quatro áreas sobrepostas
+                viram sopa. */}
             <defs>
               {METRICAS.map((m) => (
                 <linearGradient key={m} id={`rv-grad-${m}`} x1="0" y1="0" x2="0" y2="1">
@@ -278,76 +279,72 @@ function GraficoSemanal({ trend, resultLabel }: {
             {LINHAS_Y.map((y, i) => (
               <line key={i} className="rv-grid-line" x1={PAD} x2={W - PAD} y1={y} y2={y} />
             ))}
-            {/* `key={aba}` remonta o grupo: as linhas se redesenham ao trocar de
-                aba, em vez de trocar de forma instantaneamente. */}
-            <g key={aba}>
-              {!combinado && foco && <path className="rv-area" d={foco.area} fill={`url(#rv-grad-${foco.metric})`} />}
-              {visiveis.map((s) => (
-                /* pathLength=1 normaliza o comprimento: o dash da animação não
-                   depende do tamanho real do traçado, que muda a cada métrica. */
-                <path key={s.metric} className="rv-linha" d={s.line} pathLength={1} fill="none"
-                  stroke={COR_METRICA[s.metric]} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-              ))}
-              {visiveis.map((s) =>
-                s.pts.map((p, i) => {
-                  const ultimo = i === s.pts.length - 1;
-                  const destacado = ativo === i;
-                  const r = combinado ? (destacado ? 5.5 : ultimo ? 4 : 2.5) : (destacado ? 7 : ultimo ? 5.5 : 3.5);
-                  return (
-                    <circle key={`${s.metric}-${i}`} className="rv-ponto" cx={p[0]} cy={p[1]} r={r}
-                      fill={COR_METRICA[s.metric]} stroke="#fffdfa" strokeWidth={2}
-                      style={{ animationDelay: `${240 + i * 55}ms` }} />
-                  );
-                })
-              )}
-              {/* Faixa invisível de largura inteira por semana: acertar um ponto
-                  de 4px com o dedo não acontece. */}
-              {dados.semanas.map((w, i) => {
-                const faixa = W / dados.semanas.length;
-                return (
-                  <rect key={`alvo-${w}`} className="rv-alvo" x={xDe(i, dados.semanas.length) - faixa / 2} y={0}
-                    width={faixa} height={H}
-                    onPointerEnter={() => setAtivo(i)} onPointerDown={() => setAtivo(i)} />
-                );
-              })}
-            </g>
+            {foco && <path className="rv-area" d={foco.area} fill={`url(#rv-grad-${foco.metric})`} />}
+
+            {/* Ordem de pintura: as apagadas primeiro, a destacada por cima. */}
+            {[...dados.series].sort((a, b) => Number(a.metric === destaque) - Number(b.metric === destaque)).map((s) => {
+              const apagada = !!destaque && s.metric !== destaque;
+              return (
+                <g key={s.metric} className={`rv-serie ${apagada ? "apagada" : ""}`}>
+                  <path className="rv-linha" d={s.line} pathLength={1} fill="none"
+                    stroke={COR_METRICA[s.metric]} strokeWidth={s.metric === destaque ? 3 : 2.5}
+                    strokeLinecap="round" strokeLinejoin="round" />
+                  {!apagada && s.pts.map((p, i) => {
+                    const ultimo = i === s.pts.length - 1;
+                    const marcado = ativo === i;
+                    const r = destaque ? (marcado ? 7 : ultimo ? 5.5 : 3.5) : (marcado ? 5.5 : ultimo ? 4 : 2.5);
+                    return (
+                      <circle key={i} className="rv-ponto" cx={p[0]} cy={p[1]} r={r}
+                        fill={COR_METRICA[s.metric]} stroke="#fffdfa" strokeWidth={2}
+                        style={{ animationDelay: `${240 + i * 55}ms` }} />
+                    );
+                  })}
+                </g>
+              );
+            })}
+
+            {/* Faixa invisível de largura inteira por semana: acertar um ponto
+                de 4px com o dedo não acontece. */}
+            {dados.semanas.map((w, i) => {
+              const faixa = W / dados.semanas.length;
+              return (
+                <rect key={`alvo-${w}`} className="rv-alvo" x={xDe(i, dados.semanas.length) - faixa / 2} y={0}
+                  width={faixa} height={H}
+                  onPointerEnter={() => setAtivo(i)} onPointerDown={() => setAtivo(i)} />
+              );
+            })}
           </svg>
 
-          {ativo !== null && foco && (
+          {ativo !== null && (
             <div
-              /* Na aba combinada o balão tem quatro linhas e é ancorado no topo
-                 do gráfico — acima dele, ele sairia para fora do card. */
-              className={`rv-tip ${combinado ? "abaixo" : ""} ${ativo === 0 ? "borda-esq" : ativo === dados.semanas.length - 1 ? "borda-dir" : ""}`}
-              style={{
-                left: `${(xDe(ativo, dados.semanas.length) / W) * 100}%`,
-                top: `${((combinado ? yDe(1) : foco.pts[ativo][1]) / H) * 100}%`,
-              }}
+              className={`rv-tip abaixo ${ativo === 0 ? "borda-esq" : ativo === dados.semanas.length - 1 ? "borda-dir" : ""}`}
+              style={{ left: `${(xDe(ativo, dados.semanas.length) / W) * 100}%`, top: `${(yDe(1) / H) * 100}%` }}
             >
               <span>semana de {fmtSemana(dados.semanas[ativo])}</span>
-              {combinado ? (
-                <div className="rv-tip-linhas">
-                  {dados.series.map((s) => (
-                    <div key={s.metric}>
-                      <i style={{ background: COR_METRICA[s.metric] }} />
-                      <span>{rotulos[s.metric]}</span>
-                      <b>{EH_DINHEIRO[s.metric] ? fmtBRL(s.valores[ativo]) : fmtNum(s.valores[ativo])}</b>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <b>{dinheiro ? fmtBRL(foco.valores[ativo]) : fmtNum(foco.valores[ativo])}</b>
-              )}
+              <div className="rv-tip-linhas">
+                {dados.series.map((s) => (
+                  <div key={s.metric} className={destaque && s.metric !== destaque ? "apagada" : ""}>
+                    <i style={{ background: COR_METRICA[s.metric] }} />
+                    <span>{rotulos[s.metric]}</span>
+                    <b>{EH_DINHEIRO[s.metric] ? fmtBRL(s.valores[ativo]) : fmtNum(s.valores[ativo])}</b>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
 
-        {!combinado && foco && (
+        {/* A escala numérica só existe quando UMA métrica está em foco: com as
+            quatro sobrepostas ela seria de qual? */}
+        {foco && (
           [
             { pos: "topo", valor: foco.max },
             { pos: "meio", valor: (foco.min + foco.max) / 2 },
             { pos: "base", valor: foco.min },
           ].map((e) => (
-            <span key={e.pos} className={`rv-escala ${e.pos}`}>{fmtCurto(e.valor, dinheiro)}</span>
+            <span key={e.pos} className={`rv-escala ${e.pos}`} style={{ color: COR_METRICA[foco.metric] }}>
+              {fmtCurto(e.valor, EH_DINHEIRO[foco.metric])}
+            </span>
           ))
         )}
       </div>
@@ -355,14 +352,6 @@ function GraficoSemanal({ trend, resultLabel }: {
       <div className="rv-axis">
         {dados.semanas.map((w) => <span key={w}>{fmtSemana(w)}</span>)}
       </div>
-
-      {combinado && (
-        <div className="rv-legenda">
-          {METRICAS.map((m) => (
-            <span key={m}><i style={{ background: COR_METRICA[m] }} />{rotulos[m]}</span>
-          ))}
-        </div>
-      )}
     </Secao>
   );
 }
@@ -398,7 +387,7 @@ function CriativosDestaque({ criativos }: { criativos: Criativo[] }) {
                 <p className="fmt">{c.adName}</p>
                 <div className="rv-stat"><span>CTR</span><b>{fmtPct(c.ctr)}</b></div>
                 <div className="rv-stat"><span>Custo/result.</span><b>{fmtBRL(c.costPerResult)}</b></div>
-                <span className={`rv-pill ${c.status ?? "neutral"}`}>{rotuloStatus(c.status)}</span>
+                <span className={`rv-pill ${c.status ?? "neutral"}`} title={rotuloStatus(c.status)}>{rotuloStatusCurto(c.status)}</span>
               </div>
             </Tag>
           );
@@ -504,8 +493,26 @@ type DadosSiteRV = {
 };
 /** Narrativa voltada ao cliente. Os campos internos (fatos, hipóteses,
  *  recomendações com prioridade, pendências) foram removidos em 02/ago/2026. */
+/**
+ * Ordem dos blocos no corpo do relatório. `dados` é o grupo gráfico + criativos
+ * + públicos + site: entra na mesma lista para que mover um bloco de texto para
+ * antes ou depois da evidência seja possível — senão "reordenar" só valeria
+ * dentro do fecho, e a leitura estratégica ficaria presa no topo para sempre.
+ */
+const ORDEM_PADRAO = ["leitura", "dados", "oQueAconteceu", "proximosPassos", "oQueVamosMedir", "expectativa"] as const;
+type BlocoChave = typeof ORDEM_PADRAO[number];
+
+/** Ordem salva, higienizada: descarta chave desconhecida (bloco renomeado numa
+ *  versão futura) e acrescenta ao fim a que faltar (bloco criado depois). */
+function ordemDosBlocos(salva: unknown): BlocoChave[] {
+  const lista = Array.isArray(salva) ? salva.filter((x): x is BlocoChave => (ORDEM_PADRAO as readonly string[]).includes(x)) : [];
+  const vistos = new Set(lista);
+  return [...lista, ...ORDEM_PADRAO.filter((k) => !vistos.has(k))];
+}
+
 type Narrativa = {
   titulo?: string;
+  ordem?: string[];
   resumoExecutivo?: string;
   pontoAlto?: Destaque;
   pontoFraco?: Destaque;
@@ -632,64 +639,77 @@ export default function ReportView() {
 
         {m && <GradeKpis kpis={kpisDeMidia(m, resultLabel)} />}
 
-        <LeituraEstrategica alto={n?.pontoAlto} fraco={n?.pontoFraco} oportunidade={n?.oportunidade} />
+        {/* Corpo do relatório na ordem escolhida no editor. Um `switch` só e
+            uma lista — sem isto, reordenar exigiria mexer no JSX toda vez. */}
+        {ordemDosBlocos(n?.ordem).map((chave) => {
+          switch (chave) {
+            case "leitura":
+              return <LeituraEstrategica key={chave} alto={n?.pontoAlto} fraco={n?.pontoFraco} oportunidade={n?.oportunidade} />;
 
-        <GraficoSemanal trend={midia?.weeklyTrend} resultLabel={resultLabel} />
-        <CriativosDestaque criativos={midia?.creatives ?? []} />
-        <PublicosTestados publicos={midia?.audiences ?? []} />
+            case "dados":
+              return (
+                <Fragment key={chave}>
+                  <GraficoSemanal trend={midia?.weeklyTrend} resultLabel={resultLabel} />
+                  <CriativosDestaque criativos={midia?.creatives ?? []} />
+                  <PublicosTestados publicos={midia?.audiences ?? []} />
+                  {(ps || seg) && (
+                    <Secao titulo="Site">
+                      <div className="rv-metric-grid">
+                        {ps && (
+                          <>
+                            <div className="rv-metric"><small>Performance</small><span className="num" style={{ color: corScoreRV(ps.performanceScore) }}>{fmtScoreRV(ps.performanceScore)}</span></div>
+                            <div className="rv-metric"><small>LCP</small><span className="num">{fmtMsRV(ps.lcp)}</span></div>
+                          </>
+                        )}
+                        {seg && (
+                          <>
+                            <div className="rv-metric"><small>Segurança</small><span className="num" style={{ color: corScoreRV(seg.score) }}>{fmtScoreRV(seg.score)}</span></div>
+                            <div className="rv-metric"><small>HTTPS</small><span className="num">{seg.https ? "OK" : "—"}</span></div>
+                          </>
+                        )}
+                      </div>
+                    </Secao>
+                  )}
+                </Fragment>
+              );
 
-        {(ps || seg) && (
-          <Secao titulo="Site">
-            <div className="rv-metric-grid">
-              {ps && (
-                <>
-                  <div className="rv-metric"><small>Performance</small><span className="num" style={{ color: corScoreRV(ps.performanceScore) }}>{fmtScoreRV(ps.performanceScore)}</span></div>
-                  <div className="rv-metric"><small>LCP</small><span className="num">{fmtMsRV(ps.lcp)}</span></div>
-                </>
-              )}
-              {seg && (
-                <>
-                  <div className="rv-metric"><small>Segurança</small><span className="num" style={{ color: corScoreRV(seg.score) }}>{fmtScoreRV(seg.score)}</span></div>
-                  <div className="rv-metric"><small>HTTPS</small><span className="num">{seg.https ? "OK" : "—"}</span></div>
-                </>
-              )}
-            </div>
-          </Secao>
-        )}
+            case "oQueAconteceu":
+              return n?.oQueAconteceu ? (
+                <Secao key={chave} titulo="O que aconteceu no período">
+                  <p className="rv-prosa">{n.oQueAconteceu}</p>
+                </Secao>
+              ) : null;
 
-        {/* ── O fecho: passado explicado, futuro combinado ────────────────── */}
+            case "proximosPassos":
+              return n?.proximosPassos?.length ? (
+                <Secao key={chave} titulo="Próximos passos" className="rv-next">
+                  <ol>
+                    {n.proximosPassos.map((p, i) => (
+                      <li key={i}><span className="rv-passo">{i + 1}</span><span>{p}</span></li>
+                    ))}
+                  </ol>
+                </Secao>
+              ) : null;
 
-        {n?.oQueAconteceu && (
-          <Secao titulo="O que aconteceu no período">
-            <p className="rv-prosa">{n.oQueAconteceu}</p>
-          </Secao>
-        )}
+            case "oQueVamosMedir":
+              return n?.oQueVamosMedir?.length ? (
+                <Secao key={chave} titulo="O que vamos medir">
+                  <p className="rv-card-sub">Os indicadores que vão dizer se os passos acima funcionaram.</p>
+                  <ul className="rv-lista rv-medir">
+                    {n.oQueVamosMedir.map((x, i) => <li key={i}>{x}</li>)}
+                  </ul>
+                </Secao>
+              ) : null;
 
-        {n?.proximosPassos && n.proximosPassos.length > 0 && (
-          <Secao titulo="Próximos passos" className="rv-next">
-            <ol>
-              {n.proximosPassos.map((p, i) => (
-                <li key={i}><span className="rv-passo">{i + 1}</span><span>{p}</span></li>
-              ))}
-            </ol>
-          </Secao>
-        )}
-
-        {n?.oQueVamosMedir && n.oQueVamosMedir.length > 0 && (
-          <Secao titulo="O que vamos medir">
-            <p className="rv-card-sub">Os indicadores que vão dizer se os passos acima funcionaram.</p>
-            <ul className="rv-lista rv-medir">
-              {n.oQueVamosMedir.map((x, i) => <li key={i}>{x}</li>)}
-            </ul>
-          </Secao>
-        )}
-
-        {n?.expectativa && (
-          <section className="rv-expectativa">
-            <h3>Expectativa para o próximo período</h3>
-            <p>{n.expectativa}</p>
-          </section>
-        )}
+            case "expectativa":
+              return n?.expectativa ? (
+                <section key={chave} className="rv-expectativa">
+                  <h3>Expectativa para o próximo período</h3>
+                  <p>{n.expectativa}</p>
+                </section>
+              ) : null;
+          }
+        })}
       </main>
 
       <footer className="rv-footer">

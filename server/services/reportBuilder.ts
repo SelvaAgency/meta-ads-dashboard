@@ -56,6 +56,8 @@ export type RelatorioModular = {
   oQueVamosMedir: string[];
   /** O resultado esperado, e o que acontece se não vier. */
   expectativa: string;
+  /** Ordem das seções, quando alguém reordenou no editor. Ausente = padrão. */
+  ordem?: string[];
 };
 
 /** Presets: atalhos para as combinações que a equipe usa toda semana. */
@@ -218,17 +220,36 @@ export function paraMarkdown(
 
   const caixa = (rotulo: string, d: Destaque) =>
     d.resumo ? `\n**${rotulo}:** ${d.resumo}${d.detalhe ? `\n${d.detalhe}` : ""}` : "";
-  const leitura = [
-    caixa("Ponto alto", r.pontoAlto),
-    caixa("Ponto fraco", r.pontoFraco),
-    caixa("Oportunidade", r.oportunidade),
-  ].filter(Boolean);
-  if (leitura.length) l.push(`\n## Leitura do período${leitura.join("\n")}`);
 
-  if (r.oQueAconteceu) l.push(`\n## O que aconteceu no período\n${r.oQueAconteceu}`);
-  if (r.proximosPassos.length) l.push(`\n## Próximos passos\n${r.proximosPassos.map((x, i) => `${i + 1}. ${x}`).join("\n")}`);
-  if (r.oQueVamosMedir.length) l.push(`\n## O que vamos medir\n${r.oQueVamosMedir.map((x) => `- ${x}`).join("\n")}`);
-  if (r.expectativa) l.push(`\n## Expectativa para o próximo período\n${r.expectativa}`);
+  // Mesma ordem escolhida no editor — o texto colado no WhatsApp não pode
+  // apresentar as seções numa sequência diferente da do link do cliente.
+  const secoes: Record<string, () => string> = {
+    leitura: () => {
+      const partes = [
+        caixa("Ponto alto", r.pontoAlto),
+        caixa("Ponto fraco", r.pontoFraco),
+        caixa("Oportunidade", r.oportunidade),
+      ].filter(Boolean);
+      return partes.length ? `\n## Leitura do período${partes.join("\n")}` : "";
+    },
+    // "dados" existe só para posicionar as seções de texto em volta do gráfico;
+    // no markdown não há gráfico para imprimir.
+    dados: () => "",
+    oQueAconteceu: () => (r.oQueAconteceu ? `\n## O que aconteceu no período\n${r.oQueAconteceu}` : ""),
+    proximosPassos: () =>
+      r.proximosPassos.length ? `\n## Próximos passos\n${r.proximosPassos.map((x, i) => `${i + 1}. ${x}`).join("\n")}` : "",
+    oQueVamosMedir: () =>
+      r.oQueVamosMedir.length ? `\n## O que vamos medir\n${r.oQueVamosMedir.map((x) => `- ${x}`).join("\n")}` : "",
+    expectativa: () => (r.expectativa ? `\n## Expectativa para o próximo período\n${r.expectativa}` : ""),
+  };
+  const padrao = ["leitura", "dados", "oQueAconteceu", "proximosPassos", "oQueVamosMedir", "expectativa"];
+  const pedida = (r.ordem ?? []).filter((k) => k in secoes);
+  const ordem = [...pedida, ...padrao.filter((k) => !pedida.includes(k))];
+  for (const k of ordem) {
+    const bloco = secoes[k]();
+    if (bloco) l.push(bloco);
+  }
+
   l.push(`\n---\n_Relatório gerado pelo SELVA Spaces._`);
   return l.join("\n");
 }
