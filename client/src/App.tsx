@@ -35,6 +35,7 @@ import Panorama from "@/pages/Panorama";
 import HubApp from "./pages/hub/HubApp";
 import HubSettings from "./pages/hub/HubSettings";
 import PeoplePage from "./pages/hub/PeoplePage";
+import JornalzinhoPreview from "./pages/hub/JornalzinhoPreview";
 import ChangePassword from "./pages/hub/ChangePassword";
 import TrelloCallback from "./pages/hub/TrelloCallback";
 import { AdminOnly } from "./pages/hub/AdminOnly";
@@ -116,6 +117,10 @@ function Router() {
       <Route path="/access" component={HubAccess} />
       <Route path="/notificacoes" component={NotificacoesPage} />
       <Route path="/people" component={() => <AdminOnly><PeoplePage /></AdminOnly>} />
+      {/* Prévia do Jornalzinho — SÓ admin: a visão admin carrega o bloco
+          financeiro, então dar a tela ao developer entregaria a ele o e-mail do
+          admin por outra porta. Leitura pura: não envia nem consome dedup. */}
+      <Route path="/jornalzinho" component={() => <AdminOnly><JornalzinhoPreview /></AdminOnly>} />
       <Route path="/change-password" component={ChangePassword} />
       <Route path="/trello/callback" component={TrelloCallback} />
 

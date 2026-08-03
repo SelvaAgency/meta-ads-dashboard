@@ -2288,12 +2288,74 @@ export const appRouter = router({
     matrizDigest: protectedProcedure.query(() => BLOCOS_POR_PAPEL),
 
     /** O HTML que a pessoa receberia — a prévia visual antes de qualquer envio. */
+    /**
+     * O HTML que a pessoa receberia — a prévia visual antes de qualquer envio.
+     *
+     * LEITURA PURA: `buildDailyDigestForRole` monta e renderiza; quem persiste é
+     * `gerarEPersistirExecutivo`, que não é chamado aqui. Não toca no dedup
+     * (daily_digest_recipients), não escreve no email_send_log e não envia nada.
+     * Abrir a prévia dez vezes não muda o envio automático em nada.
+     *
+     * SÓ ADMIN — não admin/dev. A prévia mostra o Jornalzinho de QUALQUER papel,
+     * e a visão admin carrega o bloco FINANCEIRO. Dar a tela ao developer seria
+     * entregar a ele o e-mail do admin por outra porta: a informação é a mesma,
+     * só o caminho seria outro. Developer não recebe financeiro no envio, então
+     * também não o vê na prévia.
+     */
     previewDigestHtml: adminProcedure
       .input(z.object({
         papel: z.enum(["admin", "developer", "user"]).default("admin"),
         dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       }).default({ papel: "admin" }))
       .query(({ input }) => buildDailyDigestForRole(input.papel, input.dia ?? hojeAgencia())),
+
+    /**
+     * Envia a PRÉVIA do Jornalzinho para UM endereço, à mão.
+     *
+     * Diferente do digest de verdade em três pontos que importam:
+     *  1. NÃO chama `registrarEnvioDigest` — logo não consome a trava de
+     *     duplicata. O envio automático de amanhã acontece igual.
+     *  2. Vai para UM destinatário escolhido na hora, nunca para a lista.
+     *  3. Registra como tipo "preview" no email_send_log, não como "digest" —
+     *     o histórico não passa a mentir que o Jornalzinho já saiu.
+     *
+     * Passa pelo `sendEmail` de propósito: assim herda TODAS as travas (pausa
+     * mestre, provider, modo admin/dev, validação de destinatário). Uma prévia
+     * com caminho próprio seria mais uma porta para manter travada.
+     */
+    enviarPreviaJornalzinho: adminProcedure
+      .input(z.object({
+        destinatario: z.string().min(3).max(320),
+        papel: z.enum(["admin", "developer", "user"]).default("admin"),
+        dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const para = input.destinatario.trim();
+        // Um endereço, sempre. Vírgula/ponto-e-vírgula/espaço são recusados: uma
+        // lista aqui viraria disparo em massa por um botão de prévia.
+        if (/[,;\s]/.test(para) || !/^[^@]+@[^@]+\.[^@]+$/.test(para)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Informe UM endereço de e-mail válido." });
+        }
+
+        const dia = input.dia ?? hojeAgencia();
+        const d = await buildDailyDigestForRole(input.papel, dia);
+        if (d.vazio) return { vazio: true as const, assunto: d.assunto };
+
+        const envio = await sendEmail({
+          to: para,
+          subject: `[PREVIEW] Jornalzinho SELVA · ${d.assunto}`,
+          html: `<div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:6px;padding:10px 12px;font:12px Arial,sans-serif;margin:0 0 12px">
+  <strong style="color:#92400E">Prévia do Jornalzinho — não é o envio do dia.</strong>
+  <div style="color:#78350F;margin-top:4px">Visão <strong>${input.papel}</strong> · dia ${dia} · pedida por ${ctx.user.name ?? ctx.user.id}. O envio automático não foi afetado.</div>
+</div>${d.html}`,
+          text: `[PRÉVIA do Jornalzinho — não é o envio do dia. Visão ${input.papel}, dia ${dia}.]\n\n${d.texto}`,
+          tipo: "preview",
+          userId: ctx.user.id,
+          role: input.papel,
+          blocos: d.blocos,
+        });
+        return { vazio: false as const, assunto: d.assunto, blocos: d.blocos, ...envio };
+      }),
 
     /**
      * Jornalzinho EXECUTIVO (Panorama/lojas/GA4/técnica): gera, PERSISTE em
