@@ -131,11 +131,12 @@ export function AgendaCard() {
   } else if (q.data.events.length === 0) {
     body = <p className="text-sm text-muted-foreground">Nenhum compromisso para {label.toLowerCase()}. 🎉</p>;
   } else {
-    // Três estados no tempo, não dois: "agora" (rosa) já existia, e o cartão
-    // ficava todo branco no resto do dia — inclusive nos minutos que antecedem a
-    // reunião, que é justamente quando ele deveria chamar atenção. "Em breve"
-    // (âmbar) cobre a última hora antes de começar. O tick de 60s re-renderiza,
-    // então tanto o destaque quanto a contagem acompanham o relógio (± 1 min).
+    // Quatro estados no tempo, não dois. O cartão só acendia no horário exato e
+    // ficava branco no resto do dia: às cinco da tarde, a reunião das nove
+    // pesava igual à das seis. Agora a lista conta a passagem do dia sozinha —
+    // encerrado esmaece, "em breve" (âmbar) cobre a última hora antes de
+    // começar, "agora" segue rosa. O tick de 60s re-renderiza, então destaque e
+    // contagem acompanham o relógio (± 1 min).
     const now = Date.now();
     body = (
       <div className="flex flex-col gap-1 -mx-2">
@@ -149,6 +150,11 @@ export function AgendaCard() {
             ? Math.ceil((ev.startMs - now) / 60000)
             : null;
           const emBreve = faltamMin != null && faltamMin > 0 && faltamMin <= JANELA_EM_BREVE_MIN;
+          // Encerrado: já passou do fim. Só esmaece — nada de tachado, que
+          // leria como "cancelada", e a reunião aconteceu. Volta ao normal no
+          // hover porque o link ainda serve depois que a reunião acaba.
+          // Dia inteiro nunca "encerra" no meio do dia.
+          const encerrado = ev.endMs != null && !ev.allDay && now >= ev.endMs;
           const joinable = !!ev.meetingUrl;
           const destaque = isNow
             ? "bg-primary/10 ring-1 ring-primary/25"
@@ -160,7 +166,7 @@ export function AgendaCard() {
             : emBreve
               ? "text-amber-600 dark:text-amber-400"
               : ev.allDay ? "text-muted-foreground" : "text-foreground";
-          const cls = `group flex items-center gap-3 text-sm rounded-lg px-2 py-1.5 transition-colors ${destaque} ${joinable ? "cursor-pointer hover:bg-accent/30" : ""}`;
+          const cls = `group flex items-center gap-3 text-sm rounded-lg px-2 py-1.5 transition-colors ${destaque} ${encerrado ? "opacity-45 hover:opacity-100" : ""} ${joinable ? "cursor-pointer hover:bg-accent/30" : ""}`;
           const inner = (
             <>
               <span className={`min-w-[64px] font-semibold ${corHora}`}>
