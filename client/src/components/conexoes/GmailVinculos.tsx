@@ -271,15 +271,29 @@ export function GmailVinculos() {
                 <RefreshCw className="w-3 h-3" /> atualizar
               </button>
             </div>
-            <div className="flex flex-col gap-1">
+            {/* O erro é a ÚNICA coisa que a pessoa precisa ler aqui quando o
+                teste falha — truncar em uma linha (como estava) escondia
+                justamente o texto que diz o que fazer. Agora ele quebra em
+                várias linhas e dá para selecionar e copiar. */}
+            <div className="flex flex-col gap-1.5">
               {(testesQ.data ?? []).map((t: any) => (
-                <div key={t.id} className="flex items-center gap-2 text-[11px] py-1 border-b border-border/30 last:border-0">
-                  <span className={t.status === "sent" ? "text-emerald-600" : "text-destructive"}>
-                    {t.status === "sent" ? "✓" : "✗"}
-                  </span>
-                  <span className="font-medium truncate">{t.destinatarioFinal}</span>
-                  <span className="text-muted-foreground truncate flex-1">{t.erro ?? t.messageId ?? ""}</span>
-                  <span className="text-muted-foreground flex-shrink-0">{fmtData(t.criadoEm)}</span>
+                <div key={t.id} className="text-[11px] py-1 border-b border-border/30 last:border-0">
+                  <div className="flex items-center gap-2">
+                    <span className={t.status === "sent" ? "text-emerald-600" : "text-destructive"}>
+                      {t.status === "sent" ? "✓" : "✗"}
+                    </span>
+                    <span className="font-medium truncate">{t.destinatarioFinal}</span>
+                    <span className="text-muted-foreground flex-shrink-0 ml-auto">
+                      {fmtData(t.criadoEm)}{t.duracaoMs != null ? ` · ${t.duracaoMs}ms` : ""}
+                    </span>
+                  </div>
+                  {t.erro ? (
+                    <p className="mt-0.5 text-destructive break-words whitespace-pre-wrap select-all font-mono text-[10px] leading-relaxed">
+                      {t.erro}
+                    </p>
+                  ) : t.messageId ? (
+                    <p className="mt-0.5 text-muted-foreground break-all">id: {t.messageId}</p>
+                  ) : null}
                 </div>
               ))}
             </div>
