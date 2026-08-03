@@ -1328,6 +1328,53 @@ export type FinanceReembolso = typeof financeReembolsos.$inferSelect;
 export type InsertFinanceReembolso = typeof financeReembolsos.$inferInsert;
 
 /**
+ * Reembolso pedido por um COLABORADOR — a única porta do financeiro aberta a
+ * quem não é admin.
+ *
+ * Tabela separada, e não uma coluna "aprovado" em finance_pnl_entries, porque
+ * `financePnlResumo` soma TODAS as linhas do mês sem filtro: uma despesa não
+ * aprovada morando lá exigiria um filtro novo em cada consulta do financeiro, e
+ * esquecer uma inflaria a despesa do mês em silêncio. Aqui a linha do P&L só
+ * nasce na aprovação — "não aprovado ⇒ fora do balanço" é verdade por
+ * construção, não por disciplina.
+ *
+ * `pnlEntryId` amarra a solicitação à despesa criada, para o admin conseguir
+ * desfazer uma aprovação sem caçar a linha à mão.
+ */
+export const financeReembolsoSolicitacoes = mysqlTable("finance_reembolso_solicitacoes", {
+  id: int("id").autoincrement().primaryKey(),
+  /** Quem pediu. TODA consulta de colaborador filtra por aqui, no servidor. */
+  userId: int("userId").notNull(),
+  mes: varchar("mes", { length: 7 }).notNull(),
+  /** Data real do gasto — o mês de competência sai dela. */
+  dataGasto: date("dataGasto", { mode: "string" }).notNull(),
+  descricao: varchar("descricao", { length: 255 }).notNull(),
+  valorCents: int("valorCents").notNull(),
+  /** Mesma taxonomia das despesas pontuais (SUBCATS), para o balanço não
+   *  ganhar uma segunda categorização paralela. */
+  subcategoria: varchar("subcategoria", { length: 24 }).notNull(),
+  observacao: text("observacao"),
+  /** Chave no storage S3. Opcional: quem está na rua nem sempre tem a nota. */
+  comprovanteKey: varchar("comprovanteKey", { length: 512 }),
+  status: mysqlEnum("status", ["aguardando", "aprovado", "reembolsado", "recusado"]).default("aguardando").notNull(),
+  /** Preenchido só na recusa — sem ele o colaborador não sabe o que corrigir. */
+  motivoRecusa: varchar("motivoRecusa", { length: 500 }),
+  /** Despesa criada na aprovação (FK lógica → finance_pnl_entries.id). */
+  pnlEntryId: int("pnlEntryId"),
+  decididoPorUserId: int("decididoPorUserId"),
+  decididoEm: timestamp("decididoEm"),
+  reembolsadoEm: timestamp("reembolsadoEm"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxUser: index("idx_reemb_sol_user").on(table.userId),
+  idxStatus: index("idx_reemb_sol_status").on(table.status),
+  idxMes: index("idx_reemb_sol_mes").on(table.mes),
+}));
+export type FinanceReembolsoSolicitacao = typeof financeReembolsoSolicitacoes.$inferSelect;
+export type InsertFinanceReembolsoSolicitacao = typeof financeReembolsoSolicitacoes.$inferInsert;
+
+/**
  * Dicionário aprendido da conciliação de fatura → reembolsos SELVA. Cada linha
  * é uma regra estabelecimento→categoria. Semeada da aba "Reembolsos Gui" e
  * crescida a cada mês conforme o Gui confirma. NUNCA guarda valores da fatura

@@ -20,7 +20,9 @@ import {
   financePnlEntries,
   type InsertFinancePnlEntry,
   financeReembolsos,
+  financeReembolsoSolicitacoes,
   type InsertFinanceReembolso,
+  type InsertFinanceReembolsoSolicitacao,
   financeRetiradas,
   financeMesesFechados,
   type InsertFinanceRetirada,
@@ -2298,6 +2300,126 @@ export async function listFinanceReembolsos(f: { mes?: string; categoria?: Reemb
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(financeReembolsos.mes), desc(financeReembolsos.id));
 }
+// ── Reembolsos pedidos por colaboradores ─────────────────────────────────────
+export type SolicitacaoStatus = "aguardando" | "aprovado" | "reembolsado" | "recusado";
+
+// Regra de ouro: TODA função que um colaborador alcança recebe `userId` e filtra
+// por ele. Não é o front que decide de quem são os dados.
+
+/** As solicitações de UM colaborador. O userId vem da sessão, nunca da tela. */
+export async function listSolicitacoesDoUsuario(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(financeReembolsoSolicitacoes)
+    .where(eq(financeReembolsoSolicitacoes.userId, userId))
+    .orderBy(desc(financeReembolsoSolicitacoes.createdAt));
+}
+
+/** Fila do admin. `status` opcional para separar a fila de aprovação do resto. */
+export async function listSolicitacoesReembolso(f: { status?: SolicitacaoStatus; mes?: string } = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  const conds = [];
+  if (f.status) conds.push(eq(financeReembolsoSolicitacoes.status, f.status));
+  if (f.mes) conds.push(eq(financeReembolsoSolicitacoes.mes, f.mes));
+  return db.select().from(financeReembolsoSolicitacoes)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(desc(financeReembolsoSolicitacoes.createdAt));
+}
+
+export async function getSolicitacaoReembolso(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(financeReembolsoSolicitacoes)
+    .where(eq(financeReembolsoSolicitacoes.id, id)).limit(1);
+  return r[0];
+}
+
+export async function criarSolicitacaoReembolso(data: InsertFinanceReembolsoSolicitacao): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  // Mês fechado não recebe lançamento novo — nem pelo caminho do colaborador.
+  await assertMesAberto(data.mes);
+  const [row] = await db.insert(financeReembolsoSolicitacoes).values(data).$returningId();
+  return row.id;
+}
+
+/** Edição/cancelamento pelo próprio autor. O `userId` no WHERE é a trava: sem
+ *  ele, um id chutado na requisição alcançaria a solicitação de outra pessoa. */
+export async function atualizarSolicitacaoDoUsuario(
+  id: number, userId: number, patch: Partial<InsertFinanceReembolsoSolicitacao>,
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(financeReembolsoSolicitacoes).set(patch)
+    .where(and(eq(financeReembolsoSolicitacoes.id, id), eq(financeReembolsoSolicitacoes.userId, userId)));
+}
+
+export async function excluirSolicitacaoDoUsuario(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.delete(financeReembolsoSolicitacoes)
+    .where(and(eq(financeReembolsoSolicitacoes.id, id), eq(financeReembolsoSolicitacoes.userId, userId)));
+}
+
+export async function atualizarSolicitacaoReembolso(id: number, patch: Partial<InsertFinanceReembolsoSolicitacao>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(financeReembolsoSolicitacoes).set(patch)
+    .where(eq(financeReembolsoSolicitacoes.id, id));
+}
+
+/**
+ * Aprova: cria a DESPESA_PONTUAL e amarra as duas pontas. É aqui — e só aqui —
+ * que um gasto de colaborador passa a existir no balanço do mês.
+ *
+ * A despesa nasce `pendente` com `reembolsoPendente`: aprovada não quer dizer
+ * paga. Quem paga marca depois, e aí a solicitação vira "reembolsado".
+ */
+export async function aprovarSolicitacaoReembolso(id: number, adminUserId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const s = await getSolicitacaoReembolso(id);
+  if (!s) throw new Error("Solicitação não encontrada");
+  if (s.status !== "aguardando") throw new Error("Esta solicitação já foi decidida.");
+  await assertMesAberto(s.mes);
+
+  const autor = await getUserById(s.userId);
+  const quem = autor?.name || autor?.email || `usuário ${s.userId}`;
+  const entryId = await createFinancePnl({
+    mes: s.mes,
+    tipo: "DESPESA_PONTUAL",
+    descricao: `${s.descricao} — reembolso ${quem}`,
+    valorCents: s.valorCents,
+    status: "pendente",
+    clienteId: null,
+    reembolsoPendente: true,
+    subcategoria: s.subcategoria,
+    vencimento: s.dataGasto,
+  });
+  await atualizarSolicitacaoReembolso(id, {
+    status: "aprovado", pnlEntryId: entryId,
+    decididoPorUserId: adminUserId, decididoEm: new Date(),
+  });
+  return entryId;
+}
+
+/**
+ * Marca como reembolsado e quita a despesa correspondente. Sem mexer no P&L, o
+ * financeiro continuaria mostrando "a pagar" uma conta já paga.
+ */
+export async function marcarSolicitacaoReembolsada(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const s = await getSolicitacaoReembolso(id);
+  if (!s) throw new Error("Solicitação não encontrada");
+  if (s.status !== "aprovado") throw new Error("Só uma solicitação aprovada pode ser reembolsada.");
+  if (s.pnlEntryId) {
+    await updateFinancePnl(s.pnlEntryId, { status: "pago", reembolsoPendente: false });
+  }
+  await atualizarSolicitacaoReembolso(id, { status: "reembolsado", reembolsadoEm: new Date() });
+}
+
 export async function createFinanceReembolso(data: InsertFinanceReembolso): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");

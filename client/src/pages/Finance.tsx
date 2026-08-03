@@ -17,6 +17,7 @@ import { ResponsiveContainer, ComposedChart, Line, BarChart, Bar, Cell, XAxis, Y
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -1457,6 +1458,127 @@ function ClientesTab({ period, setPeriod, months, clientes, drill }: { period: P
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
+//  Fila de reembolsos pedidos por colaboradores
+// ═════════════════════════════════════════════════════════════════════════════
+/**
+ * Aprovar aqui é o que faz o gasto EXISTIR no balanço: a solicitação vive em
+ * tabela própria e só vira DESPESA_PONTUAL (pendente, com reembolso pendente)
+ * quando o admin aprova. Enquanto está aguardando, não entra em nenhum total.
+ */
+function FilaReembolsos() {
+  const utils = trpc.useUtils();
+  const [verTodas, setVerTodas] = useState(false);
+  const [recusando, setRecusando] = useState<{ id: number; motivo: string } | null>(null);
+
+  const q = trpc.finance.solicitacoes.listar.useQuery(verTodas ? {} : { status: "aguardando" as const });
+  const linhas = q.data ?? [];
+
+  const recarregar = () => {
+    q.refetch();
+    // A aprovação cria uma despesa: os totais do mês mudam junto.
+    utils.finance.invalidate();
+  };
+  const aprovar = trpc.finance.solicitacoes.aprovar.useMutation({
+    onSuccess: () => { toast.success("Aprovado — a despesa entrou no mês."); recarregar(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const recusar = trpc.finance.solicitacoes.recusar.useMutation({
+    onSuccess: () => { toast.success("Recusado."); setRecusando(null); recarregar(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const reembolsar = trpc.finance.solicitacoes.marcarReembolsado.useMutation({
+    onSuccess: () => { toast.success("Marcado como reembolsado e quitado no mês."); recarregar(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const aguardando = linhas.filter((l) => l.status === "aguardando").length;
+
+  return (
+    <Card><CardContent className="p-4">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <p className="text-sm font-semibold flex items-center gap-2">
+          <Wallet className="w-4 h-4" /> Reembolsos da equipe
+          {aguardando > 0 && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+              style={{ background: "rgba(239,159,39,0.14)", color: "#a06508", border: "1px solid rgba(239,159,39,0.34)" }}>
+              {aguardando} sob aprovação
+            </span>
+          )}
+        </p>
+        <button onClick={() => setVerTodas((v) => !v)} className="text-xs font-semibold text-primary hover:opacity-70">
+          {verTodas ? "Ver só pendentes" : "Ver todas"}
+        </button>
+      </div>
+
+      {q.isLoading && <p className="text-xs text-muted-foreground">Carregando…</p>}
+      {!q.isLoading && linhas.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          {verTodas ? "Nenhuma solicitação registrada." : "Nada sob aprovação."}
+        </p>
+      )}
+
+      <div className="grid gap-2">
+        {linhas.map((l) => (
+          <div key={l.id} className="flex items-start justify-between gap-3 flex-wrap rounded-lg border border-border p-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold">{l.descricao}</span>
+                <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{subLabel(l.subcategoria)}</span>
+                {l.status !== "aguardando" && (
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{l.status}</span>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {l.autor} · gasto em {(l.dataGasto ?? "").split("-").reverse().join("/")} · mês {formatMes(l.mes)}
+              </p>
+              {l.observacao && <p className="text-xs text-muted-foreground mt-1">{l.observacao}</p>}
+              {l.motivoRecusa && <p className="text-xs text-red-600 mt-1">Recusado: {l.motivoRecusa}</p>}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-sm font-bold tabular-nums">{centsToBRL(l.valorCents)}</span>
+              {l.status === "aguardando" && (
+                <>
+                  <Button size="sm" disabled={aprovar.isPending} onClick={() => aprovar.mutate({ id: l.id })}>Aprovar</Button>
+                  <Button size="sm" variant="outline" onClick={() => setRecusando({ id: l.id, motivo: "" })}>Recusar</Button>
+                </>
+              )}
+              {l.status === "aprovado" && (
+                <Button size="sm" variant="outline" disabled={reembolsar.isPending} onClick={() => reembolsar.mutate({ id: l.id })}>
+                  Marcar reembolsado
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Motivo obrigatório: sem ele o colaborador não sabe o que corrigir. */}
+      <Dialog open={!!recusando} onOpenChange={(v) => !v && setRecusando(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Recusar solicitação</DialogTitle></DialogHeader>
+          <div>
+            <Label>Motivo (o colaborador vai ler)</Label>
+            <Textarea className="mt-1 min-h-[80px]" value={recusando?.motivo ?? ""}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setRecusando((r) => (r ? { ...r, motivo: e.target.value } : r))}
+              placeholder="Ex: falta comprovante; este gasto não é reembolsável" />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRecusando(null)}>Cancelar</Button>
+            <Button variant="destructive" disabled={recusar.isPending}
+              onClick={() => {
+                if (!recusando?.motivo.trim()) return toast.error("Escreva o motivo.");
+                recusar.mutate({ id: recusando.id, motivo: recusando.motivo.trim() });
+              }}>
+              Recusar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </CardContent></Card>
+  );
+}
+
 //  Aba Despesas (por categoria)
 // ═════════════════════════════════════════════════════════════════════════════
 function DespesasTab({ period, setPeriod, months, drill }: { period: PeriodState; setPeriod: (p: PeriodState) => void; months: string[]; drill?: { nonce: number; period?: PeriodState; sub?: string } }) {
@@ -1606,6 +1728,8 @@ function DespesasTab({ period, setPeriod, months, drill }: { period: PeriodState
           )}
         </CardContent></Card>
       </div>
+
+      <FilaReembolsos />
 
       {/* Despesas do mês (Recorrente | Imposto | Pontual) */}
       <Card><CardContent className="p-4">

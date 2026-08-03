@@ -312,6 +312,32 @@ async function main() {
         INDEX \`idx_reemb_categoria\` (\`categoria\`)
       )
     `);
+    // Reembolsos pedidos por colaboradores. Fica FORA de finance_pnl_entries de
+    // propósito: a despesa só entra no balanço quando o admin aprova.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`finance_reembolso_solicitacoes\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`userId\` INT NOT NULL,
+        \`mes\` VARCHAR(7) NOT NULL,
+        \`dataGasto\` DATE NOT NULL,
+        \`descricao\` VARCHAR(255) NOT NULL,
+        \`valorCents\` INT NOT NULL,
+        \`subcategoria\` VARCHAR(24) NOT NULL,
+        \`observacao\` TEXT NULL,
+        \`comprovanteKey\` VARCHAR(512) NULL,
+        \`status\` ENUM('aguardando','aprovado','reembolsado','recusado') NOT NULL DEFAULT 'aguardando',
+        \`motivoRecusa\` VARCHAR(500) NULL,
+        \`pnlEntryId\` INT NULL,
+        \`decididoPorUserId\` INT NULL,
+        \`decididoEm\` TIMESTAMP NULL,
+        \`reembolsadoEm\` TIMESTAMP NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX \`idx_reemb_sol_user\` (\`userId\`),
+        INDEX \`idx_reemb_sol_status\` (\`status\`),
+        INDEX \`idx_reemb_sol_mes\` (\`mes\`)
+      )
+    `);
     await conn.query(`
       CREATE TABLE IF NOT EXISTS \`finance_retiradas\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,

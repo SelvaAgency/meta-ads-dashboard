@@ -68,6 +68,13 @@ type Accent = "orange" | undefined;
 type NavItem = {
   label: string;
   icon: LucideIcon;
+  /**
+   * Porta aberta dentro de um grupo restrito. O Financeiro é admin-only, mas
+   * todo colaborador precisa entrar para lançar reembolso — a própria rota
+   * decide o que mostrar a cada papel. Sem isto, o item sairia com cadeado e
+   * o colaborador não teria como pedir reembolso nenhum.
+   */
+  livre?: boolean;
 } & (
   | { kind: "internal"; href: string }
   | { kind: "external"; href: string }
@@ -114,7 +121,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Administrativo",
     adminOnly: true,
     items: [
-      { label: "Financeiro", icon: DollarSign, kind: "app", href: "/finance" },
+      { label: "Financeiro", icon: DollarSign, kind: "app", href: "/finance", livre: true },
       { label: "Contratos", icon: FileSignature, kind: "app", href: "/contracts" },
       { label: "Propostas", icon: ScrollText, kind: "placeholder" },
       { label: "Colaboradores", icon: Users, kind: "internal", href: "/people" },
@@ -425,7 +432,9 @@ export function HubSidebar() {
                 aria-disabled="true"
               >
                 {group.items.map((item) => (
-                  <LinhaBloqueada key={item.label} item={item} open={open} />
+                  item.livre
+                    ? <NavRow key={item.label} item={item} open={open} active={isActive(item)} />
+                    : <LinhaBloqueada key={item.label} item={item} open={open} />
                 ))}
               </div>
             ) : (

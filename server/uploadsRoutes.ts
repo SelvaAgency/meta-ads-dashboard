@@ -12,7 +12,7 @@ import type { Express, Request, Response } from "express";
 import multer from "multer";
 import { sdk } from "./_core/sdk";
 import { canManageContent } from "@shared/permissions";
-import { isStorageConfigured, uploadImage, getReadUrl, deleteObject, MAX_IMAGE_BYTES } from "./storage/storageService";
+import { isStorageConfigured, uploadImage, uploadComprovante, getReadUrl, deleteObject, MAX_IMAGE_BYTES } from "./storage/storageService";
 import { getUserById, updateUserAvatar, getMetaAdAccountById, updateAccountPictureKey } from "./db";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_IMAGE_BYTES } });
@@ -36,6 +36,30 @@ export function registerUploadRoutes(app: Express) {
         await updateUserAvatar(user.id, key);
         if (previous && previous !== key) deleteObject(previous); // remove foto antiga
         return res.json({ avatarUrl: await getReadUrl(key) });
+      } catch (e: any) {
+        return res.status(400).json({ error: e?.message ?? "Falha no upload." });
+      }
+    });
+  });
+
+  // ── Comprovante de reembolso (qualquer colaborador autenticado) ─────────────
+  // Aceita PDF além de imagem: nota fiscal chega por e-mail em PDF. O arquivo
+  // vai para uma pasta por usuário, e a KEY volta para a tela — quem amarra a
+  // key à solicitação é o tRPC, que confere o dono.
+  app.post("/api/uploads/comprovante", (req: Request, res: Response) => {
+    upload.single("file")(req, res, async (err: unknown) => {
+      if (err) return res.status(400).json({ error: "Falha no upload (arquivo muito grande?)." });
+      let user;
+      try {
+        user = await sdk.authenticateRequest(req);
+      } catch {
+        return res.status(401).json({ error: "Não autenticado." });
+      }
+      if (!isStorageConfigured()) return res.status(503).json({ error: "Upload indisponível: storage não configurado." });
+      if (!req.file) return res.status(400).json({ error: "Arquivo ausente." });
+      try {
+        const key = await uploadComprovante(req.file.buffer, req.file.mimetype, `comprovantes/${user.id}`);
+        return res.json({ key, url: await getReadUrl(key) });
       } catch (e: any) {
         return res.status(400).json({ error: e?.message ?? "Falha no upload." });
       }

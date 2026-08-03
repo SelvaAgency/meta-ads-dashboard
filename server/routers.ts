@@ -141,6 +141,15 @@ import {
   getReportSnapshotByToken,
   getReportSnapshotsByAccountId,
   getReportSnapshotById,
+  listSolicitacoesDoUsuario,
+  listSolicitacoesReembolso,
+  getSolicitacaoReembolso,
+  criarSolicitacaoReembolso,
+  atualizarSolicitacaoDoUsuario,
+  excluirSolicitacaoDoUsuario,
+  atualizarSolicitacaoReembolso,
+  aprovarSolicitacaoReembolso,
+  marcarSolicitacaoReembolsada,
   updateReportSnapshotNarrative,
   deleteReportSnapshot,
 } from "./db";
@@ -800,6 +809,128 @@ const financeRouter = router({
       .mutation(async ({ input }) => { const { id, ...patch } = input; await updateFinanceReembolso(id, patch); return { success: true } as const; }),
     delete: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => { await deleteFinanceReembolso(input.id); return { success: true } as const; }),
     setReembolsado: adminProcedure.input(z.object({ id: z.number().int(), reembolsado: z.boolean() })).mutation(async ({ input }) => { await updateFinanceReembolso(input.id, { reembolsado: input.reembolsado }); return { success: true } as const; }),
+  }),
+
+  /**
+   * ─── Reembolsos pedidos por COLABORADORES ─────────────────────────────────
+   *
+   * A única parte do financeiro aberta a quem não é admin — e por isso a única
+   * que precisa de escopo por pessoa. As procedures `minhas*` são
+   * `protectedProcedure` mas SEMPRE derivam o dono de `ctx.user.id`: o id nunca
+   * vem do input. As de decisão (aprovar/recusar/reembolsar) são
+   * `adminProcedure`, porque mexem no balanço do mês.
+   *
+   * Atenção ao mexer aqui: no resto deste arquivo `getVerifiedAccount` ignora o
+   * userId, então "autenticado" costuma bastar. Aqui NÃO basta.
+   */
+  solicitacoes: router({
+    /** Só as minhas. Sem input de usuário — não há como pedir as de outro. */
+    minhas: protectedProcedure.query(({ ctx }) => listSolicitacoesDoUsuario(ctx.user.id)),
+
+    minhaCriar: protectedProcedure
+      .input(z.object({
+        dataGasto: DATA,
+        descricao: z.string().min(1).max(255),
+        valorCents: CENTS.refine((v) => v > 0, "valor deve ser maior que zero"),
+        subcategoria: z.string().min(1).max(24),
+        observacao: z.string().max(2000).optional(),
+        comprovanteKey: z.string().max(512).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => ({
+        id: await criarSolicitacaoReembolso({
+          ...input,
+          userId: ctx.user.id,
+          // Competência pela data do gasto — não pela data do envio. Quem lança
+          // no dia 2 um gasto do dia 30 não joga a despesa para o mês errado.
+          mes: input.dataGasto.slice(0, 7),
+        }),
+      })),
+
+    /** Editar/cancelar só enquanto ninguém decidiu — depois disso o valor já
+     *  está no balanço e mexer por fora criaria divergência silenciosa. */
+    minhaEditar: protectedProcedure
+      .input(z.object({
+        id: z.number().int(),
+        dataGasto: DATA.optional(),
+        descricao: z.string().min(1).max(255).optional(),
+        valorCents: CENTS.optional(),
+        subcategoria: z.string().min(1).max(24).optional(),
+        observacao: z.string().max(2000).nullable().optional(),
+        comprovanteKey: z.string().max(512).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const s = await getSolicitacaoReembolso(input.id);
+        if (!s || s.userId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND", message: "Solicitação não encontrada" });
+        if (s.status !== "aguardando") throw new TRPCError({ code: "FORBIDDEN", message: "Só dá para editar enquanto está aguardando aprovação." });
+        const { id, ...patch } = input;
+        await atualizarSolicitacaoDoUsuario(id, ctx.user.id, {
+          ...patch,
+          ...(patch.dataGasto ? { mes: patch.dataGasto.slice(0, 7) } : {}),
+        });
+        return { success: true } as const;
+      }),
+
+    minhaCancelar: protectedProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ ctx, input }) => {
+        const s = await getSolicitacaoReembolso(input.id);
+        if (!s || s.userId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND", message: "Solicitação não encontrada" });
+        if (s.status !== "aguardando") throw new TRPCError({ code: "FORBIDDEN", message: "Já decidida — fale com o administrativo." });
+        await excluirSolicitacaoDoUsuario(input.id, ctx.user.id);
+        return { success: true } as const;
+      }),
+
+    /**
+     * Link do comprovante. O arquivo mora em bucket que pode ser privado, então
+     * a URL é assinada e expira — não dá para guardar no banco. Dono OU admin:
+     * um colaborador não enxerga a nota fiscal de outro.
+     */
+    comprovanteUrl: protectedProcedure
+      .input(z.object({ id: z.number().int() }))
+      .query(async ({ ctx, input }) => {
+        const s = await getSolicitacaoReembolso(input.id);
+        if (!s) throw new TRPCError({ code: "NOT_FOUND", message: "Solicitação não encontrada" });
+        const ehDono = s.userId === ctx.user.id;
+        if (!ehDono && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Sem acesso a este comprovante." });
+        if (!s.comprovanteKey) return { url: null as string | null };
+        const { getReadUrl } = await import("./storage/storageService");
+        return { url: await getReadUrl(s.comprovanteKey) };
+      }),
+
+    /** Fila do admin, já com o nome de quem pediu resolvido. */
+    listar: adminProcedure
+      .input(z.object({ status: z.enum(["aguardando", "aprovado", "reembolsado", "recusado"]).optional(), mes: MES.optional() }).optional())
+      .query(async ({ input }) => {
+        const linhas = await listSolicitacoesReembolso(input ?? {});
+        const nomes = new Map<number, string>();
+        for (const l of linhas) {
+          if (nomes.has(l.userId)) continue;
+          const u = await getUserById(l.userId);
+          nomes.set(l.userId, u?.name || u?.email || `usuário ${l.userId}`);
+        }
+        return linhas.map((l) => ({ ...l, autor: nomes.get(l.userId) ?? "" }));
+      }),
+
+    aprovar: adminProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ ctx, input }) => ({ pnlEntryId: await aprovarSolicitacaoReembolso(input.id, ctx.user.id) })),
+
+    recusar: adminProcedure
+      .input(z.object({ id: z.number().int(), motivo: z.string().min(1).max(500) }))
+      .mutation(async ({ ctx, input }) => {
+        const s = await getSolicitacaoReembolso(input.id);
+        if (!s) throw new TRPCError({ code: "NOT_FOUND", message: "Solicitação não encontrada" });
+        if (s.status !== "aguardando") throw new TRPCError({ code: "FORBIDDEN", message: "Esta solicitação já foi decidida." });
+        await atualizarSolicitacaoReembolso(input.id, {
+          status: "recusado", motivoRecusa: input.motivo,
+          decididoPorUserId: ctx.user.id, decididoEm: new Date(),
+        });
+        return { success: true } as const;
+      }),
+
+    marcarReembolsado: adminProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ input }) => { await marcarSolicitacaoReembolsada(input.id); return { success: true } as const; }),
   }),
 
   retiradas: router({

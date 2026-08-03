@@ -15,6 +15,9 @@ import SuggestionsHub from "./pages/SuggestionsHub";
 import Reports from "./pages/Reports";
 import Contracts from "./pages/Contracts";
 import Finance from "./pages/Finance";
+import MeusReembolsos from "./pages/MeusReembolsos";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canAccessAdmin } from "@shared/permissions";
 import Admin from "./pages/Admin";
 import ReportView from "./pages/ReportView";
 
@@ -86,7 +89,18 @@ const ReportsRoute = () => (isEmbedded() ? <Reports /> : <HubApp />);
 // no portal (HubShell dentro da própria página), igual à Colaboradores — nunca
 // dentro do shell/iframe do Performance Tracker (HubApp).
 const ContractsRoute = () => <AdminOnly><Contracts /></AdminOnly>;
-const FinanceRoute = () => <AdminOnly><Finance /></AdminOnly>;
+/**
+ * /finance leva cada um ao que pode ver: admin abre o financeiro completo;
+ * colaborador cai na própria página de reembolsos. Um item só no menu, e
+ * ninguém leva "Sem acesso" na cara ao clicar em Financeiro.
+ *
+ * Isto é roteamento, não segurança: o financeiro inteiro é adminProcedure no
+ * servidor, e as procedures de reembolso derivam o dono da sessão.
+ */
+const FinanceRoute = () => {
+  const { user } = useAuth();
+  return canAccessAdmin(user?.role) ? <Finance /> : <MeusReembolsos />;
+};
 const SettingsRoute = () => (isEmbedded() ? <Settings /> : <HubSettings />);
 
 function Router() {

@@ -68,6 +68,33 @@ export async function uploadImage(buffer: Buffer, mime: string, prefix: string):
 }
 
 /**
+ * Comprovante de reembolso: imagem OU PDF.
+ *
+ * Função separada em vez de afrouxar `validateImageFile` — aquela guarda avatar,
+ * SelvaTV e foto de cliente, onde um PDF não tem o que fazer. Alargar a
+ * validação comum para atender um caso abriria os outros três junto.
+ */
+export const COMPROVANTE_EXT: Record<string, string> = { ...IMAGE_EXT, "application/pdf": "pdf" };
+
+export async function uploadComprovante(buffer: Buffer, mime: string, prefix: string): Promise<string> {
+  const ext = COMPROVANTE_EXT[mime];
+  if (!ext) throw new Error("Formato inválido. Envie imagem (JPG, PNG, WEBP) ou PDF.");
+  if (buffer.length > MAX_IMAGE_BYTES) throw new Error("Arquivo muito grande (máx. 5 MB).");
+  const key = `${prefix}/${randomUUID()}.${ext}`;
+  await client().send(
+    new PutObjectCommand({
+      Bucket: ENV.s3Bucket,
+      Key: key,
+      Body: buffer,
+      ContentType: mime,
+      // Comprovante não é asset público de UI: sem cache longo.
+      CacheControl: "private, max-age=0",
+    }),
+  );
+  return key;
+}
+
+/**
  * URL de leitura para uma key. Bucket público (S3_PUBLIC_BASE_URL) → URL direta;
  * caso contrário → URL assinada (privado) válida por 1h.
  */
