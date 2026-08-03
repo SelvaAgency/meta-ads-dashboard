@@ -1179,6 +1179,29 @@ export async function getReportSnapshotByToken(token: string) {
   return result[0];
 }
 
+/** Um relatório da conta, por id — para editar os textos. */
+export async function getReportSnapshotById(id: number, accountId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(reportSnapshots)
+    .where(and(eq(reportSnapshots.id, id), eq(reportSnapshots.accountId, accountId))).limit(1);
+  return r[0];
+}
+
+/**
+ * Grava a narrativa editada à mão. O markdown vem junto porque é regerado a
+ * partir dela: se ficasse o antigo, o texto colado no WhatsApp diria uma coisa
+ * e o link do cliente outra.
+ */
+export async function updateReportSnapshotNarrative(
+  id: number, accountId: number, narrative: string, markdown: string,
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(reportSnapshots).set({ narrative, markdown })
+    .where(and(eq(reportSnapshots.id, id), eq(reportSnapshots.accountId, accountId)));
+}
+
 /**
  * Apaga um relatório. Exclusão de verdade, não `isActive = false`: o link
  * público morre junto, e é isso que quem clica em "excluir" espera. Só a rota

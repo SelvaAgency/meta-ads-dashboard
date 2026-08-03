@@ -16,6 +16,9 @@ import "./ReportView.css";
  */
 
 type Metric = "investment" | "reach" | "conversions" | "costPerConversion";
+/** A aba "Todas" sobrepõe as quatro séries — por isso não é uma Metric. */
+type Aba = Metric | "todas";
+const METRICAS: Metric[] = ["investment", "reach", "conversions", "costPerConversion"];
 
 /**
  * Direção "boa" de cada métrica. Sem isto a variação vira ▲ verde sempre — e um
@@ -103,29 +106,42 @@ function pctDelta(curr: number, prev: number, dir: Direcao = "neutro"): { label:
   return { label: `${arrow} ${Math.abs(pct).toFixed(0)}%`, cls };
 }
 
-function buildChartPath(values: number[], w = 640, h = 190, pad = 16) {
-  const innerW = w - pad * 2;
-  const innerH = h - pad * 2;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+// ── Geometria do gráfico ────────────────────────────────────────────────────
+// W/H/PAD são o viewBox; HEADROOM é a folga acima do maior valor e abaixo do
+// menor. Sem ela o menor ponto encostava na base e o maior no topo, e uma
+// variação de 20% no investimento virava um paredão — exagero grave num
+// documento que vai para o cliente.
+const W = 640, H = 190, PAD = 16, HEADROOM = 0.1;
+const INNER_W = W - PAD * 2;
+const INNER_H = H - PAD * 2;
+
+/** t em 0..1 (0 = mínimo da série, 1 = máximo) → y no viewBox. */
+const yDe = (t: number) => PAD + INNER_H * (1 - (HEADROOM + t * (1 - 2 * HEADROOM)));
+const xDe = (i: number, n: number) => PAD + INNER_W * (i / Math.max(1, n - 1));
+
+/** Linhas de grade: máximo, meio e mínimo REAIS da série (já com a folga). */
+const LINHAS_Y = [yDe(1), yDe(0.5), yDe(0)];
+
+function caminho(valores: number[], min: number, max: number) {
   const range = max - min || 1;
-  const pts = values.map((v, i) => {
-    const x = pad + innerW * (i / Math.max(1, values.length - 1));
-    const y = pad + innerH * (1 - (v - min) / range);
-    return [x, y] as [number, number];
-  });
+  const pts = valores.map((v, i) => [xDe(i, valores.length), yDe((v - min) / range)] as [number, number]);
   const line = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
-  const area = `${line} L ${pts[pts.length - 1][0].toFixed(1)} ${h - pad} L ${pts[0][0].toFixed(1)} ${h - pad} Z`;
-  return { pts, line, area, w, h, pad, min, max };
+  const area = `${line} L ${pts[pts.length - 1][0].toFixed(1)} ${H - PAD} L ${pts[0][0].toFixed(1)} ${H - PAD} Z`;
+  return { pts, line, area };
 }
+
+const faixaDe = (valores: number[]) => ({ min: Math.min(...valores), max: Math.max(...valores) });
 
 const rotuloStatus = (s?: string) => (s === "good" ? "Performando bem" : s === "warn" ? "Atenção" : "Estável");
 
-/** Cor da série no gráfico. Mesma semântica do BIT: rosa para dinheiro, verde
- *  para volume de resultado. */
+/** Cor de cada série — a mesma na aba individual e na combinada, senão a
+ *  legenda de "Todas" não ensina nada sobre as outras abas. Tirada da paleta
+ *  categórica do kit (KIT.paleta). */
 const COR_METRICA: Record<Metric, string> = {
-  investment: "#E85BA8", costPerConversion: "#E85BA8",
-  reach: "#1D9E75", conversions: "#1D9E75",
+  investment: "#E85BA8",
+  reach: "#8B5CF6",
+  conversions: "#1D9E75",
+  costPerConversion: "#F59E0B",
 };
 
 // ── Blocos visuais ──────────────────────────────────────────────────────────
@@ -146,7 +162,7 @@ function Secao({ titulo, meta, className, children }: {
   );
 }
 
-type Kpi = { label: string; valor: string; delta: { label: string; cls: string } };
+type Kpi = { label: string; valor: string; anterior: string; delta: { label: string; cls: string } };
 
 function GradeKpis({ kpis }: { kpis: Kpi[] }) {
   return (
@@ -155,7 +171,19 @@ function GradeKpis({ kpis }: { kpis: Kpi[] }) {
         <div key={k.label} className="rv-metric">
           <small>{k.label}</small>
           <span className="num">{k.valor}</span>
-          {k.delta.label && <span className={`rv-delta ${k.delta.cls}`}>{k.delta.label}</span>}
+          {/* A seta sozinha diz "caiu 18%" mas esconde de quanto para quanto.
+              O valor bruto do período anterior aparece no hover, como no BIT.
+              tabIndex existe para o toque e o teclado alcançarem — hover puro
+              deixaria o dado inacessível justamente no celular. */}
+          {k.delta.label && (
+            <span className="rv-delta-wrap" tabIndex={0}>
+              <span className={`rv-delta ${k.delta.cls}`}>{k.delta.label}</span>
+              <span className="rv-delta-tip" role="tooltip">
+                <small>Período anterior</small>
+                <b>{k.anterior}</b>
+              </span>
+            </span>
+          )}
         </div>
       ))}
     </div>
@@ -166,104 +194,175 @@ type Serie = Array<{ week: string; value: number | null }>;
 
 /**
  * Gráfico das 8 semanas. Sem biblioteca de propósito: o relatório é impresso e
- * enviado por link, e um SVG estático abre em qualquer lugar. As linhas de grade
- * e os rótulos de valor existem porque a curva sozinha não dizia a escala.
+ * enviado por link, e um SVG estático abre em qualquer lugar.
+ *
+ * A aba "Todas" sobrepõe as quatro séries. Elas têm ordens de grandeza
+ * incompatíveis (R$ 400 de investimento contra 50 mil de alcance), então cada
+ * uma é normalizada contra ELA MESMA: o gráfico compara FORMATOS, não valores.
+ * Por isso a escala numérica some nessa aba e o tooltip passa a mostrar os
+ * quatro valores reais — sem isso, seria um gráfico bonito dizendo mentira.
  */
-function GraficoSemanal({ series, metric, tabs, onMetric }: {
-  series: Serie;
-  metric: Metric;
-  tabs: Array<{ key: Metric; label: string }>;
-  onMetric: (m: Metric) => void;
+function GraficoSemanal({ trend, resultLabel }: {
+  trend: Record<Metric, Serie> | undefined;
+  resultLabel: string;
 }) {
-  // `null` = nenhum ponto sob o cursor. Sobrevive à troca de métrica de
-  // propósito: quem está inspecionando uma semana quer vê-la na métrica nova.
+  const [aba, setAba] = useState<Aba>("todas");
+  // `null` = nenhum ponto sob o cursor. Sobrevive à troca de aba de propósito:
+  // quem está inspecionando uma semana quer vê-la na métrica nova.
   const [ativo, setAtivo] = useState<number | null>(null);
-  const chart = useMemo(() => {
-    if (!series.length) return null;
-    return { ...buildChartPath(series.map((p) => p.value ?? 0)), semanas: series.map((p) => p.week) };
-  }, [series]);
-  if (!chart) return null;
 
-  const dinheiro = EH_DINHEIRO[metric];
-  const cor = COR_METRICA[metric];
-  const gradId = `rv-grad-${metric}`;
-  const escala = [
-    { pos: "topo", valor: chart.max },
-    { pos: "meio", valor: (chart.min + chart.max) / 2 },
-    { pos: "base", valor: chart.min },
+  const rotulos: Record<Metric, string> = {
+    investment: "Investimento", reach: "Alcance",
+    conversions: resultLabel, costPerConversion: "Custo/resultado",
+  };
+
+  const dados = useMemo(() => {
+    if (!trend) return null;
+    // A base de semanas vem da série mais longa: séries curtas não podem
+    // encolher o eixo das outras.
+    const base = METRICAS.map((m) => trend[m] ?? []).reduce((a, b) => (b.length > a.length ? b : a), [] as Serie);
+    if (!base.length) return null;
+    const semanas = base.map((p) => p.week);
+    const series = METRICAS.map((m) => {
+      const valores = semanas.map((w) => (trend[m] ?? []).find((p) => p.week === w)?.value ?? 0);
+      const { min, max } = faixaDe(valores);
+      return { metric: m, valores, min, max, ...caminho(valores, min, max) };
+    });
+    return { semanas, series };
+  }, [trend]);
+
+  if (!dados) return null;
+
+  const combinado = aba === "todas";
+  const visiveis = combinado ? dados.series : dados.series.filter((s) => s.metric === aba);
+  const foco = visiveis[0];
+  const dinheiro = !combinado && EH_DINHEIRO[aba as Metric];
+
+  const abas: Array<{ key: Aba; label: string }> = [
+    { key: "todas", label: "Todas" },
+    ...METRICAS.map((m) => ({ key: m as Aba, label: rotulos[m] })),
   ];
-  const linhasY = [chart.pad, chart.h / 2, chart.h - chart.pad];
 
   return (
-    <Secao titulo="Comparativo semanal" meta={`${series.length} semanas`}>
+    <Secao titulo="Comparativo semanal" meta={`${dados.semanas.length} semanas`}>
       <div className="rv-tabs">
-        {tabs.map((t) => (
-          <button key={t.key} type="button" className={`rv-tab ${metric === t.key ? "active" : ""}`} onClick={() => onMetric(t.key)}>
+        {abas.map((t) => (
+          <button key={t.key} type="button" className={`rv-tab ${aba === t.key ? "active" : ""}`} onClick={() => setAba(t.key)}>
             {t.label}
           </button>
         ))}
       </div>
-      <div className="rv-chart-wrap">
+
+      {combinado && (
+        <p className="rv-card-sub">
+          Escala relativa: cada métrica é comparada com ela mesma no período, para caberem no mesmo gráfico.
+          Passe o cursor sobre uma semana para ver os valores reais.
+        </p>
+      )}
+
+      <div className={`rv-chart-wrap ${combinado ? "sem-escala" : ""}`}>
         <div className="rv-plot" onPointerLeave={() => setAtivo(null)}>
-          <svg className="rv-chart" viewBox={`0 0 ${chart.w} ${chart.h}`} width="100%" role="img"
-            aria-label={`Evolução semanal de ${tabs.find((t) => t.key === metric)?.label ?? ""}`}>
+          <svg className="rv-chart" viewBox={`0 0 ${W} ${H}`} width="100%" role="img"
+            aria-label={combinado ? "Evolução semanal de todas as métricas" : `Evolução semanal de ${rotulos[aba as Metric]}`}>
             {/* Gradiente em vez de preenchimento chapado — o mesmo tratamento do
-                gráfico do BIT (.22 → 0). */}
+                gráfico do BIT (.22 → 0). Só na aba individual: quatro áreas
+                sobrepostas viram sopa. */}
             <defs>
-              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={cor} stopOpacity={0.24} />
-                <stop offset="95%" stopColor={cor} stopOpacity={0} />
-              </linearGradient>
+              {METRICAS.map((m) => (
+                <linearGradient key={m} id={`rv-grad-${m}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={COR_METRICA[m]} stopOpacity={0.24} />
+                  <stop offset="95%" stopColor={COR_METRICA[m]} stopOpacity={0} />
+                </linearGradient>
+              ))}
             </defs>
-            {linhasY.map((y, i) => (
-              <line key={i} className="rv-grid-line" x1={chart.pad} x2={chart.w - chart.pad} y1={y} y2={y} />
+            {LINHAS_Y.map((y, i) => (
+              <line key={i} className="rv-grid-line" x1={PAD} x2={W - PAD} y1={y} y2={y} />
             ))}
-            {/* `key={metric}` remonta o grupo: a linha se redesenha ao trocar de
+            {/* `key={aba}` remonta o grupo: as linhas se redesenham ao trocar de
                 aba, em vez de trocar de forma instantaneamente. */}
-            <g key={metric}>
-              <path className="rv-area" d={chart.area} fill={`url(#${gradId})`} />
-              {/* pathLength=1 normaliza o comprimento: o dash da animação não
-                  depende do tamanho real do traçado, que muda a cada métrica. */}
-              <path className="rv-linha" d={chart.line} pathLength={1} fill="none" stroke={cor}
-                strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-              {chart.pts.map((p, i) => {
-                const ultimo = i === chart.pts.length - 1;
-                const destacado = ativo === i;
-                return (
-                  <circle key={i} className="rv-ponto" cx={p[0]} cy={p[1]}
-                    r={destacado ? 7 : ultimo ? 5.5 : 3.5}
-                    fill={cor} stroke="#fffdfa" strokeWidth={2.5}
-                    style={{ animationDelay: `${240 + i * 55}ms` }} />
-                );
-              })}
+            <g key={aba}>
+              {!combinado && foco && <path className="rv-area" d={foco.area} fill={`url(#rv-grad-${foco.metric})`} />}
+              {visiveis.map((s) => (
+                /* pathLength=1 normaliza o comprimento: o dash da animação não
+                   depende do tamanho real do traçado, que muda a cada métrica. */
+                <path key={s.metric} className="rv-linha" d={s.line} pathLength={1} fill="none"
+                  stroke={COR_METRICA[s.metric]} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+              ))}
+              {visiveis.map((s) =>
+                s.pts.map((p, i) => {
+                  const ultimo = i === s.pts.length - 1;
+                  const destacado = ativo === i;
+                  const r = combinado ? (destacado ? 5.5 : ultimo ? 4 : 2.5) : (destacado ? 7 : ultimo ? 5.5 : 3.5);
+                  return (
+                    <circle key={`${s.metric}-${i}`} className="rv-ponto" cx={p[0]} cy={p[1]} r={r}
+                      fill={COR_METRICA[s.metric]} stroke="#fffdfa" strokeWidth={2}
+                      style={{ animationDelay: `${240 + i * 55}ms` }} />
+                  );
+                })
+              )}
               {/* Faixa invisível de largura inteira por semana: acertar um ponto
                   de 4px com o dedo não acontece. */}
-              {chart.pts.map((p, i) => {
-                const faixa = chart.w / chart.pts.length;
+              {dados.semanas.map((w, i) => {
+                const faixa = W / dados.semanas.length;
                 return (
-                  <rect key={`alvo-${i}`} className="rv-alvo" x={p[0] - faixa / 2} y={0} width={faixa} height={chart.h}
+                  <rect key={`alvo-${w}`} className="rv-alvo" x={xDe(i, dados.semanas.length) - faixa / 2} y={0}
+                    width={faixa} height={H}
                     onPointerEnter={() => setAtivo(i)} onPointerDown={() => setAtivo(i)} />
                 );
               })}
             </g>
           </svg>
-          {ativo !== null && series[ativo] && (
+
+          {ativo !== null && foco && (
             <div
-              className={`rv-tip ${ativo === 0 ? "borda-esq" : ativo === chart.pts.length - 1 ? "borda-dir" : ""}`}
-              style={{ left: `${(chart.pts[ativo][0] / chart.w) * 100}%`, top: `${(chart.pts[ativo][1] / chart.h) * 100}%` }}
+              /* Na aba combinada o balão tem quatro linhas e é ancorado no topo
+                 do gráfico — acima dele, ele sairia para fora do card. */
+              className={`rv-tip ${combinado ? "abaixo" : ""} ${ativo === 0 ? "borda-esq" : ativo === dados.semanas.length - 1 ? "borda-dir" : ""}`}
+              style={{
+                left: `${(xDe(ativo, dados.semanas.length) / W) * 100}%`,
+                top: `${((combinado ? yDe(1) : foco.pts[ativo][1]) / H) * 100}%`,
+              }}
             >
-              <span>semana de {fmtSemana(chart.semanas[ativo])}</span>
-              <b>{dinheiro ? fmtBRL(series[ativo].value) : fmtNum(series[ativo].value)}</b>
+              <span>semana de {fmtSemana(dados.semanas[ativo])}</span>
+              {combinado ? (
+                <div className="rv-tip-linhas">
+                  {dados.series.map((s) => (
+                    <div key={s.metric}>
+                      <i style={{ background: COR_METRICA[s.metric] }} />
+                      <span>{rotulos[s.metric]}</span>
+                      <b>{EH_DINHEIRO[s.metric] ? fmtBRL(s.valores[ativo]) : fmtNum(s.valores[ativo])}</b>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <b>{dinheiro ? fmtBRL(foco.valores[ativo]) : fmtNum(foco.valores[ativo])}</b>
+              )}
             </div>
           )}
         </div>
-        {escala.map((e) => (
-          <span key={e.pos} className={`rv-escala ${e.pos}`}>{fmtCurto(e.valor, dinheiro)}</span>
-        ))}
+
+        {!combinado && foco && (
+          [
+            { pos: "topo", valor: foco.max },
+            { pos: "meio", valor: (foco.min + foco.max) / 2 },
+            { pos: "base", valor: foco.min },
+          ].map((e) => (
+            <span key={e.pos} className={`rv-escala ${e.pos}`}>{fmtCurto(e.valor, dinheiro)}</span>
+          ))
+        )}
       </div>
+
       <div className="rv-axis">
-        {chart.semanas.map((w) => <span key={w}>{fmtSemana(w)}</span>)}
+        {dados.semanas.map((w) => <span key={w}>{fmtSemana(w)}</span>)}
       </div>
+
+      {combinado && (
+        <div className="rv-legenda">
+          {METRICAS.map((m) => (
+            <span key={m}><i style={{ background: COR_METRICA[m] }} />{rotulos[m]}</span>
+          ))}
+        </div>
+      )}
     </Secao>
   );
 }
@@ -364,24 +463,22 @@ function LeituraEstrategica({ alto, fraco, oportunidade }: {
   );
 }
 
-function abasDeMetrica(resultLabel: string): Array<{ key: Metric; label: string }> {
-  return [
-    { key: "investment", label: "Investimento" },
-    { key: "reach", label: "Alcance" },
-    { key: "conversions", label: resultLabel },
-    { key: "costPerConversion", label: "Custo/resultado" },
-  ];
-}
-
 type Metricas = Record<Metric, { current: number | null; previous: number | null }>;
 
 function kpisDeMidia(m: Metricas, resultLabel: string): Kpi[] {
-  return [
-    { label: "Investimento", valor: fmtBRL(m.investment.current), delta: pctDelta(m.investment.current ?? 0, m.investment.previous ?? 0, DIRECAO.investment) },
-    { label: "Alcance", valor: fmtNum(m.reach.current), delta: pctDelta(m.reach.current ?? 0, m.reach.previous ?? 0, DIRECAO.reach) },
-    { label: resultLabel, valor: fmtNum(m.conversions.current), delta: pctDelta(m.conversions.current ?? 0, m.conversions.previous ?? 0, DIRECAO.conversions) },
-    { label: `Custo/${resultLabel.toLowerCase()}`, valor: fmtBRL(m.costPerConversion.current), delta: pctDelta(m.costPerConversion.current ?? 0, m.costPerConversion.previous ?? 0, DIRECAO.costPerConversion) },
-  ];
+  const rotulos: Record<Metric, string> = {
+    investment: "Investimento", reach: "Alcance",
+    conversions: resultLabel, costPerConversion: `Custo/${resultLabel.toLowerCase()}`,
+  };
+  return METRICAS.map((k) => {
+    const fmt = EH_DINHEIRO[k] ? fmtBRL : fmtNum;
+    return {
+      label: rotulos[k],
+      valor: fmt(m[k].current),
+      anterior: fmt(m[k].previous),
+      delta: pctDelta(m[k].current ?? 0, m[k].previous ?? 0, DIRECAO[k]),
+    };
+  });
 }
 
 // ── Dados do relatório ──────────────────────────────────────────────────────
@@ -474,7 +571,6 @@ function tipoDeRelatorio(modulos: string[] | null | undefined): string {
 export default function ReportView() {
   const [, params] = useRoute<{ token: string }>("/r/:token");
   const token = params?.token ?? "";
-  const [metric, setMetric] = useState<Metric>("investment");
 
   const { data: bruto, isLoading, error } = trpc.reports.getPublic.useQuery(
     { token },
@@ -497,7 +593,6 @@ export default function ReportView() {
   const midia = r.data?.midia ?? null;
   const site = r.data?.site ?? null;
   const resultLabel = midia?.resultLabel ?? "Resultados";
-  const serie = midia?.weeklyTrend?.[metric] ?? [];
   const m = midia?.metrics;
   const ps = (site?.pagespeed ?? null) as Record<string, unknown> | null;
   const seg = (site?.seguranca ?? null) as Record<string, unknown> | null;
@@ -539,7 +634,7 @@ export default function ReportView() {
 
         <LeituraEstrategica alto={n?.pontoAlto} fraco={n?.pontoFraco} oportunidade={n?.oportunidade} />
 
-        <GraficoSemanal series={serie} metric={metric} tabs={abasDeMetrica(resultLabel)} onMetric={setMetric} />
+        <GraficoSemanal trend={midia?.weeklyTrend} resultLabel={resultLabel} />
         <CriativosDestaque criativos={midia?.creatives ?? []} />
         <PublicosTestados publicos={midia?.audiences ?? []} />
 

@@ -140,6 +140,8 @@ import {
   createReportSnapshot,
   getReportSnapshotByToken,
   getReportSnapshotsByAccountId,
+  getReportSnapshotById,
+  updateReportSnapshotNarrative,
   deleteReportSnapshot,
 } from "./db";
 import {
@@ -321,7 +323,13 @@ import { testarConexaoVnda, validarUrlVnda, resolverShopHost } from "./services/
 import { sincronizarLoja } from "./services/lojaSync";
 import { perguntarSobreCliente, sugestoesPara, montarFontesChat, type FontesChat } from "./services/clientChatService";
 import { buildClientIntelligenceContext, contextoParaTexto, fontesDe, MODULOS, MODULOS_SITE } from "./services/clientIntelligence";
-import { gerarRelatorioModular, PRESETS, tierDe } from "./services/reportBuilder";
+import { gerarRelatorioModular, paraMarkdown, PRESETS, tierDe } from "./services/reportBuilder";
+
+/** Uma caixa da leitura estratégica, na edição manual. */
+const DESTAQUE_SCHEMA = z.object({
+  resumo: z.string().max(200).default(""),
+  detalhe: z.string().max(2000).default(""),
+}).default({ resumo: "", detalhe: "" });
 import { resumoSitesPortfolio } from "./services/sitePortfolio";
 import { resolverWidgets, widgetPorKey, widgetServeRole } from "@shared/widgets";
 import type { Role } from "@shared/permissions";
@@ -3451,6 +3459,71 @@ export const appRouter = router({
           // ninguém lembra por que aquele período teve números estranhos.
           contextNotes: r.contextNotes ?? null,
         }));
+      }),
+
+    /** Narrativa de um relatório, para edição manual. */
+    narrativa: protectedProcedure
+      .input(z.object({ accountId: z.number(), id: z.number() }))
+      .query(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id);
+        const snap = await getReportSnapshotById(input.id, input.accountId);
+        if (!snap) throw new TRPCError({ code: "NOT_FOUND", message: "Relatório não encontrado" });
+        return {
+          narrative: JSON.parse(snap.narrative ?? "null") as Record<string, unknown> | null,
+          periodStart: snap.periodStart,
+          periodEnd: snap.periodEnd,
+        };
+      }),
+
+    /**
+     * Edição manual dos textos. Bloco apagado vira string vazia (ou lista
+     * vazia) — a vista pública já omite bloco sem conteúdo, então "remover" e
+     * "deixar em branco" são a mesma coisa e não precisam de um campo de
+     * visibilidade separado.
+     */
+    editarNarrativa: protectedProcedure
+      .input(z.object({
+        accountId: z.number(),
+        id: z.number(),
+        narrativa: z.object({
+          titulo: z.string().max(200).default(""),
+          resumoExecutivo: z.string().max(4000).default(""),
+          pontoAlto: DESTAQUE_SCHEMA,
+          pontoFraco: DESTAQUE_SCHEMA,
+          oportunidade: DESTAQUE_SCHEMA,
+          oQueAconteceu: z.string().max(6000).default(""),
+          proximosPassos: z.array(z.string().max(1000)).max(12).default([]),
+          oQueVamosMedir: z.array(z.string().max(1000)).max(12).default([]),
+          expectativa: z.string().max(4000).default(""),
+        }),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const conta = await getVerifiedAccount(input.accountId, ctx.user.id);
+        const snap = await getReportSnapshotById(input.id, input.accountId);
+        if (!snap) throw new TRPCError({ code: "NOT_FOUND", message: "Relatório não encontrado" });
+
+        const limpa = (s: string) => s.trim();
+        const relatorio = {
+          ...input.narrativa,
+          titulo: limpa(input.narrativa.titulo),
+          resumoExecutivo: limpa(input.narrativa.resumoExecutivo),
+          oQueAconteceu: limpa(input.narrativa.oQueAconteceu),
+          expectativa: limpa(input.narrativa.expectativa),
+          proximosPassos: input.narrativa.proximosPassos.map(limpa).filter(Boolean),
+          oQueVamosMedir: input.narrativa.oQueVamosMedir.map(limpa).filter(Boolean),
+          // Marca dentro do próprio JSON — evita uma coluna nova só para isto.
+          // Sem a marca, ninguém sabe se aquele texto é da IA ou de um humano.
+          editadoEm: new Date().toISOString(),
+        };
+
+        const markdown = paraMarkdown(
+          conta.accountName ?? conta.accountId,
+          { inicio: snap.periodStart, fim: snap.periodEnd },
+          relatorio,
+          (snap.fontesJson ?? []) as never,
+        );
+        await updateReportSnapshotNarrative(input.id, input.accountId, JSON.stringify(relatorio), markdown);
+        return { ok: true };
       }),
 
     /** Exclusão definitiva — o link público para de funcionar junto. */

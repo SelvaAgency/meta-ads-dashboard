@@ -88,9 +88,20 @@
 .rv-metric .num{display:block;font-size:clamp(18px,2.2vw,23px);font-weight:800;letter-spacing:-.02em;line-height:1.2}
 
 /* Variação vs. período anterior. rv-bom/rv-ruim vêm da DIREÇÃO da métrica. */
-.rv-delta{display:inline-flex;align-items:center;gap:4px;margin-top:8px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+.rv-delta{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:var(--bg);color:var(--muted);border:1px solid var(--line)}
 .rv-delta.rv-bom{background:var(--bom-bg);color:var(--verde-forte);border-color:var(--bom-borda)}
 .rv-delta.rv-ruim{background:var(--ruim-bg);color:var(--vermelho-forte);border-color:var(--ruim-borda)}
+/* Hover/foco na seta revela o valor bruto do período anterior — a variação
+   sozinha diz "caiu 18%" e esconde de quanto para quanto. Mesmo padrão do
+   VariacaoBadge do kit. */
+.rv-delta-wrap{position:relative;display:inline-flex;margin-top:8px;cursor:default;outline:none}
+.rv-delta-tip{position:absolute;left:0;top:calc(100% + 6px);z-index:4;display:flex;flex-direction:column;gap:1px;padding:7px 10px;border-radius:10px;background:var(--deep);color:#fffdfa;box-shadow:0 10px 24px rgba(18,28,24,.22);white-space:nowrap;opacity:0;pointer-events:none;transform:translateY(-3px);transition:opacity .16s ease,transform .16s ease}
+.rv-delta-wrap:hover .rv-delta-tip,.rv-delta-wrap:focus-visible .rv-delta-tip{opacity:1;transform:none}
+.rv-delta-wrap:focus-visible .rv-delta{outline:2px solid var(--pink);outline-offset:2px}
+.rv-delta-tip small{font-size:9px;text-transform:uppercase;letter-spacing:.09em;font-weight:700;opacity:.7}
+.rv-delta-tip b{font-size:13px;font-weight:800;font-family:'Montserrat','DM Sans',sans-serif;font-variant-numeric:tabular-nums}
+/* No último KPI da linha o balão sairia da tela pela direita. */
+.rv-metric:last-child .rv-delta-tip{left:auto;right:0}
 
 /* ── Cards de seção ───────────────────────────────────────────────────────── */
 .rv-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px 22px;box-shadow:var(--shadow);margin-bottom:20px}
@@ -140,14 +151,30 @@
 .rv-alvo{fill:transparent;cursor:pointer}
 .rv-ponto{transition:r .16s ease}
 .rv-escala{position:absolute;right:0;width:54px;text-align:right;font-size:10px;font-weight:700;color:var(--muted);line-height:1;transform:translateY(-50%);white-space:nowrap}
-.rv-escala.topo{top:8.42%}
+/* Percentuais casados com yDe() no TSX: com HEADROOM=0.1, o maior valor fica a
+   16,74% da altura e o menor a 83,26%. Mudou lá, muda aqui. */
+.rv-escala.topo{top:16.74%}
 .rv-escala.meio{top:50%}
-.rv-escala.base{top:91.58%}
+.rv-escala.base{top:83.26%}
+/* Na aba "Todas" não há escala numérica única — o gutter da direita some. */
+.rv-chart-wrap.sem-escala{padding-right:0}
+.rv-chart-wrap.sem-escala + .rv-axis{padding-right:0}
 .rv-axis{display:flex;justify-content:space-between;gap:4px;margin-top:6px;padding-right:58px}
+.rv-legenda{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:12px}
+.rv-legenda span{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:600;color:var(--muted)}
+.rv-legenda i{width:8px;height:8px;border-radius:3px;flex:none}
+.rv-tip-linhas{display:grid;gap:3px;margin-top:3px}
+.rv-tip-linhas div{display:grid;grid-template-columns:8px 1fr auto;align-items:center;gap:7px}
+.rv-tip-linhas i{width:8px;height:8px;border-radius:3px}
+.rv-tip-linhas span{font-size:10px;text-transform:none;letter-spacing:0;font-weight:600;opacity:.75}
+.rv-tip-linhas b{font-size:12px}
 .rv-axis span{font-size:10px;color:var(--muted);font-weight:600;white-space:nowrap}
 .rv-tip{position:absolute;transform:translate(-50%,calc(-100% - 14px));background:var(--deep);color:#fffdfa;border-radius:12px;padding:7px 11px;pointer-events:none;box-shadow:0 10px 24px rgba(18,28,24,.22);white-space:nowrap;z-index:2;display:flex;flex-direction:column;gap:1px}
 .rv-tip.borda-esq{transform:translate(-8px,calc(-100% - 14px))}
 .rv-tip.borda-dir{transform:translate(calc(-100% + 8px),calc(-100% - 14px))}
+.rv-tip.abaixo{transform:translate(-50%,14px)}
+.rv-tip.abaixo.borda-esq{transform:translate(-8px,14px)}
+.rv-tip.abaixo.borda-dir{transform:translate(calc(-100% + 8px),14px)}
 .rv-tip span{font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;font-weight:700;opacity:.7}
 .rv-tip b{font-size:14px;font-weight:800;font-family:'Montserrat','DM Sans',sans-serif}
 

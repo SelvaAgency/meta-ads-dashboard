@@ -8,9 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, Link2, Copy, Loader2, CheckCircle2, Clock, ExternalLink, Sparkles, Check, ChevronDown, Trash2,
+import { FileText, Link2, Copy, Loader2, CheckCircle2, Clock, ExternalLink, Sparkles, Check, ChevronDown, Trash2, Pencil,
   Megaphone, BarChart3, Globe, Gauge, ShieldCheck, Wifi, Bell, MousePointerClick, NotebookPen, History } from "lucide-react";
 import { useEffect, useState, Fragment, type ComponentType } from "react";
+import { EditarRelatorio } from "@/components/EditarRelatorio";
 import { toast } from "sonner";
 
 /** Ícone por módulo — dá leitura visual rápida na seleção do relatório. */
@@ -73,7 +74,7 @@ function mesLabel(d: string | Date | null | undefined): string {
  * os anteriores vivem colapsados atrás de "Todos", porque a pergunta de quem
  * abre esta tela é quase sempre "cadê o que eu acabei de gerar".
  */
-function CardRelatorio({ r, destaque, onCopiar, onExcluir, excluindo }: {
+function CardRelatorio({ r, destaque, onCopiar, onExcluir, onEditar, excluindo }: {
   r: {
     id: number; publicToken: string; periodStart: string; periodEnd: string;
     generatedAt: string | Date | null; tier: string;
@@ -83,6 +84,7 @@ function CardRelatorio({ r, destaque, onCopiar, onExcluir, excluindo }: {
   destaque?: boolean;
   onCopiar: (url: string) => void;
   onExcluir: (id: number) => void;
+  onEditar: (id: number) => void;
   excluindo: boolean;
 }) {
   const [aberto, setAberto] = useState(false);
@@ -132,6 +134,9 @@ function CardRelatorio({ r, destaque, onCopiar, onExcluir, excluindo }: {
           </Button>
           <Button size="sm" variant="outline" onClick={() => window.open(url, "_blank")} title="Abrir relatório">
             <ExternalLink className="w-3.5 h-3.5" />
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => onEditar(r.id)} title="Editar os textos">
+            <Pencil className="w-3.5 h-3.5" />
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setConfirmando((v) => !v)} disabled={excluindo}
             title="Excluir relatório"
@@ -190,6 +195,7 @@ export default function Reports() {
   const [modulos, setModulos] = useState<string[]>(["midia", "campanhas"]);
   const [verTodos, setVerTodos] = useState(false);
   const [excluindoId, setExcluindoId] = useState<number | null>(null);
+  const [editandoId, setEditandoId] = useState<number | null>(null);
 
   // Deep-link da seção Site: /reports?modulos=site,pagespeed,... já marca os
   // módulos. O gerador mora aqui; a seção Site apenas pré-configura.
@@ -480,7 +486,7 @@ export default function Reports() {
 
             {ultimo && (
               <CardRelatorio r={ultimo} destaque onCopiar={copyLink} onExcluir={excluir}
-                excluindo={excluindoId === ultimo.id} />
+                onEditar={setEditandoId} excluindo={excluindoId === ultimo.id} />
             )}
 
             {anteriores.length > 0 && (
@@ -505,7 +511,7 @@ export default function Reports() {
                             <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground/60 pt-1 first:pt-0">{mes}</p>
                           )}
                           <CardRelatorio r={r} onCopiar={copyLink} onExcluir={excluir}
-                            excluindo={excluindoId === r.id} />
+                            onEditar={setEditandoId} excluindo={excluindoId === r.id} />
                         </Fragment>
                       );
                     })}
@@ -516,6 +522,16 @@ export default function Reports() {
           </CardContent>
         </Card>
       </div>
+
+      {accountId && (
+        <EditarRelatorio
+          accountId={accountId}
+          reportId={editandoId}
+          aberto={editandoId !== null}
+          onFechar={() => setEditandoId(null)}
+          onSalvo={() => listQuery.refetch()}
+        />
+      )}
     </MetaDashboardLayout>
   );
 }
