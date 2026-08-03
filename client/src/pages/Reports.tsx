@@ -12,6 +12,8 @@ import { FileText, Link2, Copy, Loader2, CheckCircle2, Clock, ExternalLink, Spar
   Megaphone, BarChart3, Globe, Gauge, ShieldCheck, Wifi, Bell, MousePointerClick, NotebookPen, History } from "lucide-react";
 import { useEffect, useState, Fragment, type ComponentType } from "react";
 import { EditarRelatorio } from "@/components/EditarRelatorio";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canAccessAdmin } from "@shared/permissions";
 import { toast } from "sonner";
 
 /** Ícone por módulo — dá leitura visual rápida na seleção do relatório. */
@@ -74,7 +76,7 @@ function mesLabel(d: string | Date | null | undefined): string {
  * os anteriores vivem colapsados atrás de "Todos", porque a pergunta de quem
  * abre esta tela é quase sempre "cadê o que eu acabei de gerar".
  */
-function CardRelatorio({ r, destaque, onCopiar, onExcluir, onEditar, excluindo }: {
+function CardRelatorio({ r, destaque, onCopiar, onExcluir, onEditar, podeExcluir, excluindo }: {
   r: {
     id: number; publicToken: string; periodStart: string; periodEnd: string;
     generatedAt: string | Date | null; tier: string;
@@ -85,6 +87,9 @@ function CardRelatorio({ r, destaque, onCopiar, onExcluir, onEditar, excluindo }
   onCopiar: (url: string) => void;
   onExcluir: (id: number) => void;
   onEditar: (id: number) => void;
+  /** Só admin. A trava de verdade é no servidor (reports.excluir é
+   *  adminProcedure); aqui é só para não oferecer o que vai ser negado. */
+  podeExcluir: boolean;
   excluindo: boolean;
 }) {
   const [aberto, setAberto] = useState(false);
@@ -138,11 +143,13 @@ function CardRelatorio({ r, destaque, onCopiar, onExcluir, onEditar, excluindo }
           <Button size="sm" variant="outline" onClick={() => onEditar(r.id)} title="Editar os textos">
             <Pencil className="w-3.5 h-3.5" />
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setConfirmando((v) => !v)} disabled={excluindo}
-            title="Excluir relatório"
-            className="text-muted-foreground hover:text-destructive">
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
+          {podeExcluir && (
+            <Button size="sm" variant="ghost" onClick={() => setConfirmando((v) => !v)} disabled={excluindo}
+              title="Excluir relatório"
+              className="text-muted-foreground hover:text-destructive">
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          )}
         </div>
       </div>
 
@@ -185,6 +192,8 @@ function CardRelatorio({ r, destaque, onCopiar, onExcluir, onEditar, excluindo }
 
 export default function Reports() {
   const { selectedAccountId: activeAccountId, accounts } = useSelectedAccount();
+  const { user } = useAuth();
+  const podeExcluir = canAccessAdmin(user?.role);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const accountId = selectedAccountId ?? activeAccountId ?? null;
 
@@ -486,7 +495,7 @@ export default function Reports() {
 
             {ultimo && (
               <CardRelatorio r={ultimo} destaque onCopiar={copyLink} onExcluir={excluir}
-                onEditar={setEditandoId} excluindo={excluindoId === ultimo.id} />
+                onEditar={setEditandoId} podeExcluir={podeExcluir} excluindo={excluindoId === ultimo.id} />
             )}
 
             {anteriores.length > 0 && (
@@ -511,7 +520,7 @@ export default function Reports() {
                             <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground/60 pt-1 first:pt-0">{mes}</p>
                           )}
                           <CardRelatorio r={r} onCopiar={copyLink} onExcluir={excluir}
-                            onEditar={setEditandoId} excluindo={excluindoId === r.id} />
+                            onEditar={setEditandoId} podeExcluir={podeExcluir} excluindo={excluindoId === r.id} />
                         </Fragment>
                       );
                     })}

@@ -3530,8 +3530,16 @@ export const appRouter = router({
         return { ok: true };
       }),
 
-    /** Exclusão definitiva — o link público para de funcionar junto. */
-    excluir: protectedProcedure
+    /**
+     * Exclusão definitiva — o link público para de funcionar junto.
+     *
+     * `adminProcedure`, não `protectedProcedure`: não há checagem de dono por
+     * conta neste router (getVerifiedAccount ignora o userId), então qualquer
+     * autenticado apagaria o relatório de qualquer cliente. Como a exclusão é
+     * irreversível E derruba um link que já pode estar com o cliente, a trava
+     * é de servidor — esconder o botão na UI não seria trava nenhuma.
+     */
+    excluir: adminProcedure
       .input(z.object({ accountId: z.number(), id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         await getVerifiedAccount(input.accountId, ctx.user.id);
