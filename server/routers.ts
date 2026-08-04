@@ -2325,38 +2325,66 @@ export const appRouter = router({
      * incompleto e ninguém notaria até alguém reclamar do e-mail.
      */
     preSelecionarGruposJornalzinho: adminProcedure.mutation(async () => {
+      // Aiká e UMDSA ficaram de fora: não têm conta no Tracker, então não há
+      // accountId para filtrar. Entram sozinhas quando a conta existir.
       const GRUPOS = [
-        { nome: "Grupo 1 · GTM", emails: ["beth@selva.agency", "bruna@selva.agency", "namie@selva.agency"], tokens: ["ultramalhas", "ultra malhas", "elwing", "caroline", "carol"] },
-        { nome: "Grupo 2 · GTM", emails: ["natalia@selva.agency", "bad@selva.agency"], tokens: ["musa", "arka", "scaffold", "play"] },
+        {
+          nome: "Grupo 1 · GTM",
+          emails: ["beth@selva.agency", "bruna@selva.agency", "namie@selva.agency"],
+          alvos: [
+            { rotulo: "Ultramalhas", tokens: ["ultramalhas", "ultra malhas"] },
+            { rotulo: "Elwing", tokens: ["elwing"] },
+            { rotulo: "Carol G", tokens: ["caroline", "carol"] },
+          ],
+        },
+        {
+          nome: "Grupo 2 · GTM",
+          emails: ["natalia@selva.agency", "bad@selva.agency"],
+          alvos: [
+            { rotulo: "Musa", tokens: ["musa"] },
+            { rotulo: "Arka", tokens: ["arka"] },
+            { rotulo: "Play", tokens: ["scaffold play", "scaffold", "play"] },
+          ],
+        },
       ];
       const norm = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
       const clientes = await contasParaPreferencias();
 
       const relatorio = [];
       for (const g of GRUPOS) {
-        // Um cliente por token; token que casa com mais de um vira aviso, não
-        // escolha automática — adivinhar aqui erraria o grupo inteiro.
-        const casados: { token: string; id: number; nome: string }[] = [];
-        const ambiguos: { token: string; nomes: string[] }[] = [];
-        const semCliente: string[] = [];
-        const vistos = new Set<number>();
-        for (const t of g.tokens) {
-          const hits = clientes.filter((c) => norm(c.nome).includes(norm(t)));
-          if (hits.length === 0) { semCliente.push(t); continue; }
-          if (hits.length > 1) { ambiguos.push({ token: t, nomes: hits.map((h) => h.nome) }); continue; }
-          if (vistos.has(hits[0].id)) continue; // token sinônimo do mesmo cliente
-          vistos.add(hits[0].id);
-          casados.push({ token: t, id: hits[0].id, nome: hits[0].nome });
+        const aplicados: { rotulo: string; accountId: number; nome: string }[] = [];
+        const pendencias: { rotulo: string; tipo: "ambiguo" | "sem_cliente"; detalhe: string }[] = [];
+
+        for (const alvo of g.alvos) {
+          // Tokens são tentados do mais específico ao mais genérico; o primeiro
+          // que resolve para UM cliente vence. "scaffold play" antes de "play"
+          // é o que evita o genérico casar com o cliente errado.
+          let resolvido: { id: number; nome: string } | null = null;
+          let ambiguidade: string | null = null;
+          for (const t of alvo.tokens) {
+            const hits = clientes.filter((c) => norm(c.nome).includes(norm(t)));
+            if (hits.length === 1) { resolvido = hits[0]; break; }
+            if (hits.length > 1) ambiguidade = `"${t}" casou com: ${hits.map((h) => h.nome).join(", ")}`;
+          }
+          if (resolvido) { aplicados.push({ rotulo: alvo.rotulo, accountId: resolvido.id, nome: resolvido.nome }); continue; }
+          // Ambíguo NÃO é aplicado: escolher por conta própria erraria o grupo
+          // inteiro e ninguém saberia por quê.
+          pendencias.push(ambiguidade
+            ? { rotulo: alvo.rotulo, tipo: "ambiguo" as const, detalhe: `${ambiguidade} — ajuste necessário, nada aplicado` }
+            : { rotulo: alvo.rotulo, tipo: "sem_cliente" as const, detalhe: `nenhum cliente ativo casou com ${alvo.tokens.map((t) => `"${t}"`).join(" / ")}` });
         }
 
         const pessoas = [];
         for (const email of g.emails) {
           const u = await usuarioAtivoPorEmail(email);
-          if (!u) { pessoas.push({ email, aplicado: false, motivo: "usuário não encontrado" }); continue; }
-          await salvarPreferenciasEmail(u.id, casados.map((c) => c.id));
-          pessoas.push({ email, aplicado: true, userId: u.id, nome: u.name });
+          if (!u) {
+            pessoas.push({ email, encontrado: false, role: null, nome: null, userId: null, aplicados: [], pendencias });
+            continue;
+          }
+          await salvarPreferenciasEmail(u.id, aplicados.map((a) => a.accountId));
+          pessoas.push({ email, encontrado: true, role: u.role ?? null, nome: u.name ?? null, userId: u.id, aplicados, pendencias });
         }
-        relatorio.push({ grupo: g.nome, clientes: casados, ambiguos, tokensSemCliente: semCliente, pessoas });
+        relatorio.push({ grupo: g.nome, pessoas, aplicados, pendencias });
       }
       return { relatorio };
     }),

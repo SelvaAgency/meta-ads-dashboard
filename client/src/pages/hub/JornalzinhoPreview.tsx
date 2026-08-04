@@ -212,6 +212,28 @@ export default function JornalzinhoPreview() {
                 )}
               </div>
 
+              {!d?.vazio && (
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    onClick={() => {
+                      // Abre o HTML cru numa aba: dá para ver em tela cheia e
+                      // mostrar para outra pessoa sem passar pelo app.
+                      const w = window.open("", "_blank");
+                      if (w) { w.document.write(d?.html ?? ""); w.document.close(); }
+                    }}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground"
+                  >
+                    Abrir em aba nova
+                  </button>
+                  {segmento !== "todos" && segmento !== "pessoa" && (
+                    <span className="text-[11px] text-muted-foreground">
+                      Recorte: {contasDoGrupo(segmento).length} cliente(s) —{" "}
+                      {(prefsQ.data?.clientes ?? []).filter((c) => contasDoGrupo(segmento).includes(c.id)).map((c) => c.nome).join(", ") || "nenhum resolvido"}
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* O e-mail, isolado do CSS do Spaces */}
               {!d?.vazio && (
                 <iframe
@@ -243,22 +265,41 @@ export default function JornalzinhoPreview() {
             </button>
           </div>
           {preSelecionar.data && (
-            <div className="flex flex-col gap-2 border-t border-border pt-3">
+            <div className="flex flex-col gap-3 border-t border-border pt-3">
               {(preSelecionar.data as any).relatorio.map((g: any) => (
-                <div key={g.grupo} className="text-[11px]">
-                  <p className="font-semibold">{g.grupo}</p>
-                  <p className="text-muted-foreground">
-                    Clientes: {g.clientes.map((c: any) => c.nome).join(", ") || "—"}
-                  </p>
-                  <p className="text-muted-foreground">
-                    Pessoas: {g.pessoas.map((p: any) => `${p.email}${p.aplicado ? "" : " (não encontrada)"}`).join(", ")}
-                  </p>
-                  {(g.tokensSemCliente.length > 0 || g.ambiguos.length > 0) && (
-                    <p className="text-amber-600">
-                      Pendências: {[...g.tokensSemCliente.map((t: string) => `"${t}" sem cliente`),
-                        ...g.ambiguos.map((a: any) => `"${a.token}" casou com ${a.nomes.join(" / ")}`)].join(" · ")}
-                    </p>
-                  )}
+                <div key={g.grupo} className="flex flex-col gap-2">
+                  <p className="text-xs font-bold">{g.grupo}</p>
+                  {g.pessoas.map((p: any) => (
+                    <div key={p.email} className="text-[11px] pl-3 border-l-2 border-border">
+                      <p className="font-semibold">{p.nome ?? p.email}</p>
+                      <p className={p.encontrado ? "text-muted-foreground" : "text-destructive"}>
+                        usuário: {p.email} — {p.encontrado ? `encontrado (id ${p.userId})` : "NÃO encontrado"}
+                        {p.encontrado ? ` · role: ${p.role}` : ""}
+                      </p>
+                      {p.encontrado && (
+                        <>
+                          <p className="text-muted-foreground mt-0.5">clientes aplicados:</p>
+                          {p.aplicados.length === 0
+                            ? <p className="pl-3 text-amber-600">nenhum</p>
+                            : p.aplicados.map((a: any) => (
+                                <p key={a.accountId} className="pl-3 text-emerald-700 dark:text-emerald-500">
+                                  • {a.rotulo} → {a.nome} — accountId {a.accountId}
+                                </p>
+                              ))}
+                        </>
+                      )}
+                      {p.pendencias.length === 0
+                        ? <p className="text-muted-foreground mt-0.5">pendências: nenhuma</p>
+                        : (
+                          <>
+                            <p className="text-amber-600 mt-0.5">pendências:</p>
+                            {p.pendencias.map((x: any, i: number) => (
+                              <p key={i} className="pl-3 text-amber-600">• {x.rotulo}: {x.detalhe}</p>
+                            ))}
+                          </>
+                        )}
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>

@@ -2014,6 +2014,22 @@ export async function getDailyBriefing(userId: number, date: string): Promise<st
   return rows[0]?.content ?? null;
 }
 
+/** Briefing segmentado do dia para um conjunto de contas (chave derivada). */
+export async function getBriefingSegmentado(date: string, segmentKey: string): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select({ content: dailyBriefingSegments.content }).from(dailyBriefingSegments)
+    .where(and(eq(dailyBriefingSegments.date, date), eq(dailyBriefingSegments.segmentKey, segmentKey))).limit(1);
+  return r[0]?.content ?? null;
+}
+
+export async function saveBriefingSegmentado(date: string, segmentKey: string, content: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(dailyBriefingSegments).values({ date, segmentKey, content })
+    .onDuplicateKeyUpdate({ set: { content } });
+}
+
 export async function saveDailyBriefing(userId: number, date: string, content: string) {
   const db = await getDb();
   if (!db) return;
@@ -2024,7 +2040,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, type InsertClientSocialAccount, userEmailClientPrefs } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 

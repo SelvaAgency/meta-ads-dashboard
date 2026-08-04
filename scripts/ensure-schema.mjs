@@ -176,6 +176,22 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela user_email_client_prefs garantida");
 
+    // 3.0.5) Cache do briefing segmentado (um texto por dia + conjunto de
+    //        contas). Tabela separada: `daily_briefings` tem única em
+    //        (userId, date) e acrescentar o segmento exigiria recriar índice
+    //        único em tabela viva.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`daily_briefing_segments\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`date\` VARCHAR(10) NOT NULL,
+        \`segmentKey\` VARCHAR(64) NOT NULL,
+        \`content\` TEXT NOT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY \`uq_briefing_segment\` (\`date\`, \`segmentKey\`)
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabela daily_briefing_segments garantida");
+
     // 3.1) Foto do cliente enviada à mão. Coluna PRÓPRIA, separada da
     //      `pictureUrl` que vem da Meta: o import de contas reescreve aquela, e
     //      uma foto escolhida pelo time não pode sumir por causa disso.

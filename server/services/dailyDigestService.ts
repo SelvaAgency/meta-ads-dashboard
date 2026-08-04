@@ -22,7 +22,7 @@ import {
   financeAtrasos, aniversariantesDe, alertasDoDia, usuariosAtivosComEmail,
   registrarEnvioDigest, emailDigestJaEnviado, listarComunicados, contasDoJornalzinho, type StatusDigest,
 } from "../db";
-import { obterBriefingDoDia } from "./briefingService";
+import { obterBriefingDoDia, obterBriefingSegmentado } from "./briefingService";
 import { getJornalExecutivo, type SecoesExecutivas } from "./jornalExecutivo";
 
 export type Papel = "admin" | "developer" | "user";
@@ -124,23 +124,20 @@ export type Performance = {
  */
 export async function getPerformanceResumo(dia: string, contas: number[] | null = null): Promise<Performance | null> {
   const [bruto, alertasBrutos] = await Promise.all([
-    obterBriefingDoDia(dia).catch(() => null),
+    // A narrativa é gerada DEPOIS do filtro: o briefing segmentado monta o
+    // prompt só com as contas do grupo, então o modelo não tem como citar
+    // cliente de outro. Antes eu simplesmente removia a prosa quando havia
+    // filtro — não vazava, mas deixava o e-mail seco.
+    contas === null ? obterBriefingDoDia(dia).catch(() => null)
+                    : obterBriefingSegmentado(dia, contas).catch(() => null),
     alertasDoDia(dia, { dominios: ["PERFORMANCE"] }).catch(() => []),
   ]);
   const alertas = filtrarPorConta(alertasBrutos, contas);
 
   let b = { resumo: null as string | null, positivo: null as string | null, atencao: null as string | null, critico: null as string | null };
-  /**
-   * O briefing é do PORTFÓLIO INTEIRO: `obterBriefingDoDia` lê todas as contas
-   * ativas e escreve um texto único sobre elas. Num e-mail segmentado ele
-   * citaria clientes de outro grupo pelo nome — o vazamento que a segmentação
-   * existe para impedir, e que o filtro por accountId não pega, porque o texto
-   * não tem accountId.
-   *
-   * Por isso a prosa só entra quando NÃO há filtro. As listas e os números
-   * continuam: esses são por conta e já foram filtrados acima.
-   */
-  if (bruto && contas === null) {
+  // `bruto` já vem da fonte certa (global ou segmentada), então a prosa entra
+  // nos dois casos — o recorte foi feito na ENTRADA do modelo, não aqui.
+  if (bruto) {
     try {
       const j = JSON.parse(bruto);
       b = { resumo: j.resumo ?? null, positivo: j.positivo ?? null, atencao: j.atencao ?? null, critico: j.critico ?? null };

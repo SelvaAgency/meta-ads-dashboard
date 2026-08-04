@@ -18,9 +18,11 @@
  */
 import { invokeLLM, extractTextContent } from "../_core/llm";
 import { logger } from "../logger";
+import { createHash } from "node:crypto";
 import {
   getAllActiveMetaAdAccountsForListing, getAccountMetricsSummary,
   getDailyBriefing, saveDailyBriefing, getAccountContext,
+  getBriefingSegmentado, saveBriefingSegmentado,
 } from "../db";
 import { montarClientesPanorama } from "./jornalExecutivo";
 import { achadosDe, vendasDe, type ClientePanorama } from "../../shared/panoramaLogic";
@@ -53,6 +55,62 @@ export async function obterBriefingDoDia(dia = diaAgencia()): Promise<string | n
     logger.info("[Briefing] Nenhuma conta ativa — nada a resumir.");
     return null;
   }
+  const conteudo = await montarBriefing(contas, dia);
+  if (conteudo) await saveDailyBriefing(BRIEFING_GLOBAL_USER, dia, conteudo);
+  return conteudo;
+}
+
+/** Identidade estável de um conjunto de contas — a chave do cache segmentado. */
+export function chaveDeSegmento(accountIds: number[]): string {
+  const ordenado = Array.from(new Set(accountIds)).sort((a, b) => a - b).join(",");
+  return createHash("sha256").update(ordenado).digest("hex").slice(0, 40);
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Briefing SEGMENTADO — a narrativa de um subconjunto de clientes
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A garantia de não-vazamento não é um filtro na saída do texto: é a AUSÊNCIA
+ *  na entrada. O prompt é montado a partir das contas recebidas, então o modelo
+ *  não tem como citar um cliente que nunca viu. Filtrar depois seria confiar
+ *  que o texto gerado não menciona quem não devia — e texto livre não dá essa
+ *  garantia.
+ *
+ *  Cache por CONJUNTO de contas, não por pessoa: os três do Grupo 1 leem a
+ *  mesma narrativa e gastam UMA chamada de LLM. Sem isso seriam três — e cada
+ *  abertura da prévia geraria outra, o que torna a tela lenta e cara justamente
+ *  enquanto alguém itera no design.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export async function obterBriefingSegmentado(dia: string, accountIds: number[]): Promise<string | null> {
+  if (accountIds.length === 0) return null;
+  const chave = chaveDeSegmento(accountIds);
+
+  const cache = await getBriefingSegmentado(dia, chave);
+  if (cache) return cache;
+
+  const todas = await getAllActiveMetaAdAccountsForListing();
+  const permitidas = new Set(accountIds);
+  const contas = todas.filter((c) => permitidas.has(c.id));
+  if (!contas.length) {
+    logger.info(`[Briefing] Segmento sem conta ativa (${accountIds.length} pedida(s)) — nada a resumir.`);
+    return null;
+  }
+
+  const conteudo = await montarBriefing(contas, dia);
+  if (conteudo) await saveBriefingSegmentado(dia, chave, conteudo);
+  return conteudo;
+}
+
+/**
+ * Monta e gera o briefing das CONTAS RECEBIDAS. Não consulta a lista de contas
+ * por conta própria — é isso que permite a versão segmentada existir sem
+ * duplicar o prompt, e o que garante que o modelo só vê o que foi passado.
+ */
+async function montarBriefing(
+  contas: Awaited<ReturnType<typeof getAllActiveMetaAdAccountsForListing>>,
+  dia: string,
+): Promise<string | null> {
 
   // Últimas 48h: hoje ainda está parcial, ontem já consolidou.
   const fmt = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(d);
@@ -69,7 +127,10 @@ export async function obterBriefingDoDia(dia = diaAgencia()): Promise<string | n
   // (que já funciona) segue normalmente, só sem o enriquecimento multi-fonte.
   let panoramaPorConta = new Map<number, ClientePanorama>();
   try {
-    const clientes = await montarClientesPanorama();
+    // Restringe às contas recebidas: o enriquecimento multi-fonte não pode
+    // reintroduzir, por outro caminho, o cliente que o filtro tirou.
+    const daqui = new Set(contas.map((c) => c.id));
+    const clientes = (await montarClientesPanorama()).filter((c) => daqui.has(c.accountId));
     panoramaPorConta = new Map(clientes.map((c) => [c.accountId, c]));
   } catch (e) {
     logger.warn(`[Briefing] Panorama multi-fonte indisponível: ${(e as Error).message}`);
@@ -127,8 +188,7 @@ Escreva em português brasileiro, de forma direta e profissional. Destaque padr�
       const p = JSON.parse(bruto);
       conteudo = JSON.stringify({ resumo: p.resumo ?? null, positivo: p.positivo ?? null, atencao: p.atencao ?? null, critico: p.critico ?? null });
     } catch { /* guarda o texto cru como fallback */ }
-    await saveDailyBriefing(BRIEFING_GLOBAL_USER, dia, conteudo);
-    logger.info(`[Briefing] Gerado para ${dia} (${contas.length} contas).`);
+    logger.info(`[Briefing] Gerado para ${dia} (${contas.length} conta(s)).`);
     return conteudo;
   } catch (e) {
     // Barulhento de propósito: falha silenciosa aqui vira "email não chegou" sem pista.

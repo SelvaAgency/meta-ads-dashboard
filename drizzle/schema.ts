@@ -1022,6 +1022,27 @@ export const dailyBriefings = mysqlTable("daily_briefings", {
 }));
 export type DailyBriefing = typeof dailyBriefings.$inferSelect;
 
+/**
+ * Cache do briefing SEGMENTADO — um texto por (dia, conjunto de contas).
+ *
+ * Tabela separada em vez de uma coluna em `daily_briefings` porque aquela tem
+ * única em (userId, date): acrescentar o segmento exigiria derrubar e recriar
+ * um índice único numa tabela viva. Aqui é só CREATE TABLE IF NOT EXISTS.
+ *
+ * `segmentKey` é o hash dos accountIds ordenados. Chave derivada do CONJUNTO,
+ * não da pessoa: todo mundo do mesmo grupo lê a mesma linha e o dia gasta uma
+ * chamada de LLM por grupo, não uma por destinatário.
+ */
+export const dailyBriefingSegments = mysqlTable("daily_briefing_segments", {
+  id: int("id").autoincrement().primaryKey(),
+  date: varchar("date", { length: 10 }).notNull(),
+  segmentKey: varchar("segmentKey", { length: 64 }).notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  uqDiaSegmento: uniqueIndex("uq_briefing_segment").on(table.date, table.segmentKey),
+}));
+
 // ─── Account Thresholds ───────────────────────────────────────────────────────
 export const accountThresholds = mysqlTable("account_thresholds", {
   id: int("id").autoincrement().primaryKey(),
