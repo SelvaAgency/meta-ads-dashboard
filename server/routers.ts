@@ -321,7 +321,7 @@ import { emailMode, destinatariosDeTeste, transporteAtivo, providerConfigurado, 
 import { GMAIL_SCOPE, verificarConexaoGmail, limparCacheToken, sanitizarErroGmail } from "./services/email/gmailProvider";
 import { previaTesteGmail, enviarTesteGmail, TIPO_TESTE_GMAIL } from "./services/email/gmailTeste";
 import { simularDestinatarios } from "./services/email/destinatarios";
-import { getConexaoGmailAgencia, registrarVerificacaoIntegracao } from "./db";
+import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, preferenciasEmailDoUsuario, salvarPreferenciasEmail, usuarioAtivoPorEmail, contasDoJornalzinho, usuariosAtivosComEmail } from "./db";
 import { isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
 import { gerarEPersistirExecutivo, lerUltimoExecutivo } from "./services/jornalExecutivo";
@@ -2284,6 +2284,94 @@ export const appRouter = router({
       .input(z.object({ dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).default({}))
       .query(({ input }) => previewDigest(input.dia ?? hojeAgencia())),
 
+    // ─── Preferência de clientes no Jornalzinho ────────────────────────────
+    // Fica em Configurações do SPACES, não do Tracker: é preferência pessoal de
+    // e-mail, não configuração de conta de anúncio.
+
+    /** Clientes ativos + o que ESTA pessoa marcou. Só id e nome — nada de token. */
+    minhasPreferenciasEmail: protectedProcedure.query(async ({ ctx }) => {
+      const [clientes, prefs] = await Promise.all([
+        contasParaPreferencias(),
+        preferenciasEmailDoUsuario(ctx.user.id),
+      ]);
+      const marcadas = new Set(prefs.filter((p) => p.enabled).map((p) => p.accountId));
+      return {
+        clientes: clientes.map((c) => ({ ...c, marcado: prefs.length === 0 ? true : marcadas.has(c.id) })),
+        // Distingue "nunca configurou" de "configurou": a tela precisa dizer
+        // que hoje ele recebe tudo por falta de configuração, não por escolha.
+        configurado: prefs.length > 0,
+      };
+    }),
+
+    /**
+     * Salva a lista da PRÓPRIA pessoa. Deriva o dono da sessão — nunca aceita
+     * userId do cliente, senão qualquer um editaria a preferência de outro.
+     */
+    salvarMinhasPreferenciasEmail: protectedProcedure
+      .input(z.object({ accountIds: z.array(z.number().int()) }))
+      .mutation(async ({ ctx, input }) => {
+        const total = await salvarPreferenciasEmail(ctx.user.id, input.accountIds);
+        return { success: true as const, clientes: total, marcados: input.accountIds.length };
+      }),
+
+    /**
+     * Pré-seleção dos dois grupos de GTM. Idempotente e AUDITÁVEL: casa por
+     * e-mail (pessoa) e por nome normalizado contendo o token (cliente), e
+     * devolve tudo que casou e tudo que NÃO casou.
+     *
+     * Relatar em vez de aplicar parcialmente em silêncio é o ponto: nome de
+     * conta na Meta vem com prefixo ("CA - ARKA"), então o casamento é por
+     * substring — e substring erra. Sem o relatório, um grupo sairia
+     * incompleto e ninguém notaria até alguém reclamar do e-mail.
+     */
+    preSelecionarGruposJornalzinho: adminProcedure.mutation(async () => {
+      const GRUPOS = [
+        { nome: "Grupo 1 · GTM", emails: ["beth@selva.agency", "bruna@selva.agency", "namie@selva.agency"], tokens: ["ultramalhas", "ultra malhas", "elwing", "caroline", "carol"] },
+        { nome: "Grupo 2 · GTM", emails: ["natalia@selva.agency", "bad@selva.agency"], tokens: ["musa", "arka", "scaffold", "play"] },
+      ];
+      const norm = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const clientes = await contasParaPreferencias();
+
+      const relatorio = [];
+      for (const g of GRUPOS) {
+        // Um cliente por token; token que casa com mais de um vira aviso, não
+        // escolha automática — adivinhar aqui erraria o grupo inteiro.
+        const casados: { token: string; id: number; nome: string }[] = [];
+        const ambiguos: { token: string; nomes: string[] }[] = [];
+        const semCliente: string[] = [];
+        const vistos = new Set<number>();
+        for (const t of g.tokens) {
+          const hits = clientes.filter((c) => norm(c.nome).includes(norm(t)));
+          if (hits.length === 0) { semCliente.push(t); continue; }
+          if (hits.length > 1) { ambiguos.push({ token: t, nomes: hits.map((h) => h.nome) }); continue; }
+          if (vistos.has(hits[0].id)) continue; // token sinônimo do mesmo cliente
+          vistos.add(hits[0].id);
+          casados.push({ token: t, id: hits[0].id, nome: hits[0].nome });
+        }
+
+        const pessoas = [];
+        for (const email of g.emails) {
+          const u = await usuarioAtivoPorEmail(email);
+          if (!u) { pessoas.push({ email, aplicado: false, motivo: "usuário não encontrado" }); continue; }
+          await salvarPreferenciasEmail(u.id, casados.map((c) => c.id));
+          pessoas.push({ email, aplicado: true, userId: u.id, nome: u.name });
+        }
+        relatorio.push({ grupo: g.nome, clientes: casados, ambiguos, tokensSemCliente: semCliente, pessoas });
+      }
+      return { relatorio };
+    }),
+
+    /** Quem já tem preferência configurada — alimenta a prévia "como usuário". */
+    pessoasComPreferencia: contentProcedure.query(async () => {
+      const pessoas = await usuariosAtivosComEmail();
+      const out = [];
+      for (const p of pessoas) {
+        const contas = await contasDoJornalzinho(p.id);
+        out.push({ id: p.id, nome: p.name, email: p.email, role: p.role, configurado: contas !== null, clientes: contas?.length ?? null });
+      }
+      return out;
+    }),
+
     /** Matriz papel → blocos, para a tela explicar a regra em vez de esconder. */
     matrizDigest: protectedProcedure.query(() => BLOCOS_POR_PAPEL),
 
@@ -2312,15 +2400,25 @@ export const appRouter = router({
       .input(z.object({
         papel: z.enum(["admin", "developer", "user"]).default("admin"),
         dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        /** Ver o e-mail COMO esta pessoa — usa as preferências reais dela. */
+        comoUsuario: z.number().int().optional(),
+        /** Simular um conjunto de clientes (prévia de grupo). */
+        contas: z.array(z.number().int()).optional(),
       }).default({ papel: "admin" }))
-      .query(({ ctx, input }) => {
+      .query(async ({ ctx, input }) => {
         if (input.papel === "admin" && !canAccessAdmin(ctx.user.role)) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "A visão admin inclui o bloco financeiro e é restrita a administradores.",
           });
         }
-        return buildDailyDigestForRole(input.papel, input.dia ?? hojeAgencia());
+        // `comoUsuario` mostra o e-mail REAL de alguém (com as preferências
+        // dele); `contas` permite simular um conjunto qualquer, para conferir
+        // um grupo antes de existir gente configurada nele.
+        let contas: number[] | null = null;
+        if (input.comoUsuario != null) contas = await contasDoJornalzinho(input.comoUsuario);
+        else if (input.contas && input.contas.length > 0) contas = input.contas;
+        return buildDailyDigestForRole(input.papel, input.dia ?? hojeAgencia(), contas);
       }),
 
     /**

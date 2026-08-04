@@ -35,6 +35,99 @@ import { HubShell } from "./HubShell";
 import { VocePrefereSlide } from "./VocePrefereSlide";
 import { canManageContent, ROLE_LABELS, type Role } from "@shared/permissions";
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Clientes no Jornalzinho — preferência PESSOAL
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Mora nas Configurações do SPACES, não do Tracker: é escolha de e-mail da
+ *  pessoa, não configuração de conta de anúncio. Quem cuida de um grupo de
+ *  clientes não quer o resumo dos outros — e hoje recebia tudo.
+ *
+ *  Não é papel nem permissão: quem configura segue exatamente o mesmo `role` no
+ *  resto do sistema. É filtro de conteúdo do e-mail, e só.
+ *
+ *  A procedure deriva o dono da SESSÃO e nunca aceita userId do cliente — sem
+ *  isso, qualquer pessoa editaria a preferência de outra.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+function JornalzinhoPrefsSection() {
+  const utils = trpc.useUtils();
+  const q = trpc.notifications.minhasPreferenciasEmail.useQuery();
+  const [rascunho, setRascunho] = useState<Set<number> | null>(null);
+
+  const salvar = trpc.notifications.salvarMinhasPreferenciasEmail.useMutation({
+    onSuccess: () => { utils.notifications.minhasPreferenciasEmail.invalidate(); setRascunho(null); },
+  });
+
+  const clientes = q.data?.clientes ?? [];
+  // O rascunho só existe depois do primeiro clique; antes disso a verdade é o
+  // servidor. Sem isso, um refetch no meio da edição apagaria as marcações.
+  const marcados = rascunho ?? new Set(clientes.filter((c) => c.marcado).map((c) => c.id));
+  const alterar = (id: number, on: boolean) => {
+    const novo = new Set(marcados);
+    if (on) novo.add(id); else novo.delete(id);
+    setRascunho(novo);
+  };
+
+  return (
+    <SectionCard
+      icon={Newspaper}
+      title="Clientes no Jornalzinho"
+      description="Escolha de quais clientes você quer receber o Jornalzinho e os alertas por e-mail."
+    >
+      {q.isLoading ? (
+        <p className="text-xs text-muted-foreground">Carregando clientes…</p>
+      ) : (
+        <>
+          {!q.data?.configurado && (
+            <p className="text-[11px] text-amber-600 mb-3">
+              Você ainda não configurou: hoje recebe <strong>todos</strong> os clientes. Marque abaixo para
+              receber só os seus.
+            </p>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 mb-4">
+            {clientes.map((c) => (
+              <label key={c.id} className="flex items-center gap-2.5 py-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={marcados.has(c.id)}
+                  onChange={(e) => alterar(c.id, e.target.checked)}
+                  className="w-4 h-4 accent-current"
+                />
+                <span className="text-sm truncate">{c.nome}</span>
+              </label>
+            ))}
+            {clientes.length === 0 && <p className="text-xs text-muted-foreground">Nenhum cliente ativo.</p>}
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={() => salvar.mutate({ accountIds: Array.from(marcados) })}
+              disabled={salvar.isPending || rascunho === null}
+              className="rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 disabled:opacity-50"
+            >
+              {salvar.isPending ? "Salvando…" : "Salvar preferências"}
+            </button>
+            {rascunho !== null && (
+              <button onClick={() => setRascunho(null)} className="text-xs text-muted-foreground hover:text-foreground">
+                Descartar
+              </button>
+            )}
+            <span className="text-[11px] text-muted-foreground">
+              {marcados.size} de {clientes.length} selecionado(s)
+            </span>
+          </div>
+          {marcados.size === 0 && rascunho !== null && (
+            <p className="text-[11px] text-amber-600 mt-2">
+              Sem nenhum cliente marcado você deixa de receber conteúdo de cliente no Jornalzinho —
+              avisos gerais do sistema continuam.
+            </p>
+          )}
+        </>
+      )}
+    </SectionCard>
+  );
+}
+
 function SectionCard({
   icon: Icon,
   title,
@@ -550,6 +643,7 @@ export default function HubSettings() {
               notificações estão pausadas por ora. Componentes seguem no código
               (@/components/NotificacoesPrefs) para quando religarmos. */}
 
+          <JornalzinhoPrefsSection />
           <IntegrationsSection />
 
           {canContent && (

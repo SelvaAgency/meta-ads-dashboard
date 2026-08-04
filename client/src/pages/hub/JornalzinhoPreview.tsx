@@ -59,8 +59,51 @@ export default function JornalzinhoPreview() {
   const [dia, setDia] = useState(hojeAgencia());
   const [destinatario, setDestinatario] = useState("");
   const [confirmando, setConfirmando] = useState(false);
+  /**
+   * Segmentação: "todos" (sem filtro), um GRUPO (conjunto de clientes) ou uma
+   * PESSOA (as preferências reais dela). A prévia por pessoa é a verdade; a por
+   * grupo serve para conferir o recorte antes de existir alguém configurado.
+   */
+  const [segmento, setSegmento] = useState<"todos" | "g1" | "g2" | "pessoa">("todos");
+  const [pessoaId, setPessoaId] = useState<number | null>(null);
 
-  const previaQ = trpc.notifications.previewDigestHtml.useQuery({ papel, dia });
+  const pessoasQ = trpc.notifications.pessoasComPreferencia.useQuery(undefined, { enabled: segmento === "pessoa" });
+  const prefsQ = trpc.notifications.minhasPreferenciasEmail.useQuery(undefined, { enabled: segmento === "g1" || segmento === "g2" });
+
+  // Os grupos são resolvidos pelo NOME do cliente na tela, não por id fixo: id
+  // de conta muda entre ambientes e um número cravado aqui viraria prévia de
+  // cliente errado sem ninguém perceber.
+  const norm = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const TOKENS: Record<"g1" | "g2", string[]> = {
+    g1: ["ultramalhas", "elwing", "caroline", "carol"],
+    g2: ["musa", "arka", "scaffold", "play"],
+  };
+  const contasDoGrupo = (g: "g1" | "g2") => {
+    const todos = prefsQ.data?.clientes ?? [];
+    const ids = new Set<number>();
+    for (const t of TOKENS[g]) for (const c of todos) if (norm(c.nome).includes(norm(t))) ids.add(c.id);
+    return Array.from(ids);
+  };
+
+  const previaQ = trpc.notifications.previewDigestHtml.useQuery({
+    papel, dia,
+    ...(segmento === "pessoa" && pessoaId != null ? { comoUsuario: pessoaId } : {}),
+    ...(segmento === "g1" || segmento === "g2" ? { contas: contasDoGrupo(segmento) } : {}),
+  });
+
+  const preSelecionar = trpc.notifications.preSelecionarGruposJornalzinho.useMutation({
+    onSuccess: (r: any) => {
+      const faltou = r.relatorio.flatMap((g: any) => [
+        ...g.tokensSemCliente.map((t: string) => `sem cliente: ${t}`),
+        ...g.ambiguos.map((a: any) => `ambíguo: ${a.token}`),
+        ...g.pessoas.filter((p: any) => !p.aplicado).map((p: any) => `sem usuário: ${p.email}`),
+      ]);
+      toast[faltou.length ? "warning" : "success"](
+        faltou.length ? `Aplicado com pendências: ${faltou.join(" · ")}` : "Pré-seleção aplicada nos dois grupos.",
+      );
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const enviar = trpc.notifications.enviarPreviaJornalzinho.useMutation({
     onSuccess: (r: any) => {
@@ -110,8 +153,34 @@ export default function JornalzinhoPreview() {
               <input type="date" value={dia} onChange={(e) => setDia(e.target.value)}
                 className="text-sm border border-border rounded-md px-2 py-1.5 bg-background" />
             </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] text-muted-foreground">Clientes</label>
+              <div className="inline-flex rounded-lg border border-border p-0.5">
+                {([["todos", "Todos"], ["g1", "Grupo 1"], ["g2", "Grupo 2"], ["pessoa", "Por pessoa"]] as const).map(([v, l]) => (
+                  <button key={v} onClick={() => setSegmento(v)}
+                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${segmento === v ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {segmento === "pessoa" && (
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] text-muted-foreground">Pessoa</label>
+                <select value={pessoaId ?? ""} onChange={(e) => setPessoaId(e.target.value ? Number(e.target.value) : null)}
+                  className="text-sm border border-border rounded-md px-2 py-1.5 bg-background max-w-[220px]">
+                  <option value="">— selecione —</option>
+                  {(pessoasQ.data ?? []).map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nome ?? p.email}{p.configurado ? ` · ${p.clientes} cliente(s)` : " · sem filtro"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <p className="text-[11px] text-muted-foreground flex-1 min-w-[200px]">
               Cada papel recebe blocos diferentes — o financeiro só existe na visão admin.
+              {segmento !== "todos" && " Com filtro de clientes, o resumo geral do portfólio sai do e-mail: ele fala de todos os clientes."}
             </p>
           </div>
 
@@ -156,7 +225,48 @@ export default function JornalzinhoPreview() {
             </>
           )}
 
-          {/* Enviar prévia para UM endereço */}
+          {/* Pré-seleção dos grupos — só admin, idempotente, com relatório. */}
+      {ehAdmin && (
+        <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+          <div>
+            <p className="text-xs font-semibold text-foreground">Pré-seleção dos grupos de GTM</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Aplica Grupo 1 (Beth, Bruna, Namie) e Grupo 2 (Nat, Bad) nas preferências delas.
+              Idempotente — rodar de novo não duplica. Cada pessoa pode ajustar depois em Configurações.
+            </p>
+          </div>
+          <div>
+            <button onClick={() => preSelecionar.mutate()} disabled={preSelecionar.isPending}
+              className="h-9 px-4 rounded-lg border border-border text-sm font-medium flex items-center gap-1.5 disabled:opacity-60">
+              {preSelecionar.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {preSelecionar.isPending ? "Aplicando…" : "Aplicar pré-seleção"}
+            </button>
+          </div>
+          {preSelecionar.data && (
+            <div className="flex flex-col gap-2 border-t border-border pt-3">
+              {(preSelecionar.data as any).relatorio.map((g: any) => (
+                <div key={g.grupo} className="text-[11px]">
+                  <p className="font-semibold">{g.grupo}</p>
+                  <p className="text-muted-foreground">
+                    Clientes: {g.clientes.map((c: any) => c.nome).join(", ") || "—"}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Pessoas: {g.pessoas.map((p: any) => `${p.email}${p.aplicado ? "" : " (não encontrada)"}`).join(", ")}
+                  </p>
+                  {(g.tokensSemCliente.length > 0 || g.ambiguos.length > 0) && (
+                    <p className="text-amber-600">
+                      Pendências: {[...g.tokensSemCliente.map((t: string) => `"${t}" sem cliente`),
+                        ...g.ambiguos.map((a: any) => `"${a.token}" casou com ${a.nomes.join(" / ")}`)].join(" · ")}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Enviar prévia para UM endereço */}
           <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
             <div>
               <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BLOCOS_POR_PAPEL, statusDoRecibo, montarHtml, type Papel, type BlocoDigest, type Conteudo } from "./dailyDigestService";
+import { BLOCOS_POR_PAPEL, statusDoRecibo, montarHtml, filtrarPorConta, type Papel, type BlocoDigest, type Conteudo } from "./dailyDigestService";
 import { consomeDedupDeDigest, type StatusDigest } from "../db";
 import { canAccessAdmin } from "@shared/permissions";
 
@@ -297,5 +297,54 @@ describe("visão admin da prévia", () => {
     expect(canAccessAdmin("admin")).toBe(true);
     expect(canAccessAdmin("developer")).toBe(false);
     expect(canAccessAdmin("user")).toBe(false);
+  });
+});
+
+/**
+ * ─── Segmentação por cliente ────────────────────────────────────────────────
+ * O filtro roda na ORIGEM (nos coletores, por accountId), não no template —
+ * filtrar no HTML deixaria `blocos` e `vazio` mentindo sobre o que sobrou.
+ *
+ * O caso que estes testes protegem: o e-mail da Beth não pode citar Musa nem
+ * Arka, e o da Nat não pode citar Ultramalhas nem Elwing.
+ */
+describe("filtro de clientes", () => {
+  const alerta = (accountId: number | null, nome: string) =>
+    ({ accountId, accountName: nome, title: `${nome}: algo`, severity: "WARNING", type: "X", message: "" });
+
+  it("mantém só as contas escolhidas", () => {
+    const itens = [alerta(1, "Ultra Malhas"), alerta(2, "Musa"), alerta(3, "Elwing")];
+    expect(filtrarPorConta(itens as any, [1, 3]).map((i: any) => i.accountName))
+      .toEqual(["Ultra Malhas", "Elwing"]);
+  });
+
+  it("null não filtra nada — é o fallback de quem nunca configurou", () => {
+    const itens = [alerta(1, "A"), alerta(2, "B")];
+    expect(filtrarPorConta(itens as any, null)).toHaveLength(2);
+  });
+
+  it("lista vazia bloqueia todo cliente — configurou e desmarcou tudo", () => {
+    const itens = [alerta(1, "A"), alerta(2, "B")];
+    expect(filtrarPorConta(itens as any, [])).toHaveLength(0);
+  });
+
+  /**
+   * Alerta sem accountId é do SISTEMA (token da agência, falha global), não de
+   * um cliente. Quem segmentou clientes não pediu para deixar de saber disso.
+   */
+  it("alerta sem conta passa sempre, mesmo com filtro fechado", () => {
+    const itens = [alerta(null, "Falha de sync global"), alerta(2, "Musa")];
+    const r = filtrarPorConta(itens as any, []);
+    expect(r).toHaveLength(1);
+    expect((r[0] as any).accountName).toBe("Falha de sync global");
+  });
+
+  it("um grupo não vê o cliente do outro", () => {
+    const itens = [alerta(1, "Ultra Malhas"), alerta(2, "Elwing"), alerta(3, "Musa"), alerta(4, "CA - ARKA")];
+    const g1 = filtrarPorConta(itens as any, [1, 2]).map((i: any) => i.accountName);
+    const g2 = filtrarPorConta(itens as any, [3, 4]).map((i: any) => i.accountName);
+    expect(g1).toEqual(["Ultra Malhas", "Elwing"]);
+    expect(g2).toEqual(["Musa", "CA - ARKA"]);
+    expect(g1.some((n: string) => g2.includes(n))).toBe(false);
   });
 });

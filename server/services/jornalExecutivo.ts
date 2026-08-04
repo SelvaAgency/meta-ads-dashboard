@@ -219,8 +219,13 @@ export function renderExecutivoHtml(s: SecoesExecutivas): string {
 export type JornalExecutivo = { dia: string; secoes: SecoesExecutivas; html: string; texto: string; geradoEm: string };
 
 /** Gera a seção executiva do dia. Só leitura — nenhum envio, nenhuma credencial. */
-export async function getJornalExecutivo(dia: string): Promise<JornalExecutivo> {
-  const clientes = await montarClientesPanorama();
+export async function getJornalExecutivo(dia: string, contas: number[] | null = null): Promise<JornalExecutivo> {
+  const todos = await montarClientesPanorama();
+  // Filtro por cliente do Jornalzinho. `null` = sem filtro (comportamento de
+  // sempre). Aplicado ANTES de montar as seções: filtrar depois deixaria os
+  // contadores de destaque (`totalClientes`, `criticos`…) somando clientes que
+  // a pessoa não pode ver — um número certo sobre um portfólio errado.
+  const clientes = contas === null ? todos : todos.filter((c) => contas.includes(c.accountId));
   const [lojas, ga4] = await Promise.all([
     getAppSetting<Ciclos["lojas"]>("woo:ultimoCiclo"),
     getAppSetting<Ciclos["ga4"]>("ga4:ultimoCiclo"),

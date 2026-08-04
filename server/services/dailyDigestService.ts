@@ -20,7 +20,7 @@ import { logger } from "../logger";
 import { sendEmail, isEmailConfigured, isDryRun, destinatariosDeTeste, transporteAtivo } from "../emailService";
 import {
   financeAtrasos, aniversariantesDe, alertasDoDia, usuariosAtivosComEmail,
-  registrarEnvioDigest, emailDigestJaEnviado, listarComunicados, type StatusDigest,
+  registrarEnvioDigest, emailDigestJaEnviado, listarComunicados, contasDoJornalzinho, type StatusDigest,
 } from "../db";
 import { obterBriefingDoDia } from "./briefingService";
 import { getJornalExecutivo, type SecoesExecutivas } from "./jornalExecutivo";
@@ -88,6 +88,19 @@ function semRepetirConta(nome: string, titulo: string): { titulo: string; detalh
 // ─── Coletores de conteúdo ───────────────────────────────────────────────────
 // Cada um devolve null quando não há nada — bloco vazio não vira seção.
 
+/**
+ * Mantém só os alertas dos clientes escolhidos. `null` não filtra nada.
+ *
+ * Alerta sem `accountId` SEMPRE passa: ele não é de cliente nenhum (token da
+ * agência, falha global de sync), e quem segmentou por cliente não pediu para
+ * deixar de saber de problema do sistema.
+ */
+export function filtrarPorConta<T extends { accountId: number | null }>(itens: T[], contas: number[] | null): T[] {
+  if (contas === null) return itens;
+  const permitidas = new Set(contas);
+  return itens.filter((a) => a.accountId == null || permitidas.has(a.accountId));
+}
+
 export type Performance = {
   resumo: string | null;
   positivo: string | null;
@@ -98,14 +111,36 @@ export type Performance = {
   anomalias: { nome: string; titulo: string; descricao: string }[];
 };
 
-export async function getPerformanceResumo(dia: string): Promise<Performance | null> {
-  const [bruto, alertas] = await Promise.all([
+/**
+ * `contas` = ids que a pessoa quer ver; `null` = sem filtro.
+ *
+ * O filtro é aplicado AQUI, na origem, e não no template: filtrar no HTML
+ * deixaria `blocos` e `vazio` mentindo sobre o que realmente sobrou, e um
+ * e-mail "não vazio" sairia sem nada dentro.
+ *
+ * Alerta SEM accountId passa sempre: ele é do sistema, não de um cliente
+ * (token da agência, falha de sync global). Esconder isso de quem filtrou
+ * clientes seria perder aviso que não é de cliente nenhum.
+ */
+export async function getPerformanceResumo(dia: string, contas: number[] | null = null): Promise<Performance | null> {
+  const [bruto, alertasBrutos] = await Promise.all([
     obterBriefingDoDia(dia).catch(() => null),
     alertasDoDia(dia, { dominios: ["PERFORMANCE"] }).catch(() => []),
   ]);
+  const alertas = filtrarPorConta(alertasBrutos, contas);
 
   let b = { resumo: null as string | null, positivo: null as string | null, atencao: null as string | null, critico: null as string | null };
-  if (bruto) {
+  /**
+   * O briefing é do PORTFÓLIO INTEIRO: `obterBriefingDoDia` lê todas as contas
+   * ativas e escreve um texto único sobre elas. Num e-mail segmentado ele
+   * citaria clientes de outro grupo pelo nome — o vazamento que a segmentação
+   * existe para impedir, e que o filtro por accountId não pega, porque o texto
+   * não tem accountId.
+   *
+   * Por isso a prosa só entra quando NÃO há filtro. As listas e os números
+   * continuam: esses são por conta e já foram filtrados acima.
+   */
+  if (bruto && contas === null) {
     try {
       const j = JSON.parse(bruto);
       b = { resumo: j.resumo ?? null, positivo: j.positivo ?? null, atencao: j.atencao ?? null, critico: j.critico ?? null };
@@ -136,8 +171,9 @@ export async function getFinanceiroCritico(): Promise<Financeiro | null> {
 
 export type ItemSite = { titulo: string; detalhe: string; conta: string | null; grave: boolean };
 
-export async function getSiteClarityCritico(dia: string): Promise<ItemSite[] | null> {
-  const alertas = await alertasDoDia(dia, { dominios: ["SITE"], severidades: ["CRITICAL", "WARNING"] as const }).catch(() => []);
+export async function getSiteClarityCritico(dia: string, contas: number[] | null = null): Promise<ItemSite[] | null> {
+  const brutos = await alertasDoDia(dia, { dominios: ["SITE"], severidades: ["CRITICAL", "WARNING"] as const }).catch(() => []);
+  const alertas = filtrarPorConta(brutos, contas);
   if (alertas.length === 0) return null;
   return alertas.map((a) => {
     const r = semRepetirConta(a.accountName ?? "Site", a.title);
@@ -180,23 +216,36 @@ export type DigestMontado = {
   texto: string;
 };
 
-export async function buildDailyDigestForRole(role: string | null | undefined, dia: string): Promise<DigestMontado> {
+/**
+ * `contas`: ids que a pessoa quer no Jornalzinho. `null` = sem filtro.
+ *
+ * O financeiro NÃO é filtrado: `financeAtrasos` devolve contratos/recebíveis,
+ * que não têm accountId — casar por nome seria frágil e erraria em silêncio.
+ * Na prática não muda nada hoje, porque o bloco é admin-only e quem tem grupo
+ * configurado é `user`. Filtrar financeiro exige dar accountId à entidade
+ * financeira: mudança de dados, não de template.
+ */
+export async function buildDailyDigestForRole(
+  role: string | null | undefined,
+  dia: string,
+  contas: number[] | null = null,
+): Promise<DigestMontado> {
   const papel = papelDe(role);
   const permitidos = new Set(BLOCOS_POR_PAPEL[papel]);
 
   const [perf, fin, site, niver, comun] = await Promise.all([
-    permitidos.has("performance") ? getPerformanceResumo(dia) : null,
+    permitidos.has("performance") ? getPerformanceResumo(dia, contas) : null,
     // Segunda tranca, deliberada: mesmo que a matriz mude por engano, financeiro
     // não vaza para quem não é admin.
     permitidos.has("financeiro") && papel === "admin" ? getFinanceiroCritico() : null,
-    permitidos.has("site") ? getSiteClarityCritico(dia) : null,
+    permitidos.has("site") ? getSiteClarityCritico(dia, contas) : null,
     permitidos.has("aniversarios") ? getAniversariosHoje(dia) : null,
     permitidos.has("comunicados") ? getComunicadosRelevantes(dia) : null,
   ]);
 
   // Seção executiva (Panorama/lojas/GA4/técnica) — SÓ admin, leitura cross-client.
   // Mesma lógica pura do Panorama; nunca envia nada (a trava vive no sendEmail).
-  const exec = papel === "admin" ? await getJornalExecutivo(dia).catch(() => null) : null;
+  const exec = papel === "admin" ? await getJornalExecutivo(dia, contas).catch(() => null) : null;
 
   const blocos: BlocoDigest[] = [];
   if (exec && !exec.secoes.vazio) blocos.push("executivo");
@@ -662,7 +711,11 @@ export async function sendDailyDigestToUser(
     return { ...base, status: "pulado_duplicado", blocos: [] };
   }
 
-  const d = await buildDailyDigestForRole(u.role, dia);
+  // Cada pessoa recebe só os clientes que escolheu. `null` = nunca configurou,
+  // e aí o fallback é o comportamento de sempre (sem filtro) — silenciar quem
+  // nunca abriu a tela seria pior do que mostrar demais.
+  const contas = await contasDoJornalzinho(u.id);
+  const d = await buildDailyDigestForRole(u.role, dia, contas);
   if (d.vazio) return { ...base, status: "pulado_vazio", blocos: [] };
 
   const envio = await sendEmail({

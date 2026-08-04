@@ -208,6 +208,37 @@ export type InsertUserAuditLog = typeof userAuditLogs.$inferInsert;
  * N:N — um cliente tem vários coordenadores, um coordenador tem vários clientes.
  * O unique (accountId, userId) é o que impede vínculo duplicado no banco.
  */
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Clientes que cada pessoa quer no Jornalzinho / alertas por e-mail
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Tabela PRÓPRIA, e não `client_coordinators`, apesar de as duas serem
+ *  (userId, accountId): a de coordenador significa RESPONSABILIDADE — ela exige
+ *  `operationalRole = "coordinator"` e já decide destinatário de alerta in-app.
+ *  Juntar as duas faria "quero receber e-mail deste cliente" conceder
+ *  responsabilidade operacional, e mexer numa quebraria a outra em silêncio.
+ *
+ *  `enabled` é explícito de propósito. Presença-de-linha não distinguiria
+ *  "nunca configurou" de "configurou e desmarcou tudo" — e são casos opostos:
+ *  o primeiro cai no fallback (recebe tudo), o segundo recebe nada, de propósito.
+ *
+ *  Isto NÃO é papel nem permissão: as pessoas dos grupos seguem `role=user` no
+ *  resto do sistema. É filtro de conteúdo do e-mail, e só.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export const userEmailClientPrefs = mysqlTable("user_email_client_prefs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  /** meta_ad_accounts.id — nunca nome solto. */
+  accountId: int("accountId").notNull(),
+  enabled: boolean("enabled").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqUsuarioConta: uniqueIndex("uq_user_email_client").on(table.userId, table.accountId),
+}));
+export type UserEmailClientPref = typeof userEmailClientPrefs.$inferSelect;
+
 export const clientCoordinators = mysqlTable("client_coordinators", {
   id: int("id").autoincrement().primaryKey(),
   accountId: int("accountId").notNull(),   // → meta_ad_accounts.id

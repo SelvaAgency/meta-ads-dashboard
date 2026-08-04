@@ -2024,7 +2024,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, type InsertClientSocialAccount } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, type InsertClientSocialAccount, userEmailClientPrefs } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 
@@ -3916,6 +3916,68 @@ export async function setOperationalRole(userId: number, operationalRole: "colla
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({ operationalRole }).where(eq(users.id, userId));
+}
+
+// ─── Preferência de clientes no Jornalzinho ──────────────────────────────────
+
+/** Preferências brutas da pessoa. Lista vazia = NUNCA configurou (≠ desmarcou tudo). */
+export async function preferenciasEmailDoUsuario(userId: number): Promise<{ accountId: number; enabled: boolean }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ accountId: userEmailClientPrefs.accountId, enabled: userEmailClientPrefs.enabled })
+    .from(userEmailClientPrefs).where(eq(userEmailClientPrefs.userId, userId));
+  return rows;
+}
+
+/**
+ * Contas que ESTE usuário quer no Jornalzinho.
+ *
+ * `null` significa "sem filtro" — e é diferente de lista vazia:
+ *   • nunca configurou      → null  → recebe tudo (fallback explícito)
+ *   • configurou e marcou   → [ids] → recebe só esses
+ *   • configurou e desmarcou→ []    → recebe nada de cliente, de propósito
+ *
+ * Confundir os dois primeiros é o que faria uma tela nunca aberta silenciar o
+ * e-mail de alguém sem ninguém entender por quê.
+ */
+export async function contasDoJornalzinho(userId: number): Promise<number[] | null> {
+  const prefs = await preferenciasEmailDoUsuario(userId);
+  if (prefs.length === 0) return null;
+  return prefs.filter((p) => p.enabled).map((p) => p.accountId);
+}
+
+/** Substitui as preferências da pessoa. Uma linha por conta ATIVA, com o estado. */
+export async function salvarPreferenciasEmail(userId: number, marcadas: number[]): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const ativas = await db.select({ id: metaAdAccounts.id }).from(metaAdAccounts).where(eq(metaAdAccounts.isActive, true));
+  const escolhidas = new Set(marcadas);
+  for (const a of ativas) {
+    // Grava TODAS as contas ativas, marcadas e desmarcadas: é a existência de
+    // linha que registra "esta pessoa já configurou".
+    await db.insert(userEmailClientPrefs)
+      .values({ userId, accountId: a.id, enabled: escolhidas.has(a.id) })
+      .onDuplicateKeyUpdate({ set: { enabled: escolhidas.has(a.id) } });
+  }
+  return ativas.length;
+}
+
+/** Contas ativas para a tela de preferências — só id e nome, sem token nenhum. */
+export async function contasParaPreferencias(): Promise<{ id: number; nome: string }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ id: metaAdAccounts.id, nome: metaAdAccounts.accountName })
+    .from(metaAdAccounts).where(eq(metaAdAccounts.isActive, true)).orderBy(metaAdAccounts.accountName);
+  return rows.map((r) => ({ id: r.id, nome: r.nome ?? `Conta ${r.id}` }));
+}
+
+/** Usuário ativo por e-mail — base da pré-seleção dos grupos. */
+export async function usuarioAtivoPorEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select({ id: users.id, name: users.name, email: users.email, role: users.role })
+    .from(users).where(and(eq(users.email, email), isNull(users.deletedAt))).limit(1);
+  return rows[0];
 }
 
 /** Contas (meta_ad_accounts.id) que este usuário coordena. */

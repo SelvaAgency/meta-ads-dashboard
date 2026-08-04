@@ -160,6 +160,22 @@ async function main() {
       }
     }
 
+    // 3.0.4) Preferência de clientes no Jornalzinho, por pessoa. Tabela própria
+    //        (não client_coordinators): aquela significa responsabilidade e
+    //        exige operationalRole=coordinator; esta é só filtro de e-mail.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`user_email_client_prefs\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`userId\` INT NOT NULL,
+        \`accountId\` INT NOT NULL,
+        \`enabled\` BOOLEAN NOT NULL DEFAULT 1,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY \`uq_user_email_client\` (\`userId\`, \`accountId\`)
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabela user_email_client_prefs garantida");
+
     // 3.1) Foto do cliente enviada à mão. Coluna PRÓPRIA, separada da
     //      `pictureUrl` que vem da Meta: o import de contas reescreve aquela, e
     //      uma foto escolhida pelo time não pode sumir por causa disso.
