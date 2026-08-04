@@ -30,6 +30,8 @@ const COLUMNS = [
   { name: "active",             ddl: "ADD COLUMN `active` BOOLEAN NOT NULL DEFAULT 1" },
   { name: "lastSeenAt",         ddl: "ADD COLUMN `lastSeenAt` TIMESTAMP NULL" },
   { name: "avatarKey",          ddl: "ADD COLUMN `avatarKey` VARCHAR(512) NULL" },
+  // Grupo do Jornalzinho (gtm1 | gtm2 | todos | nenhum). NULL = sem recorte.
+  { name: "jornalzinhoGrupo",   ddl: "ADD COLUMN `jornalzinhoGrupo` VARCHAR(16) NULL" },
 ];
 
 async function columnExists(conn, table, column) {

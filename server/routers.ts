@@ -321,7 +321,8 @@ import { emailMode, destinatariosDeTeste, transporteAtivo, providerConfigurado, 
 import { GMAIL_SCOPE, verificarConexaoGmail, limparCacheToken, sanitizarErroGmail } from "./services/email/gmailProvider";
 import { previaTesteGmail, enviarTesteGmail, TIPO_TESTE_GMAIL } from "./services/email/gmailTeste";
 import { simularDestinatarios } from "./services/email/destinatarios";
-import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, preferenciasEmailDoUsuario, salvarPreferenciasEmail, usuarioAtivoPorEmail, contasDoJornalzinho, usuariosAtivosComEmail } from "./db";
+import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho } from "./db";
+import { GRUPOS, grupoPorId, resolverGrupo, ehGrupoValido } from "./services/email/gruposJornalzinho";
 import { isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
 import { gerarEPersistirExecutivo, lerUltimoExecutivo } from "./services/jornalExecutivo";
@@ -2284,120 +2285,91 @@ export const appRouter = router({
       .input(z.object({ dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).default({}))
       .query(({ input }) => previewDigest(input.dia ?? hojeAgencia())),
 
-    // ─── Preferência de clientes no Jornalzinho ────────────────────────────
-    // Fica em Configurações do SPACES, não do Tracker: é preferência pessoal de
-    // e-mail, não configuração de conta de anúncio.
+    // ─── Grupo do Jornalzinho ──────────────────────────────────────────────
+    // Segmentação por GRUPO FIXO, não por escolha livre de clientes: a
+    // narrativa da IA é cacheada por conjunto de contas, então combinação
+    // individual faria o custo crescer com o time.
 
-    /** Clientes ativos + o que ESTA pessoa marcou. Só id e nome — nada de token. */
-    minhasPreferenciasEmail: protectedProcedure.query(async ({ ctx }) => {
-      const [clientes, prefs] = await Promise.all([
+    /** O grupo da PRÓPRIA pessoa e os clientes dele — informativo, não editável. */
+    meuGrupoJornalzinho: protectedProcedure.query(async ({ ctx }) => {
+      const [grupo, contas] = await Promise.all([
+        grupoJornalzinhoDoUsuario(ctx.user.id),
         contasParaPreferencias(),
-        preferenciasEmailDoUsuario(ctx.user.id),
       ]);
-      const marcadas = new Set(prefs.filter((p) => p.enabled).map((p) => p.accountId));
+      const def = grupoPorId(grupo);
+      const r = grupo && grupo !== "todos" && grupo !== "nenhum"
+        ? resolverGrupo(grupo as never, contas)
+        : null;
       return {
-        clientes: clientes.map((c) => ({ ...c, marcado: prefs.length === 0 ? true : marcadas.has(c.id) })),
-        // Distingue "nunca configurou" de "configurou": a tela precisa dizer
-        // que hoje ele recebe tudo por falta de configuração, não por escolha.
-        configurado: prefs.length > 0,
+        grupo: grupo ?? null,
+        rotulo: def?.rotulo ?? "Todos os clientes",
+        descricao: def?.descricao ?? "Você ainda não está em um grupo — hoje recebe todos os clientes.",
+        semRecorte: !grupo || grupo === "todos",
+        clientes: r ? r.aplicados.map((a) => ({ rotulo: a.rotulo, nome: a.nome })) : [],
+        // Alvo declarado que ainda não virou conta (Aiká, UMDSA) aparece como
+        // "em breve" em vez de sumir — senão a pessoa acha que esqueceram dela.
+        aguardando: r ? r.pendencias.filter((x) => x.tipo === "sem_cliente").map((x) => x.rotulo) : [],
       };
     }),
 
-    /**
-     * Salva a lista da PRÓPRIA pessoa. Deriva o dono da sessão — nunca aceita
-     * userId do cliente, senão qualquer um editaria a preferência de outro.
-     */
-    salvarMinhasPreferenciasEmail: protectedProcedure
-      .input(z.object({ accountIds: z.array(z.number().int()) }))
-      .mutation(async ({ ctx, input }) => {
-        const total = await salvarPreferenciasEmail(ctx.user.id, input.accountIds);
-        return { success: true as const, clientes: total, marcados: input.accountIds.length };
+    /** Grupos disponíveis + quem está em cada um. Admin/dev. */
+    gruposJornalzinho: contentProcedure.query(async () => {
+      const contas = await contasParaPreferencias();
+      const pessoas = await pessoasComGrupoJornalzinho();
+      return {
+        grupos: GRUPOS.map((g) => ({
+          id: g.id, rotulo: g.rotulo, descricao: g.descricao,
+          ...(g.alvos.length ? resolverGrupo(g.id, contas) : { aplicados: [], pendencias: [] }),
+          pessoas: pessoas.filter((p) => p.grupo === g.id).map((p) => ({ id: p.id, nome: p.nome, email: p.email, role: p.role })),
+        })),
+        semGrupo: pessoas.filter((p) => !p.grupo).map((p) => ({ id: p.id, nome: p.nome, email: p.email, role: p.role })),
+      };
+    }),
+
+    /** Move UMA pessoa de grupo. Admin — é decisão de quem recebe o quê. */
+    definirGrupoDePessoa: adminProcedure
+      .input(z.object({ userId: z.number().int(), grupo: z.string().nullable() }))
+      .mutation(async ({ input }) => {
+        if (input.grupo !== null && !ehGrupoValido(input.grupo)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Grupo inválido: ${input.grupo}` });
+        }
+        await definirGrupoJornalzinho(input.userId, input.grupo);
+        return { success: true as const };
       }),
 
     /**
-     * Pré-seleção dos dois grupos de GTM. Idempotente e AUDITÁVEL: casa por
-     * e-mail (pessoa) e por nome normalizado contendo o token (cliente), e
-     * devolve tudo que casou e tudo que NÃO casou.
+     * Coloca as pessoas nos grupos padrão. Idempotente e AUDITÁVEL: relata,
+     * por pessoa, se o usuário foi encontrado, o role, o grupo aplicado, os
+     * clientes que o grupo alcança hoje (com accountId) e o que ficou pendente.
      *
-     * Relatar em vez de aplicar parcialmente em silêncio é o ponto: nome de
-     * conta na Meta vem com prefixo ("CA - ARKA"), então o casamento é por
-     * substring — e substring erra. Sem o relatório, um grupo sairia
-     * incompleto e ninguém notaria até alguém reclamar do e-mail.
+     * Ambiguidade NUNCA é resolvida sozinha — escolher erraria o grupo inteiro
+     * e ninguém saberia por quê.
      */
     preSelecionarGruposJornalzinho: adminProcedure.mutation(async () => {
-      // Aiká e UMDSA ficaram de fora: não têm conta no Tracker, então não há
-      // accountId para filtrar. Entram sozinhas quando a conta existir.
-      const GRUPOS = [
-        {
-          nome: "Grupo 1 · GTM",
-          emails: ["beth@selva.agency", "bruna@selva.agency", "namie@selva.agency"],
-          alvos: [
-            { rotulo: "Ultramalhas", tokens: ["ultramalhas", "ultra malhas"] },
-            { rotulo: "Elwing", tokens: ["elwing"] },
-            { rotulo: "Carol G", tokens: ["caroline", "carol"] },
-          ],
-        },
-        {
-          nome: "Grupo 2 · GTM",
-          emails: ["natalia@selva.agency", "bad@selva.agency"],
-          alvos: [
-            { rotulo: "Musa", tokens: ["musa"] },
-            { rotulo: "Arka", tokens: ["arka"] },
-            { rotulo: "Play", tokens: ["scaffold play", "scaffold", "play"] },
-          ],
-        },
-      ];
-      const norm = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
-      const clientes = await contasParaPreferencias();
-
+      const contas = await contasParaPreferencias();
       const relatorio = [];
-      for (const g of GRUPOS) {
-        const aplicados: { rotulo: string; accountId: number; nome: string }[] = [];
-        const pendencias: { rotulo: string; tipo: "ambiguo" | "sem_cliente"; detalhe: string }[] = [];
-
-        for (const alvo of g.alvos) {
-          // Tokens são tentados do mais específico ao mais genérico; o primeiro
-          // que resolve para UM cliente vence. "scaffold play" antes de "play"
-          // é o que evita o genérico casar com o cliente errado.
-          let resolvido: { id: number; nome: string } | null = null;
-          let ambiguidade: string | null = null;
-          for (const t of alvo.tokens) {
-            const hits = clientes.filter((c) => norm(c.nome).includes(norm(t)));
-            if (hits.length === 1) { resolvido = hits[0]; break; }
-            if (hits.length > 1) ambiguidade = `"${t}" casou com: ${hits.map((h) => h.nome).join(", ")}`;
-          }
-          if (resolvido) { aplicados.push({ rotulo: alvo.rotulo, accountId: resolvido.id, nome: resolvido.nome }); continue; }
-          // Ambíguo NÃO é aplicado: escolher por conta própria erraria o grupo
-          // inteiro e ninguém saberia por quê.
-          pendencias.push(ambiguidade
-            ? { rotulo: alvo.rotulo, tipo: "ambiguo" as const, detalhe: `${ambiguidade} — ajuste necessário, nada aplicado` }
-            : { rotulo: alvo.rotulo, tipo: "sem_cliente" as const, detalhe: `nenhum cliente ativo casou com ${alvo.tokens.map((t) => `"${t}"`).join(" / ")}` });
-        }
-
+      for (const g of GRUPOS.filter((x) => x.emailsPadrao.length > 0)) {
+        const r = resolverGrupo(g.id, contas);
         const pessoas = [];
-        for (const email of g.emails) {
+        for (const email of g.emailsPadrao) {
           const u = await usuarioAtivoPorEmail(email);
-          if (!u) {
-            pessoas.push({ email, encontrado: false, role: null, nome: null, userId: null, aplicados: [], pendencias });
-            continue;
-          }
-          await salvarPreferenciasEmail(u.id, aplicados.map((a) => a.accountId));
-          pessoas.push({ email, encontrado: true, role: u.role ?? null, nome: u.name ?? null, userId: u.id, aplicados, pendencias });
+          if (!u) { pessoas.push({ email, encontrado: false, userId: null, nome: null, role: null }); continue; }
+          await definirGrupoJornalzinho(u.id, g.id);
+          pessoas.push({ email, encontrado: true, userId: u.id, nome: u.name ?? null, role: u.role ?? null });
         }
-        relatorio.push({ grupo: g.nome, pessoas, aplicados, pendencias });
+        relatorio.push({ grupo: g.id, rotulo: g.rotulo, pessoas, aplicados: r.aplicados, pendencias: r.pendencias });
       }
       return { relatorio };
     }),
 
-    /** Quem já tem preferência configurada — alimenta a prévia "como usuário". */
+    /** Quem está em qual grupo — alimenta a prévia "por pessoa". */
     pessoasComPreferencia: contentProcedure.query(async () => {
-      const pessoas = await usuariosAtivosComEmail();
-      const out = [];
-      for (const p of pessoas) {
-        const contas = await contasDoJornalzinho(p.id);
-        out.push({ id: p.id, nome: p.name, email: p.email, role: p.role, configurado: contas !== null, clientes: contas?.length ?? null });
-      }
-      return out;
+      const pessoas = await pessoasComGrupoJornalzinho();
+      return pessoas.map((p) => ({
+        id: p.id, nome: p.nome, email: p.email, role: p.role,
+        grupo: p.grupo ?? null,
+        rotuloGrupo: grupoPorId(p.grupo)?.rotulo ?? "Todos os clientes",
+      }));
     }),
 
     /** Matriz papel → blocos, para a tela explicar a regra em vez de esconder. */

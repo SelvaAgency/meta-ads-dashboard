@@ -64,31 +64,21 @@ export default function JornalzinhoPreview() {
    * PESSOA (as preferências reais dela). A prévia por pessoa é a verdade; a por
    * grupo serve para conferir o recorte antes de existir alguém configurado.
    */
-  const [segmento, setSegmento] = useState<"todos" | "g1" | "g2" | "pessoa">("todos");
+  const [segmento, setSegmento] = useState<"todos" | "gtm1" | "gtm2" | "pessoa">("todos");
   const [pessoaId, setPessoaId] = useState<number | null>(null);
 
   const pessoasQ = trpc.notifications.pessoasComPreferencia.useQuery(undefined, { enabled: segmento === "pessoa" });
-  const prefsQ = trpc.notifications.minhasPreferenciasEmail.useQuery(undefined, { enabled: segmento === "g1" || segmento === "g2" });
-
-  // Os grupos são resolvidos pelo NOME do cliente na tela, não por id fixo: id
-  // de conta muda entre ambientes e um número cravado aqui viraria prévia de
-  // cliente errado sem ninguém perceber.
-  const norm = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const TOKENS: Record<"g1" | "g2", string[]> = {
-    g1: ["ultramalhas", "elwing", "caroline", "carol"],
-    g2: ["musa", "arka", "scaffold", "play"],
-  };
-  const contasDoGrupo = (g: "g1" | "g2") => {
-    const todos = prefsQ.data?.clientes ?? [];
-    const ids = new Set<number>();
-    for (const t of TOKENS[g]) for (const c of todos) if (norm(c.nome).includes(norm(t))) ids.add(c.id);
-    return Array.from(ids);
-  };
+  // Os grupos e os clientes de cada um vêm do SERVIDOR. Duplicar os tokens aqui
+  // criaria uma segunda definição de grupo, que divergiria da primeira na
+  // primeira mudança.
+  const gruposQ = trpc.notifications.gruposJornalzinho.useQuery();
+  const grupoSel = (gruposQ.data?.grupos ?? []).find((g: any) => g.id === segmento);
+  const contasDoGrupo = (): number[] => (grupoSel?.aplicados ?? []).map((a: any) => a.accountId);
 
   const previaQ = trpc.notifications.previewDigestHtml.useQuery({
     papel, dia,
     ...(segmento === "pessoa" && pessoaId != null ? { comoUsuario: pessoaId } : {}),
-    ...(segmento === "g1" || segmento === "g2" ? { contas: contasDoGrupo(segmento) } : {}),
+    ...(segmento === "gtm1" || segmento === "gtm2" ? { contas: contasDoGrupo() } : {}),
   });
 
   const preSelecionar = trpc.notifications.preSelecionarGruposJornalzinho.useMutation({
@@ -156,7 +146,7 @@ export default function JornalzinhoPreview() {
             <div className="flex flex-col gap-1">
               <label className="text-[11px] text-muted-foreground">Clientes</label>
               <div className="inline-flex rounded-lg border border-border p-0.5">
-                {([["todos", "Todos"], ["g1", "Grupo 1"], ["g2", "Grupo 2"], ["pessoa", "Por pessoa"]] as const).map(([v, l]) => (
+                {([["todos", "Todos"], ["gtm1", "GTM 1"], ["gtm2", "GTM 2"], ["pessoa", "Por pessoa"]] as const).map(([v, l]) => (
                   <button key={v} onClick={() => setSegmento(v)}
                     className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${segmento === v ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>
                     {l}
@@ -172,7 +162,7 @@ export default function JornalzinhoPreview() {
                   <option value="">— selecione —</option>
                   {(pessoasQ.data ?? []).map((p: any) => (
                     <option key={p.id} value={p.id}>
-                      {p.nome ?? p.email}{p.configurado ? ` · ${p.clientes} cliente(s)` : " · sem filtro"}
+                      {p.nome ?? p.email} · {p.rotuloGrupo}
                     </option>
                   ))}
                 </select>
@@ -225,10 +215,14 @@ export default function JornalzinhoPreview() {
                   >
                     Abrir em aba nova
                   </button>
-                  {segmento !== "todos" && segmento !== "pessoa" && (
+                  {grupoSel && (
                     <span className="text-[11px] text-muted-foreground">
-                      Recorte: {contasDoGrupo(segmento).length} cliente(s) —{" "}
-                      {(prefsQ.data?.clientes ?? []).filter((c) => contasDoGrupo(segmento).includes(c.id)).map((c) => c.nome).join(", ") || "nenhum resolvido"}
+                      Recorte: {(grupoSel.aplicados ?? []).map((a: any) => a.nome).join(", ") || "nenhum cliente resolvido"}
+                      {(grupoSel.pendencias ?? []).length > 0 && (
+                        <span className="text-amber-600">
+                          {" "}· pendente: {(grupoSel.pendencias ?? []).map((x: any) => x.rotulo).join(", ")}
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>
@@ -251,10 +245,10 @@ export default function JornalzinhoPreview() {
       {ehAdmin && (
         <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
           <div>
-            <p className="text-xs font-semibold text-foreground">Pré-seleção dos grupos de GTM</p>
+            <p className="text-xs font-semibold text-foreground">Grupos do Jornalzinho</p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Aplica Grupo 1 (Beth, Bruna, Namie) e Grupo 2 (Nat, Bad) nas preferências delas.
-              Idempotente — rodar de novo não duplica. Cada pessoa pode ajustar depois em Configurações.
+              Coloca Beth, Bruna e Namie no GTM 1, e Nat e Bad no GTM 2. Idempotente — rodar de novo
+              não duplica. A pessoa vê o grupo dela em Configurações, mas não edita: quem move é admin.
             </p>
           </div>
           <div>
@@ -267,39 +261,35 @@ export default function JornalzinhoPreview() {
           {preSelecionar.data && (
             <div className="flex flex-col gap-3 border-t border-border pt-3">
               {(preSelecionar.data as any).relatorio.map((g: any) => (
-                <div key={g.grupo} className="flex flex-col gap-2">
-                  <p className="text-xs font-bold">{g.grupo}</p>
+                <div key={g.grupo} className="text-[11px] pl-3 border-l-2 border-border">
+                  <p className="text-xs font-bold">{g.rotulo}</p>
+
+                  <p className="text-muted-foreground mt-1">clientes do grupo:</p>
+                  {g.aplicados.length === 0
+                    ? <p className="pl-3 text-amber-600">nenhum resolvido</p>
+                    : g.aplicados.map((a: any) => (
+                        <p key={a.accountId} className="pl-3 text-emerald-700 dark:text-emerald-500">
+                          • {a.rotulo} → {a.nome} — accountId {a.accountId}
+                        </p>
+                      ))}
+
+                  <p className="text-muted-foreground mt-1">pessoas:</p>
                   {g.pessoas.map((p: any) => (
-                    <div key={p.email} className="text-[11px] pl-3 border-l-2 border-border">
-                      <p className="font-semibold">{p.nome ?? p.email}</p>
-                      <p className={p.encontrado ? "text-muted-foreground" : "text-destructive"}>
-                        usuário: {p.email} — {p.encontrado ? `encontrado (id ${p.userId})` : "NÃO encontrado"}
-                        {p.encontrado ? ` · role: ${p.role}` : ""}
-                      </p>
-                      {p.encontrado && (
-                        <>
-                          <p className="text-muted-foreground mt-0.5">clientes aplicados:</p>
-                          {p.aplicados.length === 0
-                            ? <p className="pl-3 text-amber-600">nenhum</p>
-                            : p.aplicados.map((a: any) => (
-                                <p key={a.accountId} className="pl-3 text-emerald-700 dark:text-emerald-500">
-                                  • {a.rotulo} → {a.nome} — accountId {a.accountId}
-                                </p>
-                              ))}
-                        </>
-                      )}
-                      {p.pendencias.length === 0
-                        ? <p className="text-muted-foreground mt-0.5">pendências: nenhuma</p>
-                        : (
-                          <>
-                            <p className="text-amber-600 mt-0.5">pendências:</p>
-                            {p.pendencias.map((x: any, i: number) => (
-                              <p key={i} className="pl-3 text-amber-600">• {x.rotulo}: {x.detalhe}</p>
-                            ))}
-                          </>
-                        )}
-                    </div>
+                    <p key={p.email} className={`pl-3 ${p.encontrado ? "text-muted-foreground" : "text-destructive"}`}>
+                      • {p.nome ?? p.email} — {p.encontrado ? `encontrado (id ${p.userId}) · role ${p.role}` : "NÃO encontrado"}
+                    </p>
                   ))}
+
+                  {g.pendencias.length === 0
+                    ? <p className="text-muted-foreground mt-1">pendências: nenhuma</p>
+                    : (
+                      <>
+                        <p className="text-amber-600 mt-1">pendências:</p>
+                        {g.pendencias.map((x: any, i: number) => (
+                          <p key={i} className="pl-3 text-amber-600">• {x.rotulo}: {x.detalhe}</p>
+                        ))}
+                      </>
+                    )}
                 </div>
               ))}
             </div>

@@ -35,6 +35,17 @@ export const users = mysqlTable("users", {
   birthdayMonth: int("birthdayMonth"), // 1–12
   // Foto de perfil (key do objeto no storage; URL resolvida no backend)
   avatarKey: varchar("avatarKey", { length: 512 }),
+  /**
+   * Grupo do Jornalzinho: gtm1 | gtm2 | todos | nenhum. NULL = sem grupo, que
+   * hoje significa sem recorte (recebe tudo), igual ao comportamento anterior.
+   *
+   * Grupo FIXO em vez de escolha livre de clientes por pessoa: a narrativa da
+   * IA é cacheada por conjunto de contas, então combinação individual faria o
+   * custo crescer com o time. Com grupo, o teto é o número de grupos.
+   *
+   * Não é papel nem permissão — só recorte de conteúdo do e-mail.
+   */
+  jornalzinhoGrupo: varchar("jornalzinhoGrupo", { length: 16 }),
   // Primeiro acesso / segurança
   mustChangePassword: boolean("mustChangePassword").default(false).notNull(),
   active: boolean("active").default(true).notNull(),

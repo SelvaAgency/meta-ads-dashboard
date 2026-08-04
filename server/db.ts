@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { contasDoGrupo } from "./services/email/gruposJornalzinho";
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
@@ -3934,51 +3935,9 @@ export async function setOperationalRole(userId: number, operationalRole: "colla
   await db.update(users).set({ operationalRole }).where(eq(users.id, userId));
 }
 
-// ─── Preferência de clientes no Jornalzinho ──────────────────────────────────
+// ─── Grupo do Jornalzinho ────────────────────────────────────────────────────
 
-/** Preferências brutas da pessoa. Lista vazia = NUNCA configurou (≠ desmarcou tudo). */
-export async function preferenciasEmailDoUsuario(userId: number): Promise<{ accountId: number; enabled: boolean }[]> {
-  const db = await getDb();
-  if (!db) return [];
-  const rows = await db.select({ accountId: userEmailClientPrefs.accountId, enabled: userEmailClientPrefs.enabled })
-    .from(userEmailClientPrefs).where(eq(userEmailClientPrefs.userId, userId));
-  return rows;
-}
-
-/**
- * Contas que ESTE usuário quer no Jornalzinho.
- *
- * `null` significa "sem filtro" — e é diferente de lista vazia:
- *   • nunca configurou      → null  → recebe tudo (fallback explícito)
- *   • configurou e marcou   → [ids] → recebe só esses
- *   • configurou e desmarcou→ []    → recebe nada de cliente, de propósito
- *
- * Confundir os dois primeiros é o que faria uma tela nunca aberta silenciar o
- * e-mail de alguém sem ninguém entender por quê.
- */
-export async function contasDoJornalzinho(userId: number): Promise<number[] | null> {
-  const prefs = await preferenciasEmailDoUsuario(userId);
-  if (prefs.length === 0) return null;
-  return prefs.filter((p) => p.enabled).map((p) => p.accountId);
-}
-
-/** Substitui as preferências da pessoa. Uma linha por conta ATIVA, com o estado. */
-export async function salvarPreferenciasEmail(userId: number, marcadas: number[]): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("DB indisponível");
-  const ativas = await db.select({ id: metaAdAccounts.id }).from(metaAdAccounts).where(eq(metaAdAccounts.isActive, true));
-  const escolhidas = new Set(marcadas);
-  for (const a of ativas) {
-    // Grava TODAS as contas ativas, marcadas e desmarcadas: é a existência de
-    // linha que registra "esta pessoa já configurou".
-    await db.insert(userEmailClientPrefs)
-      .values({ userId, accountId: a.id, enabled: escolhidas.has(a.id) })
-      .onDuplicateKeyUpdate({ set: { enabled: escolhidas.has(a.id) } });
-  }
-  return ativas.length;
-}
-
-/** Contas ativas para a tela de preferências — só id e nome, sem token nenhum. */
+/** Contas ativas — base da resolução de grupo e da tela informativa. */
 export async function contasParaPreferencias(): Promise<{ id: number; nome: string }[]> {
   const db = await getDb();
   if (!db) return [];
@@ -3987,13 +3946,56 @@ export async function contasParaPreferencias(): Promise<{ id: number; nome: stri
   return rows.map((r) => ({ id: r.id, nome: r.nome ?? `Conta ${r.id}` }));
 }
 
-/** Usuário ativo por e-mail — base da pré-seleção dos grupos. */
+/** Grupo da pessoa. `null` = sem grupo, que hoje significa sem recorte. */
+export async function grupoJornalzinhoDoUsuario(userId: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select({ g: users.jornalzinhoGrupo }).from(users).where(eq(users.id, userId)).limit(1);
+  return r[0]?.g ?? null;
+}
+
+export async function definirGrupoJornalzinho(userId: number, grupo: string | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ jornalzinhoGrupo: grupo }).where(eq(users.id, userId));
+}
+
+/**
+ * Contas que ESTA pessoa vê no Jornalzinho, resolvidas pelo GRUPO dela.
+ *
+ * `null` = sem recorte (vê tudo) — é o valor de quem não tem grupo e de quem
+ * está em "todos". Diferente de `[]`, que é "nenhum cliente": os dois precisam
+ * ser valores distintos, senão "não configurado" e "não quero nada" viram a
+ * mesma coisa.
+ *
+ * A resolução é por grupo, não por escolha individual: a narrativa da IA é
+ * cacheada por conjunto de contas, então combinação por pessoa faria o custo
+ * crescer com o time.
+ */
+export async function contasDoJornalzinho(userId: number): Promise<number[] | null> {
+  const grupo = await grupoJornalzinhoDoUsuario(userId);
+  if (!grupo || grupo === "todos") return null;
+  if (grupo === "nenhum") return [];
+  const contas = await contasParaPreferencias();
+  return contasDoGrupo(grupo as never, contas);
+}
+
+/** Usuário ativo por e-mail — base da atribuição padrão de grupos. */
 export async function usuarioAtivoPorEmail(email: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const rows = await db.select({ id: users.id, name: users.name, email: users.email, role: users.role })
+  const rows = await db.select({ id: users.id, name: users.name, email: users.email, role: users.role, grupo: users.jornalzinhoGrupo })
     .from(users).where(and(eq(users.email, email), isNull(users.deletedAt))).limit(1);
   return rows[0];
+}
+
+/** Pessoas ativas com o grupo de cada uma — alimenta a tela administrativa. */
+export async function pessoasComGrupoJornalzinho() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ id: users.id, nome: users.name, email: users.email, role: users.role, grupo: users.jornalzinhoGrupo })
+    .from(users).where(and(eq(users.active, true), isNull(users.deletedAt), isNotNull(users.email)))
+    .orderBy(users.name);
 }
 
 /** Contas (meta_ad_accounts.id) que este usuário coordena. */
