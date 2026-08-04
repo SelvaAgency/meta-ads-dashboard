@@ -2362,14 +2362,26 @@ export const appRouter = router({
       return { relatorio };
     }),
 
-    /** Quem está em qual grupo — alimenta a prévia "por pessoa". */
+    /**
+     * Quem está em qual grupo — alimenta a prévia "por pessoa".
+     *
+     * O rótulo de quem NÃO tem grupo depende do papel, e isso não é cosmético:
+     * "Todos os clientes" para todo mundo tornava impossível distinguir
+     * "gravou como todos" de "não gravou nada". Colaborador sem grupo agora diz
+     * "sem grupo definido" — que é um estado a corrigir, não uma configuração.
+     */
     pessoasComPreferencia: contentProcedure.query(async () => {
       const pessoas = await pessoasComGrupoJornalzinho();
-      return pessoas.map((p) => ({
-        id: p.id, nome: p.nome, email: p.email, role: p.role,
-        grupo: p.grupo ?? null,
-        rotuloGrupo: grupoPorId(p.grupo)?.rotulo ?? "Todos os clientes",
-      }));
+      return pessoas.map((p) => {
+        const def = grupoPorId(p.grupo);
+        const ehGestor = canManageContent(p.role);
+        return {
+          id: p.id, nome: p.nome, email: p.email, role: p.role,
+          grupo: p.grupo ?? null,
+          semGrupo: !p.grupo,
+          rotuloGrupo: def?.rotulo ?? (ehGestor ? "Todos os clientes" : "sem grupo definido"),
+        };
+      });
     }),
 
     /** Matriz papel → blocos, para a tela explicar a regra em vez de esconder. */

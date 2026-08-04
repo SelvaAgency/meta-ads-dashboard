@@ -50,6 +50,7 @@ const hojeAgencia = () =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 
 export default function JornalzinhoPreview() {
+  const utils = trpc.useUtils();
   const { user } = useAuth();
   const ehAdmin = canAccessAdmin((user as { role?: string } | null)?.role);
   const papeisVisiveis = PAPEIS.filter((p) => ehAdmin || !p.soAdmin);
@@ -67,7 +68,10 @@ export default function JornalzinhoPreview() {
   const [segmento, setSegmento] = useState<"todos" | "gtm1" | "gtm2" | "pessoa">("todos");
   const [pessoaId, setPessoaId] = useState<number | null>(null);
 
-  const pessoasQ = trpc.notifications.pessoasComPreferencia.useQuery(undefined, { enabled: segmento === "pessoa" });
+  // Carrega sempre (não só no modo "pessoa"): a mesma lista alimenta o
+  // diagnóstico de quem ficou sem grupo, que precisa aparecer antes de alguém
+  // trocar o seletor para descobrir que algo não foi aplicado.
+  const pessoasQ = trpc.notifications.pessoasComPreferencia.useQuery();
   // Os grupos e os clientes de cada um vêm do SERVIDOR. Duplicar os tokens aqui
   // criaria uma segunda definição de grupo, que divergiria da primeira na
   // primeira mudança.
@@ -82,7 +86,19 @@ export default function JornalzinhoPreview() {
   });
 
   const preSelecionar = trpc.notifications.preSelecionarGruposJornalzinho.useMutation({
-    onSuccess: (r: any) => {
+    onSuccess: async (r: any) => {
+      /**
+       * Sem invalidar, a tela continua mostrando o cache de ANTES da gravação —
+       * todo mundo como "sem grupo". Era o que fazia parecer que o botão não
+       * tinha funcionado. Invalida as três leituras que dependem do grupo, e a
+       * prévia junto (o recorte do e-mail acabou de mudar).
+       */
+      await Promise.all([
+        utils.notifications.pessoasComPreferencia.invalidate(),
+        utils.notifications.gruposJornalzinho.invalidate(),
+        utils.notifications.meuGrupoJornalzinho.invalidate(),
+        utils.notifications.previewDigestHtml.invalidate(),
+      ]);
       const faltou = r.relatorio.flatMap((g: any) => [
         ...g.tokensSemCliente.map((t: string) => `sem cliente: ${t}`),
         ...g.ambiguos.map((a: any) => `ambíguo: ${a.token}`),
@@ -91,6 +107,20 @@ export default function JornalzinhoPreview() {
       toast[faltou.length ? "warning" : "success"](
         faltou.length ? `Aplicado com pendências: ${faltou.join(" · ")}` : "Pré-seleção aplicada nos dois grupos.",
       );
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  /** Correção manual: se o e-mail não casar com nenhum usuário, o admin move a
+   *  pessoa de grupo aqui, sem depender do casamento automático. */
+  const moverPessoa = trpc.notifications.definirGrupoDePessoa.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.notifications.pessoasComPreferencia.invalidate(),
+        utils.notifications.gruposJornalzinho.invalidate(),
+        utils.notifications.previewDigestHtml.invalidate(),
+      ]);
+      toast.success("Grupo atualizado.");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -292,6 +322,50 @@ export default function JornalzinhoPreview() {
                     )}
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quem está em qual grupo — e correção manual, se precisar */}
+      {ehAdmin && gruposQ.data && (
+        <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+          <p className="text-xs font-semibold text-foreground">Quem está em cada grupo</p>
+          {(gruposQ.data as any).grupos.filter((g: any) => g.id === "gtm1" || g.id === "gtm2").map((g: any) => (
+            <div key={g.id} className="text-[11px]">
+              <p className="font-semibold">{g.rotulo}</p>
+              <p className="text-muted-foreground">
+                clientes: {(g.aplicados ?? []).map((a: any) => a.nome).join(", ") || "nenhum"}
+                {(g.pendencias ?? []).length > 0 && (
+                  <span className="text-amber-600"> · aguardando: {(g.pendencias ?? []).map((x: any) => x.rotulo).join(", ")}</span>
+                )}
+              </p>
+              <p className={(g.pessoas ?? []).length ? "text-muted-foreground" : "text-amber-600"}>
+                pessoas: {(g.pessoas ?? []).map((p: any) => p.nome ?? p.email).join(", ") || "NINGUÉM — o botão acima não aplicou"}
+              </p>
+            </div>
+          ))}
+          {(gruposQ.data as any).semGrupo.length > 0 && (
+            <div className="border-t border-border pt-2">
+              <p className="text-[11px] text-muted-foreground mb-1.5">Sem grupo — mova quem precisar:</p>
+              <div className="flex flex-col gap-1">
+                {(gruposQ.data as any).semGrupo.map((p: any) => (
+                  <div key={p.id} className="flex items-center gap-2 text-[11px]">
+                    <span className="flex-1 truncate">{p.nome ?? p.email} <span className="text-muted-foreground">({p.role})</span></span>
+                    <select
+                      defaultValue=""
+                      onChange={(e) => e.target.value && moverPessoa.mutate({ userId: p.id, grupo: e.target.value })}
+                      className="text-[11px] border border-border rounded-md px-1.5 py-1 bg-background"
+                    >
+                      <option value="">mover para…</option>
+                      <option value="gtm1">GTM 1</option>
+                      <option value="gtm2">GTM 2</option>
+                      <option value="todos">Todos</option>
+                      <option value="nenhum">Nenhum</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
