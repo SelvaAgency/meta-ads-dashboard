@@ -28,9 +28,20 @@
 import { canManageContent } from "@shared/permissions";
 import { usuariosAtivosComEmail } from "../../db";
 
-/** Único modo aceito nesta fase. `all` e `clients` são recusados de propósito. */
+/**
+ * Modos aceitos. Qualquer outro valor — inclusive `all` e `clients` — é
+ * recusado de propósito: são o que alguém escreveria no Railway achando que
+ * "libera geral", e `clients` sugeriria que cliente externo é destinatário
+ * possível. Nunca foi, e não é.
+ *
+ *   admin_dev    → só admin e developer (fase restrita de validação)
+ *   all_internal → todo usuário interno ATIVO com e-mail, incluindo colaborador
+ */
 export const MODO_ADMIN_DEV = "admin_dev";
-export type ModoDestinatarios = typeof MODO_ADMIN_DEV;
+export const MODO_ALL_INTERNAL = "all_internal";
+export type ModoDestinatarios = typeof MODO_ADMIN_DEV | typeof MODO_ALL_INTERNAL;
+
+const MODOS_VALIDOS: readonly string[] = [MODO_ADMIN_DEV, MODO_ALL_INTERNAL];
 
 export interface PessoaPermitida {
   id: number;
@@ -58,15 +69,15 @@ export function normalizarEmail(email: string): string {
  */
 export function modoDestinatarios(): ModoDestinatarios | null {
   const v = (process.env.EMAIL_RECIPIENT_MODE || "").trim().toLowerCase();
-  return v === MODO_ADMIN_DEV ? MODO_ADMIN_DEV : null;
+  return MODOS_VALIDOS.includes(v) ? (v as ModoDestinatarios) : null;
 }
 
 /** Frase única explicando por que o modo não vale — a UI mostra isto. */
 export function porqueModoInvalido(): string | null {
   const bruto = (process.env.EMAIL_RECIPIENT_MODE || "").trim();
-  if (!bruto) return "EMAIL_RECIPIENT_MODE não definida. Nesta fase o único valor aceito é admin_dev.";
+  if (!bruto) return `EMAIL_RECIPIENT_MODE não definida. Valores aceitos: ${MODOS_VALIDOS.join(" ou ")}.`;
   if (modoDestinatarios()) return null;
-  return `EMAIL_RECIPIENT_MODE="${bruto}" não é aceita nesta fase. Use admin_dev.`;
+  return `EMAIL_RECIPIENT_MODE="${bruto}" não é aceita. Use ${MODOS_VALIDOS.join(" ou ")}.`;
 }
 
 /**
@@ -78,12 +89,29 @@ export function porqueModoInvalido(): string | null {
  * ativo" divergiriam na primeira mudança de regra.
  */
 export async function resolverDestinatariosAdminDev(): Promise<PessoaPermitida[]> {
+  return resolverDestinatarios(MODO_ADMIN_DEV);
+}
+
+/**
+ * Quem PODE receber e-mail automático no modo informado.
+ *
+ * A base é sempre `usuariosAtivosComEmail()` — que já filtra `active = true`,
+ * `deletedAt IS NULL` e e-mail não nulo. É daí que vêm, de graça, as exclusões
+ * que o produto pede: cliente externo, lista fixa no código, endereço de env e
+ * qualquer fallback são impossíveis porque NENHUM deles é usuário interno. Não
+ * é uma regra a manter; é consequência de onde a lista nasce.
+ *
+ * A diferença entre os modos é só o filtro de papel:
+ *   admin_dev    → `canManageContent` (corta colaborador e coordenador)
+ *   all_internal → ninguém é cortado por papel
+ */
+export async function resolverDestinatarios(modo: ModoDestinatarios): Promise<PessoaPermitida[]> {
   const ativos = await usuariosAtivosComEmail();
   const vistos = new Set<string>();
   const permitidos: PessoaPermitida[] = [];
 
   for (const u of ativos) {
-    if (!canManageContent(u.role)) continue;      // corta user/colaborador e coordenador
+    if (modo === MODO_ADMIN_DEV && !canManageContent(u.role)) continue;
     const email = normalizarEmail(u.email ?? "");
     if (!email) continue;                          // sem e-mail não é destinatário
     if (vistos.has(email)) continue;               // dedup por endereço, não por id
@@ -144,7 +172,11 @@ export interface SimulacaoDestinatarios {
 
 export async function simularDestinatarios(): Promise<SimulacaoDestinatarios> {
   const ativos = await usuariosAtivosComEmail();
-  const receberiam = await resolverDestinatariosAdminDev();
+  // A simulação mostra o modo EM VIGOR. Sem modo configurado, usa admin_dev
+  // para o retrato ser o mais restrito — nunca sugerir alcance maior do que a
+  // configuração realmente daria.
+  const modo = modoDestinatarios();
+  const receberiam = await resolverDestinatarios(modo ?? MODO_ADMIN_DEV);
   const permitidos = new Set(receberiam.map((p) => p.email));
 
   const bloqueados = ativos
@@ -158,7 +190,7 @@ export async function simularDestinatarios(): Promise<SimulacaoDestinatarios> {
       // de alerta de site, e ver "role user" sem contexto parece engano.
       motivo: canManageContent(u.role)
         ? "sem e-mail utilizável"
-        : `role "${u.role ?? "user"}" — só admin e developer recebem nesta fase`,
+        : `role "${u.role ?? "user"}" — o modo ${modo ?? MODO_ADMIN_DEV} só entrega a admin e developer`,
     }));
 
   return {

@@ -8,8 +8,8 @@
  */
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
-  MODO_ADMIN_DEV, modoDestinatarios, porqueModoInvalido, normalizarEmail, validarDestinatarios,
-  resolverDestinatariosAdminDev, simularDestinatarios,
+  MODO_ADMIN_DEV, MODO_ALL_INTERNAL, modoDestinatarios, porqueModoInvalido, normalizarEmail,
+  validarDestinatarios, resolverDestinatariosAdminDev, resolverDestinatarios, simularDestinatarios,
 } from "./destinatarios";
 
 /**
@@ -34,6 +34,14 @@ vi.mock("../../db", () => ({
 afterEach(() => vi.unstubAllEnvs());
 
 describe("modo de destinatários", () => {
+  it("aceita all_internal", () => {
+    for (const v of ["all_internal", "ALL_INTERNAL", " all_internal "]) {
+      vi.stubEnv("EMAIL_RECIPIENT_MODE", v);
+      expect(modoDestinatarios()).toBe(MODO_ALL_INTERNAL);
+      expect(porqueModoInvalido()).toBeNull();
+    }
+  });
+
   it("aceita admin_dev, sem depender de maiúscula ou espaço", () => {
     for (const v of ["admin_dev", "ADMIN_DEV", " admin_dev "]) {
       vi.stubEnv("EMAIL_RECIPIENT_MODE", v);
@@ -168,7 +176,9 @@ describe("simulação (sem enviar nada)", () => {
     ]);
     const bloqueados = s.bloqueados.map((b) => b.email).sort();
     expect(bloqueados).toEqual(["coord@selva.agency", "colab@selva.agency"].sort());
-    expect(s.bloqueados.every((b) => /só admin e developer/.test(b.motivo))).toBe(true);
+    // O motivo agora nomeia o MODO, para o histórico dizer sob qual regra a
+    // pessoa ficou de fora — a regra muda entre fases.
+    expect(s.bloqueados.every((b) => /admin_dev.*admin e developer/.test(b.motivo))).toBe(true);
   });
 
   it("mostra o modo inválido em vez de fingir que está tudo certo", async () => {
@@ -179,5 +189,75 @@ describe("simulação (sem enviar nada)", () => {
     // A lista de permitidos continua sendo calculada — dá para conferir os nomes
     // antes de configurar a env.
     expect(s.receberiam.length).toBeGreaterThan(0);
+  });
+});
+
+
+/**
+ * ─── all_internal ───────────────────────────────────────────────────────────
+ * Libera o Jornalzinho para todo usuário interno ativo, colaborador incluído.
+ *
+ * O ponto que estes testes fixam: as exclusões que o produto pede (cliente
+ * externo, lista fixa no código, endereço de env, fallback) NÃO são regras
+ * novas — são consequência de a lista nascer de `usuariosAtivosComEmail()`.
+ * Quem não é usuário interno simplesmente não existe nessa fonte.
+ */
+describe("modo all_internal", () => {
+  it("inclui admin, developer E colaborador", async () => {
+    const r = await resolverDestinatarios(MODO_ALL_INTERNAL);
+    const roles = new Set(r.map((p) => p.role));
+    expect(roles.has("admin")).toBe(true);
+    expect(roles.has("developer")).toBe(true);
+    expect(roles.has("user")).toBe(true);
+  });
+
+  /** O coordenador é role=user; em admin_dev ficava fora, aqui entra. */
+  it("inclui o coordenador (role=user), que admin_dev cortava", async () => {
+    const r = await resolverDestinatarios(MODO_ALL_INTERNAL);
+    expect(r.some((p) => p.email === "coord@selva.agency")).toBe(true);
+    const restrito = await resolverDestinatariosAdminDev();
+    expect(restrito.some((p) => p.email === "coord@selva.agency")).toBe(false);
+  });
+
+  it("continua deduplicando por endereço e normalizando", async () => {
+    const r = await resolverDestinatarios(MODO_ALL_INTERNAL);
+    expect(r.filter((p) => p.email === "admin@selva.agency")).toHaveLength(1);
+    expect(r.some((p) => p.email === "admin2@selva.agency")).toBe(true);
+  });
+
+  /**
+   * A lista inteira sai de usuariosAtivosComEmail(), que já filtra
+   * active=true / deletedAt IS NULL / e-mail não nulo. Nada fora dessa fonte
+   * pode entrar — é o que torna impossível cliente externo ou env solta.
+   */
+  it("todo destinatário tem id de usuário interno", async () => {
+    const r = await resolverDestinatarios(MODO_ALL_INTERNAL);
+    expect(r.length).toBeGreaterThan(0);
+    expect(r.every((p) => Number.isInteger(p.id) && p.id > 0)).toBe(true);
+    expect(r.every((p) => p.email.endsWith("@selva.agency"))).toBe(true);
+  });
+
+  it("é mais abrangente que admin_dev, nunca menos", async () => {
+    const todos = await resolverDestinatarios(MODO_ALL_INTERNAL);
+    const restrito = await resolverDestinatarios(MODO_ADMIN_DEV);
+    const emails = new Set(todos.map((p) => p.email));
+    expect(restrito.every((p) => emails.has(p.email))).toBe(true);
+    expect(todos.length).toBeGreaterThan(restrito.length);
+  });
+
+  it("com all_internal em vigor, ninguém sobra como bloqueado", async () => {
+    vi.stubEnv("EMAIL_RECIPIENT_MODE", "all_internal");
+    const s = await simularDestinatarios();
+    expect(s.modo).toBe(MODO_ALL_INTERNAL);
+    expect(s.bloqueados).toHaveLength(0);
+    expect(s.receberiam.length).toBe(s.totalAtivosComEmail - 1); // -1 = duplicata por e-mail
+  });
+
+  /** Sem modo configurado a simulação mostra o cenário MAIS restrito. */
+  it("sem modo definido, simula admin_dev — nunca promete alcance maior", async () => {
+    vi.stubEnv("EMAIL_RECIPIENT_MODE", "");
+    const s = await simularDestinatarios();
+    expect(s.modo).toBeNull();
+    expect(s.receberiam.some((p) => p.email === "colab@selva.agency")).toBe(false);
   });
 });

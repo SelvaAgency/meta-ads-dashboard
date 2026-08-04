@@ -39,7 +39,7 @@ import { registrarEnvioEmail, getConexaoGmailAgencia } from "./db";
 import { decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { enviarPeloGmail, sanitizarErroGmail, type GmailCredenciais } from "./services/email/gmailProvider";
 import {
-  modoDestinatarios, porqueModoInvalido, resolverDestinatariosAdminDev, validarDestinatarios,
+  modoDestinatarios, porqueModoInvalido, resolverDestinatarios, validarDestinatarios,
 } from "./services/email/destinatarios";
 
 const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
@@ -417,10 +417,11 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
   const modo = modoDestinatarios();
   if (!modo) return bloquear(porqueModoInvalido() ?? "Modo de destinatários inválido.", "blocked");
 
-  // 5 — quem PODE receber, resolvido do banco (nunca de constante no código).
-  const permitidos = await resolverDestinatariosAdminDev();
+  // 5 — quem PODE receber, resolvido do banco pelo MODO em vigor (nunca de
+  //     constante no código, nunca de env solta).
+  const permitidos = await resolverDestinatarios(modo);
   if (permitidos.length === 0) {
-    return bloquear("Nenhum usuário admin/dev ativo com e-mail — nada a enviar.", "skipped");
+    return bloquear(`Nenhum usuário elegível no modo ${modo} — nada a enviar.`, "skipped");
   }
 
   // 6/7 — todos os pedidos têm que estar na lista. Um fora derruba o lote: filtrar
@@ -429,7 +430,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<ResultadoEnvio>
   const v = validarDestinatarios(destinos, permitidos.map((p) => p.email));
   if (!v.ok) {
     return bloquear(
-      `Destinatário fora de admin/dev: ${v.invalidos.join(", ")}. Envio bloqueado por EMAIL_RECIPIENT_MODE=${modo}.`,
+      `Destinatário fora da lista do modo ${modo}: ${v.invalidos.join(", ")}. Envio bloqueado.`,
       "blocked",
     );
   }
