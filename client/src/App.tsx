@@ -38,7 +38,7 @@ import PeoplePage from "./pages/hub/PeoplePage";
 import JornalzinhoPreview from "./pages/hub/JornalzinhoPreview";
 import ChangePassword from "./pages/hub/ChangePassword";
 import TrelloCallback from "./pages/hub/TrelloCallback";
-import { AdminOnly } from "./pages/hub/AdminOnly";
+import { AdminOnly, AdminOuDevOnly } from "./pages/hub/AdminOnly";
 import { isEmbedded } from "./pages/hub/embed";
 import { urlDoShellPara, destinoDeConexoes } from "./pages/hub/trackerRoutes";
 
@@ -117,10 +117,11 @@ function Router() {
       <Route path="/access" component={HubAccess} />
       <Route path="/notificacoes" component={NotificacoesPage} />
       <Route path="/people" component={() => <AdminOnly><PeoplePage /></AdminOnly>} />
-      {/* Prévia do Jornalzinho — SÓ admin: a visão admin carrega o bloco
-          financeiro, então dar a tela ao developer entregaria a ele o e-mail do
-          admin por outra porta. Leitura pura: não envia nem consome dedup. */}
-      <Route path="/jornalzinho" component={() => <AdminOnly><JornalzinhoPreview /></AdminOnly>} />
+      {/* Prévia do Jornalzinho — admin/dev. O developer precisa conferir o
+          e-mail dele e o do colaborador; a visão ADMIN (que carrega o
+          financeiro) é barrada na procedure, não aqui. Leitura pura: não envia
+          nem consome dedup. */}
+      <Route path="/jornalzinho" component={() => <AdminOuDevOnly><JornalzinhoPreview /></AdminOuDevOnly>} />
       <Route path="/change-password" component={ChangePassword} />
       <Route path="/trello/callback" component={TrelloCallback} />
 

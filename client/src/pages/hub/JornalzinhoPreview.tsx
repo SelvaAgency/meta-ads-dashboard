@@ -12,11 +12,16 @@
  *  no email_send_log e não envia e-mail. Abrir dez vezes não muda em nada o
  *  envio automático do dia seguinte.
  *
- *  ── SÓ ADMIN ───────────────────────────────────────────────────────────────
- *  Não é admin/dev. A tela mostra o Jornalzinho de qualquer papel, e a visão
- *  admin carrega o bloco FINANCEIRO. Dar isto ao developer seria entregar a ele
- *  o e-mail do admin por outra porta. A trava real é `adminProcedure` no
- *  servidor; o AdminOnly da rota é só a camada de UI.
+ *  ── Quem vê o quê ──────────────────────────────────────────────────────────
+ *  Admin e developer entram; o developer precisa conferir o e-mail que ele
+ *  recebe e o do colaborador, senão não tem como validar o que constrói.
+ *
+ *  A visão ADMIN fica de fora para ele: ela carrega o bloco FINANCEIRO, e
+ *  liberá-la aqui entregaria o e-mail do admin por outra porta — a informação
+ *  é a mesma, só o caminho seria outro.
+ *
+ *  Esconder a opção NÃO é a trava: a procedure devolve FORBIDDEN para quem
+ *  chamar a API direto. A tela só evita oferecer o que voltaria erro.
  *
  *  ── Por que iframe ─────────────────────────────────────────────────────────
  *  O HTML é de e-mail: usa tabelas e estilo inline, e conta com um documento
@@ -29,11 +34,13 @@ import { Newspaper, Loader2, Send, AlertTriangle, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { HubShell } from "./HubShell";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canAccessAdmin } from "@shared/permissions";
 import { Input } from "@/components/ui/input";
 
 type Papel = "admin" | "developer" | "user";
-const PAPEIS: { v: Papel; label: string }[] = [
-  { v: "admin", label: "Admin" },
+const PAPEIS: { v: Papel; label: string; soAdmin?: boolean }[] = [
+  { v: "admin", label: "Admin", soAdmin: true },
   { v: "developer", label: "Developer" },
   { v: "user", label: "Colaborador" },
 ];
@@ -43,7 +50,12 @@ const hojeAgencia = () =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 
 export default function JornalzinhoPreview() {
-  const [papel, setPapel] = useState<Papel>("admin");
+  const { user } = useAuth();
+  const ehAdmin = canAccessAdmin((user as { role?: string } | null)?.role);
+  const papeisVisiveis = PAPEIS.filter((p) => ehAdmin || !p.soAdmin);
+  // O estado inicial acompanha o que a pessoa PODE ver. Começar em "admin" para
+  // um developer dispararia a query e ele abriria a tela num erro.
+  const [papel, setPapel] = useState<Papel>(ehAdmin ? "admin" : "developer");
   const [dia, setDia] = useState(hojeAgencia());
   const [destinatario, setDestinatario] = useState("");
   const [confirmando, setConfirmando] = useState(false);
@@ -85,7 +97,7 @@ export default function JornalzinhoPreview() {
             <div className="flex flex-col gap-1">
               <label className="text-[11px] text-muted-foreground">Visão (papel de quem recebe)</label>
               <div className="inline-flex rounded-lg border border-border p-0.5">
-                {PAPEIS.map((p) => (
+                {papeisVisiveis.map((p) => (
                   <button key={p.v} onClick={() => setPapel(p.v)}
                     className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${papel === p.v ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>
                     {p.label}

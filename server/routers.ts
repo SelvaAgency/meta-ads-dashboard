@@ -1,5 +1,5 @@
 import { logger } from "./logger";
-import { canManageContent } from "../shared/permissions";
+import { canManageContent, canAccessAdmin } from "../shared/permissions";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { execSync } from "node:child_process";
@@ -2296,18 +2296,32 @@ export const appRouter = router({
      * (daily_digest_recipients), não escreve no email_send_log e não envia nada.
      * Abrir a prévia dez vezes não muda o envio automático em nada.
      *
-     * SÓ ADMIN — não admin/dev. A prévia mostra o Jornalzinho de QUALQUER papel,
-     * e a visão admin carrega o bloco FINANCEIRO. Dar a tela ao developer seria
-     * entregar a ele o e-mail do admin por outra porta: a informação é a mesma,
-     * só o caminho seria outro. Developer não recebe financeiro no envio, então
-     * também não o vê na prévia.
+     * Admin/dev, com UMA restrição: a visão ADMIN é só para admin.
+     *
+     * O developer precisa conferir o e-mail que ele próprio recebe e o do
+     * colaborador — sem isso não tem como validar o que constrói. Mas a visão
+     * admin carrega o bloco FINANCEIRO, e liberá-la aqui entregaria a ele o
+     * e-mail do admin por outra porta: a informação é a mesma, só o caminho
+     * seria outro. Ele não recebe financeiro no envio, então também não o vê
+     * na prévia.
+     *
+     * A trava é do SERVIDOR. A tela apenas não oferece a opção — quem chamar a
+     * API direto leva FORBIDDEN igual.
      */
-    previewDigestHtml: adminProcedure
+    previewDigestHtml: contentProcedure
       .input(z.object({
         papel: z.enum(["admin", "developer", "user"]).default("admin"),
         dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       }).default({ papel: "admin" }))
-      .query(({ input }) => buildDailyDigestForRole(input.papel, input.dia ?? hojeAgencia())),
+      .query(({ ctx, input }) => {
+        if (input.papel === "admin" && !canAccessAdmin(ctx.user.role)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "A visão admin inclui o bloco financeiro e é restrita a administradores.",
+          });
+        }
+        return buildDailyDigestForRole(input.papel, input.dia ?? hojeAgencia());
+      }),
 
     /**
      * Envia a PRÉVIA do Jornalzinho para UM endereço, à mão.
@@ -2323,13 +2337,18 @@ export const appRouter = router({
      * mestre, provider, modo admin/dev, validação de destinatário). Uma prévia
      * com caminho próprio seria mais uma porta para manter travada.
      */
-    enviarPreviaJornalzinho: adminProcedure
+    enviarPreviaJornalzinho: contentProcedure
       .input(z.object({
         destinatario: z.string().min(3).max(320),
         papel: z.enum(["admin", "developer", "user"]).default("admin"),
         dia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        // Mesma regra da prévia na tela: developer não gera a visão admin, nem
+        // para si mesmo. Sem esta linha, o envio viraria o desvio da trava.
+        if (input.papel === "admin" && !canAccessAdmin(ctx.user.role)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "A visão admin é restrita a administradores." });
+        }
         const para = input.destinatario.trim();
         // Um endereço, sempre. Vírgula/ponto-e-vírgula/espaço são recusados: uma
         // lista aqui viraria disparo em massa por um botão de prévia.

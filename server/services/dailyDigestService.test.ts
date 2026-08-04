@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { BLOCOS_POR_PAPEL, statusDoRecibo, montarHtml, type Papel, type BlocoDigest, type Conteudo } from "./dailyDigestService";
 import { consomeDedupDeDigest, type StatusDigest } from "../db";
+import { canAccessAdmin } from "@shared/permissions";
 
 /**
  * A matriz papel → blocos É a regra de privacidade do Jornalzinho. Um `push`
@@ -216,5 +217,28 @@ describe("estrutura do HTML do Jornalzinho", () => {
     expect(html).toContain("clientes");      // rótulo de KPI
     expect(html).toContain("em atenção");
     expect(html).toContain("Vendas do dia"); // tabela de vendas reais
+  });
+});
+
+/**
+ * A prévia do Jornalzinho é aberta a admin/dev, mas a visão ADMIN não.
+ *
+ * A correção depende de duas verdades independentes, e este teste amarra as
+ * duas juntas: (1) o financeiro só existe na visão admin e (2) `canAccessAdmin`
+ * exclui o developer. Se alguém mexer em qualquer uma delas, a guarda da
+ * procedure deixa de proteger o que promete — e isso falha aqui, não em
+ * produção.
+ */
+describe("visão admin da prévia", () => {
+  it("é a única que carrega financeiro", () => {
+    const comFinanceiro = (["admin", "developer", "user"] as Papel[])
+      .filter((p) => BLOCOS_POR_PAPEL[p].includes("financeiro"));
+    expect(comFinanceiro).toEqual(["admin"]);
+  });
+
+  it("developer NÃO é admin — é o que faz a guarda da procedure morder", () => {
+    expect(canAccessAdmin("admin")).toBe(true);
+    expect(canAccessAdmin("developer")).toBe(false);
+    expect(canAccessAdmin("user")).toBe(false);
   });
 });
