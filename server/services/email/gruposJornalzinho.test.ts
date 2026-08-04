@@ -131,15 +131,14 @@ describe("grupo como ponto de partida da seleção", () => {
   });
 
   /**
-   * Consequência da materialização, e o motivo de a pré-seleção poder ser
-   * rodada de novo: cliente criado DEPOIS não entra sozinho na lista de quem já
-   * configurou — a seleção é explícita, por accountId.
+   * A regra mudou em 04/08/2026: o modelo passou a guardar EXCLUSÕES, então
+   * cliente novo entra sozinho para todo mundo — inclusive para quem tem
+   * recorte de grupo. O grupo define o que a pré-seleção DESMARCA; ele não
+   * fecha a lista contra clientes futuros. Ver preferenciasJornalzinho.test.ts.
    */
-  it("cliente novo não entra sozinho numa seleção já materializada", () => {
+  it("o grupo é recorte inicial, não lista fechada para sempre", () => {
     const antes = contasDoGrupo("gtm1", CONTAS) ?? [];
     const depois = contasDoGrupo("gtm1", [...CONTAS, { id: 20, nome: "Aiká Cosméticos" }]) ?? [];
     expect(depois.length).toBe(antes.length + 1);
-    // A lista JÁ gravada continua sendo `antes` até alguém reaplicar/editar.
-    expect(antes).not.toContain(20);
   });
 });

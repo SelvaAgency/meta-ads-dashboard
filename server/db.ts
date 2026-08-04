@@ -3969,10 +3969,12 @@ export async function preferenciasEmailDoUsuario(userId: number): Promise<{ acco
 }
 
 /**
- * Substitui a seleção da pessoa. Grava uma linha por conta ATIVA — marcada ou
- * não —, porque é a EXISTÊNCIA de linha que registra "esta pessoa já
- * configurou". Sem isso, "nunca abriu a tela" e "abriu e desmarcou tudo"
- * ficariam indistinguíveis, e são casos opostos.
+ * Substitui a seleção da pessoa.
+ *
+ * Grava uma linha por conta ativa com o estado (marcada/desmarcada). Quem lê
+ * (`contasDoJornalzinho`) só olha as DESMARCADAS — as marcadas ficam como
+ * registro de que a pessoa já passou por aqui, o que a tela usa para saber se
+ * mostra o texto de "ainda não configurou".
  */
 export async function salvarPreferenciasEmail(userId: number, marcadas: number[]): Promise<number> {
   const db = await getDb();
@@ -3988,20 +3990,33 @@ export async function salvarPreferenciasEmail(userId: number, marcadas: number[]
 }
 
 /**
- * Contas que ESTA pessoa vê no Jornalzinho — a ESCOLHA dela.
+ * Contas que ESTA pessoa vê no Jornalzinho.
  *
- * A seleção individual é a fonte de verdade; o grupo é só o ponto de partida
- * que a pré-seleção materializa em linhas. Depois disso a pessoa manda, e
- * mexer no grupo não desfaz o que ela escolheu.
+ * ── O modelo guarda EXCLUSÕES, não seleções ────────────────────────────────
+ * A regra do produto é "recebe tudo e tira o que não quer", e isso decide como
+ * a tabela é lida: o que vale é a lista de `enabled = false`. Cliente sem linha
+ * está DENTRO.
  *
- * `null` = sem recorte (vê tudo) — quem nunca configurou. Diferente de `[]`,
- * que é "configurei e não quero cliente nenhum". Os dois precisam ser valores
- * distintos, senão uma tela nunca aberta silenciaria o e-mail de alguém.
+ * A consequência é justamente o que se quer: um cliente novo, que por
+ * definição não tem linha para ninguém, entra sozinho para todo mundo — sem
+ * ninguém precisar marcar nada. Guardar "o que está marcado" faria o oposto:
+ * cliente novo nasceria fora, e o resumo dele não chegaria a ninguém até
+ * alguém lembrar de ir na tela.
+ *
+ * Quem desmarcou continua desmarcado, porque a exclusão é explícita e persiste.
+ *
+ * `null` = sem recorte. Devolvido quando não há NENHUMA exclusão — e não é
+ * detalhe de estilo: `null` faz a pessoa cair no briefing GLOBAL, que já está
+ * em cache e é compartilhado por todos que recebem tudo. Devolver a lista
+ * completa em vez de `null` geraria uma narrativa de IA idêntica só que com
+ * chave de cache própria.
  */
 export async function contasDoJornalzinho(userId: number): Promise<number[] | null> {
   const prefs = await preferenciasEmailDoUsuario(userId);
-  if (prefs.length === 0) return null;
-  return prefs.filter((p) => p.enabled).map((p) => p.accountId);
+  const desmarcados = new Set(prefs.filter((p) => !p.enabled).map((p) => p.accountId));
+  if (desmarcados.size === 0) return null;
+  const ativas = await contasParaPreferencias();
+  return ativas.filter((c) => !desmarcados.has(c.id)).map((c) => c.id);
 }
 
 /** Usuário ativo por e-mail — base da atribuição padrão de grupos. */

@@ -2297,12 +2297,15 @@ export const appRouter = router({
         preferenciasEmailDoUsuario(ctx.user.id),
         grupoJornalzinhoDoUsuario(ctx.user.id),
       ]);
-      const marcadas = new Set(prefs.filter((p) => p.enabled).map((p) => p.accountId));
+      // Mesma regra da leitura de envio: o que se guarda é a EXCLUSÃO. Cliente
+      // sem linha está marcado — inclusive o que acabou de ser criado, que é o
+      // ponto: ele entra sozinho em vez de nascer fora e não chegar a ninguém.
+      const desmarcadas = new Set(prefs.filter((p) => !p.enabled).map((p) => p.accountId));
       return {
-        // Sem configuração, tudo aparece marcado: é o que a pessoa recebe hoje.
-        // Mostrar tudo desmarcado sugeriria que ela não recebe nada.
-        clientes: clientes.map((c) => ({ ...c, marcado: prefs.length === 0 ? true : marcadas.has(c.id) })),
+        clientes: clientes.map((c) => ({ ...c, marcado: !desmarcadas.has(c.id) })),
         configurado: prefs.length > 0,
+        /** Recebe tudo hoje, seja por nunca ter mexido ou por não ter tirado nada. */
+        recebendoTudo: desmarcadas.size === 0,
         /** De onde a seleção partiu, quando veio de um grupo. Só informativo. */
         origem: grupoPorId(grupo)?.rotulo ?? null,
       };

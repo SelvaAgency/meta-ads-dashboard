@@ -86,16 +86,17 @@ function JornalzinhoPrefsSection() {
         <p className="text-xs text-muted-foreground">Carregando clientes…</p>
       ) : (
         <>
-          {!q.data?.configurado ? (
-            <p className="text-[11px] text-amber-600 mb-3">
-              Você ainda não escolheu: hoje recebe <strong>todos</strong> os clientes. Marque abaixo para
-              receber só os seus.
-            </p>
-          ) : q.data?.origem ? (
+          {q.data?.origem ? (
             <p className="text-[11px] text-muted-foreground mb-3">
-              Sua lista começou pelo <strong>{q.data.origem}</strong> e pode ser ajustada aqui à vontade.
+              Sua lista começou com os clientes do <strong>{q.data.origem}</strong>, mas você pode ajustar
+              quando quiser.
             </p>
-          ) : null}
+          ) : (
+            <p className="text-[11px] text-muted-foreground mb-3">
+              Por padrão, novos clientes entram no seu Jornalzinho. Você pode desmarcar os que não quiser
+              acompanhar.
+            </p>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 mb-3">
             {clientes.map((c) => (
@@ -142,7 +143,8 @@ function JornalzinhoPrefsSection() {
             </p>
           )}
           <p className="text-[11px] text-muted-foreground mt-3 border-t border-border/60 pt-2">
-            Esses clientes entram no seu Jornalzinho diário e nos alertas por e-mail.
+            Esses clientes entram no seu Jornalzinho diário e nos alertas por e-mail. Cliente novo no
+            Tracker aparece marcado automaticamente — desmarque se não quiser acompanhar.
           </p>
         </>
       )}
