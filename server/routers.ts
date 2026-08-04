@@ -321,7 +321,7 @@ import { emailMode, destinatariosDeTeste, transporteAtivo, providerConfigurado, 
 import { GMAIL_SCOPE, verificarConexaoGmail, limparCacheToken, sanitizarErroGmail } from "./services/email/gmailProvider";
 import { previaTesteGmail, enviarTesteGmail, TIPO_TESTE_GMAIL } from "./services/email/gmailTeste";
 import { simularDestinatarios } from "./services/email/destinatarios";
-import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho } from "./db";
+import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho, preferenciasEmailDoUsuario, salvarPreferenciasEmail } from "./db";
 import { GRUPOS, grupoPorId, resolverGrupo, ehGrupoValido } from "./services/email/gruposJornalzinho";
 import { isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { runDailyDigestJob, enviarDigestDeTeste, previewDigest, buildDailyDigestForRole, BLOCOS_POR_PAPEL } from "./services/dailyDigestService";
@@ -2290,27 +2290,34 @@ export const appRouter = router({
     // narrativa da IA é cacheada por conjunto de contas, então combinação
     // individual faria o custo crescer com o time.
 
-    /** O grupo da PRÓPRIA pessoa e os clientes dele — informativo, não editável. */
-    meuGrupoJornalzinho: protectedProcedure.query(async ({ ctx }) => {
-      const [grupo, contas] = await Promise.all([
-        grupoJornalzinhoDoUsuario(ctx.user.id),
+    /** Clientes ativos + o que ESTA pessoa marcou. Só id e nome — nada de token. */
+    minhasPreferenciasEmail: protectedProcedure.query(async ({ ctx }) => {
+      const [clientes, prefs, grupo] = await Promise.all([
         contasParaPreferencias(),
+        preferenciasEmailDoUsuario(ctx.user.id),
+        grupoJornalzinhoDoUsuario(ctx.user.id),
       ]);
-      const def = grupoPorId(grupo);
-      const r = grupo && grupo !== "todos" && grupo !== "nenhum"
-        ? resolverGrupo(grupo as never, contas)
-        : null;
+      const marcadas = new Set(prefs.filter((p) => p.enabled).map((p) => p.accountId));
       return {
-        grupo: grupo ?? null,
-        rotulo: def?.rotulo ?? "Todos os clientes",
-        descricao: def?.descricao ?? "Você ainda não está em um grupo — hoje recebe todos os clientes.",
-        semRecorte: !grupo || grupo === "todos",
-        clientes: r ? r.aplicados.map((a) => ({ rotulo: a.rotulo, nome: a.nome })) : [],
-        // Alvo declarado que ainda não virou conta (Aiká, UMDSA) aparece como
-        // "em breve" em vez de sumir — senão a pessoa acha que esqueceram dela.
-        aguardando: r ? r.pendencias.filter((x) => x.tipo === "sem_cliente").map((x) => x.rotulo) : [],
+        // Sem configuração, tudo aparece marcado: é o que a pessoa recebe hoje.
+        // Mostrar tudo desmarcado sugeriria que ela não recebe nada.
+        clientes: clientes.map((c) => ({ ...c, marcado: prefs.length === 0 ? true : marcadas.has(c.id) })),
+        configurado: prefs.length > 0,
+        /** De onde a seleção partiu, quando veio de um grupo. Só informativo. */
+        origem: grupoPorId(grupo)?.rotulo ?? null,
       };
     }),
+
+    /**
+     * Salva a seleção da PRÓPRIA pessoa. Deriva o dono da sessão e nunca aceita
+     * userId do cliente — senão qualquer um editaria a preferência de outro.
+     */
+    salvarMinhasPreferenciasEmail: protectedProcedure
+      .input(z.object({ accountIds: z.array(z.number().int()) }))
+      .mutation(async ({ ctx, input }) => {
+        const total = await salvarPreferenciasEmail(ctx.user.id, input.accountIds);
+        return { success: true as const, clientes: total, marcados: input.accountIds.length };
+      }),
 
     /** Grupos disponíveis + quem está em cada um. Admin/dev. */
     gruposJornalzinho: contentProcedure.query(async () => {
@@ -2365,6 +2372,11 @@ export const appRouter = router({
         for (const email of g.emailsPadrao) {
           const u = await usuarioAtivoPorEmail(email);
           if (!u) { pessoas.push({ email, encontrado: false, userId: null, nome: null, role: null }); continue; }
+          // Materializa o grupo em SELEÇÃO INDIVIDUAL: a partir daqui quem
+          // manda é a escolha da pessoa, e ela pode ajustar sem que o grupo
+          // desfaça. O grupo fica gravado só como origem, para a tela dizer de
+          // onde a lista veio.
+          await salvarPreferenciasEmail(u.id, r.aplicados.map((a) => a.accountId));
           await definirGrupoJornalzinho(u.id, g.id);
           pessoas.push({ email, encontrado: true, userId: u.id, nome: u.name ?? null, role: u.role ?? null });
         }
@@ -2383,16 +2395,20 @@ export const appRouter = router({
      */
     pessoasComPreferencia: contentProcedure.query(async () => {
       const pessoas = await pessoasComGrupoJornalzinho();
-      return pessoas.map((p) => {
-        const def = grupoPorId(p.grupo);
-        const ehGestor = canManageContent(p.role);
-        return {
+      const out = [];
+      for (const p of pessoas) {
+        // A seleção real, não o grupo: depois que a pessoa edita, o grupo vira
+        // história. Rotular pelo grupo mentiria sobre o que ela recebe hoje.
+        const contas = await contasDoJornalzinho(p.id);
+        out.push({
           id: p.id, nome: p.nome, email: p.email, role: p.role,
-          grupo: p.grupo ?? null,
-          semGrupo: !p.grupo,
-          rotuloGrupo: def?.rotulo ?? (ehGestor ? "Todos os clientes" : "sem grupo definido"),
-        };
-      });
+          configurado: contas !== null,
+          clientes: contas?.length ?? null,
+          origem: grupoPorId(p.grupo)?.rotulo ?? null,
+          rotuloGrupo: contas === null ? "todos os clientes" : `${contas.length} cliente(s)`,
+        });
+      }
+      return out;
     }),
 
     /** Matriz papel → blocos, para a tela explicar a regra em vez de esconder. */

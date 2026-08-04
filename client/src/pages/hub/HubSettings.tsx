@@ -37,67 +37,112 @@ import { canManageContent, ROLE_LABELS, type Role } from "@shared/permissions";
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Clientes no Jornalzinho — INFORMATIVO, não editável
+ *  Clientes no Jornalzinho — seleção PESSOAL e editável
  * ─────────────────────────────────────────────────────────────────────────────
- *  Aqui havia checkbox por cliente. Saiu por custo, não por permissão: a
- *  narrativa da IA é cacheada por CONJUNTO de contas, então cada combinação
- *  individual viraria uma chamada de LLM nova. Com N pessoas escolhendo
- *  livremente, o teto é N narrativas por dia — e ninguém percebe o custo subindo.
+ *  Cada pessoa escolhe de quais clientes quer o resumo. A pré-seleção por grupo
+ *  (GTM 1 / GTM 2) é só o PONTO DE PARTIDA: ela é materializada em marcações
+ *  individuais, e a partir daí quem manda é a escolha da pessoa — mexer no
+ *  grupo depois não desfaz o que ela ajustou.
  *
- *  Com grupo fixo o teto é o número de grupos. A pessoa continua sabendo
- *  exatamente quais clientes entram no e-mail dela; só não monta combinação
- *  própria. Quem muda grupo é admin, na tela do Jornalzinho.
+ *  Custo conhecido e aceito: a narrativa da IA é cacheada por CONJUNTO de
+ *  contas, então duas pessoas com a mesma seleção compartilham a mesma chamada,
+ *  e seleções diferentes geram narrativas diferentes.
+ *
+ *  A procedure deriva o dono da SESSÃO e nunca aceita userId do cliente — sem
+ *  isso, qualquer pessoa editaria a preferência de outra.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 function JornalzinhoPrefsSection() {
-  const q = trpc.notifications.meuGrupoJornalzinho.useQuery();
-  const d = q.data;
+  const utils = trpc.useUtils();
+  const q = trpc.notifications.minhasPreferenciasEmail.useQuery();
+  const [rascunho, setRascunho] = useState<Set<number> | null>(null);
+
+  const salvar = trpc.notifications.salvarMinhasPreferenciasEmail.useMutation({
+    onSuccess: async () => {
+      await utils.notifications.minhasPreferenciasEmail.invalidate();
+      setRascunho(null);
+    },
+  });
+
+  const clientes = q.data?.clientes ?? [];
+  // O rascunho só existe depois do primeiro clique; antes disso a verdade é o
+  // servidor. Sem isso, um refetch no meio da edição apagaria as marcações.
+  const marcados = rascunho ?? new Set(clientes.filter((c) => c.marcado).map((c) => c.id));
+  const alterar = (id: number, on: boolean) => {
+    const novo = new Set(marcados);
+    if (on) novo.add(id); else novo.delete(id);
+    setRascunho(novo);
+  };
+  const todos = () => setRascunho(new Set(clientes.map((c) => c.id)));
+  const nenhum = () => setRascunho(new Set());
 
   return (
     <SectionCard
       icon={Newspaper}
       title="Clientes no Jornalzinho"
-      description="Os clientes que entram no seu Jornalzinho e nos seus alertas por e-mail."
+      description="Escolha de quais clientes você quer receber o resumo diário e os alertas por e-mail."
     >
       {q.isLoading ? (
-        <p className="text-xs text-muted-foreground">Carregando…</p>
+        <p className="text-xs text-muted-foreground">Carregando clientes…</p>
       ) : (
         <>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-xs text-muted-foreground">Seu grupo:</span>
-            <Badge variant="secondary">{d?.rotulo}</Badge>
+          {!q.data?.configurado ? (
+            <p className="text-[11px] text-amber-600 mb-3">
+              Você ainda não escolheu: hoje recebe <strong>todos</strong> os clientes. Marque abaixo para
+              receber só os seus.
+            </p>
+          ) : q.data?.origem ? (
+            <p className="text-[11px] text-muted-foreground mb-3">
+              Sua lista começou pelo <strong>{q.data.origem}</strong> e pode ser ajustada aqui à vontade.
+            </p>
+          ) : null}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 mb-3">
+            {clientes.map((c) => (
+              <label key={c.id} className="flex items-center gap-2.5 py-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={marcados.has(c.id)}
+                  onChange={(e) => alterar(c.id, e.target.checked)}
+                  className="w-4 h-4 accent-current"
+                />
+                <span className="text-sm truncate">{c.nome}</span>
+              </label>
+            ))}
+            {clientes.length === 0 && <p className="text-xs text-muted-foreground">Nenhum cliente ativo.</p>}
           </div>
 
-          {d?.semRecorte ? (
-            <p className="text-xs text-muted-foreground">
-              {d?.descricao} Você recebe o resumo de <strong>todos</strong> os clientes.
-            </p>
-          ) : (
-            <>
-              <p className="text-xs text-muted-foreground mb-2">Você recebe o Jornalzinho destes clientes:</p>
-              <ul className="flex flex-col gap-1 mb-1">
-                {(d?.clientes ?? []).map((c) => (
-                  <li key={c.nome} className="text-sm flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0" />
-                    {c.rotulo}
-                    {c.rotulo !== c.nome && <span className="text-[11px] text-muted-foreground">({c.nome})</span>}
-                  </li>
-                ))}
-                {(d?.clientes ?? []).length === 0 && (
-                  <li className="text-xs text-muted-foreground">Nenhum cliente — só avisos gerais do sistema.</li>
-                )}
-              </ul>
-              {(d?.aguardando ?? []).length > 0 && (
-                <p className="text-[11px] text-muted-foreground mt-2">
-                  Ainda sem conta no Tracker (entram sozinhos quando existirem):{" "}
-                  {(d?.aguardando ?? []).join(", ")}
-                </p>
-              )}
-            </>
-          )}
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={() => salvar.mutate({ accountIds: Array.from(marcados) })}
+              disabled={salvar.isPending || rascunho === null}
+              className="rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 disabled:opacity-50"
+            >
+              {salvar.isPending ? "Salvando…" : "Salvar preferências"}
+            </button>
+            {rascunho !== null && (
+              <button onClick={() => setRascunho(null)} className="text-xs text-muted-foreground hover:text-foreground">
+                Descartar
+              </button>
+            )}
+            <span className="text-[11px] text-muted-foreground">
+              {marcados.size} de {clientes.length} selecionado(s)
+            </span>
+            <span className="ml-auto flex items-center gap-2">
+              <button onClick={todos} className="text-[11px] text-muted-foreground hover:text-foreground">todos</button>
+              <span className="text-[11px] text-muted-foreground">·</span>
+              <button onClick={nenhum} className="text-[11px] text-muted-foreground hover:text-foreground">nenhum</button>
+            </span>
+          </div>
 
+          {marcados.size === 0 && rascunho !== null && (
+            <p className="text-[11px] text-amber-600 mt-2">
+              Sem nenhum cliente marcado você deixa de receber conteúdo de cliente no Jornalzinho —
+              avisos gerais do sistema continuam.
+            </p>
+          )}
           <p className="text-[11px] text-muted-foreground mt-3 border-t border-border/60 pt-2">
-            A lista vem do seu grupo e não é editável por aqui. Precisa mudar? Fale com um administrador.
+            Esses clientes entram no seu Jornalzinho diário e nos alertas por e-mail.
           </p>
         </>
       )}

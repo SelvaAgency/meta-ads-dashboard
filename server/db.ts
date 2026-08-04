@@ -3960,24 +3960,48 @@ export async function definirGrupoJornalzinho(userId: number, grupo: string | nu
   await db.update(users).set({ jornalzinhoGrupo: grupo }).where(eq(users.id, userId));
 }
 
+/** Preferências brutas da pessoa. Vazio = NUNCA configurou (≠ desmarcou tudo). */
+export async function preferenciasEmailDoUsuario(userId: number): Promise<{ accountId: number; enabled: boolean }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ accountId: userEmailClientPrefs.accountId, enabled: userEmailClientPrefs.enabled })
+    .from(userEmailClientPrefs).where(eq(userEmailClientPrefs.userId, userId));
+}
+
 /**
- * Contas que ESTA pessoa vê no Jornalzinho, resolvidas pelo GRUPO dela.
+ * Substitui a seleção da pessoa. Grava uma linha por conta ATIVA — marcada ou
+ * não —, porque é a EXISTÊNCIA de linha que registra "esta pessoa já
+ * configurou". Sem isso, "nunca abriu a tela" e "abriu e desmarcou tudo"
+ * ficariam indistinguíveis, e são casos opostos.
+ */
+export async function salvarPreferenciasEmail(userId: number, marcadas: number[]): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const ativas = await db.select({ id: metaAdAccounts.id }).from(metaAdAccounts).where(eq(metaAdAccounts.isActive, true));
+  const escolhidas = new Set(marcadas);
+  for (const a of ativas) {
+    await db.insert(userEmailClientPrefs)
+      .values({ userId, accountId: a.id, enabled: escolhidas.has(a.id) })
+      .onDuplicateKeyUpdate({ set: { enabled: escolhidas.has(a.id) } });
+  }
+  return ativas.length;
+}
+
+/**
+ * Contas que ESTA pessoa vê no Jornalzinho — a ESCOLHA dela.
  *
- * `null` = sem recorte (vê tudo) — é o valor de quem não tem grupo e de quem
- * está em "todos". Diferente de `[]`, que é "nenhum cliente": os dois precisam
- * ser valores distintos, senão "não configurado" e "não quero nada" viram a
- * mesma coisa.
+ * A seleção individual é a fonte de verdade; o grupo é só o ponto de partida
+ * que a pré-seleção materializa em linhas. Depois disso a pessoa manda, e
+ * mexer no grupo não desfaz o que ela escolheu.
  *
- * A resolução é por grupo, não por escolha individual: a narrativa da IA é
- * cacheada por conjunto de contas, então combinação por pessoa faria o custo
- * crescer com o time.
+ * `null` = sem recorte (vê tudo) — quem nunca configurou. Diferente de `[]`,
+ * que é "configurei e não quero cliente nenhum". Os dois precisam ser valores
+ * distintos, senão uma tela nunca aberta silenciaria o e-mail de alguém.
  */
 export async function contasDoJornalzinho(userId: number): Promise<number[] | null> {
-  const grupo = await grupoJornalzinhoDoUsuario(userId);
-  if (!grupo || grupo === "todos") return null;
-  if (grupo === "nenhum") return [];
-  const contas = await contasParaPreferencias();
-  return contasDoGrupo(grupo as never, contas);
+  const prefs = await preferenciasEmailDoUsuario(userId);
+  if (prefs.length === 0) return null;
+  return prefs.filter((p) => p.enabled).map((p) => p.accountId);
 }
 
 /** Usuário ativo por e-mail — base da atribuição padrão de grupos. */

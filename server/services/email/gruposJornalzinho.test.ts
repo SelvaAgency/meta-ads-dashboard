@@ -113,3 +113,33 @@ describe("teto de custo da IA", () => {
     expect(grupoPorId("gtm2")?.rotulo).toBe("GTM 2");
   });
 });
+
+/**
+ * A pré-seleção por grupo virou PONTO DE PARTIDA: ela é materializada em
+ * seleção individual, e a partir daí quem manda é a escolha da pessoa.
+ *
+ * O que continua valendo do grupo é a resolução de clientes (tokens, ordem de
+ * especificidade, ambiguidade não aplicada) — testada acima. O que muda é o
+ * destino: em vez de virar o filtro em tempo de envio, vira o conjunto inicial
+ * de marcações.
+ */
+describe("grupo como ponto de partida da seleção", () => {
+  it("os accountIds do grupo são o que a pré-seleção grava", () => {
+    const g1 = contasDoGrupo("gtm1", CONTAS) ?? [];
+    expect(g1).toEqual(resolverGrupo("gtm1", CONTAS).aplicados.map((a) => a.accountId));
+    expect(g1.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * Consequência da materialização, e o motivo de a pré-seleção poder ser
+   * rodada de novo: cliente criado DEPOIS não entra sozinho na lista de quem já
+   * configurou — a seleção é explícita, por accountId.
+   */
+  it("cliente novo não entra sozinho numa seleção já materializada", () => {
+    const antes = contasDoGrupo("gtm1", CONTAS) ?? [];
+    const depois = contasDoGrupo("gtm1", [...CONTAS, { id: 20, nome: "Aiká Cosméticos" }]) ?? [];
+    expect(depois.length).toBe(antes.length + 1);
+    // A lista JÁ gravada continua sendo `antes` até alguém reaplicar/editar.
+    expect(antes).not.toContain(20);
+  });
+});

@@ -100,7 +100,7 @@ export default function JornalzinhoPreview() {
       await Promise.all([
         utils.notifications.pessoasComPreferencia.invalidate(),
         utils.notifications.gruposJornalzinho.invalidate(),
-        utils.notifications.meuGrupoJornalzinho.invalidate(),
+        utils.notifications.minhasPreferenciasEmail.invalidate(),
         utils.notifications.previewDigestHtml.invalidate(),
       ]);
       /**
@@ -297,8 +297,9 @@ export default function JornalzinhoPreview() {
           <div>
             <p className="text-xs font-semibold text-foreground">Grupos do Jornalzinho</p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Coloca Beth, Bruna e Namie no GTM 1, e Nat e Bad no GTM 2. Idempotente — rodar de novo
-              não duplica. A pessoa vê o grupo dela em Configurações, mas não edita: quem move é admin.
+              Ponto de partida: marca os clientes do GTM 1 para Beth, Bruna e Namie, e os do GTM 2 para
+              Nat e Bad. Idempotente. Depois disso cada pessoa ajusta a própria lista em Configurações —
+              rodar de novo SOBRESCREVE o que ela tiver mudado.
             </p>
           </div>
           <div>
