@@ -200,23 +200,80 @@ describe("estrutura do HTML do Jornalzinho", () => {
     expect(html.indexOf("Precisa de atenção agora")).toBeLessThan(html.indexOf(">Performance<"));
   });
 
-  it("os 4 grupos saem na ordem: Críticos → Performance → Técnica → Financeiro", () => {
+  it("os 4 grupos saem na ordem: Críticos → Performance → Saúde técnica → Financeiro", () => {
     const html = montarHtml({
       ...vazio, exec: execMin as any,
       perf: { resumo: null, positivo: null, atencao: null, critico: "algo grave", contasCriticas: [], contasAtencao: [], anomalias: [] },
       site: [{ titulo: "LCP alto", detalhe: "", conta: "Musa", grave: false }],
       fin: { total: 2, aReceber: [], aPagar: [], totalReceberCents: 100000, totalPagarCents: 50000 } as any,
     });
-    const ordem = ["Precisa de atenção agora", ">Performance<", ">Técnica<", ">Financeiro<"].map((t) => html.indexOf(t));
+    const ordem = ["Precisa de atenção agora", ">Performance<", ">Saúde técnica<", ">Financeiro<"].map((t) => html.indexOf(t));
     expect(ordem.every((i) => i >= 0)).toBe(true);
     expect([...ordem].sort((a, b) => a - b)).toEqual(ordem);
   });
 
   it("Performance usa cards de KPI, não só parágrafo", () => {
     const html = montarHtml({ ...vazio, exec: execMin as any });
-    expect(html).toContain("clientes");      // rótulo de KPI
+    expect(html).toContain("clientes");   // rótulo de KPI
     expect(html).toContain("em atenção");
-    expect(html).toContain("Vendas do dia"); // tabela de vendas reais
+    expect(html).toContain("saudáveis");
+  });
+
+  /**
+   * Cards removidos a pedido do Gui: dois não precisavam existir nesse formato
+   * e dois repetiam informação que já estava logo ao lado ("achados atenção" vs
+   * "em atenção"). Listar por nome aqui é o que impede alguém de recolocá-los
+   * numa refatoração futura sem que a decisão seja revisada.
+   */
+  it.each(["receita ·", "sessões · 7d", "achados atenção", "achados críticos", "Vendas do dia"])(
+    "NÃO mostra mais o card/bloco %s",
+    (rotulo) => {
+      const html = montarHtml({
+        ...vazio, exec: execMin as any,
+        perf: { resumo: null, positivo: null, atencao: null, critico: null, contasCriticas: [], contasAtencao: [], anomalias: [] },
+      });
+      expect(html).not.toContain(rotulo);
+    },
+  );
+
+  /** "Olhar primeiro" + "Técnica" viraram uma seção só. */
+  it("a seção técnica é única — 'Olhar primeiro' não existe mais", () => {
+    const html = montarHtml({ ...vazio, exec: execMin as any, site: [{ titulo: "LCP alto", detalhe: "", conta: "Musa", grave: false }] });
+    expect(html).not.toContain("Olhar primeiro");
+    expect(html).toContain(">Saúde técnica<");
+    // e o que estava nas duas seções continua presente, agora numa só
+    expect(html).toContain("ARKA");   // vinha de atencaoPrimeiro
+    expect(html).toContain("Musa");   // vinha de saudeTecnica/site
+  });
+
+  /**
+   * Um cliente crítico no topo não pode reaparecer embaixo. As fontes se
+   * sobrepõem por natureza (Panorama + alerta de mídia + achado de site), e sem
+   * dedup o leitor vê o mesmo nome três vezes sem saber se é o mesmo problema.
+   */
+  it("não repete o mesmo cliente entre Críticos e Saúde técnica", () => {
+    const html = montarHtml({
+      ...vazio,
+      exec: { ...execMin, atencaoPrimeiro: [{ nome: "ARKA", nivel: "critico", motivo: "token expirado" }] } as any,
+      perf: { resumo: null, positivo: null, atencao: null, critico: null, contasCriticas: [{ nome: "ARKA", titulo: "token expirado" }], contasAtencao: [], anomalias: [] },
+    });
+    expect(html.split("ARKA").length - 1).toBe(1);
+  });
+
+  /**
+   * Item 4 do pedido: o colaborador NÃO pode ficar com o template antigo. Como
+   * os KPIs do Panorama são admin-only, sem derivação ele veria uma Performance
+   * sem card nenhum — só texto.
+   */
+  it("colaborador (sem executivo) também recebe KPIs, derivados do que ele já tem", () => {
+    const html = montarHtml({
+      ...vazio, exec: null,
+      perf: { resumo: "resumo curto", positivo: null, atencao: null, critico: null,
+        contasCriticas: [{ nome: "A", titulo: "" }], contasAtencao: [{ nome: "B", titulo: "" }], anomalias: [] },
+    });
+    expect(html).toContain("críticos");
+    expect(html).toContain("em atenção");
+    expect(html).toContain("anomalias");
   });
 });
 

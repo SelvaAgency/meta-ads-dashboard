@@ -388,25 +388,49 @@ export function montarHtml(c: Conteudo): string {
   const secoes: string[] = [];
   const ex = c.exec;
 
+  /**
+   * Memória de quem já apareceu, para o mesmo cliente não sair três vezes.
+   *
+   * As fontes se sobrepõem por natureza: um cliente com token expirado entra na
+   * fila do Panorama (`atencaoPrimeiro`), vira alerta de mídia (`contasAtencao`)
+   * e pode ter achado de site. Sem esta trava, o leitor vê o nome repetido e
+   * precisa descobrir sozinho se é o mesmo problema — que é o ruído que o
+   * Jornalzinho existe para evitar.
+   *
+   * A ordem de preferência é a de gravidade: quem sai em Críticos não repete em
+   * Performance, e quem saiu em qualquer um dos dois não repete em Saúde
+   * técnica.
+   */
+  const jaMostrado = new Set<string>();
+  const chave = (nome: string) =>
+    nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const marcar = (nome: string) => jaMostrado.add(chave(nome));
+
   // ── GRUPO 1 · CRÍTICOS (facultativo) ──────────────────────────────────────
   // Só entra com crítico REAL. Um bloco vermelho que aparece todo dia deixa de
   // ser visto — é a diferença entre alerta e enfeite.
   const criticos: string[] = [];
   if (c.perf?.critico) criticos.push(LINHA_CRITICA(c.perf.critico));
-  for (const x of (c.perf?.contasCriticas ?? []).slice(0, 5)) criticos.push(LINHA_CRITICA(x.nome, x.titulo));
+  for (const x of (c.perf?.contasCriticas ?? []).slice(0, 5)) { marcar(x.nome); criticos.push(LINHA_CRITICA(x.nome, x.titulo)); }
   for (const i of (c.site ?? []).filter((x) => x.grave).slice(0, 4)) {
+    if (i.conta) marcar(i.conta);
     criticos.push(LINHA_CRITICA(i.conta ? `${i.conta}: ${i.titulo}` : i.titulo));
   }
-  for (const f of (ex?.fontesComErro ?? []).slice(0, 4)) criticos.push(LINHA_CRITICA(f.nome, `${f.fonte}: ${f.porque}`));
+  for (const f of (ex?.fontesComErro ?? []).slice(0, 4)) { marcar(f.nome); criticos.push(LINHA_CRITICA(f.nome, `${f.fonte}: ${f.porque}`)); }
   if (criticos.length > 0) {
     secoes.push(SECAO("Precisa de atenção agora", CARD_CRITICO(criticos.join("")), T.critico));
   }
 
   // ── GRUPO 2 · PERFORMANCE (bloco principal) ───────────────────────────────
+  //
+  // Os KPIs saem do Panorama (`ex.destaques`) quando existe — só admin — e, para
+  // os demais papéis, são DERIVADOS do que a própria pessoa já recebe. Sem isso,
+  // o colaborador via a mesma seção sem card nenhum: só texto, com cara do
+  // template antigo. Nenhuma fonte nova de dado entra aqui; o não-admin conta o
+  // que já está no `perf` dele.
   if (c.perf || ex) {
     const partes: string[] = [];
 
-    // KPIs do portfólio — o "resumão" numa olhada, antes de qualquer frase.
     if (ex) {
       const d = ex.destaques;
       partes.push(LINHA_KPI([
@@ -415,13 +439,17 @@ export function montarHtml(c: Conteudo): string {
         KPI(nBR(d.atencoes), "em atenção", d.atencoes > 0 ? T.atencao : T.bom),
         KPI(nBR(d.totalClientes - d.precisamAtencao), "saudáveis", T.bom),
       ]));
-      const linha2 = [
-        ...(d.lojasComReceita > 0 ? [KPI(brlCurto(d.receitaRealLojas), `receita · ${d.lojasComReceita} loja`, T.bom)] : []),
-        ...(d.trafegoGA4 > 0 ? [KPI(nBR(d.trafegoGA4), "sessões · 7d")] : []),
-        ...(d.achadosCriticos > 0 ? [KPI(nBR(d.achadosCriticos), "achados críticos", T.critico)] : []),
-        ...(d.achadosAtencao > 0 ? [KPI(nBR(d.achadosAtencao), "achados atenção", T.atencao)] : []),
-      ];
-      if (linha2.length) partes.push(LINHA_KPI(linha2));
+    } else if (c.perf) {
+      const nCrit = c.perf.contasCriticas.length;
+      const nAten = c.perf.contasAtencao.length;
+      const nAnom = c.perf.anomalias.length;
+      if (nCrit + nAten + nAnom > 0) {
+        partes.push(LINHA_KPI([
+          KPI(nBR(nCrit), "críticos", nCrit > 0 ? T.critico : T.bom),
+          KPI(nBR(nAten), "em atenção", nAten > 0 ? T.atencao : T.bom),
+          KPI(nBR(nAnom), "anomalias", nAnom > 0 ? T.atencao : T.bom),
+        ]));
+      }
     }
 
     // Resumo textual CURTO e complementar — nunca o bloco principal.
@@ -433,44 +461,40 @@ export function montarHtml(c: Conteudo): string {
     if (c.perf?.positivo) partes.push(nota(c.perf.positivo, T.bom));
     if (c.perf?.atencao) partes.push(nota(c.perf.atencao, T.atencao));
 
-    // Fila de atenção do Panorama — quem olhar primeiro, e por quê.
-    const fila = (ex?.atencaoPrimeiro ?? []).slice(0, 6);
-    if (fila.length) {
-      partes.push(`<div style="margin:24px 0 12px;font:600 11px ${FONTE};color:${T.suave};letter-spacing:1.2px;text-transform:uppercase">Olhar primeiro</div>`);
-      for (const a of fila) partes.push(ITEM(a.nome, a.motivo, a.nivel === "critico" ? T.critico : T.atencao));
-    }
-
-    // Vendas reais (Woo/VNDA) — receita de loja, nunca GA4/Meta.
-    const vendas = (ex?.vendasReais ?? []).filter((v) => v.receita != null).slice(0, 6);
-    if (vendas.length) {
-      partes.push(`<div style="margin:26px 0 10px;font:600 11px ${FONTE};color:${T.suave};letter-spacing:1.2px;text-transform:uppercase">Vendas do dia</div>`);
-      partes.push(TABELA(["Cliente", "Receita", "Pedidos"], vendas.map((v) => `<tr>
-        ${CELULA(`<strong style="color:${T.tinta};font-weight:600">${escapar(v.nome)}</strong>`)}
-        ${CELULA(brlCurto(v.receita ?? 0), "right", T.bom, 600)}
-        ${CELULA(v.pedidos != null ? nBR(v.pedidos) : "—", "right", T.suave)}
-      </tr>`)));
-    }
-
-    // Contas em atenção que vieram por alerta (fora da fila do Panorama).
-    const atencao = (c.perf?.contasAtencao ?? []).slice(0, 5);
+    // Contas em atenção vindas de alerta de MÍDIA. A fila do Panorama saiu
+    // daqui: ela virou parte da seção técnica única (grupo 3).
+    const atencao = (c.perf?.contasAtencao ?? []).filter((x) => !jaMostrado.has(chave(x.nome))).slice(0, 5);
     if (atencao.length) {
       partes.push(`<div style="margin:26px 0 12px;font:600 11px ${FONTE};color:${T.suave};letter-spacing:1.2px;text-transform:uppercase">Contas em atenção</div>`);
-      for (const x of atencao) partes.push(ITEM(x.nome, x.titulo, T.atencao));
+      for (const x of atencao) { marcar(x.nome); partes.push(ITEM(x.nome, x.titulo, T.atencao)); }
     }
 
     partes.push(LINK(`${APP_URL}/dashboard`, "Abrir o Tracker"));
     if (partes.length) secoes.push(SECAO("Performance", partes.join("")));
   }
 
-  // ── GRUPO 3 · TÉCNICA (enxuto) ────────────────────────────────────────────
-  // Uma linha por achado. Detalhe fica no Spaces; aqui é para saber que existe.
+  // ── GRUPO 3 · SAÚDE TÉCNICA (seção única) ─────────────────────────────────
+  //
+  // "Olhar primeiro" (fila do Panorama) e "Técnica" eram duas seções que
+  // frequentemente falavam do MESMO cliente por caminhos diferentes — o leitor
+  // via o nome duas vezes e tinha que descobrir sozinho se era o mesmo problema.
+  // Agora é uma seção só, e o `jaMostrado` garante que nada apareça duas vezes:
+  // quem já saiu em Críticos ou em Performance não se repete aqui.
   const tec: string[] = [];
-  for (const i of (c.site ?? []).filter((x) => !x.grave).slice(0, 6)) {
-    tec.push(ITEM(i.conta ? `${i.conta}: ${i.titulo}` : i.titulo, "", T.atencao));
+  const push = (nome: string, detalhe: string, tom: string) => {
+    if (jaMostrado.has(chave(nome))) return;
+    marcar(nome);
+    tec.push(ITEM(nome, detalhe, tom));
+  };
+  for (const a of (ex?.atencaoPrimeiro ?? []).slice(0, 8)) {
+    push(a.nome, a.motivo, a.nivel === "critico" ? T.critico : T.atencao);
   }
-  for (const t of (ex?.saudeTecnica ?? []).slice(0, 5)) tec.push(ITEM(t.nome, t.texto, "#6B7280"));
-  for (const pnd of (ex?.pendenciasManuais ?? []).slice(0, 4)) tec.push(ITEM(pnd.nome, pnd.texto, T.regua));
-  if (tec.length) secoes.push(SECAO("Técnica", tec.join("")));
+  for (const i of (c.site ?? []).filter((x) => !x.grave).slice(0, 6)) {
+    push(i.conta ? `${i.conta}: ${i.titulo}` : i.titulo, "", T.atencao);
+  }
+  for (const t of (ex?.saudeTecnica ?? []).slice(0, 5)) push(t.nome, t.texto, "#6B7280");
+  for (const pnd of (ex?.pendenciasManuais ?? []).slice(0, 4)) push(pnd.nome, pnd.texto, T.regua);
+  if (tec.length) secoes.push(SECAO("Saúde técnica", tec.join("")));
 
   // ── GRUPO 4 · FINANCEIRO (separado, no fim) ───────────────────────────────
   if (c.fin) {
@@ -542,36 +566,49 @@ function montarTexto(c: Conteudo): string {
   const p: string[] = [`JORNALZINHO SELVA — ${fmtData(c.dia)}`];
   const ex = c.exec;
 
+  // Mesma memória de deduplicação do HTML — as duas versões precisam contar a
+  // mesma história, senão quem lê o texto puro vê repetição que o HTML não tem.
+  const visto = new Set<string>();
+  const k = (nome: string) =>
+    nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
   const criticos: string[] = [];
   if (c.perf?.critico) criticos.push(c.perf.critico);
-  for (const x of (c.perf?.contasCriticas ?? []).slice(0, 5)) criticos.push(`${x.nome}${x.titulo ? `: ${x.titulo}` : ""}`);
-  for (const i of (c.site ?? []).filter((x) => x.grave).slice(0, 4)) criticos.push(`${i.conta ? i.conta + ": " : ""}${i.titulo}`);
-  for (const f of (ex?.fontesComErro ?? []).slice(0, 4)) criticos.push(`${f.nome} — ${f.fonte}: ${f.porque}`);
+  for (const x of (c.perf?.contasCriticas ?? []).slice(0, 5)) { visto.add(k(x.nome)); criticos.push(`${x.nome}${x.titulo ? `: ${x.titulo}` : ""}`); }
+  for (const i of (c.site ?? []).filter((x) => x.grave).slice(0, 4)) { if (i.conta) visto.add(k(i.conta)); criticos.push(`${i.conta ? i.conta + ": " : ""}${i.titulo}`); }
+  for (const f of (ex?.fontesComErro ?? []).slice(0, 4)) { visto.add(k(f.nome)); criticos.push(`${f.nome} — ${f.fonte}: ${f.porque}`); }
   if (criticos.length) { p.push("\nPRECISA DE ATENÇÃO AGORA"); for (const x of criticos) p.push(`! ${x}`); }
 
   if (c.perf || ex) {
     p.push("\nPERFORMANCE");
     if (ex) {
       const d = ex.destaques;
-      p.push(`${d.totalClientes} clientes · ${d.criticos} crítico(s) · ${d.atencoes} em atenção`);
-      if (d.lojasComReceita > 0) p.push(`Receita de lojas: ${brlCurto(d.receitaRealLojas)} (${d.lojasComReceita} loja(s))`);
-      if (d.trafegoGA4 > 0) p.push(`Sessões (7d): ${nBR(d.trafegoGA4)}`);
+      p.push(`${d.totalClientes} clientes · ${d.criticos} crítico(s) · ${d.atencoes} em atenção · ${d.totalClientes - d.precisamAtencao} saudáveis`);
+    } else if (c.perf) {
+      p.push(`${c.perf.contasCriticas.length} crítico(s) · ${c.perf.contasAtencao.length} em atenção · ${c.perf.anomalias.length} anomalia(s)`);
     }
     if (c.perf?.resumo) p.push(c.perf.resumo);
     if (c.perf?.positivo) p.push(`✅ ${c.perf.positivo}`);
     if (c.perf?.atencao) p.push(`⚠️ ${c.perf.atencao}`);
-    for (const a of (ex?.atencaoPrimeiro ?? []).slice(0, 6)) p.push(`• [${a.nivel}] ${a.nome} — ${a.motivo}`);
-    for (const v of (ex?.vendasReais ?? []).filter((x) => x.receita != null).slice(0, 6)) {
-      p.push(`• ${v.nome}: ${brlCurto(v.receita ?? 0)}${v.pedidos != null ? ` · ${v.pedidos} pedido(s)` : ""}`);
+    for (const x of (c.perf?.contasAtencao ?? []).filter((y) => !visto.has(k(y.nome))).slice(0, 5)) {
+      visto.add(k(x.nome));
+      p.push(`• [atenção] ${x.nome}${x.titulo ? `: ${x.titulo}` : ""}`);
     }
-    for (const x of (c.perf?.contasAtencao ?? []).slice(0, 5)) p.push(`• [atenção] ${x.nome}${x.titulo ? `: ${x.titulo}` : ""}`);
   }
 
+  // Seção técnica ÚNICA — espelha o HTML: fila do Panorama + site + saúde
+  // técnica + pendências, sem repetir quem já apareceu acima.
   const tec: string[] = [];
-  for (const i of (c.site ?? []).filter((x) => !x.grave).slice(0, 6)) tec.push(`${i.conta ? i.conta + ": " : ""}${i.titulo}`);
-  for (const t of (ex?.saudeTecnica ?? []).slice(0, 5)) tec.push(`${t.nome} — ${t.texto}`);
-  for (const pnd of (ex?.pendenciasManuais ?? []).slice(0, 4)) tec.push(`${pnd.nome} — ${pnd.texto}`);
-  if (tec.length) { p.push("\nTÉCNICA"); for (const x of tec) p.push(`• ${x}`); }
+  const addTec = (nome: string, detalhe: string) => {
+    if (visto.has(k(nome))) return;
+    visto.add(k(nome));
+    tec.push(detalhe ? `${nome} — ${detalhe}` : nome);
+  };
+  for (const a of (ex?.atencaoPrimeiro ?? []).slice(0, 8)) addTec(a.nome, a.motivo);
+  for (const i of (c.site ?? []).filter((x) => !x.grave).slice(0, 6)) addTec(`${i.conta ? i.conta + ": " : ""}${i.titulo}`, "");
+  for (const t of (ex?.saudeTecnica ?? []).slice(0, 5)) addTec(t.nome, t.texto);
+  for (const pnd of (ex?.pendenciasManuais ?? []).slice(0, 4)) addTec(pnd.nome, pnd.texto);
+  if (tec.length) { p.push("\nSAÚDE TÉCNICA"); for (const x of tec) p.push(`• ${x}`); }
 
   if (c.fin) {
     p.push(`\nFINANCEIRO — ${c.fin.total} conta(s) em atraso, total ${BRL(c.fin.totalReceberCents + c.fin.totalPagarCents)}`);
