@@ -260,43 +260,129 @@ export type Conteudo = {
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-const SECAO = (titulo: string, corpo: string, cor = "#E85BA8") => `
-  <tr><td style="padding:22px 24px 0">
-    <p style="margin:0 0 12px;font:bold 11px Arial,sans-serif;color:${cor};letter-spacing:1.2px;text-transform:uppercase">${titulo}</p>
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Sistema visual do e-mail
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O que fazia isto parecer "relatório de sistema" não era falta de estilo — era
+ *  excesso: seis cores semânticas, borda em tudo, todo elemento com o mesmo
+ *  peso, e nenhum ritmo vertical. Peça bem acabada é o contrário: paleta curta,
+ *  hierarquia forte, muito respiro e pouquíssima moldura.
+ *
+ *  Decisões que sustentam o acabamento:
+ *
+ *   • UM acento (rosa da Selva). Vermelho/âmbar/verde entram só como
+ *     SEMÂNTICA de estado, em tons profundos — vermelho-bombeiro e verde-limão
+ *     são o que dá cara de alerta de sistema.
+ *   • Régua fina no lugar de moldura. Separar com 1px de hairline em vez de
+ *     caixa com borda deixa o olho seguir a coluna.
+ *   • Número grande, rótulo pequeno em caixa-alta espaçada. É o contraste de
+ *     escala que faz KPI ser lido antes do texto.
+ *   • Ritmo de 4px. Todo espaçamento é múltiplo — é o que o olho lê como
+ *     "alinhado" mesmo sem saber por quê.
+ *
+ *  ── O que o Gmail impõe ────────────────────────────────────────────────────
+ *  `box-shadow` é removido; profundidade vem de hairline + fundo. Flex e grid
+ *  são ignorados; colunas são <td>. CSS em <style> é descartado; tudo inline.
+ *  Fonte de sistema, porque webfont não carrega.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+const FONTE = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
+const T = {
+  acento:   "#E85BA8",
+  tinta:    "#17171B",
+  corpo:    "#4A4A55",
+  suave:    "#8A8A96",
+  regua:    "#EAEAEF",
+  fundo:    "#F1F1F4",
+  cartao:   "#FAFAFC",
+  critico:  "#C4353A",
+  atencao:  "#B26A00",
+  bom:      "#17795E",
+} as const;
+
+/**
+ * Cabeçalho de seção: rótulo curto + régua ocupando o resto da linha.
+ * O traço faz o papel que a borda de caixa fazia, sem fechar o conteúdo.
+ */
+const SECAO = (titulo: string, corpo: string, tom: string = T.tinta) => `
+  <tr><td style="padding:32px 32px 0">
+    <table width="100%" style="border-collapse:collapse;margin:0 0 16px"><tr>
+      <td style="white-space:nowrap;padding:0 14px 0 0;font:700 11px ${FONTE};color:${tom};letter-spacing:1.6px;text-transform:uppercase">${titulo}</td>
+      <td style="border-top:1px solid ${T.regua};font-size:0;line-height:0">&nbsp;</td>
+    </tr></table>
     ${corpo}
   </td></tr>`;
 
-const LINHA = (titulo: string, detalhe: string, cor: string) => `
-  <div style="border-left:3px solid ${cor};padding:6px 0 6px 10px;margin:8px 0">
-    <p style="margin:0;font:bold 14px Arial,sans-serif;color:#1a1a1a">${escapar(titulo)}</p>
-    ${detalhe ? `<p style="margin:3px 0 0;font:13px Arial,sans-serif;color:#555">${escapar(detalhe)}</p>` : ""}
-  </div>`;
+/** Item de lista: ponto colorido + texto. Substitui a barra lateral em tudo. */
+const ITEM = (titulo: string, detalhe: string, tom: string) => `
+  <table width="100%" style="border-collapse:collapse;margin:0 0 10px"><tr>
+    <td width="14" valign="top" style="padding:6px 0 0"><div style="width:6px;height:6px;border-radius:3px;background:${tom}"></div></td>
+    <td valign="top">
+      <div style="font:600 14px/1.45 ${FONTE};color:${T.tinta}">${escapar(titulo)}</div>
+      ${detalhe ? `<div style="margin:2px 0 0;font:400 13px/1.5 ${FONTE};color:${T.suave}">${escapar(detalhe)}</div>` : ""}
+    </td>
+  </tr></table>`;
 
-/** Número grande + rótulo pequeno. A unidade de leitura rápida do e-mail. */
-const KPI = (valor: string, rotulo: string, cor = "#1a1a1a") => `
-  <td width="25%" style="padding:0 4px" valign="top">
-    <table width="100%" style="border-collapse:collapse;background:#fafafa;border:1px solid #eee;border-radius:8px">
-      <tr><td style="padding:12px 10px;text-align:center">
-        <p style="margin:0;font:bold 22px Arial,sans-serif;color:${cor};line-height:1.1">${escapar(valor)}</p>
-        <p style="margin:4px 0 0;font:11px Arial,sans-serif;color:#888;text-transform:uppercase;letter-spacing:.4px">${escapar(rotulo)}</p>
+/** Compatibilidade com o formato antigo de lista (mesma assinatura). */
+const LINHA = (titulo: string, detalhe: string, cor: string) => ITEM(titulo, detalhe, cor);
+
+/**
+ * KPI: número grande, rótulo pequeno. Sem borda — só um fundo levíssimo, que
+ * agrupa sem desenhar caixa.
+ */
+const KPI = (valor: string, rotulo: string, tom: string = T.tinta) => `
+  <td width="25%" valign="top" style="padding:0 5px">
+    <table width="100%" style="border-collapse:separate;background:${T.cartao};border-radius:12px">
+      <tr><td style="padding:16px 12px;text-align:center">
+        <div style="font:700 26px/1 ${FONTE};color:${tom};letter-spacing:-0.5px">${escapar(valor)}</div>
+        <div style="margin:7px 0 0;font:600 10px ${FONTE};color:${T.suave};letter-spacing:1px;text-transform:uppercase">${escapar(rotulo)}</div>
       </td></tr>
     </table>
   </td>`;
 
-/** Linha de KPIs. Máx. 4 por linha — mais que isso o Gmail espreme no celular. */
+/** Linha de KPIs. Máx. 4 — mais que isso o Gmail espreme no celular. */
+// Sem margem negativa: o Gmail costuma descartá-la, e o alinhamento quebraria
+// justamente no cliente que mais importa. O respiro entre cards vem do padding
+// interno de cada <td>.
 const LINHA_KPI = (cards: string[]) => cards.length === 0 ? "" : `
-  <table width="100%" style="border-collapse:collapse;margin:0 0 6px"><tr>${cards.join("")}
+  <table width="100%" style="border-collapse:collapse;margin:0 0 10px"><tr>${cards.join("")}
     ${Array.from({ length: (4 - cards.length % 4) % 4 }, () => '<td width="25%"></td>').join("")}
   </tr></table>`;
 
 const nBR = (v: number) => (v ?? 0).toLocaleString("pt-BR");
 const brlCurto = (v: number) => "R$ " + (v ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 
-/** Cartão de aviso forte — só para o grupo 1. */
+/** Bloco de alerta do grupo 1. Tom profundo, não vermelho de sistema. */
 const CARD_CRITICO = (corpo: string) => `
-  <table width="100%" style="border-collapse:collapse;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px">
-    <tr><td style="padding:14px 16px">${corpo}</td></tr>
+  <table width="100%" style="border-collapse:separate;background:#FDF4F4;border-radius:12px">
+    <tr>
+      <td width="3" style="background:${T.critico};border-radius:12px 0 0 12px;font-size:0">&nbsp;</td>
+      <td style="padding:18px 20px">${corpo}</td>
+    </tr>
   </table>`;
+
+/** Linha de destaque dentro do bloco crítico. */
+const LINHA_CRITICA = (titulo: string, detalhe?: string) => `
+  <div style="margin:0 0 8px">
+    <span style="font:600 14px/1.5 ${FONTE};color:#7E2226">${escapar(titulo)}</span>${
+    detalhe ? `<span style="font:400 14px/1.5 ${FONTE};color:#A05257"> — ${escapar(detalhe)}</span>` : ""}
+  </div>`;
+
+/** Tabela de números: cabeçalho discreto, régua fina, valor à direita. */
+const TABELA = (cabecalhos: string[], linhas: string[]) => `
+  <table width="100%" style="border-collapse:collapse;font:400 13px ${FONTE}">
+    <tr>${cabecalhos.map((h, i) => `<td style="padding:0 0 8px;font:600 10px ${FONTE};color:${T.suave};letter-spacing:.8px;text-transform:uppercase;text-align:${i === 0 ? "left" : "right"}">${h}</td>`).join("")}</tr>
+    ${linhas.join("")}
+  </table>`;
+
+const CELULA = (conteudo: string, alinhar: "left" | "right" = "left", cor: string = T.corpo, peso = 400) =>
+  `<td style="padding:10px 0;border-top:1px solid ${T.regua};font:${peso} 13px ${FONTE};color:${cor};text-align:${alinhar};white-space:${alinhar === "right" ? "nowrap" : "normal"}">${conteudo}</td>`;
+
+/** Link de saída da seção — discreto, sempre no mesmo lugar. */
+const LINK = (href: string, texto: string) => `
+  <div style="margin:18px 0 0"><a href="${href}" style="font:600 12px ${FONTE};color:${T.acento};text-decoration:none;letter-spacing:.3px">${texto} &rarr;</a></div>`;
 
 export function montarHtml(c: Conteudo): string {
   const secoes: string[] = [];
@@ -306,78 +392,73 @@ export function montarHtml(c: Conteudo): string {
   // Só entra com crítico REAL. Um bloco vermelho que aparece todo dia deixa de
   // ser visto — é a diferença entre alerta e enfeite.
   const criticos: string[] = [];
-  if (c.perf?.critico) criticos.push(`<p style="margin:0 0 8px;font:bold 15px Arial,sans-serif;color:#991B1B">${escapar(c.perf.critico)}</p>`);
-  for (const x of (c.perf?.contasCriticas ?? []).slice(0, 5)) {
-    criticos.push(`<p style="margin:5px 0;font:14px Arial,sans-serif;color:#7F1D1D">🚨 <strong>${escapar(x.nome)}</strong>${x.titulo ? ` — ${escapar(x.titulo)}` : ""}</p>`);
-  }
+  if (c.perf?.critico) criticos.push(LINHA_CRITICA(c.perf.critico));
+  for (const x of (c.perf?.contasCriticas ?? []).slice(0, 5)) criticos.push(LINHA_CRITICA(x.nome, x.titulo));
   for (const i of (c.site ?? []).filter((x) => x.grave).slice(0, 4)) {
-    criticos.push(`<p style="margin:5px 0;font:14px Arial,sans-serif;color:#7F1D1D">🌐 <strong>${escapar(i.conta ? `${i.conta}: ${i.titulo}` : i.titulo)}</strong></p>`);
+    criticos.push(LINHA_CRITICA(i.conta ? `${i.conta}: ${i.titulo}` : i.titulo));
   }
-  for (const f of (ex?.fontesComErro ?? []).slice(0, 4)) {
-    criticos.push(`<p style="margin:5px 0;font:14px Arial,sans-serif;color:#7F1D1D">⛔ <strong>${escapar(f.nome)}</strong> — ${escapar(f.fonte)}: ${escapar(f.porque)}</p>`);
+  for (const f of (ex?.fontesComErro ?? []).slice(0, 4)) criticos.push(LINHA_CRITICA(f.nome, `${f.fonte}: ${f.porque}`));
+  if (criticos.length > 0) {
+    secoes.push(SECAO("Precisa de atenção agora", CARD_CRITICO(criticos.join("")), T.critico));
   }
-  if (criticos.length > 0) secoes.push(SECAO("Precisa de atenção agora", CARD_CRITICO(criticos.join("")), "#DC2626"));
 
   // ── GRUPO 2 · PERFORMANCE (bloco principal) ───────────────────────────────
   if (c.perf || ex) {
     const partes: string[] = [];
 
-    // KPIs do portfólio — o "resumão" numa olhada.
+    // KPIs do portfólio — o "resumão" numa olhada, antes de qualquer frase.
     if (ex) {
       const d = ex.destaques;
-      const cards = [
+      partes.push(LINHA_KPI([
         KPI(nBR(d.totalClientes), "clientes"),
-        KPI(nBR(d.criticos), "críticos", d.criticos > 0 ? "#DC2626" : "#16A34A"),
-        KPI(nBR(d.atencoes), "em atenção", d.atencoes > 0 ? "#D97706" : "#16A34A"),
-        KPI(nBR(d.totalClientes - d.precisamAtencao), "saudáveis", "#16A34A"),
+        KPI(nBR(d.criticos), "críticos", d.criticos > 0 ? T.critico : T.bom),
+        KPI(nBR(d.atencoes), "em atenção", d.atencoes > 0 ? T.atencao : T.bom),
+        KPI(nBR(d.totalClientes - d.precisamAtencao), "saudáveis", T.bom),
+      ]));
+      const linha2 = [
+        ...(d.lojasComReceita > 0 ? [KPI(brlCurto(d.receitaRealLojas), `receita · ${d.lojasComReceita} loja`, T.bom)] : []),
+        ...(d.trafegoGA4 > 0 ? [KPI(nBR(d.trafegoGA4), "sessões · 7d")] : []),
+        ...(d.achadosCriticos > 0 ? [KPI(nBR(d.achadosCriticos), "achados críticos", T.critico)] : []),
+        ...(d.achadosAtencao > 0 ? [KPI(nBR(d.achadosAtencao), "achados atenção", T.atencao)] : []),
       ];
-      partes.push(LINHA_KPI(cards));
-      const cards2 = [
-        ...(d.lojasComReceita > 0 ? [KPI(brlCurto(d.receitaRealLojas), `receita · ${d.lojasComReceita} loja(s)`, "#16A34A")] : []),
-        ...(d.trafegoGA4 > 0 ? [KPI(nBR(d.trafegoGA4), "sessões (7d)")] : []),
-        ...(d.achadosCriticos > 0 ? [KPI(nBR(d.achadosCriticos), "achados críticos", "#DC2626")] : []),
-        ...(d.achadosAtencao > 0 ? [KPI(nBR(d.achadosAtencao), "achados atenção", "#D97706")] : []),
-      ];
-      if (cards2.length) partes.push(LINHA_KPI(cards2));
+      if (linha2.length) partes.push(LINHA_KPI(linha2));
     }
 
     // Resumo textual CURTO e complementar — nunca o bloco principal.
     if (c.perf?.resumo) {
-      partes.push(`<p style="margin:12px 0 0;font:14px/1.55 Arial,sans-serif;color:#444">${escapar(c.perf.resumo)}</p>`);
+      partes.push(`<p style="margin:18px 0 0;font:400 14px/1.65 ${FONTE};color:${T.corpo}">${escapar(c.perf.resumo)}</p>`);
     }
-    if (c.perf?.positivo) partes.push(`<p style="margin:8px 0 0;font:13px Arial,sans-serif;color:#16A34A">✅ ${escapar(c.perf.positivo)}</p>`);
-    if (c.perf?.atencao) partes.push(`<p style="margin:6px 0 0;font:13px Arial,sans-serif;color:#D97706">⚠️ ${escapar(c.perf.atencao)}</p>`);
+    const nota = (texto: string, tom: string) =>
+      `<div style="margin:10px 0 0;font:500 13px/1.5 ${FONTE};color:${tom}">${escapar(texto)}</div>`;
+    if (c.perf?.positivo) partes.push(nota(c.perf.positivo, T.bom));
+    if (c.perf?.atencao) partes.push(nota(c.perf.atencao, T.atencao));
 
     // Fila de atenção do Panorama — quem olhar primeiro, e por quê.
     const fila = (ex?.atencaoPrimeiro ?? []).slice(0, 6);
     if (fila.length) {
-      partes.push(`<p style="margin:16px 0 2px;font:bold 12px Arial,sans-serif;color:#666">Olhar primeiro</p>`);
-      for (const a of fila) {
-        partes.push(LINHA(a.nome, a.motivo, a.nivel === "critico" ? "#DC2626" : "#D97706"));
-      }
+      partes.push(`<div style="margin:24px 0 12px;font:600 11px ${FONTE};color:${T.suave};letter-spacing:1.2px;text-transform:uppercase">Olhar primeiro</div>`);
+      for (const a of fila) partes.push(ITEM(a.nome, a.motivo, a.nivel === "critico" ? T.critico : T.atencao));
     }
 
     // Vendas reais (Woo/VNDA) — receita de loja, nunca GA4/Meta.
     const vendas = (ex?.vendasReais ?? []).filter((v) => v.receita != null).slice(0, 6);
     if (vendas.length) {
-      partes.push(`<p style="margin:16px 0 6px;font:bold 12px Arial,sans-serif;color:#666">Vendas do dia</p>
-      <table width="100%" style="border-collapse:collapse;font:13px Arial,sans-serif">
-        ${vendas.map((v) => `<tr style="border-top:1px solid #f0f0f0">
-          <td style="padding:7px 0;color:#333"><strong>${escapar(v.nome)}</strong></td>
-          <td style="text-align:right;color:#16A34A;font-weight:bold;white-space:nowrap">${brlCurto(v.receita ?? 0)}</td>
-          <td style="text-align:right;color:#888;white-space:nowrap;padding-left:10px">${v.pedidos != null ? `${nBR(v.pedidos)} ped.` : "—"}</td>
-        </tr>`).join("")}
-      </table>`);
+      partes.push(`<div style="margin:26px 0 10px;font:600 11px ${FONTE};color:${T.suave};letter-spacing:1.2px;text-transform:uppercase">Vendas do dia</div>`);
+      partes.push(TABELA(["Cliente", "Receita", "Pedidos"], vendas.map((v) => `<tr>
+        ${CELULA(`<strong style="color:${T.tinta};font-weight:600">${escapar(v.nome)}</strong>`)}
+        ${CELULA(brlCurto(v.receita ?? 0), "right", T.bom, 600)}
+        ${CELULA(v.pedidos != null ? nBR(v.pedidos) : "—", "right", T.suave)}
+      </tr>`)));
     }
 
     // Contas em atenção que vieram por alerta (fora da fila do Panorama).
     const atencao = (c.perf?.contasAtencao ?? []).slice(0, 5);
     if (atencao.length) {
-      partes.push(`<p style="margin:16px 0 2px;font:bold 12px Arial,sans-serif;color:#D97706">Contas em atenção</p>`);
-      for (const x of atencao) partes.push(LINHA(x.nome, x.titulo, "#D97706"));
+      partes.push(`<div style="margin:26px 0 12px;font:600 11px ${FONTE};color:${T.suave};letter-spacing:1.2px;text-transform:uppercase">Contas em atenção</div>`);
+      for (const x of atencao) partes.push(ITEM(x.nome, x.titulo, T.atencao));
     }
 
-    partes.push(`<p style="margin:14px 0 0"><a href="${APP_URL}/dashboard" style="font:13px Arial,sans-serif;color:#E85BA8;text-decoration:none">Abrir o Tracker →</a></p>`);
+    partes.push(LINK(`${APP_URL}/dashboard`, "Abrir o Tracker"));
     if (partes.length) secoes.push(SECAO("Performance", partes.join("")));
   }
 
@@ -385,64 +466,64 @@ export function montarHtml(c: Conteudo): string {
   // Uma linha por achado. Detalhe fica no Spaces; aqui é para saber que existe.
   const tec: string[] = [];
   for (const i of (c.site ?? []).filter((x) => !x.grave).slice(0, 6)) {
-    tec.push(`<p style="margin:5px 0;font:13px Arial,sans-serif;color:#444">• <strong>${escapar(i.conta ? `${i.conta}: ${i.titulo}` : i.titulo)}</strong></p>`);
+    tec.push(ITEM(i.conta ? `${i.conta}: ${i.titulo}` : i.titulo, "", T.atencao));
   }
-  for (const t of (ex?.saudeTecnica ?? []).slice(0, 5)) {
-    tec.push(`<p style="margin:5px 0;font:13px Arial,sans-serif;color:#444">• <strong>${escapar(t.nome)}</strong> — ${escapar(t.texto)}</p>`);
-  }
-  for (const pnd of (ex?.pendenciasManuais ?? []).slice(0, 4)) {
-    tec.push(`<p style="margin:5px 0;font:13px Arial,sans-serif;color:#777">• ${escapar(pnd.nome)} — ${escapar(pnd.texto)}</p>`);
-  }
-  if (tec.length) secoes.push(SECAO("Técnica", tec.join(""), "#0EA5E9"));
+  for (const t of (ex?.saudeTecnica ?? []).slice(0, 5)) tec.push(ITEM(t.nome, t.texto, "#6B7280"));
+  for (const pnd of (ex?.pendenciasManuais ?? []).slice(0, 4)) tec.push(ITEM(pnd.nome, pnd.texto, T.regua));
+  if (tec.length) secoes.push(SECAO("Técnica", tec.join("")));
 
   // ── GRUPO 4 · FINANCEIRO (separado, no fim) ───────────────────────────────
   if (c.fin) {
     const f = c.fin;
-    const tabela = (itens: typeof f.aReceber, titulo: string, cor: string, comDesc: boolean) => itens.length === 0 ? "" : `
-      <p style="margin:14px 0 4px;font:bold 12px Arial,sans-serif;color:${cor}">${titulo}</p>
-      <table style="width:100%;border-collapse:collapse;font:13px Arial,sans-serif">
-        <tr style="text-align:left;color:#888"><th style="padding:4px 0;font-weight:normal">Quem</th><th style="font-weight:normal">Venceu</th><th style="font-weight:normal">Atraso</th><th style="text-align:right;font-weight:normal">Valor</th></tr>
-        ${itens.map((x) => `<tr style="border-top:1px solid #eee">
-          <td style="padding:7px 0;color:#333">${escapar(x.nome)}${comDesc && x.descricao !== x.nome ? `<br><span style="color:#999;font-size:11px">${escapar(x.descricao)}</span>` : ""}</td>
-          <td style="color:#333">${fmtData(x.vencimento)}</td>
-          <td style="color:${x.dias >= 30 ? "#DC2626" : "#D97706"};font-weight:bold">${x.dias}d</td>
-          <td style="text-align:right;color:#333;font-weight:bold">${BRL(x.valorCents)}</td></tr>`).join("")}
-      </table>`;
+    const tabela = (itens: typeof f.aReceber, titulo: string, tom: string, comDesc: boolean) => itens.length === 0 ? "" : `
+      <div style="margin:24px 0 10px;font:600 11px ${FONTE};color:${tom};letter-spacing:1.2px;text-transform:uppercase">${titulo}</div>
+      ${TABELA(["Quem", "Venceu", "Atraso", "Valor"], itens.map((x) => `<tr>
+        ${CELULA(`<strong style="color:${T.tinta};font-weight:600">${escapar(x.nome)}</strong>${comDesc && x.descricao !== x.nome ? `<br><span style="color:${T.suave};font-size:11px">${escapar(x.descricao)}</span>` : ""}`)}
+        ${CELULA(fmtData(x.vencimento), "right", T.suave)}
+        ${CELULA(`${x.dias}d`, "right", x.dias >= 30 ? T.critico : T.atencao, 600)}
+        ${CELULA(BRL(x.valorCents), "right", T.tinta, 600)}
+      </tr>`))}`;
     secoes.push(SECAO("Financeiro", `
       ${LINHA_KPI([
-        KPI(nBR(f.total), "em atraso", "#DC2626"),
-        KPI(brlCurto((f.totalReceberCents ?? 0) / 100), "a receber", "#16A34A"),
-        KPI(brlCurto((f.totalPagarCents ?? 0) / 100), "a pagar", "#DC2626"),
+        KPI(nBR(f.total), "em atraso", T.critico),
+        KPI(brlCurto((f.totalReceberCents ?? 0) / 100), "a receber", T.bom),
+        KPI(brlCurto((f.totalPagarCents ?? 0) / 100), "a pagar", T.critico),
       ])}
-      ${tabela(f.aReceber, `A receber vencidas — ${BRL(f.totalReceberCents)}`, "#16A34A", true)}
-      ${tabela(f.aPagar, `A pagar vencidas — ${BRL(f.totalPagarCents)}`, "#DC2626", false)}
-      <p style="margin:12px 0 0"><a href="${APP_URL}/finance" style="font:13px Arial,sans-serif;color:#E85BA8;text-decoration:none">Abrir o Financeiro →</a></p>`, "#7C3AED"));
+      ${tabela(f.aReceber, `A receber · ${BRL(f.totalReceberCents)}`, T.bom, true)}
+      ${tabela(f.aPagar, `A pagar · ${BRL(f.totalPagarCents)}`, T.critico, false)}
+      ${LINK(`${APP_URL}/finance`, "Abrir o Financeiro")}`));
   }
 
   // ── Do time (institucional) ───────────────────────────────────────────────
   const time: string[] = [];
   for (const p of c.niver ?? []) {
-    time.push(`<p style="margin:5px 0;font:14px Arial,sans-serif;color:#333">🎉 <strong>${escapar(p.nome)}</strong>${p.cargo ? ` · <span style="color:#777">${escapar(p.cargo)}</span>` : ""}</p>`);
+    time.push(`<div style="margin:0 0 8px;font:400 14px/1.5 ${FONTE};color:${T.corpo}">🎉 <strong style="color:${T.tinta};font-weight:600">${escapar(p.nome)}</strong>${p.cargo ? ` · <span style="color:${T.suave}">${escapar(p.cargo)}</span>` : ""}</div>`);
   }
-  for (const k of c.comun ?? []) time.push(LINHA(k.titulo, k.corpo, "#E85BA8"));
-  if (time.length) secoes.push(SECAO("Do time", time.join(""), "#94A3B8"));
+  for (const k of c.comun ?? []) time.push(ITEM(k.titulo, k.corpo, T.acento));
+  if (time.length) secoes.push(SECAO("Do time", time.join("")));
 
   const diaExtenso = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "numeric", month: "long" })
     .format(new Date(`${c.dia}T12:00:00-03:00`));
+  const capitalizado = diaExtenso.charAt(0).toUpperCase() + diaExtenso.slice(1);
 
   return `
-<div style="background:#f4f4f5;padding:24px 12px">
-  <table style="max-width:640px;margin:0 auto;width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden">
-    <tr><td style="background:#1a1a1a;padding:20px 24px">
-      <p style="margin:0;font:bold 15px Arial,sans-serif;color:#E85BA8;letter-spacing:1.5px">JORNALZINHO SELVA</p>
-      <p style="margin:4px 0 0;font:13px Arial,sans-serif;color:#999">Bom dia! Resumo de ${diaExtenso}.</p>
+<div style="background:${T.fundo};padding:32px 16px;font-family:${FONTE}">
+  <table width="100%" style="max-width:640px;margin:0 auto;border-collapse:separate;background:#FFFFFF;border-radius:16px;overflow:hidden">
+
+    <!-- Capa: marca discreta, data em destaque. O e-mail se apresenta antes de informar. -->
+    <tr><td style="background:${T.tinta};padding:30px 32px 28px">
+      <div style="font:700 10px ${FONTE};color:${T.acento};letter-spacing:2.6px;text-transform:uppercase">Jornalzinho Selva</div>
+      <div style="margin:12px 0 0;font:600 21px/1.3 ${FONTE};color:#FFFFFF;letter-spacing:-0.3px">${escapar(capitalizado)}</div>
+      <div style="margin:6px 0 0;font:400 13px ${FONTE};color:#8E8E9C">Seu resumo do dia, montado pelo seu perfil.</div>
     </td></tr>
+
     ${secoes.join("")}
-    <tr><td style="padding:22px 24px 24px">
-      <p style="margin:18px 0 0;border-top:1px solid #eee;padding-top:14px;font:11px Arial,sans-serif;color:#aaa">
-        Enviado automaticamente pelo SELVA Spaces conforme o seu perfil.
-        <a href="${APP_URL}" style="color:#E85BA8;text-decoration:none">Abrir o Spaces</a>
-      </p>
+
+    <tr><td style="padding:34px 32px 30px">
+      <div style="border-top:1px solid ${T.regua};padding:16px 0 0;font:400 11px/1.6 ${FONTE};color:#A6A6B2">
+        Enviado automaticamente pelo SELVA Spaces conforme o seu perfil.<br>
+        <a href="${APP_URL}" style="color:${T.acento};text-decoration:none;font-weight:600">Abrir o Spaces</a>
+      </div>
     </td></tr>
   </table>
 </div>`;
