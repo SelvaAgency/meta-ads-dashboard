@@ -271,8 +271,11 @@ export default function JornalzinhoPreview() {
             </>
           )}
 
-          {/* Pré-seleção dos grupos — só admin, idempotente, com relatório. */}
-      {ehAdmin && (
+          {/* Pré-seleção dos grupos — admin/dev, idempotente, com relatório.
+          Atribuir grupo é operação de e-mail, não de privilégio: o grupo decide
+          quais CLIENTES entram, nunca quais BLOCOS. O financeiro segue preso ao
+          papel da pessoa, e a visão admin do e-mail continua só para admin. */}
+      {(
         <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
           <div>
             <p className="text-xs font-semibold text-foreground">Grupos do Jornalzinho</p>
@@ -347,34 +350,30 @@ export default function JornalzinhoPreview() {
               </p>
               <p className={(g.pessoas ?? []).length ? "text-muted-foreground" : "text-amber-600"}>
                 pessoas: {(g.pessoas ?? []).map((p: any) => p.nome ?? p.email).join(", ")
-                  || (ehAdmin ? "NINGUÉM — o botão acima não aplicou" : "NINGUÉM — peça a um admin para aplicar os grupos")}
+                  || "NINGUÉM — o botão acima não aplicou"}
               </p>
             </div>
           ))}
           {(gruposQ.data as any).semGrupo.length > 0 && (
             <div className="border-t border-border pt-2">
               <p className="text-[11px] text-muted-foreground mb-1.5">
-                {ehAdmin ? "Sem grupo — mova quem precisar:" : "Sem grupo (só admin pode mover):"}
+                Sem grupo — mova quem precisar:
               </p>
               <div className="flex flex-col gap-1">
                 {(gruposQ.data as any).semGrupo.map((p: any) => (
                   <div key={p.id} className="flex items-center gap-2 text-[11px]">
                     <span className="flex-1 truncate">{p.nome ?? p.email} <span className="text-muted-foreground">({p.role})</span></span>
-                    {ehAdmin ? (
-                      <select
-                        defaultValue=""
-                        onChange={(e) => e.target.value && moverPessoa.mutate({ userId: p.id, grupo: e.target.value })}
-                        className="text-[11px] border border-border rounded-md px-1.5 py-1 bg-background"
-                      >
-                        <option value="">mover para…</option>
-                        <option value="gtm1">GTM 1</option>
-                        <option value="gtm2">GTM 2</option>
-                        <option value="todos">Todos</option>
-                        <option value="nenhum">Nenhum</option>
-                      </select>
-                    ) : (
-                      <span className="text-muted-foreground flex-shrink-0">sem grupo</span>
-                    )}
+                    <select
+                      defaultValue=""
+                      onChange={(e) => e.target.value && moverPessoa.mutate({ userId: p.id, grupo: e.target.value })}
+                      className="text-[11px] border border-border rounded-md px-1.5 py-1 bg-background"
+                    >
+                      <option value="">mover para…</option>
+                      <option value="gtm1">GTM 1</option>
+                      <option value="gtm2">GTM 2</option>
+                      <option value="todos">Todos</option>
+                      <option value="nenhum">Nenhum</option>
+                    </select>
                   </div>
                 ))}
               </div>

@@ -2326,8 +2326,15 @@ export const appRouter = router({
       };
     }),
 
-    /** Move UMA pessoa de grupo. Admin — é decisão de quem recebe o quê. */
-    definirGrupoDePessoa: adminProcedure
+    /**
+     * Move UMA pessoa de grupo. Admin/dev, como o resto da área de e-mail.
+     *
+     * Não escala privilégio: o grupo decide QUAIS CLIENTES entram no e-mail,
+     * nunca QUAIS BLOCOS. Os blocos saem de BLOCOS_POR_PAPEL[papel], e `papel`
+     * vem do `role` do usuário — então ninguém alcança o financeiro se
+     * colocando num grupo. A trava do financeiro é outra, e continua de pé.
+     */
+    definirGrupoDePessoa: contentProcedure
       .input(z.object({ userId: z.number().int(), grupo: z.string().nullable() }))
       .mutation(async ({ input }) => {
         if (input.grupo !== null && !ehGrupoValido(input.grupo)) {
@@ -2344,8 +2351,12 @@ export const appRouter = router({
      *
      * Ambiguidade NUNCA é resolvida sozinha — escolher erraria o grupo inteiro
      * e ninguém saberia por quê.
+     *
+     * Admin/dev: atribuir grupo é operação de e-mail, não de privilégio, e o
+     * developer é quem valida o Jornalzinho. O que continua exclusivo de admin
+     * é a VISÃO ADMIN do e-mail, que carrega o financeiro.
      */
-    preSelecionarGruposJornalzinho: adminProcedure.mutation(async () => {
+    preSelecionarGruposJornalzinho: contentProcedure.mutation(async () => {
       const contas = await contasParaPreferencias();
       const relatorio = [];
       for (const g of GRUPOS.filter((x) => x.emailsPadrao.length > 0)) {
