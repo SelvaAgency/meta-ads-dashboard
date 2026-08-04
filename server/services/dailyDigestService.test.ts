@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BLOCOS_POR_PAPEL, statusDoRecibo, type Papel, type BlocoDigest } from "./dailyDigestService";
+import { BLOCOS_POR_PAPEL, statusDoRecibo, montarHtml, type Papel, type BlocoDigest, type Conteudo } from "./dailyDigestService";
 import { consomeDedupDeDigest, type StatusDigest } from "../db";
 
 /**
@@ -145,5 +145,76 @@ describe("o que consome a trava de duplicata", () => {
   it("ensaio de manhã não impede o envio real da tarde", () => {
     expect(consomeDedupDeDigest(statusDoRecibo({ ok: true, dryRun: true }))).toBe(false);
     expect(consomeDedupDeDigest(statusDoRecibo({ ok: true, dryRun: false }))).toBe(true);
+  });
+});
+
+/**
+ * ─── Estrutura do e-mail ────────────────────────────────────────────────────
+ * O bug que motivou estes testes: a seção executiva era concatenada como
+ * `SECAO(...) + montarHtml(...)`. `SECAO()` devolve um `<tr>`, então ele ficava
+ * FORA de qualquer `<table>` — o parser descartava `<tr>`/`<td>` e despejava o
+ * conteúdo solto no topo, antes do card. Na caixa de entrada isso aparecia como
+ * "leitura executiva em texto corrido" seguida do bloco visual.
+ *
+ * O invariante que impede a volta disso: nada pode ser emitido antes da tabela.
+ */
+describe("estrutura do HTML do Jornalzinho", () => {
+  const vazio: Conteudo = { dia: "2026-08-04", exec: null, perf: null, fin: null, site: null, niver: null, comun: null };
+
+  const execMin = {
+    dia: "2026-08-04",
+    destaques: { totalClientes: 11, precisamAtencao: 3, criticos: 1, atencoes: 2, achadosCriticos: 2, achadosAtencao: 4, receitaRealLojas: 15000, lojasComReceita: 2, trafegoGA4: 5400 },
+    atencaoPrimeiro: [{ nome: "ARKA", nivel: "critico" as const, motivo: "token expirado" }],
+    vendasReais: [{ nome: "BAESH", fonte: "loja", receita: 9000, pedidos: 12, ticket: 750, dia: "2026-08-04" }],
+    funil: [], saudeTecnica: [{ nome: "Musa", texto: "LCP 4.2s" }], fontesComErro: [],
+    oportunidades: [], pendenciasManuais: [], rodape: [], vazio: false,
+  };
+
+  it("nada é emitido antes da tabela — sem `<tr>` órfão", () => {
+    const html = montarHtml({ ...vazio, exec: execMin as any });
+    expect(html.trimStart().startsWith("<div")).toBe(true);
+    // O primeiro `<tr>` tem que vir DEPOIS do primeiro `<table`.
+    expect(html.indexOf("<table")).toBeLessThan(html.indexOf("<tr"));
+  });
+
+  it("não embute mais o HTML pronto do executivo (a fonte da duplicação)", () => {
+    const html = montarHtml({ ...vazio, exec: execMin as any });
+    expect(html).not.toContain("Leitura executiva");
+  });
+
+  /** Grupo 1 é facultativo: um bloco vermelho diário deixa de ser visto. */
+  it("sem crítico real, o grupo Críticos NÃO aparece", () => {
+    const html = montarHtml({ ...vazio, exec: execMin as any, perf: { resumo: "tudo bem", positivo: null, atencao: null, critico: null, contasCriticas: [], contasAtencao: [], anomalias: [] } });
+    expect(html).not.toContain("Precisa de atenção agora");
+    // …mas Performance continua lá: o e-mail começa por ela quando não há crítico.
+    expect(html).toContain(">Performance<");
+  });
+
+  it("com crítico real, o grupo Críticos aparece ANTES de Performance", () => {
+    const html = montarHtml({
+      ...vazio, exec: execMin as any,
+      perf: { resumo: null, positivo: null, atencao: null, critico: "CPA estourou em 3 contas", contasCriticas: [{ nome: "ARKA", titulo: "token expirado" }], contasAtencao: [], anomalias: [] },
+    });
+    expect(html).toContain("Precisa de atenção agora");
+    expect(html.indexOf("Precisa de atenção agora")).toBeLessThan(html.indexOf(">Performance<"));
+  });
+
+  it("os 4 grupos saem na ordem: Críticos → Performance → Técnica → Financeiro", () => {
+    const html = montarHtml({
+      ...vazio, exec: execMin as any,
+      perf: { resumo: null, positivo: null, atencao: null, critico: "algo grave", contasCriticas: [], contasAtencao: [], anomalias: [] },
+      site: [{ titulo: "LCP alto", detalhe: "", conta: "Musa", grave: false }],
+      fin: { total: 2, aReceber: [], aPagar: [], totalReceberCents: 100000, totalPagarCents: 50000 } as any,
+    });
+    const ordem = ["Precisa de atenção agora", ">Performance<", ">Técnica<", ">Financeiro<"].map((t) => html.indexOf(t));
+    expect(ordem.every((i) => i >= 0)).toBe(true);
+    expect([...ordem].sort((a, b) => a - b)).toEqual(ordem);
+  });
+
+  it("Performance usa cards de KPI, não só parágrafo", () => {
+    const html = montarHtml({ ...vazio, exec: execMin as any });
+    expect(html).toContain("clientes");      // rótulo de KPI
+    expect(html).toContain("em atenção");
+    expect(html).toContain("Vendas do dia"); // tabela de vendas reais
   });
 });

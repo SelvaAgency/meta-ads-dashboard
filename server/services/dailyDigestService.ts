@@ -23,7 +23,7 @@ import {
   registrarEnvioDigest, emailDigestJaEnviado, listarComunicados, type StatusDigest,
 } from "../db";
 import { obterBriefingDoDia } from "./briefingService";
-import { getJornalExecutivo } from "./jornalExecutivo";
+import { getJornalExecutivo, type SecoesExecutivas } from "./jornalExecutivo";
 
 export type Papel = "admin" | "developer" | "user";
 export type BlocoDigest = "performance" | "financeiro" | "site" | "aniversarios" | "comunicados" | "executivo";
@@ -206,19 +206,33 @@ export async function buildDailyDigestForRole(role: string | null | undefined, d
   if (niver) blocos.push("aniversarios");
   if (comun) blocos.push("comunicados");
 
-  const execHtml = exec && !exec.secoes.vazio ? SECAO("Leitura executiva do dia", exec.html) : "";
-  const execTexto = exec && !exec.secoes.vazio ? `\n${exec.texto}\n` : "";
+  /**
+   * O executivo entra como DADO (`exec.secoes`), não como HTML pronto.
+   *
+   * Antes era `SECAO("Leitura executiva do dia", exec.html) + montarHtml(...)`.
+   * `SECAO()` devolve um `<tr>`, e essa concatenação o colocava FORA de
+   * qualquer `<table>` — o parser descartava `<tr>`/`<td>` e despejava o
+   * conteúdo solto no topo do e-mail, antes do card. Era a "leitura executiva
+   * em texto corrido" que aparecia duplicando o bloco visual logo abaixo.
+   *
+   * Agora tudo é composto DENTRO da tabela, a partir dos dados estruturados.
+   * `renderExecutivoHtml` continua existindo para a tela do app; o e-mail
+   * simplesmente não o usa mais.
+   */
+  const conteudo: Conteudo = { dia, exec: exec && !exec.secoes.vazio ? exec.secoes : null, perf, fin, site, niver, comun };
 
   return {
     papel, dia, blocos, vazio: blocos.length === 0,
     assunto: `Jornalzinho SELVA — resumo diário — ${fmtData(dia).slice(0, 5)}`,
-    html: execHtml + montarHtml({ dia, perf, fin, site, niver, comun }),
-    texto: execTexto + montarTexto({ dia, perf, fin, site, niver, comun }),
+    html: montarHtml(conteudo),
+    texto: montarTexto(conteudo),
   };
 }
 
-type Conteudo = {
+export type Conteudo = {
   dia: string;
+  /** Seções executivas do dia (só admin). Dados, não HTML — ver acima. */
+  exec: SecoesExecutivas | null;
   perf: Performance | null;
   fin: Financeiro | null;
   site: ItemSite[] | null;
@@ -226,9 +240,29 @@ type Conteudo = {
   comun: { titulo: string; corpo: string }[] | null;
 };
 
-const SECAO = (titulo: string, corpo: string) => `
-  <tr><td style="padding:20px 24px 0">
-    <p style="margin:0 0 10px;font:bold 11px Arial,sans-serif;color:#E85BA8;letter-spacing:1.2px;text-transform:uppercase">${titulo}</p>
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Montagem do e-mail — 4 grupos, nesta ordem
+ * ─────────────────────────────────────────────────────────────────────────────
+ *   1. CRÍTICOS   — facultativo. Só aparece se houver crítico real, no topo e
+ *                   destacado. Sem ele, o e-mail começa por Performance.
+ *   2. PERFORMANCE — o bloco principal. Cards e números, não parágrafo.
+ *   3. TÉCNICA     — enxuto de propósito: uma linha por achado.
+ *   4. FINANCEIRO  — separado, no fim, para não se misturar com resultado.
+ *
+ *  Depois deles vem "Do time" (aniversários/comunicados), que é institucional e
+ *  não compete com o conteúdo de trabalho.
+ *
+ *  ── Restrições de e-mail, não de web ───────────────────────────────────────
+ *  O Gmail ignora flex, grid e a maior parte de CSS em <style>. Por isso TUDO
+ *  aqui é tabela com estilo inline: os "cards" de KPI são <td>, não <div>. É
+ *  feio de escrever e é o que sobrevive na caixa de entrada.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+const SECAO = (titulo: string, corpo: string, cor = "#E85BA8") => `
+  <tr><td style="padding:22px 24px 0">
+    <p style="margin:0 0 12px;font:bold 11px Arial,sans-serif;color:${cor};letter-spacing:1.2px;text-transform:uppercase">${titulo}</p>
     ${corpo}
   </td></tr>`;
 
@@ -238,24 +272,130 @@ const LINHA = (titulo: string, detalhe: string, cor: string) => `
     ${detalhe ? `<p style="margin:3px 0 0;font:13px Arial,sans-serif;color:#555">${escapar(detalhe)}</p>` : ""}
   </div>`;
 
-function montarHtml(c: Conteudo): string {
-  const secoes: string[] = [];
+/** Número grande + rótulo pequeno. A unidade de leitura rápida do e-mail. */
+const KPI = (valor: string, rotulo: string, cor = "#1a1a1a") => `
+  <td width="25%" style="padding:0 4px" valign="top">
+    <table width="100%" style="border-collapse:collapse;background:#fafafa;border:1px solid #eee;border-radius:8px">
+      <tr><td style="padding:12px 10px;text-align:center">
+        <p style="margin:0;font:bold 22px Arial,sans-serif;color:${cor};line-height:1.1">${escapar(valor)}</p>
+        <p style="margin:4px 0 0;font:11px Arial,sans-serif;color:#888;text-transform:uppercase;letter-spacing:.4px">${escapar(rotulo)}</p>
+      </td></tr>
+    </table>
+  </td>`;
 
-  if (c.perf) {
-    const p = c.perf;
-    const bloco = (emoji: string, txt: string | null, cor: string) =>
-      txt ? `<p style="margin:6px 0;font:14px Arial,sans-serif;color:${cor}">${emoji} ${escapar(txt)}</p>` : "";
-    const lista = (itens: { nome: string; titulo: string }[], cor: string) =>
-      itens.slice(0, 6).map((i) => LINHA(i.nome, i.titulo, cor)).join("");
-    secoes.push(SECAO("Performance", `
-      ${p.resumo ? `<p style="margin:0 0 8px;font:14px Arial,sans-serif;color:#333">${escapar(p.resumo)}</p>` : ""}
-      ${bloco("✅", p.positivo, "#16A34A")}${bloco("⚠️", p.atencao, "#D97706")}${bloco("🚨", p.critico, "#DC2626")}
-      ${p.contasCriticas.length ? `<p style="margin:14px 0 2px;font:bold 12px Arial,sans-serif;color:#DC2626">Contas críticas</p>${lista(p.contasCriticas, "#DC2626")}` : ""}
-      ${p.contasAtencao.length ? `<p style="margin:14px 0 2px;font:bold 12px Arial,sans-serif;color:#D97706">Contas em atenção</p>${lista(p.contasAtencao, "#D97706")}` : ""}
-      ${p.anomalias.length ? `<p style="margin:14px 0 2px;font:bold 12px Arial,sans-serif;color:#666">Anomalias</p>${p.anomalias.slice(0, 5).map((a) => LINHA(a.titulo ? `${a.nome}: ${a.titulo}` : a.nome, a.descricao, "#94A3B8")).join("")}` : ""}
-      <p style="margin:12px 0 0"><a href="${APP_URL}/dashboard" style="font:13px Arial,sans-serif;color:#E85BA8;text-decoration:none">Abrir o Tracker →</a></p>`));
+/** Linha de KPIs. Máx. 4 por linha — mais que isso o Gmail espreme no celular. */
+const LINHA_KPI = (cards: string[]) => cards.length === 0 ? "" : `
+  <table width="100%" style="border-collapse:collapse;margin:0 0 6px"><tr>${cards.join("")}
+    ${Array.from({ length: (4 - cards.length % 4) % 4 }, () => '<td width="25%"></td>').join("")}
+  </tr></table>`;
+
+const nBR = (v: number) => (v ?? 0).toLocaleString("pt-BR");
+const brlCurto = (v: number) => "R$ " + (v ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+
+/** Cartão de aviso forte — só para o grupo 1. */
+const CARD_CRITICO = (corpo: string) => `
+  <table width="100%" style="border-collapse:collapse;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px">
+    <tr><td style="padding:14px 16px">${corpo}</td></tr>
+  </table>`;
+
+export function montarHtml(c: Conteudo): string {
+  const secoes: string[] = [];
+  const ex = c.exec;
+
+  // ── GRUPO 1 · CRÍTICOS (facultativo) ──────────────────────────────────────
+  // Só entra com crítico REAL. Um bloco vermelho que aparece todo dia deixa de
+  // ser visto — é a diferença entre alerta e enfeite.
+  const criticos: string[] = [];
+  if (c.perf?.critico) criticos.push(`<p style="margin:0 0 8px;font:bold 15px Arial,sans-serif;color:#991B1B">${escapar(c.perf.critico)}</p>`);
+  for (const x of (c.perf?.contasCriticas ?? []).slice(0, 5)) {
+    criticos.push(`<p style="margin:5px 0;font:14px Arial,sans-serif;color:#7F1D1D">🚨 <strong>${escapar(x.nome)}</strong>${x.titulo ? ` — ${escapar(x.titulo)}` : ""}</p>`);
+  }
+  for (const i of (c.site ?? []).filter((x) => x.grave).slice(0, 4)) {
+    criticos.push(`<p style="margin:5px 0;font:14px Arial,sans-serif;color:#7F1D1D">🌐 <strong>${escapar(i.conta ? `${i.conta}: ${i.titulo}` : i.titulo)}</strong></p>`);
+  }
+  for (const f of (ex?.fontesComErro ?? []).slice(0, 4)) {
+    criticos.push(`<p style="margin:5px 0;font:14px Arial,sans-serif;color:#7F1D1D">⛔ <strong>${escapar(f.nome)}</strong> — ${escapar(f.fonte)}: ${escapar(f.porque)}</p>`);
+  }
+  if (criticos.length > 0) secoes.push(SECAO("Precisa de atenção agora", CARD_CRITICO(criticos.join("")), "#DC2626"));
+
+  // ── GRUPO 2 · PERFORMANCE (bloco principal) ───────────────────────────────
+  if (c.perf || ex) {
+    const partes: string[] = [];
+
+    // KPIs do portfólio — o "resumão" numa olhada.
+    if (ex) {
+      const d = ex.destaques;
+      const cards = [
+        KPI(nBR(d.totalClientes), "clientes"),
+        KPI(nBR(d.criticos), "críticos", d.criticos > 0 ? "#DC2626" : "#16A34A"),
+        KPI(nBR(d.atencoes), "em atenção", d.atencoes > 0 ? "#D97706" : "#16A34A"),
+        KPI(nBR(d.totalClientes - d.precisamAtencao), "saudáveis", "#16A34A"),
+      ];
+      partes.push(LINHA_KPI(cards));
+      const cards2 = [
+        ...(d.lojasComReceita > 0 ? [KPI(brlCurto(d.receitaRealLojas), `receita · ${d.lojasComReceita} loja(s)`, "#16A34A")] : []),
+        ...(d.trafegoGA4 > 0 ? [KPI(nBR(d.trafegoGA4), "sessões (7d)")] : []),
+        ...(d.achadosCriticos > 0 ? [KPI(nBR(d.achadosCriticos), "achados críticos", "#DC2626")] : []),
+        ...(d.achadosAtencao > 0 ? [KPI(nBR(d.achadosAtencao), "achados atenção", "#D97706")] : []),
+      ];
+      if (cards2.length) partes.push(LINHA_KPI(cards2));
+    }
+
+    // Resumo textual CURTO e complementar — nunca o bloco principal.
+    if (c.perf?.resumo) {
+      partes.push(`<p style="margin:12px 0 0;font:14px/1.55 Arial,sans-serif;color:#444">${escapar(c.perf.resumo)}</p>`);
+    }
+    if (c.perf?.positivo) partes.push(`<p style="margin:8px 0 0;font:13px Arial,sans-serif;color:#16A34A">✅ ${escapar(c.perf.positivo)}</p>`);
+    if (c.perf?.atencao) partes.push(`<p style="margin:6px 0 0;font:13px Arial,sans-serif;color:#D97706">⚠️ ${escapar(c.perf.atencao)}</p>`);
+
+    // Fila de atenção do Panorama — quem olhar primeiro, e por quê.
+    const fila = (ex?.atencaoPrimeiro ?? []).slice(0, 6);
+    if (fila.length) {
+      partes.push(`<p style="margin:16px 0 2px;font:bold 12px Arial,sans-serif;color:#666">Olhar primeiro</p>`);
+      for (const a of fila) {
+        partes.push(LINHA(a.nome, a.motivo, a.nivel === "critico" ? "#DC2626" : "#D97706"));
+      }
+    }
+
+    // Vendas reais (Woo/VNDA) — receita de loja, nunca GA4/Meta.
+    const vendas = (ex?.vendasReais ?? []).filter((v) => v.receita != null).slice(0, 6);
+    if (vendas.length) {
+      partes.push(`<p style="margin:16px 0 6px;font:bold 12px Arial,sans-serif;color:#666">Vendas do dia</p>
+      <table width="100%" style="border-collapse:collapse;font:13px Arial,sans-serif">
+        ${vendas.map((v) => `<tr style="border-top:1px solid #f0f0f0">
+          <td style="padding:7px 0;color:#333"><strong>${escapar(v.nome)}</strong></td>
+          <td style="text-align:right;color:#16A34A;font-weight:bold;white-space:nowrap">${brlCurto(v.receita ?? 0)}</td>
+          <td style="text-align:right;color:#888;white-space:nowrap;padding-left:10px">${v.pedidos != null ? `${nBR(v.pedidos)} ped.` : "—"}</td>
+        </tr>`).join("")}
+      </table>`);
+    }
+
+    // Contas em atenção que vieram por alerta (fora da fila do Panorama).
+    const atencao = (c.perf?.contasAtencao ?? []).slice(0, 5);
+    if (atencao.length) {
+      partes.push(`<p style="margin:16px 0 2px;font:bold 12px Arial,sans-serif;color:#D97706">Contas em atenção</p>`);
+      for (const x of atencao) partes.push(LINHA(x.nome, x.titulo, "#D97706"));
+    }
+
+    partes.push(`<p style="margin:14px 0 0"><a href="${APP_URL}/dashboard" style="font:13px Arial,sans-serif;color:#E85BA8;text-decoration:none">Abrir o Tracker →</a></p>`);
+    if (partes.length) secoes.push(SECAO("Performance", partes.join("")));
   }
 
+  // ── GRUPO 3 · TÉCNICA (enxuto) ────────────────────────────────────────────
+  // Uma linha por achado. Detalhe fica no Spaces; aqui é para saber que existe.
+  const tec: string[] = [];
+  for (const i of (c.site ?? []).filter((x) => !x.grave).slice(0, 6)) {
+    tec.push(`<p style="margin:5px 0;font:13px Arial,sans-serif;color:#444">• <strong>${escapar(i.conta ? `${i.conta}: ${i.titulo}` : i.titulo)}</strong></p>`);
+  }
+  for (const t of (ex?.saudeTecnica ?? []).slice(0, 5)) {
+    tec.push(`<p style="margin:5px 0;font:13px Arial,sans-serif;color:#444">• <strong>${escapar(t.nome)}</strong> — ${escapar(t.texto)}</p>`);
+  }
+  for (const pnd of (ex?.pendenciasManuais ?? []).slice(0, 4)) {
+    tec.push(`<p style="margin:5px 0;font:13px Arial,sans-serif;color:#777">• ${escapar(pnd.nome)} — ${escapar(pnd.texto)}</p>`);
+  }
+  if (tec.length) secoes.push(SECAO("Técnica", tec.join(""), "#0EA5E9"));
+
+  // ── GRUPO 4 · FINANCEIRO (separado, no fim) ───────────────────────────────
   if (c.fin) {
     const f = c.fin;
     const tabela = (itens: typeof f.aReceber, titulo: string, cor: string, comDesc: boolean) => itens.length === 0 ? "" : `
@@ -268,26 +408,24 @@ function montarHtml(c: Conteudo): string {
           <td style="color:${x.dias >= 30 ? "#DC2626" : "#D97706"};font-weight:bold">${x.dias}d</td>
           <td style="text-align:right;color:#333;font-weight:bold">${BRL(x.valorCents)}</td></tr>`).join("")}
       </table>`;
-    secoes.push(SECAO("Financeiro crítico", `
-      <p style="margin:0;font:14px Arial,sans-serif;color:#333">${f.total} conta(s) em atraso · total <strong>${BRL(f.totalReceberCents + f.totalPagarCents)}</strong></p>
+    secoes.push(SECAO("Financeiro", `
+      ${LINHA_KPI([
+        KPI(nBR(f.total), "em atraso", "#DC2626"),
+        KPI(brlCurto((f.totalReceberCents ?? 0) / 100), "a receber", "#16A34A"),
+        KPI(brlCurto((f.totalPagarCents ?? 0) / 100), "a pagar", "#DC2626"),
+      ])}
       ${tabela(f.aReceber, `A receber vencidas — ${BRL(f.totalReceberCents)}`, "#16A34A", true)}
       ${tabela(f.aPagar, `A pagar vencidas — ${BRL(f.totalPagarCents)}`, "#DC2626", false)}
-      <p style="margin:12px 0 0"><a href="${APP_URL}/finance" style="font:13px Arial,sans-serif;color:#E85BA8;text-decoration:none">Abrir o Financeiro →</a></p>`));
+      <p style="margin:12px 0 0"><a href="${APP_URL}/finance" style="font:13px Arial,sans-serif;color:#E85BA8;text-decoration:none">Abrir o Financeiro →</a></p>`, "#7C3AED"));
   }
 
-  if (c.site) {
-    secoes.push(SECAO("Site e Clarity", c.site.slice(0, 8)
-      .map((i) => LINHA(i.conta ? `${i.conta}: ${i.titulo}` : i.titulo, i.detalhe, i.grave ? "#DC2626" : "#D97706")).join("")));
+  // ── Do time (institucional) ───────────────────────────────────────────────
+  const time: string[] = [];
+  for (const p of c.niver ?? []) {
+    time.push(`<p style="margin:5px 0;font:14px Arial,sans-serif;color:#333">🎉 <strong>${escapar(p.nome)}</strong>${p.cargo ? ` · <span style="color:#777">${escapar(p.cargo)}</span>` : ""}</p>`);
   }
-
-  if (c.niver) {
-    secoes.push(SECAO("Aniversários", c.niver.map((p) =>
-      `<p style="margin:6px 0;font:14px Arial,sans-serif;color:#333">🎉 <strong>${escapar(p.nome)}</strong>${p.cargo ? ` · <span style="color:#777">${escapar(p.cargo)}</span>` : ""}</p>`).join("")));
-  }
-
-  if (c.comun) {
-    secoes.push(SECAO("Comunicados", c.comun.map((k) => LINHA(k.titulo, k.corpo, "#E85BA8")).join("")));
-  }
+  for (const k of c.comun ?? []) time.push(LINHA(k.titulo, k.corpo, "#E85BA8"));
+  if (time.length) secoes.push(SECAO("Do time", time.join(""), "#94A3B8"));
 
   const diaExtenso = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "numeric", month: "long" })
     .format(new Date(`${c.dia}T12:00:00-03:00`));
@@ -310,24 +448,60 @@ function montarHtml(c: Conteudo): string {
 </div>`;
 }
 
+/**
+ * Versão texto puro — a parte `text/plain` do multipart, para cliente que não
+ * renderiza HTML e para leitor de tela. NÃO é mostrada junto do HTML: o
+ * multipart/alternative faz o cliente escolher UMA das duas. É por isso que
+ * repetir o conteúdo aqui não duplica nada na caixa de entrada — o que duplicava
+ * era o `<tr>` órfão no HTML, corrigido na origem.
+ *
+ * Segue os mesmos 4 grupos, para quem lê as duas versões não se perder.
+ */
 function montarTexto(c: Conteudo): string {
   const p: string[] = [`JORNALZINHO SELVA — ${fmtData(c.dia)}`];
-  if (c.perf) {
+  const ex = c.exec;
+
+  const criticos: string[] = [];
+  if (c.perf?.critico) criticos.push(c.perf.critico);
+  for (const x of (c.perf?.contasCriticas ?? []).slice(0, 5)) criticos.push(`${x.nome}${x.titulo ? `: ${x.titulo}` : ""}`);
+  for (const i of (c.site ?? []).filter((x) => x.grave).slice(0, 4)) criticos.push(`${i.conta ? i.conta + ": " : ""}${i.titulo}`);
+  for (const f of (ex?.fontesComErro ?? []).slice(0, 4)) criticos.push(`${f.nome} — ${f.fonte}: ${f.porque}`);
+  if (criticos.length) { p.push("\nPRECISA DE ATENÇÃO AGORA"); for (const x of criticos) p.push(`! ${x}`); }
+
+  if (c.perf || ex) {
     p.push("\nPERFORMANCE");
-    if (c.perf.resumo) p.push(c.perf.resumo);
-    if (c.perf.positivo) p.push(`✅ ${c.perf.positivo}`);
-    if (c.perf.atencao) p.push(`⚠️ ${c.perf.atencao}`);
-    if (c.perf.critico) p.push(`🚨 ${c.perf.critico}`);
-    for (const x of c.perf.contasCriticas.slice(0, 6)) p.push(`• [crítico] ${x.nome}${x.titulo ? `: ${x.titulo}` : ""}`);
-    for (const x of c.perf.contasAtencao.slice(0, 6)) p.push(`• [atenção] ${x.nome}${x.titulo ? `: ${x.titulo}` : ""}`);
+    if (ex) {
+      const d = ex.destaques;
+      p.push(`${d.totalClientes} clientes · ${d.criticos} crítico(s) · ${d.atencoes} em atenção`);
+      if (d.lojasComReceita > 0) p.push(`Receita de lojas: ${brlCurto(d.receitaRealLojas)} (${d.lojasComReceita} loja(s))`);
+      if (d.trafegoGA4 > 0) p.push(`Sessões (7d): ${nBR(d.trafegoGA4)}`);
+    }
+    if (c.perf?.resumo) p.push(c.perf.resumo);
+    if (c.perf?.positivo) p.push(`✅ ${c.perf.positivo}`);
+    if (c.perf?.atencao) p.push(`⚠️ ${c.perf.atencao}`);
+    for (const a of (ex?.atencaoPrimeiro ?? []).slice(0, 6)) p.push(`• [${a.nivel}] ${a.nome} — ${a.motivo}`);
+    for (const v of (ex?.vendasReais ?? []).filter((x) => x.receita != null).slice(0, 6)) {
+      p.push(`• ${v.nome}: ${brlCurto(v.receita ?? 0)}${v.pedidos != null ? ` · ${v.pedidos} pedido(s)` : ""}`);
+    }
+    for (const x of (c.perf?.contasAtencao ?? []).slice(0, 5)) p.push(`• [atenção] ${x.nome}${x.titulo ? `: ${x.titulo}` : ""}`);
   }
+
+  const tec: string[] = [];
+  for (const i of (c.site ?? []).filter((x) => !x.grave).slice(0, 6)) tec.push(`${i.conta ? i.conta + ": " : ""}${i.titulo}`);
+  for (const t of (ex?.saudeTecnica ?? []).slice(0, 5)) tec.push(`${t.nome} — ${t.texto}`);
+  for (const pnd of (ex?.pendenciasManuais ?? []).slice(0, 4)) tec.push(`${pnd.nome} — ${pnd.texto}`);
+  if (tec.length) { p.push("\nTÉCNICA"); for (const x of tec) p.push(`• ${x}`); }
+
   if (c.fin) {
-    p.push(`\nFINANCEIRO CRÍTICO — ${c.fin.total} conta(s), total ${BRL(c.fin.totalReceberCents + c.fin.totalPagarCents)}`);
+    p.push(`\nFINANCEIRO — ${c.fin.total} conta(s) em atraso, total ${BRL(c.fin.totalReceberCents + c.fin.totalPagarCents)}`);
     for (const x of [...c.fin.aReceber, ...c.fin.aPagar]) p.push(`• ${x.nome} — ${BRL(x.valorCents)} · venceu ${fmtData(x.vencimento)} · ${x.dias}d`);
   }
-  if (c.site) { p.push("\nSITE E CLARITY"); for (const i of c.site.slice(0, 8)) p.push(`• ${i.conta ? i.conta + ": " : ""}${i.titulo}`); }
-  if (c.niver) { p.push("\nANIVERSÁRIOS"); for (const n of c.niver) p.push(`🎉 ${n.nome}${n.cargo ? ` · ${n.cargo}` : ""}`); }
-  if (c.comun) { p.push("\nCOMUNICADOS"); for (const k of c.comun) p.push(`• ${k.titulo}`); }
+
+  if (c.niver || c.comun) {
+    p.push("\nDO TIME");
+    for (const n of c.niver ?? []) p.push(`🎉 ${n.nome}${n.cargo ? ` · ${n.cargo}` : ""}`);
+    for (const k of c.comun ?? []) p.push(`• ${k.titulo}`);
+  }
   return p.join("\n");
 }
 
