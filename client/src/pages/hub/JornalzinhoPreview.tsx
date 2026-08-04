@@ -76,8 +76,8 @@ export default function JornalzinhoPreview() {
   // criaria uma segunda definição de grupo, que divergiria da primeira na
   // primeira mudança.
   const gruposQ = trpc.notifications.gruposJornalzinho.useQuery();
-  const grupoSel = (gruposQ.data?.grupos ?? []).find((g: any) => g.id === segmento);
-  const contasDoGrupo = (): number[] => (grupoSel?.aplicados ?? []).map((a: any) => a.accountId);
+  const grupoSel = (gruposQ.data?.grupos ?? []).find((g) => g.id === segmento);
+  const contasDoGrupo = (): number[] => (grupoSel?.aplicados ?? []).map((a) => a.accountId);
 
   const previaQ = trpc.notifications.previewDigestHtml.useQuery({
     papel, dia,
@@ -86,7 +86,11 @@ export default function JornalzinhoPreview() {
   });
 
   const preSelecionar = trpc.notifications.preSelecionarGruposJornalzinho.useMutation({
-    onSuccess: async (r: any) => {
+    // Sem `any`: é o tipo inferido do tRPC que faz o compilador reclamar quando
+    // o formato do relatório muda no servidor. Com `any`, a divergência só
+    // aparece como erro em tempo de execução — depois de a gravação ter
+    // acontecido, o que faz um sucesso parecer falha.
+    onSuccess: async (r) => {
       /**
        * Sem invalidar, a tela continua mostrando o cache de ANTES da gravação —
        * todo mundo como "sem grupo". Era o que fazia parecer que o botão não
@@ -99,13 +103,23 @@ export default function JornalzinhoPreview() {
         utils.notifications.meuGrupoJornalzinho.invalidate(),
         utils.notifications.previewDigestHtml.invalidate(),
       ]);
-      const faltou = r.relatorio.flatMap((g: any) => [
-        ...g.tokensSemCliente.map((t: string) => `sem cliente: ${t}`),
-        ...g.ambiguos.map((a: any) => `ambíguo: ${a.token}`),
-        ...g.pessoas.filter((p: any) => !p.aplicado).map((p: any) => `sem usuário: ${p.email}`),
+      /**
+       * O resumo do toast lê o MESMO formato que o painel abaixo renderiza —
+       * `pendencias` e `encontrado`. Ele já leu campos de uma versão anterior
+       * do relatório e quebrou no `.map` de um `undefined`; os `?? []` abaixo
+       * fazem um campo ausente virar "nada a relatar" em vez de derrubar a
+       * tela depois de a gravação já ter acontecido.
+       */
+      const grupos = r?.relatorio ?? [];
+      const faltou = grupos.flatMap((g) => [
+        ...g.pendencias.map((x) => `${x.rotulo}: ${x.tipo === "ambiguo" ? "ambíguo" : "sem cliente"}`),
+        ...g.pessoas.filter((p) => !p.encontrado).map((p) => `usuário não encontrado: ${p.email}`),
       ]);
+      const aplicou = grupos.some((g) => g.pessoas.some((p) => p.encontrado));
       toast[faltou.length ? "warning" : "success"](
-        faltou.length ? `Aplicado com pendências: ${faltou.join(" · ")}` : "Pré-seleção aplicada nos dois grupos.",
+        faltou.length
+          ? `${aplicou ? "Aplicado com pendências" : "Nada aplicado"}: ${faltou.join(" · ")}`
+          : "Grupos aplicados.",
       );
     },
     onError: (e) => toast.error(e.message),
@@ -126,7 +140,10 @@ export default function JornalzinhoPreview() {
   });
 
   const enviar = trpc.notifications.enviarPreviaJornalzinho.useMutation({
-    onSuccess: (r: any) => {
+    // Tipado: o retorno é uma UNIÃO (vazio | resultado do envio), e é o
+    // compilador que obriga a estreitar antes de ler `ok`/`erro`. Com `any`,
+    // ler um campo do ramo errado só apareceria como erro em produção.
+    onSuccess: (r) => {
       setConfirmando(false);
       if (r.vazio) return toast.error("Sem conteúdo para este dia/papel — nada foi enviado.");
       if (r.pausado) return toast.error("Envio pausado (EMAIL_AUTOMATION_ENABLED). A prévia não saiu.");
@@ -190,7 +207,7 @@ export default function JornalzinhoPreview() {
                 <select value={pessoaId ?? ""} onChange={(e) => setPessoaId(e.target.value ? Number(e.target.value) : null)}
                   className="text-sm border border-border rounded-md px-2 py-1.5 bg-background max-w-[220px]">
                   <option value="">— selecione —</option>
-                  {(pessoasQ.data ?? []).map((p: any) => (
+                  {(pessoasQ.data ?? []).map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nome ?? p.email} · {p.rotuloGrupo}
                     </option>
@@ -247,10 +264,10 @@ export default function JornalzinhoPreview() {
                   </button>
                   {grupoSel && (
                     <span className="text-[11px] text-muted-foreground">
-                      Recorte: {(grupoSel.aplicados ?? []).map((a: any) => a.nome).join(", ") || "nenhum cliente resolvido"}
+                      Recorte: {(grupoSel.aplicados ?? []).map((a) => a.nome).join(", ") || "nenhum cliente resolvido"}
                       {(grupoSel.pendencias ?? []).length > 0 && (
                         <span className="text-amber-600">
-                          {" "}· pendente: {(grupoSel.pendencias ?? []).map((x: any) => x.rotulo).join(", ")}
+                          {" "}· pendente: {(grupoSel.pendencias ?? []).map((x) => x.rotulo).join(", ")}
                         </span>
                       )}
                     </span>
@@ -293,21 +310,21 @@ export default function JornalzinhoPreview() {
           </div>
           {preSelecionar.data && (
             <div className="flex flex-col gap-3 border-t border-border pt-3">
-              {(preSelecionar.data as any).relatorio.map((g: any) => (
+              {preSelecionar.data.relatorio.map((g) => (
                 <div key={g.grupo} className="text-[11px] pl-3 border-l-2 border-border">
                   <p className="text-xs font-bold">{g.rotulo}</p>
 
                   <p className="text-muted-foreground mt-1">clientes do grupo:</p>
                   {g.aplicados.length === 0
                     ? <p className="pl-3 text-amber-600">nenhum resolvido</p>
-                    : g.aplicados.map((a: any) => (
+                    : g.aplicados.map((a) => (
                         <p key={a.accountId} className="pl-3 text-emerald-700 dark:text-emerald-500">
                           • {a.rotulo} → {a.nome} — accountId {a.accountId}
                         </p>
                       ))}
 
                   <p className="text-muted-foreground mt-1">pessoas:</p>
-                  {g.pessoas.map((p: any) => (
+                  {g.pessoas.map((p) => (
                     <p key={p.email} className={`pl-3 ${p.encontrado ? "text-muted-foreground" : "text-destructive"}`}>
                       • {p.nome ?? p.email} — {p.encontrado ? `encontrado (id ${p.userId}) · role ${p.role}` : "NÃO encontrado"}
                     </p>
@@ -318,7 +335,7 @@ export default function JornalzinhoPreview() {
                     : (
                       <>
                         <p className="text-amber-600 mt-1">pendências:</p>
-                        {g.pendencias.map((x: any, i: number) => (
+                        {g.pendencias.map((x, i) => (
                           <p key={i} className="pl-3 text-amber-600">• {x.rotulo}: {x.detalhe}</p>
                         ))}
                       </>
@@ -339,28 +356,28 @@ export default function JornalzinhoPreview() {
       {gruposQ.data && (
         <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
           <p className="text-xs font-semibold text-foreground">Quem está em cada grupo</p>
-          {(gruposQ.data as any).grupos.filter((g: any) => g.id === "gtm1" || g.id === "gtm2").map((g: any) => (
+          {gruposQ.data.grupos.filter((g) => g.id === "gtm1" || g.id === "gtm2").map((g) => (
             <div key={g.id} className="text-[11px]">
               <p className="font-semibold">{g.rotulo}</p>
               <p className="text-muted-foreground">
-                clientes: {(g.aplicados ?? []).map((a: any) => a.nome).join(", ") || "nenhum"}
+                clientes: {(g.aplicados ?? []).map((a) => a.nome).join(", ") || "nenhum"}
                 {(g.pendencias ?? []).length > 0 && (
-                  <span className="text-amber-600"> · aguardando: {(g.pendencias ?? []).map((x: any) => x.rotulo).join(", ")}</span>
+                  <span className="text-amber-600"> · aguardando: {(g.pendencias ?? []).map((x) => x.rotulo).join(", ")}</span>
                 )}
               </p>
               <p className={(g.pessoas ?? []).length ? "text-muted-foreground" : "text-amber-600"}>
-                pessoas: {(g.pessoas ?? []).map((p: any) => p.nome ?? p.email).join(", ")
+                pessoas: {(g.pessoas ?? []).map((p) => p.nome ?? p.email).join(", ")
                   || "NINGUÉM — o botão acima não aplicou"}
               </p>
             </div>
           ))}
-          {(gruposQ.data as any).semGrupo.length > 0 && (
+          {gruposQ.data.semGrupo.length > 0 && (
             <div className="border-t border-border pt-2">
               <p className="text-[11px] text-muted-foreground mb-1.5">
                 Sem grupo — mova quem precisar:
               </p>
               <div className="flex flex-col gap-1">
-                {(gruposQ.data as any).semGrupo.map((p: any) => (
+                {gruposQ.data.semGrupo.map((p) => (
                   <div key={p.id} className="flex items-center gap-2 text-[11px]">
                     <span className="flex-1 truncate">{p.nome ?? p.email} <span className="text-muted-foreground">({p.role})</span></span>
                     <select
