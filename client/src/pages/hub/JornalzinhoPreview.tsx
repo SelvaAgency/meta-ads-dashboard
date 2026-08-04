@@ -328,7 +328,12 @@ export default function JornalzinhoPreview() {
       )}
 
       {/* Quem está em qual grupo — e correção manual, se precisar */}
-      {ehAdmin && gruposQ.data && (
+      {/* Painel de estado — LEITURA para admin e dev.
+          A procedure que alimenta isto já é contentProcedure, então esconder do
+          developer não protegia nada: só o impedia de ver, na tela, um dado que
+          a API já lhe entrega. E é justamente ele quem depura "por que fulano
+          não recebeu". Os CONTROLES (mover pessoa) seguem só admin, abaixo. */}
+      {gruposQ.data && (
         <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
           <p className="text-xs font-semibold text-foreground">Quem está em cada grupo</p>
           {(gruposQ.data as any).grupos.filter((g: any) => g.id === "gtm1" || g.id === "gtm2").map((g: any) => (
@@ -341,28 +346,35 @@ export default function JornalzinhoPreview() {
                 )}
               </p>
               <p className={(g.pessoas ?? []).length ? "text-muted-foreground" : "text-amber-600"}>
-                pessoas: {(g.pessoas ?? []).map((p: any) => p.nome ?? p.email).join(", ") || "NINGUÉM — o botão acima não aplicou"}
+                pessoas: {(g.pessoas ?? []).map((p: any) => p.nome ?? p.email).join(", ")
+                  || (ehAdmin ? "NINGUÉM — o botão acima não aplicou" : "NINGUÉM — peça a um admin para aplicar os grupos")}
               </p>
             </div>
           ))}
           {(gruposQ.data as any).semGrupo.length > 0 && (
             <div className="border-t border-border pt-2">
-              <p className="text-[11px] text-muted-foreground mb-1.5">Sem grupo — mova quem precisar:</p>
+              <p className="text-[11px] text-muted-foreground mb-1.5">
+                {ehAdmin ? "Sem grupo — mova quem precisar:" : "Sem grupo (só admin pode mover):"}
+              </p>
               <div className="flex flex-col gap-1">
                 {(gruposQ.data as any).semGrupo.map((p: any) => (
                   <div key={p.id} className="flex items-center gap-2 text-[11px]">
                     <span className="flex-1 truncate">{p.nome ?? p.email} <span className="text-muted-foreground">({p.role})</span></span>
-                    <select
-                      defaultValue=""
-                      onChange={(e) => e.target.value && moverPessoa.mutate({ userId: p.id, grupo: e.target.value })}
-                      className="text-[11px] border border-border rounded-md px-1.5 py-1 bg-background"
-                    >
-                      <option value="">mover para…</option>
-                      <option value="gtm1">GTM 1</option>
-                      <option value="gtm2">GTM 2</option>
-                      <option value="todos">Todos</option>
-                      <option value="nenhum">Nenhum</option>
-                    </select>
+                    {ehAdmin ? (
+                      <select
+                        defaultValue=""
+                        onChange={(e) => e.target.value && moverPessoa.mutate({ userId: p.id, grupo: e.target.value })}
+                        className="text-[11px] border border-border rounded-md px-1.5 py-1 bg-background"
+                      >
+                        <option value="">mover para…</option>
+                        <option value="gtm1">GTM 1</option>
+                        <option value="gtm2">GTM 2</option>
+                        <option value="todos">Todos</option>
+                        <option value="nenhum">Nenhum</option>
+                      </select>
+                    ) : (
+                      <span className="text-muted-foreground flex-shrink-0">sem grupo</span>
+                    )}
                   </div>
                 ))}
               </div>
