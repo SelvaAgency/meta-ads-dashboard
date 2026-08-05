@@ -85,11 +85,11 @@ export function resumoDeEstado(p: Painel, agoraMs: number): { tom: Tom; frase: s
     return {
       tom: "atencao",
       frase: `${p.suspeita.titulo} — aguardando confirmação`,
-      detalhe: `${p.suspeita.ciclos} de ${p.confirmacoesNecessarias} leituras. Nada foi alertado ainda.`,
+      detalhe: `${p.suspeita.ciclos} de ${p.confirmacoesNecessarias} leituras. Releitura automática em poucos minutos — nada foi alertado ainda.`,
     };
   }
   if (!p.ultimaVerificacaoEm) {
-    return { tom: "atencao", frase: "Ligado — aguardando a primeira leitura.", detalhe: "O robô verifica a cada 5 minutos." };
+    return { tom: "atencao", frase: "Ligado — aguardando a primeira leitura.", detalhe: "O robô verifica 2× por dia (08h e 15h)." };
   }
   const anomalias = anomaliasDoDia(p);
   return {
@@ -187,7 +187,7 @@ export function estadoDoConteudo(p: Painel): EstadoConteudo | null {
     return {
       tom: "off", fonte: "—", posts: 0, novos: 0, suspeitos: 0,
       frase: p.ativo
-        ? "Ainda não houve leitura do blog hoje. O conteúdo é verificado a cada 30 minutos."
+        ? "Ainda não houve leitura do blog hoje. O conteúdo é verificado 1× por dia, na passada da manhã."
         : "Monitoramento desligado.",
     };
   }

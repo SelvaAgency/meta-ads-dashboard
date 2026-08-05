@@ -54,8 +54,13 @@ export function AbaMonitoramento({ accountId, podeConfigurar }: {
   const utils = trpc.useUtils();
   const q = trpc.monitoramento.painel.useQuery(
     { accountId },
-    // O robô roda a cada 5 min; a tela acompanha sem quem estiver olhando
-    // precisar recarregar para descobrir que a leitura seguinte já chegou.
+    /**
+     * O robô roda 2× por dia, mas a tela precisa acompanhar de perto em dois
+     * momentos: logo depois de alguém clicar em "Verificar agora", e durante os
+     * 4 minutos entre uma suspeita crítica e a releitura que a confirma. É esse
+     * segundo caso que justifica o intervalo curto — sem ele, quem está olhando
+     * uma suspeita não veria o desfecho sem recarregar.
+     */
     { refetchInterval: 60_000 },
   );
 
@@ -150,7 +155,7 @@ export function AbaMonitoramento({ accountId, podeConfigurar }: {
             <input type="checkbox" checked={form.ativo}
               onChange={(e) => setForm({ ...form, ativo: e.target.checked })} className="accent-accent" />
             <span className="font-medium">Monitorar este cliente</span>
-            <span className="text-xs text-muted-foreground">— verifica a cada 5 minutos</span>
+            <span className="text-xs text-muted-foreground">— verifica 2× por dia (08h e 15h)</span>
           </label>
 
           <label className="flex flex-col gap-1">
@@ -414,7 +419,7 @@ function BlocoConteudo({ p, agora }: { p: Painel; agora: number }) {
       </div>
 
       <p className="text-[11px] text-muted-foreground">
-        Última leitura do blog {haQuantoTempo(p.ultimaVerificacaoConteudoEm, agora)} · verifica a cada 30 minutos
+        Última leitura do blog {haQuantoTempo(p.ultimaVerificacaoConteudoEm, agora)} · verifica 1× por dia
         {p.termosIgnorados?.length ? ` · ${p.termosIgnorados.length} termo(s) ignorado(s) neste cliente` : ""}
       </p>
 

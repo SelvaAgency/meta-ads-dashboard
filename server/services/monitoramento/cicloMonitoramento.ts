@@ -1,14 +1,22 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Ciclo de monitoramento — o que o cron de 5 minutos executa
+ *  Ciclo de monitoramento — a varredura diária e a confirmação dirigida
  * ─────────────────────────────────────────────────────────────────────────────
  *  Junta as peças puras com o mundo: lê o DNS, o HTTP e o blog, avalia, passa
  *  pela confirmação dupla, grava o snapshot do dia e — só no fim de tudo isso —
  *  cria alerta.
  *
- *  Nem tudo roda no mesmo ritmo: DNS e destino a cada 5 minutos (~130ms por
- *  cliente), conteúdo a cada 30 (baixa uma listagem inteira, e spam publicado
- *  não muda em cinco minutos).
+ *  ── Duas leituras por dia, não 288 ─────────────────────────────────────────
+ *  A primeira versão rodava de 5 em 5 minutos. O que isso comprava era detecção
+ *  quase em tempo real de um evento que acontece talvez uma vez por ano — e
+ *  cobrava 312 MB/dia de tráfego para responder 288 vezes a mesma coisa.
+ *
+ *  O produto aqui é CONFORMIDADE e alerta preventivo, não vigilância contínua.
+ *  Duas passadas por dia (08h e 15h) detectam no mesmo dia útil, que é o que
+ *  importa quando a ação humana seguinte leva horas de qualquer forma.
+ *
+ *  Conteúdo roda uma vez, na passada da manhã: spam publicado não some sozinho,
+ *  e reler a listagem à tarde responderia a mesma pergunta.
  *
  *  ── Quem entra ─────────────────────────────────────────────────────────────
  *  Só cliente com `ativo = true` em `site_compliance_settings`, que nasce em 0.
@@ -22,12 +30,24 @@
  *  Três filtros em série impedem que isso vire spam, e vale saber que são três
  *  porque cada um sozinho seria insuficiente:
  *
- *   1. confirmação dupla — a primeira suspeita nunca alerta;
- *   2. `manter` — enquanto o problema continua, os ciclos seguintes são mudos;
+ *   1. confirmação dirigida — a primeira suspeita nunca alerta; ela AGENDA uma
+ *      releitura daquele cliente poucos minutos depois (ver abaixo);
+ *   2. `manter` — enquanto o problema continua, as leituras seguintes são mudas;
  *   3. dedup diário do `createNotification` — se alguém já foi notificado hoje,
  *      a lista de destinatários volta vazia e o e-mail nem é montado.
  *
- *  O robô olha 288× por dia; o incidente notifica 1×.
+ *  ── Por que a confirmação é DIRIGIDA e não "o próximo ciclo" ───────────────
+ *  Com varredura de 5 em 5 minutos, confirmar no ciclo seguinte custava 5
+ *  minutos. Com varredura diária, custaria SETE HORAS — ou o dia inteiro. Um
+ *  domínio sequestrado às 8h05 só alertaria às 15h.
+ *
+ *  Então a suspeita crítica agenda a própria releitura, para poucos minutos
+ *  depois. A frequência normal continua baixa (só o que a suspeita pede é
+ *  extra), e a proteção contra falso positivo continua inteira: se a segunda
+ *  leitura normalizar, vira instabilidade momentânea e ninguém é acordado.
+ *
+ *  WARNING e INFO nunca agendam releitura — só o que pode virar alerta paga
+ *  esse custo.
  *
  *  ── Falha de um cliente não derruba os outros ──────────────────────────────
  *  Cada cliente roda dentro do seu próprio try. Um domínio malformado na
@@ -52,14 +72,20 @@ import { enviarEmailCriticoSite, type EvidenciaLinha } from "../emailAlertaCriti
 const hoje = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 
 /**
- * Conteúdo em ritmo próprio: 30 minutos, não 5.
+ * Quanto tempo até a releitura de confirmação.
  *
- * DNS e destino a 5 minutos custam ~130ms por cliente. A varredura do blog baixa
- * uma listagem inteira, e spam publicado não muda em cinco minutos — 288
- * leituras diárias pagariam largura de banda para responder a mesma coisa 48
- * vezes seguidas. Trinta minutos mantém a detecção no mesmo dia sem esse custo.
+ * Curto o bastante para o alerta não atrasar de forma relevante, longo o
+ * bastante para um soluço de rede ou um deploy do cliente terem passado — que
+ * é exatamente o falso positivo que a confirmação existe para engolir.
  */
-const INTERVALO_CONTEUDO_MS = 30 * 60 * 1000;
+const CONFIRMACAO_APOS_MS = 4 * 60 * 1000;
+
+/**
+ * Contas com releitura já agendada. Sem isto, duas passadas próximas (ou um
+ * "Verificar agora" logo após a varredura) empilhariam timers para o mesmo
+ * cliente, e a confirmação chegaria em duplicata.
+ */
+const confirmacoesAgendadas = new Set<number>();
 
 /**
  * De qual coletor veio cada achado.
@@ -169,9 +195,74 @@ export async function runCicloMonitoramento(): Promise<ResultadoCiclo> {
   }
 }
 
+/**
+ * O blog já foi lido HOJE?
+ *
+ * Compara no fuso da agência, não em UTC. Uma leitura das 22h de Brasília é
+ * 01h do dia seguinte em UTC: comparando em UTC, a passada da manhã acharia
+ * que o conteúdo "já rodou hoje" e o blog passaria o dia sem ser verificado.
+ */
+export function conteudoJaRodouNoDia(ultima: Date | string | null | undefined, dia: string): boolean {
+  if (!ultima) return false;
+  const t = ultima instanceof Date ? ultima.getTime() : Date.parse(String(ultima));
+  if (!Number.isFinite(t)) return false;
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(t)) === dia;
+}
+
+/**
+ * Agenda a releitura de confirmação de UM cliente.
+ *
+ * Em memória, de propósito. Uma fila persistida resolveria o caso de o processo
+ * reiniciar nesses 4 minutos — mas o custo de perder essa confirmação é apenas
+ * detectar na passada seguinte, que é exatamente o comportamento que o robô
+ * tinha antes desta mudança. Não vale uma tabela.
+ */
+function agendarConfirmacao(accountId: number, nome: string): void {
+  if (confirmacoesAgendadas.has(accountId)) return;
+  confirmacoesAgendadas.add(accountId);
+  logger.info(`[Monitoramento] suspeita crítica em ${nome} — releitura em ${Math.round(CONFIRMACAO_APOS_MS / 60000)} min`);
+
+  const t = setTimeout(async () => {
+    confirmacoesAgendadas.delete(accountId);
+    try {
+      await confirmarConta(accountId);
+    } catch (e) {
+      logger.error(`[Monitoramento] releitura de confirmação falhou em ${nome}: ${(e as Error).message}`);
+    }
+  }, CONFIRMACAO_APOS_MS);
+  // Um timer pendente não pode segurar o processo em pé no shutdown.
+  t.unref?.();
+}
+
+/**
+ * Relê um cliente só. NÃO passa pelo guarda `emExecucao`: é uma leitura curta e
+ * dirigida, e deixá-la ser engolida por uma varredura em andamento perderia
+ * justamente a confirmação de um crítico.
+ */
+export async function confirmarConta(accountId: number): Promise<ResultadoCiclo> {
+  const r: ResultadoCiclo = { contas: 0, alertas: 0, suspeitas: 0, instabilidades: 0 };
+  // Relê do banco: nos 4 minutos, alguém pode ter desligado o monitoramento
+  // deste cliente — e continuar seria alertar sobre o que já não é vigiado.
+  const conta = (await contasParaMonitorar()).find((c) => c.accountId === accountId);
+  if (!conta) return r;
+  await verificarConta(conta, hoje(), r, "confirmacao");
+  r.contas = 1;
+  return r;
+}
+
 type Conta = Awaited<ReturnType<typeof contasParaMonitorar>>[number];
 
-async function verificarConta(c: Conta, dia: string, r: ResultadoCiclo): Promise<void> {
+/**
+ * Por que esta leitura está acontecendo.
+ *
+ *  · `rotina`      — a varredura agendada do dia.
+ *  · `confirmacao` — releitura dirigida, disparada por uma suspeita crítica.
+ */
+type MotivoLeitura = "rotina" | "confirmacao";
+
+async function verificarConta(
+  c: Conta, dia: string, r: ResultadoCiclo, motivo: MotivoLeitura = "rotina",
+): Promise<void> {
   const nome = c.nome ?? `#${c.accountId}`;
   const agoraIso = new Date().toISOString();
   const esperado = c.dominioEsperado ?? "";
@@ -180,11 +271,23 @@ async function verificarConta(c: Conta, dia: string, r: ResultadoCiclo): Promise
   const dns: LeituraDns | null = c.checarDns && alvo ? await checarDns(alvo) : null;
   const redirect: LeituraRedirect | null = c.checarRedirect && alvo ? await checarRedirect(alvo) : null;
 
-  // Conteúdo só entra quando está ligado E o intervalo dele venceu. Fora disso,
-  // `conteudo` fica ausente — que é diferente de "leu e não achou nada", e por
-  // isso não vira achado nenhum nem mexe no baseline.
-  const ultimaConteudo = c.ultimaVerificacaoConteudoEm ? new Date(c.ultimaVerificacaoConteudoEm).getTime() : 0;
-  const rodarConteudo = c.checarConteudo && !!alvo && Date.now() - ultimaConteudo >= INTERVALO_CONTEUDO_MS;
+  const anterior = (c.suspeitaJson ?? null) as Suspeita | null;
+
+  /**
+   * Conteúdo roda UMA vez por dia, na primeira passada — e não na segunda, que
+   * responderia a mesma pergunta sobre a mesma lista de posts.
+   *
+   * Exceção: numa releitura de confirmação, o blog é relido se a suspeita
+   * pendente vier DELE. Sem essa exceção, um spam detectado às 8h nunca
+   * confirmaria: a releitura das 8h04 não olharia o blog, o avaliador não
+   * produziria o achado, e a suspeita seria lida como "normalizou".
+   */
+  const suspeitaDeConteudo = !!anterior && ORIGEM[anterior.chave] === "conteudo";
+  const rodarConteudo = !!c.checarConteudo && !!alvo && (
+    motivo === "confirmacao" ? suspeitaDeConteudo : !conteudoJaRodouNoDia(c.ultimaVerificacaoConteudoEm, dia)
+  );
+  // Fora disso `conteudo` fica AUSENTE — que é diferente de "leu e não achou
+  // nada", e por isso não vira achado nenhum nem mexe no baseline.
   const conteudo: LeituraConteudo | null = rodarConteudo ? await checarConteudo(alvo, c.blogUrl) : null;
   const baselineConteudo = (c.postsVistosJson ?? null) as BaselineConteudo | null;
   const termos = termosDoCliente(
@@ -198,7 +301,6 @@ async function verificarConta(c: Conta, dia: string, r: ResultadoCiclo): Promise
     conteudo: conteudo ? { conteudo, baseline: baselineConteudo, termos } : null,
   });
 
-  const anterior = (c.suspeitaJson ?? null) as Suspeita | null;
   const necessarias = normalizarConfirmacoes(c.confirmacoesNecessarias);
   const d = decidir({ achados, anterior, confirmacoesNecessarias: necessarias, agoraIso });
 
@@ -207,7 +309,10 @@ async function verificarConta(c: Conta, dia: string, r: ResultadoCiclo): Promise
   if (d.acao === "aguardar") {
     r.suspeitas++;
     eventos.push({ em: agoraIso, tipo: "suspeita", chave: d.suspeita.chave,
-      detalhe: `${d.suspeita.titulo} — aguardando confirmação (${d.suspeita.ciclos}/${necessarias}).` });
+      detalhe: `${d.suspeita.titulo} — aguardando confirmação (${d.suspeita.ciclos}/${necessarias}), releitura em ${Math.round(CONFIRMACAO_APOS_MS / 60000)} min.` });
+    // É AQUI que a baixa frequência deixa de ser um problema: a suspeita paga a
+    // própria releitura, em vez de esperar a passada da tarde ou do dia seguinte.
+    agendarConfirmacao(c.accountId, nome);
   } else if (d.acao === "alertar") {
     eventos.push({ em: agoraIso, tipo: "confirmado", chave: d.suspeita.chave,
       detalhe: `${d.suspeita.titulo} — confirmado em ${d.suspeita.ciclos} leituras.` });

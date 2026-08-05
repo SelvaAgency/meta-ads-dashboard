@@ -14,7 +14,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it } from "vitest";
-import { achadosDe } from "./cicloMonitoramento";
+import { achadosDe, conteudoJaRodouNoDia } from "./cicloMonitoramento";
 import { avaliar, type Achado, type EntradaAvaliacao } from "./avaliador";
 import type { LeituraConteudo } from "./conteudoCheck";
 import { termosDoCliente } from "./termosSuspeitos";
@@ -127,5 +127,48 @@ describe("nenhum achado fica sem coletor", () => {
         expect(total, `${chave} não tem coletor declarado em ORIGEM`).toBe(1);
       }
     }
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Conteúdo 1× por dia — no fuso da AGÊNCIA
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Errar o fuso aqui não quebra nada visivelmente: o blog simplesmente não é
+ *  lido, e a tela mostra a leitura de ontem como se fosse a de hoje. Uma leitura
+ *  das 22h de Brasília é 01h do dia seguinte em UTC — comparando em UTC, a
+ *  passada da manhã concluiria que "já rodou hoje" e o blog passaria o dia
+ *  inteiro sem verificação.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("porta diária do conteúdo", () => {
+  it("nunca lido → precisa ler", () => {
+    expect(conteudoJaRodouNoDia(null, "2026-08-05")).toBe(false);
+    expect(conteudoJaRodouNoDia(undefined, "2026-08-05")).toBe(false);
+  });
+
+  it("lido hoje de manhã → a passada da tarde pula", () => {
+    // 08:00 BRT = 11:00 UTC
+    expect(conteudoJaRodouNoDia("2026-08-05T11:00:00.000Z", "2026-08-05")).toBe(true);
+  });
+
+  it("lido ontem → precisa ler de novo", () => {
+    expect(conteudoJaRodouNoDia("2026-08-04T11:00:00.000Z", "2026-08-05")).toBe(false);
+  });
+
+  /** O caso que o fuso errado esconderia. */
+  it("leitura das 22h BRT não bloqueia a manhã seguinte", () => {
+    // 22:00 BRT do dia 4 = 01:00 UTC do dia 5. Em UTC pareceria "dia 5".
+    const em = "2026-08-05T01:00:00.000Z";
+    expect(conteudoJaRodouNoDia(em, "2026-08-04")).toBe(true);  // é o dia 4 no Brasil
+    expect(conteudoJaRodouNoDia(em, "2026-08-05")).toBe(false); // logo, dia 5 ainda não leu
+  });
+
+  it("aceita Date, que é o que o driver devolve para timestamp", () => {
+    expect(conteudoJaRodouNoDia(new Date("2026-08-05T11:00:00.000Z"), "2026-08-05")).toBe(true);
+  });
+
+  it("valor inválido não bloqueia a leitura — na dúvida, verifica", () => {
+    expect(conteudoJaRodouNoDia("não é data", "2026-08-05")).toBe(false);
   });
 });

@@ -1156,24 +1156,33 @@ export async function startAutoSync() {
   cron.schedule("0 */5 * * * *", runScheduledReports); // a cada 5 min — fuso é irrelevante
 
   /**
-   * Monitoramento de domínio — a cada 5 minutos, sem fuso (é vigilância
-   * contínua, não relatório de um dia).
+   * Monitoramento de domínio — DUAS passadas por dia, no fuso da agência.
    *
-   * A frequência é o produto inteiro: o caso Aiká foi um domínio que passou a
-   * apontar para outro lugar, e descobrir isso na manhã seguinte é descobrir
-   * tarde demais. O custo é o que torna isso possível — uma consulta DNS de
-   * ~30ms mais um GET que para no `</head>`, medidos em 134ms por cliente.
+   * Começou de 5 em 5 minutos. O que isso comprava era detecção quase em tempo
+   * real de um evento que acontece talvez uma vez por ano, e cobrava 312 MB/dia
+   * de tráfego para responder 288 vezes a mesma coisa. O produto é conformidade
+   * e alerta preventivo, não vigilância contínua.
+   *
+   * Manhã (08h) faz a varredura completa, conteúdo do blog incluído. Tarde
+   * (15h) revisita só DNS e destino — o próprio ciclo sabe que conteúdo é
+   * 1×/dia e pula. Duas passadas dão duas chances de detectar no mesmo dia útil.
+   *
+   * A baixa frequência não atrasa o alerta crítico: uma suspeita agenda a
+   * própria releitura em 4 minutos (ver cicloMonitoramento). Esperar a passada
+   * seguinte custaria sete horas.
    *
    * Não varre todo mundo: só quem tem `ativo = true`, que nasce em 0. Com a
    * tabela vazia o job devolve na primeira linha, sem tocar em rede.
    */
-  cron.schedule("0 */5 * * * *", async () => {
+  const varrerSites = async (rotulo: string) => {
     try {
       await runCicloMonitoramento();
     } catch (e) {
-      logger.error(`[Monitoramento] ciclo falhou: ${(e as Error).message}`);
+      logger.error(`[Monitoramento] varredura da ${rotulo} falhou: ${(e as Error).message}`);
     }
-  });
+  };
+  cron.schedule("0 0 8 * * *", () => varrerSites("manhã"), TZ);
+  cron.schedule("0 0 15 * * *", () => varrerSites("tarde"), TZ);
 
   // Daily experiment checkpoint snapshots at 09:10 UTC
   cron.schedule("0 10 6 * * *", runExperimentCheckpoints, TZ);

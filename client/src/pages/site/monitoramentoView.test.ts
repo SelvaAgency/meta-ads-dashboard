@@ -38,16 +38,20 @@ describe("a ordem das perguntas", () => {
   });
 
   /**
-   * O intervalo entre ver e alertar é onde o robô mais pareceria parado. A tela
-   * precisa dizer que existe algo pendente — e dizer também que nada foi
-   * alertado, senão alguém procura um e-mail que não foi enviado.
+   * O intervalo entre ver e alertar é onde o robô mais pareceria parado — e com
+   * varredura 2×/dia isso piorou: quem abrir a tela precisa saber que a
+   * releitura vem em minutos, não na passada da tarde.
+   *
+   * E precisa dizer que nada foi alertado, senão alguém sai procurando um
+   * e-mail que não foi enviado.
    */
   it("suspeita pendente aparece como atenção, dizendo que nada foi alertado", () => {
     const r = resumoDeEstado(painel({ suspeita: SUSPEITA }), AGORA);
     expect(r.tom).toBe("atencao");
     expect(r.frase).toContain("aguardando confirmação");
     expect(r.detalhe).toContain("1 de 2");
-    expect(r.detalhe).toContain("Nada foi alertado ainda");
+    expect(r.detalhe?.toLowerCase()).toContain("nada foi alertado ainda");
+    expect(r.detalhe?.toLowerCase()).toContain("releitura");
   });
 
   it("ligado sem nenhuma leitura ainda não finge estar tudo bem", () => {
