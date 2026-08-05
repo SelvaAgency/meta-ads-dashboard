@@ -1,5 +1,6 @@
 import { logger } from "./logger";
 import { contasDoGrupo } from "./services/email/gruposJornalzinho";
+import { normalizarHost } from "./services/monitoramento/dominioRegistravel";
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
@@ -4027,9 +4028,9 @@ export async function contasParaMonitorar() {
 export async function criarContaDeMonitoramento(dados: { nome: string; dominio: string; slug: string }) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
-  // Mesma normalização (e mesma ordem) de `monitoramento.salvarConfig`.
-  const dominio = dados.dominio.trim().toLowerCase()
-    .replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+  // Uma única definição de "como se normaliza um host" — ver dominioRegistravel.
+  // Três cópias desta regra divergiriam na primeira correção.
+  const dominio = normalizarHost(dados.dominio);
 
   const jaExiste = await db.select().from(metaAdAccounts)
     .where(eq(metaAdAccounts.accountId, dados.slug)).limit(1);

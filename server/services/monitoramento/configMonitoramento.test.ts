@@ -13,16 +13,14 @@
  */
 import { describe, expect, it } from "vitest";
 
-/** Espelha a normalização de `monitoramento.salvarConfig` e de `criarContaDeMonitoramento`. */
-function normalizarDominio(v: string): string | null {
-  // toLowerCase ANTES de tirar o esquema: os regex são case-sensitive, e
-  // "HTTPS://WWW.X.COM" sobreviveria ao primeiro replace, viraria "HTTPS:" no
-  // segundo e seria gravado como domínio — alerta falso a cada 5 minutos.
-  return v.trim().toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/\/.*$/, "")
-    .replace(/^www\./, "") || null;
-}
+import { normalizarHost } from "./dominioRegistravel";
+
+/**
+ * Agora aponta para a função REAL. Antes era uma cópia da regra dentro do
+ * teste — que passava mesmo quando o código de produção divergia, porque
+ * testava a si mesma.
+ */
+const normalizarDominio = (v: string): string | null => normalizarHost(v) || null;
 
 describe("domínio esperado", () => {
   it("aceita o formato que a pessoa realmente digita", () => {

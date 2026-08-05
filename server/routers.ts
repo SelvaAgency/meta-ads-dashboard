@@ -323,6 +323,7 @@ import { GMAIL_SCOPE, verificarConexaoGmail, limparCacheToken, sanitizarErroGmai
 import { previaTesteGmail, enviarTesteGmail, TIPO_TESTE_GMAIL } from "./services/email/gmailTeste";
 import { simularDestinatarios } from "./services/email/destinatarios";
 import { getComplianceSettings, upsertComplianceSettings, criarContaDeMonitoramento } from "./db";
+import { normalizarHost } from "./services/monitoramento/dominioRegistravel";
 import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho, preferenciasEmailDoUsuario, salvarPreferenciasEmail } from "./db";
 import { GRUPOS, grupoPorId, resolverGrupo, ehGrupoValido } from "./services/email/gruposJornalzinho";
 import { isEncryptionConfigured } from "./_core/integrationsCrypto";
@@ -6008,11 +6009,9 @@ export const appRouter = router({
         // comparação com o domínio registrável falhar para sempre, e o alerta
         // seria diário e falso.
         if (typeof patch.dominioEsperado === "string") {
-          // toLowerCase ANTES de tirar o esquema: os regex são case-sensitive,
-          // e "HTTPS://WWW.X.COM" sobreviveria ao primeiro replace e viraria
-          // "HTTPS:" no segundo — gravado como domínio, alertaria para sempre.
-          patch.dominioEsperado = patch.dominioEsperado
-            .trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "") || null;
+          // Normaliza na ENTRADA, com a MESMA função que a comparação usa: um
+          // domínio guardado fora do formato canônico alertaria para sempre.
+          patch.dominioEsperado = normalizarHost(patch.dominioEsperado) || null;
         }
         await upsertComplianceSettings(accountId, patch);
         return { success: true as const };
