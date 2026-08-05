@@ -116,10 +116,17 @@ export async function fetchSeguro(
      */
     headers?: Record<string, string>;
   } = {},
-): Promise<{ resp: Response; finalUrl: string; saltos: number }> {
+): Promise<{ resp: Response; finalUrl: string; saltos: number; cadeia: string[] }> {
   const { method = "GET", timeoutMs = 15_000, maxRedirects = 5 } = opts;
   let alvo = (await validarUrlPublica(urlInicial)).url;
   let saltos = 0;
+  /**
+   * A cadeia inteira, para virar EVIDÊNCIA no monitoramento: "foi para outro
+   * domínio" é uma afirmação; mostrar por onde passou é o que permite alguém
+   * conferir. Campo aditivo — quem só desestrutura resp/finalUrl/saltos segue
+   * igual.
+   */
+  const cadeia: string[] = [alvo];
 
   for (;;) {
     const resp = await fetch(alvo, {
@@ -134,9 +141,10 @@ export async function fetchSeguro(
       if (saltos >= maxRedirects) throw new UrlBloqueadaError("Redirecionamentos demais — o site pode estar em laço.");
       const proximo = new URL(loc, alvo).toString();
       alvo = (await validarUrlPublica(proximo)).url; // valida o destino do redirect
+      cadeia.push(alvo);
       saltos++;
       continue;
     }
-    return { resp, finalUrl: alvo, saltos };
+    return { resp, finalUrl: alvo, saltos, cadeia };
   }
 }
