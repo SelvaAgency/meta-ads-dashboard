@@ -21,6 +21,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useRef, useState } from "react";
+import { classesDaGaveta, BotaoFecharGaveta, type MenuMobileControles } from "@/components/MenuMobile";
 import { Link, useLocation } from "wouter";
 import {
   Home,
@@ -304,7 +305,7 @@ function lerRecolhida(): boolean {
   }
 }
 
-export function HubSidebar() {
+export function HubSidebar({ mobile }: { mobile?: MenuMobileControles }) {
   const [location] = useLocation();
   const { user } = useAuth();
   const isAdmin = canAccessAdmin((user as { role?: string } | null)?.role);
@@ -341,7 +342,15 @@ export function HubSidebar() {
   // para o clique fechar de verdade mesmo com o mouse ainda em cima.
   const appMode = isIntegratedAppRoute(location);
   const colapsavel = appMode || recolhida;
-  const open = colapsavel ? hovering && !acabouDeRecolher : true;
+  /**
+   * A gaveta mobile nasce EXPANDIDA, sempre.
+   *
+   * O estado colapsado depende de hover para expandir, e no celular não há
+   * hover: a gaveta abriria com 64px de largura, mostrando ícones sem rótulo —
+   * um menu ilegível que nunca abriria. No desktop nada muda, porque o
+   * hambúrguer é `md:hidden` e `mobile.aberto` nunca sai de false.
+   */
+  const open = mobile?.aberto ? true : colapsavel ? hovering && !acabouDeRecolher : true;
 
   const isActive = (item: NavItem) => {
     if (item.kind === "app") return location === item.href;
@@ -351,8 +360,17 @@ export function HubSidebar() {
 
   return (
     <aside
-      className={`${open ? "w-64" : "w-16"} flex-shrink-0 flex flex-col hidden md:flex transition-all duration-200 group/side`}
+      /**
+       * As classes de desktop estão intactas. `hidden md:flex` continua ali: no
+       * mobile a gaveta é montada só quando aberta, o que evita que a sidebar
+       * apareça por um instante durante a hidratação.
+       *
+       * `classesDaGaveta` só adiciona variantes `max-md:` — nada é removido, e
+       * acima de 768px o resultado é o mesmo DOM de antes.
+       */
+      className={`${open ? "w-64" : "w-16"} flex-shrink-0 flex flex-col ${mobile?.aberto ? "flex" : "hidden"} md:flex transition-all duration-200 group/side ${classesDaGaveta(!!mobile?.aberto)}`}
       style={{ background: "#0A0A0A", borderRight: "1px solid rgba(255,255,255,0.06)" }}
+      {...(mobile?.propsDaGaveta ?? {})}
       onMouseEnter={() => {
         if (leaveTimeout.current) clearTimeout(leaveTimeout.current);
         setHovering(true);
@@ -364,6 +382,8 @@ export function HubSidebar() {
         leaveTimeout.current = setTimeout(() => setHovering(false), 300);
       }}
     >
+      {mobile && <BotaoFecharGaveta fechar={mobile.fechar} />}
+
       {/* Logo / nome (fixo no topo). Área maior e logo maior — o header estava
           apertado demais para a marca. O botão de recolher mora aqui, discreto:
           aparece de verdade só no hover, para não competir com a identidade. */}

@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { BarraMobile, FundoDaGaveta, BotaoFecharGaveta, classesDaGaveta, useMenuMobile } from "@/components/MenuMobile";
 import { canManageContent } from "@shared/permissions";
 import { type Fonte, type StatusFonte, type ChaveFonte } from "@shared/fontes";
 import { isEmbedded } from "@/pages/hub/embed";
@@ -141,7 +142,16 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   const [hovering, setHovering] = useState(false);
   const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
   const leaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sidebarOpen = pinnedOpen || hovering || clientDropdownOpen;
+  const mobile = useMenuMobile();
+  /**
+   * `mobile.aberto` entra aqui para a gaveta nascer EXPANDIDA: no celular não
+   * existe hover, e uma gaveta colapsada em w-16 mostraria só ícones sem
+   * rótulo — um menu que ninguém consegue ler.
+   *
+   * Não afeta o desktop: o hambúrguer é `md:hidden`, então acima de 768px
+   * `mobile.aberto` nunca sai de false.
+   */
+  const sidebarOpen = pinnedOpen || hovering || clientDropdownOpen || mobile.aberto;
 
   // Visibilidade temporária: Alertas/Google Ads/Redes sociais ficam ocultos para
   // o colaborador. Também desliga as queries de alerta e o sino do topo.
@@ -287,8 +297,14 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
       {/* ═══════════════════════════════ SIDEBAR ══════════════════════════════ */}
       <aside
-        className={`${sidebarOpen ? "w-64" : "w-16"} flex-shrink-0 flex flex-col transition-all duration-200 z-20`}
+        /**
+         * Classes de desktop intactas. No mobile a sidebar deixava de ser menu e
+         * virava obstáculo: fixa, ela comia de 64 a 256px de uma tela de 375.
+         * `classesDaGaveta` a tira do fluxo e a traz por cima só quando aberta.
+         */
+        className={`${sidebarOpen ? "w-64" : "w-16"} flex-shrink-0 flex flex-col transition-all duration-200 z-20 ${mobile.aberto ? "" : "max-md:hidden"} ${classesDaGaveta(mobile.aberto)}`}
         style={{ background: "#0D0D0D", borderRight: "1px solid rgba(255,255,255,0.06)" }}
+        {...mobile.propsDaGaveta}
         onMouseEnter={() => {
           if (leaveTimeout.current) clearTimeout(leaveTimeout.current);
           setHovering(true);
@@ -299,6 +315,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
       >
 
         {/* ── SECTION 1: Logo + Visão Geral ─────────────────────────────────── */}
+        <BotaoFecharGaveta fechar={mobile.fechar} />
+
         <div className={`pt-5 pb-3 ${sidebarOpen ? "px-3" : "px-2"}`}>
 
           {/* Logo */}
@@ -574,10 +592,14 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
         )}
       </aside>
 
+      <FundoDaGaveta aberto={mobile.aberto} fechar={mobile.fechar} />
+
       {/* ═══════════════════════════ MAIN CONTENT ═════════════════════════════ */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Page content — o sub-cabeçalho (colapso + título + sino) foi removido. */}
-        <main className="flex-1 overflow-auto p-6">
+        <BarraMobile titulo={title ?? "Tracker"} aberto={mobile.aberto} alternar={mobile.alternar} />
+        {/* Page content — o sub-cabeçalho (colapso + título + sino) foi removido.
+            `p-6` vira `p-4` no celular: 24px de cada lado tiram 48 de 375. */}
+        <main className="flex-1 overflow-auto p-6 max-md:p-4">
           {children}
         </main>
       </div>

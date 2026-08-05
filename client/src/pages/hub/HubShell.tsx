@@ -17,6 +17,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { HubSidebar } from "./HubSidebar";
+import { BarraMobile, FundoDaGaveta, useMenuMobile } from "@/components/MenuMobile";
 
 /** De quanto em quanto a aba aberta avisa que a pessoa está viva. */
 const PING_MS = 60_000;
@@ -54,6 +55,9 @@ export function HubShell({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
+  // Antes do early return: hook não pode ficar depois de um `return`.
+  const mobile = useMenuMobile();
+
   if (loading || !isAuthenticated || mustChange) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -66,8 +70,17 @@ export function HubShell({ children }: { children: ReactNode }) {
     // h-screen + overflow-hidden: a sidebar (e seu rodapé de perfil) fica fixa na
     // altura da viewport; o conteúdo rola por dentro do <main> de cada página.
     <div className="h-screen overflow-hidden flex bg-background text-foreground">
-      <HubSidebar />
-      <div className="flex-1 flex flex-col min-w-0 min-h-0">{children}</div>
+      <HubSidebar mobile={mobile} />
+      <FundoDaGaveta aberto={mobile.aberto} fechar={mobile.fechar} />
+      {/*
+        `min-w-0` já existia e é o que impede scroll horizontal no mobile: sem
+        ele, um filho largo (tabela, gráfico) esticaria o flex e empurraria a
+        página para os lados.
+      */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+        <BarraMobile titulo="SELVA Spaces" aberto={mobile.aberto} alternar={mobile.alternar} />
+        {children}
+      </div>
     </div>
   );
 }
