@@ -340,6 +340,49 @@ export type InsertClientClaritySnapshot = typeof clientClaritySnapshots.$inferIn
  * veio, `metricsJson` guarda o formato normalizado (não o bruto do fornecedor).
  * Dedup por (conta, provider, url, estrategia, dia) — re-testar o dia atualiza.
  */
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Robô de Monitoramento — configuração por cliente
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  `ativo` nasce FALSE: uma conta nova nunca entra no robô por acidente. Na
+ *  Fase 1 existem exatamente duas linhas com true (Aiká e Ultramalhas).
+ *
+ *  Tabela própria, e não mais colunas em `client_clarity_settings`: aquela já
+ *  acumula Clarity + domínio + performance, e somar conformidade a ela criaria
+ *  a próxima "tabela que faz tudo". As duas convivem — o domínio de EXIBIÇÃO
+ *  continua lá; o domínio ESPERADO (o que o robô compara) mora aqui, porque são
+ *  perguntas diferentes: uma é "onde fica o site", a outra é "para onde ele
+ *  DEVE apontar".
+ *
+ *  `nsBaselineJson` é aprendido na primeira leitura, não configurado à mão:
+ *  ninguém sabe de cor os nameservers de um cliente, e exigir isso garantiria
+ *  configuração errada.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export const siteComplianceSettings = mysqlTable("site_compliance_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  ativo: boolean("ativo").default(false).notNull(),
+  /** Domínio registrável esperado (ex.: aikabodysoul.com), sem esquema nem www. */
+  dominioEsperado: varchar("dominioEsperado", { length: 255 }),
+  checarDns: boolean("checarDns").default(true).notNull(),
+  checarRedirect: boolean("checarRedirect").default(true).notNull(),
+  /** Varredura de blog: cara e específica de WordPress — só quem precisa. */
+  checarConteudo: boolean("checarConteudo").default(false).notNull(),
+  /** URL do blog. Null = deriva do domínio. */
+  blogUrl: varchar("blogUrl", { length: 500 }),
+  /** Nameservers/IPs conhecidos, aprendidos na 1ª leitura. */
+  nsBaselineJson: json("nsBaselineJson"),
+  /** Termos que NÃO devem alertar neste cliente (evita falso positivo por setor). */
+  termosIgnoradosJson: json("termosIgnoradosJson"),
+  ultimaVerificacaoEm: timestamp("ultimaVerificacaoEm"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqConta: uniqueIndex("uq_compliance_account").on(table.accountId),
+}));
+export type SiteComplianceSettings = typeof siteComplianceSettings.$inferSelect;
+
 export const clientSiteSnapshots = mysqlTable("client_site_snapshots", {
   id: int("id").autoincrement().primaryKey(),
   accountId: int("accountId").notNull(),

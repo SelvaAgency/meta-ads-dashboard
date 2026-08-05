@@ -205,6 +205,28 @@ async function main() {
       }
     }
 
+    // 3.0.7) Robô de Monitoramento — configuração por cliente. `ativo` default 0:
+    //        conta nova nunca entra no robô por acidente.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`site_compliance_settings\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`accountId\` INT NOT NULL,
+        \`ativo\` BOOLEAN NOT NULL DEFAULT 0,
+        \`dominioEsperado\` VARCHAR(255) NULL,
+        \`checarDns\` BOOLEAN NOT NULL DEFAULT 1,
+        \`checarRedirect\` BOOLEAN NOT NULL DEFAULT 1,
+        \`checarConteudo\` BOOLEAN NOT NULL DEFAULT 0,
+        \`blogUrl\` VARCHAR(500) NULL,
+        \`nsBaselineJson\` JSON NULL,
+        \`termosIgnoradosJson\` JSON NULL,
+        \`ultimaVerificacaoEm\` TIMESTAMP NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY \`uq_compliance_account\` (\`accountId\`)
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabela site_compliance_settings garantida");
+
     // 3.1) Foto do cliente enviada à mão. Coluna PRÓPRIA, separada da
     //      `pictureUrl` que vem da Meta: o import de contas reescreve aquela, e
     //      uma foto escolhida pelo time não pode sumir por causa disso.

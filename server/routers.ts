@@ -322,6 +322,7 @@ import { emailMode, destinatariosDeTeste, transporteAtivo, providerConfigurado, 
 import { GMAIL_SCOPE, verificarConexaoGmail, limparCacheToken, sanitizarErroGmail } from "./services/email/gmailProvider";
 import { previaTesteGmail, enviarTesteGmail, TIPO_TESTE_GMAIL } from "./services/email/gmailTeste";
 import { simularDestinatarios } from "./services/email/destinatarios";
+import { getComplianceSettings, upsertComplianceSettings, criarContaDeMonitoramento } from "./db";
 import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho, preferenciasEmailDoUsuario, salvarPreferenciasEmail } from "./db";
 import { GRUPOS, grupoPorId, resolverGrupo, ehGrupoValido } from "./services/email/gruposJornalzinho";
 import { isEncryptionConfigured } from "./_core/integrationsCrypto";
@@ -5952,6 +5953,83 @@ export const appRouter = router({
     ultimosAutomaticos: contentProcedure.query(async () => {
       const linhas = await ultimosEnviosEmail(30);
       return linhas.filter((l) => l.tipo !== TIPO_TESTE_GMAIL);
+    }),
+  }),
+
+  /**
+   * ─── Robô de Monitoramento de Sites ────────────────────────────────────────
+   * Fase 1: Aiká (domínio/DNS/redirect) e Ultramalhas (blog/spam).
+   *
+   * Tudo admin/dev. A configuração NASCE desligada: criar a conta não liga o
+   * robô, e ligar o robô é ato separado e explícito.
+   */
+  monitoramento: router({
+    /** Estado por cliente: o que está configurado e o que está ligado. */
+    status: contentProcedure.query(async () => {
+      const contas = await contasParaPreferencias();
+      const out = [];
+      for (const c of contas) {
+        const cfg = await getComplianceSettings(c.id);
+        out.push({
+          accountId: c.id, nome: c.nome,
+          configurado: !!cfg,
+          ativo: cfg?.ativo ?? false,
+          dominioEsperado: cfg?.dominioEsperado ?? null,
+          checarDns: cfg?.checarDns ?? true,
+          checarRedirect: cfg?.checarRedirect ?? true,
+          checarConteudo: cfg?.checarConteudo ?? false,
+          ultimaVerificacaoEm: cfg?.ultimaVerificacaoEm ?? null,
+        });
+      }
+      return out;
+    }),
+
+    /** Configuração de UM cliente — alimenta a aba Monitoramento. */
+    config: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(async ({ input }) => {
+        const cfg = await getComplianceSettings(input.accountId);
+        return cfg ?? null;
+      }),
+
+    salvarConfig: contentProcedure
+      .input(z.object({
+        accountId: z.number().int(),
+        ativo: z.boolean().optional(),
+        dominioEsperado: z.string().max(255).nullable().optional(),
+        checarDns: z.boolean().optional(),
+        checarRedirect: z.boolean().optional(),
+        checarConteudo: z.boolean().optional(),
+        blogUrl: z.string().max(500).nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { accountId, ...patch } = input;
+        // Normaliza o domínio na ENTRADA: guardar "https://www.x.com/" faria a
+        // comparação com o domínio registrável falhar para sempre, e o alerta
+        // seria diário e falso.
+        if (typeof patch.dominioEsperado === "string") {
+          // toLowerCase ANTES de tirar o esquema: os regex são case-sensitive,
+          // e "HTTPS://WWW.X.COM" sobreviveria ao primeiro replace e viraria
+          // "HTTPS:" no segundo — gravado como domínio, alertaria para sempre.
+          patch.dominioEsperado = patch.dominioEsperado
+            .trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "") || null;
+        }
+        await upsertComplianceSettings(accountId, patch);
+        return { success: true as const };
+      }),
+
+    /**
+     * Cria a conta da Aiká — cliente monitorado, sem mídia. Idempotente.
+     *
+     * Fica como ação explícita em vez de seed automático porque criar cliente é
+     * decisão de negócio: um seed rodando no boot criaria a conta em qualquer
+     * ambiente que subisse o código, inclusive num banco de teste de alguém.
+     */
+    criarAika: adminProcedure.mutation(async () => {
+      const r = await criarContaDeMonitoramento({
+        nome: "Aiká", dominio: "aikabodysoul.com", slug: "monitor-aikabodysoul",
+      });
+      return { ...r, ativo: false as const };
     }),
   }),
 

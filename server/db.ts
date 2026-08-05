@@ -2075,7 +2075,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 
@@ -3967,6 +3967,106 @@ export async function setOperationalRole(userId: number, operationalRole: "colla
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({ operationalRole }).where(eq(users.id, userId));
+}
+
+// ─── Robô de Monitoramento ───────────────────────────────────────────────────
+
+export async function getComplianceSettings(accountId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(siteComplianceSettings)
+    .where(eq(siteComplianceSettings.accountId, accountId)).limit(1);
+  return r[0];
+}
+
+export async function upsertComplianceSettings(accountId: number, patch: Partial<typeof siteComplianceSettings.$inferInsert>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const existente = await getComplianceSettings(accountId);
+  if (existente) {
+    await db.update(siteComplianceSettings).set(patch).where(eq(siteComplianceSettings.accountId, accountId));
+    return;
+  }
+  await db.insert(siteComplianceSettings).values({ accountId, ...patch });
+}
+
+/**
+ * Contas que o robô deve varrer AGORA. Só `ativo = true` e conta viva.
+ *
+ * O join com `meta_ad_accounts` não é decorativo: sem ele, uma conta desativada
+ * continuaria sendo varrida a cada 5 minutos, gerando alerta de site que já não
+ * é responsabilidade de ninguém.
+ */
+export async function contasParaMonitorar() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    accountId: siteComplianceSettings.accountId,
+    nome: metaAdAccounts.accountName,
+    ativo: siteComplianceSettings.ativo,
+    dominioEsperado: siteComplianceSettings.dominioEsperado,
+    checarDns: siteComplianceSettings.checarDns,
+    checarRedirect: siteComplianceSettings.checarRedirect,
+    checarConteudo: siteComplianceSettings.checarConteudo,
+    blogUrl: siteComplianceSettings.blogUrl,
+    nsBaselineJson: siteComplianceSettings.nsBaselineJson,
+    termosIgnoradosJson: siteComplianceSettings.termosIgnoradosJson,
+  }).from(siteComplianceSettings)
+    .innerJoin(metaAdAccounts, eq(siteComplianceSettings.accountId, metaAdAccounts.id))
+    .where(and(eq(siteComplianceSettings.ativo, true), eq(metaAdAccounts.isActive, true)));
+}
+
+/**
+ * Cria uma conta que existe SÓ para monitorar site — sem mídia.
+ *
+ * Faz as três coisas juntas de propósito: a conta, o domínio (que é o que faz a
+ * área Site existir para ela) e a configuração do robô. Criar só a conta
+ * deixaria um cliente fantasma sem tela; criar sem a config deixaria o robô
+ * mudo. Idempotente por `accountId`.
+ */
+export async function criarContaDeMonitoramento(dados: { nome: string; dominio: string; slug: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  // Mesma normalização (e mesma ordem) de `monitoramento.salvarConfig`.
+  const dominio = dados.dominio.trim().toLowerCase()
+    .replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+
+  const jaExiste = await db.select().from(metaAdAccounts)
+    .where(eq(metaAdAccounts.accountId, dados.slug)).limit(1);
+
+  let accountId: number;
+  if (jaExiste.length > 0) {
+    accountId = jaExiste[0].id;
+    await db.update(metaAdAccounts)
+      .set({ accountName: dados.nome, isActive: true, somenteMonitoramento: true })
+      .where(eq(metaAdAccounts.id, accountId));
+  } else {
+    // `accessToken` vazio: a coluna é NOT NULL, mas nenhum caminho de mídia
+    // alcança conta somenteMonitoramento — o valor nunca é lido.
+    // `userId: 1` acompanha o padrão das contas existentes; cliente é global no
+    // Spaces e não é filtrado por dono.
+    await db.insert(metaAdAccounts).values({
+      userId: 1, accountId: dados.slug, accountName: dados.nome,
+      accessToken: "", isActive: true, somenteMonitoramento: true,
+    });
+    const criada = await db.select({ id: metaAdAccounts.id }).from(metaAdAccounts)
+      .where(eq(metaAdAccounts.accountId, dados.slug)).limit(1);
+    accountId = criada[0].id;
+  }
+
+  // Domínio: é o que faz `contasComSite()` enxergar a conta e a área Site
+  // existir. Clarity fica desligado — não há token nem intenção de usar.
+  const clarity = await db.select({ id: clientClaritySettings.id }).from(clientClaritySettings)
+    .where(eq(clientClaritySettings.accountId, accountId)).limit(1);
+  if (clarity.length === 0) {
+    await db.insert(clientClaritySettings).values({ accountId, enabled: false, domain: dominio });
+  } else if (!clarity[0]) {
+    /* nada */
+  }
+
+  // Config do robô: nasce DESLIGADA, mesmo com o domínio já preenchido.
+  await upsertComplianceSettings(accountId, { dominioEsperado: dominio, ativo: false });
+  return { accountId, dominio };
 }
 
 // ─── Grupo do Jornalzinho ────────────────────────────────────────────────────
