@@ -4012,9 +4012,86 @@ export async function contasParaMonitorar() {
     blogUrl: siteComplianceSettings.blogUrl,
     nsBaselineJson: siteComplianceSettings.nsBaselineJson,
     termosIgnoradosJson: siteComplianceSettings.termosIgnoradosJson,
+    suspeitaJson: siteComplianceSettings.suspeitaJson,
+    confirmacoesNecessarias: siteComplianceSettings.confirmacoesNecessarias,
   }).from(siteComplianceSettings)
     .innerJoin(metaAdAccounts, eq(siteComplianceSettings.accountId, metaAdAccounts.id))
     .where(and(eq(siteComplianceSettings.ativo, true), eq(metaAdAccounts.isActive, true)));
+}
+
+/**
+ * Snapshot do dia para um provider de monitoramento.
+ *
+ * Leitura por (conta, provider, DIA) e não "a mais recente": o robô roda a cada
+ * 5 minutos, e pegar a última linha traria a de ontem logo depois da virada —
+ * os contadores do dia novo começariam somando os de ontem.
+ */
+export async function snapshotMonitoramentoDoDia(accountId: number, provider: string, dia: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(clientSiteSnapshots).where(and(
+    eq(clientSiteSnapshots.accountId, accountId),
+    eq(clientSiteSnapshots.provider, provider),
+    eq(clientSiteSnapshots.dia, dia),
+  )).orderBy(desc(clientSiteSnapshots.id)).limit(1);
+  return r[0];
+}
+
+/** Eventos guardados no snapshot. Teto para o JSON não crescer sem fim. */
+const MAX_EVENTOS_DIA = 60;
+
+export interface EventoMonitoramento {
+  em: string;
+  tipo: "suspeita" | "confirmado" | "instabilidade" | "normalizado";
+  chave: string;
+  detalhe: string;
+}
+
+/**
+ * Acumula UMA leitura no snapshot consolidado do dia.
+ *
+ * Consolidado, e não uma linha por ciclo: a 5 minutos são 288 leituras por dia
+ * por provider por cliente. Guardar cada uma encheria a tabela com ruído para
+ * responder uma pergunta que ninguém faz ("como estava às 14h35?"). O que se
+ * pergunta é "quantas vezes olhamos hoje, quantas deram problema, e o que está
+ * valendo agora" — e isso cabe em uma linha por dia.
+ */
+export async function acumularSnapshotMonitoramento(a: {
+  accountId: number;
+  provider: string;
+  url: string;
+  dia: string;
+  leitura: Record<string, unknown>;
+  anomalia: boolean;
+  severidade: string;
+  achados: { chave: string; sev: string; titulo: string }[];
+  eventos?: EventoMonitoramento[];
+  agoraIso: string;
+}) {
+  const atual = await snapshotMonitoramentoDoDia(a.accountId, a.provider, a.dia);
+  const m = (atual?.metricsJson ?? {}) as Record<string, unknown>;
+  const eventosAntigos = Array.isArray(m.eventos) ? (m.eventos as EventoMonitoramento[]) : [];
+  // Corta pelo FIM: o evento mais recente é o que interessa quando alguém abre
+  // a tela para entender o que acabou de acontecer.
+  const eventos = [...eventosAntigos, ...(a.eventos ?? [])].slice(-MAX_EVENTOS_DIA);
+
+  await salvarSiteSnapshot({
+    accountId: a.accountId,
+    provider: a.provider,
+    url: a.url.slice(0, 500),
+    estrategia: "mobile", // coluna da chave única; irrelevante aqui, valor fixo
+    dia: a.dia,
+    metricsJson: {
+      checagens: (Number(m.checagens) || 0) + 1,
+      anomalias: (Number(m.anomalias) || 0) + (a.anomalia ? 1 : 0),
+      primeiraEm: (m.primeiraEm as string) ?? a.agoraIso,
+      ultimaEm: a.agoraIso,
+      ultimaSeveridade: a.severidade,
+      ultima: a.leitura,
+      achados: a.achados,
+      eventos,
+    },
+  });
 }
 
 /**
@@ -4283,7 +4360,9 @@ export async function getNotificationRecipientsForClient(input: { accountId: num
   // erro de JS que quebra conversão é problema de código, não de mídia.
   // Técnico = também é problema de quem cuida do código (erro de JS pode quebrar
   // o disparo de conversão). Mídia paga NUNCA vai para developer.
-  const tecnico = input.tipo === "OPERACIONAL" || input.tipo === "SITE_TRACKING_PROBLEM";
+  const tecnico = input.tipo === "OPERACIONAL" || input.tipo === "SITE_TRACKING_PROBLEM"
+    // Domínio perdido é infra: quem resolve é quem cuida de DNS e hospedagem.
+    || input.tipo === "SITE_MONITORAMENTO";
   const roles: ("admin" | "developer")[] = tecnico ? ["admin", "developer"] : ["admin"];
   const porRole = await db.select({ id: users.id }).from(users)
     .where(and(eq(users.active, true), isNull(users.deletedAt), inArray(users.role, roles)));

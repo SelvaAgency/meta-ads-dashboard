@@ -324,6 +324,8 @@ import { previaTesteGmail, enviarTesteGmail, TIPO_TESTE_GMAIL } from "./services
 import { simularDestinatarios } from "./services/email/destinatarios";
 import { getComplianceSettings, upsertComplianceSettings, criarContaDeMonitoramento } from "./db";
 import { normalizarHost } from "./services/monitoramento/dominioRegistravel";
+import { normalizarConfirmacoes } from "./services/monitoramento/confirmacao";
+import { runCicloMonitoramento } from "./services/monitoramento/cicloMonitoramento";
 import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho, preferenciasEmailDoUsuario, salvarPreferenciasEmail } from "./db";
 import { GRUPOS, grupoPorId, resolverGrupo, ehGrupoValido } from "./services/email/gruposJornalzinho";
 import { isEncryptionConfigured } from "./_core/integrationsCrypto";
@@ -5980,6 +5982,11 @@ export const appRouter = router({
           checarRedirect: cfg?.checarRedirect ?? true,
           checarConteudo: cfg?.checarConteudo ?? false,
           ultimaVerificacaoEm: cfg?.ultimaVerificacaoEm ?? null,
+          confirmacoesNecessarias: normalizarConfirmacoes(cfg?.confirmacoesNecessarias),
+          // Suspeita pendente aparece no status para a tela poder dizer
+          // "aguardando confirmação" — sem isto, o intervalo entre ver e alertar
+          // seria um buraco onde o robô parece parado.
+          suspeita: (cfg?.suspeitaJson ?? null) as unknown,
         });
       }
       return out;
@@ -6002,9 +6009,15 @@ export const appRouter = router({
         checarRedirect: z.boolean().optional(),
         checarConteudo: z.boolean().optional(),
         blogUrl: z.string().max(500).nullable().optional(),
+        confirmacoesNecessarias: z.number().int().optional(),
       }))
       .mutation(async ({ input }) => {
         const { accountId, ...patch } = input;
+        // Passa pelo MESMO piso que a decisão usa. Validar só no Zod deixaria o
+        // banco guardar 1, e quem lesse o banco direto acharia que 1 vale.
+        if (patch.confirmacoesNecessarias != null) {
+          patch.confirmacoesNecessarias = normalizarConfirmacoes(patch.confirmacoesNecessarias);
+        }
         // Normaliza o domínio na ENTRADA: guardar "https://www.x.com/" faria a
         // comparação com o domínio registrável falhar para sempre, e o alerta
         // seria diário e falso.
@@ -6016,6 +6029,17 @@ export const appRouter = router({
         await upsertComplianceSettings(accountId, patch);
         return { success: true as const };
       }),
+
+    /**
+     * Roda um ciclo AGORA, à mão. É o que permite validar sem esperar 5 minutos
+     * — e o que dá ao time um "verificar de novo" quando desconfia de algo.
+     *
+     * Passa pelo mesmo caminho do cron, inclusive a confirmação dupla: um botão
+     * que pulasse a trava validaria um comportamento que não existe em produção.
+     */
+    rodarAgora: adminProcedure.mutation(async () => {
+      return runCicloMonitoramento();
+    }),
 
     /**
      * Cria a conta da Aiká — cliente monitorado, sem mídia. Idempotente.

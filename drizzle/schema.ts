@@ -375,6 +375,14 @@ export const siteComplianceSettings = mysqlTable("site_compliance_settings", {
   nsBaselineJson: json("nsBaselineJson"),
   /** Termos que NÃO devem alertar neste cliente (evita falso positivo por setor). */
   termosIgnoradosJson: json("termosIgnoradosJson"),
+  /**
+   * Achado crítico visto e ainda NÃO confirmado. Mora aqui, e não no snapshot
+   * do dia, porque uma suspeita das 23h58 confirma às 00h03 — atravessa a
+   * virada do dia, e um estado guardado por dia a perderia justo aí.
+   */
+  suspeitaJson: json("suspeitaJson"),
+  /** Leituras consecutivas para um crítico virar alerta. Piso 2, no código. */
+  confirmacoesNecessarias: int("confirmacoesNecessarias").default(2).notNull(),
   ultimaVerificacaoEm: timestamp("ultimaVerificacaoEm"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

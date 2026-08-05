@@ -227,6 +227,21 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela site_compliance_settings garantida");
 
+    // 3.0.8) Estado da confirmação dupla. Colunas SEPARADAS do snapshot diário:
+    //        uma suspeita das 23h58 confirma às 00h03, e estado guardado por dia
+    //        se perderia exatamente na virada.
+    for (const [col, ddl] of [
+      ["suspeitaJson", "ADD COLUMN `suspeitaJson` JSON NULL"],
+      ["confirmacoesNecessarias", "ADD COLUMN `confirmacoesNecessarias` INT NOT NULL DEFAULT 2"],
+    ]) {
+      if (await columnExists(conn, "site_compliance_settings", col)) {
+        console.log(`[ensure-schema] ok  · site_compliance_settings.${col} já existe`);
+      } else {
+        await conn.query(`ALTER TABLE \`site_compliance_settings\` ${ddl}`);
+        console.log(`[ensure-schema] +   · site_compliance_settings.${col} adicionada`);
+      }
+    }
+
     // 3.1) Foto do cliente enviada à mão. Coluna PRÓPRIA, separada da
     //      `pictureUrl` que vem da Meta: o import de contas reescreve aquela, e
     //      uma foto escolhida pelo time não pode sumir por causa disso.

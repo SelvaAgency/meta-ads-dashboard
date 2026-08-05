@@ -26,6 +26,7 @@ import { getDigestSettings, getDigestOverride, setAppSetting } from "./db";
  */
 
 import cron from "node-cron";
+import { runCicloMonitoramento } from "./services/monitoramento/cicloMonitoramento";
 import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
 import { notifyOwner } from "./_core/notification";
 import {
@@ -1153,6 +1154,26 @@ export async function startAutoSync() {
 
   // Polling fallback for scheduled reports (every 5 minutes)
   cron.schedule("0 */5 * * * *", runScheduledReports); // a cada 5 min — fuso é irrelevante
+
+  /**
+   * Monitoramento de domínio — a cada 5 minutos, sem fuso (é vigilância
+   * contínua, não relatório de um dia).
+   *
+   * A frequência é o produto inteiro: o caso Aiká foi um domínio que passou a
+   * apontar para outro lugar, e descobrir isso na manhã seguinte é descobrir
+   * tarde demais. O custo é o que torna isso possível — uma consulta DNS de
+   * ~30ms mais um GET que para no `</head>`, medidos em 134ms por cliente.
+   *
+   * Não varre todo mundo: só quem tem `ativo = true`, que nasce em 0. Com a
+   * tabela vazia o job devolve na primeira linha, sem tocar em rede.
+   */
+  cron.schedule("0 */5 * * * *", async () => {
+    try {
+      await runCicloMonitoramento();
+    } catch (e) {
+      logger.error(`[Monitoramento] ciclo falhou: ${(e as Error).message}`);
+    }
+  });
 
   // Daily experiment checkpoint snapshots at 09:10 UTC
   cron.schedule("0 10 6 * * *", runExperimentCheckpoints, TZ);

@@ -23,7 +23,7 @@ export type NotifTipo =
   | "FINANCE_ATRASO"
   | "TRELLO_PRAZO" | "TRELLO_RECONEXAO"
   | "COMUNICADO" | "ANIVERSARIO"
-  | "SITE_CLARITY_ISSUE" | "SITE_TRACKING_PROBLEM";
+  | "SITE_CLARITY_ISSUE" | "SITE_TRACKING_PROBLEM" | "SITE_MONITORAMENTO";
 
 export type EmailModo = "off" | "hora" | "digest";
 
@@ -81,6 +81,16 @@ export const NOTIF_TIPOS: NotifTipoDef[] = [
   // incêndio. Os CRÍTICOS de site (fora do ar, SSL) têm e-mail imediato próprio
   // em siteHealthAlerts — não passam por este modo.
   { v: "SITE_TRACKING_PROBLEM", dominio: "SITE", label: "Risco de medição", desc: "Erros de JS que podem quebrar o disparo de conversão.", inApp: true, emailModo: "off" },
+  /**
+   * Monitoramento de domínio. Tipo PRÓPRIO em vez de reaproveitar "Risco de
+   * medição": domínio perdido não é risco de medição, e um alerta com o rótulo
+   * errado ensina o time a ler o rótulo errado.
+   *
+   * `inAppObrigatorio`: só chega aqui o que já passou pela confirmação dupla —
+   * ou seja, um crítico visto duas vezes seguidas. Isso não é preferência
+   * pessoal. E-mail continua desligado; o canal ainda não foi decidido.
+   */
+  { v: "SITE_MONITORAMENTO", dominio: "SITE", label: "Domínio e destino do site", desc: "O domínio parou de resolver, ou o site passou a levar para outro lugar.", inApp: true, emailModo: "off", inAppObrigatorio: true },
 ];
 
 export const NOTIF_DOMINIOS: { v: NotifDominio; label: string }[] = [
