@@ -77,3 +77,56 @@ describe("o predicado que a tela usa bate com o do servidor", () => {
     expect(canAccessAdmin("user")).toBe(false);
   });
 });
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Criar cliente é ação de admin E developer
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Existem DUAS portas para criar cliente no Spaces, em routers diferentes:
+ *
+ *    access.createClient                  cliente no cofre de acessos
+ *    monitoramento.adicionarClienteSemMidia   cliente atendido só no Site (Aiká)
+ *
+ *  Estar em arquivos e routers separados é exatamente o que faz uma delas voltar
+ *  a ser admin-only sem ninguém perceber — foi o que já aconteceu uma vez, e o
+ *  sintoma foi o developer levando "You do not have required permission (10002)"
+ *  num botão que a própria tela mostrava para ele.
+ *
+ *  A regra é uma: quem pode gerenciar conteúdo operacional (admin + developer)
+ *  pode criar cliente. Usuário comum não.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("as duas portas de criar cliente aceitam developer", () => {
+  const fonte = () => readFileSync(join(RAIZ, "server", "routers.ts"), "utf8");
+
+  it.each([
+    ["access.createClient", "createClient"],
+    ["monitoramento.adicionarClienteSemMidia", "adicionarClienteSemMidia"],
+  ])("%s usa contentProcedure", (_rotulo, nome) => {
+    const m = new RegExp(`^\\s+${nome}: (\\w+Procedure)`, "m").exec(fonte());
+    expect(m, `procedure ${nome} não encontrada — foi renomeada?`).not.toBeNull();
+    expect(m![1], `${nome} precisa aceitar developer`).toBe("contentProcedure");
+  });
+
+  /**
+   * O outro lado: a TELA precisa oferecer o botão para as mesmas pessoas. Foi a
+   * divergência entre os dois lados que produziu o 10002 — cada um estava certo
+   * isoladamente, e nada no compilador relaciona os dois.
+   */
+  it.each([
+    ["client/src/pages/Site.tsx", "podeConfigurar"],
+    ["client/src/pages/hub/HubAccess.tsx", "canEdit"],
+  ])("a tela %s decide por canManageContent", (caminho, variavel) => {
+    const tela = readFileSync(join(RAIZ, caminho), "utf8");
+    const m = new RegExp(`const ${variavel} = (\\w+)\\(`).exec(tela);
+    expect(m, `${variavel} não encontrada em ${caminho}`).not.toBeNull();
+    expect(m![1], "a tela precisa usar o mesmo critério do servidor").toBe("canManageContent");
+  });
+
+  it("o predicado das telas e o guarda do servidor concordam", () => {
+    // contentProcedure deixa passar admin e developer; canManageContent também.
+    expect(canManageContent("admin")).toBe(true);
+    expect(canManageContent("developer")).toBe(true);
+    expect(canManageContent("user")).toBe(false);
+  });
+});
