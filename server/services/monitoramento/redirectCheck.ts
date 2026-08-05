@@ -16,6 +16,17 @@
  *  Parar no `</head>` é o que mantém o custo baixo em site normal (fecha em
  *  poucos KB) sem quebrar em site pesado. O teto continua existindo porque um
  *  site hostil pode servir corpo infinito.
+ *
+ *  ── Cegueira parcial conhecida: selva.agency ───────────────────────────────
+ *  Medido em 05/08/2026: o site da própria Selva consome os 512 KB do teto sem
+ *  fechar o `<head>`. Consequência REAL e aceita: para esse domínio, `canonical`
+ *  e `tituloTrecho` voltam `null`, e a checagem `canonical_externo` não roda.
+ *
+ *  Fica registrado em vez de corrigido porque o que mais importa continua
+ *  funcionando ali (DNS e destino), e subir o teto para acomodar um site
+ *  específico penalizaria todos os outros. Se um dia o canonical da Selva
+ *  passar a importar, o caminho é medir onde o `</head>` realmente fecha —
+ *  não chutar um teto maior.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { fetchSeguro } from "../urlGuard";
