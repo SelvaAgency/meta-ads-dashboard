@@ -15,7 +15,7 @@ import {
 
 const T = termosDoCliente();
 const post = (over: Partial<Parameters<typeof classificarPost>[0]> = {}) => ({
-  id: "1", url: "https://ultramalhas.com.br/blog/post", titulo: "", resumo: "", ...over,
+  id: "1", url: "https://ultramalhasloja.com.br/blog/post", titulo: "", resumo: "", ...over,
 });
 
 describe("o que NÃO pode alertar", () => {
@@ -75,7 +75,7 @@ describe("o que precisa alertar", () => {
 
   /** O sitemap só entrega URL — sem isto, o fallback mais provável seria cego. */
   it("termo só na URL é detectado", () => {
-    const c = classificarPost(post({ url: "https://ultramalhas.com.br/melhores-slots-online/" }), T);
+    const c = classificarPost(post({ url: "https://ultramalhasloja.com.br/melhores-slots-online/" }), T);
     expect(c.suspeito).toBe(true);
     expect(c.termos).toContain("slots");
   });

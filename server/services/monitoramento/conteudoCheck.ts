@@ -174,13 +174,30 @@ export function postsDoSitemap(corpo: string, dominio: string): PostBlog[] {
 }
 
 /**
+ * Blocos de navegação. Links daqui não são publicação.
+ *
+ * Descoberto sondando o site real da Ultramalhas com `blogUrl` apontando para
+ * um caminho sem WordPress: o fallback devolveu 25 "posts" chamados "Home",
+ * "Produtos", "Malhas" — o menu do site. Isso não é só feio na tela: o menu
+ * entraria no baseline como publicação, e a primeira troca de item de menu
+ * viraria "publicações novas de uma vez".
+ */
+const BLOCOS_DE_NAVEGACAO = /<(nav|header|footer)[\s>][\s\S]*?<\/\1>/gi;
+
+/**
  * HTML da listagem. Último recurso e o mais frágil: pega links do próprio
  * domínio com o texto da âncora como título.
+ *
+ * Continua sendo uma aproximação — não há como distinguir com certeza post de
+ * página numa listagem qualquer. Por isso é o ÚLTIMO fallback, e por isso a aba
+ * mostra qual fonte foi usada: "nenhuma publicação suspeita" dita a partir daqui
+ * vale menos do que a mesma frase dita a partir da REST.
  */
 export function postsDoHtml(corpo: string, dominio: string): PostBlog[] {
   const vistos = new Set<string>();
   const out: PostBlog[] = [];
-  for (const m of Array.from(corpo.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{0,300}?)<\/a>/gi))) {
+  const semNav = corpo.replace(BLOCOS_DE_NAVEGACAO, " ");
+  for (const m of Array.from(semNav.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]{0,300}?)<\/a>/gi))) {
     const href = m[1];
     if (!/^https?:\/\//i.test(href)) continue;
     if (!normalizarHost(href).endsWith(normalizarHost(dominio))) continue;

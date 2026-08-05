@@ -5,12 +5,12 @@
  *  Este arquivo existe por causa de UMA armadilha: "últimos dois rótulos" é a
  *  implementação óbvia e está errada no Brasil.
  *
- *      ultramalhas.com.br  →  "com.br"     ← errado, e catastrófico
+ *      ultramalhasloja.com.br  →  "com.br"     ← errado, e catastrófico
  *
  *  O estrago não seria um erro visível. `com.br` casaria com QUALQUER site
  *  brasileiro, então o robô aprovaria um sequestro de domínio para outro
  *  `.com.br` sem dizer nada — falso NEGATIVO, o pior tipo aqui. E na direção
- *  oposta, comparar `com.br` contra `ultramalhas.com.br` alertaria todo dia.
+ *  oposta, comparar `com.br` contra `ultramalhasloja.com.br` alertaria todo dia.
  *
  *  ── Por que lista curada e não um pacote ───────────────────────────────────
  *  A Public Suffix List completa tem ~9 mil entradas e muda. Aqui bastam os

@@ -2,7 +2,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *  Domínio registrável — o teste que precisa existir ANTES do robô rodar
  * ─────────────────────────────────────────────────────────────────────────────
- *  A implementação óbvia ("últimos dois rótulos") reduz `ultramalhas.com.br` a
+ *  A implementação óbvia ("últimos dois rótulos") reduz `ultramalhasloja.com.br` a
  *  `com.br`. O estrago é dos dois lados:
  *
  *   • FALSO NEGATIVO — `com.br` casa com qualquer site brasileiro, então um
@@ -18,13 +18,13 @@ import { describe, expect, it } from "vitest";
 import { dominioRegistravel, mesmoDominioRegistravel, normalizarHost } from "./dominioRegistravel";
 
 describe("a armadilha do .com.br", () => {
-  it("ultramalhas.com.br NÃO vira com.br", () => {
-    expect(dominioRegistravel("ultramalhas.com.br")).toBe("ultramalhas.com.br");
-    expect(dominioRegistravel("ultramalhas.com.br")).not.toBe("com.br");
+  it("ultramalhasloja.com.br NÃO vira com.br", () => {
+    expect(dominioRegistravel("ultramalhasloja.com.br")).toBe("ultramalhasloja.com.br");
+    expect(dominioRegistravel("ultramalhasloja.com.br")).not.toBe("com.br");
   });
 
-  it("www.ultramalhas.com.br → ultramalhas.com.br", () => {
-    expect(dominioRegistravel("www.ultramalhas.com.br")).toBe("ultramalhas.com.br");
+  it("www.ultramalhasloja.com.br → ultramalhasloja.com.br", () => {
+    expect(dominioRegistravel("www.ultramalhasloja.com.br")).toBe("ultramalhasloja.com.br");
   });
 
   it.each(["com.br", "net.br", "org.br", "adv.br", "blog.br", "co.uk", "com.au", "co.za"])(
@@ -39,7 +39,7 @@ describe("a armadilha do .com.br", () => {
    * DIFERENTES não podem ser considerados o mesmo domínio.
    */
   it("dois .com.br distintos NÃO são o mesmo domínio", () => {
-    expect(mesmoDominioRegistravel("ultramalhas.com.br", "sequestrador.com.br")).toBe(false);
+    expect(mesmoDominioRegistravel("ultramalhasloja.com.br", "sequestrador.com.br")).toBe(false);
   });
 });
 
@@ -88,7 +88,7 @@ describe("subdomínio", () => {
   });
 
   it("subdomínio profundo em .com.br também resolve certo", () => {
-    expect(dominioRegistravel("blog.loja.ultramalhas.com.br")).toBe("ultramalhas.com.br");
+    expect(dominioRegistravel("blog.loja.ultramalhasloja.com.br")).toBe("ultramalhasloja.com.br");
   });
 });
 

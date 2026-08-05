@@ -18,13 +18,13 @@ import { termosDoCliente } from "./termosSuspeitos";
 const T = termosDoCliente();
 
 const post = (over: Partial<PostBlog> = {}): PostBlog => ({
-  id: "1", url: "https://ultramalhas.com.br/blog/tricot/", titulo: "Tricô para o inverno",
+  id: "1", url: "https://ultramalhasloja.com.br/blog/tricot/", titulo: "Tricô para o inverno",
   data: "2026-08-04T10:00:00Z", autor: "Redação", categorias: ["Moda"], resumo: "Peças em lã.",
   ...over,
 });
 
 const SPAM = post({
-  id: "999", url: "https://ultramalhas.com.br/melhores-cassinos/",
+  id: "999", url: "https://ultramalhasloja.com.br/melhores-cassinos/",
   titulo: "Melhores cassinos online de 2026", autor: "admin2", categorias: ["Sem categoria"],
   resumo: "Ganhe bônus no jackpot.",
 });
@@ -79,7 +79,7 @@ describe("spam de cassino", () => {
 
   it("a evidência traz URL, título, data, termo e trecho", () => {
     const a = achar(ent({ conteudo: leitura([SPAM]) }), "conteudo_spam");
-    expect(a?.evidencia.url).toBe("https://ultramalhas.com.br/melhores-cassinos/");
+    expect(a?.evidencia.url).toBe("https://ultramalhasloja.com.br/melhores-cassinos/");
     expect(a?.evidencia.titulo).toBe("Melhores cassinos online de 2026");
     expect(a?.evidencia.data).toBe("2026-08-04T10:00:00Z");
     expect(a?.evidencia.termos).toContain("cassinos");

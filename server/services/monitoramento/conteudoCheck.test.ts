@@ -18,12 +18,12 @@ import { postsDaRest, postsDoRss, postsDoSitemap, postsDoHtml } from "./conteudo
 describe("REST do WordPress", () => {
   const CORPO = JSON.stringify([
     {
-      id: 812, date: "2026-08-04T10:00:00", link: "https://ultramalhas.com.br/blog/tricot-inverno/",
+      id: 812, date: "2026-08-04T10:00:00", link: "https://ultramalhasloja.com.br/blog/tricot-inverno/",
       title: { rendered: "Tricô para o inverno" }, author: 3, categories: [5, 8],
       excerpt: { rendered: "<p>Peças em lã merino.</p>\n" },
     },
     {
-      id: 813, date: "2026-08-05T02:11:00", link: "https://ultramalhas.com.br/melhores-cassinos/",
+      id: 813, date: "2026-08-05T02:11:00", link: "https://ultramalhasloja.com.br/melhores-cassinos/",
       title: { rendered: "Melhores cassinos online" }, author: 99, categories: [41],
       excerpt: { rendered: "<p>Ganhe bônus agora</p>" },
     },
@@ -62,8 +62,8 @@ describe("RSS", () => {
   const FEED = `<?xml version="1.0"?><rss><channel>
     <item>
       <title><![CDATA[Tricô para o inverno]]></title>
-      <link>https://ultramalhas.com.br/blog/tricot/</link>
-      <guid isPermaLink="false">https://ultramalhas.com.br/?p=812</guid>
+      <link>https://ultramalhasloja.com.br/blog/tricot/</link>
+      <guid isPermaLink="false">https://ultramalhasloja.com.br/?p=812</guid>
       <pubDate>Tue, 04 Aug 2026 10:00:00 +0000</pubDate>
       <dc:creator><![CDATA[Redação]]></dc:creator>
       <category><![CDATA[Moda]]></category>
@@ -74,7 +74,7 @@ describe("RSS", () => {
   it("lê item com CDATA e entidades", () => {
     const [p] = postsDoRss(FEED);
     expect(p.titulo).toBe("Tricô para o inverno");
-    expect(p.id).toBe("https://ultramalhas.com.br/?p=812");
+    expect(p.id).toBe("https://ultramalhasloja.com.br/?p=812");
     expect(p.autor).toBe("Redação");
     expect(p.categorias).toEqual(["Moda"]);
     expect(p.resumo).toBe("Peças em lã & algodão.");
@@ -83,7 +83,7 @@ describe("RSS", () => {
 
   it("sem guid, o link vira id", () => {
     expect(postsDoRss(FEED.replace(/<guid[\s\S]*?<\/guid>/, ""))[0].id)
-      .toBe("https://ultramalhas.com.br/blog/tricot/");
+      .toBe("https://ultramalhasloja.com.br/blog/tricot/");
   });
 
   it.each([["HTML", "<html>não é feed</html>"], ["vazio", ""]])("%s vira []", (_n, c) => {
@@ -93,31 +93,31 @@ describe("RSS", () => {
 
 describe("sitemap", () => {
   const MAPA = `<urlset>
-    <url><loc>https://ultramalhas.com.br/</loc></url>
-    <url><loc>https://ultramalhas.com.br/blog/tricot/</loc></url>
-    <url><loc>https://ultramalhas.com.br/melhores-slots-online/</loc></url>
+    <url><loc>https://ultramalhasloja.com.br/</loc></url>
+    <url><loc>https://ultramalhasloja.com.br/blog/tricot/</loc></url>
+    <url><loc>https://ultramalhasloja.com.br/melhores-slots-online/</loc></url>
     <url><loc>https://outro-dominio.com/spam/</loc></url>
-    <url><loc>https://ultramalhas.com.br/post-sitemap.xml</loc></url>
+    <url><loc>https://ultramalhasloja.com.br/post-sitemap.xml</loc></url>
   </urlset>`;
 
   it("só URLs do próprio domínio", () => {
-    expect(postsDoSitemap(MAPA, "ultramalhas.com.br").map((p) => p.url))
+    expect(postsDoSitemap(MAPA, "ultramalhasloja.com.br").map((p) => p.url))
       .not.toContain("https://outro-dominio.com/spam/");
   });
 
   /** Índice de sitemaps aponta para outros .xml — não é lista de post. */
   it("descarta links para outros sitemaps", () => {
-    expect(postsDoSitemap(MAPA, "ultramalhas.com.br").some((p) => p.url.endsWith(".xml"))).toBe(false);
+    expect(postsDoSitemap(MAPA, "ultramalhasloja.com.br").some((p) => p.url.endsWith(".xml"))).toBe(false);
   });
 
   /** Sem título na fonte, o slug vira título — é o que permite casar termos. */
   it("deriva título do slug", () => {
-    const p = postsDoSitemap(MAPA, "ultramalhas.com.br").find((x) => x.url.includes("slots"));
+    const p = postsDoSitemap(MAPA, "ultramalhasloja.com.br").find((x) => x.url.includes("slots"));
     expect(p?.titulo).toBe("melhores slots online");
   });
 
   it("não inventa data nem autor", () => {
-    const [p] = postsDoSitemap(MAPA, "ultramalhas.com.br");
+    const [p] = postsDoSitemap(MAPA, "ultramalhasloja.com.br");
     expect(p.data).toBeNull();
     expect(p.autor).toBeNull();
   });
@@ -125,29 +125,29 @@ describe("sitemap", () => {
 
 describe("HTML da listagem", () => {
   const PAGINA = `<html><body>
-    <a href="https://ultramalhas.com.br/blog/tricot/">Tricô para o inverno</a>
-    <a href="https://ultramalhas.com.br/blog/tricot/">Tricô para o inverno</a>
+    <a href="https://ultramalhasloja.com.br/blog/tricot/">Tricô para o inverno</a>
+    <a href="https://ultramalhasloja.com.br/blog/tricot/">Tricô para o inverno</a>
     <a href="https://facebook.com/ultramalhas">Siga no Facebook</a>
     <a href="/relativo">Link relativo</a>
-    <a href="https://ultramalhas.com.br/cassino/"></a>
+    <a href="https://ultramalhasloja.com.br/cassino/"></a>
   </body></html>`;
 
   it("pega links do próprio domínio, sem repetir", () => {
-    const p = postsDoHtml(PAGINA, "ultramalhas.com.br");
+    const p = postsDoHtml(PAGINA, "ultramalhasloja.com.br");
     expect(p).toHaveLength(1);
     expect(p[0].titulo).toBe("Tricô para o inverno");
   });
 
   it("ignora domínio externo — não seguimos link de fora", () => {
-    expect(postsDoHtml(PAGINA, "ultramalhas.com.br").some((p) => p.url.includes("facebook"))).toBe(false);
+    expect(postsDoHtml(PAGINA, "ultramalhasloja.com.br").some((p) => p.url.includes("facebook"))).toBe(false);
   });
 
   it("âncora sem texto não vira post", () => {
-    expect(postsDoHtml(PAGINA, "ultramalhas.com.br").some((p) => p.url.includes("cassino"))).toBe(false);
+    expect(postsDoHtml(PAGINA, "ultramalhasloja.com.br").some((p) => p.url.includes("cassino"))).toBe(false);
   });
 
   it("página sem link vira []", () => {
-    expect(postsDoHtml("<html><body>nada</body></html>", "ultramalhas.com.br")).toEqual([]);
+    expect(postsDoHtml("<html><body>nada</body></html>", "ultramalhasloja.com.br")).toEqual([]);
   });
 });
 
@@ -190,5 +190,36 @@ describe("entidades HTML na evidência", () => {
   ])("%s vira texto", (_n, entrada, esperado) => {
     const [p] = postsDaRest(JSON.stringify([{ id: 1, link: "https://x.com/a", title: { rendered: entrada } }]));
     expect(p.titulo).toBe(esperado);
+  });
+});
+
+/**
+ * Descoberto sondando o site real com `blogUrl` apontando para um caminho sem
+ * WordPress: o fallback devolveu 25 "posts" chamados "Home", "Produtos",
+ * "Malhas" — o menu do site. Não é só feio na tela: o menu entraria no baseline
+ * como publicação, e a primeira troca de item de menu viraria "publicações
+ * novas de uma vez".
+ */
+describe("fallback de HTML ignora navegação", () => {
+  const PAGINA = `<html><body>
+    <header><a href="https://x.com/">Home</a><a href="https://x.com/produtos">Produtos</a></header>
+    <nav><a href="https://x.com/malhas">Malhas</a></nav>
+    <main><a href="https://x.com/blog/tricot-inverno/">Tricô para o inverno</a></main>
+    <footer><a href="https://x.com/contato">Contato</a></footer>
+  </body></html>`;
+
+  it("menu, cabeçalho e rodapé não viram post", () => {
+    const p = postsDoHtml(PAGINA, "x.com");
+    expect(p).toHaveLength(1);
+    expect(p[0].titulo).toBe("Tricô para o inverno");
+  });
+
+  it.each(["Home", "Produtos", "Malhas", "Contato"])("'%s' não entra no baseline", (t) => {
+    expect(postsDoHtml(PAGINA, "x.com").some((p) => p.titulo === t)).toBe(false);
+  });
+
+  it("página sem nav continua funcionando", () => {
+    const simples = '<html><body><a href="https://x.com/a/">Post A</a></body></html>';
+    expect(postsDoHtml(simples, "x.com").map((p) => p.titulo)).toEqual(["Post A"]);
   });
 });
