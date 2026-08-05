@@ -158,7 +158,7 @@ export default function JornalzinhoPreview() {
 
   return (
     <HubShell>
-      <main className="flex-1 overflow-auto p-6 md:p-8">
+      <main className="flex-1 overflow-auto p-6 md:p-8 max-md:p-4">
         <div className="max-w-4xl mx-auto flex flex-col gap-5">
           <header className="flex items-center gap-3">
             <span className="w-10 h-10 rounded-xl bg-primary/20 text-accent flex items-center justify-center flex-shrink-0">

@@ -62,3 +62,58 @@ describe("a gaveta não pode causar scroll horizontal", () => {
     expect(classes(true)).toContain("max-md:z-50");
   });
 });
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Hover no toque — a regra que some numa refatoração distraída
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  As duas sidebars e o flyout de clientes decidem o que mostrar por
+ *  `onMouseEnter`. No celular o toque DISPARA mouseenter e o `mouseleave`
+ *  muitas vezes nunca vem: o estado fica preso, a sidebar abre sozinha e não
+ *  fecha, e o flyout aparece posicionado fora da tela.
+ *
+ *  A proteção é passar `undefined` no handler quando não há ponteiro fino.
+ *  Trocar isso por um `if` dentro do handler pareceria equivalente e não seria:
+ *  o React ainda registraria o listener, e o `active:`/`:hover` do CSS
+ *  continuaria colando. Este teste fixa a consulta que decide.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("a pergunta que decide se hover vale", () => {
+  const CONSULTA = "(hover: hover) and (pointer: fine)";
+
+  it("é a consulta usada no código", async () => {
+    const fonte = await import("node:fs").then((fs) =>
+      fs.readFileSync(new URL("./MenuMobile.tsx", import.meta.url), "utf8"));
+    expect(fonte).toContain(CONSULTA);
+  });
+
+  /**
+   * `(hover: hover)` sozinho deixaria passar tablet com caneta e alguns
+   * Androids que se declaram capazes de hover. `pointer: fine` é o que separa
+   * dedo de mouse.
+   */
+  it("exige as DUAS condições — só hover não basta", async () => {
+    const fonte = await import("node:fs").then((fs) =>
+      fs.readFileSync(new URL("./MenuMobile.tsx", import.meta.url), "utf8"));
+    const consultas = fonte.match(/matchMedia\("([^"]+)"\)/g) ?? [];
+    expect(consultas.length).toBeGreaterThan(0);
+    for (const c of consultas) {
+      expect(c).toContain("hover: hover");
+      expect(c).toContain("pointer: fine");
+    }
+  });
+
+  /** Os handlers precisam ser CONDICIONAIS, não conter um if por dentro. */
+  it.each([
+    ["client/src/pages/hub/HubSidebar.tsx", "HubSidebar"],
+    ["client/src/components/MetaDashboardLayout.tsx", "MetaDashboardLayout"],
+  ])("%s passa undefined quando não há ponteiro fino", async (caminho) => {
+    const fs = await import("node:fs");
+    const fonte = fs.readFileSync(new URL(`../../../${caminho}`, import.meta.url), "utf8");
+    const handlers = fonte.match(/onMouse(Enter|Leave)=\{[^}]*/g) ?? [];
+    expect(handlers.length).toBeGreaterThan(0);
+    for (const h of handlers) {
+      expect(h, `handler sem guarda de ponteiro: ${h.slice(0, 60)}`).toContain("hoverVale");
+    }
+  });
+});

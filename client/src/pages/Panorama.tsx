@@ -81,7 +81,7 @@ export default function Panorama() {
   if (!podeVer) {
     return (
       <MetaDashboardLayout title="Panorama de Sites">
-        <div className="p-6">
+        <div className="p-6 max-md:p-0">
           <div className="bg-card border border-border rounded-xl p-8 text-center">
             <Globe2 className="w-8 h-8 mx-auto text-muted-foreground/40 mb-3" />
             <h2 className="text-sm font-bold text-foreground">Sem acesso a esta tela</h2>

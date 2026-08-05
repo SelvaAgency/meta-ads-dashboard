@@ -21,7 +21,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useRef, useState } from "react";
-import { classesDaGaveta, BotaoFecharGaveta, type MenuMobileControles } from "@/components/MenuMobile";
+import { classesDaGaveta, BotaoFecharGaveta, usePonteiroFino, type MenuMobileControles } from "@/components/MenuMobile";
 import { Link, useLocation } from "wouter";
 import {
   Home,
@@ -234,6 +234,7 @@ function TrackerItem({ item, open, active, accent }: { item: Extract<NavItem, { 
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
+  const hoverVale = usePonteiroFino();
   const { clientAccounts, isLoading } = useActiveAccount();
 
   const openFlyout = () => {
@@ -250,15 +251,31 @@ function TrackerItem({ item, open, active, accent }: { item: Extract<NavItem, { 
   };
 
   return (
-    <div ref={rowRef} onMouseEnter={openFlyout} onMouseLeave={scheduleClose}>
+    /**
+     * O flyout de clientes abre por HOVER e é posicionado com
+     * `getBoundingClientRect` + `position: fixed`. No celular isso é duplamente
+     * errado: o toque dispara `mouseenter` (abrindo um painel que ninguém
+     * pediu) e a posição calculada a partir de uma sidebar de 288px cairia
+     * fora da tela.
+     *
+     * Sem ponteiro fino, a linha vira o que já é por baixo: um link. Tocar
+     * abre o Tracker, e o cliente se escolhe lá dentro.
+     */
+    <div ref={rowRef}
+      onMouseEnter={hoverVale ? openFlyout : undefined}
+      onMouseLeave={hoverVale ? scheduleClose : undefined}
+    >
       <NavRow item={item} open={open} active={active} accent={accent} />
 
       {pos && (
         <div
           className="fixed z-50 w-56 rounded-xl border border-border bg-popover p-2 shadow-lg"
           style={{ top: pos.top, left: pos.left }}
-          onMouseEnter={() => closeTimer.current && clearTimeout(closeTimer.current)}
-          onMouseLeave={scheduleClose}
+          /* Guardados por simetria: hoje o painel nem renderiza sem ponteiro
+             fino (`pos` fica null), mas um handler de mouse sem guarda neste
+             arquivo é exatamente o que a próxima refatoração copiaria. */
+          onMouseEnter={hoverVale ? () => closeTimer.current && clearTimeout(closeTimer.current) : undefined}
+          onMouseLeave={hoverVale ? scheduleClose : undefined}
         >
           <p className="px-2 pb-1.5 pt-1 text-[11px] text-muted-foreground">Clientes · Brand Inteligent Tracker</p>
           <div className="max-h-80 overflow-y-auto flex flex-col">
@@ -314,6 +331,8 @@ export function HubSidebar({ mobile }: { mobile?: MenuMobileControles }) {
   const groups = NAV_GROUPS;
   // Notificações é "Em breve" para todos (placeholder sem destino), igual Tarefas.
   const navGlobal: NavItem[] = NAV_GLOBAL;
+  // Sem ponteiro fino (celular/tablet), hover não existe — ver usePonteiroFino.
+  const hoverVale = usePonteiroFino();
   const [hovering, setHovering] = useState(false);
   const [recolhida, setRecolhida] = useState(lerRecolhida);
   // Ao clicar em recolher, o mouse AINDA está sobre a sidebar, então hovering
@@ -371,16 +390,21 @@ export function HubSidebar({ mobile }: { mobile?: MenuMobileControles }) {
       className={`${open ? "w-64" : "w-16"} flex-shrink-0 flex flex-col ${mobile?.aberto ? "flex" : "hidden"} md:flex transition-all duration-200 group/side ${classesDaGaveta(!!mobile?.aberto)}`}
       style={{ background: "#0A0A0A", borderRight: "1px solid rgba(255,255,255,0.06)" }}
       {...(mobile?.propsDaGaveta ?? {})}
-      onMouseEnter={() => {
+      /**
+       * No toque, `mouseenter` dispara e `mouseleave` frequentemente não vem: o
+       * estado ficaria preso em "hovering", e a sidebar do portal acabaria
+       * expandida para sempre depois do primeiro toque.
+       */
+      onMouseEnter={hoverVale ? () => {
         if (leaveTimeout.current) clearTimeout(leaveTimeout.current);
         setHovering(true);
-      }}
-      onMouseLeave={() => {
+      } : undefined}
+      onMouseLeave={hoverVale ? () => {
         // O mouse saiu: o próximo hover volta a expandir normalmente. É aqui que
         // a supressão do clique-recolher se encerra.
         setAcabouDeRecolher(false);
         leaveTimeout.current = setTimeout(() => setHovering(false), 300);
-      }}
+      } : undefined}
     >
       {mobile && <BotaoFecharGaveta fechar={mobile.fechar} />}
 

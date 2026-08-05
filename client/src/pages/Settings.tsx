@@ -529,7 +529,7 @@ export default function Settings() {
 
   return (
     <MetaDashboardLayout>
-      <div className="max-w-3xl mx-auto p-6 space-y-8">
+      <div className="max-w-3xl mx-auto p-6 max-md:p-0 space-y-8">
 
         {/* Agency bar */}
         <AgencyBar totalAccounts={accounts?.length ?? 0} />

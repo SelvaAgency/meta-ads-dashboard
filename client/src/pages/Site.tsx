@@ -144,9 +144,10 @@ export default function Site() {
 
   return (
     <MetaDashboardLayout title="Site">
-      <div className="p-6 md:p-8 flex flex-col gap-5 max-w-6xl">
+      {/* No celular quem dá o respiro é o `<main>` — somar os dois espremia. */}
+      <div className="p-6 md:p-8 max-md:p-0 flex flex-col gap-5 max-w-6xl">
         <header className="flex items-start gap-3 flex-wrap">
-          <div className="flex-1 min-w-[200px]">
+          <div className="flex-1 max-md:min-w-0 min-w-[200px]">
             <h1 className="text-xl font-semibold flex items-center gap-2">
               <Globe className="w-5 h-5 text-accent" /> Site
             </h1>
@@ -734,7 +735,7 @@ function AbaPerformance({ accountId, podeConfigurar }: { accountId: number; pode
           </label>
           {ligado && (
             <div className="flex items-end gap-2 flex-wrap">
-              <div className="flex flex-col gap-1 flex-1 min-w-[240px]">
+              <div className="flex flex-col gap-1 flex-1 max-md:min-w-0 min-w-[240px]">
                 <label className="text-[11px] text-muted-foreground">URL testada</label>
                 <input value={urlVal} onChange={(e) => setUrl(e.target.value)} placeholder="https://exemplo.com.br/"
                   className="text-sm border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-primary" />
@@ -788,7 +789,7 @@ function AbaPerformance({ accountId, podeConfigurar }: { accountId: number; pode
               <p className={`text-5xl font-bold tabular-nums ${corScore(m.performanceScore)}`}>{fmtScore(m.performanceScore)}</p>
               <p className="text-[11px] text-muted-foreground mt-1">Performance</p>
             </div>
-            <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3 min-w-[280px]">
+            <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3 max-md:min-w-0 min-w-[280px]">
               <Card icone={<Zap className="w-3.5 h-3.5" />} label="LCP" valor={fmtMs(m.lcp)} tom={(m.lcp ?? 0) > 4000 ? "critico" : (m.lcp ?? 0) > 2500 ? "alerta" : undefined} hint="carregamento" />
               <Card icone={<Activity className="w-3.5 h-3.5" />} label="CLS" valor={fmtDec(m.cls, 3)} tom={(m.cls ?? 0) > 0.25 ? "critico" : (m.cls ?? 0) > 0.1 ? "alerta" : undefined} hint="estabilidade" />
               <Card icone={<Clock className="w-3.5 h-3.5" />} label="TBT" valor={fmtMs(m.tbt)} tom={(m.tbt ?? 0) > 600 ? "critico" : (m.tbt ?? 0) > 200 ? "alerta" : undefined} hint="travamento" />
@@ -894,7 +895,7 @@ function AbaSeguranca({ accountId, podeConfigurar }: { accountId: number; podeCo
               <p className={`text-5xl font-bold tabular-nums ${(m.status && CorStatus[m.status]) || "text-muted-foreground"}`}>{fmtScore(m.score)}</p>
               <p className={`text-[11px] mt-1 font-medium ${(m.status && CorStatus[m.status]) || "text-muted-foreground"}`}>{(m.status && LabelStatus[m.status]) || "Não verificado"}</p>
             </div>
-            <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-3 min-w-[260px]">
+            <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-3 max-md:min-w-0 min-w-[260px]">
               <Card icone={<Lock className="w-3.5 h-3.5" />} label="HTTPS" valor={m.https ? "Ativo" : "Ausente"} tom={m.https ? undefined : "critico"} />
               <Card icone={<ShieldCheck className="w-3.5 h-3.5" />} label="Certificado" valor={m.sslValido === null ? "—" : m.sslValido ? "Válido" : "Inválido"} tom={m.sslValido === false ? "critico" : undefined} />
               <Card icone={<Clock className="w-3.5 h-3.5" />} label="Expira em"
@@ -1019,7 +1020,9 @@ function AbaUptime({ accountId, podeConfigurar }: { accountId: number; podeConfi
                 {m.statusCode ? `HTTP ${m.statusCode}` : m.errorMessage ?? "sem resposta"}
               </p>
             </div>
-            <div className="flex-1 grid grid-cols-3 gap-3 min-w-[240px]">
+            {/* Único grid da página que não colapsava: 3 colunas em 375px dão
+                ~100px por card, e o número dentro quebrava linha. */}
+            <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-3 max-md:min-w-0 max-md:min-w-0 min-w-[240px]">
               <Card icone={<Zap className="w-3.5 h-3.5" />} label="Tempo de resposta"
                 valor={fmtMs(m.responseTimeMs)}
                 tom={(m.responseTimeMs ?? 0) > 3000 ? "alerta" : undefined} />

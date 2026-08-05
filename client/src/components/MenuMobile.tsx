@@ -32,6 +32,34 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Menu, X } from "lucide-react";
 import { useLocation } from "wouter";
 
+/**
+ * O dispositivo tem ponteiro que faz HOVER de verdade?
+ *
+ * No celular, `mouseenter` dispara no toque e `mouseleave` muitas vezes nunca
+ * vem — o estado de hover fica PRESO. As duas sidebars decidem largura por
+ * hover e o item do Tracker abre um flyout por hover: no toque, isso vira menu
+ * que abre sozinho e não fecha.
+ *
+ * `(hover: hover) and (pointer: fine)` é a pergunta certa: exclui celular e
+ * tablet, e inclui notebook com tela de toque + trackpad, que tem os dois.
+ */
+export function usePonteiroFino(): boolean {
+  const [fino, setFino] = useState(() =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(hover: hover) and (pointer: fine)").matches
+      : true);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const aoMudar = () => setFino(mq.matches);
+    mq.addEventListener?.("change", aoMudar);
+    return () => mq.removeEventListener?.("change", aoMudar);
+  }, []);
+
+  return fino;
+}
+
 export interface MenuMobileControles {
   aberto: boolean;
   abrir: () => void;
@@ -94,28 +122,57 @@ export const classesDaGaveta = (aberto: boolean): string =>
     aberto ? "max-md:translate-x-0" : "max-md:-translate-x-full",
   ].join(" ");
 
-/** Barra superior só de mobile: hambúrguer + identificação da área. */
-export function BarraMobile({ titulo, aberto, alternar, acoes }: {
+/**
+ * Barra superior só de mobile: hambúrguer + identificação da área.
+ *
+ * ── Por que ela é ESCURA num app de fundo claro ────────────────────────────
+ * A primeira versão usava `bg-background` (#F6F6E2, o creme do app) e ficava
+ * uma faixa clara colada numa gaveta preta — lida como um componente de outro
+ * lugar, não como parte do Spaces.
+ *
+ * A barra é CHROME, igual à sidebar: pertence à mesma camada de navegação e
+ * por isso usa a mesma superfície e a mesma tipografia dela. O `fundo` vem de
+ * quem chama porque as duas sidebars têm tons próprios (#0A0A0A no portal,
+ * #0D0D0D no Tracker) — herdar um valor fixo criaria uma emenda visível.
+ *
+ * Tipografia: mesma escala das linhas da sidebar (`text-sm`, peso 500/600) e
+ * a mesma família do app, herdada do body (DM Sans) — nada de font-family
+ * próprio aqui, que é justamente o que faria o menu parecer outro produto.
+ */
+export function BarraMobile({ titulo, aberto, alternar, acoes, fundo = "#0A0A0A" }: {
   titulo: ReactNode;
   aberto: boolean;
   alternar: () => void;
   /** Espaço à direita (sino, seletor…) quando a área precisar. */
   acoes?: ReactNode;
+  /** Superfície da sidebar correspondente — mantém a emenda invisível. */
+  fundo?: string;
 }) {
   return (
     <header
-      className="md:hidden flex-shrink-0 flex items-center gap-3 h-14 px-3 border-b border-border bg-background"
-      style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+      className="md:hidden flex-shrink-0 flex items-center gap-2.5 h-14 px-3"
+      style={{
+        background: fundo,
+        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        paddingTop: "env(safe-area-inset-top, 0px)",
+      }}
     >
       <button
         onClick={alternar}
         aria-label={aberto ? "Fechar menu" : "Abrir menu"}
         aria-expanded={aberto}
-        className="w-9 h-9 rounded-lg flex items-center justify-center text-foreground hover:bg-muted/50 transition"
+        /* `active:` e não `hover:` — no toque, hover fica preso depois do tap. */
+        className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors active:bg-white/10"
+        style={{ color: "rgba(255,255,255,0.75)" }}
       >
         {aberto ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
-      <div className="flex-1 min-w-0 text-sm font-medium truncate">{titulo}</div>
+      <div
+        className="flex-1 min-w-0 text-sm font-semibold truncate leading-tight"
+        style={{ color: "#FDFFED", letterSpacing: "0.02em" }}
+      >
+        {titulo}
+      </div>
       {acoes}
     </header>
   );

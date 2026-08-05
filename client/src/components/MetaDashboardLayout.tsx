@@ -1,5 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { BarraMobile, FundoDaGaveta, BotaoFecharGaveta, classesDaGaveta, useMenuMobile } from "@/components/MenuMobile";
+import { BarraMobile, FundoDaGaveta, BotaoFecharGaveta, classesDaGaveta, useMenuMobile, usePonteiroFino } from "@/components/MenuMobile";
 import { canManageContent } from "@shared/permissions";
 import { type Fonte, type StatusFonte, type ChaveFonte } from "@shared/fontes";
 import { isEmbedded } from "@/pages/hub/embed";
@@ -143,6 +143,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
   const leaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mobile = useMenuMobile();
+  // Sem ponteiro fino, hover não existe — ver usePonteiroFino.
+  const hoverVale = usePonteiroFino();
   /**
    * `mobile.aberto` entra aqui para a gaveta nascer EXPANDIDA: no celular não
    * existe hover, e uma gaveta colapsada em w-16 mostraria só ícones sem
@@ -305,13 +307,19 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
         className={`${sidebarOpen ? "w-64" : "w-16"} flex-shrink-0 flex flex-col transition-all duration-200 z-20 ${mobile.aberto ? "" : "max-md:hidden"} ${classesDaGaveta(mobile.aberto)}`}
         style={{ background: "#0D0D0D", borderRight: "1px solid rgba(255,255,255,0.06)" }}
         {...mobile.propsDaGaveta}
-        onMouseEnter={() => {
+        /**
+         * No toque, `mouseenter` dispara e `mouseleave` costuma não vir. Como
+         * `sidebarOpen` deriva de `hovering`, a sidebar do Tracker ficaria
+         * expandida para sempre depois do primeiro toque na gaveta — e ao
+         * girar o aparelho para paisagem ela reapareceria aberta sem motivo.
+         */
+        onMouseEnter={hoverVale ? () => {
           if (leaveTimeout.current) clearTimeout(leaveTimeout.current);
           setHovering(true);
-        }}
-        onMouseLeave={() => {
+        } : undefined}
+        onMouseLeave={hoverVale ? () => {
           leaveTimeout.current = setTimeout(() => setHovering(false), 300);
-        }}
+        } : undefined}
       >
 
         {/* ── SECTION 1: Logo + Visão Geral ─────────────────────────────────── */}
@@ -596,9 +604,19 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
 
       {/* ═══════════════════════════ MAIN CONTENT ═════════════════════════════ */}
       <div className="flex-1 flex flex-col min-w-0">
-        <BarraMobile titulo={title ?? "Tracker"} aberto={mobile.aberto} alternar={mobile.alternar} />
-        {/* Page content — o sub-cabeçalho (colapso + título + sino) foi removido.
-            `p-6` vira `p-4` no celular: 24px de cada lado tiram 48 de 375. */}
+        <BarraMobile titulo={title ?? "Tracker"} aberto={mobile.aberto} alternar={mobile.alternar} fundo="#0D0D0D" />
+        {/*
+          Page content — o sub-cabeçalho (colapso + título + sino) foi removido.
+
+          `max-md:p-4`: no celular o padding do `<main>` é o PISO — quatro páginas
+          do Tracker (Campanhas, Sugestões, Notificações, SuggestionsHub) não têm
+          container próprio, e zerar aqui as deixaria coladas na borda.
+
+          Quem tem padding próprio é que zera o seu no mobile (`max-md:p-0`),
+          porque somar as duas camadas dava até 40px de cada lado numa tela de
+          375 — mais de um quinto da largura só em margem. No desktop as mesmas
+          duas camadas somam 48px de 1440 e ninguém nota.
+        */}
         <main className="flex-1 overflow-auto p-6 max-md:p-4">
           {children}
         </main>

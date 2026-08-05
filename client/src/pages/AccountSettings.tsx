@@ -41,7 +41,7 @@ export default function AccountSettings() {
 
   return (
     <MetaDashboardLayout>
-      <div className="max-w-3xl mx-auto p-6">
+      <div className="max-w-3xl mx-auto p-6 max-md:p-0">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
             <Settings className="w-5 h-5 text-primary" />
