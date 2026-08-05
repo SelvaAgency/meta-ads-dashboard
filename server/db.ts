@@ -530,6 +530,50 @@ export async function getMetaAdAccountById(id: number) {
   return result[0];
 }
 
+/**
+ * Contas Meta já cadastradas, para a tela de importação comparar.
+ *
+ * Traz também as INATIVAS: uma conta desativada de propósito continua existindo,
+ * e reimportá-la a reativaria. Omiti-las aqui faria a tela chamá-las de "novas".
+ */
+export async function contasMetaExistentes(): Promise<{ accountId: string; nome: string | null; ativa: boolean }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const linhas = await db.select({
+    accountId: metaAdAccounts.accountId,
+    nome: metaAdAccounts.accountName,
+    ativa: metaAdAccounts.isActive,
+  }).from(metaAdAccounts);
+  return linhas.map((l) => ({ accountId: l.accountId, nome: l.nome, ativa: !!l.ativa }));
+}
+
+/**
+ * Cria a conta SE ela ainda não existir. Nunca atualiza.
+ *
+ * Existe ao lado de `createMetaAdAccount` (que faz upsert) porque a importação
+ * precisa exatamente do que aquela função NÃO oferece: a garantia de não tocar
+ * em conta existente. A de upsert sobrescreve `accountName`, `currency`,
+ * `timezone` e devolve `isActive: true` — ou seja, desfaz o nome escolhido à
+ * mão e ressuscita cliente desativado de propósito.
+ *
+ * Um parâmetro `naoAtualizar` na função existente pareceria mais econômico e
+ * seria pior: quem chama por engano sem o parâmetro sobrescreve, e o padrão
+ * perigoso continua a um esquecimento de distância.
+ */
+export async function criarContaMetaSeNova(data: InsertMetaAdAccount): Promise<"criada" | "ja_existia"> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const existente = await db.select({ id: metaAdAccounts.id }).from(metaAdAccounts)
+    .where(eq(metaAdAccounts.accountId, data.accountId)).limit(1);
+  if (existente.length > 0) {
+    logger.info(`[DB] importação: conta ${data.accountId} já existe — preservada, nada alterado`);
+    return "ja_existia";
+  }
+  await db.insert(metaAdAccounts).values(data);
+  logger.info(`[DB] importação: conta ${data.accountId} criada`);
+  return "criada";
+}
+
 export async function createMetaAdAccount(data: InsertMetaAdAccount) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");

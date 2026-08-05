@@ -84,6 +84,8 @@ import {
   createAlert,
   createAlertIfNotExists,
   createMetaAdAccount,
+  contasMetaExistentes,
+  criarContaMetaSeNova,
   createScheduledReport,
   deleteMetaAdAccount,
   deleteScheduledReport,
@@ -324,6 +326,7 @@ import { previaTesteGmail, enviarTesteGmail, TIPO_TESTE_GMAIL } from "./services
 import { simularDestinatarios } from "./services/email/destinatarios";
 import { getComplianceSettings, upsertComplianceSettings, criarContaDeMonitoramento, snapshotsMonitoramento } from "./db";
 import { normalizarHost } from "./services/monitoramento/dominioRegistravel";
+import { classificarContas, idLimpo, podeImportarSemForcar, ROTULO_STATUS } from "@shared/importacaoContas";
 import { normalizarConfirmacoes } from "./services/monitoramento/confirmacao";
 import { runCicloMonitoramento } from "./services/monitoramento/cicloMonitoramento";
 import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho, preferenciasEmailDoUsuario, salvarPreferenciasEmail } from "./db";
@@ -1797,6 +1800,16 @@ export const appRouter = router({
         return { user, adAccounts };
       }),
 
+    /**
+     * ATENÇÃO: esta é a última porta que ainda SOBRESCREVE conta existente.
+     *
+     * `createMetaAdAccount` faz upsert — reescreve nome, moeda e fuso e reativa
+     * conta desativada. A importação em massa deixou de usá-lo (ver
+     * `importarSelecionadas`), e hoje nenhuma tela chama isto.
+     *
+     * Fica porque conectar UMA conta nomeada é um pedido explícito, não um
+     * despejo. Se um dia voltar a ter tela, ela precisa avisar que sobrescreve.
+     */
     connect: protectedProcedure
       .input(
         z.object({
@@ -1825,28 +1838,101 @@ export const appRouter = router({
       }),
 
     // Connect ALL accounts from a portfolio token at once
-    connectAll: protectedProcedure
+    /**
+     * Contas do token, JÁ CLASSIFICADAS contra o que existe no Tracker.
+     *
+     * A classificação acontece no SERVIDOR, e não na tela, porque é ele que vai
+     * recusar a importação do que não pode ser importado. Classificar só no
+     * cliente deixaria a decisão numa camada que o servidor não consulta.
+     *
+     * Leitura pura: não escreve nada. Abrir a tela não importa conta nenhuma.
+     */
+    previewImportacao: contentProcedure
       .input(z.object({ accessToken: z.string().min(10) }))
+      .mutation(async ({ input }) => {
+        const user = await validateToken(input.accessToken);
+        if (!user) throw new TRPCError({ code: "BAD_REQUEST", message: "Token inválido ou expirado." });
+
+        const [daMeta, noTracker] = await Promise.all([
+          getAdAccounts(input.accessToken),
+          contasMetaExistentes(),
+        ]);
+        const contas = classificarContas(
+          daMeta.map((a) => ({
+            accountId: a.id, nome: a.name ?? `Conta ${idLimpo(a.id)}`,
+            currency: a.currency ?? null, timezone: a.timezone_name ?? null,
+          })),
+          noTracker,
+        );
+        return { usuario: user, contas };
+      }),
+
+    /**
+     * Importa APENAS os accountIds recebidos, e nunca sobrescreve.
+     *
+     * ── Por que o servidor reclassifica ────────────────────────────────────
+     * A tela já mostrou o status de cada conta, mas a lista que chega aqui é
+     * entrada do cliente: pode vir de uma aba aberta há uma hora, de um retry
+     * ou de uma chamada direta à API. Entre o preview e o clique, alguém pode
+     * ter cadastrado a conta por outro caminho.
+     *
+     * Então a decisão é tomada de novo, contra o estado do banco NESTE
+     * instante. É a diferença entre uma tela que evita o erro e um sistema que
+     * o impede.
+     *
+     * ── E mesmo reclassificando, a criação é a que não atualiza ────────────
+     * `criarContaMetaSeNova` devolve "ja_existia" em vez de escrever. Duas
+     * travas para o mesmo dano, porque o dano é irreversível pela tela: nome
+     * customizado, foto, Site, Monitoramento e preferências não voltam.
+     */
+    importarSelecionadas: contentProcedure
+      .input(z.object({
+        accessToken: z.string().min(10),
+        accountIds: z.array(z.string().min(1)).min(1).max(200),
+      }))
       .mutation(async ({ ctx, input }) => {
         const user = await validateToken(input.accessToken);
         if (!user) throw new TRPCError({ code: "BAD_REQUEST", message: "Token inválido ou expirado." });
 
-        const adAccounts = await getAdAccounts(input.accessToken);
-        let connected = 0;
-        for (const acc of adAccounts) {
-          const rawId = acc.id.replace("act_", "");
-          await createMetaAdAccount({
+        const [daMeta, noTracker] = await Promise.all([
+          getAdAccounts(input.accessToken),
+          contasMetaExistentes(),
+        ]);
+        const pedidos = new Set(input.accountIds.map(idLimpo));
+        const classificadas = classificarContas(
+          daMeta.map((a) => ({
+            accountId: a.id, nome: a.name ?? `Conta ${idLimpo(a.id)}`,
+            currency: a.currency ?? null, timezone: a.timezone_name ?? null,
+          })),
+          noTracker,
+        ).filter((c) => pedidos.has(c.accountId));
+
+        const importadas: string[] = [];
+        const preservadas: { accountId: string; nome: string; motivo: string }[] = [];
+
+        for (const c of classificadas) {
+          if (!podeImportarSemForcar(c.status)) {
+            preservadas.push({ accountId: c.accountId, nome: c.nome, motivo: ROTULO_STATUS[c.status] });
+            continue;
+          }
+          const r = await criarContaMetaSeNova({
             userId: ctx.user.id,
-            accountId: rawId,
-            accountName: acc.name ?? `Conta ${rawId}`,
+            accountId: c.accountId,
+            accountName: c.nome,
             accessToken: input.accessToken,
-            currency: acc.currency ?? "BRL",
-            timezone: acc.timezone_name ?? "America/Sao_Paulo",
-            pictureUrl: acc.pictureUrl ?? null,
+            currency: c.currency ?? "BRL",
+            timezone: c.timezone ?? "America/Sao_Paulo",
           });
-          connected++;
+          if (r === "criada") importadas.push(c.nome);
+          else preservadas.push({ accountId: c.accountId, nome: c.nome, motivo: "já existia" });
         }
-        return { connected, total: adAccounts.length };
+
+        // Pedido para conta que o token não devolve: some silenciosamente sem
+        // isto, e quem pediu conclui que importou.
+        const encontradas = new Set(classificadas.map((c) => c.accountId));
+        const desconhecidas = Array.from(pedidos).filter((id) => !encontradas.has(id));
+
+        return { importadas, preservadas, desconhecidas };
       }),
 
     // Force-renew token for ALL active accounts (bypasses userId matching)

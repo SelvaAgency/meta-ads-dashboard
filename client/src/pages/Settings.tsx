@@ -1,4 +1,5 @@
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { contasMarcadasPorPadrao, EXPLICACAO_STATUS, ROTULO_STATUS, type ContaClassificada, type StatusImportacao } from "@shared/importacaoContas";
 import { SemAcessoTracker } from "@/components/SemAcessoTracker";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
@@ -188,26 +189,63 @@ function AccountCard({ account, podeEditar }: { account: any; podeEditar: boolea
 }
 
 // ─── Token section (antigo Connect) ──────────────────────────────────────────
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Importação de contas Meta — escolher, não despejar
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A versão anterior tinha um botão só: "Importar 18 conta(s)". Ele chamava um
+ *  upsert que SOBRESCREVIA nome, moeda e fuso das contas já cadastradas e
+ *  REATIVAVA cliente desativado de propósito. Quem tinha renomeado um cliente à
+ *  mão perdia o nome, e não havia como saber antes de clicar.
+ *
+ *  Agora cada conta vem classificada pelo servidor e só as NOVAS nascem
+ *  marcadas. Tudo que já existe nasce desmarcado e diz por quê.
+ *
+ *  ── A tela não é a trava ───────────────────────────────────────────────────
+ *  Ela evita o erro; quem o IMPEDE é o servidor, que reclassifica no momento do
+ *  clique e recusa sobrescrever. Isso importa porque esta lista pode vir de uma
+ *  aba aberta há uma hora — entre o preview e o clique, o mundo mudou.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const COR_STATUS: Record<StatusImportacao, string> = {
+  nova: "text-emerald-600 border-emerald-500/30 bg-emerald-500/5",
+  ja_existe: "text-muted-foreground border-border bg-muted/30",
+  ja_existe_inativa: "text-amber-600 border-amber-500/30 bg-amber-500/5",
+  nome_diferente: "text-amber-600 border-amber-500/30 bg-amber-500/5",
+  possivel_duplicada: "text-amber-600 border-amber-500/30 bg-amber-500/5",
+};
+
 function TokenSection() {
   const [token, setToken] = useState("");
   const [step, setStep] = useState<"token" | "confirm">("token");
-  const [previewAccounts, setPreviewAccounts] = useState<Array<{ id: string; name: string; currency: string }>>([]);
+  const [contas, setContas] = useState<ContaClassificada[]>([]);
+  const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
   const utils = trpc.useUtils();
 
-  const validateTk = trpc.accounts.validateToken.useMutation({
+  const preview = trpc.accounts.previewImportacao.useMutation({
     onSuccess: (data) => {
-      setPreviewAccounts(data.adAccounts as any);
+      setContas(data.contas);
+      // Pré-seleção segura: só as novas. Vem do MESMO cálculo que o servidor usa.
+      setMarcadas(new Set(contasMarcadasPorPadrao(data.contas)));
       setStep("confirm");
-      toast.success(`Token válido! ${data.adAccounts.length} conta(s) encontrada(s).`);
+      const novas = data.contas.filter((c) => c.status === "nova").length;
+      toast.success(`${data.contas.length} conta(s) no token · ${novas} nova(s).`);
     },
     onError: (err) => toast.error(err.message),
   });
 
-  const connectAll = trpc.accounts.connectAll.useMutation({
-    onSuccess: (data) => {
+  const importar = trpc.accounts.importarSelecionadas.useMutation({
+    onSuccess: (r) => {
       utils.accounts.list.invalidate();
-      setToken(""); setStep("token"); setPreviewAccounts([]);
-      toast.success(`${data.connected} conta(s) conectada(s)!`);
+      setToken(""); setStep("token"); setContas([]); setMarcadas(new Set());
+      /**
+       * O resultado é relatado em vez de virar só "pronto": o servidor pode ter
+       * preservado contas que a tela deixou passar, e um sucesso mudo faria
+       * parecer que tudo entrou.
+       */
+      if (r.importadas.length) toast.success(`${r.importadas.length} conta(s) importada(s): ${r.importadas.slice(0, 3).join(", ")}${r.importadas.length > 3 ? "…" : ""}`);
+      if (r.preservadas.length) toast.info(`${r.preservadas.length} conta(s) preservada(s), nada foi sobrescrito.`);
+      if (!r.importadas.length && !r.preservadas.length) toast.info("Nada a importar.");
     },
     onError: (err) => toast.error(err.message),
   });
@@ -216,6 +254,13 @@ function TokenSection() {
     onSuccess: () => { utils.accounts.list.invalidate(); toast.success("Token renovado para todas as contas."); },
     onError: (err) => toast.error(err.message),
   });
+
+  const alternar = (id: string) => setMarcadas((s) => {
+    const n = new Set(s);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
+  const novas = contas.filter((c) => c.status === "nova");
 
   return (
     <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-4">
@@ -231,26 +276,25 @@ function TokenSection() {
         </div>
       </div>
 
-      {/* Input */}
       {step === "token" ? (
         <div className="space-y-2">
           <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
             <Link2 className="w-3.5 h-3.5 text-primary" /> Inserir token
           </p>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <input
               type="password"
               placeholder="EAAxxxxxxxxxxxxxxx..."
               value={token}
               onChange={e => setToken(e.target.value)}
-              className="flex-1 text-xs font-mono border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="flex-1 min-w-[180px] text-xs font-mono border border-border rounded-md px-3 py-1.5 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             />
             <button
-              onClick={() => validateTk.mutate({ accessToken: token })}
-              disabled={!token || validateTk.isPending}
+              onClick={() => preview.mutate({ accessToken: token })}
+              disabled={!token || preview.isPending}
               className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center gap-1.5"
             >
-              {validateTk.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              {preview.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronRight className="w-3.5 h-3.5" />}
               Validar
             </button>
             <button
@@ -266,27 +310,69 @@ function TokenSection() {
         </div>
       ) : (
         <div className="space-y-2">
-          <p className="text-xs font-medium text-foreground">{previewAccounts.length} conta(s) encontrada(s)</p>
-          <div className="space-y-1.5 max-h-40 overflow-y-auto">
-            {previewAccounts.map(acc => (
-              <div key={acc.id} className="flex items-center gap-2 text-xs p-2 rounded-lg border border-primary/20 bg-primary/5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                <span className="font-medium">{acc.name}</span>
-                <span className="text-muted-foreground">{acc.id} · {acc.currency}</span>
-              </div>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-xs font-medium text-foreground">
+              {contas.length} conta(s) no token · {novas.length} nova(s)
+            </p>
+            <div className="flex gap-1.5 flex-wrap">
+              <button onClick={() => setMarcadas(new Set(contas.map((c) => c.accountId)))}
+                className="text-[11px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground">
+                Selecionar todas
+              </button>
+              <button onClick={() => setMarcadas(new Set(novas.map((c) => c.accountId)))}
+                className="text-[11px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground">
+                Apenas novas
+              </button>
+              <button onClick={() => setMarcadas(new Set())}
+                className="text-[11px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground">
+                Desmarcar todas
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1.5 max-h-72 overflow-y-auto">
+            {contas.map((c) => (
+              <label key={c.accountId}
+                className={`flex items-start gap-2 text-xs p-2 rounded-lg border cursor-pointer ${COR_STATUS[c.status]}`}>
+                <input type="checkbox" checked={marcadas.has(c.accountId)}
+                  onChange={() => alternar(c.accountId)} className="accent-accent mt-0.5" />
+                <span className="flex-1 min-w-0">
+                  <span className="font-medium text-foreground break-words">{c.nome}</span>
+                  <span className="block text-[10px] text-muted-foreground break-all">
+                    {c.accountId}{c.currency ? ` · ${c.currency}` : ""}
+                  </span>
+                  {/* Nome atual quando difere: é o que se perderia ao importar. */}
+                  {c.status === "nome_diferente" && c.nomeAtual && (
+                    <span className="block text-[10px] text-muted-foreground">
+                      No Tracker hoje: <strong>{c.nomeAtual}</strong>
+                    </span>
+                  )}
+                  <span className="block text-[10px] mt-0.5">
+                    {ROTULO_STATUS[c.status]} — {EXPLICACAO_STATUS[c.status]}
+                  </span>
+                </span>
+              </label>
             ))}
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => { setStep("token"); setPreviewAccounts([]); }} className="flex-1 text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground transition-colors">Voltar</button>
+
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => { setStep("token"); setContas([]); setMarcadas(new Set()); }}
+              className="flex-1 min-w-[100px] text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground transition-colors">
+              Voltar
+            </button>
             <button
-              onClick={() => connectAll.mutate({ accessToken: token })}
-              disabled={connectAll.isPending}
-              className="flex-1 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+              onClick={() => importar.mutate({ accessToken: token, accountIds: Array.from(marcadas) })}
+              disabled={importar.isPending || marcadas.size === 0}
+              className="flex-1 min-w-[160px] text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
-              {connectAll.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-              Importar {previewAccounts.length} conta(s)
+              {importar.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+              Importar {marcadas.size} selecionada(s)
             </button>
           </div>
+          <p className="text-[10px] text-muted-foreground">
+            Contas que já existem nunca são sobrescritas — nome, foto, Site, Monitoramento e
+            preferências ficam como estão, mesmo se você marcá-las.
+          </p>
         </div>
       )}
     </div>
