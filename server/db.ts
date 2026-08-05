@@ -4037,6 +4037,28 @@ export async function snapshotMonitoramentoDoDia(accountId: number, provider: st
   return r[0];
 }
 
+/**
+ * Snapshots de monitoramento dos últimos dias, dos dois coletores.
+ *
+ * Alimenta a aba: os contadores do dia vêm da linha de hoje, e as linhas
+ * anteriores viram o histórico. Uma consulta só — a aba não pode fazer N
+ * chamadas para montar uma tabela de 7 linhas.
+ */
+export async function snapshotsMonitoramento(accountId: number, dias = 7) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    provider: clientSiteSnapshots.provider,
+    dia: clientSiteSnapshots.dia,
+    url: clientSiteSnapshots.url,
+    metricsJson: clientSiteSnapshots.metricsJson,
+    updatedAt: clientSiteSnapshots.updatedAt,
+  }).from(clientSiteSnapshots).where(and(
+    eq(clientSiteSnapshots.accountId, accountId),
+    inArray(clientSiteSnapshots.provider, ["dns_check", "redirect_check"]),
+  )).orderBy(desc(clientSiteSnapshots.dia)).limit(dias * 2);
+}
+
 /** Eventos guardados no snapshot. Teto para o JSON não crescer sem fim. */
 const MAX_EVENTOS_DIA = 60;
 

@@ -11,11 +11,19 @@
  *  Não existe caminho por onde um cliente novo entre sozinho no robô: a Fase 1
  *  é Aiká e Ultramalhas porque foram ligadas à mão, e mais ninguém.
  *
- *  ── O que NÃO faz ──────────────────────────────────────────────────────────
- *  Não envia e-mail. WARNING e INFO não geram alerta nenhum — viram número e
- *  histórico na tela. Só CRITICAL confirmado vira alerta in-app, e mesmo esse
- *  passa pelo dedup diário: o mesmo problema no mesmo cliente notifica 1× por
- *  dia, não 288.
+ *  ── O que vira alerta, e o que não vira ────────────────────────────────────
+ *  WARNING e INFO não geram alerta nenhum: viram número e histórico na tela.
+ *  Só CRITICAL CONFIRMADO vira alerta in-app + e-mail imediato.
+ *
+ *  Três filtros em série impedem que isso vire spam, e vale saber que são três
+ *  porque cada um sozinho seria insuficiente:
+ *
+ *   1. confirmação dupla — a primeira suspeita nunca alerta;
+ *   2. `manter` — enquanto o problema continua, os ciclos seguintes são mudos;
+ *   3. dedup diário do `createNotification` — se alguém já foi notificado hoje,
+ *      a lista de destinatários volta vazia e o e-mail nem é montado.
+ *
+ *  O robô olha 288× por dia; o incidente notifica 1×.
  *
  *  ── Falha de um cliente não derruba os outros ──────────────────────────────
  *  Cada cliente roda dentro do seu próprio try. Um domínio malformado na
@@ -32,6 +40,7 @@ import { checarRedirect, type LeituraRedirect } from "./redirectCheck";
 import { avaliar, maisGrave, type Achado } from "./avaliador";
 import { decidir, normalizarConfirmacoes, type Suspeita } from "./confirmacao";
 import { dominioRegistravel } from "./dominioRegistravel";
+import { enviarEmailCriticoSite, type EvidenciaLinha } from "../emailAlertaCritico";
 
 const hoje = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 
@@ -57,6 +66,38 @@ const ORIGEM: Record<string, "dns" | "redirect"> = {
 /** Achados de um coletor. `ok` e `sem_dominio_esperado` valem para os dois. */
 export function achadosDe(origem: "dns" | "redirect", achados: Achado[]): Achado[] {
   return achados.filter((a) => (ORIGEM[a.chave] ?? origem) === origem);
+}
+
+/**
+ * Rótulos da evidência no e-mail. Mapa explícito, e não "despeja o JSON": quem
+ * abre o alerta às 3 da manhã precisa ler "Chegou em: registro-suspenso.net",
+ * não `{"dominioFinal":"..."}`. O que não está no mapa não vai — evidência nova
+ * aparece quando alguém decidir como ela se lê, não por acidente.
+ */
+const ROTULOS: [string, string][] = [
+  ["esperado", "Domínio esperado"],
+  ["dominioFinal", "Chegou em"],
+  ["finalUrl", "URL final"],
+  ["cadeia", "Caminho"],
+  ["erroCodigo", "Código do erro"],
+  ["antes", "Nameservers antes"],
+  ["agora", "Nameservers agora"],
+  ["dominioCanonical", "Canonical aponta para"],
+  ["statusCode", "Resposta HTTP"],
+  ["saltos", "Redirecionamentos"],
+  ["titulo", "Título da página"],
+];
+
+/** Evidência do achado em linhas legíveis. Truncada — conteúdo externo. */
+export function evidenciaResumida(a: Achado): EvidenciaLinha[] {
+  const out: EvidenciaLinha[] = [];
+  for (const [chave, rotulo] of ROTULOS) {
+    const v = a.evidencia[chave];
+    if (v == null || v === "") continue;
+    const valor = Array.isArray(v) ? v.join(" → ") : String(v);
+    out.push({ rotulo, valor: valor.slice(0, 300) });
+  }
+  return out;
 }
 
 const resumo = (achados: Achado[]) => achados.map((a) => ({ chave: a.chave, sev: a.sev, titulo: a.titulo }));
@@ -188,6 +229,24 @@ async function verificarConta(c: Conta, dia: string, r: ResultadoCiclo): Promise
     if (users.length) {
       r.alertas++;
       logger.warn(`[Monitoramento] CRÍTICO confirmado em ${nome}: ${d.achado.chave} → ${users.length} pessoa(s)`);
+      /**
+       * E-mail imediato, e só aqui. Este ponto do código é alcançado UMA vez
+       * por incidente por dia: a confirmação dupla já barrou a primeira
+       * suspeita, o `manter` já barrou os ciclos seguintes, e o dedup diário do
+       * `createNotification` devolveu lista vazia se alguém já tinha sido
+       * notificado hoje. Não há caminho por onde isto vire e-mail de 5 em 5
+       * minutos.
+       *
+       * Destinatários = exatamente quem acabou de receber o in-app.
+       */
+      await enviarEmailCriticoSite({
+        userIds: users, nome,
+        titulo: d.achado.titulo,
+        detalhe: `${d.achado.detalhe}\n\nConfirmado em ${d.suspeita.ciclos} leituras consecutivas.`,
+        link: `/site?account=${c.accountId}&aba=monitoramento`,
+        evidencia: evidenciaResumida(d.achado),
+        tipo: "site_monitoramento",
+      });
     }
   }
 }

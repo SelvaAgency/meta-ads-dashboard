@@ -22,17 +22,18 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-export type AbaSite = "resumo" | "performance" | "tecnico" | "contexto" | "chat";
+export type AbaSite = "resumo" | "performance" | "tecnico" | "monitoramento" | "contexto" | "chat";
 
 /** Seções recolhíveis dentro das abas de dado. */
 export type SecaoSite = "comportamento" | "paginas" | "carregamento" | "seguranca" | "disponibilidade";
 
-export const ABAS_SITE: AbaSite[] = ["resumo", "performance", "tecnico", "contexto", "chat"];
+export const ABAS_SITE: AbaSite[] = ["resumo", "performance", "tecnico", "monitoramento", "contexto", "chat"];
 
 export const ROTULO_ABA: Record<AbaSite, string> = {
   resumo: "Resumo",
   performance: "Performance",
   tecnico: "Técnico",
+  monitoramento: "Monitoramento",
   contexto: "Contexto",
   chat: "Perguntar",
 };
@@ -62,6 +63,10 @@ export function destinoDaAba(valor: string | null | undefined): Destino {
     performance_tecnica: { aba: "tecnico", secao: "carregamento" },
     seguranca: { aba: "tecnico", secao: "seguranca" },
     uptime: { aba: "tecnico", secao: "disponibilidade" },
+    // O alerta do robô grava "monitoramento" no banco; o alias existe para o
+    // caso de alguém encurtar o link à mão.
+    monitor: { aba: "monitoramento" },
+    dominio: { aba: "monitoramento" },
   };
   return legado[v] ?? { aba: "resumo" };
 }

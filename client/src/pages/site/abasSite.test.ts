@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { destinoDaAba, ABAS_SITE, SECOES_DA_ABA, type AbaSite } from "./abasSite";
+import { destinoDaAba, ABAS_SITE, ROTULO_ABA, SECOES_DA_ABA, type AbaSite } from "./abasSite";
 
 /**
  * Havia 14 alertas NÃO LIDOS em produção apontando para `aba=clarity` e
@@ -77,5 +77,25 @@ describe("destino das abas do Site", () => {
   it("nenhuma aba de dado ficou sem seções declaradas", () => {
     expect(SECOES_DA_ABA.performance?.length).toBeGreaterThan(0);
     expect(SECOES_DA_ABA.tecnico?.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * O deep-link do alerta do robô. É o caminho que alguém percorre às 3 da manhã,
+ * vindo de um e-mail — e uma aba que não resolve leva a pessoa ao Resumo, onde
+ * não há nada sobre o incidente que a acordou.
+ */
+describe("aba Monitoramento", () => {
+  it("o destino gravado pelo alerta resolve para a aba certa", () => {
+    expect(destinoDaAba("monitoramento")).toEqual({ aba: "monitoramento" });
+  });
+
+  it.each(["monitor", "dominio"])("apelido '%s' também chega lá", (v) => {
+    expect(destinoDaAba(v).aba).toBe("monitoramento");
+  });
+
+  it("está na lista de abas e tem rótulo", () => {
+    expect(ABAS_SITE).toContain("monitoramento");
+    expect(ROTULO_ABA.monitoramento).toBe("Monitoramento");
   });
 });

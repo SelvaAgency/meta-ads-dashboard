@@ -16,8 +16,8 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { logger } from "../logger";
-import { contasComSite, ultimoSnapshotPorProvider, createNotification, usuariosAtivosComEmail } from "../db";
-import { sendEmail } from "../emailService";
+import { contasComSite, ultimoSnapshotPorProvider, createNotification } from "../db";
+import { enviarEmailCriticoSite } from "./emailAlertaCritico";
 
 const hoje = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 
@@ -146,22 +146,14 @@ export async function runSiteHealthAlertas(): Promise<number> {
            * o mesmo problema não reenvia no mesmo dia.
            */
           if (a.sev === "CRITICAL") {
-            const pessoas = (await usuariosAtivosComEmail()).filter((u) => users.includes(u.id));
-            for (const pessoa of pessoas) {
-              await sendEmail({
-                to: pessoa.email,
-                subject: `🚨 ${nome}: ${a.titulo}`,
-                html: `<div style="font:14px Arial,sans-serif;color:#333;max-width:560px">
-                  <p style="margin:0 0 8px"><strong>${nome}</strong> — ${a.titulo}</p>
-                  <p style="margin:0 0 12px;color:#555">${a.detalhe}</p>
-                  <p style="margin:0"><a href="https://spaces.selva.agency/tracker?account=${c.accountId}&aba=${a.aba}&rota=%2Fsite" style="color:#E85BA8">Abrir no Spaces</a></p>
-                </div>`,
-                text: `${nome} — ${a.titulo}\n${a.detalhe}`,
-                tipo: "site_critico",
-                userId: pessoa.id,
-              });
-            }
-            if (pessoas.length) logger.info(`[SiteHealth] crítico "${a.chave}" → e-mail imediato para ${pessoas.length} pessoa(s)`);
+            // Mesmo montador do robô de monitoramento: um template só para
+            // e-mail de incidente de site. Duplicar criaria dois formatos que
+            // divergiriam na primeira mudança.
+            await enviarEmailCriticoSite({
+              userIds: users, nome, titulo: a.titulo, detalhe: a.detalhe,
+              link: `/tracker?account=${c.accountId}&aba=${a.aba}&rota=%2Fsite`,
+              tipo: "site_critico",
+            });
           }
         }
       }

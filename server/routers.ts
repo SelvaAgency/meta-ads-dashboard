@@ -322,7 +322,7 @@ import { emailMode, destinatariosDeTeste, transporteAtivo, providerConfigurado, 
 import { GMAIL_SCOPE, verificarConexaoGmail, limparCacheToken, sanitizarErroGmail } from "./services/email/gmailProvider";
 import { previaTesteGmail, enviarTesteGmail, TIPO_TESTE_GMAIL } from "./services/email/gmailTeste";
 import { simularDestinatarios } from "./services/email/destinatarios";
-import { getComplianceSettings, upsertComplianceSettings, criarContaDeMonitoramento } from "./db";
+import { getComplianceSettings, upsertComplianceSettings, criarContaDeMonitoramento, snapshotsMonitoramento } from "./db";
 import { normalizarHost } from "./services/monitoramento/dominioRegistravel";
 import { normalizarConfirmacoes } from "./services/monitoramento/confirmacao";
 import { runCicloMonitoramento } from "./services/monitoramento/cicloMonitoramento";
@@ -5998,6 +5998,58 @@ export const appRouter = router({
       .query(async ({ input }) => {
         const cfg = await getComplianceSettings(input.accountId);
         return cfg ?? null;
+      }),
+
+    /**
+     * Tudo que a aba Monitoramento precisa, numa leitura só: configuração,
+     * suspeita pendente, contadores do dia e histórico.
+     *
+     * `contentProcedure` e não `adminProcedure`: o alerta crítico vai para
+     * admins, devs E coordenadores do cliente, e mandar alguém para uma aba que
+     * devolve FORBIDDEN seria pior do que não mandar. Quem não pode CONFIGURAR
+     * é barrado no `salvarConfig`, que continua sendo a porta da escrita.
+     */
+    painel: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(async ({ input }) => {
+        const cfg = await getComplianceSettings(input.accountId);
+        const linhas = await snapshotsMonitoramento(input.accountId, 7);
+        const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+
+        type Metricas = {
+          checagens?: number; anomalias?: number; ultimaEm?: string;
+          ultimaSeveridade?: string; ultima?: Record<string, unknown>;
+          achados?: { chave: string; sev: string; titulo: string }[];
+          eventos?: { em: string; tipo: string; chave: string; detalhe: string }[];
+        };
+        const doDia = (provider: string) => {
+          const l = linhas.find((x) => x.provider === provider && x.dia === hoje);
+          return l ? ((l.metricsJson ?? {}) as Metricas) : null;
+        };
+
+        // Eventos de TODOS os dias, do mais recente para o mais antigo — é o
+        // histórico. Sem juntar os dois coletores, a tela contaria duas
+        // histórias paralelas do mesmo cliente.
+        const eventos = linhas
+          .flatMap((l) => (((l.metricsJson ?? {}) as Metricas).eventos ?? []).map((e) => ({ ...e, dia: l.dia })))
+          .sort((a, b) => (a.em < b.em ? 1 : -1))
+          .slice(0, 40);
+
+        return {
+          configurado: !!cfg,
+          ativo: cfg?.ativo ?? false,
+          dominioEsperado: cfg?.dominioEsperado ?? null,
+          checarDns: cfg?.checarDns ?? true,
+          checarRedirect: cfg?.checarRedirect ?? true,
+          checarConteudo: cfg?.checarConteudo ?? false,
+          blogUrl: cfg?.blogUrl ?? null,
+          confirmacoesNecessarias: normalizarConfirmacoes(cfg?.confirmacoesNecessarias),
+          ultimaVerificacaoEm: cfg?.ultimaVerificacaoEm ?? null,
+          nsBaseline: (cfg?.nsBaselineJson ?? null) as string[] | null,
+          suspeita: (cfg?.suspeitaJson ?? null) as { chave: string; titulo: string; ciclos: number; desde: string; confirmada: boolean } | null,
+          hoje: { dns: doDia("dns_check"), redirect: doDia("redirect_check") },
+          eventos,
+        };
       }),
 
     salvarConfig: contentProcedure

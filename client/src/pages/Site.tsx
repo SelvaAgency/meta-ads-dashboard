@@ -23,7 +23,7 @@ import {
   RefreshCw, Settings2, TrendingUp, Users, Clock, ArrowDownWideNarrow,
   FileText, NotebookPen, Trash2, MessageSquare, Send,
   Globe, Gauge, LayoutDashboard, Zap, ArrowRight, ShieldCheck, Wifi, Lock, ShieldAlert,
-  CheckCircle2,
+  CheckCircle2, Radar,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "wouter";
@@ -37,6 +37,7 @@ import {
   type MetricasGA4, type ListasGA4, type CardGA4, type Lista as ListaGA4,
 } from "./site/ga4Performance";
 import { PerformanceVisual, Painel, BarrasTop, PizzaDistribuicao } from "./site/PerformanceVisual";
+import { AbaMonitoramento } from "./site/AbaMonitoramento";
 import { type Fonte, type StatusFonte } from "@shared/fontes";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
@@ -176,7 +177,7 @@ export default function Site() {
         </header>
 
         <div className="flex gap-1 border-b border-border">
-          {([["resumo", "Resumo", LayoutDashboard], ["performance", "Performance", Activity], ["tecnico", "Técnico", Gauge], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
+          {([["resumo", "Resumo", LayoutDashboard], ["performance", "Performance", Activity], ["tecnico", "Técnico", Gauge], ["monitoramento", "Monitoramento", Radar], ["chat", "Perguntar", MessageSquare]] as const).map(([v, lbl, Ic]) => (
             <button key={v} onClick={() => { setAba(v); setSecaoDestaque(undefined); }}
               className={`px-4 py-2 text-sm transition border-b-2 -mb-px flex items-center gap-1.5 ${aba === v ? "border-accent text-accent font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
               <Ic className="w-3.5 h-3.5" /> {lbl}
@@ -187,6 +188,7 @@ export default function Site() {
         {aba === "resumo" && <AbaResumo accountId={activeAccountId} onIr={setAba} />}
         {aba === "performance" && <AbaPerformanceSite accountId={activeAccountId} podeConfigurar={podeConfigurar} destaque={secaoDestaque} />}
         {aba === "tecnico" && <AbaTecnico accountId={activeAccountId} podeConfigurar={podeConfigurar} destaque={secaoDestaque} />}
+        {aba === "monitoramento" && <AbaMonitoramento accountId={activeAccountId} podeConfigurar={podeConfigurar} />}
         {aba === "chat" &&<AbaChat accountId={activeAccountId} nome={activeAccount?.accountName ?? "este cliente"} podeLimpar={podeConfigurar} />}
 
       </div>
