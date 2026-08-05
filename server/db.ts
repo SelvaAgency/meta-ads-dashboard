@@ -433,10 +433,44 @@ export async function deactivateUserIntegration(userId: number, provider: string
 
 // ─── Meta Ad Accounts ─────────────────────────────────────────────────────────
 
+/**
+ * Contas que os SYNCS DE MÍDIA processam.
+ *
+ * Exclui as contas `somenteMonitoramento` — que existem apenas para vigiar o
+ * site e não têm token de Meta. Sem esse filtro elas entrariam nos seis laços
+ * de sincronização do autoSync e produziriam erro e alerta de "token expirado"
+ * todo dia.
+ *
+ * O filtro fica AQUI, no enumerador, e não em cada job: são sete chamadores, e
+ * proteger em um lugar é o que impede o oitavo de nascer desprotegido.
+ */
 export async function getAllActiveMetaAdAccounts() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(metaAdAccounts).where(eq(metaAdAccounts.isActive, true));
+  return db.select().from(metaAdAccounts).where(and(
+    eq(metaAdAccounts.isActive, true),
+    eq(metaAdAccounts.somenteMonitoramento, false),
+  ));
+}
+
+/**
+ * Contas com mídia de verdade — para ANÁLISE, não para listagem.
+ *
+ * Usada por briefing de IA, saúde de portfólio e consolidação de métricas.
+ * Uma conta sem campanha nenhuma entraria nesses lugares como "sem dados" e
+ * puxaria o retrato do portfólio para baixo, além de gastar espaço no prompt
+ * do modelo falando de quem não tem o que falar.
+ *
+ * Diferente de `...ForListing()`, que INCLUI monitoramento de propósito: a
+ * conta precisa ser selecionável para a área Site dela existir, e o Panorama
+ * deve poder citá-la em saúde técnica.
+ */
+export const ehContaDeMidia = (c: { somenteMonitoramento?: boolean | null }): boolean =>
+  !c.somenteMonitoramento;
+
+export async function contasDeMidia() {
+  const todas = await getAllActiveMetaAdAccountsForListing();
+  return todas.filter(ehContaDeMidia);
 }
 
 /**

@@ -28,7 +28,10 @@ const CONTAS = [
 const segmentos = new Map<string, string>();
 
 vi.mock("../db", () => ({
-  getAllActiveMetaAdAccountsForListing: vi.fn(async () => CONTAS),
+  // O briefing passou a enumerar por `contasDeMidia` (que exclui contas
+  // somente-monitoramento). Mockar o enumerador antigo deixaria o teste verde
+  // testando um caminho que o código não usa mais.
+  contasDeMidia: vi.fn(async () => CONTAS),
   getAccountMetricsSummary: vi.fn(async () => []),
   getAccountContext: vi.fn(async () => null),
   getDailyBriefing: vi.fn(async () => null),

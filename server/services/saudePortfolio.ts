@@ -14,13 +14,13 @@
 import { avaliarCliente } from "../../shared/panoramaLogic";
 import { saudeConta, type NivelSaude, type CorIA, type AdendoSaude } from "../../shared/saudeConta";
 import { montarClientesPanorama } from "./jornalExecutivo";
-import { getAllActiveMetaAdAccountsForListing } from "../db";
+import { contasDeMidia } from "../db";
 
 export type SaudeConta = { accountId: number; nivel: NivelSaude; adendo: AdendoSaude | null };
 
 export async function saudeDoPortfolio(): Promise<SaudeConta[]> {
   const [contas, clientes] = await Promise.all([
-    getAllActiveMetaAdAccountsForListing(),
+    contasDeMidia(),
     montarClientesPanorama(),
   ]);
 

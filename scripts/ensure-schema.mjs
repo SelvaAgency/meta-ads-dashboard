@@ -194,6 +194,17 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela daily_briefing_segments garantida");
 
+    // 3.0.6) Conta só de monitoramento de site (sem mídia). Sem esta marca a
+    //        conta entraria nos syncs de mídia e geraria "token expirado" diário.
+    if (await tableExists(conn, "meta_ad_accounts")) {
+      if (await columnExists(conn, "meta_ad_accounts", "somenteMonitoramento")) {
+        console.log("[ensure-schema] ok  · meta_ad_accounts.somenteMonitoramento já existe");
+      } else {
+        await conn.query("ALTER TABLE `meta_ad_accounts` ADD COLUMN `somenteMonitoramento` BOOLEAN NOT NULL DEFAULT 0");
+        console.log("[ensure-schema] +   · meta_ad_accounts.somenteMonitoramento adicionada");
+      }
+    }
+
     // 3.1) Foto do cliente enviada à mão. Coluna PRÓPRIA, separada da
     //      `pictureUrl` que vem da Meta: o import de contas reescreve aquela, e
     //      uma foto escolhida pelo time não pode sumir por causa disso.

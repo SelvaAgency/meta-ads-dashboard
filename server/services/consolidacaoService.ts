@@ -9,7 +9,7 @@
  *  recente), então a memória fica compacta sem perder o que foi aprendido.
  */
 import { logger } from "../logger";
-import { getAllActiveMetaAdAccountsForListing, getAccountContext, upsertAccountContext } from "../db";
+import { contasDeMidia, getAccountContext, upsertAccountContext } from "../db";
 import { invokeLLM, extractTextContent } from "../_core/llm";
 
 const LIMIAR_CHARS = 1800;   // só consolida quando o histórico cru passa disto
@@ -22,7 +22,7 @@ function recortarRecentes(learnings: string, n: number): string {
 }
 
 export async function consolidarLearnings(): Promise<{ contas: number; consolidados: number }> {
-  const contas = await getAllActiveMetaAdAccountsForListing();
+  const contas = await contasDeMidia();
   let consolidados = 0;
 
   for (const c of contas) {

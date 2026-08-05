@@ -637,6 +637,21 @@ export const metaAdAccounts = mysqlTable("meta_ad_accounts", {
   aiStatusColor: mysqlEnum("aiStatusColor", ["green", "yellow", "red"]),
   accountNote: text("accountNote"),
   goalTypeOverride: varchar("goalTypeOverride", { length: 64 }),
+  /**
+   * Conta que existe SÓ para monitoramento de site — sem mídia.
+   *
+   * O caso: Aiká não tem campanha, mas precisa de domínio, snapshots e alertas
+   * técnicos. Sem esta marca, ela entraria nos 7 enumeradores de sync de mídia
+   * e produziria erro de sync e alerta de "token expirado" todo dia — ruído que
+   * ensinaria o time a ignorar alerta de verdade.
+   *
+   * `accessToken` fica vazio de propósito: a coluna é NOT NULL, mas nenhum
+   * caminho de mídia alcança esta conta, então o valor nunca é usado.
+   *
+   * NÃO exclui da listagem: a conta precisa ser selecionável para a área Site
+   * dela existir, e o Panorama deve poder citá-la em saúde técnica.
+   */
+  somenteMonitoramento: boolean("somenteMonitoramento").default(false).notNull(),
   /** Foto vinda da Meta. Pode ser sobrescrita a cada import de contas. */
   pictureUrl: varchar("pictureUrl", { length: 1024 }),
   /**

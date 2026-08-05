@@ -20,7 +20,7 @@ import { invokeLLM, extractTextContent } from "../_core/llm";
 import { logger } from "../logger";
 import { createHash } from "node:crypto";
 import {
-  getAllActiveMetaAdAccountsForListing, getAccountMetricsSummary,
+  contasDeMidia, getAccountMetricsSummary,
   getDailyBriefing, saveDailyBriefing, getAccountContext,
   getBriefingSegmentado, saveBriefingSegmentado,
 } from "../db";
@@ -50,7 +50,7 @@ export async function obterBriefingDoDia(dia = diaAgencia()): Promise<string | n
   const cache = await getDailyBriefing(BRIEFING_GLOBAL_USER, dia);
   if (cache) return cache;
 
-  const contas = await getAllActiveMetaAdAccountsForListing();
+  const contas = await contasDeMidia();
   if (!contas.length) {
     logger.info("[Briefing] Nenhuma conta ativa — nada a resumir.");
     return null;
@@ -89,7 +89,7 @@ export async function obterBriefingSegmentado(dia: string, accountIds: number[])
   const cache = await getBriefingSegmentado(dia, chave);
   if (cache) return cache;
 
-  const todas = await getAllActiveMetaAdAccountsForListing();
+  const todas = await contasDeMidia();
   const permitidas = new Set(accountIds);
   const contas = todas.filter((c) => permitidas.has(c.id));
   if (!contas.length) {
@@ -108,7 +108,7 @@ export async function obterBriefingSegmentado(dia: string, accountIds: number[])
  * duplicar o prompt, e o que garante que o modelo só vê o que foi passado.
  */
 async function montarBriefing(
-  contas: Awaited<ReturnType<typeof getAllActiveMetaAdAccountsForListing>>,
+  contas: Awaited<ReturnType<typeof contasDeMidia>>,
   dia: string,
 ): Promise<string | null> {
 

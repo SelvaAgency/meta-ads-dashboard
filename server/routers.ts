@@ -100,6 +100,7 @@ import {
   getMetaAdAccountById,
   getMetaAdAccountsByUserId,
   getAllActiveMetaAdAccountsForListing,
+  contasDeMidia,
   snapshotsParaPanorama,
   lojasParaPanorama,
   snapshotsDeVendaDaConta,
@@ -2137,7 +2138,10 @@ export const appRouter = router({
     /** Reanalisa o status da IA de TODAS as contas ativas (admin). Sequencial e
      *  com throttle para não estourar o rate limit do LLM. */
     refreshAllStatus: adminProcedure.mutation(async ({ ctx }) => {
-      const contas = await getAllActiveMetaAdAccountsForListing();
+      // Só contas com mídia: reanalisar o status de IA de uma conta que existe
+      // apenas para monitorar site gastaria chamada de modelo para dizer
+      // "sem dados".
+      const contas = await contasDeMidia();
       let ok = 0;
       for (const c of contas) {
         try {
