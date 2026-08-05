@@ -340,7 +340,7 @@ export default function Dashboard() {
           <p className="text-muted-foreground mb-6 max-w-sm">
             Conecte sua conta Meta Ads para começar a visualizar dados e análises.
           </p>
-          <Button onClick={() => navigate("/connect")} className="gap-2">
+          <Button onClick={() => navigate("/settings?painel=conexoes")} className="gap-2">
             <Zap className="w-4 h-4" />
             Conectar conta
           </Button>
@@ -832,7 +832,7 @@ export default function Dashboard() {
                       Tentar Novamente
                     </Button>
                     {error?.message?.toLowerCase().includes("token") && (
-                      <Button size="sm" variant="outline" onClick={() => navigate("/connect")} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+                      <Button size="sm" variant="outline" onClick={() => navigate("/settings?painel=conexoes")} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
                         Reconectar Token
                       </Button>
                     )}

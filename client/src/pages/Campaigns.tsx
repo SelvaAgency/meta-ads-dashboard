@@ -709,7 +709,7 @@ export default function Campaigns() {
             <Link2 size={28} style={{ color: "#D4537E" }} />
           </div>
           <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: 8 }}>Nenhuma conta conectada</h2>
-          <Button onClick={() => navigate("/connect")}><Zap size={16} style={{ marginRight: 6 }} /> Conectar conta</Button>
+          <Button onClick={() => navigate("/settings?painel=conexoes")}><Zap size={16} style={{ marginRight: 6 }} /> Conectar conta</Button>
         </div>
       </MetaDashboardLayout>
     );

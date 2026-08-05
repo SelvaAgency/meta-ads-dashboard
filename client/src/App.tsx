@@ -126,6 +126,17 @@ function Router() {
       <Route path="/trello/callback" component={TrelloCallback} />
 
       {/* ── Legado /hub → rotas diretas (compatibilidade) ────────────────────── */}
+      {/*
+        `/connect` nunca foi registrada, e três botões "Conectar conta"
+        (Dashboard ×2, Campanhas ×1) navegavam para ela — caindo no 404. Não era
+        permissão: o caminho de adicionar conta estava QUEBRADO para todo mundo,
+        admin inclusive.
+
+        A rota vira redirecionamento em vez de sumir porque link morto também
+        mora em favorito e em print de instrução. `?painel=conexoes` abre o hub
+        de Conexões já expandido, que é onde o token da agência entra.
+      */}
+      <Route path="/connect" component={() => <RedirectTo to="/settings?painel=conexoes" />} />
       <Route path="/hub" component={() => <RedirectTo to="/" />} />
       <Route path="/hub/tracker" component={() => <RedirectTo to="/tracker" />} />
       <Route path="/hub/reports" component={() => <RedirectTo to="/reports" />} />
