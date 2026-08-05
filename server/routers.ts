@@ -6088,24 +6088,47 @@ export const appRouter = router({
      *
      * Passa pelo mesmo caminho do cron, inclusive a confirmação dupla: um botão
      * que pulasse a trava validaria um comportamento que não existe em produção.
+     *
+     * `contentProcedure` (admin + developer), e não `adminProcedure`. Nasceu
+     * como adminProcedure enquanto a UI já mostrava o botão para quem podia
+     * CONFIGURAR — que inclui developer. Resultado: o developer via o botão,
+     * clicava, e levava "You do not have required permission (10002)".
+     *
+     * A regra é uma só: quem pode configurar o monitoramento pode executá-lo.
+     * Configurar e não poder verificar não é uma permissão menor, é uma
+     * permissão incoerente.
      */
-    rodarAgora: adminProcedure.mutation(async () => {
+    rodarAgora: contentProcedure.mutation(async () => {
       return runCicloMonitoramento();
     }),
 
     /**
-     * Cria a conta da Aiká — cliente monitorado, sem mídia. Idempotente.
+     * Cria um cliente SOMENTE-MONITORAMENTO: entra no seletor e tem área Site,
+     * mas fica fora de todo sync de mídia (é a coluna `somenteMonitoramento` do
+     * passo 1 — sem ela a conta geraria "token expirado" todo dia).
      *
-     * Fica como ação explícita em vez de seed automático porque criar cliente é
-     * decisão de negócio: um seed rodando no boot criaria a conta em qualquer
-     * ambiente que subisse o código, inclusive num banco de teste de alguém.
+     * Genérico e não "criar Aiká": o primeiro caso é a Aiká, mas a UMDSA tem a
+     * mesma forma. Um procedimento por cliente exigiria deploy para cada um.
+     *
+     * Idempotente pelo slug — chamar duas vezes não cria duas contas.
      */
-    criarAika: adminProcedure.mutation(async () => {
-      const r = await criarContaDeMonitoramento({
-        nome: "Aiká", dominio: "aikabodysoul.com", slug: "monitor-aikabodysoul",
-      });
-      return { ...r, ativo: false as const };
-    }),
+    criarClienteMonitorado: contentProcedure
+      .input(z.object({
+        nome: z.string().min(2).max(120),
+        dominio: z.string().min(4).max(255),
+      }))
+      .mutation(async ({ input }) => {
+        const dominio = normalizarHost(input.dominio);
+        if (!dominio || !dominio.includes(".")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Informe um domínio válido (ex.: exemplo.com.br)." });
+        }
+        // Slug derivado do DOMÍNIO, não do nome: nome muda ("Aiká" vira "Aiká
+        // Body & Soul") e o slug é a chave de idempotência. Derivar do nome
+        // criaria uma segunda conta na primeira renomeação.
+        const slug = `monitor-${dominio.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`.slice(0, 60);
+        const r = await criarContaDeMonitoramento({ nome: input.nome.trim(), dominio, slug });
+        return { ...r, nome: input.nome.trim(), slug };
+      }),
   }),
 
   ga4: router({

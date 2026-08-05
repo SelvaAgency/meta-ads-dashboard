@@ -27,7 +27,7 @@
 import { useEffect, useState } from "react";
 import {
   ShieldAlert, ShieldCheck, Loader2, RefreshCw, Save, Globe, Radar,
-  CircleAlert, CircleCheck, CircleDot, Power,
+  CircleAlert, CircleDot, Power, Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -222,6 +222,9 @@ export function AbaMonitoramento({ accountId, podeConfigurar }: {
         </div>
       )}
 
+      {/* ── Criar cliente somente-monitoramento ────────────────────────── */}
+      {podeConfigurar && <CriarClienteMonitorado />}
+
       {/* ── Histórico ──────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-border bg-card p-4">
         <p className="text-xs font-semibold text-muted-foreground mb-2">Histórico</p>
@@ -290,6 +293,73 @@ function Leitura({ titulo, m }: { titulo: string; m: Painel["hoje"]["dns"] }) {
           ) : null}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Cria um cliente que só é monitorado — entra no seletor e tem área Site, mas
+ * fica fora de todo sync de mídia.
+ *
+ * Mora aqui, e não numa tela de administração, porque é aqui que a necessidade
+ * aparece: quem vem ligar o monitoramento de um cliente é quem descobre que o
+ * cliente ainda não existe. Fica recolhido para não competir com o que a aba
+ * realmente mostra.
+ */
+function CriarClienteMonitorado() {
+  const utils = trpc.useUtils();
+  const [aberto, setAberto] = useState(false);
+  const [nome, setNome] = useState("");
+  const [dominio, setDominio] = useState("");
+
+  const criar = trpc.monitoramento.criarClienteMonitorado.useMutation({
+    onSuccess: async (r) => {
+      // O seletor de clientes lê `accounts.list`; sem invalidar, o cliente
+      // recém-criado só apareceria no próximo recarregamento da página — e
+      // quem acabou de criar concluiria que não funcionou.
+      await Promise.all([
+        utils.accounts.list.invalidate(),
+        utils.monitoramento.status.invalidate(),
+      ]);
+      setNome(""); setDominio(""); setAberto(false);
+      toast.success(`${r.nome} criado. Selecione o cliente na barra lateral para configurar o monitoramento.`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  if (!aberto) {
+    return (
+      <button onClick={() => setAberto(true)}
+        className="self-start text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5">
+        <Plus className="w-3.5 h-3.5" /> Criar cliente somente-monitoramento
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+      <p className="text-xs font-semibold text-muted-foreground">Novo cliente somente-monitoramento</p>
+      <p className="text-[11px] text-muted-foreground">
+        Entra no seletor e tem área Site. Não entra em nenhum sync de mídia, não pede token
+        e não gera alerta de conexão — é um cliente que só é observado.
+      </p>
+      <div className="grid sm:grid-cols-2 gap-2">
+        <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome (ex.: Aiká)"
+          className="h-9 px-3 rounded-lg border border-border bg-background text-sm" />
+        <input value={dominio} onChange={(e) => setDominio(e.target.value)} placeholder="Domínio (ex.: aikabodysoul.com)"
+          className="h-9 px-3 rounded-lg border border-border bg-background text-sm" />
+      </div>
+      <div className="flex items-center gap-2">
+        <button onClick={() => criar.mutate({ nome: nome.trim(), dominio: dominio.trim() })}
+          disabled={criar.isPending || nome.trim().length < 2 || dominio.trim().length < 4}
+          className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-xs font-medium flex items-center gap-1.5 disabled:opacity-60">
+          {criar.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+          Criar
+        </button>
+        <button onClick={() => setAberto(false)} className="text-xs text-muted-foreground hover:text-foreground">
+          Cancelar
+        </button>
+      </div>
     </div>
   );
 }
