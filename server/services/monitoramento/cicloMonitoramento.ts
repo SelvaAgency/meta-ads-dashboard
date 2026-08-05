@@ -2,9 +2,13 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *  Ciclo de monitoramento — o que o cron de 5 minutos executa
  * ─────────────────────────────────────────────────────────────────────────────
- *  Junta as peças puras dos passos 3 e 4 com o mundo: lê o DNS e o HTTP, avalia,
- *  passa pela confirmação dupla, grava o snapshot do dia e — só no fim de tudo
- *  isso — cria alerta.
+ *  Junta as peças puras com o mundo: lê o DNS, o HTTP e o blog, avalia, passa
+ *  pela confirmação dupla, grava o snapshot do dia e — só no fim de tudo isso —
+ *  cria alerta.
+ *
+ *  Nem tudo roda no mesmo ritmo: DNS e destino a cada 5 minutos (~130ms por
+ *  cliente), conteúdo a cada 30 (baixa uma listagem inteira, e spam publicado
+ *  não muda em cinco minutos).
  *
  *  ── Quem entra ─────────────────────────────────────────────────────────────
  *  Só cliente com `ativo = true` em `site_compliance_settings`, que nasce em 0.
@@ -35,6 +39,9 @@ import {
   contasParaMonitorar, upsertComplianceSettings, acumularSnapshotMonitoramento,
   createNotification, type EventoMonitoramento,
 } from "../../db";
+import { checarConteudo, type LeituraConteudo } from "./conteudoCheck";
+import { proximoBaseline, type BaselineConteudo } from "./avaliadorConteudo";
+import { termosDoCliente } from "./termosSuspeitos";
 import { checarDns, type LeituraDns } from "./dnsCheck";
 import { checarRedirect, type LeituraRedirect } from "./redirectCheck";
 import { avaliar, maisGrave, type Achado } from "./avaliador";
@@ -45,15 +52,26 @@ import { enviarEmailCriticoSite, type EvidenciaLinha } from "../emailAlertaCriti
 const hoje = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 
 /**
+ * Conteúdo em ritmo próprio: 30 minutos, não 5.
+ *
+ * DNS e destino a 5 minutos custam ~130ms por cliente. A varredura do blog baixa
+ * uma listagem inteira, e spam publicado não muda em cinco minutos — 288
+ * leituras diárias pagariam largura de banda para responder a mesma coisa 48
+ * vezes seguidas. Trinta minutos mantém a detecção no mesmo dia sem esse custo.
+ */
+const INTERVALO_CONTEUDO_MS = 30 * 60 * 1000;
+
+/**
  * De qual coletor veio cada achado.
  *
  * Existe para o contador de anomalias de cada snapshot ser honesto: sem isto,
  * uma falha de DNS contaria como anomalia também no snapshot de redirect, e a
  * tela mostraria dois problemas onde há um.
  */
-const ORIGEM: Record<string, "dns" | "redirect"> = {
+const ORIGEM: Record<string, "dns" | "redirect" | "conteudo"> = {
   dns_nao_resolve: "dns",
   dns_instavel: "dns",
+  dns_sem_endereco: "dns",
   ns_mudou: "dns",
   ns_baseline_aprendido: "dns",
   site_sem_resposta: "redirect",
@@ -61,10 +79,17 @@ const ORIGEM: Record<string, "dns" | "redirect"> = {
   dominio_divergente: "redirect",
   redirect_incomum: "redirect",
   canonical_externo: "redirect",
+  conteudo_nao_verificado: "conteudo",
+  conteudo_spam: "conteudo",
+  conteudo_suspeito: "conteudo",
+  conteudo_baseline_aprendido: "conteudo",
+  muitos_posts_novos: "conteudo",
+  autor_novo: "conteudo",
+  categoria_nova: "conteudo",
 };
 
-/** Achados de um coletor. `ok` e `sem_dominio_esperado` valem para os dois. */
-export function achadosDe(origem: "dns" | "redirect", achados: Achado[]): Achado[] {
+/** Achados de um coletor. `ok` e `sem_dominio_esperado` valem para todos. */
+export function achadosDe(origem: "dns" | "redirect" | "conteudo", achados: Achado[]): Achado[] {
   return achados.filter((a) => (ORIGEM[a.chave] ?? origem) === origem);
 }
 
@@ -155,8 +180,23 @@ async function verificarConta(c: Conta, dia: string, r: ResultadoCiclo): Promise
   const dns: LeituraDns | null = c.checarDns && alvo ? await checarDns(alvo) : null;
   const redirect: LeituraRedirect | null = c.checarRedirect && alvo ? await checarRedirect(alvo) : null;
 
+  // Conteúdo só entra quando está ligado E o intervalo dele venceu. Fora disso,
+  // `conteudo` fica ausente — que é diferente de "leu e não achou nada", e por
+  // isso não vira achado nenhum nem mexe no baseline.
+  const ultimaConteudo = c.ultimaVerificacaoConteudoEm ? new Date(c.ultimaVerificacaoConteudoEm).getTime() : 0;
+  const rodarConteudo = c.checarConteudo && !!alvo && Date.now() - ultimaConteudo >= INTERVALO_CONTEUDO_MS;
+  const conteudo: LeituraConteudo | null = rodarConteudo ? await checarConteudo(alvo, c.blogUrl) : null;
+  const baselineConteudo = (c.postsVistosJson ?? null) as BaselineConteudo | null;
+  const termos = termosDoCliente(
+    (c.termosExtrasJson ?? null) as string[] | null,
+    (c.termosIgnoradosJson ?? null) as string[] | null,
+  );
+
   const nsBaseline = Array.isArray(c.nsBaselineJson) ? (c.nsBaselineJson as string[]) : null;
-  const achados = avaliar({ dominioEsperado: esperado, dns, redirect, nsBaseline });
+  const achados = avaliar({
+    dominioEsperado: esperado, dns, redirect, nsBaseline,
+    conteudo: conteudo ? { conteudo, baseline: baselineConteudo, termos } : null,
+  });
 
   const anterior = (c.suspeitaJson ?? null) as Suspeita | null;
   const necessarias = normalizarConfirmacoes(c.confirmacoesNecessarias);
@@ -186,7 +226,11 @@ async function verificarConta(c: Conta, dia: string, r: ResultadoCiclo): Promise
 
   // ── Snapshot diário, um por coletor ───────────────────────────────────────
   const sev = maisGrave(achados);
-  const gravar = async (provider: "dns_check" | "redirect_check", origem: "dns" | "redirect", leitura: unknown) => {
+  const gravar = async (
+    provider: "dns_check" | "redirect_check" | "conteudo_check",
+    origem: "dns" | "redirect" | "conteudo",
+    leitura: unknown,
+  ) => {
     if (!leitura) return;
     const meus = achadosDe(origem, achados);
     await acumularSnapshotMonitoramento({
@@ -204,6 +248,17 @@ async function verificarConta(c: Conta, dia: string, r: ResultadoCiclo): Promise
   };
   await gravar("dns_check", "dns", dns);
   await gravar("redirect_check", "redirect", redirect);
+  await gravar("conteudo_check", "conteudo", conteudo && {
+    // O snapshot guarda o RESUMO da leitura, nunca os posts inteiros: 30 posts
+    // com resumo por ciclo encheriam a linha do dia sem responder nada que a
+    // evidência do achado já não responda.
+    fonte: conteudo.fonte,
+    posts: conteudo.posts.length,
+    novos: baselineConteudo ? conteudo.posts.filter((p) => !baselineConteudo.ids.includes(p.id)).length : 0,
+    tentativas: conteudo.tentativas.map((t) => `${t.fonte}: ${t.resultado}`),
+    erro: conteudo.erro,
+    emMs: conteudo.emMs,
+  });
 
   // ── Estado que atravessa ciclos ───────────────────────────────────────────
   const patch: Parameters<typeof upsertComplianceSettings>[1] = { ultimaVerificacaoEm: new Date() };
@@ -211,6 +266,13 @@ async function verificarConta(c: Conta, dia: string, r: ResultadoCiclo): Promise
   // Primeira leitura APRENDE os nameservers. Sem gravar aqui, toda leitura seria
   // a primeira e a mudança de NS nunca seria detectada.
   if (nsBaseline === null && dns?.resolveu && dns.ns.length > 0) patch.nsBaselineJson = dns.ns;
+  // O baseline do blog só avança quando a leitura DEU CERTO. Gravar depois de
+  // uma falha zeraria os posts conhecidos, e na leitura seguinte o blog inteiro
+  // apareceria como novo — rajada falsa, autor novo falso, tudo de uma vez.
+  if (conteudo?.ok) {
+    patch.postsVistosJson = proximoBaseline(baselineConteudo, conteudo.posts);
+  }
+  if (conteudo) patch.ultimaVerificacaoConteudoEm = new Date();
   await upsertComplianceSettings(c.accountId, patch);
 
   // ── Alerta: só CRITICAL confirmado ────────────────────────────────────────

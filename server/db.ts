@@ -4014,6 +4014,9 @@ export async function contasParaMonitorar() {
     termosIgnoradosJson: siteComplianceSettings.termosIgnoradosJson,
     suspeitaJson: siteComplianceSettings.suspeitaJson,
     confirmacoesNecessarias: siteComplianceSettings.confirmacoesNecessarias,
+    termosExtrasJson: siteComplianceSettings.termosExtrasJson,
+    postsVistosJson: siteComplianceSettings.postsVistosJson,
+    ultimaVerificacaoConteudoEm: siteComplianceSettings.ultimaVerificacaoConteudoEm,
   }).from(siteComplianceSettings)
     .innerJoin(metaAdAccounts, eq(siteComplianceSettings.accountId, metaAdAccounts.id))
     .where(and(eq(siteComplianceSettings.ativo, true), eq(metaAdAccounts.isActive, true)));
@@ -4055,8 +4058,8 @@ export async function snapshotsMonitoramento(accountId: number, dias = 7) {
     updatedAt: clientSiteSnapshots.updatedAt,
   }).from(clientSiteSnapshots).where(and(
     eq(clientSiteSnapshots.accountId, accountId),
-    inArray(clientSiteSnapshots.provider, ["dns_check", "redirect_check"]),
-  )).orderBy(desc(clientSiteSnapshots.dia)).limit(dias * 2);
+    inArray(clientSiteSnapshots.provider, ["dns_check", "redirect_check", "conteudo_check"]),
+  )).orderBy(desc(clientSiteSnapshots.dia)).limit(dias * 3);
 }
 
 /** Eventos guardados no snapshot. Teto para o JSON não crescer sem fim. */

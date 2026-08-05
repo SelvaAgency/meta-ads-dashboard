@@ -106,6 +106,28 @@ describe("o que NÃO pode acordar ninguém", () => {
     expect(a?.sev).toBe("WARNING");
   });
 
+  /**
+   * Encontrado sondando o domínio real da Ultramalhas: NS configurados, nenhum
+   * registro A/AAAA, www inexistente. A versão anterior do coletor considerava
+   * isso "resolveu" e o avaliador não dizia nada — um domínio que ninguém
+   * consegue abrir passava como saudável.
+   */
+  it("domínio delegado mas sem endereço é WARNING, não CRITICAL nem silêncio", () => {
+    const e = base({
+      dns: {
+        ...DNS_OK, resolveu: false, a: [], ns: ["ns1.registro.br", "ns2.registro.br"],
+        falha: "sem_endereco", erroCodigo: "ENODATA",
+      },
+    });
+    const a = acharPor(e, "dns_sem_endereco");
+    expect(a?.sev).toBe("WARNING");
+    expect(a?.exigeConfirmacao).toBe(false);
+    expect(a?.evidencia.ns).toEqual(["ns1.registro.br", "ns2.registro.br"]);
+    // Não pode ser confundido com domínio que expirou.
+    expect(chaves(e)).not.toContain("dns_nao_resolve");
+    expect(chaves(e)).not.toContain("ok");
+  });
+
   it("SÓ achado CRITICAL exige confirmação", () => {
     const todos = [
       base({ dns: { ...DNS_OK, resolveu: false, ns: [], a: [], falha: "instavel", erroCodigo: "ETIMEOUT" } }),

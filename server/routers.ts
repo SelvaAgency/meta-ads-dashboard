@@ -6045,9 +6045,12 @@ export const appRouter = router({
           blogUrl: cfg?.blogUrl ?? null,
           confirmacoesNecessarias: normalizarConfirmacoes(cfg?.confirmacoesNecessarias),
           ultimaVerificacaoEm: cfg?.ultimaVerificacaoEm ?? null,
+          ultimaVerificacaoConteudoEm: cfg?.ultimaVerificacaoConteudoEm ?? null,
           nsBaseline: (cfg?.nsBaselineJson ?? null) as string[] | null,
+          termosExtras: (cfg?.termosExtrasJson ?? null) as string[] | null,
+          termosIgnorados: (cfg?.termosIgnoradosJson ?? null) as string[] | null,
           suspeita: (cfg?.suspeitaJson ?? null) as { chave: string; titulo: string; ciclos: number; desde: string; confirmada: boolean } | null,
-          hoje: { dns: doDia("dns_check"), redirect: doDia("redirect_check") },
+          hoje: { dns: doDia("dns_check"), redirect: doDia("redirect_check"), conteudo: doDia("conteudo_check") },
           eventos,
         };
       }),
@@ -6062,6 +6065,8 @@ export const appRouter = router({
         checarConteudo: z.boolean().optional(),
         blogUrl: z.string().max(500).nullable().optional(),
         confirmacoesNecessarias: z.number().int().optional(),
+        termosExtrasJson: z.array(z.string().max(60)).max(50).nullable().optional(),
+        termosIgnoradosJson: z.array(z.string().max(60)).max(50).nullable().optional(),
       }))
       .mutation(async ({ input }) => {
         const { accountId, ...patch } = input;

@@ -9,7 +9,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  resumoDeEstado, haQuantoTempo, checagensDoDia, anomaliasDoDia, linhasDaLeitura, type Painel,
+  resumoDeEstado, haQuantoTempo, checagensDoDia, anomaliasDoDia, linhasDaLeitura,
+  estadoDoConteudo, type Painel,
 } from "./monitoramentoView";
 
 const AGORA = Date.parse("2026-08-05T14:00:00.000Z");
@@ -150,5 +151,83 @@ describe("evidência da última leitura", () => {
   it("valor gigante é truncado", () => {
     const l = linhasDaLeitura({ tituloTrecho: "T".repeat(5000) });
     expect(l[0].valor.length).toBeLessThanOrEqual(300);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Bloco de conteúdo — "não verificado" não pode virar "ok"
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Zero posts lidos e zero posts suspeitos viram a mesma tela se ninguém
+ *  perguntar primeiro se a leitura funcionou. É o erro que faria a aba dizer
+ *  "tudo certo" todo dia com o blog cheio de spam — e sem nenhum sintoma.
+ */
+describe("estado do conteúdo", () => {
+  const comConteudo = (m: unknown, over: Partial<Painel> = {}) =>
+    painel({ checarConteudo: true, hoje: { dns: null, redirect: null, conteudo: m as never }, ...over });
+
+  it("coletor desligado não mostra bloco nenhum", () => {
+    expect(estadoDoConteudo(painel())).toBeNull();
+  });
+
+  it("ligado, mas sem leitura hoje, diz que ainda não leu", () => {
+    const e = estadoDoConteudo(comConteudo(null));
+    expect(e?.tom).toBe("off");
+    expect(e?.frase).toContain("Ainda não houve leitura");
+  });
+
+  it("nenhuma fonte respondeu → ATENÇÃO, e diz que não é o mesmo que limpo", () => {
+    const e = estadoDoConteudo(comConteudo({
+      checagens: 4, anomalias: 4, ultima: { fonte: "nenhuma", posts: 0 },
+      achados: [{ chave: "conteudo_nao_verificado", sev: "WARNING", titulo: "x" }],
+    }));
+    expect(e?.tom).not.toBe("ok");
+    expect(e?.tom).toBe("atencao");
+    expect(e?.fonte).toBe("não verificado");
+    expect(e?.frase).toContain("não é o mesmo que estar limpo");
+  });
+
+  it("leitura boa e blog limpo → ok, dizendo a fonte usada", () => {
+    const e = estadoDoConteudo(comConteudo({
+      checagens: 12, anomalias: 0, ultima: { fonte: "rest", posts: 20, novos: 1 }, achados: [],
+    }));
+    expect(e?.tom).toBe("ok");
+    expect(e?.fonte).toBe("REST API do WordPress");
+    expect(e?.posts).toBe(20);
+    expect(e?.novos).toBe(1);
+  });
+
+  it.each([
+    ["rss", "Feed RSS"], ["sitemap", "Sitemap"], ["html", "HTML da página"],
+  ])("fallback %s aparece com nome legível", (fonte, rotulo) => {
+    const e = estadoDoConteudo(comConteudo({ ultima: { fonte, posts: 5 }, achados: [] }));
+    expect(e?.fonte).toBe(rotulo);
+  });
+
+  it("spam → crítico e conta os suspeitos", () => {
+    const e = estadoDoConteudo(comConteudo({
+      ultima: { fonte: "rest", posts: 20 },
+      achados: [{ chave: "conteudo_spam", sev: "CRITICAL", titulo: "x" }],
+    }));
+    expect(e?.tom).toBe("critico");
+    expect(e?.suspeitos).toBe(1);
+  });
+
+  it("sinal fraco → atenção, não crítico", () => {
+    const e = estadoDoConteudo(comConteudo({
+      ultima: { fonte: "rest", posts: 20 },
+      achados: [{ chave: "conteudo_suspeito", sev: "WARNING", titulo: "x" }],
+    }));
+    expect(e?.tom).toBe("atencao");
+  });
+
+  it("contadores do dia somam os três coletores", () => {
+    const p = painel({ hoje: {
+      dns: { checagens: 100, anomalias: 1 },
+      redirect: { checagens: 100, anomalias: 0 },
+      conteudo: { checagens: 16, anomalias: 2 },
+    } });
+    expect(checagensDoDia(p)).toBe(216);
+    expect(anomaliasDoDia(p)).toBe(3);
   });
 });

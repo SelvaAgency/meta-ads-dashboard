@@ -375,6 +375,17 @@ export const siteComplianceSettings = mysqlTable("site_compliance_settings", {
   nsBaselineJson: json("nsBaselineJson"),
   /** Termos que NÃO devem alertar neste cliente (evita falso positivo por setor). */
   termosIgnoradosJson: json("termosIgnoradosJson"),
+  /** Termos EXTRAS deste cliente, além da lista padrão de cassino/apostas. */
+  termosExtrasJson: json("termosExtrasJson"),
+  /** Posts, autores e categorias já conhecidos — define o que é "novo". */
+  postsVistosJson: json("postsVistosJson"),
+  /**
+   * Conteúdo roda em ritmo próprio, mais lento que DNS/destino. Sem este carimbo
+   * a varredura do blog aconteceria a cada 5 minutos junto com o resto — 288
+   * leituras diárias de uma listagem inteira, para detectar algo que não muda
+   * nessa velocidade.
+   */
+  ultimaVerificacaoConteudoEm: timestamp("ultimaVerificacaoConteudoEm"),
   /**
    * Achado crítico visto e ainda NÃO confirmado. Mora aqui, e não no snapshot
    * do dia, porque uma suspeita das 23h58 confirma às 00h03 — atravessa a

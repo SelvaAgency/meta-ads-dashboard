@@ -233,6 +233,10 @@ async function main() {
     for (const [col, ddl] of [
       ["suspeitaJson", "ADD COLUMN `suspeitaJson` JSON NULL"],
       ["confirmacoesNecessarias", "ADD COLUMN `confirmacoesNecessarias` INT NOT NULL DEFAULT 2"],
+      // Passo 7 — varredura de conteúdo do blog.
+      ["termosExtrasJson", "ADD COLUMN `termosExtrasJson` JSON NULL"],
+      ["postsVistosJson", "ADD COLUMN `postsVistosJson` JSON NULL"],
+      ["ultimaVerificacaoConteudoEm", "ADD COLUMN `ultimaVerificacaoConteudoEm` TIMESTAMP NULL"],
     ]) {
       if (await columnExists(conn, "site_compliance_settings", col)) {
         console.log(`[ensure-schema] ok  · site_compliance_settings.${col} já existe`);

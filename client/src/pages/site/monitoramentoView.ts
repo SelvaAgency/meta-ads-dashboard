@@ -30,7 +30,11 @@ export interface Painel {
   ultimaVerificacaoEm: string | Date | null;
   suspeita: { chave: string; titulo: string; ciclos: number; desde: string; confirmada: boolean } | null;
   confirmacoesNecessarias: number;
-  hoje: { dns: MetricasDia | null; redirect: MetricasDia | null };
+  hoje: { dns: MetricasDia | null; redirect: MetricasDia | null; conteudo?: MetricasDia | null };
+  checarConteudo?: boolean;
+  ultimaVerificacaoConteudoEm?: string | Date | null;
+  termosExtras?: string[] | null;
+  termosIgnorados?: string[] | null;
   nsBaseline?: string[] | null;
   eventos: { em: string; dia: string; tipo: string; chave: string; detalhe: string }[];
 }
@@ -87,7 +91,7 @@ export function resumoDeEstado(p: Painel, agoraMs: number): { tom: Tom; frase: s
   if (!p.ultimaVerificacaoEm) {
     return { tom: "atencao", frase: "Ligado — aguardando a primeira leitura.", detalhe: "O robô verifica a cada 5 minutos." };
   }
-  const anomalias = (p.hoje.dns?.anomalias ?? 0) + (p.hoje.redirect?.anomalias ?? 0);
+  const anomalias = anomaliasDoDia(p);
   return {
     tom: "ok",
     frase: `Sem anomalias em ${p.dominioEsperado}.`,
@@ -99,10 +103,10 @@ export function resumoDeEstado(p: Painel, agoraMs: number): { tom: Tom; frase: s
 
 /** Total de checagens do dia, somando os dois coletores. */
 export const checagensDoDia = (p: Painel): number =>
-  (p.hoje.dns?.checagens ?? 0) + (p.hoje.redirect?.checagens ?? 0);
+  (p.hoje.dns?.checagens ?? 0) + (p.hoje.redirect?.checagens ?? 0) + (p.hoje.conteudo?.checagens ?? 0);
 
 export const anomaliasDoDia = (p: Painel): number =>
-  (p.hoje.dns?.anomalias ?? 0) + (p.hoje.redirect?.anomalias ?? 0);
+  (p.hoje.dns?.anomalias ?? 0) + (p.hoje.redirect?.anomalias ?? 0) + (p.hoje.conteudo?.anomalias ?? 0);
 
 export const TOM_EVENTO: Record<string, Tom> = {
   confirmado: "critico",
@@ -130,6 +134,10 @@ const CAMPOS: [string, string][] = [
   ["tituloTrecho", "Título da página"],
   ["erro", "Erro"],
   ["emMs", "Tempo de resposta"],
+  // Conteúdo
+  ["posts", "Posts analisados"],
+  ["novos", "Posts novos"],
+  ["tentativas", "Fontes tentadas"],
 ];
 
 export function linhasDaLeitura(leitura: Record<string, unknown> | null | undefined): { rotulo: string; valor: string }[] {
@@ -142,4 +150,70 @@ export function linhasDaLeitura(leitura: Record<string, unknown> | null | undefi
     out.push({ rotulo, valor: chave === "emMs" ? `${valor} ms` : valor.slice(0, 300) });
   }
   return out;
+}
+
+
+// ─── Bloco de conteúdo ──────────────────────────────────────────────────────
+
+export const ROTULO_FONTE: Record<string, string> = {
+  rest: "REST API do WordPress",
+  rss: "Feed RSS",
+  sitemap: "Sitemap",
+  html: "HTML da página",
+  nenhuma: "não verificado",
+};
+
+export interface EstadoConteudo {
+  tom: Tom;
+  fonte: string;
+  frase: string;
+  posts: number;
+  novos: number;
+  suspeitos: number;
+}
+
+/**
+ * Estado do bloco de conteúdo.
+ *
+ * O caso que define a honestidade desta função é `fonte: "nenhuma"`: leitura
+ * que falhou NÃO pode sair como "ok". Zero posts lidos e zero posts suspeitos
+ * viram a mesma tela se ninguém perguntar primeiro se a leitura funcionou — e
+ * a tela diria "tudo certo" todo dia com o blog cheio de spam.
+ */
+export function estadoDoConteudo(p: Painel): EstadoConteudo | null {
+  if (!p.checarConteudo) return null;
+  const m = p.hoje.conteudo;
+  if (!m) {
+    return {
+      tom: "off", fonte: "—", posts: 0, novos: 0, suspeitos: 0,
+      frase: p.ativo
+        ? "Ainda não houve leitura do blog hoje. O conteúdo é verificado a cada 30 minutos."
+        : "Monitoramento desligado.",
+    };
+  }
+  const ultima = (m.ultima ?? {}) as { fonte?: string; posts?: number; novos?: number };
+  const achados = m.achados ?? [];
+  const naoVerificado = ultima.fonte === "nenhuma" || achados.some((a) => a.chave === "conteudo_nao_verificado");
+  const suspeitos = achados.filter((a) => a.chave === "conteudo_spam" || a.chave === "conteudo_suspeito").length;
+
+  if (naoVerificado) {
+    return {
+      tom: "atencao", fonte: ROTULO_FONTE.nenhuma, posts: 0, novos: 0, suspeitos: 0,
+      frase: "O blog NÃO foi verificado — nenhuma fonte respondeu. Isto não é o mesmo que estar limpo.",
+    };
+  }
+  const critico = achados.some((a) => a.sev === "CRITICAL");
+  const atencao = achados.some((a) => a.sev === "WARNING");
+  return {
+    tom: critico ? "critico" : atencao ? "atencao" : "ok",
+    fonte: ROTULO_FONTE[ultima.fonte ?? ""] ?? (ultima.fonte ?? "—"),
+    posts: Number(ultima.posts) || 0,
+    novos: Number(ultima.novos) || 0,
+    suspeitos,
+    frase: critico
+      ? "Publicação com conteúdo de apostas/cassino."
+      : atencao
+        ? "Há sinal fraco para olhar no histórico."
+        : "Nenhuma publicação suspeita.",
+  };
 }

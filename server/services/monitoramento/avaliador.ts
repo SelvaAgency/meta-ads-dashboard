@@ -24,6 +24,7 @@
 import { dominioRegistravel, mesmoDominioRegistravel } from "./dominioRegistravel";
 import type { LeituraDns } from "./dnsCheck";
 import type { LeituraRedirect } from "./redirectCheck";
+import { avaliarConteudo, type EntradaConteudo } from "./avaliadorConteudo";
 
 export type Severidade = "INFO" | "WARNING" | "CRITICAL";
 
@@ -44,6 +45,11 @@ export interface EntradaAvaliacao {
   redirect: LeituraRedirect | null;
   /** Nameservers conhecidos. `null` = ainda não aprendido (1ª leitura). */
   nsBaseline: string[] | null;
+  /**
+   * Leitura do blog. Ausente = coletor desligado ou fora do ritmo dele — que é
+   * diferente de "leu e não achou nada", e por isso não vira achado nenhum.
+   */
+  conteudo?: EntradaConteudo | null;
 }
 
 /** Acima disso a cadeia é estranha o bastante para registrar. */
@@ -78,6 +84,18 @@ export function avaliar(e: EntradaAvaliacao): Achado[] {
         detalhe: `${esperado} não tem registro DNS. Domínio pode ter expirado, sido suspenso ou removido.`,
         exigeConfirmacao: true,
         evidencia: { dominio: d.dominio, erroCodigo: d.erroCodigo, emMs: d.emMs, lidoEm: d.lidoEm },
+      });
+    } else if (d.falha === "sem_endereco") {
+      // WARNING e não CRITICAL: o domínio não expirou nem foi sequestrado — ele
+      // está registrado e delegado, só não aponta para servidor nenhum. Costuma
+      // ser site em migração ou ainda não publicado, e chamar isso de incidente
+      // crítico geraria e-mail para uma decisão que alguém tomou de propósito.
+      achados.push({
+        chave: "dns_sem_endereco", sev: "WARNING",
+        titulo: "Domínio não aponta para nenhum servidor",
+        detalhe: `${esperado} tem nameservers configurados, mas nenhum registro de endereço (A/AAAA) — nem no domínio, nem no www. Ninguém consegue abrir o site.`,
+        exigeConfirmacao: false,
+        evidencia: { dominio: d.dominio, ns: d.ns, erroCodigo: d.erroCodigo, emMs: d.emMs },
       });
     } else if (d.falha === "instavel") {
       // Pode ser a NOSSA rede. Nunca crítico.
@@ -180,6 +198,11 @@ export function avaliar(e: EntradaAvaliacao): Achado[] {
       }
     }
   }
+
+  // ── Conteúdo ───────────────────────────────────────────────────────────────
+  // Depois de DNS e destino, e a ordem importa: `decidir` trata o PRIMEIRO
+  // achado crítico da lista, e domínio perdido é mais grave que blog invadido.
+  if (e.conteudo) achados.push(...avaliarConteudo(e.conteudo));
 
   // Silêncio não é resposta: registrar o "tudo certo" é o que permite a tela
   // dizer quando foi a última verificação boa.

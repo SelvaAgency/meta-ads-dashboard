@@ -14,18 +14,33 @@
  *  incidente; `SERVFAIL` ou timeout é instabilidade — possivelmente da NOSSA
  *  rede. Tratar os dois igual transformaria um soluço de rede em alerta
  *  crítico às 3 da manhã, e o time desligaria o robô na primeira semana.
+ *
+ *  ── Ter nameserver não é apontar para lugar nenhum ─────────────────────────
+ *  A primeira versão considerava "resolveu" se QUALQUER consulta respondesse,
+ *  incluindo a de NS. Uma sondagem no domínio real da Ultramalhas mostrou o
+ *  buraco: ela tem NS, não tem A nem AAAA, e o www nem existe. O coletor dizia
+ *  "resolveu, tudo certo" para um domínio que ninguém consegue abrir.
+ *
+ *  Quem torna o site alcançável é o ENDEREÇO. NS respondendo com endereço
+ *  nenhum é um terceiro estado — domínio registrado e delegado, apontando para
+ *  o vazio — e ele merece nome próprio: `sem_endereco`. Não é `nao_existe` (o
+ *  domínio existe, não expirou) nem "está tudo bem".
+ *
+ *  O www entra na consulta porque há domínio que só serve no www. Perguntar só
+ *  pelo ápice diria "sem endereço" para metade da internet.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { Resolver } from "node:dns/promises";
 import { normalizarHost } from "./dominioRegistravel";
 
-export type FalhaDns = "nao_existe" | "instavel" | null;
+export type FalhaDns = "nao_existe" | "sem_endereco" | "instavel" | null;
 
 export interface LeituraDns {
   dominio: string;
-  /** Resolveu para algum endereço utilizável. */
+  /** Tem ENDEREÇO — é isto que torna o site alcançável. Ver cabeçalho. */
   resolveu: boolean;
   ns: string[];
+  /** Endereços do ápice e do www, juntos. */
   a: string[];
   /** `null` quando resolveu. Separa domínio morto de rede instável. */
   falha: FalhaDns;
@@ -54,27 +69,34 @@ export async function checarDns(entrada: string, timeoutMs = 5_000): Promise<Lei
   // instabilidade que queremos justamente medir, e triplicaria o tempo do ciclo.
   const r = new Resolver({ timeout: timeoutMs, tries: 1 });
 
-  const [ns, a] = await Promise.all([
+  const [ns, a4, a6, www4] = await Promise.all([
     r.resolveNs(dominio).catch((e: NodeJS.ErrnoException) => e),
     r.resolve4(dominio).catch((e: NodeJS.ErrnoException) => e),
+    r.resolve6(dominio).catch((e: NodeJS.ErrnoException) => e),
+    r.resolve4(`www.${dominio}`).catch((e: NodeJS.ErrnoException) => e),
   ]);
   const emMs = Date.now() - t0;
 
   const erroDe = (v: unknown) => (v instanceof Error ? ((v as NodeJS.ErrnoException).code ?? "ERRO") : null);
-  const listaDe = (v: unknown) => (Array.isArray(v) ? v.map(String).sort() : []);
+  const listaDe = (v: unknown) => (Array.isArray(v) ? v.map(String) : []);
 
-  const codigoNs = erroDe(ns);
-  const codigoA = erroDe(a);
-  const listaNs = listaDe(ns);
-  const listaA = listaDe(a);
+  const listaNs = listaDe(ns).sort();
+  const enderecos = Array.from(new Set([...listaDe(a4), ...listaDe(a6), ...listaDe(www4)])).sort();
 
-  // Resolveu se QUALQUER uma das consultas trouxe resposta: há site atrás de
-  // CNAME sem A direto, e exigir as duas geraria alerta falso.
-  if (listaNs.length > 0 || listaA.length > 0) {
-    return { ...base, resolveu: true, ns: listaNs, a: listaA, falha: null, erroCodigo: null, emMs };
+  // Endereço é o que torna o site alcançável — ver cabeçalho.
+  if (enderecos.length > 0) {
+    return { ...base, resolveu: true, ns: listaNs, a: enderecos, falha: null, erroCodigo: null, emMs };
   }
 
-  const codigo = codigoNs ?? codigoA ?? "SEM_RESPOSTA";
+  // Delegado, mas apontando para o vazio. Nem "não existe", nem "tudo bem".
+  if (listaNs.length > 0) {
+    return {
+      ...base, resolveu: false, ns: listaNs, a: [],
+      falha: "sem_endereco", erroCodigo: erroDe(a4) ?? "SEM_ENDERECO", emMs,
+    };
+  }
+
+  const codigo = erroDe(ns) ?? erroDe(a4) ?? "SEM_RESPOSTA";
   return {
     ...base,
     erroCodigo: codigo,

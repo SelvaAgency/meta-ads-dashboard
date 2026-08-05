@@ -27,13 +27,13 @@
 import { useEffect, useState } from "react";
 import {
   ShieldAlert, ShieldCheck, Loader2, RefreshCw, Save, Globe, Radar,
-  CircleAlert, CircleDot, Power, Plus,
+  CircleAlert, CircleDot, Power, Plus, Newspaper,
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import {
   resumoDeEstado, haQuantoTempo, checagensDoDia, anomaliasDoDia, linhasDaLeitura,
-  TOM_EVENTO, type Tom, type Painel,
+  estadoDoConteudo, TOM_EVENTO, type Tom, type Painel,
 } from "./monitoramentoView";
 
 const CORES: Record<Tom, { borda: string; texto: string; fundo: string }> = {
@@ -222,6 +222,9 @@ export function AbaMonitoramento({ accountId, podeConfigurar }: {
         </div>
       )}
 
+      {/* ── Conteúdo do blog ───────────────────────────────────────────── */}
+      {p.ativo && <BlocoConteudo p={p} agora={agora} />}
+
       {/* ── Adicionar cliente sem mídia ────────────────────────────────── */}
       {podeConfigurar && <AdicionarClienteSemMidia />}
 
@@ -371,6 +374,70 @@ function AdicionarClienteSemMidia() {
           Cancelar
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Conteúdo do blog: fonte usada, contagens e o que foi achado.
+ *
+ * A FONTE é mostrada em primeiro lugar de propósito. "REST API do WordPress" e
+ * "Sitemap" respondem coisas diferentes — a REST traz título, autor e resumo; o
+ * sitemap traz só URL. Quem lê "nenhuma publicação suspeita" precisa saber com
+ * quanta informação essa frase foi dita.
+ *
+ * E "não verificado" nunca aparece como ok: é a única forma de a tela não
+ * mentir quando o WordPress bloqueia a leitura.
+ */
+function BlocoConteudo({ p, agora }: { p: Painel; agora: number }) {
+  const e = estadoDoConteudo(p);
+  if (!e) return null;
+  const cor = CORES[e.tom];
+  const achados = p.hoje.conteudo?.achados ?? [];
+  const leitura = linhasDaLeitura(p.hoje.conteudo?.ultima);
+
+  return (
+    <div className={`rounded-xl border p-4 flex flex-col gap-3 ${cor.borda} ${cor.fundo}`}>
+      <div className="flex items-start gap-2">
+        <Newspaper className={`w-4 h-4 shrink-0 mt-0.5 ${cor.texto}`} />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-muted-foreground">Conteúdo do blog</p>
+          <p className={`text-sm ${cor.texto}`}>{e.frase}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <Numero label="Fonte usada" valor={e.fonte} tom={e.tom === "atencao" && e.fonte === "não verificado" ? "atencao" : undefined} />
+        <Numero label="Posts analisados" valor={String(e.posts)} />
+        <Numero label="Posts novos" valor={String(e.novos)} />
+        <Numero label="Suspeitos" valor={String(e.suspeitos)} tom={e.suspeitos > 0 ? "atencao" : undefined} />
+      </div>
+
+      <p className="text-[11px] text-muted-foreground">
+        Última leitura do blog {haQuantoTempo(p.ultimaVerificacaoConteudoEm, agora)} · verifica a cada 30 minutos
+        {p.termosIgnorados?.length ? ` · ${p.termosIgnorados.length} termo(s) ignorado(s) neste cliente` : ""}
+      </p>
+
+      {/* Evidência. Tudo entra como TEXTO — o conteúdo pode ser do invasor. */}
+      {achados.length > 0 && (
+        <div className="border-t border-border pt-2 flex flex-col gap-1">
+          {achados.map((a) => (
+            <p key={a.chave} className={`text-[11px] ${a.sev === "CRITICAL" ? "text-red-600" : a.sev === "WARNING" ? "text-amber-600" : "text-muted-foreground"}`}>
+              {a.titulo}
+            </p>
+          ))}
+        </div>
+      )}
+      {leitura.length > 0 && (
+        <div className="border-t border-border pt-2 flex flex-col gap-1">
+          {leitura.map((l) => (
+            <div key={l.rotulo} className="flex gap-2 text-xs">
+              <span className="text-muted-foreground shrink-0 w-32">{l.rotulo}</span>
+              <span className="flex-1 break-all font-mono text-[11px]">{l.valor}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
