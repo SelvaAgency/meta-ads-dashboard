@@ -71,6 +71,68 @@ function BillingInfo({ accountId }: { accountId: number }) {
 // ─── Thresholds panel ─────────────────────────────────────────────────────────
 
 // ─── Account card ─────────────────────────────────────────────────────────────
+/**
+ * Nome do cliente, editável no lugar.
+ *
+ * Existe para a regra "importação não sobrescreve nome customizado" significar
+ * alguma coisa: antes disto não havia como DEFINIR esse nome, e a proteção
+ * guardava um valor que ninguém conseguia escolher — o nome vinha da Meta e
+ * ficava.
+ *
+ * Edita ao clicar, salva no Enter ou ao sair do campo, cancela no Escape. Sem
+ * botão de "editar": um lápis ao lado de cada nome numa lista de 18 clientes é
+ * ruído permanente para uma ação rara.
+ */
+function NomeDoCliente({ id, nome, idMeta, podeEditar }: { id: number; nome: string | null; idMeta: string; podeEditar: boolean }) {
+  const utils = trpc.useUtils();
+  const [editando, setEditando] = useState(false);
+  const [texto, setTexto] = useState(nome ?? "");
+
+  const renomear = trpc.accounts.renomear.useMutation({
+    onSuccess: async () => {
+      await utils.accounts.list.invalidate();
+      toast.success("Nome atualizado.");
+    },
+    onError: (e) => { toast.error(e.message); setTexto(nome ?? ""); },
+  });
+
+  const salvar = () => {
+    setEditando(false);
+    const limpo = texto.trim();
+    // Sem mudança não chama o servidor; vazio volta ao que era em vez de
+    // apagar o nome do cliente por um Enter distraído.
+    if (!limpo) return setTexto(nome ?? "");
+    if (limpo !== (nome ?? "")) renomear.mutate({ accountId: id, nome: limpo });
+  };
+
+  return (
+    <div className="flex-1 min-w-0">
+      {editando ? (
+        <input
+          autoFocus
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          onBlur={salvar}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") salvar();
+            if (e.key === "Escape") { setTexto(nome ?? ""); setEditando(false); }
+          }}
+          className="w-full text-sm font-semibold bg-background border border-primary/40 rounded px-1.5 py-0.5 focus:outline-none"
+        />
+      ) : (
+        <p
+          onClick={() => podeEditar && setEditando(true)}
+          title={podeEditar ? "Clique para renomear" : undefined}
+          className={`text-sm font-semibold text-foreground truncate ${podeEditar ? "cursor-text hover:underline decoration-dotted" : ""}`}
+        >
+          {nome}
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground truncate">{idMeta}</p>
+    </div>
+  );
+}
+
 function AccountCard({ account, podeEditar }: { account: any; podeEditar: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
@@ -107,11 +169,8 @@ function AccountCard({ account, podeEditar }: { account: any; podeEditar: boolea
           podeEditar={podeEditar}
         />
 
-        {/* Name + ID */}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-foreground truncate">{account.accountName}</p>
-          <p className="text-xs text-muted-foreground">{account.accountId}</p>
-        </div>
+        {/* Nome (editável) + ID */}
+        <NomeDoCliente id={account.id} nome={account.accountName} idMeta={account.accountId} podeEditar={podeEditar} />
 
         {/* Controls */}
         <div className="flex items-center gap-2 flex-shrink-0">

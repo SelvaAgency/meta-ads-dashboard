@@ -607,6 +607,25 @@ export async function criarContaMetaSeNova(data: InsertMetaAdAccount): Promise<"
  *  Meta. Mesclar não pode desfazer o que a importação já quase desfez.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+/**
+ * Renomeia o cliente. É o nome CUSTOMIZADO — o que prevalece sobre a Meta.
+ *
+ * Precisa existir para a regra "importação não sobrescreve nome customizado"
+ * significar alguma coisa: sem uma forma de definir esse nome, a proteção
+ * guardava um valor que ninguém conseguia escolher.
+ *
+ * `criarContaMetaSeNova` nunca atualiza e a mescla não toca em `accountName`,
+ * então o nome definido aqui sobrevive a importação e a mescla.
+ */
+export async function renomearConta(accountId: number, nome: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const limpo = nome.trim().slice(0, 255);
+  if (!limpo) throw new Error("O nome não pode ficar vazio.");
+  await db.update(metaAdAccounts).set({ accountName: limpo }).where(eq(metaAdAccounts.id, accountId));
+  logger.info(`[Contas] #${accountId} renomeada para "${limpo}"`);
+}
+
 export async function mesclarContas(manterId: number, descartarId: number): Promise<{
   nomeMantido: string | null;
   accountIdMovido: string;

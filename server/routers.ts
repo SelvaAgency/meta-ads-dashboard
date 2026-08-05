@@ -88,6 +88,7 @@ import {
   criarContaMetaSeNova,
   duplicatasDeContas,
   mesclarContas,
+  renomearConta,
   createScheduledReport,
   deleteMetaAdAccount,
   deleteScheduledReport,
@@ -1857,6 +1858,14 @@ export const appRouter = router({
      * inclusive de antes desta tela existir, que é o caso da Aiká.
      */
     duplicatas: contentProcedure.query(() => duplicatasDeContas()),
+
+    /** Nome customizado do cliente — prevalece sobre o que vem da Meta. */
+    renomear: contentProcedure
+      .input(z.object({ accountId: z.number().int(), nome: z.string().min(1).max(255) }))
+      .mutation(async ({ input }) => {
+        await renomearConta(input.accountId, input.nome);
+        return { success: true as const };
+      }),
 
     /**
      * Mescla: o cliente configurado ABSORVE a identidade de mídia do duplicado.
