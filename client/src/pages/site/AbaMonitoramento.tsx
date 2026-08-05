@@ -222,8 +222,8 @@ export function AbaMonitoramento({ accountId, podeConfigurar }: {
         </div>
       )}
 
-      {/* ── Criar cliente somente-monitoramento ────────────────────────── */}
-      {podeConfigurar && <CriarClienteMonitorado />}
+      {/* ── Adicionar cliente sem mídia ────────────────────────────────── */}
+      {podeConfigurar && <AdicionarClienteSemMidia />}
 
       {/* ── Histórico ──────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-border bg-card p-4">
@@ -298,21 +298,30 @@ function Leitura({ titulo, m }: { titulo: string; m: Painel["hoje"]["dns"] }) {
 }
 
 /**
- * Cria um cliente que só é monitorado — entra no seletor e tem área Site, mas
- * fica fora de todo sync de mídia.
+ * Adiciona um cliente que a Selva atende só no Site.
+ *
+ * ── Um cliente, não uma entidade técnica ───────────────────────────────────
+ * A copy aqui importa mais do que parece. A primeira versão dizia "cliente
+ * somente-monitoramento", que descreve a COLUNA do banco, não o cliente. Quem
+ * lesse concluiria que existe uma segunda classe de cliente no Spaces — e
+ * passaria a tratar a Aiká como um cadastro técnico em vez de uma cliente da
+ * agência que hoje só tem site com a gente.
+ *
+ * O que muda é o ESCOPO: sem mídia conectada, as telas de mídia ficam vazias
+ * (ver SemMidia.tsx). Tudo o mais é igual — seletor, foto, Jornalzinho, alerta
+ * técnico. O nome técnico continua no banco, onde ele descreve o que faz.
  *
  * Mora aqui, e não numa tela de administração, porque é aqui que a necessidade
  * aparece: quem vem ligar o monitoramento de um cliente é quem descobre que o
- * cliente ainda não existe. Fica recolhido para não competir com o que a aba
- * realmente mostra.
+ * cliente ainda não existe. Fica recolhido para não competir com a aba.
  */
-function CriarClienteMonitorado() {
+function AdicionarClienteSemMidia() {
   const utils = trpc.useUtils();
   const [aberto, setAberto] = useState(false);
   const [nome, setNome] = useState("");
   const [dominio, setDominio] = useState("");
 
-  const criar = trpc.monitoramento.criarClienteMonitorado.useMutation({
+  const criar = trpc.monitoramento.adicionarClienteSemMidia.useMutation({
     onSuccess: async (r) => {
       // O seletor de clientes lê `accounts.list`; sem invalidar, o cliente
       // recém-criado só apareceria no próximo recarregamento da página — e
@@ -322,7 +331,7 @@ function CriarClienteMonitorado() {
         utils.monitoramento.status.invalidate(),
       ]);
       setNome(""); setDominio(""); setAberto(false);
-      toast.success(`${r.nome} criado. Selecione o cliente na barra lateral para configurar o monitoramento.`);
+      toast.success(`${r.nome} adicionado. Selecione o cliente na barra lateral para configurar o monitoramento.`);
     },
     onError: (e) => toast.error(e.message),
   });
@@ -331,22 +340,24 @@ function CriarClienteMonitorado() {
     return (
       <button onClick={() => setAberto(true)}
         className="self-start text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5">
-        <Plus className="w-3.5 h-3.5" /> Criar cliente somente-monitoramento
+        <Plus className="w-3.5 h-3.5" /> Adicionar cliente sem mídia
       </button>
     );
   }
 
   return (
     <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
-      <p className="text-xs font-semibold text-muted-foreground">Novo cliente somente-monitoramento</p>
+      <p className="text-xs font-semibold text-muted-foreground">Adicionar cliente sem mídia</p>
       <p className="text-[11px] text-muted-foreground">
-        Entra no seletor e tem área Site. Não entra em nenhum sync de mídia, não pede token
-        e não gera alerta de conexão — é um cliente que só é observado.
+        Use para clientes que ainda não têm mídia conectada, mas precisam aparecer no Spaces
+        para acompanhamento de Site e Monitoramento. Ele entra no seletor como qualquer
+        cliente — com foto, Jornalzinho e alertas técnicos. Só não entra nos syncs de mídia,
+        então não pede token nem gera alerta de conexão.
       </p>
       <div className="grid sm:grid-cols-2 gap-2">
-        <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome (ex.: Aiká)"
+        <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do cliente"
           className="h-9 px-3 rounded-lg border border-border bg-background text-sm" />
-        <input value={dominio} onChange={(e) => setDominio(e.target.value)} placeholder="Domínio (ex.: aikabodysoul.com)"
+        <input value={dominio} onChange={(e) => setDominio(e.target.value)} placeholder="Domínio do site (ex.: exemplo.com.br)"
           className="h-9 px-3 rounded-lg border border-border bg-background text-sm" />
       </div>
       <div className="flex items-center gap-2">

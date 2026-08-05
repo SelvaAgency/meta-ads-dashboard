@@ -1,15 +1,20 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Conta somente-monitoramento — isolamento dos fluxos de mídia
+ *  Cliente sem mídia — isolamento dos fluxos de mídia
  * ─────────────────────────────────────────────────────────────────────────────
- *  A Aiká entra no Tracker sem campanha nenhuma, só para vigiar o site. Sem
- *  isolamento ela cairia nos SETE laços de sync de mídia do autoSync com
+ *  A Aiká é uma cliente normal da Selva que hoje só tem SITE com a agência —
+ *  não é uma entidade técnica, é um cliente com outro escopo. O nome da coluna
+ *  (`somenteMonitoramento`) é técnico e descreve o que ela faz no banco; no
+ *  produto, isso é "cliente sem mídia".
+ *
+ *  Sem o isolamento ela cairia nos SETE laços de sync de mídia do autoSync com
  *  `accessToken` vazio e produziria erro e alerta de "token expirado" todo dia
  *  — ruído que ensina o time a ignorar alerta de verdade.
  *
- *  O isolamento NÃO é "sumir do sistema": ela precisa continuar selecionável
- *  (senão a área Site dela é inalcançável) e visível no Panorama (para ser
- *  citada em saúde técnica). São três destinos diferentes:
+ *  O isolamento NÃO é "sumir do sistema", e é aí que ele é fácil de errar: ela
+ *  precisa continuar selecionável (senão a área Site dela é inalcançável),
+ *  visível no Panorama, presente nas preferências do Jornalzinho e no GTM 1.
+ *  São três destinos diferentes:
  *
  *    sync de mídia   → FORA   (getAllActiveMetaAdAccounts)
  *    análise de mídia→ FORA   (contasDeMidia: briefing, portfólio, consolidação)

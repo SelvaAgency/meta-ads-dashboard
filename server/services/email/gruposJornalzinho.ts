@@ -45,21 +45,22 @@ export const GRUPOS: DefinicaoGrupo[] = [
   {
     id: "gtm1",
     rotulo: "GTM 1",
-    descricao: "Ultramalhas, Elwing, Carol G (e Aiká quando existir no Tracker)",
+    descricao: "Ultramalhas, Elwing, Carol G e Aiká",
     emailsPadrao: ["beth@selva.agency", "bruna@selva.agency", "namie@selva.agency"],
     alvos: [
       { rotulo: "Ultramalhas", tokens: ["ultramalhas", "ultra malhas"] },
       { rotulo: "Elwing", tokens: ["elwing"] },
       { rotulo: "Carol G", tokens: ["caroline garrafa", "caroline", "carol"] },
-      // Ainda sem conta no Tracker: fica como pendência até a conta existir, e
-      // aí entra sozinha. Declarar desde já é o que torna isso automático.
+      // Declarada aqui antes de a conta existir, e por isso entrou sozinha no
+      // dia em que a Aiká foi cadastrada — sem deploy. É o caso que justifica
+      // resolver por TOKEN e não por id: cliente novo não precisa de código.
       { rotulo: "Aiká", tokens: ["aika"] },
     ],
   },
   {
     id: "gtm2",
     rotulo: "GTM 2",
-    descricao: "Musa, Arka, Play (e UMDSA quando existir no Tracker)",
+    descricao: "Musa, Arka, Play (e UMDSA quando for cadastrada)",
     emailsPadrao: ["natalia@selva.agency", "bad@selva.agency"],
     alvos: [
       { rotulo: "Musa", tokens: ["musa"] },

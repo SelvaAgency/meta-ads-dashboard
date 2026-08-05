@@ -87,6 +87,15 @@ interface AdAccount {
   pictureUrl: string | null;
   /** Key da foto enviada à mão. Só existe para saber se dá para removê-la. */
   pictureKey?: string | null;
+  /**
+   * Cliente atendido só no Site — sem Meta, sem Google, sem campanha.
+   *
+   * O nome da coluna é técnico e ficou; no produto isso não é um "cliente
+   * especial", é um cliente com outro escopo. Ele aparece no seletor, tem foto,
+   * entra no Jornalzinho e recebe alerta técnico como qualquer outro — só as
+   * telas de mídia mudam (ver SemMidia.tsx).
+   */
+  somenteMonitoramento?: boolean | null;
 }
 
 interface ClientWithAccounts {

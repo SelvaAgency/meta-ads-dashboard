@@ -1,3 +1,4 @@
+import { SemMidia, clienteSemMidia } from "@/components/SemMidia";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { totaisDe, insightsDe, linhaComAtencao, gastouSemConverter, rotuloDoCanal, type CampanhaGoogle } from "./campanhas/googleAdsInsights";
 import { montarSerie, METRICAS_GRAFICO, formatarMetrica, taxasDoDia, type MetricaGrafico } from "./campanhas/googleAdsSerie";
@@ -691,6 +692,14 @@ export default function Campaigns() {
       default: return "últimos 7 dias";
     }
   }, [activePeriod, periodMode, customStartDate, customEndDate]);
+
+  if (clienteSemMidia(activeAccount)) {
+    return (
+      <MetaDashboardLayout title="Campanhas">
+        <SemMidia nome={activeAccount?.accountName} accountId={activeAccount?.id} area="a lista de campanhas" />
+      </MetaDashboardLayout>
+    );
+  }
 
   if (!accounts || accounts.length === 0) {
     return (

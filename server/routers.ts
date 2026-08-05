@@ -6103,16 +6103,20 @@ export const appRouter = router({
     }),
 
     /**
-     * Cria um cliente SOMENTE-MONITORAMENTO: entra no seletor e tem área Site,
-     * mas fica fora de todo sync de mídia (é a coluna `somenteMonitoramento` do
-     * passo 1 — sem ela a conta geraria "token expirado" todo dia).
+     * Adiciona um cliente que a agência atende SÓ NO SITE.
+     *
+     * É um cliente normal do Spaces: aparece no seletor, tem foto, entra nas
+     * preferências do Jornalzinho e recebe alerta técnico. O que muda é o
+     * escopo — sem mídia conectada, ele fica fora dos syncs de Meta/Google (a
+     * coluna `somenteMonitoramento` do passo 1; sem ela a conta geraria "token
+     * expirado" todo dia).
      *
      * Genérico e não "criar Aiká": o primeiro caso é a Aiká, mas a UMDSA tem a
      * mesma forma. Um procedimento por cliente exigiria deploy para cada um.
      *
      * Idempotente pelo slug — chamar duas vezes não cria duas contas.
      */
-    criarClienteMonitorado: contentProcedure
+    adicionarClienteSemMidia: contentProcedure
       .input(z.object({
         nome: z.string().min(2).max(120),
         dominio: z.string().min(4).max(255),

@@ -1,3 +1,4 @@
+import { SemMidia, clienteSemMidia } from "@/components/SemMidia";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
@@ -317,6 +318,16 @@ export default function Dashboard() {
 
   // Label for the result metric in campaigns list
   const resultLabel = data?.goalProfile?.resultLabel ?? "Resultados";
+
+  // Cliente atendido só no Site: o Dashboard dele abriria com tudo zerado, e
+  // "R$ 0,00 investido, 0 conversões" é indistinguível de campanha que parou.
+  if (clienteSemMidia(activeAccount)) {
+    return (
+      <MetaDashboardLayout title="Dashboard">
+        <SemMidia nome={activeAccount?.accountName} accountId={activeAccount?.id} area="o Dashboard" />
+      </MetaDashboardLayout>
+    );
+  }
 
   if (!accounts || accounts.length === 0) {
     return (

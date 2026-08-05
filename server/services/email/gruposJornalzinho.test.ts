@@ -142,3 +142,39 @@ describe("grupo como ponto de partida da seleção", () => {
     expect(depois.length).toBe(antes.length + 1);
   });
 });
+
+/**
+ * Aiká — cliente atendida só no Site, e mesmo assim cliente normal.
+ *
+ * Ela foi declarada no GTM 1 antes de a conta existir. O teste prova o que isso
+ * comprou: no dia em que a conta foi cadastrada, ela entrou no grupo sozinha,
+ * sem deploy. É o caso que justifica resolver por TOKEN e não por id.
+ */
+describe("Aiká no GTM 1", () => {
+  const SEM_AIKA = [
+    { id: 1, nome: "Ultramalhas" }, { id: 2, nome: "Elwing" }, { id: 3, nome: "Caroline Garrafa" },
+  ];
+  const COM_AIKA = [...SEM_AIKA, { id: 9, nome: "Aiká" }];
+
+  it("antes de a conta existir, é PENDÊNCIA — não some em silêncio", () => {
+    const r = resolverGrupo("gtm1", SEM_AIKA);
+    expect(r.aplicados.map((a) => a.rotulo)).not.toContain("Aiká");
+    expect(r.pendencias.find((p) => p.rotulo === "Aiká")?.tipo).toBe("sem_cliente");
+  });
+
+  it("depois de cadastrada, entra sozinha e sem pendência", () => {
+    const r = resolverGrupo("gtm1", COM_AIKA);
+    expect(r.aplicados.map((a) => a.rotulo)).toEqual(["Ultramalhas", "Elwing", "Carol G", "Aiká"]);
+    expect(r.pendencias).toEqual([]);
+  });
+
+  /** O nome tem acento; o token não. A normalização é o que faz os dois casarem. */
+  it.each(["Aiká", "AIKÁ", "Aiká Body & Soul", "aika"])("casa com o nome '%s'", (nome) => {
+    const r = resolverGrupo("gtm1", [...SEM_AIKA, { id: 9, nome }]);
+    expect(r.aplicados.find((a) => a.rotulo === "Aiká")?.accountId).toBe(9);
+  });
+
+  it("o GTM 1 enxerga a Aiká no recorte de contas", () => {
+    expect(contasDoGrupo("gtm1", COM_AIKA)).toContain(9);
+  });
+});
