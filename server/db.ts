@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { pareceMesmoCliente } from "@shared/importacaoContas";
 import { contasDoGrupo } from "./services/email/gruposJornalzinho";
 import { normalizarHost } from "./services/monitoramento/dominioRegistravel";
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
@@ -536,15 +537,24 @@ export async function getMetaAdAccountById(id: number) {
  * Traz também as INATIVAS: uma conta desativada de propósito continua existindo,
  * e reimportá-la a reativaria. Omiti-las aqui faria a tela chamá-las de "novas".
  */
-export async function contasMetaExistentes(): Promise<{ accountId: string; nome: string | null; ativa: boolean }[]> {
+export async function contasMetaExistentes(): Promise<{ accountId: string; nome: string | null; ativa: boolean; semMidia: boolean }[]> {
   const db = await getDb();
   if (!db) return [];
   const linhas = await db.select({
     accountId: metaAdAccounts.accountId,
     nome: metaAdAccounts.accountName,
     ativa: metaAdAccounts.isActive,
+    somenteMonitoramento: metaAdAccounts.somenteMonitoramento,
+    accessToken: metaAdAccounts.accessToken,
   }).from(metaAdAccounts);
-  return linhas.map((l) => ({ accountId: l.accountId, nome: l.nome, ativa: !!l.ativa }));
+  return linhas.map((l) => ({
+    accountId: l.accountId,
+    nome: l.nome,
+    ativa: !!l.ativa,
+    // Sem token também conta: é cliente que existe no Tracker mas nunca teve
+    // mídia conectada — o candidato natural a receber a conta importada.
+    semMidia: !!l.somenteMonitoramento || !l.accessToken,
+  }));
 }
 
 /**
@@ -572,6 +582,116 @@ export async function criarContaMetaSeNova(data: InsertMetaAdAccount): Promise<"
   await db.insert(metaAdAccounts).values(data);
   logger.info(`[DB] importação: conta ${data.accountId} criada`);
   return "criada";
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Mescla de clientes duplicados
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O caso que motivou: a Aiká existia como cliente só de Site (domínio,
+ *  Monitoramento, foto, preferências) e a importação da Meta criou uma segunda
+ *  entrada, "Aika 01". Duas Aikás no seletor, e a configuração toda na errada.
+ *
+ *  ── O que se move é a IDENTIDADE, não a configuração ───────────────────────
+ *  Site, Monitoramento, snapshots, Clarity e preferências apontam para o `id`
+ *  INTERNO da conta, não para o `accountId` da Meta. Então mover a identidade
+ *  de mídia (accountId + token) para o cliente que já tem tudo configurado
+ *  preserva tudo, sem migrar uma linha sequer.
+ *
+ *  O caminho inverso — mover a configuração para a conta importada — exigiria
+ *  reescrever chave estrangeira em seis tabelas, e cada uma esquecida seria um
+ *  dado órfão que ninguém notaria.
+ *
+ *  ── O nome NUNCA é tocado ──────────────────────────────────────────────────
+ *  É o ponto do exercício: o nome escolhido à mão prevalece sobre o que vem da
+ *  Meta. Mesclar não pode desfazer o que a importação já quase desfez.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export async function mesclarContas(manterId: number, descartarId: number): Promise<{
+  nomeMantido: string | null;
+  accountIdMovido: string;
+  nomeDescartado: string | null;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  if (manterId === descartarId) throw new Error("Escolha duas contas diferentes.");
+
+  const [manter] = await db.select().from(metaAdAccounts).where(eq(metaAdAccounts.id, manterId)).limit(1);
+  const [descartar] = await db.select().from(metaAdAccounts).where(eq(metaAdAccounts.id, descartarId)).limit(1);
+  if (!manter || !descartar) throw new Error("Conta não encontrada.");
+
+  // Só faz sentido dar mídia a quem não tem. Se as duas já têm conta de
+  // anúncios, mesclar descartaria a identidade de uma delas — decisão que o
+  // código não pode tomar sozinho.
+  const manterTemMidia = !manter.somenteMonitoramento && !!manter.accessToken;
+  if (manterTemMidia) {
+    throw new Error(`"${manter.accountName}" já tem conta de mídia conectada. Mescla só é permitida para cliente sem mídia.`);
+  }
+
+  const accountIdMovido = descartar.accountId;
+
+  // 1) Libera o accountId: a coluna é única, então ele não pode existir em duas
+  //    linhas nem por um instante. A conta descartada vira histórico inativo em
+  //    vez de sumir — apagar seria irreversível, e o prefixo deixa claro o que
+  //    aconteceu para quem olhar o banco depois.
+  await db.update(metaAdAccounts)
+    .set({ accountId: `mesclado-${accountIdMovido}`.slice(0, 64), isActive: false })
+    .where(eq(metaAdAccounts.id, descartarId));
+
+  // 2) A identidade de mídia passa para o cliente configurado. `accountName`
+  //    fica de fora de propósito — ver cabeçalho.
+  await db.update(metaAdAccounts).set({
+    accountId: accountIdMovido,
+    accessToken: descartar.accessToken,
+    somenteMonitoramento: false,
+    currency: manter.currency ?? descartar.currency,
+    timezone: manter.timezone ?? descartar.timezone,
+    isActive: true,
+  }).where(eq(metaAdAccounts.id, manterId));
+
+  logger.info(`[Mescla] conta ${accountIdMovido} movida de #${descartarId} ("${descartar.accountName}") para #${manterId} ("${manter.accountName}")`);
+  return { nomeMantido: manter.accountName, accountIdMovido, nomeDescartado: descartar.accountName };
+}
+
+/**
+ * Pares de contas ATIVAS que parecem ser o mesmo cliente.
+ *
+ * A comparação de nome mora em `shared/importacaoContas` — a mesma que a
+ * importação usa. Duas heurísticas de "mesmo cliente" divergiriam, e a tela de
+ * duplicatas passaria a discordar da tela de importação sobre o mesmo par.
+ */
+export async function duplicatasDeContas(): Promise<{
+  manter: { id: number; nome: string | null; semMidia: boolean };
+  descartar: { id: number; nome: string | null; accountId: string };
+}[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const contas = await db.select({
+    id: metaAdAccounts.id,
+    nome: metaAdAccounts.accountName,
+    accountId: metaAdAccounts.accountId,
+    somenteMonitoramento: metaAdAccounts.somenteMonitoramento,
+    accessToken: metaAdAccounts.accessToken,
+  }).from(metaAdAccounts).where(eq(metaAdAccounts.isActive, true));
+
+  const pares: Awaited<ReturnType<typeof duplicatasDeContas>> = [];
+  for (let i = 0; i < contas.length; i++) {
+    for (let j = i + 1; j < contas.length; j++) {
+      const a = contas[i], b = contas[j];
+      if (!pareceMesmoCliente(a.nome, b.nome)) continue;
+      const aSemMidia = !!a.somenteMonitoramento || !a.accessToken;
+      const bSemMidia = !!b.somenteMonitoramento || !b.accessToken;
+      // Só sugere quando exatamente UM dos dois é o cliente configurado sem
+      // mídia: é o par que a mescla sabe resolver.
+      if (aSemMidia === bSemMidia) continue;
+      const [manter, descartar] = aSemMidia ? [a, b] : [b, a];
+      pares.push({
+        manter: { id: manter.id, nome: manter.nome, semMidia: true },
+        descartar: { id: descartar.id, nome: descartar.nome, accountId: descartar.accountId },
+      });
+    }
+  }
+  return pares;
 }
 
 export async function createMetaAdAccount(data: InsertMetaAdAccount) {

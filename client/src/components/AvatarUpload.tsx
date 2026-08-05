@@ -68,6 +68,8 @@ export function AvatarUpload({
   const fileRef = useRef<HTMLInputElement>(null);
   const [enviando, setEnviando] = useState(false);
   const [previa, setPrevia] = useState<string | null>(null);
+  const [menuAberto, setMenuAberto] = useState(false);
+  const raizRef = useRef<HTMLDivElement>(null);
 
   // objectURL segura o arquivo em memória até ser revogado. Sem esta limpeza,
   // trocar a foto de vários clientes numa sessão vaza um blob por troca.
@@ -98,59 +100,94 @@ export function AvatarUpload({
 
   const mostrada = previa ?? pictureUrl ?? null;
 
+  /**
+   * Com foto própria, o clique abre um MENU (trocar / apagar). Sem foto, abre o
+   * seletor direto — um menu de uma opção só é um clique a mais para nada.
+   *
+   * A lixeira solta ao lado saiu por isto: encostada no avatar, dentro de um
+   * card que também tem ações do CLIENTE, ela lia como "apagar o cliente". A
+   * ação destrutiva agora mora dentro do menu daquilo que ela apaga.
+   */
+  const temMenu = podeEditar && !!onRemover;
+
+  useEffect(() => {
+    if (!menuAberto) return;
+    const fechar = (e: MouseEvent) => {
+      if (!raizRef.current?.contains(e.target as Node)) setMenuAberto(false);
+    };
+    const aoTeclar = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuAberto(false); };
+    document.addEventListener("mousedown", fechar);
+    document.addEventListener("keydown", aoTeclar);
+    return () => {
+      document.removeEventListener("mousedown", fechar);
+      document.removeEventListener("keydown", aoTeclar);
+    };
+  }, [menuAberto]);
+
   return (
-    <div className="flex items-center gap-2 flex-shrink-0">
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => podeEditar && !enviando && fileRef.current?.click()}
-          disabled={!podeEditar || enviando}
-          title={podeEditar ? "Clique para trocar a foto" : (nome ?? "")}
-          aria-label={podeEditar ? `Trocar a foto de ${nome ?? "cliente"}` : undefined}
-          className={`group ${className} bg-muted border border-border overflow-hidden flex items-center justify-center relative ${podeEditar ? "cursor-pointer" : "cursor-default"}`}
-        >
-          {mostrada
-            ? <img src={mostrada} alt={nome ?? ""} className="w-full h-full object-cover" />
-            : <span className={`${textoClasse} font-medium text-muted-foreground`}>{iniciaisDe(nome)}</span>}
+    <div ref={raizRef} className="relative flex-shrink-0">
+      <button
+        type="button"
+        onClick={() => {
+          if (!podeEditar || enviando) return;
+          if (temMenu) setMenuAberto((v) => !v);
+          else fileRef.current?.click();
+        }}
+        disabled={!podeEditar || enviando}
+        title={podeEditar ? (temMenu ? "Opções da imagem" : "Adicionar imagem") : (nome ?? "")}
+        aria-label={podeEditar ? `Imagem de ${nome ?? "cliente"}` : undefined}
+        aria-haspopup={temMenu ? "menu" : undefined}
+        aria-expanded={temMenu ? menuAberto : undefined}
+        className={`group ${className} bg-muted border border-border overflow-hidden flex items-center justify-center relative ${podeEditar ? "cursor-pointer" : "cursor-default"}`}
+      >
+        {mostrada
+          ? <img src={mostrada} alt={nome ?? ""} className="w-full h-full object-cover" />
+          : <span className={`${textoClasse} font-medium text-muted-foreground`}>{iniciaisDe(nome)}</span>}
 
-          {/* Convite ao clique só no hover: o card não vira mural de ícones
-              quando ninguém está mexendo em foto. */}
-          {podeEditar && !enviando && (
-            <span className="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55">
-              <Camera className="w-4 h-4 text-white" />
-            </span>
-          )}
-          {enviando && (
-            <span className="absolute inset-0 flex items-center justify-center bg-black/55">
-              <Loader2 className="w-4 h-4 text-white animate-spin" />
-            </span>
-          )}
-        </button>
+        {/* Convite ao clique só no hover: o card não vira mural de ícones
+            quando ninguém está mexendo em foto. */}
+        {podeEditar && !enviando && (
+          <span className="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/55">
+            <Camera className="w-4 h-4 text-white" />
+          </span>
+        )}
+        {enviando && (
+          <span className="absolute inset-0 flex items-center justify-center bg-black/55">
+            <Loader2 className="w-4 h-4 text-white animate-spin" />
+          </span>
+        )}
+      </button>
 
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) enviar(f);
-            e.target.value = ""; // permite reescolher o MESMO arquivo após um erro
-          }}
-        />
-      </div>
-
-      {podeEditar && onRemover && (
-        <button
-          type="button"
-          onClick={onRemover}
-          disabled={removendo || enviando}
-          title="Remover a foto — volta para as iniciais"
-          className="p-1 rounded-md text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
+      {temMenu && menuAberto && (
+        <div role="menu"
+          className="absolute z-30 left-0 top-full mt-1 w-44 rounded-lg border border-border bg-card shadow-lg py-1">
+          <button role="menuitem" type="button"
+            onClick={() => { setMenuAberto(false); fileRef.current?.click(); }}
+            className="w-full text-left text-xs px-3 py-2 hover:bg-muted/60 flex items-center gap-2">
+            <Camera className="w-3.5 h-3.5" /> Trocar imagem
+          </button>
+          <button role="menuitem" type="button"
+            onClick={() => { setMenuAberto(false); onRemover?.(); }}
+            disabled={removendo || enviando}
+            /* "imagem", não "foto do cliente": o texto precisa deixar claro que
+               isto não apaga o cliente. */
+            className="w-full text-left text-xs px-3 py-2 hover:bg-muted/60 text-destructive flex items-center gap-2 disabled:opacity-50">
+            <Trash2 className="w-3.5 h-3.5" /> Apagar imagem
+          </button>
+        </div>
       )}
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) enviar(f);
+          e.target.value = ""; // permite reescolher o MESMO arquivo após um erro
+        }}
+      />
     </div>
   );
 }

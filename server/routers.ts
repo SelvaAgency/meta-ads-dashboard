@@ -86,6 +86,8 @@ import {
   createMetaAdAccount,
   contasMetaExistentes,
   criarContaMetaSeNova,
+  duplicatasDeContas,
+  mesclarContas,
   createScheduledReport,
   deleteMetaAdAccount,
   deleteScheduledReport,
@@ -1847,6 +1849,32 @@ export const appRouter = router({
      *
      * Leitura pura: não escreve nada. Abrir a tela não importa conta nenhuma.
      */
+    /**
+     * Pares de contas que parecem ser o mesmo cliente e podem ser mescladas.
+     *
+     * Leitura pura. Aparece como aviso em Configurações → Contas, e não dentro
+     * da importação, porque a duplicata pode ter nascido de qualquer caminho —
+     * inclusive de antes desta tela existir, que é o caso da Aiká.
+     */
+    duplicatas: contentProcedure.query(() => duplicatasDeContas()),
+
+    /**
+     * Mescla: o cliente configurado ABSORVE a identidade de mídia do duplicado.
+     *
+     * O nome do cliente mantido nunca é tocado — é o ponto do exercício. A conta
+     * descartada vira histórico inativo em vez de sumir; apagar seria
+     * irreversível e o registro não atrapalha ninguém.
+     */
+    mesclar: contentProcedure
+      .input(z.object({ manterId: z.number().int(), descartarId: z.number().int() }))
+      .mutation(async ({ input }) => {
+        try {
+          return await mesclarContas(input.manterId, input.descartarId);
+        } catch (e) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+        }
+      }),
+
     previewImportacao: contentProcedure
       .input(z.object({ accessToken: z.string().min(10) }))
       .mutation(async ({ input }) => {

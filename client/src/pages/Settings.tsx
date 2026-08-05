@@ -213,6 +213,7 @@ const COR_STATUS: Record<StatusImportacao, string> = {
   ja_existe_inativa: "text-amber-600 border-amber-500/30 bg-amber-500/5",
   nome_diferente: "text-amber-600 border-amber-500/30 bg-amber-500/5",
   possivel_duplicada: "text-amber-600 border-amber-500/30 bg-amber-500/5",
+  corresponde_a_cliente: "text-sky-600 border-sky-500/40 bg-sky-500/5",
 };
 
 function TokenSection() {
@@ -549,6 +550,64 @@ function ConexoesPanel() {
 // isto cairiam em Configurações com o painel fechado, ou seja, na tela certa
 // sem sinal nenhum de que chegaram nela. Quem lê o parâmetro é o mesmo módulo
 // que o escreve (trackerRoutes), para os dois lados não divergirem.
+/**
+ * Aviso de clientes duplicados, com a mescla à mão.
+ *
+ * Mora em Configurações → Contas, e não dentro da importação, porque a
+ * duplicata pode ter nascido de qualquer caminho — inclusive de antes desta
+ * tela existir, que é exatamente o caso da Aiká.
+ *
+ * Silencioso quando não há nada: um bloco fixo dizendo "nenhuma duplicata"
+ * ensina a ignorar a área justo onde o aviso precisa ser notado.
+ */
+function AvisoDuplicatas() {
+  const utils = trpc.useUtils();
+  const q = trpc.accounts.duplicatas.useQuery();
+  const mesclar = trpc.accounts.mesclar.useMutation({
+    onSuccess: async (r) => {
+      await Promise.all([utils.accounts.list.invalidate(), utils.accounts.duplicatas.invalidate()]);
+      toast.success(`Conta ${r.accountIdMovido} conectada a "${r.nomeMantido}". "${r.nomeDescartado}" saiu da lista.`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const pares = q.data ?? [];
+  if (pares.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 space-y-3">
+      <p className="text-xs font-semibold text-amber-600 flex items-center gap-1.5">
+        <AlertCircle className="w-3.5 h-3.5" />
+        {pares.length === 1 ? "Um cliente parece estar duplicado" : `${pares.length} clientes parecem estar duplicados`}
+      </p>
+      {pares.map((par) => (
+        <div key={`${par.manter.id}-${par.descartar.id}`}
+          className="rounded-lg border border-border bg-card p-3 flex items-start gap-3 flex-wrap">
+          <div className="flex-1 min-w-[200px] text-xs">
+            <p>
+              <strong>{par.manter.nome}</strong> já existe com Site e Monitoramento configurados, e{" "}
+              <strong>{par.descartar.nome}</strong> chegou pela importação da Meta.
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Mesclar conecta a conta de mídia <code>{par.descartar.accountId}</code> a{" "}
+              <strong>{par.manter.nome}</strong>. O nome, a foto, o Site, o Monitoramento e as
+              preferências que já existem ficam como estão.
+            </p>
+          </div>
+          <button
+            onClick={() => mesclar.mutate({ manterId: par.manter.id, descartarId: par.descartar.id })}
+            disabled={mesclar.isPending}
+            className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-medium flex items-center gap-1.5 disabled:opacity-60 flex-shrink-0"
+          >
+            {mesclar.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+            Mesclar em {par.manter.nome}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AgencyBar({ totalAccounts }: { totalAccounts: number }) {
   const [openPanel, setOpenPanel] = useState<"token" | null>(
     typeof window !== "undefined" && pediuConexoes(window.location.search) ? "token" : null,
@@ -619,6 +678,8 @@ export default function Settings() {
 
         {/* Agency bar */}
         <AgencyBar totalAccounts={accounts?.length ?? 0} />
+
+        <AvisoDuplicatas />
 
         {/* Contas */}
         <section>

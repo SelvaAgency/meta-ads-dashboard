@@ -14,7 +14,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classificarContas, contasMarcadasPorPadrao, idLimpo, podeImportarSemForcar,
-  ROTULO_STATUS, type ContaDaMeta, type ContaNoTracker,
+  pareceMesmoCliente, ROTULO_STATUS, type ContaDaMeta, type ContaNoTracker,
 } from "./importacaoContas";
 
 const daMeta = (over: Partial<ContaDaMeta> = {}): ContaDaMeta =>
@@ -122,6 +122,65 @@ describe("comparação de nome", () => {
   it("nome nulo no Tracker não gera duplicata falsa", () => {
     expect(status([daMeta({ accountId: "9", nome: "Novo" })], [noTracker({ accountId: "1", nome: null })]))
       .toEqual(["nova"]);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O caso Aiká — a duplicata que passou
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O Tracker tinha "Aiká" (cliente só de Site). A Meta trouxe "Aika 01".
+ *  Normalizados: "aika" e "aika01" — diferentes por dois caracteres. A conta
+ *  entrou como NOVA, veio marcada, e o portfólio ficou com duas Aikás.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("nome com sufixo de conta de anúncios", () => {
+  it.each([
+    ["Aiká", "Aika 01"],
+    ["Aiká", "Aiká 02"],
+    ["Elwing", "Elwing BR"],
+    ["Ultramalhas", "Ultramalhas v2"],
+  ])("'%s' e '%s' são o mesmo cliente", (a, b) => {
+    expect(pareceMesmoCliente(a, b)).toBe(true);
+    expect(pareceMesmoCliente(b, a)).toBe(true);
+  });
+
+  it.each([
+    ["Musa", "Musa Textil"],
+    ["Arka", "Arkano Studio"],
+    ["UM", "UMBRO"],
+    ["Aiká", "Elwing"],
+  ])("'%s' e '%s' NÃO são o mesmo cliente", (a, b) => {
+    expect(pareceMesmoCliente(a, b)).toBe(false);
+  });
+
+  it.each([[null], [undefined], [""]])("nome %s não casa com nada", (v) => {
+    expect(pareceMesmoCliente(v as string, "Aiká")).toBe(false);
+  });
+
+  /** O caso real, ponta a ponta. */
+  it("Aika 01 é reconhecida como a Aiká existente e NÃO vem marcada", () => {
+    const [c] = classificarContas(
+      [daMeta({ accountId: "555", nome: "Aika 01" })],
+      [{ accountId: "monitor-aikabodysoul-com", nome: "Aiká", ativa: true, semMidia: true }],
+    );
+    expect(c.status).toBe("corresponde_a_cliente");
+    expect(c.marcadaPorPadrao).toBe(false);
+    expect(c.nomeAtual).toBe("Aiká");
+  });
+
+  /** E o servidor recusa importá-la: o caminho certo é mesclar. */
+  it("corresponde_a_cliente não pode ser importada", () => {
+    expect(podeImportarSemForcar("corresponde_a_cliente")).toBe(false);
+  });
+
+  /** Cliente COM mídia parecido continua sendo só "possível duplicada". */
+  it("parecido que já tem mídia não vira correspondência", () => {
+    const [c] = classificarContas(
+      [daMeta({ accountId: "555", nome: "Elwing 02" })],
+      [{ accountId: "111", nome: "Elwing", ativa: true, semMidia: false }],
+    );
+    expect(c.status).toBe("possivel_duplicada");
   });
 });
 

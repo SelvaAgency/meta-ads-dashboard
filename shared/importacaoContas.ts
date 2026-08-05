@@ -30,7 +30,8 @@ export type StatusImportacao =
   | "ja_existe"
   | "ja_existe_inativa"
   | "nome_diferente"
-  | "possivel_duplicada";
+  | "possivel_duplicada"
+  | "corresponde_a_cliente";
 
 export const ROTULO_STATUS: Record<StatusImportacao, string> = {
   nova: "Nova conta",
@@ -38,6 +39,7 @@ export const ROTULO_STATUS: Record<StatusImportacao, string> = {
   ja_existe_inativa: "Já existe, desativada",
   nome_diferente: "Já existe com outro nome",
   possivel_duplicada: "Possível duplicada",
+  corresponde_a_cliente: "Parece ser um cliente que já existe",
 };
 
 export const EXPLICACAO_STATUS: Record<StatusImportacao, string> = {
@@ -46,6 +48,7 @@ export const EXPLICACAO_STATUS: Record<StatusImportacao, string> = {
   ja_existe_inativa: "Foi desativada no Tracker. Importar reativaria o cliente.",
   nome_diferente: "O nome no Tracker foi alterado à mão. Importar desfaria isso.",
   possivel_duplicada: "Outro cliente já usa este nome, com outro ID de conta.",
+  corresponde_a_cliente: "Este cliente já existe no Tracker, hoje só com Site. Importar criaria um segundo. Use Mesclar.",
 };
 
 export interface ContaDaMeta {
@@ -60,6 +63,8 @@ export interface ContaNoTracker {
   accountId: string;
   nome: string | null;
   ativa: boolean;
+  /** Cliente atendido só no Site — o candidato natural a receber a mídia. */
+  semMidia?: boolean;
 }
 
 export interface ContaClassificada extends ContaDaMeta {
@@ -68,6 +73,33 @@ export interface ContaClassificada extends ContaDaMeta {
   nomeAtual: string | null;
   /** Vem marcada na tela? Só `nova`. */
   marcadaPorPadrao: boolean;
+}
+
+/**
+ * Os dois nomes são provavelmente do MESMO cliente?
+ *
+ * Igualdade exata não basta, e o caso da Aiká provou: o Tracker tinha "Aiká" e
+ * a Meta trouxe "Aika 01". Normalizados viram "aika" e "aika01" — diferentes
+ * por dois caracteres, e a importação criou um segundo cliente.
+ *
+ * Então um nome que é o outro MAIS um sufixo curto ou numérico conta como o
+ * mesmo. É a forma como conta de anúncios costuma ser batizada: o nome do
+ * cliente seguido de 01, 02, BR, v2.
+ *
+ * A regra erra para o lado seguro. "musa" e "musatextil" NÃO casam (o sufixo
+ * tem 6 letras), e mesmo se casassem o custo seria um aviso a mais e um clique
+ * — enquanto o erro oposto é o que acabou de acontecer: dois clientes Aiká.
+ */
+const SUFIXO_CURTO = 3;
+export function pareceMesmoCliente(a: string | null | undefined, b: string | null | undefined): boolean {
+  const x = normalizar(a), y = normalizar(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [curto, longo] = x.length <= y.length ? [x, y] : [y, x];
+  // Nome curto demais casaria com meio portfólio ("um" dentro de "umbro").
+  if (curto.length < 4 || !longo.startsWith(curto)) return false;
+  const sobra = longo.slice(curto.length);
+  return sobra.length <= SUFIXO_CURTO || /^\d+$/.test(sobra);
 }
 
 /** Comparação de nome: sem acento, caixa nem separador. */
@@ -84,16 +116,17 @@ export function classificarContas(
   noTracker: ContaNoTracker[],
 ): ContaClassificada[] {
   const porId = new Map(noTracker.map((c) => [idLimpo(c.accountId), c]));
-  const porNome = new Map<string, ContaNoTracker[]>();
-  for (const c of noTracker) {
-    const chave = normalizar(c.nome);
-    if (!chave) continue;
-    porNome.set(chave, [...(porNome.get(chave) ?? []), c]);
-  }
 
   return daMeta.map((conta) => {
     const id = idLimpo(conta.accountId);
     const existente = porId.get(id);
+
+    // Mesmo nome (ou quase — ver pareceMesmoCliente) com OUTRO id.
+    const parecidos = noTracker.filter(
+      (c) => idLimpo(c.accountId) !== id && pareceMesmoCliente(c.nome, conta.nome),
+    );
+    // Cliente sem mídia tem precedência: é exatamente o caso que deve MESCLAR.
+    const candidato = parecidos.find((c) => c.semMidia) ?? parecidos[0] ?? null;
 
     const status: StatusImportacao = existente
       ? !existente.ativa
@@ -101,23 +134,27 @@ export function classificarContas(
         : normalizar(existente.nome) !== normalizar(conta.nome)
           ? "nome_diferente"
           : "ja_existe"
-      // Mesmo nome com OUTRO id: não é a mesma conta, mas provavelmente o mesmo
-      // cliente. Ver cabeçalho.
-      : (porNome.get(normalizar(conta.nome)) ?? []).some((c) => idLimpo(c.accountId) !== id)
-        ? "possivel_duplicada"
+      : candidato
+        ? candidato.semMidia ? "corresponde_a_cliente" : "possivel_duplicada"
         : "nova";
 
     return {
       ...conta,
       accountId: id,
       status,
-      nomeAtual: existente?.nome ?? null,
+      nomeAtual: existente?.nome ?? candidato?.nome ?? null,
       marcadaPorPadrao: status === "nova",
     };
   });
 }
 
 /** Status que o servidor aceita importar sem confirmação explícita. */
+/**
+ * Status que o servidor aceita importar.
+ *
+ * `corresponde_a_cliente` fica de FORA: importar ali é justamente criar a
+ * duplicata que se quer evitar. O caminho é mesclar.
+ */
 export const podeImportarSemForcar = (s: StatusImportacao): boolean =>
   s === "nova" || s === "possivel_duplicada";
 
