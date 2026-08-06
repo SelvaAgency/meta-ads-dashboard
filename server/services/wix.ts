@@ -77,8 +77,52 @@ export async function validarUrlWix(bruta: string): Promise<string> {
   return v;
 }
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Mapa de FORMATO — a saída que o passo 2 consome
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Devolve a ESTRUTURA de um pedido — nomes de campo e tipos — sem os valores.
+ *
+ *  Sem valores por dois motivos, e o segundo é o que importa: pedido de
+ *  e-commerce carrega nome, e-mail e endereço de cliente final, e nada disso
+ *  precisa sair da Wix para eu escrever um normalizador. O que preciso é saber
+ *  que existe `priceSummary.total.amount`, não quanto alguém pagou.
+ *
+ *  A exceção são campos de STATUS e MOEDA: aí o valor é a informação (é
+ *  "APPROVED" ou "PAID"? "BRL" ou "R$"?), é curto, e não identifica ninguém.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const CAMPOS_COM_VALOR = /status|state|currency|moeda|type$/i;
+const PROFUNDIDADE_MAX = 4;
+
+export function resumoDeFormato(v: unknown, nome = "", nivel = 0): string[] {
+  const linhas: string[] = [];
+  const recuo = "  ".repeat(nivel);
+  if (nivel > PROFUNDIDADE_MAX) return [`${recuo}${nome}: …`];
+
+  if (Array.isArray(v)) {
+    linhas.push(`${recuo}${nome}: [${v.length}]`);
+    // Só o PRIMEIRO item: a estrutura se repete, e listar 20 iguais só ocupa
+    // espaço no campo que vai guardar isto.
+    if (v.length > 0) linhas.push(...resumoDeFormato(v[0], "└ item", nivel + 1));
+    return linhas;
+  }
+  if (v && typeof v === "object") {
+    if (nome) linhas.push(`${recuo}${nome}:`);
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      linhas.push(...resumoDeFormato(val, k, nivel + (nome ? 1 : 0)));
+    }
+    return linhas;
+  }
+  const tipo = v === null ? "null" : typeof v;
+  // Valor só quando é seguro E informativo — ver cabeçalho.
+  const mostrarValor = CAMPOS_COM_VALOR.test(nome) && tipo === "string" && String(v).length <= 40;
+  linhas.push(`${recuo}${nome}: ${tipo}${mostrarValor ? ` = "${v}"` : ""}`);
+  return linhas;
+}
+
 export type ResultadoTesteWix =
-  | { ok: true; detalhe: string }
+  | { ok: true; detalhe: string; formato?: string }
   | { ok: false; erro: string; comoResolver?: string };
 
 const headersWix = (apiKey: string, siteId: string): Record<string, string> => ({
@@ -116,8 +160,19 @@ export async function testarConexaoWix(apiKey: string, siteId: string): Promise<
       headers: headersWix(apiKey.trim(), site),
       body: JSON.stringify({ search: { cursorPaging: { limit: 1 } } }),
     }));
-    // Lido só para CLASSIFICAR o erro. Nunca é devolvido cru — ver cabeçalho.
-    corpo = (await resp.text()).slice(0, 400);
+    /**
+     * 200 KB, não 400 bytes.
+     *
+     * O corte de 400 estava dimensionado para "classificar um erro", e teria
+     * quebrado o caso que mais importa: um pedido da Wix não cabe em 400
+     * caracteres, o JSON truncado não faz parse, e o teste responderia "não é
+     * JSON" para uma resposta perfeitamente válida. É a mesma armadilha do teto
+     * de leitura do robô de monitoramento — número escolhido para um uso e
+     * herdado por outro.
+     *
+     * O corpo continua sendo usado só internamente: nada dele é devolvido cru.
+     */
+    corpo = (await resp.text()).slice(0, 200_000);
   } catch (e) {
     if (e instanceof UrlBloqueadaError) return { ok: false, erro: e.message };
     return { ok: false, erro: "A API da Wix não respondeu (tempo esgotado ou falha de rede)." };
@@ -156,26 +211,30 @@ export async function testarConexaoWix(apiKey: string, siteId: string): Promise<
    * uma loja vazia — e essa diferença muda como o adaptador será escrito.
    */
   let quantos: number | null = null;
-  let chaves: string[] = [];
+  let formato = "";
   try {
     const dados = JSON.parse(corpo) as Record<string, unknown>;
     const lista = (dados.orders ?? dados.results ?? []) as unknown[];
     if (Array.isArray(lista)) {
       quantos = lista.length;
-      if (lista[0] && typeof lista[0] === "object") chaves = Object.keys(lista[0] as object).slice(0, 12);
+      if (lista[0]) formato = resumoDeFormato(lista[0]).join("\n");
+    }
+    // Nem `orders` nem `results`: o corpo é JSON, mas de outra forma. As chaves
+    // de topo já dizem por onde procurar.
+    if (!Array.isArray(lista) || (quantos === 0 && Object.keys(dados).length > 0)) {
+      formato = formato || `chaves no topo da resposta: ${Object.keys(dados).slice(0, 15).join(", ")}`;
     }
   } catch {
-    // 200 com corpo que não é o JSON esperado ainda é sinal útil: a credencial
-    // passou, o formato é que precisa ser olhado antes de escrever o adaptador.
-    return { ok: true, detalhe: "A chave foi aceita, mas a resposta veio num formato inesperado. Me avise — é isso que define como o adaptador será escrito." };
+    return { ok: true, detalhe: "A chave foi aceita, mas a resposta não é JSON. Me avise — é isso que define como o adaptador será escrito." };
   }
 
   logger.info(`[Wix] teste ok para site ${site} — ${quantos ?? "?"} pedido(s) na amostra`);
   return {
     ok: true,
     detalhe: quantos === 0
-      ? "Chave válida e com permissão de leitura. A amostra veio vazia — pode ser loja sem pedidos no período."
-      : `Chave válida e com permissão de leitura. Amostra devolveu ${quantos} pedido(s)${chaves.length ? ` com os campos: ${chaves.join(", ")}` : ""}.`,
+      ? "Chave válida e com permissão de leitura. A amostra veio vazia — pode ser loja sem pedidos ou filtro de janela."
+      : `Chave válida e com permissão de leitura. Amostra devolveu ${quantos} pedido(s).`,
+    formato: formato || undefined,
   };
 }
 

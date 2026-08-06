@@ -227,6 +227,18 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela site_compliance_settings garantida");
 
+    // 3.0.9) Diagnóstico do teste de conexão de loja. Sem esta coluna o retorno
+    //        do teste vive só num toast e some — e é ele que orienta o
+    //        adaptador da plataforma.
+    if (await tableExists(conn, "ecommerce_connections")) {
+      if (await columnExists(conn, "ecommerce_connections", "lastTestDetail")) {
+        console.log("[ensure-schema] ok  · ecommerce_connections.lastTestDetail já existe");
+      } else {
+        await conn.query("ALTER TABLE `ecommerce_connections` ADD COLUMN `lastTestDetail` TEXT NULL");
+        console.log("[ensure-schema] +   · ecommerce_connections.lastTestDetail adicionada");
+      }
+    }
+
     // 3.0.8) Estado da confirmação dupla. Colunas SEPARADAS do snapshot diário:
     //        uma suspeita das 23h58 confirma às 00h03, e estado guardado por dia
     //        se perderia exatamente na virada.

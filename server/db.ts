@@ -5212,12 +5212,17 @@ export async function credenciaisDaConexao(id: number) {
   }
 }
 
-export async function registrarTesteEcommerce(id: number, ok: boolean, erro: string | null) {
+export async function registrarTesteEcommerce(
+  id: number, ok: boolean, erro: string | null, detalhe?: string | null,
+) {
   const db = await getDb();
   if (!db) return;
   await db.update(ecommerceConnections).set({
     lastTestAt: new Date(), lastTestStatus: ok ? "ok" : "erro",
     lastTestError: ok ? null : (erro ?? "").slice(0, 300),
+    // Só grava quando VEIO detalhe: um teste sem diagnóstico não pode apagar o
+    // diagnóstico do teste anterior, que pode ser a única cópia dele.
+    ...(detalhe ? { lastTestDetail: detalhe.slice(0, 12_000) } : {}),
   }).where(eq(ecommerceConnections.id, id));
 }
 

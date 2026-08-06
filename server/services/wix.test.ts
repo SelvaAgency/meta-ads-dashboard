@@ -12,7 +12,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it } from "vitest";
-import { PENDENCIAS_WIX, testarConexaoWix, validarSiteId, validarUrlWix, WixCredencialInvalidaError } from "./wix";
+import { PENDENCIAS_WIX, resumoDeFormato, testarConexaoWix, validarSiteId, validarUrlWix, WixCredencialInvalidaError } from "./wix";
 
 describe("Site ID", () => {
   it("aceita o GUID do site da Aiká", () => {
@@ -87,5 +87,76 @@ describe("o que ainda não existe fica declarado", () => {
     const path = await import("node:path");
     const fonte = fs.readFileSync(path.join(__dirname, "lojaSync.ts"), "utf8");
     expect(fonte).not.toContain('cred.platform === "wix"');
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Mapa de formato — estrutura sim, dado de cliente não
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Pedido de e-commerce carrega nome, e-mail e endereço de cliente final. Nada
+ *  disso precisa sair da Wix para eu escrever um normalizador — o que preciso é
+ *  saber que existe `priceSummary.total.amount`, não quanto alguém pagou nem
+ *  quem é.
+ *
+ *  Se este teste falhar, o diagnóstico virou vazamento.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("mapa de formato", () => {
+  const PEDIDO = {
+    id: "abc-123",
+    number: 1042,
+    createdDate: "2026-08-05T12:00:00Z",
+    status: "APPROVED",
+    paymentStatus: "PAID",
+    priceSummary: { total: { amount: "249.90", currency: "BRL" }, subtotal: { amount: "279.90" } },
+    buyerInfo: { email: "cliente@exemplo.com", contactId: "c-1" },
+    recipientInfo: { address: { city: "São Paulo", streetAddress: { name: "Rua X", number: "10" } } },
+    lineItems: [{ productName: { original: "Sabonete" }, quantity: 2, totalPriceAfterTax: { amount: "99.80" } }],
+    appliedDiscounts: [{ coupon: { code: "BEMVINDO10" }, discountType: "GLOBAL" }],
+  };
+  const mapa = () => resumoDeFormato(PEDIDO).join("\n");
+
+  it("mostra os campos que o normalizador vai precisar", () => {
+    const m = mapa();
+    for (const campo of ["id", "createdDate", "priceSummary", "total", "amount", "lineItems", "quantity", "appliedDiscounts"]) {
+      expect(m, `faltou ${campo}`).toContain(campo);
+    }
+  });
+
+  it("mostra o VALOR de status e moeda — é neles que o valor é a informação", () => {
+    const m = mapa();
+    expect(m).toContain('status: string = "APPROVED"');
+    expect(m).toContain('paymentStatus: string = "PAID"');
+    expect(m).toContain('currency: string = "BRL"');
+  });
+
+  /** O que NÃO pode aparecer. */
+  it.each([
+    ["e-mail do cliente", "cliente@exemplo.com"],
+    ["cidade", "São Paulo"],
+    ["rua", "Rua X"],
+    ["nome do produto", "Sabonete"],
+    ["valor pago", "249.90"],
+    ["código do cupom", "BEMVINDO10"],
+  ])("não vaza %s", (_n, valor) => {
+    expect(mapa()).not.toContain(valor);
+  });
+
+  it("mostra que os campos de cliente EXISTEM, sem o conteúdo", () => {
+    const m = mapa();
+    expect(m).toContain("buyerInfo");
+    expect(m).toContain("email: string");
+    expect(m).not.toContain("@exemplo");
+  });
+
+  it("lista só o primeiro item de um array, com a contagem", () => {
+    const m = resumoDeFormato({ lineItems: [{ a: 1 }, { a: 2 }, { a: 3 }] }).join("\n");
+    expect(m).toContain("lineItems: [3]");
+    expect(m.match(/└ item/g)?.length).toBe(1);
+  });
+
+  it.each([[null], [undefined], [{}], [[]]])("entrada %s não quebra", (v) => {
+    expect(() => resumoDeFormato(v)).not.toThrow();
   });
 });

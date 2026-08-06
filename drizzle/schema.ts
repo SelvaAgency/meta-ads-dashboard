@@ -646,6 +646,13 @@ export const ecommerceConnections = mysqlTable("ecommerce_connections", {
   lastTestStatus: varchar("lastTestStatus", { length: 8 }),
   lastTestError: varchar("lastTestError", { length: 300 }),
   /**
+   * Diagnóstico do último teste BEM-SUCEDIDO. Existe porque o resultado do
+   * teste da Wix ia para um toast e sumia — e era justamente ele que orientava
+   * como escrever o adaptador. Guarda ESTRUTURA (campos e tipos), nunca valores
+   * de pedido.
+   */
+  lastTestDetail: text("lastTestDetail"),
+  /**
    * Sync ≠ teste: o teste diz se a credencial funciona; o sync, se a última
    * IMPORTAÇÃO funcionou. Vão divergir — por isso são colunas separadas.
    * Falha de sync não apaga o lastSyncAt anterior.

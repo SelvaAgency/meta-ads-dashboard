@@ -5925,7 +5925,13 @@ export const appRouter = router({
               // identificado pelo Site ID. Ver o cabeçalho de wix.ts.
               ? await testarConexaoWix(cred.consumerSecret /* API Key */, cred.consumerKey /* Site ID */)
               : { ok: false as const, erro: `Teste ainda não implementado para ${cred.platform}.` };
-        await registrarTesteEcommerce(input.id, r.ok, r.ok ? null : r.erro);
+        await registrarTesteEcommerce(
+          input.id, r.ok, r.ok ? null : r.erro,
+          // O mapa de formato é o produto deste teste — sem persistir, ele
+          // vive num toast e some.
+          // Só a Wix produz mapa de formato hoje; as outras devolvem `undefined`.
+          r.ok && "formato" in r && typeof r.formato === "string" ? r.formato : null,
+        );
         return r;
       }),
 

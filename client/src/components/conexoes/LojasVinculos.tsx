@@ -47,8 +47,25 @@ export function LojasVinculos() {
     onSuccess: () => { toast.success("Conexão desativada."); aoMudar(); },
     onError: (e) => toast.error(e.message),
   });
+  /**
+   * O retorno do teste fica GUARDADO, não só num toast.
+   *
+   * A primeira versão mostrava o diagnóstico num toast que sumia em segundos —
+   * e era justamente ele que descrevia o formato do pedido, a informação que
+   * orienta como escrever o adaptador da plataforma. Perder isso obrigava a
+   * testar de novo só para ler.
+   */
+  const [ultimoDiagnostico, setUltimoDiagnostico] = useState<null | { id: number; texto: string }>(null);
+
   const testar = trpc.ecommerce.testConnection.useMutation({
-    onSuccess: (r) => { r.ok ? toast.success(r.detalhe) : toast.error(r.erro); aoMudar(); },
+    onSuccess: (r, vars) => {
+      r.ok ? toast.success(r.detalhe) : toast.error(r.erro);
+      const texto = r.ok
+        ? [r.detalhe, "formato" in r && r.formato ? `\n${r.formato}` : ""].join("")
+        : [r.erro, "comoResolver" in r && r.comoResolver ? `\n${r.comoResolver}` : ""].join("");
+      setUltimoDiagnostico({ id: vars.id, texto });
+      aoMudar();
+    },
     onError: (e) => toast.error(e.message),
     onSettled: () => setTestando(null),
   });
@@ -357,6 +374,31 @@ export function LojasVinculos() {
                     </td>
                   </tr>
                 ))}
+                {/*
+                  Diagnóstico do último teste, em bloco selecionável.
+                  `whitespace-pre-wrap` e fonte mono porque o conteúdo é uma
+                  ÁRVORE de campos — quebrar a indentação torna ilegível
+                  justamente o que interessa. E selecionável porque o destino
+                  natural dele é ser copiado para quem vai escrever o adaptador.
+                */}
+                {ultimoDiagnostico && (
+                  <tr>
+                    <td colSpan={99} className="px-5 pb-3">
+                      <div className="rounded-lg border border-border bg-muted/30 p-3">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <p className="text-[11px] font-semibold text-muted-foreground">
+                            Diagnóstico do último teste — {nomeDoCliente(conexoes.find((c) => c.id === ultimoDiagnostico.id)?.accountId ?? 0)}
+                          </p>
+                          <button onClick={() => setUltimoDiagnostico(null)}
+                            className="text-[11px] text-muted-foreground hover:text-foreground">fechar</button>
+                        </div>
+                        <pre className="text-[11px] font-mono whitespace-pre-wrap break-all select-all max-h-72 overflow-y-auto text-foreground">
+{ultimoDiagnostico.texto}
+                        </pre>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
