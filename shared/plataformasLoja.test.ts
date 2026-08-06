@@ -106,3 +106,57 @@ describe("validação de entrada", () => {
     expect(ehPlataformaValida(v)).toBe(false);
   });
 });
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Nenhum label de plataforma pode ser fixo
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A loja Wix da Aiká apareceu como "WooCommerce" em Conexões → Lojas. O dado
+ *  estava certo: o que havia era um ternário `platform === "vnda" ? … : "Woo"`,
+ *  que devolvia WooCommerce para tudo que não fosse VNDA.
+ *
+ *  Esse defeito é pior do que parece porque parece OUTRA coisa — quem vê pensa
+ *  que cadastrou errado, e vai procurar o erro no cadastro. Havia duas cópias
+ *  do mesmo ternário: a tabela de Lojas e o rótulo do Panorama.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("labels vêm do catálogo, nunca de um ternário", () => {
+  const fonte = async (caminho: string) => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    return fs.readFileSync(path.join(__dirname, "..", caminho), "utf8");
+  };
+
+  it.each([
+    ["client/src/components/conexoes/LojasVinculos.tsx", "tabela de Lojas"],
+    ["shared/panoramaLogic.ts", "rótulo do Panorama"],
+  ])("%s não decide label por plataforma no ternário", async (caminho) => {
+    const codigo = (await fonte(caminho))
+      .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    // O padrão exato que causou o bug, nas duas formas em que ele apareceu.
+    expect(codigo).not.toMatch(/=== *"vnda" *\? *"[^"]*" *: *"WooCommerce"/);
+    expect(codigo).not.toMatch(/=== *"vnda" *\? *"VNDA" *: *"Woo"/);
+  });
+
+  /** Fallback que INVENTA plataforma faz a origem do número mentir. */
+  it("o Panorama não assume woocommerce quando a plataforma é desconhecida", async () => {
+    const codigo = (await fonte("shared/panoramaLogic.ts"))
+      .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(codigo).not.toContain('?? "woocommerce"');
+  });
+
+  it("toda plataforma do catálogo tem rótulo curto no Panorama", async () => {
+    const { rotuloPlataforma } = await import("./panoramaLogic");
+    for (const p of PLATAFORMAS_LOJA) {
+      const r = rotuloPlataforma(p.id);
+      expect(r, `${p.id} sem rótulo`).toBeTruthy();
+      // Nenhuma pode cair no rótulo de outra.
+      if (p.id !== "woocommerce") expect(r, `${p.id} virou Woo`).not.toBe("Woo");
+    }
+  });
+
+  it("plataforma desconhecida não vira Woo", async () => {
+    const { rotuloPlataforma } = await import("./panoramaLogic");
+    expect(rotuloPlataforma("magento")).not.toBe("Woo");
+  });
+});

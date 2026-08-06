@@ -28,8 +28,15 @@ const ecom = (o: Partial<EcomGA4> = {}): EcomGA4 => ({
 });
 
 // BAESH: Woo importado (30d com receita; 7d sem venda) + funil GA4 vazando no checkout
+/**
+ * `plataformaLoja` declarada porque o dado REAL sempre a tem: o sync grava
+ * `provider = plataforma da conexão` em todo snapshot de loja. A fixture antiga
+ * omitia o campo e dependia de um fallback que assumia WooCommerce — o mesmo
+ * fallback que fez a loja Wix da Aiká aparecer etiquetada como Woo.
+ */
 const baesh = base({
   nome: "BAESH",
+  plataformaLoja: "woocommerce",
   loja_7d: { dia: "2026-07-22", metricsJson: { status: "sem_dados", receita: null, pedidos: null } },
   loja_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 2061.16, pedidos: 4, ticketMedio: 515.29 } },
   ga4_30d: { dia: "2026-07-22", metricsJson: { sessions: 900, ecommerce: ecom({ addToCart: 62, beginCheckout: 60, purchases: 4, taxaCarrinhoCheckout: 96.8, taxaCheckoutPurchase: 6.7, receita: 2000, transacoes: 4 }) } },
@@ -107,9 +114,28 @@ describe("Vendas — uma fonte só", () => {
     expect(v.receita).toBe(24000);   // receita real da loja, não o GA4
   });
 
-  it("plataformaLoja ausente assume Woo (compat) — rótulo 'Woo'", () => {
+  /**
+   * Regra ANTIGA: plataforma ausente assumia WooCommerce. Foi retirada — era o
+   * mesmo defeito que etiquetou a loja Wix da Aiká como Woo, e um rótulo errado
+   * numa célula de receita manda conferir a integração errada quando o número
+   * parecer estranho.
+   *
+   * Na prática o caso é inalcançável: todo snapshot de loja carrega `provider`.
+   * Quando não carregar, "loja" é honesto — e não é um chute plausível.
+   */
+  it("plataforma ausente NÃO vira Woo — o rótulo é neutro", () => {
     const c = base({ loja_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 500, pedidos: 5 } } });
-    expect(vendasDe(c)!.rotuloFonte).toBe("Woo");
+    const v = vendasDe(c)!;
+    expect(v.rotuloFonte).not.toBe("Woo");
+    expect(v.rotuloFonte).toBe("loja");
+    expect(v.receita).toBe(500); // o número continua certo; só o rótulo mudou
+  });
+
+  it("cada plataforma tem o próprio rótulo", () => {
+    for (const [plat, rotulo] of [["woocommerce", "Woo"], ["vnda", "VNDA"], ["wix", "Wix"]] as const) {
+      const c = base({ plataformaLoja: plat, loja_30d: { dia: "2026-07-22", metricsJson: { status: "ok", receita: 100, pedidos: 1 } } });
+      expect(vendasDe(c)!.rotuloFonte, plat).toBe(rotulo);
+    }
   });
 });
 

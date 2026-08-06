@@ -94,8 +94,26 @@ export type ClientePanorama = {
 };
 
 /** Rótulo curto da plataforma para o chip de fonte de venda. */
+/**
+ * Rótulo curto da plataforma, para caber na célula do Panorama.
+ *
+ * Era `p === "vnda" ? "VNDA" : "Woo"` — mesmo defeito da tabela de Lojas: tudo
+ * que não fosse VNDA virava Woo, então a receita da Wix apareceria etiquetada
+ * como WooCommerce. Rótulo errado numa célula de receita é pior que rótulo
+ * ausente: manda olhar a integração errada quando o número parecer estranho.
+ *
+ * O mapa é curto de propósito (a célula é estreita) e explícito: plataforma
+ * nova sem rótulo aparece com o próprio id, não como "Woo".
+ */
+const ROTULO_CURTO: Record<string, string> = {
+  woocommerce: "Woo",
+  vnda: "VNDA",
+  wix: "Wix",
+  shopify: "Shopify",
+};
+
 export function rotuloPlataforma(p: ClientePanorama["plataformaLoja"]): string {
-  return p === "vnda" ? "VNDA" : "Woo";
+  return ROTULO_CURTO[String(p ?? "")] ?? String(p ?? "loja");
 }
 
 // ─── Limiares — declarados, não mágicos ──────────────────────────────────────
@@ -142,7 +160,10 @@ export function vendasDe(c: ClientePanorama): Vendas | null {
   if (loja) {
     const m = loja.s.metricsJson;
     return {
-      fonte: "loja", plataforma: c.plataformaLoja ?? "woocommerce",
+      // Sem fallback de plataforma: inventar uma faz a origem do número mentir —
+      // a receita da Wix apareceria etiquetada como Woo, e quem estranhasse o
+      // valor iria conferir a integração errada.
+      fonte: "loja", plataforma: (c.plataformaLoja ?? "loja") as PlataformaLoja,
       rotuloFonte: rotuloPlataforma(c.plataformaLoja), janela: loja.janela, dia: loja.s.dia,
       receita: m.receita ?? null, pedidos: m.pedidos ?? null, ticketMedio: m.ticketMedio ?? null,
     };

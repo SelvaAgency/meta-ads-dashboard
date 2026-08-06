@@ -327,7 +327,16 @@ export function LojasVinculos() {
                 {conexoes.map((c) => (
                   <tr key={c.id} className="border-b border-border/50 last:border-0">
                     <td className="px-5 py-2.5 text-foreground">{nomeDoCliente(c.accountId)}</td>
-                    <td className="px-3 py-2.5 text-muted-foreground">{c.platform === "vnda" ? "VNDA / Olist" : "WooCommerce"}</td>
+                    {/*
+                      Label do CATÁLOGO. Era um ternário que devolvia
+                      "WooCommerce" para tudo que não fosse VNDA — então a loja
+                      Wix da Aiká aparecia como WooCommerce. O dado estava
+                      certo; a tabela é que mentia, e mentia de um jeito que
+                      parecia erro de cadastro.
+                    */}
+                    <td className="px-3 py-2.5 text-muted-foreground">
+                      {plataformaPorId(c.platform)?.label ?? c.platform}
+                    </td>
                     <td className="px-3 py-2.5 text-xs text-muted-foreground max-w-[220px] truncate" title={c.storeUrl}>{c.storeUrl}</td>
                     <td className="px-3 py-2.5 text-xs font-mono text-muted-foreground">{c.keyMascarada}</td>
                     <td className="px-3 py-2.5 text-xs">
