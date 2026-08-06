@@ -75,7 +75,7 @@ export type SnapLoja = {
 };
 
 /** Plataforma da loja real conectada, quando há uma. */
-export type PlataformaLoja = "woocommerce" | "vnda";
+export type PlataformaLoja = "woocommerce" | "vnda" | "wix";
 
 export type ClientePanorama = {
   accountId: number;
@@ -412,7 +412,7 @@ export function resumoPortfolio(
     precisamAtencao: conta("critico") + conta("atencao"),
     criticos: conta("critico"),
     atencoes: conta("atencao"),
-    lojasConectadas: clientes.filter((c) => c.loja?.platform === "woocommerce" || c.loja?.platform === "vnda").length,
+    lojasConectadas: clientes.filter((c) => c.loja?.platform === "woocommerce" || c.loja?.platform === "vnda" || c.loja?.platform === "wix").length,
     achadosCriticos: achados.filter((x) => x.severidade === "critico").length,
     achadosAtencao: achados.filter((x) => x.severidade === "atencao").length,
     distribuicao: (["critico", "atencao", "ok", "sem_dados"] as Nivel[])

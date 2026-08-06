@@ -39,13 +39,13 @@ describe("o catálogo cobre as quatro", () => {
 });
 
 describe("integrada é o que separa promessa de entrega", () => {
-  it.each([["woocommerce", true], ["vnda", true], ["wix", false], ["shopify", false]] as const)(
+  it.each([["woocommerce", true], ["vnda", true], ["wix", true], ["shopify", false]] as const)(
     "%s → integrada=%s", (id, esperado) => {
       expect(temIntegracao(id)).toBe(esperado);
     });
 
   it("a lista do sync sai do catálogo, não de um Set à mão", () => {
-    expect(PLATAFORMAS_INTEGRADAS.sort()).toEqual(["vnda", "woocommerce"]);
+    expect(PLATAFORMAS_INTEGRADAS.sort()).toEqual(["vnda", "wix", "woocommerce"]);
   });
 
   /** Se alguém marcar `integrada: true` sem escrever o adaptador, isto avisa. */
@@ -64,9 +64,14 @@ describe("integrada é o que separa promessa de entrega", () => {
 describe("estado da loja na tela", () => {
   /** O caso que motivou tudo: Aiká no Wix. */
   it("plataforma sem adaptador é PENDENTE, nunca ativa", () => {
-    const r = estadoDaLoja({ platform: "wix", status: "ativa", lastTestStatus: "ok" });
+    const r = estadoDaLoja({ platform: "shopify", status: "ativa", lastTestStatus: "ok" });
     expect(r.estado).toBe("pendente");
     expect(r.texto).toContain("ainda não disponível");
+  });
+
+  /** Wix virou integrada com adaptador — agora pode ser ativa de verdade. */
+  it("Wix com credencial ok é ativa", () => {
+    expect(estadoDaLoja({ platform: "wix", status: "ativa", lastTestStatus: "ok" }).estado).toBe("ativa");
   });
 
   it("nem mesmo um teste 'ok' promove plataforma sem adaptador", () => {

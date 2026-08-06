@@ -63,9 +63,9 @@ export const PLATAFORMAS_LOJA: DefinicaoPlataforma[] = [
   {
     id: "wix",
     label: "Wix",
-    integrada: false,
+    integrada: true,
     campos: { chave: "Site ID", segredo: "API Key" },
-    ajuda: "Ainda sem integração de leitura. Registre a plataforma para o Tracker saber onde a loja está — a coleta entra depois.",
+    ajuda: "Gere a chave em Settings → API Keys, com permissão de leitura de Wix Stores / eCommerce (Orders).",
   },
   {
     id: "shopify",

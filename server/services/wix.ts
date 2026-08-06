@@ -1,23 +1,22 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Wix Stores — PASSO 1: só o teste de credencial
+ *  Wix Stores — leitura de pedidos
  * ─────────────────────────────────────────────────────────────────────────────
- *  Este arquivo NÃO importa pedidos. De propósito.
+ *  Escrito CONTRA a resposta real da loja da Aiká, não contra a documentação.
+ *  O passo 1 existiu só para produzir essa resposta: cada campo mapeado abaixo
+ *  foi visto num pedido de verdade.
  *
- *  Escrever o normalizador agora significaria mapear campos que eu presumo que
- *  a API tem. Foi assim que o robô de monitoramento errou duas vezes seguidas
- *  contra sites reais — um teto de leitura calculado sobre uma suposição, e um
- *  regex que exigia uma forma que a página não tinha. Nos dois casos o código
- *  compilava, passava nos testes e falhava em silêncio.
- *
- *  Então a ordem é: uma chamada autenticada de verdade primeiro. O que ela
- *  responder — modelo de autenticação, formato do pedido, nomes de campo,
- *  limites de paginação — é o que vai guiar `buscarPedidosWix` e
- *  `normalizarPedidoWix`, que ainda não existem.
- *
- *  Enquanto isso, `integrada: false` no catálogo. Passar no teste de credencial
- *  NÃO é ter integração: nenhum pedido é lido, nenhum snapshot é gravado, a
- *  loja não entra no cron e não conta vendas em lugar nenhum.
+ *  ── O que a estrutura real ensinou ─────────────────────────────────────────
+ *  · Todo dinheiro é STRING (`priceSummary.total.amount = "249.90"`), nunca
+ *    número. Somar sem converter concatenaria.
+ *  · Existem DOIS estados: `status` (APPROVED/CANCELED, o pedido) e
+ *    `paymentStatus` (PAID/NOT_PAID/…, o dinheiro). Receita depende do
+ *    segundo; cancelamento, do primeiro.
+ *  · `balanceSummary.refunded.amount` diz o valor REEMBOLSADO — é fato, não
+ *    inferência a partir de status.
+ *  · O nome do produto vem em `productName.original` (há `translated` ao lado).
+ *  · Desconto por cupom nem sempre traz código: quando é regra automática, só
+ *    `discountRule.name`. Os dois casos são tratados.
  *
  *  ── A diferença em relação a Woo e VNDA ────────────────────────────────────
  *  Nas duas, a API mora no domínio da própria loja. Na Wix não: a loja é
@@ -32,6 +31,7 @@
  */
 import { fetchSeguro, UrlBloqueadaError } from "./urlGuard";
 import { logger } from "../logger";
+import { agregarPedidosNeutro, numSeguro, type BlocoLoja, type PedidoNeutro } from "./lojaAgregacao";
 
 /** API da Wix — central, não no domínio da loja. Ver cabeçalho. */
 const BASE_WIX = "https://www.wixapis.com";
@@ -238,13 +238,168 @@ export async function testarConexaoWix(apiKey: string, siteId: string): Promise<
   };
 }
 
+// ─── Importação ──────────────────────────────────────────────────────────────
+
 /**
- * O que ainda NÃO existe. Fica declarado para a tela poder dizer a verdade
- * sobre o que o teste significa — e para ninguém confundir credencial válida
- * com integração pronta.
+ * O que usamos de cada pedido. Tudo opcional: a resposta é de terceiro e um
+ * campo ausente não pode derrubar o ciclo de importação de outra loja.
  */
-export const PENDENCIAS_WIX = [
-  "Leitura de pedidos (buscarPedidosWix) ainda não implementada.",
-  "Nenhum snapshot de vendas é gravado.",
-  "A loja não entra no sync automático nem aparece em BlocoVendas, Panorama ou Jornalzinho.",
+export type PedidoWix = {
+  id?: string;
+  number?: string;
+  createdDate?: string;
+  status?: string;                 // APPROVED | CANCELED | INITIALIZED
+  paymentStatus?: string;          // PAID | NOT_PAID | PARTIALLY_PAID | *REFUNDED
+  currency?: string;
+  priceSummary?: { total?: Dinheiro; discount?: Dinheiro };
+  balanceSummary?: { refunded?: Dinheiro; paid?: Dinheiro };
+  lineItems?: {
+    productName?: { original?: string; translated?: string };
+    quantity?: number;
+    totalPriceAfterTax?: Dinheiro;
+    lineItemPrice?: Dinheiro;
+  }[];
+  appliedDiscounts?: {
+    coupon?: { code?: string; name?: string };
+    discountRule?: { name?: { original?: string }; amount?: Dinheiro };
+  }[];
+};
+
+type Dinheiro = { amount?: string | number; formattedAmount?: string };
+
+/** Dinheiro da Wix é string. Converter é obrigatório — ver cabeçalho. */
+const valor = (d: Dinheiro | undefined): number => numSeguro(d?.amount ?? 0);
+
+/**
+ * Dia do pedido no fuso da loja.
+ *
+ * `createdDate` vem em ISO/UTC. A conversão usa o fuso da agência porque é o
+ * mesmo critério de "dia" que o resto do sistema aplica — um pedido das 22h de
+ * Brasília não pode cair no dia seguinte só porque em UTC já é.
+ */
+export function diaDoPedidoWix(p: PedidoWix): string {
+  const t = Date.parse(p.createdDate ?? "");
+  if (!Number.isFinite(t)) return "";
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(t));
+}
+
+/**
+ * Traduz um pedido da Wix para o formato neutro que a agregação consome.
+ *
+ * ── A regra de receita ─────────────────────────────────────────────────────
+ * Conta como receita o pedido NÃO cancelado cujo dinheiro entrou —
+ * `paymentStatus` PAID ou PARTIALLY_PAID. Pendente não conta: é venda que pode
+ * não acontecer, e somá-la infla o número que o cliente usa para decidir.
+ *
+ * Reembolsado total sai da receita; parcial permanece, porque parte do dinheiro
+ * ficou. O valor devolvido aparece no contador de reembolsos de qualquer forma.
+ */
+export function normalizarPedidoWix(p: PedidoWix): PedidoNeutro {
+  const cancelado = String(p.status ?? "").toUpperCase() === "CANCELED";
+  const pag = String(p.paymentStatus ?? "").toUpperCase();
+  const reembolsadoTotal = pag === "FULLY_REFUNDED";
+  const reembolsado = reembolsadoTotal || pag === "PARTIALLY_REFUNDED" || valor(p.balanceSummary?.refunded) > 0;
+
+  return {
+    // Um estado só para a tela: cancelado manda, senão vale o do dinheiro.
+    status: cancelado ? "CANCELED" : (pag || "UNKNOWN"),
+    total: valor(p.priceSummary?.total),
+    dia: diaDoPedidoWix(p),
+    contaReceita: !cancelado && !reembolsadoTotal && (pag === "PAID" || pag === "PARTIALLY_PAID"),
+    cancelado,
+    reembolsado,
+    itens: (p.lineItems ?? []).map((li) => ({
+      nome: li.productName?.original ?? li.productName?.translated ?? "(sem nome)",
+      quantidade: numSeguro(li.quantity ?? 0),
+      total: valor(li.totalPriceAfterTax ?? li.lineItemPrice),
+    })),
+    // Cupom nem sempre tem código: promoção automática só traz o nome da regra.
+    cupons: (p.appliedDiscounts ?? []).map((d) => ({
+      codigo: d.coupon?.code ?? d.coupon?.name ?? d.discountRule?.name?.original ?? "(desconto)",
+      desconto: valor(d.discountRule?.amount),
+    })).filter((c) => c.desconto > 0),
+  };
+}
+
+export const LIMITACOES_WIX = [
+  "Pedido pendente de pagamento não entra na receita.",
+  "Reembolso parcial permanece na receita; o valor devolvido aparece em reembolsos.",
+  "Promoção automática sem código de cupom aparece pelo nome da regra.",
 ];
+
+/** Teto de páginas. 20 × 100 = 2.000 pedidos por janela — folgado para 30 dias. */
+const MAX_PAGINAS = 20;
+const POR_PAGINA = 100;
+
+/**
+ * Busca os pedidos criados a partir de `inicio30`.
+ *
+ * ── Por que filtro NO SERVIDOR e também no cliente ─────────────────────────
+ * O filtro por data vai no corpo da busca. Se a sintaxe estiver errada, a Wix
+ * responde erro — e erro visível é melhor que importação silenciosamente
+ * errada. Mas a janela também é aplicada depois, na agregação: se um dia a Wix
+ * passar a ignorar o filtro, o número continua certo, só custa mais requisição.
+ *
+ * ── Paginação defensiva ────────────────────────────────────────────────────
+ * O cursor de continuação não apareceu no diagnóstico (ele mapeou o PEDIDO, não
+ * o envelope). Então as três formas conhecidas são tentadas, e se nenhuma
+ * existir a leitura para — marcando `truncado`, que é o mesmo sinal que Woo e
+ * VNDA já usam. Nunca um laço infinito, nunca um silêncio.
+ */
+export async function buscarPedidosWix(
+  apiKey: string, siteId: string, inicio30: string,
+): Promise<{ pedidos: PedidoWix[]; truncado: boolean }> {
+  const site = validarSiteId(siteId);
+  const pedidos: PedidoWix[] = [];
+  let cursor: string | null = null;
+  let truncado = false;
+
+  for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
+    const corpoBusca: Record<string, unknown> = cursor
+      // Com cursor, a Wix pede SÓ o cursor — repetir filtro invalida a página.
+      ? { search: { cursorPaging: { limit: POR_PAGINA, cursor } } }
+      : {
+          search: {
+            filter: { createdDate: { $gte: `${inicio30}T00:00:00.000Z` } },
+            sort: [{ fieldName: "createdDate", order: "DESC" }],
+            cursorPaging: { limit: POR_PAGINA },
+          },
+        };
+
+    const { resp } = await fetchSeguro(`${BASE_WIX}${ROTA_PEDIDOS}`, {
+      method: "POST",
+      timeoutMs: 30_000,
+      maxRedirects: 0,
+      headers: headersWix(apiKey.trim(), site),
+      body: JSON.stringify(corpoBusca),
+    });
+    if (!resp.ok) {
+      // Mensagem NOSSA — o corpo poderia ecoar credencial.
+      throw new Error(`A Wix respondeu ${resp.status} ao buscar pedidos.`);
+    }
+    const dados = JSON.parse(await resp.text()) as Record<string, any>;
+    const lote = (dados.orders ?? dados.results ?? []) as PedidoWix[];
+    if (!Array.isArray(lote) || lote.length === 0) break;
+    pedidos.push(...lote);
+
+    cursor = dados?.metadata?.cursors?.next
+      ?? dados?.pagingMetadata?.cursors?.next
+      ?? dados?.cursors?.next
+      ?? null;
+    if (!cursor) {
+      // Página cheia sem cursor: pode haver mais e não temos como pedir.
+      if (lote.length === POR_PAGINA) truncado = true;
+      break;
+    }
+    if (pagina === MAX_PAGINAS - 1) truncado = true;
+  }
+
+  return { pedidos, truncado };
+}
+
+/** Envelopa a agregação neutra — mesma forma que Woo e VNDA. */
+export function agregarPedidosWix(
+  pedidos: PedidoWix[], janela: "7d" | "30d", inicio: string, fim: string,
+): BlocoLoja {
+  return agregarPedidosNeutro(pedidos.map(normalizarPedidoWix), "wix", janela, inicio, fim, LIMITACOES_WIX);
+}

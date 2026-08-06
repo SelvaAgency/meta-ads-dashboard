@@ -5476,7 +5476,7 @@ export async function lojasParaPanorama() {
 }
 
 /** Plataformas que contam como "loja real" — Woo e VNDA hoje. */
-const PROVIDERS_LOJA = ["woocommerce", "vnda"] as const;
+const PROVIDERS_LOJA = ["woocommerce", "vnda", "wix"] as const;
 
 /**
  * Portão do mapa de status VNDA. Enquanto NÃO validado (default), os snapshots
@@ -5491,7 +5491,7 @@ export async function vndaContaComoLojaReal(): Promise<boolean> {
 
 /** Providers de loja real que valem AGORA (VNDA só entra se o mapa foi validado). */
 export async function providersLojaAtivos(): Promise<string[]> {
-  return (await vndaContaComoLojaReal()) ? [...PROVIDERS_LOJA] : ["woocommerce"];
+  return (await vndaContaComoLojaReal()) ? [...PROVIDERS_LOJA] : ["woocommerce", "wix"];
 }
 
 /**

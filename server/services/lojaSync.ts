@@ -14,6 +14,7 @@
  */
 import { logger } from "../logger";
 import { PLATAFORMAS_INTEGRADAS, plataformaPorId } from "@shared/plataformasLoja";
+import { agregarPedidosWix, buscarPedidosWix } from "./wix";
 import { credenciaisDaConexao, registrarSyncEcommerce, salvarSiteSnapshot, conexoesAtivasParaSync } from "../db";
 import { buscarPedidos30d, agregarPedidos } from "./woocommerce";
 import { buscarPedidosVnda, agregarPedidosVnda } from "./vnda";
@@ -44,6 +45,11 @@ async function buscarPorPlataforma(
     // consumerKey = ck_, consumerSecret = cs_
     const { pedidos, truncado } = await buscarPedidos30d(cred.storeUrl, cred.consumerKey, cred.consumerSecret, inicio30);
     return { montar: (j, i, f) => agregarPedidos(pedidos, j, i, f), total30d: pedidos.length, truncado };
+  }
+  if (cred.platform === "wix") {
+    // consumerKey = Site ID (não-segredo), consumerSecret = API Key
+    const { pedidos, truncado } = await buscarPedidosWix(cred.consumerSecret, cred.consumerKey, inicio30);
+    return { montar: (j, i, f) => agregarPedidosWix(pedidos, j, i, f), total30d: pedidos.length, truncado };
   }
   if (cred.platform === "vnda") {
     // consumerSecret = token (Bearer), consumerKey = X-Shop-Host (não-segredo)

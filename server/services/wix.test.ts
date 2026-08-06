@@ -12,7 +12,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it } from "vitest";
-import { PENDENCIAS_WIX, resumoDeFormato, testarConexaoWix, validarSiteId, validarUrlWix, WixCredencialInvalidaError } from "./wix";
+import { agregarPedidosWix, normalizarPedidoWix, resumoDeFormato, testarConexaoWix, type PedidoWix, validarSiteId, validarUrlWix, WixCredencialInvalidaError } from "./wix";
 
 describe("Site ID", () => {
   it("aceita o GUID do site da Aiká", () => {
@@ -69,24 +69,20 @@ describe("teste de conexão — o que é barrado sem rede", () => {
  * O ponto do passo 1: credencial válida NÃO é integração. Se estas pendências
  * sumirem sem o adaptador existir, a tela passa a mentir.
  */
-describe("o que ainda não existe fica declarado", () => {
-  it("as pendências dizem o que não acontece", () => {
-    expect(PENDENCIAS_WIX.join(" ")).toMatch(/pedidos/i);
-    expect(PENDENCIAS_WIX.join(" ")).toMatch(/snapshot/i);
-    expect(PENDENCIAS_WIX.join(" ")).toMatch(/Panorama|Jornalzinho|BlocoVendas/i);
-  });
-
-  it("Wix continua NÃO integrada no catálogo", async () => {
+describe("integração ligada", () => {
+  /**
+   * A virada de `integrada` só é legítima com adaptador. Este teste era o
+   * inverso — cobrava `false` — e falhou quando o catálogo mudou. Era para
+   * falhar: é o que obriga a virada a ser consciente, e não efeito colateral.
+   */
+  it("Wix agora é integrada E tem ramo no dispatch", async () => {
     const { temIntegracao } = await import("../../shared/plataformasLoja");
-    expect(temIntegracao("wix")).toBe(false);
-  });
+    expect(temIntegracao("wix")).toBe(true);
 
-  /** Sem adaptador de pedidos, o dispatch do sync não pode ter ramo de Wix. */
-  it("o sync não tem ramo de Wix ainda", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const fonte = fs.readFileSync(path.join(__dirname, "lojaSync.ts"), "utf8");
-    expect(fonte).not.toContain('cred.platform === "wix"');
+    expect(fonte, "integrada sem dispatch = loja que nunca sincroniza").toContain('cred.platform === "wix"');
   });
 });
 
@@ -158,5 +154,181 @@ describe("mapa de formato", () => {
 
   it.each([[null], [undefined], [{}], [[]]])("entrada %s não quebra", (v) => {
     expect(() => resumoDeFormato(v)).not.toThrow();
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Normalização — escrita contra a estrutura REAL da loja da Aiká
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Cada campo abaixo foi visto num pedido de verdade, não na documentação. As
+ *  três armadilhas que a estrutura real revelou:
+ *
+ *   · dinheiro é STRING ("249.90") — somar sem converter concatena;
+ *   · há DOIS estados (`status` do pedido, `paymentStatus` do dinheiro);
+ *   · `balanceSummary.refunded.amount` é fato, não inferência.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const PEDIDO_REAL = (over: Partial<PedidoWix> = {}): PedidoWix => ({
+  id: "abc", number: "10042",
+  createdDate: "2026-08-05T15:00:00.000Z",
+  status: "APPROVED",
+  paymentStatus: "PAID",
+  currency: "BRL",
+  priceSummary: { total: { amount: "249.90" }, discount: { amount: "20.00" } },
+  balanceSummary: { refunded: { amount: "0" }, paid: { amount: "249.90" } },
+  lineItems: [
+    { productName: { original: "Sabonete Líquido" }, quantity: 2, totalPriceAfterTax: { amount: "99.80" } },
+    { productName: { original: "Creme Esfoliante" }, quantity: 1, totalPriceAfterTax: { amount: "150.10" } },
+  ],
+  appliedDiscounts: [
+    { discountRule: { name: { original: "Leve 3 Pague 2" }, amount: { amount: "20.00" } }, discountType: "SPECIFIC_ITEMS" } as never,
+  ],
+  ...over,
+});
+
+describe("dinheiro vem como string", () => {
+  it("total vira número, não concatenação", () => {
+    const n = normalizarPedidoWix(PEDIDO_REAL());
+    expect(n.total).toBe(249.9);
+    expect(typeof n.total).toBe("number");
+  });
+
+  it("item também", () => {
+    const [item] = normalizarPedidoWix(PEDIDO_REAL()).itens;
+    expect(item.total).toBe(99.8);
+    expect(item.quantidade).toBe(2);
+  });
+
+  it.each([[undefined], [null], [""], ["abc"]])("valor %s não vira NaN", (v) => {
+    const n = normalizarPedidoWix(PEDIDO_REAL({ priceSummary: { total: { amount: v as string } } }));
+    expect(Number.isFinite(n.total)).toBe(true);
+  });
+});
+
+describe("os dois estados", () => {
+  it("APPROVED + PAID conta como receita", () => {
+    const n = normalizarPedidoWix(PEDIDO_REAL());
+    expect(n.contaReceita).toBe(true);
+    expect(n.status).toBe("PAID");
+  });
+
+  /** Pendente é venda que pode não acontecer — somá-la infla o número. */
+  it.each(["NOT_PAID", "PENDING", "PARTIALLY_PAID"])("paymentStatus %s", (pag) => {
+    const n = normalizarPedidoWix(PEDIDO_REAL({ paymentStatus: pag }));
+    expect(n.contaReceita).toBe(pag === "PARTIALLY_PAID");
+  });
+
+  it("CANCELED nunca conta, mesmo com pagamento PAID", () => {
+    const n = normalizarPedidoWix(PEDIDO_REAL({ status: "CANCELED" }));
+    expect(n.contaReceita).toBe(false);
+    expect(n.cancelado).toBe(true);
+    expect(n.status).toBe("CANCELED"); // o cancelamento manda na exibição
+  });
+
+  it("reembolso TOTAL sai da receita", () => {
+    const n = normalizarPedidoWix(PEDIDO_REAL({ paymentStatus: "FULLY_REFUNDED" }));
+    expect(n.contaReceita).toBe(false);
+    expect(n.reembolsado).toBe(true);
+  });
+
+  /** Parcial permanece: parte do dinheiro ficou. */
+  it("reembolso PARCIAL continua na receita e marca reembolso", () => {
+    const n = normalizarPedidoWix(PEDIDO_REAL({
+      paymentStatus: "PARTIALLY_REFUNDED",
+      balanceSummary: { refunded: { amount: "50.00" } },
+    }));
+    expect(n.reembolsado).toBe(true);
+  });
+
+  it("valor devolvido em balanceSummary marca reembolso mesmo sem status", () => {
+    const n = normalizarPedidoWix(PEDIDO_REAL({ balanceSummary: { refunded: { amount: "10.00" } } }));
+    expect(n.reembolsado).toBe(true);
+  });
+});
+
+describe("data no fuso da agência", () => {
+  it("ISO em UTC vira o dia local", () => {
+    expect(normalizarPedidoWix(PEDIDO_REAL()).dia).toBe("2026-08-05");
+  });
+
+  /** 01h UTC do dia 6 ainda é dia 5 no Brasil — errar isso desloca a receita. */
+  it("madrugada em UTC não empurra o pedido para o dia seguinte", () => {
+    expect(normalizarPedidoWix(PEDIDO_REAL({ createdDate: "2026-08-06T01:00:00.000Z" })).dia)
+      .toBe("2026-08-05");
+  });
+
+  it.each([[undefined], [""], ["não é data"]])("data %s vira string vazia, não crash", (v) => {
+    expect(() => normalizarPedidoWix(PEDIDO_REAL({ createdDate: v as string }))).not.toThrow();
+  });
+});
+
+describe("itens e cupons", () => {
+  it("nome vem de productName.original", () => {
+    expect(normalizarPedidoWix(PEDIDO_REAL()).itens.map((i) => i.nome))
+      .toEqual(["Sabonete Líquido", "Creme Esfoliante"]);
+  });
+
+  it("item sem nome não quebra a agregação", () => {
+    const n = normalizarPedidoWix(PEDIDO_REAL({ lineItems: [{ quantity: 1 }] }));
+    expect(n.itens[0].nome).toBe("(sem nome)");
+  });
+
+  /** Promoção automática não traz código — o nome da regra é o identificador. */
+  it("desconto sem código de cupom usa o nome da regra", () => {
+    expect(normalizarPedidoWix(PEDIDO_REAL()).cupons).toEqual([
+      { codigo: "Leve 3 Pague 2", desconto: 20 },
+    ]);
+  });
+
+  it("cupom com código usa o código", () => {
+    const n = normalizarPedidoWix(PEDIDO_REAL({
+      appliedDiscounts: [{ coupon: { code: "BEMVINDO10" }, discountRule: { amount: { amount: "15.00" } } }],
+    }));
+    expect(n.cupons).toEqual([{ codigo: "BEMVINDO10", desconto: 15 }]);
+  });
+
+  it("desconto zerado não polui a lista de cupons", () => {
+    const n = normalizarPedidoWix(PEDIDO_REAL({
+      appliedDiscounts: [{ discountRule: { name: { original: "X" }, amount: { amount: "0" } } }],
+    }));
+    expect(n.cupons).toEqual([]);
+  });
+
+  it.each([[undefined], [[]]])("pedido sem itens (%s) não quebra", (v) => {
+    expect(normalizarPedidoWix(PEDIDO_REAL({ lineItems: v as never })).itens).toEqual([]);
+  });
+});
+
+describe("agregação — o que chega no BlocoVendas", () => {
+  const pedidos = [
+    PEDIDO_REAL({ id: "1" }),
+    PEDIDO_REAL({ id: "2", paymentStatus: "NOT_PAID", priceSummary: { total: { amount: "100.00" } } }),
+    PEDIDO_REAL({ id: "3", status: "CANCELED", priceSummary: { total: { amount: "500.00" } } }),
+  ];
+
+  it("só o pago entra na receita", () => {
+    const b = agregarPedidosWix(pedidos, "7d", "2026-08-01", "2026-08-07");
+    expect(b.receita).toBe(249.9);
+    expect(b.pedidos).toBe(1);
+    expect(b.fonte).toBe("wix");
+  });
+
+  it("os não pagos aparecem em pedidosPorStatus, fora da receita", () => {
+    const b = agregarPedidosWix(pedidos, "7d", "2026-08-01", "2026-08-07");
+    expect(b.pedidosPorStatus.map((s) => s.status).sort()).toEqual(["CANCELED", "NOT_PAID", "PAID"]);
+  });
+
+  /** Janela vazia é sem_dados, NUNCA R$ 0 — zero é um número plausível. */
+  it("janela sem pedidos vira sem_dados, não R$ 0", () => {
+    const b = agregarPedidosWix(pedidos, "7d", "2026-09-01", "2026-09-07");
+    expect(b.status).toBe("sem_dados");
+    expect(b.receita).toBeNull();
+    expect(b.pedidos).toBeNull();
+  });
+
+  it("as limitações da Wix são declaradas", () => {
+    const b = agregarPedidosWix(pedidos, "30d", "2026-08-01", "2026-08-31");
+    expect(b.limitacoes.join(" ")).toMatch(/pendente/i);
   });
 });

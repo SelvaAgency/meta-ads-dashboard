@@ -5975,7 +5975,7 @@ export const appRouter = router({
       const lojaSnap = (accountId: number, estrategia: string) => {
         const s = snaps.find((x) =>
           x.accountId === accountId && x.estrategia === estrategia &&
-          (x.provider === "woocommerce" || (x.provider === "vnda" && vndaReal)));
+          (x.provider === "woocommerce" || x.provider === "wix" || (x.provider === "vnda" && vndaReal)));
         return s ? { dia: s.dia, metricsJson: s.metricsJson, provider: s.provider } : null;
       };
       return contas.map((c) => {
