@@ -330,6 +330,7 @@ import { simularDestinatarios } from "./services/email/destinatarios";
 import { getComplianceSettings, upsertComplianceSettings, criarContaDeMonitoramento, snapshotsMonitoramento } from "./db";
 import { normalizarHost } from "./services/monitoramento/dominioRegistravel";
 import { classificarContas, idLimpo, podeImportarSemForcar, ROTULO_STATUS } from "@shared/importacaoContas";
+import { temIntegracao } from "@shared/plataformasLoja";
 import { normalizarConfirmacoes } from "./services/monitoramento/confirmacao";
 import { runCicloMonitoramento } from "./services/monitoramento/cicloMonitoramento";
 import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho, preferenciasEmailDoUsuario, salvarPreferenciasEmail } from "./db";
@@ -5793,6 +5794,19 @@ export const appRouter = router({
           token: z.string().min(8),             // Bearer — guardado como o "secret"
           xShopHost: z.string().optional(),     // não-segredo; derivado da URL se vazio
         }),
+        /**
+         * Plataformas REGISTRADAS, sem adaptador de leitura (Wix, Shopify hoje).
+         *
+         * Não pedem credencial de propósito. Guardar uma chave que nada usa
+         * seria segredo parado no banco sem contrapartida — e passaria a
+         * impressão de que a loja está conectada. O que se registra aqui é
+         * ONDE a loja está, para o Tracker saber; a coleta entra depois.
+         */
+        z.object({
+          platform: z.enum(["wix", "shopify"]),
+          accountId: z.number().int(),
+          storeUrl: z.string().min(8),
+        }),
       ]))
       .mutation(async ({ ctx, input }) => {
         // Cada plataforma valida a URL com sua regra e mapeia as credenciais
@@ -5804,17 +5818,29 @@ export const appRouter = router({
           });
           consumerKey = input.consumerKey;
           consumerSecret = input.consumerSecret;
-        } else {
+        } else if (input.platform === "vnda") {
           storeUrl = await validarUrlVnda(input.storeUrl).catch((e) => {
             throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
           });
           consumerKey = resolverShopHost(storeUrl, input.xShopHost); // X-Shop-Host (não-segredo)
           consumerSecret = input.token;                              // token Bearer
+        } else {
+          // Wix / Shopify: só a URL, validada pela mesma guarda de SSRF. Sem
+          // credencial — ver o comentário no schema.
+          storeUrl = await validarUrlDaLoja(input.storeUrl).catch((e) => {
+            throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+          });
+          consumerKey = "";
+          consumerSecret = "";
         }
+        // Sem adaptador, a loja nasce PENDENTE. É isto que a mantém fora do
+        // cron e fora de qualquer contagem de vendas.
+        const statusInicial = temIntegracao(input.platform) ? "ativa" : "pendente";
         try {
           await criarConexaoEcommerce({
             accountId: input.accountId, platform: input.platform, storeUrl,
             consumerKey, consumerSecret, criadoPor: ctx.user.id,
+            status: statusInicial,
           });
         } catch (e) {
           if (/duplicate/i.test((e as Error).message)) {

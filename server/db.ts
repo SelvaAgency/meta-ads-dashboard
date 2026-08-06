@@ -5139,6 +5139,13 @@ export async function listarConexoesEcommerce() {
 export async function criarConexaoEcommerce(d: {
   accountId: number; platform: string; storeUrl: string;
   consumerKey: string; consumerSecret: string; criadoPor: number;
+  /**
+   * `pendente` para plataforma registrada sem adaptador de leitura (Wix,
+   * Shopify hoje). Não é "quase ativa": é o estado correto e definitivo
+   * enquanto a integração não existir, e é o que impede a loja de ser contada
+   * como fonte de dados.
+   */
+  status?: "ativa" | "pendente";
 }) {
   const db = await getDb();
   if (!db) throw new Error("Banco indisponível");
@@ -5147,6 +5154,7 @@ export async function criarConexaoEcommerce(d: {
     consumerKeyEncrypted: encryptSecret(d.consumerKey),
     consumerSecretEncrypted: encryptSecret(d.consumerSecret),
     createdBy: d.criadoPor, updatedBy: d.criadoPor,
+    ...(d.status ? { status: d.status } : {}),
   });
 }
 

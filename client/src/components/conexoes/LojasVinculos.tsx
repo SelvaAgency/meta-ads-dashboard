@@ -10,6 +10,7 @@
  *  · o teste roda no backend — o navegador nunca vê a credencial.
  */
 import { useState } from "react";
+import { PLATAFORMAS_LOJA, plataformaPorId, temIntegracao, type PlataformaLoja } from "@shared/plataformasLoja";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
@@ -24,7 +25,7 @@ export function LojasVinculos() {
   const clientesQ = trpc.accounts.list.useQuery(undefined, { enabled: podeGerenciar });
   const utils = trpc.useUtils();
   const [form, setForm] = useState<null | {
-    id?: number; accountId: string; platform: "woocommerce" | "vnda"; storeUrl: string;
+    id?: number; accountId: string; platform: PlataformaLoja; storeUrl: string;
     consumerKey: string; consumerSecret: string;   // WooCommerce
     token: string; xShopHost: string;              // VNDA / Olist
   }>(null);
@@ -74,6 +75,12 @@ export function LojasVinculos() {
         ...(key ? { consumerKey: key } : {}),
         ...(secret ? { consumerSecret: secret } : {}),
       });
+    } else if (!temIntegracao(form.platform)) {
+      // Wix / Shopify: só onde a loja está. Sem credencial — ver o bloco azul.
+      criar.mutate({
+        platform: form.platform as "wix" | "shopify",
+        accountId: Number(form.accountId), storeUrl: form.storeUrl,
+      });
     } else if (form.platform === "vnda") {
       criar.mutate({
         platform: "vnda", accountId: Number(form.accountId), storeUrl: form.storeUrl,
@@ -87,11 +94,17 @@ export function LojasVinculos() {
     }
   };
 
-  const FORM_VAZIO = { accountId: "", platform: "woocommerce" as const, storeUrl: "", consumerKey: "", consumerSecret: "", token: "", xShopHost: "" };
+  const FORM_VAZIO = { accountId: "", platform: "woocommerce" as PlataformaLoja, storeUrl: "", consumerKey: "", consumerSecret: "", token: "", xShopHost: "" };
   // Um form é "preenchido o bastante" para salvar conforme a plataforma.
   const podeSalvar = !!form && (editando || (
-    !!form.accountId && !!form.storeUrl &&
-    (form.platform === "vnda" ? !!form.token : (!!form.consumerKey && !!form.consumerSecret))
+    !!form.accountId && !!form.storeUrl && (
+      // Plataforma sem adaptador não pede credencial: guardar uma chave que
+      // nada usa seria segredo parado no banco, e passaria a impressão de que
+      // a loja está conectada.
+      !temIntegracao(form.platform) ? true
+        : form.platform === "vnda" ? !!form.token
+          : (!!form.consumerKey && !!form.consumerSecret)
+    )
   ));
 
   const inp = "w-full text-sm bg-background border border-border rounded-lg px-3 py-2";
@@ -128,10 +141,15 @@ export function LojasVinculos() {
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Plataforma</label>
+                {/* Do CATÁLOGO, não escrito à mão: era a quarta cópia da lista
+                    de plataformas, e a que mais silenciosamente divergia. */}
                 <select className={inp} value={form.platform}
-                  onChange={(e) => setForm({ ...form, platform: e.target.value as "woocommerce" | "vnda" })}>
-                  <option value="woocommerce">WooCommerce</option>
-                  <option value="vnda">VNDA / Olist Ecommerce</option>
+                  onChange={(e) => setForm({ ...form, platform: e.target.value as PlataformaLoja })}>
+                  {PLATAFORMAS_LOJA.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}{p.integrada ? "" : " — sem integração ainda"}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -143,7 +161,27 @@ export function LojasVinculos() {
               value={form.storeUrl} onChange={(e) => setForm({ ...form, storeUrl: e.target.value })} />
           </div>
 
-          {form.platform === "vnda" ? (
+          {!temIntegracao(form.platform) ? (
+            /**
+             * Registro sem coleta. O texto precisa ser explícito sobre o que
+             * NÃO vai acontecer: alguém que cadastre a loja e depois veja
+             * "sem vendas" no Panorama tem que saber que é isto, e não um
+             * problema na loja.
+             */
+            <div className="rounded-lg border border-sky-500/30 bg-sky-500/[0.06] px-3 py-2 flex items-start gap-2">
+              <ShieldCheck className="w-4 h-4 text-sky-600 mt-0.5 flex-shrink-0" />
+              <div className="text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">
+                  {plataformaPorId(form.platform)?.label} ainda não tem integração de leitura.
+                </p>
+                <p className="mt-0.5">
+                  {plataformaPorId(form.platform)?.ajuda} A loja fica registrada como
+                  <strong> pendente</strong>: não entra no sync, não aparece como fonte de dados e
+                  não conta vendas. Quando a integração existir, só faltará a credencial.
+                </p>
+              </div>
+            </div>
+          ) : form.platform === "vnda" ? (
             <>
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 flex items-start gap-2">
                 <ShieldCheck className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />

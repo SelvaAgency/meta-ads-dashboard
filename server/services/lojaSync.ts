@@ -13,6 +13,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { logger } from "../logger";
+import { PLATAFORMAS_INTEGRADAS, plataformaPorId } from "@shared/plataformasLoja";
 import { credenciaisDaConexao, registrarSyncEcommerce, salvarSiteSnapshot, conexoesAtivasParaSync } from "../db";
 import { buscarPedidos30d, agregarPedidos } from "./woocommerce";
 import { buscarPedidosVnda, agregarPedidosVnda } from "./vnda";
@@ -49,7 +50,14 @@ async function buscarPorPlataforma(
     const { pedidos, truncado } = await buscarPedidosVnda(cred.storeUrl, cred.consumerSecret, cred.consumerKey || null, inicio30, fim);
     return { montar: (j, i, f) => agregarPedidosVnda(pedidos, j, i, f), total30d: pedidos.length, truncado };
   }
-  throw new Error(`Importação ainda não implementada para ${cred.platform}.`);
+  // Plataforma registrada sem adaptador (Wix, Shopify hoje). A mensagem diz o
+  // que é: não é erro de credencial nem de rede, é integração que não existe.
+  const def = plataformaPorId(cred.platform);
+  throw new Error(
+    def && !def.integrada
+      ? `${def.label} ainda não tem integração de leitura. A loja está registrada, mas nada é importado.`
+      : `Importação ainda não implementada para ${cred.platform}.`,
+  );
 }
 
 /**
@@ -124,10 +132,20 @@ export function resumirCicloLojas(resultados: ResultadoLojaCiclo[]): ResumoCiclo
   };
 }
 
-/** Plataformas que o cron das 06:45 sincroniza. VNDA entrou depois de o mapa
- *  de status da UMA ser validado (24/07/2026); o portão vnda:mapaValidado
- *  continua controlando só a EXIBIÇÃO, não a coleta. */
-const PLATAFORMAS_CRON = new Set(["woocommerce", "vnda"]);
+/**
+ * Plataformas que o cron sincroniza — DERIVADO do catálogo, não escrito à mão.
+ *
+ * Era um `Set` literal, e essa era a quarta cópia da lista de plataformas (com
+ * o `<select>` da tela, o dispatch abaixo e o schema da procedure). Acrescentar
+ * a quinta exigia lembrar das quatro, e esquecer esta produzia o pior tipo de
+ * falha: a loja aparece cadastrada, ninguém sincroniza, e nada reclama.
+ *
+ * Wix e Shopify ficam de fora automaticamente enquanto `integrada: false` —
+ * registrar a plataforma não pode virar uma tentativa de coleta que falha todo
+ * dia no log. (VNDA entrou depois de o mapa de status da UMA ser validado em
+ * 24/07/2026; o portão vnda:mapaValidado controla só a EXIBIÇÃO, não a coleta.)
+ */
+const PLATAFORMAS_CRON = new Set<string>(PLATAFORMAS_INTEGRADAS);
 
 /**
  * Sincroniza as lojas do CRON, isoladas. Processa WooCommerce (BAESH, Scaffold)
