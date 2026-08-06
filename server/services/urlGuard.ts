@@ -115,6 +115,15 @@ export async function fetchSeguro(
      * a credencial ao destino do redirect.
      */
     headers?: Record<string, string>;
+    /**
+     * Corpo da requisição. Existe porque nem toda API de loja lê por GET — a
+     * da Wix busca pedidos com POST e um corpo de consulta.
+     *
+     * Aditivo: quem não passa `body` manda `undefined`, exatamente como antes.
+     * E como todo chamador que envia credencial usa `maxRedirects: 0`, o corpo
+     * nunca é reenviado para um destino de redirect.
+     */
+    body?: string;
   } = {},
 ): Promise<{ resp: Response; finalUrl: string; saltos: number; cadeia: string[] }> {
   const { method = "GET", timeoutMs = 15_000, maxRedirects = 5 } = opts;
@@ -134,6 +143,7 @@ export async function fetchSeguro(
       redirect: "manual", // cada salto passa pela guarda
       signal: AbortSignal.timeout(timeoutMs),
       headers: { "User-Agent": "SelvaSpaces-SiteCheck/1.0 (+https://spaces.selva.agency)", ...(opts.headers ?? {}) },
+      ...(opts.body !== undefined ? { body: opts.body } : {}),
     });
 
     const loc = resp.headers.get("location");

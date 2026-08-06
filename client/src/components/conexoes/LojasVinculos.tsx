@@ -26,6 +26,8 @@ export function LojasVinculos() {
   const utils = trpc.useUtils();
   const [form, setForm] = useState<null | {
     id?: number; accountId: string; platform: PlataformaLoja; storeUrl: string;
+    /** Wix: siteId (não-segredo) + apiKey. Ver o bloco do formulário. */
+    siteId: string; apiKey: string;
     consumerKey: string; consumerSecret: string;   // WooCommerce
     token: string; xShopHost: string;              // VNDA / Olist
   }>(null);
@@ -75,11 +77,17 @@ export function LojasVinculos() {
         ...(key ? { consumerKey: key } : {}),
         ...(secret ? { consumerSecret: secret } : {}),
       });
-    } else if (!temIntegracao(form.platform)) {
-      // Wix / Shopify: só onde a loja está. Sem credencial — ver o bloco azul.
+    } else if (form.platform === "wix") {
+      // Credencial JÁ entra: é ela que o teste de conexão usa. Leitura de
+      // pedidos é que ainda não existe — ver o bloco azul.
       criar.mutate({
-        platform: form.platform as "wix" | "shopify",
-        accountId: Number(form.accountId), storeUrl: form.storeUrl,
+        platform: "wix", accountId: Number(form.accountId), storeUrl: form.storeUrl,
+        siteId: form.siteId.trim(), apiKey: form.apiKey.trim(),
+      });
+    } else if (form.platform === "shopify") {
+      // Só onde a loja está. Sem credencial — ver o bloco azul.
+      criar.mutate({
+        platform: "shopify", accountId: Number(form.accountId), storeUrl: form.storeUrl,
       });
     } else if (form.platform === "vnda") {
       criar.mutate({
@@ -94,16 +102,18 @@ export function LojasVinculos() {
     }
   };
 
-  const FORM_VAZIO = { accountId: "", platform: "woocommerce" as PlataformaLoja, storeUrl: "", consumerKey: "", consumerSecret: "", token: "", xShopHost: "" };
+  const FORM_VAZIO = { accountId: "", platform: "woocommerce" as PlataformaLoja, storeUrl: "", consumerKey: "", consumerSecret: "", token: "", xShopHost: "", siteId: "", apiKey: "" };
   // Um form é "preenchido o bastante" para salvar conforme a plataforma.
   const podeSalvar = !!form && (editando || (
     !!form.accountId && !!form.storeUrl && (
       // Plataforma sem adaptador não pede credencial: guardar uma chave que
       // nada usa seria segredo parado no banco, e passaria a impressão de que
       // a loja está conectada.
-      !temIntegracao(form.platform) ? true
-        : form.platform === "vnda" ? !!form.token
-          : (!!form.consumerKey && !!form.consumerSecret)
+      // Wix pede credencial mesmo sem adaptador: o teste de conexão precisa dela.
+      form.platform === "wix" ? (!!form.siteId && !!form.apiKey)
+        : !temIntegracao(form.platform) ? true
+          : form.platform === "vnda" ? !!form.token
+            : (!!form.consumerKey && !!form.consumerSecret)
     )
   ));
 
@@ -161,7 +171,46 @@ export function LojasVinculos() {
               value={form.storeUrl} onChange={(e) => setForm({ ...form, storeUrl: e.target.value })} />
           </div>
 
-          {!temIntegracao(form.platform) ? (
+          {form.platform === "wix" ? (
+            <>
+              {/*
+                O texto separa duas coisas que se confundem sozinhas: a
+                credencial JÁ é testável, a leitura de pedidos ainda não existe.
+                Sem essa distinção, um teste verde faria parecer que a loja está
+                integrada — e o Panorama diria "sem vendas" para uma loja que
+                vende.
+              */}
+              <div className="rounded-lg border border-sky-500/30 bg-sky-500/[0.06] px-3 py-2 flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-sky-600 mt-0.5 flex-shrink-0" />
+                <div className="text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">Wix — etapa de credencial</p>
+                  <p className="mt-0.5">
+                    Gere a chave na Wix em <strong>Settings → API Keys</strong>, com permissão de
+                    leitura de <strong>Wix Stores / eCommerce (Orders)</strong>. Depois de salvar,
+                    use <strong>Testar conexão</strong>.
+                  </p>
+                  <p className="mt-1">
+                    Passar no teste <strong>não</strong> significa integração pronta: nenhum pedido é
+                    importado, nenhum snapshot é gravado, e a loja não aparece em vendas. O resultado
+                    do teste é o que define como o adaptador será escrito.
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground">Site ID</label>
+                  <input className={inp} autoComplete="off" placeholder="fa19d2c0-7e17-4bc7-a3a8-eeeaf7c509b1"
+                    value={form.siteId} onChange={(e) => setForm({ ...form, siteId: e.target.value })} />
+                  <p className="text-[10px] text-muted-foreground mt-1">Não é segredo — aparece no próprio site.</p>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">API Key {editando && "(cadastrada — cole nova para substituir)"}</label>
+                  <input className={inp} type="password" autoComplete="off" placeholder={editando ? "••••••••" : "chave gerada na Wix"}
+                    value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} />
+                </div>
+              </div>
+            </>
+          ) : !temIntegracao(form.platform) ? (
             /**
              * Registro sem coleta. O texto precisa ser explícito sobre o que
              * NÃO vai acontecer: alguém que cadastre a loja e depois veja
@@ -296,7 +345,7 @@ export function LojasVinculos() {
                           className="inline-flex h-7 px-2.5 rounded-md border border-border text-xs items-center gap-1 disabled:opacity-60">
                           {testando === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plug className="w-3 h-3" />} Testar
                         </button>
-                        <button onClick={() => setForm({ id: c.id, accountId: String(c.accountId), platform: (c.platform === "vnda" ? "vnda" : "woocommerce"), storeUrl: c.storeUrl, consumerKey: "", consumerSecret: "", token: "", xShopHost: "" })}
+                        <button onClick={() => setForm({ id: c.id, accountId: String(c.accountId), platform: (c.platform as PlataformaLoja), storeUrl: c.storeUrl, consumerKey: "", consumerSecret: "", token: "", xShopHost: "", siteId: "", apiKey: "" })}
                           className="inline-flex h-7 px-2.5 rounded-md border border-border text-xs items-center gap-1">
                           <Pencil className="w-3 h-3" /> Editar
                         </button>

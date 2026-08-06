@@ -331,6 +331,7 @@ import { getComplianceSettings, upsertComplianceSettings, criarContaDeMonitorame
 import { normalizarHost } from "./services/monitoramento/dominioRegistravel";
 import { classificarContas, idLimpo, podeImportarSemForcar, ROTULO_STATUS } from "@shared/importacaoContas";
 import { temIntegracao } from "@shared/plataformasLoja";
+import { testarConexaoWix, validarSiteId, validarUrlWix } from "./services/wix";
 import { normalizarConfirmacoes } from "./services/monitoramento/confirmacao";
 import { runCicloMonitoramento } from "./services/monitoramento/cicloMonitoramento";
 import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho, preferenciasEmailDoUsuario, salvarPreferenciasEmail } from "./db";
@@ -5795,15 +5796,33 @@ export const appRouter = router({
           xShopHost: z.string().optional(),     // não-segredo; derivado da URL se vazio
         }),
         /**
-         * Plataformas REGISTRADAS, sem adaptador de leitura (Wix, Shopify hoje).
+         * Wix: credencial JÁ é aceita, leitura de pedidos ainda não.
          *
-         * Não pedem credencial de propósito. Guardar uma chave que nada usa
-         * seria segredo parado no banco sem contrapartida — e passaria a
-         * impressão de que a loja está conectada. O que se registra aqui é
-         * ONDE a loja está, para o Tracker saber; a coleta entra depois.
+         * A chave é guardada para o TESTE de conexão — é ele que vai revelar
+         * formato de pedido e limites da API, e é disso que o adaptador de
+         * verdade vai ser escrito. `integrada` segue `false` no catálogo:
+         * credencial válida não é integração.
+         *
+         * `siteId` não é segredo (está no HTML do próprio site) e vai no slot
+         * `consumerKey`; a API Key vai no `consumerSecret`, cifrado. Mesma
+         * divisão da VNDA.
          */
         z.object({
-          platform: z.enum(["wix", "shopify"]),
+          platform: z.literal("wix"),
+          accountId: z.number().int(),
+          storeUrl: z.string().min(8),
+          siteId: z.string().min(30),
+          apiKey: z.string().min(20),
+        }),
+        /**
+         * Shopify: REGISTRO apenas, sem adaptador e sem credencial.
+         *
+         * Guardar uma chave que nada usa seria segredo parado no banco sem
+         * contrapartida — e passaria a impressão de que a loja está conectada.
+         * O que se registra é ONDE a loja está; a coleta entra depois.
+         */
+        z.object({
+          platform: z.literal("shopify"),
           accountId: z.number().int(),
           storeUrl: z.string().min(8),
         }),
@@ -5824,8 +5843,18 @@ export const appRouter = router({
           });
           consumerKey = resolverShopHost(storeUrl, input.xShopHost); // X-Shop-Host (não-segredo)
           consumerSecret = input.token;                              // token Bearer
+        } else if (input.platform === "wix") {
+          storeUrl = await validarUrlWix(input.storeUrl).catch((e) => {
+            throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+          });
+          try {
+            consumerKey = validarSiteId(input.siteId);   // Site ID (não-segredo)
+          } catch (e) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+          }
+          consumerSecret = input.apiKey.trim();          // API Key, cifrada
         } else {
-          // Wix / Shopify: só a URL, validada pela mesma guarda de SSRF. Sem
+          // Shopify: só a URL, validada pela mesma guarda de SSRF. Sem
           // credencial — ver o comentário no schema.
           storeUrl = await validarUrlDaLoja(input.storeUrl).catch((e) => {
             throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
@@ -5891,7 +5920,11 @@ export const appRouter = router({
           ? await testarConexaoWoo(cred.storeUrl, cred.consumerKey, cred.consumerSecret)
           : cred.platform === "vnda"
             ? await testarConexaoVnda(cred.storeUrl, cred.consumerSecret /* token */, cred.consumerKey /* X-Shop-Host */)
-            : { ok: false as const, erro: `Teste ainda não implementado para ${cred.platform}.` };
+            : cred.platform === "wix"
+              // A URL da loja NÃO entra: na Wix a API é central e o site é
+              // identificado pelo Site ID. Ver o cabeçalho de wix.ts.
+              ? await testarConexaoWix(cred.consumerSecret /* API Key */, cred.consumerKey /* Site ID */)
+              : { ok: false as const, erro: `Teste ainda não implementado para ${cred.platform}.` };
         await registrarTesteEcommerce(input.id, r.ok, r.ok ? null : r.erro);
         return r;
       }),
