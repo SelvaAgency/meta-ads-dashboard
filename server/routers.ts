@@ -285,6 +285,8 @@ import {
   gerarMesRecorrente,
   recorrenciaStatusMes,
   createDespesaRecorrencia,
+  deleteRecorrencia,
+  lancarDespesaRecorrenteNoMes,
   createReceitaRecorrencia,
   marcarSaidaRecorrencia,
   reativarRecorrencia,
@@ -781,12 +783,14 @@ const financeRouter = router({
     gerar: adminProcedure.input(z.object({ mes: MES })).mutation(({ input }) => gerarMesRecorrente(input.mes)),
     createDespesa: adminProcedure
       .input(z.object({ descricao: z.string().min(1).max(255), valorCents: CENTS, tipoEntry: z.enum(["DESPESA_RECORRENTE", "DESPESA_IMPOSTO"]), estimativa: z.boolean().default(false), mesInicio: MES, diaVencimento: z.number().int().min(1).max(31).nullable().optional(), vencimentoMesSeguinte: z.boolean().default(false) }))
-      .mutation(async ({ input }) => { const id = await createDespesaRecorrencia({ descricao: input.descricao, valorCents: input.valorCents, tipoEntry: input.tipoEntry, estimativa: input.estimativa, mesInicio: input.mesInicio, diaVencimento: input.diaVencimento ?? null, vencimentoMesSeguinte: input.vencimentoMesSeguinte }); return { id } as const; }),
+      .mutation(async ({ input }) => await createDespesaRecorrencia({ descricao: input.descricao, valorCents: input.valorCents, tipoEntry: input.tipoEntry, estimativa: input.estimativa, mesInicio: input.mesInicio, diaVencimento: input.diaVencimento ?? null, vencimentoMesSeguinte: input.vencimentoMesSeguinte })),
     createReceita: adminProcedure
       .input(z.object({ clienteNome: z.string().min(1).max(120), valorCents: CENTS, diaVencimento: z.number().int().min(1).max(31).nullable().optional(), mesInicio: MES, vencimentoMesSeguinte: z.boolean().default(false) }))
       .mutation(async ({ input }) => { const id = await createReceitaRecorrencia({ clienteNome: input.clienteNome, valorCents: input.valorCents, diaVencimento: input.diaVencimento ?? null, mesInicio: input.mesInicio, vencimentoMesSeguinte: input.vencimentoMesSeguinte }); return { id } as const; }),
     marcarSaida: adminProcedure.input(z.object({ recorrenciaId: z.number().int(), mes: MES })).mutation(({ input }) => marcarSaidaRecorrencia(input.recorrenciaId, input.mes)),
     reativar: adminProcedure.input(z.object({ recorrenciaId: z.number().int() })).mutation(async ({ input }) => { await reativarRecorrencia(input.recorrenciaId); return { success: true } as const; }),
+    delete: adminProcedure.input(z.object({ recorrenciaId: z.number().int() })).mutation(({ input }) => deleteRecorrencia(input.recorrenciaId)),
+    lancarDespesaNoMes: adminProcedure.input(z.object({ recorrenciaId: z.number().int(), mes: MES })).mutation(async ({ input }) => ({ criada: await lancarDespesaRecorrenteNoMes(input.recorrenciaId, input.mes) })),
     ajustarValor: adminProcedure.input(z.object({ recorrenciaId: z.number().int(), valorCents: CENTS, aplicarGerados: z.boolean().default(false) })).mutation(async ({ input }) => { await ajustarValorRecorrencia(input.recorrenciaId, input.valorCents, input.aplicarGerados); return { success: true } as const; }),
   }),
 

@@ -1626,7 +1626,11 @@ function DespesasTab({ period, setPeriod, months, drill }: { period: PeriodState
   const marcarSaida = trpc.finance.recorrencia.marcarSaida.useMutation({ onSuccess: (res) => { invRec(); toast.success(`Despesa encerrada. ${res.removidas} mês(es) futuro(s) pendente(s) removido(s).`); }, onError: onErr });
   const reativar = trpc.finance.recorrencia.reativar.useMutation({ onSuccess: () => { invRec(); toast.success("Despesa reativada."); }, onError: onErr });
   const ajustarValor = trpc.finance.recorrencia.ajustarValor.useMutation({ onSuccess: () => { invRec(); setAjuste(null); toast.success("Valor ajustado."); }, onError: onErr });
-  const createDespesa = trpc.finance.recorrencia.createDespesa.useMutation({ onSuccess: () => { invRec(); setNovo(null); toast.success("Despesa recorrente criada."); }, onError: onErr });
+  const createDespesa = trpc.finance.recorrencia.createDespesa.useMutation({ onSuccess: (res) => { invRec(); setNovo(null); toast.success(res.mesesCriados > 0 ? `Despesa recorrente criada e lançada em ${res.mesesCriados} mês(es).` : "Despesa recorrente criada (prevista a partir do mês de início)."); }, onError: onErr });
+  const delRec = trpc.finance.recorrencia.delete.useMutation({ onSuccess: (res) => { invRec(); toast.success(`Excluído. ${res.removidas} lançamento(s) removido(s).`); }, onError: onErr });
+  // Linhas "Previsto" antigas (recorrência criada antes de a criação já lançar o mês)
+  // não têm lançamento — sem lançamento não dá para editar, remarcar nem pagar.
+  const lancarMes = trpc.finance.recorrencia.lancarDespesaNoMes.useMutation({ onSuccess: (res) => { invRec(); if (res.criada) toast.success("Lançado neste mês."); else toast.error("Não deu para lançar neste mês (mês fechado, passado ou já lançado)."); }, onError: onErr });
   const createPontual = trpc.finance.pnl.create.useMutation({ onSuccess: () => { invRec(); setNovoPontual(null); toast.success("Despesa pontual criada."); }, onError: onErr });
   const toggleReembolso = trpc.finance.pnl.update.useMutation({ onSuccess: () => invRec(), onError: onErr });
   const setStatusM = trpc.finance.pnl.setStatus.useMutation({ onSuccess: () => invRec(), onError: onErr });
@@ -1650,10 +1654,18 @@ function DespesasTab({ period, setPeriod, months, drill }: { period: PeriodState
     onToggle: d.entryId ? () => setStatusM.mutate({ id: d.entryId!, status: d.status === "pago" ? "pendente" : "pago" }) : undefined,
     actions: (
       <div className="inline-flex items-center gap-1">
+        {d.entryId == null && d.recorrenciaId != null && <button onClick={() => lancarMes.mutate({ recorrenciaId: d.recorrenciaId!, mes: refMonth })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Lançar neste mês — cria o lançamento para poder editar, remarcar e marcar como pago"><Plus className="w-4 h-4" /></button>}
         {d.entryId != null && <button onClick={() => setEditMes({ id: d.entryId!, descricao: d.descricao, valorCents: d.valorCents, vencimento: d.vencimento })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Editar o valor só deste mês"><Pencil className="w-4 h-4" /></button>}
         {d.entryId && <button onClick={() => setRemarcar({ id: d.entryId!, venc: d.vencimento ?? "", oficial: true })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Mudar data de pagamento"><CalendarClock className="w-4 h-4" /></button>}
         {d.recorrenciaId != null && <button onClick={() => setAjuste({ recorrenciaId: d.recorrenciaId!, nome: d.descricao, valor: centsToInput(d.valorCents), aplicarGerados: false })} className="p-1.5 text-muted-foreground hover:text-foreground" title="Ajustar valor recorrente (próximos meses)"><Repeat className="w-4 h-4" /></button>}
         {d.recorrenciaId != null && <button onClick={() => { if (confirm(`Encerrar "${d.descricao}"? Remove os meses futuros pendentes (não mexe nos pagos).`)) marcarSaida.mutate({ recorrenciaId: d.recorrenciaId!, mes: cur }); }} className="p-1.5 text-muted-foreground hover:text-destructive" title="Encerrar recorrência"><TrendingDown className="w-4 h-4" /></button>}
+        {/* Excluir = desfazer cadastro errado (apaga tudo). Encerrar = tirar da folha guardando o histórico. */}
+        <button
+          onClick={() => {
+            if (d.recorrenciaId != null) { if (confirm(`Excluir "${d.descricao}" de vez?\n\nApaga a recorrência e TODOS os lançamentos dela, inclusive os já pagos. Use isto só para desfazer um cadastro errado — para tirar alguém da folha guardando o histórico, use "Encerrar".`)) delRec.mutate({ recorrenciaId: d.recorrenciaId! }); }
+            else if (d.entryId != null) { if (confirm(`Excluir o lançamento de "${d.descricao}" neste mês?`)) delM.mutate({ id: d.entryId! }); }
+          }}
+          className="p-1.5 text-muted-foreground hover:text-destructive" title="Excluir (apaga a recorrência e todos os lançamentos)"><Trash2 className="w-4 h-4" /></button>
       </div>
     ),
   });

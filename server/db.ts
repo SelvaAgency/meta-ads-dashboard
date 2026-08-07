@@ -3280,8 +3280,64 @@ export async function recorrenciaStatusMes(mes: string): Promise<{ faltam: numbe
   return { faltam: recs.filter((r) => !has.has(r.id)).length, aplicaveis: recs.length };
 }
 
-/** Cria uma recorrência de DESPESA (colaborador/imposto). */
-export async function createDespesaRecorrencia(data: { descricao: string; valorCents: number; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; estimativa: boolean; mesInicio: string; diaVencimento?: number | null; vencimentoMesSeguinte?: boolean }): Promise<number> {
+/**
+ * Materializa uma recorrência de DESPESA recém-criada nos meses que o motor já
+ * gerou. Sem isso o colaborador novo nasce só como PROJEÇÃO ("Previsto", sem
+ * entry): a linha aparece sem editar valor, sem remarcar vencimento e sem marcar
+ * pago — diferente de todos os colaboradores antigos, que têm entry no mês.
+ * Segue as mesmas regras do motor: nunca escreve no passado, nunca em mês
+ * fechado, e no máximo até o mês seguinte ao corrente.
+ */
+async function materializarDespesaRecorrente(recorrenciaId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [r] = await db.select().from(financeRecorrencia).where(eq(financeRecorrencia.id, recorrenciaId)).limit(1);
+  if (!r || !r.ativo || r.natureza !== "DESPESA") return 0;
+  const cur = agencyCurrentMonth();
+  const teto = addMonthsSrv(cur, 1);
+  // Último mês já gerado pelo motor — é até onde os outros colaboradores têm linha.
+  const gerados = await db.selectDistinct({ mes: financePnlEntries.mes }).from(financePnlEntries).where(eq(financePnlEntries.origem, "RECORRENCIA"));
+  const ultimoGerado = gerados.map((g) => g.mes).sort().slice(-1)[0] ?? cur;
+  const from = r.mesInicio > cur ? r.mesInicio : cur;
+  let to = ultimoGerado > cur ? ultimoGerado : cur;
+  if (to > teto) to = teto;
+  if (from > to) return 0; // começa depois do que já foi gerado → segue como "Previsto"
+  let criadas = 0;
+  for (let mes = from; mes <= to; mes = addMonthsSrv(mes, 1)) if (await lancarDespesaRecorrenteNoMes(recorrenciaId, mes)) criadas++;
+  return criadas;
+}
+
+/**
+ * Cria o lançamento de UM mês de uma recorrência de despesa (o que o motor faria).
+ * Devolve false quando não cabe: mês no passado, além do próximo, fechado, antes
+ * do início da recorrência, ou já existe despesa com essa descrição no mês.
+ */
+export async function lancarDespesaRecorrenteNoMes(recorrenciaId: number, mes: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const [r] = await db.select().from(financeRecorrencia).where(eq(financeRecorrencia.id, recorrenciaId)).limit(1);
+  if (!r || !r.ativo || r.natureza !== "DESPESA") return false;
+  const cur = agencyCurrentMonth();
+  if (mes < cur || mes > addMonthsSrv(cur, 1) || mes < r.mesInicio) return false;
+  if (await isMesFechado(mes)) return false;
+  const descricao = r.descricao ?? "Despesa recorrente";
+  // O hub casa entry↔recorrência por DESCRIÇÃO: se já existe despesa com esse
+  // nome no mês, lançar duplicaria a linha na tela.
+  const dup = await db.select({ id: financePnlEntries.id }).from(financePnlEntries)
+    .where(and(eq(financePnlEntries.mes, mes), eq(financePnlEntries.descricao, descricao), DESPESA_TIPOS)).limit(1);
+  if (dup.length) return false;
+  const vencMes = r.vencimentoMesSeguinte ? addMonthsSrv(mes, 1) : mes;
+  const venc = r.diaVencimento ? `${vencMes}-${pad2s(clampDay(vencMes, r.diaVencimento))}` : null;
+  await db.insert(financePnlEntries).values({
+    mes, tipo: r.tipoEntry === "DESPESA_IMPOSTO" ? "DESPESA_IMPOSTO" : "DESPESA_RECORRENTE",
+    descricao, valorCents: r.valorCents, status: "pendente",
+    clienteId: null, origem: "RECORRENCIA", recorrenciaId: r.id, vencimento: venc, vencimentoOriginal: venc,
+  });
+  return true;
+}
+
+/** Cria uma recorrência de DESPESA (colaborador/imposto) e já lança os meses abertos. */
+export async function createDespesaRecorrencia(data: { descricao: string; valorCents: number; tipoEntry: "DESPESA_RECORRENTE" | "DESPESA_IMPOSTO"; estimativa: boolean; mesInicio: string; diaVencimento?: number | null; vencimentoMesSeguinte?: boolean }): Promise<{ id: number; mesesCriados: number }> {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
   const [row] = await db.insert(financeRecorrencia).values({
@@ -3289,7 +3345,24 @@ export async function createDespesaRecorrencia(data: { descricao: string; valorC
     tipoEntry: data.tipoEntry, estimativa: data.estimativa, mesInicio: data.mesInicio, diaVencimento: data.diaVencimento ?? null,
     vencimentoMesSeguinte: !!data.vencimentoMesSeguinte, ativo: true,
   }).$returningId();
-  return row.id;
+  const mesesCriados = await materializarDespesaRecorrente(row.id);
+  return { id: row.id, mesesCriados };
+}
+
+/**
+ * Apaga a recorrência e TODOS os lançamentos gerados por ela — inclusive pagos.
+ * É o desfazer de um cadastro errado, não o churn: para tirar alguém da folha
+ * preservando o histórico use `marcarSaidaRecorrencia` ("encerrar").
+ * Mês fechado bloqueia a operação inteira.
+ */
+export async function deleteRecorrencia(recorrenciaId: number): Promise<{ removidas: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const entries = await db.select({ id: financePnlEntries.id, mes: financePnlEntries.mes }).from(financePnlEntries).where(eq(financePnlEntries.recorrenciaId, recorrenciaId));
+  for (const e of entries) await assertMesAberto(e.mes);
+  if (entries.length) await db.delete(financePnlEntries).where(eq(financePnlEntries.recorrenciaId, recorrenciaId));
+  await db.delete(financeRecorrencia).where(eq(financeRecorrencia.id, recorrenciaId));
+  return { removidas: entries.length };
 }
 
 /** Cria uma recorrência de RECEITA (contrato/assinatura). Cria o cliente se preciso. */
