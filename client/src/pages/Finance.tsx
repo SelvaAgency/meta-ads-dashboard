@@ -1636,6 +1636,9 @@ function DespesasTab({ period, setPeriod, months, drill }: { period: PeriodState
   const setStatusM = trpc.finance.pnl.setStatus.useMutation({ onSuccess: () => invRec(), onError: onErr });
   const remarcarM = trpc.finance.pnl.remarcar.useMutation({ onSuccess: () => { invRec(); setRemarcar(null); toast.success("Vencimento remarcado."); }, onError: onErr });
   const remarcarOfM = trpc.finance.pnl.remarcarOficial.useMutation({ onSuccess: (res) => { invRec(); setRemarcar(null); toast.success(`Data oficial atualizada.${res.realinhadas > 0 ? ` ${res.realinhadas} mês(es) futuro(s) realinhado(s).` : ""}`); }, onError: onErr });
+  // "Remarcar oficial" em lote: quem arrumou as datas do mês na mão fixa todas de
+  // uma vez para os próximos meses, sem repetir linha por linha.
+  const fixarVencs = trpc.finance.pnl.fixarVencimentosDespesa.useMutation({ onSuccess: (res) => { invRec(); toast.success(`${res.recorrencias} vencimento(s) fixado(s) para os próximos meses.${res.realinhadas > 0 ? ` ${res.realinhadas} lançamento(s) futuro(s) realinhado(s).` : ""}`); }, onError: onErr });
   const delM = trpc.finance.pnl.delete.useMutation({ onSuccess: () => { invRec(); toast.success("Excluído."); }, onError: onErr });
 
   const vencCell = (venc: string | null, orig: string | null, _dia: number | null) => {
@@ -1753,6 +1756,12 @@ function DespesasTab({ period, setPeriod, months, drill }: { period: PeriodState
               <button onClick={() => setCustoTab("imposto")} className={`px-3 py-1 border-l border-border ${custoTab === "imposto" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Imposto ({impostoRows.length})</button>
               <button onClick={() => setCustoTab("pontual")} className={`px-3 py-1 border-l border-border ${custoTab === "pontual" ? "bg-accent/20 font-semibold" : "text-muted-foreground"}`}>Pontual ({pontualRows.length})</button>
             </div>
+            {custoTab !== "pontual" && !refClosed && (
+              <Button size="sm" variant="outline" disabled={fixarVencs.isPending} title={`Grava o vencimento que cada linha tem em ${formatMes(refMonth)} como o dia oficial da recorrência`}
+                onClick={() => { if (confirm(`Fixar os vencimentos de ${formatMes(refMonth)} como oficiais?\n\nO dia que cada despesa recorrente/imposto tem neste mês passa a valer para os próximos, e os meses futuros já gerados (abertos e pendentes) são realinhados.`)) fixarVencs.mutate({ mes: refMonth }); }}>
+                <CalendarClock className="w-4 h-4 mr-1" /> Fixar vencimentos
+              </Button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild><Button size="sm"><Plus className="w-4 h-4 mr-1" /> Novo</Button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">

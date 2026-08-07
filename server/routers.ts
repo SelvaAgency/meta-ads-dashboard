@@ -296,6 +296,7 @@ import {
   deleteFinanceProjeto,
   remarcarFinancePnl,
   remarcarOficialFinancePnl,
+  fixarVencimentosDespesaDoMes,
   financePeriodoResumoRP,
   financePnlTrendRP,
   financeAReceberVenc,
@@ -774,6 +775,7 @@ const financeRouter = router({
     setStatus: adminProcedure.input(z.object({ id: z.number().int(), status: PNL_STATUS })).mutation(async ({ input }) => { await updateFinancePnl(input.id, { status: input.status }); return { success: true } as const; }),
     remarcar: adminProcedure.input(z.object({ id: z.number().int(), vencimento: DATA })).mutation(async ({ input }) => { await remarcarFinancePnl(input.id, input.vencimento); return { success: true } as const; }),
     remarcarOficial: adminProcedure.input(z.object({ id: z.number().int(), vencimento: DATA })).mutation(async ({ input }) => { const r = await remarcarOficialFinancePnl(input.id, input.vencimento); return { success: true, ...r } as const; }),
+    fixarVencimentosDespesa: adminProcedure.input(z.object({ mes: MES })).mutation(({ input }) => fixarVencimentosDespesaDoMes(input.mes)),
   }),
 
   recorrencia: router({

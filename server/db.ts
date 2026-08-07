@@ -3500,6 +3500,48 @@ export async function remarcarOficialFinancePnl(id: number, vencimento: string) 
   return { realinhadas };
 }
 
+/**
+ * Fixa como OFICIAL o vencimento que cada despesa recorrente/imposto tem NESTE mês,
+ * de uma vez só. É o "remarcar oficial" em lote: quem arrumou as datas de um mês
+ * na mão não precisa repetir linha por linha para valer nos próximos.
+ * Grava dia + pós-pago na recorrência e realinha os meses futuros já gerados que
+ * estejam abertos e pendentes. Não toca em passado, mês fechado nem linha paga.
+ */
+export async function fixarVencimentosDespesaDoMes(mes: string): Promise<{ recorrencias: number; realinhadas: number; ignoradas: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await assertMesAberto(mes);
+  const entries = await db.select().from(financePnlEntries).where(and(
+    eq(financePnlEntries.mes, mes),
+    or(eq(financePnlEntries.tipo, "DESPESA_RECORRENTE"), eq(financePnlEntries.tipo, "DESPESA_IMPOSTO")),
+  ));
+  const fechados = new Set(await listMesesFechados());
+  let recorrencias = 0, realinhadas = 0, ignoradas = 0;
+  for (const e of entries) {
+    // Sem recorrência não há "próximos meses"; sem data não há o que fixar.
+    if (!e.recorrenciaId || !e.vencimento) { ignoradas++; continue; }
+    const dia = Number(e.vencimento.split("-")[2]);
+    if (!Number.isInteger(dia) || dia < 1 || dia > 31) { ignoradas++; continue; }
+    const posPago = e.vencimento.slice(0, 7) > e.mes;
+    await db.update(financeRecorrencia).set({ diaVencimento: dia, vencimentoMesSeguinte: posPago }).where(eq(financeRecorrencia.id, e.recorrenciaId));
+    recorrencias++;
+    const futuras = await db.select().from(financePnlEntries).where(and(
+      eq(financePnlEntries.recorrenciaId, e.recorrenciaId),
+      gt(financePnlEntries.mes, mes),
+      eq(financePnlEntries.status, "pendente"),
+    ));
+    for (const f of futuras) {
+      if (fechados.has(f.mes)) continue;
+      const vencMes = posPago ? addMonthsSrv(f.mes, 1) : f.mes;
+      const venc = `${vencMes}-${pad2s(clampDay(vencMes, dia))}`;
+      if (venc === f.vencimento) continue;
+      await db.update(financePnlEntries).set({ vencimento: venc }).where(eq(financePnlEntries.id, f.id));
+      realinhadas++;
+    }
+  }
+  return { recorrencias, realinhadas, ignoradas };
+}
+
 /** Resumo do período separando Realizado (pago) × Previsto (pendente). */
 export async function financePeriodoResumoRP(mesFrom: string, mesTo: string) {
   const db = await getDb();
