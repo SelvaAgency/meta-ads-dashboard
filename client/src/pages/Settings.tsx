@@ -329,8 +329,42 @@ function TokenSection() {
     onError: (e) => toast.error(e.message),
   });
 
-  const forceRenew = trpc.accounts.forceRenewToken.useMutation({
-    onSuccess: () => { utils.accounts.list.invalidate(); toast.success("Token renovado para todas as contas."); },
+  /**
+   * Troca de token em DUAS etapas: prévia e aplicação.
+   *
+   * Antes era um botão só, que reescrevia o token de TODAS as contas ativas
+   * depois de validar apenas `/me`. Bastava colar um token de outro portfólio
+   * para as dez contas que funcionavam pararem juntas — e o sistema aceitaria,
+   * porque o `/me` teria passado.
+   *
+   * A prévia mostra quais contas o token alcança ANTES de qualquer escrita, e a
+   * aplicação toca só nas marcadas.
+   */
+  const [previa, setPrevia] = useState<null | {
+    usuario: string; erroLista: string | null;
+    contas: Array<{ id: number; nome: string | null; accountId: string; semMidia: boolean; impressaoAtual: string; alcancada: boolean }>;
+  }>(null);
+  const [aplicarEm, setAplicarEm] = useState<Set<number>>(new Set());
+
+  const previaToken = trpc.accounts.previaDeToken.useMutation({
+    onSuccess: (r) => {
+      setPrevia(r as never);
+      // Pré-seleção segura: só o que o token ALCANÇA e ainda não usa este
+      // token. Conta que ele não alcança nunca nasce marcada.
+      setAplicarEm(new Set(r.contas.filter((c) => c.alcancada).map((c) => c.id)));
+      const n = r.contas.filter((c) => c.alcancada).length;
+      toast.success(`Token válido (${r.usuario}) — alcança ${n} de ${r.contas.length} conta(s).`);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const aplicarToken = trpc.accounts.aplicarToken.useMutation({
+    onSuccess: (r) => {
+      utils.accounts.list.invalidate();
+      setPrevia(null); setAplicarEm(new Set()); setToken("");
+      if (r.aplicadas.length) toast.success(`Token aplicado em ${r.aplicadas.length}: ${r.aplicadas.slice(0, 4).join(", ")}${r.aplicadas.length > 4 ? "…" : ""}`);
+      if (r.recusadas.length) toast.info(`${r.recusadas.length} recusada(s) — o token não alcança: ${r.recusadas.join(", ")}`);
+    },
     onError: (err) => toast.error(err.message),
   });
 
@@ -354,6 +388,69 @@ function TokenSection() {
           <p>3. Para uso permanente, use um <strong>System User Token</strong> no Business Manager.</p>
         </div>
       </div>
+
+      {/*
+        Prévia da troca: quais contas o token alcança, ANTES de gravar.
+        Conta não alcançada aparece bloqueada, não só desmarcada — marcar o que
+        o servidor vai recusar é oferecer um caminho que termina em erro.
+      */}
+      {previa && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-xs font-semibold">
+              Token de <strong>{previa.usuario}</strong> — escolha onde aplicar
+            </p>
+            <button onClick={() => { setPrevia(null); setAplicarEm(new Set()); }}
+              className="text-[11px] text-muted-foreground hover:text-foreground">cancelar</button>
+          </div>
+          {previa.erroLista && (
+            <p className="text-[11px] text-destructive mb-2">
+              O token vive, mas não listou o portfólio: {previa.erroLista}
+            </p>
+          )}
+          <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
+            {previa.contas.map((c) => (
+              <label key={c.id}
+                className={`flex items-center gap-2 text-xs p-1.5 rounded ${c.alcancada ? "" : "opacity-60"}`}>
+                <input type="checkbox" className="accent-accent"
+                  disabled={!c.alcancada}
+                  checked={aplicarEm.has(c.id)}
+                  onChange={() => setAplicarEm((s) => {
+                    const n = new Set(s);
+                    n.has(c.id) ? n.delete(c.id) : n.add(c.id);
+                    return n;
+                  })} />
+                <span className="flex-1 min-w-0 truncate">{c.nome ?? `#${c.id}`}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">{c.impressaoAtual}</span>
+                <span className={`text-[10px] ${c.alcancada ? "text-emerald-600" : "text-destructive"}`}>
+                  {c.alcancada ? "alcançada" : "fora deste token"}
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            <button
+              onClick={() => aplicarToken.mutate({ accessToken: token, accountIds: Array.from(aplicarEm) })}
+              disabled={aplicarToken.isPending || aplicarEm.size === 0}
+              className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground font-medium flex items-center gap-1.5 disabled:opacity-60">
+              {aplicarToken.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Aplicar em {aplicarEm.size} conta(s)
+            </button>
+            <button onClick={() => setAplicarEm(new Set(previa.contas.filter((c) => c.alcancada).map((c) => c.id)))}
+              className="text-[11px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground">
+              Todas as alcançadas
+            </button>
+            <button onClick={() => setAplicarEm(new Set())}
+              className="text-[11px] px-2 py-1 rounded border border-border text-muted-foreground hover:text-foreground">
+              Desmarcar todas
+            </button>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-2">
+            Só as marcadas têm o token trocado. As demais continuam com o token atual —
+            a impressão ao lado do nome mostra qual é.
+          </p>
+        </div>
+      )}
 
       {/* Resultado do diagnóstico — selecionável, sem token nenhum. */}
       {diag && (
@@ -431,13 +528,13 @@ function TokenSection() {
               Diagnóstico
             </button>
             <button
-              onClick={() => forceRenew.mutate({ accessToken: token })}
-              disabled={!token || forceRenew.isPending}
+              onClick={() => previaToken.mutate({ accessToken: token })}
+              disabled={!token || previaToken.isPending}
               className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 flex items-center gap-1.5"
-              title="Renovar token para todas as contas já conectadas"
+              title="Mostra quais contas este token alcança, antes de trocar qualquer coisa"
             >
-              {forceRenew.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              Renovar token
+              {previaToken.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Trocar token…
             </button>
           </div>
         </div>

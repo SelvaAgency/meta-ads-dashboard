@@ -133,7 +133,7 @@ import {
   updateAccountGoalType,
   updateAccountPictureKey,
   markStaleCampaignsArchived,
-  forceUpdateAllTokens,
+  aplicarTokenEmContas,
   getDailyBriefing,
   saveDailyBriefing,
   getAccountThresholds,
@@ -2029,24 +2029,82 @@ export const appRouter = router({
       }));
     }),
 
-    forceRenewToken: protectedProcedure
+    /**
+     * Prévia da troca de token — LEITURA PURA, nada é gravado.
+     *
+     * Responde a pergunta que a validação antiga não fazia: este token alcança
+     * QUAIS contas? `/me` diz que ele vive; só a lista do portfólio diz que ele
+     * serve. Trocar o token de dez contas que funcionam por um que não as
+     * alcança é um clique, e a volta não é.
+     */
+    previaDeToken: contentProcedure
       .input(z.object({ accessToken: z.string().min(10) }))
       .mutation(async ({ input }) => {
-        // First validate the token is real
-        const user = await validateToken(input.accessToken);
-        if (!user) throw new TRPCError({ code: "BAD_REQUEST", message: "Token inválido." });
-        // Force-update all active accounts
-        await forceUpdateAllTokens(input.accessToken);
-        return { success: true, message: "Token atualizado para todas as contas ativas." };
+        const me = await validateToken(input.accessToken);
+        if (!me) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A Meta não aceita este token. Gere um novo e tente de novo." });
+        }
+        let alcancadas = new Set<string>();
+        let erroLista: string | null = null;
+        try {
+          alcancadas = new Set((await getAdAccounts(input.accessToken)).map((a) => idLimpo(a.id)));
+        } catch (e) {
+          // Token vive mas não lista o portfólio: informação, não falha. Sem
+          // isto a prévia diria "alcança nenhuma" sem explicar por quê.
+          erroLista = (e as Error).message?.slice(0, 300) ?? "não foi possível listar as contas do portfólio";
+        }
+
+        const contas = (await diagnosticoDeTokens()).filter((c) => c.ativa);
+        return {
+          usuario: me.name,
+          erroLista,
+          contas: contas.map((c) => ({
+            id: c.id, nome: c.nome, accountId: c.accountId, semMidia: c.semMidia,
+            impressaoAtual: c.impressao,
+            alcancada: alcancadas.has(idLimpo(c.accountId)),
+          })),
+        };
       }),
 
     /**
-     * Remove a foto enviada à mão. Volta para a foto da Meta se houver, e para
-     * as iniciais se não houver — nunca deixa o cliente sem representação.
+     * Aplica o token nas contas ESCOLHIDAS. Recusa as que ele não alcança.
      *
-     * O binário sobe por /api/uploads/account-picture (multipart não passa bem
-     * por tRPC); só a remoção mora aqui.
+     * A recusa é do servidor, não da tela: a lista que chega é entrada do
+     * cliente, e gravar um token que não serve numa conta a quebra em silêncio
+     * — ela só falharia na próxima sincronização, longe daqui.
      */
+    aplicarToken: contentProcedure
+      .input(z.object({
+        accessToken: z.string().min(10),
+        accountIds: z.array(z.number().int()).min(1).max(200),
+      }))
+      .mutation(async ({ input }) => {
+        const me = await validateToken(input.accessToken);
+        if (!me) throw new TRPCError({ code: "BAD_REQUEST", message: "A Meta não aceita este token." });
+
+        let alcancadas = new Set<string>();
+        try {
+          alcancadas = new Set((await getAdAccounts(input.accessToken)).map((a) => idLimpo(a.id)));
+        } catch {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "O token vive, mas não foi possível listar as contas do portfólio com ele. Confira se ele pertence ao Portfólio Empresarial da SELVA.",
+          });
+        }
+
+        const todas = await diagnosticoDeTokens();
+        const pedidas = todas.filter((c) => input.accountIds.includes(c.id));
+        const aplicar = pedidas.filter((c) => alcancadas.has(idLimpo(c.accountId)));
+        const recusadas = pedidas.filter((c) => !alcancadas.has(idLimpo(c.accountId)));
+
+        const n = await aplicarTokenEmContas(aplicar.map((c) => c.id), input.accessToken);
+        return {
+          aplicadas: aplicar.map((c) => c.nome ?? `#${c.id}`),
+          recusadas: recusadas.map((c) => c.nome ?? `#${c.id}`),
+          total: n,
+        };
+      }),
+
     removerFoto: contentProcedure
       .input(z.object({ accountId: z.number().int() }))
       .mutation(async ({ input }) => {

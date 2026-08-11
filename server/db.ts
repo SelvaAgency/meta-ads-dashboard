@@ -1867,15 +1867,34 @@ export async function tokenMetaDaConta(id: number): Promise<string | null> {
   return r[0]?.t ?? null;
 }
 
-export async function forceUpdateAllTokens(newToken: string) {
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Troca de token — nas contas ESCOLHIDAS, nunca em todas
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Substitui `forceUpdateAllTokens`, que fazia
+ *  `UPDATE meta_ad_accounts SET accessToken = ? WHERE isActive = 1` — o
+ *  portfólio inteiro, sem seleção. E a única validação antes disso era `/me`,
+ *  que prova que o token VIVE e não prova que ele ALCANÇA conta nenhuma.
+ *
+ *  A combinação era um alçapão: bastava colar um token válido de outra pessoa,
+ *  ou de um portfólio diferente, para todas as contas que funcionavam pararem
+ *  de sincronizar de uma vez — e o sistema aceitaria sem reclamar, porque o
+ *  `/me` teria passado.
+ *
+ *  Duas contas precisando de token novo não podem custar o risco de perder as
+ *  outras dez. Quem chama diz EM QUAIS contas aplicar, e quem decide isso já
+ *  viu, na prévia, quais o token alcança.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export async function aplicarTokenEmContas(ids: number[], token: string): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  const result = await db
-    .update(metaAdAccounts)
-    .set({ accessToken: newToken })
-    .where(eq(metaAdAccounts.isActive, true));
-  logger.info(`[DB] Force-updated accessToken for all active accounts`);
-  return result;
+  if (ids.length === 0) return 0;
+  await db.update(metaAdAccounts)
+    .set({ accessToken: token })
+    .where(inArray(metaAdAccounts.id, ids));
+  logger.info(`[DB] token atualizado em ${ids.length} conta(s): ${ids.join(", ")}`);
+  return ids.length;
 }
 
 // ─── GA4 Accounts ───────────────────────────────────────────────────────────
