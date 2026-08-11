@@ -310,6 +310,25 @@ function TokenSection() {
     onError: (err) => toast.error(err.message),
   });
 
+  /**
+   * Diagnóstico comparativo de tokens.
+   *
+   * A pergunta que ele responde não é "o token é válido" — é "as contas que
+   * falham usam o MESMO token das que funcionam?". Só a comparação separa
+   * token expirado de token sem permissão naquela conta, e é por isso que a
+   * impressão digital (hash curto) existe: compara sem revelar.
+   */
+  const [diag, setDiag] = useState<null | Array<{
+    id: number; nome: string | null; accountId: string; ativa: boolean; semMidia: boolean;
+    temToken: boolean; tamanho: number; impressao: string; atualizadaEm: string | Date | null;
+    tokenVivo: boolean; alcancaEstaConta: boolean | null;
+  }>>(null);
+
+  const diagnostico = trpc.accounts.diagnosticoTokens.useMutation({
+    onSuccess: (r) => { setDiag(r as never); toast.success(`${r.length} conta(s) analisada(s).`); },
+    onError: (e) => toast.error(e.message),
+  });
+
   const forceRenew = trpc.accounts.forceRenewToken.useMutation({
     onSuccess: () => { utils.accounts.list.invalidate(); toast.success("Token renovado para todas as contas."); },
     onError: (err) => toast.error(err.message),
@@ -336,6 +355,51 @@ function TokenSection() {
         </div>
       </div>
 
+      {/* Resultado do diagnóstico — selecionável, sem token nenhum. */}
+      {diag && (
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-xs font-semibold">Diagnóstico de tokens</p>
+            <button onClick={() => setDiag(null)} className="text-[11px] text-muted-foreground hover:text-foreground">fechar</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead className="text-muted-foreground">
+                <tr className="text-left">
+                  <th className="pr-3 pb-1">Cliente</th>
+                  <th className="pr-3 pb-1">act_</th>
+                  <th className="pr-3 pb-1">Token</th>
+                  <th className="pr-3 pb-1">Impressão</th>
+                  <th className="pr-3 pb-1">Vive?</th>
+                  <th className="pr-3 pb-1">Alcança a conta?</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono">
+                {diag.filter((c) => c.ativa).map((c) => (
+                  <tr key={c.id} className="border-t border-border/60">
+                    <td className="pr-3 py-1 font-sans">{c.nome ?? `#${c.id}`}{c.semMidia ? " (sem mídia)" : ""}</td>
+                    <td className="pr-3 py-1">{c.accountId}</td>
+                    <td className="pr-3 py-1">{c.temToken ? `${c.tamanho} car.` : "AUSENTE"}</td>
+                    <td className="pr-3 py-1">{c.impressao}</td>
+                    <td className={`pr-3 py-1 ${c.tokenVivo ? "text-emerald-600" : "text-destructive"}`}>
+                      {c.temToken ? (c.tokenVivo ? "sim" : "não") : "—"}
+                    </td>
+                    <td className={`pr-3 py-1 ${c.alcancaEstaConta === false ? "text-destructive" : c.alcancaEstaConta ? "text-emerald-600" : "text-muted-foreground"}`}>
+                      {c.alcancaEstaConta === null ? "—" : c.alcancaEstaConta ? "sim" : "NÃO"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-2">
+            A <strong>impressão</strong> é um hash curto: contas com a mesma impressão usam o mesmo token.
+            Nenhum token é exibido. <strong>Vive</strong> = a Meta aceita o token;
+            <strong> Alcança</strong> = esse token enxerga esta conta no portfólio.
+          </p>
+        </div>
+      )}
+
       {step === "token" ? (
         <div className="space-y-2">
           <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
@@ -356,6 +420,15 @@ function TokenSection() {
             >
               {preview.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronRight className="w-3.5 h-3.5" />}
               Validar
+            </button>
+            <button
+              onClick={() => diagnostico.mutate()}
+              disabled={diagnostico.isPending}
+              className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 flex items-center gap-1.5"
+              title="Compara os tokens de todas as contas, sem revelar nenhum"
+            >
+              {diagnostico.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Key className="w-3.5 h-3.5" />}
+              Diagnóstico
             </button>
             <button
               onClick={() => forceRenew.mutate({ accessToken: token })}

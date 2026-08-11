@@ -86,6 +86,8 @@ import {
   createMetaAdAccount,
   contasMetaExistentes,
   criarContaMetaSeNova,
+  diagnosticoDeTokens,
+  tokenMetaDaConta,
   duplicatasDeContas,
   mesclarContas,
   renomearConta,
@@ -1981,6 +1983,52 @@ export const appRouter = router({
       }),
 
     // Force-renew token for ALL active accounts (bypasses userId matching)
+    /**
+     * Diagnóstico de tokens — comparativo, sem revelar segredo.
+     *
+     * Faz UMA chamada por token DISTINTO, não por conta: `/me` prova se o token
+     * vive, e a lista de contas do portfólio prova se ele ALCANÇA cada conta.
+     * São perguntas diferentes, e confundi-las é o que faz "token inválido"
+     * esconder "token válido sem permissão nesta conta".
+     *
+     * Leitura pura: não escreve nada, não renova nada.
+     */
+    diagnosticoTokens: contentProcedure.mutation(async () => {
+      const contas = await diagnosticoDeTokens();
+
+      // Um teste por impressão digital — 12 contas com o mesmo token são uma
+      // chamada, não doze. Rate limit da Meta é real.
+      const porImpressao = new Map<string, number>();
+      for (const c of contas) if (c.temToken) porImpressao.set(c.impressao, c.id);
+
+      const vivo = new Map<string, boolean>();
+      const alcanca = new Map<string, Set<string>>();
+      for (const [impressao, contaId] of Array.from(porImpressao.entries())) {
+        const token = await tokenMetaDaConta(contaId);
+        if (!token) { vivo.set(impressao, false); continue; }
+        const me = await validateToken(token);
+        vivo.set(impressao, !!me);
+        if (!me) continue;
+        try {
+          const lista = await getAdAccounts(token);
+          alcanca.set(impressao, new Set(lista.map((a) => idLimpo(a.id))));
+        } catch {
+          // Token vive mas não lista contas: é informação, não falha do
+          // diagnóstico. Fica como conjunto vazio e a tela mostra "não alcança".
+          alcanca.set(impressao, new Set());
+        }
+      }
+
+      return contas.map((c) => ({
+        ...c,
+        tokenVivo: c.temToken ? (vivo.get(c.impressao) ?? false) : false,
+        // `null` = não deu para saber (token morto). Diferente de `false`.
+        alcancaEstaConta: !c.temToken || !vivo.get(c.impressao)
+          ? null
+          : (alcanca.get(c.impressao)?.has(idLimpo(c.accountId)) ?? false),
+      }));
+    }),
+
     forceRenewToken: protectedProcedure
       .input(z.object({ accessToken: z.string().min(10) }))
       .mutation(async ({ input }) => {
@@ -2106,12 +2154,29 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const account = await getVerifiedAccount(input.accountId, ctx.user.id);
 
-        // Validate token before any API call
+        /**
+         * Verificação prévia: `/me` diz se o token VIVE. Não diz se ele alcança
+         * esta conta — são perguntas diferentes, e a mensagem antiga misturava
+         * as duas num "Token expirado ou inválido" que mandava reconectar
+         * mesmo quando o token estava perfeito e só faltava permissão.
+         *
+         * A impressão digital entra na mensagem porque a pergunta seguinte é
+         * sempre "qual token?": com ela dá para comparar com as contas que
+         * funcionam, sem ninguém ver o segredo.
+         */
         const tokenValid = await validateToken(account.accessToken);
         if (!tokenValid) {
+          const { createHash } = await import("node:crypto");
+          const t = account.accessToken ?? "";
+          const impressao = t ? createHash("sha256").update(t).digest("hex").slice(0, 8) : "—";
           throw new TRPCError({
             code: "UNAUTHORIZED",
-            message: "Token expirado ou inválido. Reconecte sua conta em Gerenciar Contas.",
+            message: t
+              ? `O token desta conta não é mais aceito pela Meta (impressão ${impressao}, ${t.length} caracteres). `
+                + `Em Conexões → Meta Ads, cole um token novo e use "Renovar token" — ele atualiza todas as contas ativas. `
+                + `Use o diagnóstico de tokens para ver quais contas compartilham este mesmo token.`
+              : `Esta conta está SEM token gravado. Ela provavelmente foi criada por um caminho que não associa credencial. `
+                + `Em Conexões → Meta Ads, use "Renovar token" para associar o token da agência a todas as contas ativas.`,
           });
         }
 

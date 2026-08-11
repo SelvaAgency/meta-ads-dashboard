@@ -1803,6 +1803,70 @@ export async function deleteGoogleAdAccount(id: number) {
 
 
 // Force-update accessToken for ALL active accounts (admin use)
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Diagnóstico de token — responde sem mostrar
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  As perguntas que importam quando duas contas novas falham e as antigas não
+ *  são comparativas: "o token das duas é o mesmo?", "é o mesmo das que
+ *  funcionam?", "quando foi salvo?". Todas se respondem sem revelar o segredo.
+ *
+ *  A IMPRESSÃO DIGITAL é o que torna isso possível: um hash curto do token.
+ *  Contas com a mesma impressão usam o mesmo token; impressões diferentes
+ *  provam que há mais de um token em jogo — que é exatamente a hipótese quando
+ *  parte do portfólio sincroniza e parte não.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export async function diagnosticoDeTokens(): Promise<{
+  id: number;
+  nome: string | null;
+  accountId: string;
+  ativa: boolean;
+  semMidia: boolean;
+  temToken: boolean;
+  tamanho: number;
+  impressao: string;
+  atualizadaEm: Date | null;
+}[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const linhas = await db.select({
+    id: metaAdAccounts.id,
+    nome: metaAdAccounts.accountName,
+    accountId: metaAdAccounts.accountId,
+    ativa: metaAdAccounts.isActive,
+    somenteMonitoramento: metaAdAccounts.somenteMonitoramento,
+    accessToken: metaAdAccounts.accessToken,
+    updatedAt: metaAdAccounts.updatedAt,
+  }).from(metaAdAccounts).orderBy(metaAdAccounts.accountName);
+
+  const { createHash } = await import("node:crypto");
+  return linhas.map((l) => {
+    const t = l.accessToken ?? "";
+    return {
+      id: l.id,
+      nome: l.nome,
+      accountId: l.accountId,
+      ativa: !!l.ativa,
+      semMidia: !!l.somenteMonitoramento,
+      temToken: t.length > 0,
+      tamanho: t.length,
+      // 8 hex do SHA-256: suficiente para comparar, inútil para reconstruir.
+      impressao: t ? createHash("sha256").update(t).digest("hex").slice(0, 8) : "—",
+      atualizadaEm: l.updatedAt ?? null,
+    };
+  });
+}
+
+/** Token em claro de UMA conta — uso exclusivo do diagnóstico no servidor. */
+export async function tokenMetaDaConta(id: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select({ t: metaAdAccounts.accessToken })
+    .from(metaAdAccounts).where(eq(metaAdAccounts.id, id)).limit(1);
+  return r[0]?.t ?? null;
+}
+
 export async function forceUpdateAllTokens(newToken: string) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
