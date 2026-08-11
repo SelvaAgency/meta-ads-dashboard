@@ -2118,11 +2118,37 @@ export const appRouter = router({
         // Include today in sync so "Hoje" filter works with fresh data
         const { startDate, endDate } = getDateRange(input.days, true);
 
+        /**
+         * O erro da Meta chega aqui com CÓDIGO e MENSAGEM
+         * (`Meta API Error (200) on 123: ...`), e é isso que diz se o problema é
+         * permissão, conta sem campanha ou campo inválido. Sem este try, ele
+         * subia como erro interno e a tela mostrava "Erro ao sincronizar" — o
+         * diagnóstico existia e não saía do servidor.
+         *
+         * Vira BAD_REQUEST porque a causa quase sempre é a conta/credencial, não
+         * uma falha nossa — e porque o tRPC preserva a mensagem de TRPCError.
+         */
+        const comDiagnostico = async <T>(etapa: string, fn: () => Promise<T>): Promise<T> => {
+          try {
+            return await fn();
+          } catch (e) {
+            const bruto = e instanceof Error ? e.message : String(e);
+            // O token nunca aparece na mensagem da Meta, mas custa nada garantir.
+            const limpo = bruto.replace(/\b[A-Za-z0-9_-]{40,}\b/g, "«oculto»").slice(0, 500);
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Falha ao ${etapa} da conta ${account.accountName ?? account.accountId} (act_${account.accountId}): ${limpo}`,
+            });
+          }
+        };
+
         // Fetch campaigns and adsets together to get performance_goal
-        const metaCampaigns = await getCampaigns(account.accountId, account.accessToken);
+        const metaCampaigns = await comDiagnostico("buscar campanhas", () =>
+          getCampaigns(account.accountId, account.accessToken));
 
         // Fetch adsets to determine performance_goal per campaign
-        const adsets = await getAdSets(account.accountId, account.accessToken);
+        const adsets = await comDiagnostico("buscar conjuntos de anúncios", () =>
+          getAdSets(account.accountId, account.accessToken));
         const campaignGoalMap = buildCampaignGoalMap(adsets);
 
         // Upsert campaigns with optimization_goal and result_label
@@ -2181,7 +2207,10 @@ export const appRouter = router({
         await markStaleCampaignsArchived(account.id, activeMetaIds);
 
         // Fetch insights with purchase_roas and all action fields
-        const insights = await getCampaignInsights(account.accountId, account.accessToken, startDate, endDate);
+        // Insights é a etapa que mais falha por permissão: dá para LISTAR
+        // campanhas de uma conta e não poder ler métricas dela.
+        const insights = await comDiagnostico("buscar métricas (insights)", () =>
+          getCampaignInsights(account.accountId, account.accessToken, startDate, endDate));
 
         // Get local campaigns to map metaCampaignId -> id
         const localCampaigns = await getCampaignsByAccountId(account.id);

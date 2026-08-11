@@ -236,14 +236,29 @@ export function AccountHeader({
     onError:   () => toast.error("Erro ao atualizar status IA"),
   });
 
+  /**
+   * O erro fica GUARDADO, não só num toast.
+   *
+   * A mensagem da Meta traz CÓDIGO e motivo (`Meta API Error (200) on 123: …`),
+   * e é ela que distingue permissão de conta sem campanha. O
+   * `onError: () => toast.error("Erro ao sincronizar")` descartava tudo isso —
+   * o diagnóstico morria antes de chegar em quem podia agir. Terceira vez que
+   * esse mesmo padrão aparece neste sistema (teste de loja, sync de loja, aqui).
+   */
+  const [erroSync, setErroSync] = useState<string | null>(null);
+
   const sync = trpc.accounts.sync.useMutation({
     onSuccess: () => {
+      setErroSync(null);
       utils.dashboard.overview.invalidate();
       utils.campaigns.performance.invalidate();
       utils.accounts.list.invalidate(); // atualiza o "sync há Xmin" do AccountHeader
       toast.success("Sincronização concluída");
     },
-    onError: () => toast.error("Erro ao sincronizar"),
+    onError: (e) => {
+      setErroSync(e.message);
+      toast.error("Erro ao sincronizar — o detalhe aparece abaixo do cabeçalho.");
+    },
   });
 
   // Summary overflow detection
@@ -372,6 +387,28 @@ export function AccountHeader({
 
   return (
     <div className="rounded-xl border border-border bg-card mb-4 overflow-hidden">
+
+      {/*
+        Erro da última sincronização, selecionável.
+        Fica no TOPO do cabeçalho, e não num toast: o texto traz o código da
+        Meta, e é ele que separa "sem permissão nessa conta" de "conta sem
+        campanha no período" — dois problemas com soluções opostas.
+      */}
+      {erroSync && (
+        <div className="border-b border-destructive/30 bg-destructive/5 px-4 py-3">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <p className="text-[11px] font-semibold text-destructive">Falha na última sincronização</p>
+            <button onClick={() => setErroSync(null)}
+              className="text-[11px] text-muted-foreground hover:text-foreground">fechar</button>
+          </div>
+          <pre className="text-[11px] font-mono whitespace-pre-wrap break-all select-all max-h-40 overflow-y-auto text-foreground">
+{erroSync}
+          </pre>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Mensagem da Meta, sanitizada — nenhum token aparece aqui.
+          </p>
+        </div>
+      )}
 
       {/* ══ Faixa de identidade ═════════════════════════════════════════════ */}
       <div className="flex items-start gap-3 p-4">
