@@ -25,8 +25,10 @@
  *  não é o endereço que se chama.
  *
  *  ── Segredo nunca vaza ─────────────────────────────────────────────────────
- *  A chave vai só no header. Nenhuma mensagem de erro devolve corpo cru da
- *  resposta, que poderia ecoar credencial. Todo texto de erro é NOSSO.
+ *  A chave vai só no header, e o corpo da resposta NUNCA sai cru: quando ele é
+ *  útil (o 400 da Wix diz qual campo foi recusado), passa antes por
+ *  `sanitizarErroWix`. Descartá-lo por completo parecia mais seguro e custou uma
+ *  rodada inteira de diagnóstico — "A Wix respondeu 400" é verdadeiro e inútil.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { fetchSeguro, UrlBloqueadaError } from "./urlGuard";
@@ -119,6 +121,46 @@ export function resumoDeFormato(v: unknown, nome = "", nivel = 0): string[] {
   const mostrarValor = CAMPOS_COM_VALOR.test(nome) && tipo === "string" && String(v).length <= 40;
   linhas.push(`${recuo}${nome}: ${tipo}${mostrarValor ? ` = "${v}"` : ""}`);
   return linhas;
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Sanitização do erro da Wix
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Quando a Wix recusa um payload, ela costuma dizer QUAL campo recusou — e é
+ *  exatamente essa frase que falta para corrigir o filtro e a ordenação sem
+ *  chutar de novo. Descartar o corpo inteiro por precaução custou uma rodada
+ *  inteira de diagnóstico.
+ *
+ *  Mas o corpo é resposta de terceiro, e ecoar resposta de terceiro é como
+ *  credencial vaza para log. Então ele passa por três cortes:
+ *
+ *   1. a PRÓPRIA chave é substituída, caso a API a devolva no eco da requisição;
+ *   2. qualquer sequência longa parecida com token some — chave de OUTRO
+ *      serviço que apareça ali também não pode passar;
+ *   3. cabeçalhos de autorização são apagados por nome.
+ *
+ *  A ordem importa: a chave conhecida sai primeiro, porque ela pode ser curta
+ *  demais para o corte genérico pegar.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const MAX_ERRO = 600;
+
+export function sanitizarErroWix(corpo: string, segredo?: string): string {
+  let t = String(corpo ?? "");
+  if (segredo && segredo.length >= 8) {
+    t = t.split(segredo).join("«chave»");
+  }
+  t = t
+    // Cabeçalho de autorização ecoado, em qualquer caixa.
+    .replace(/("?(authorization|api[-_]?key|wix-site-id)"?\s*[:=]\s*)("[^"]*"|[^\s,}]+)/gi, '$1"«oculto»"')
+    // Sequência longa sem espaço: formato típico de token. 32 é curto o
+    // bastante para pegar chave real e longo o bastante para não comer
+    // mensagem de erro em português.
+    .replace(/[A-Za-z0-9_\-]{32,}/g, "«oculto»")
+    .replace(/\s+/g, " ")
+    .trim();
+  return t.slice(0, MAX_ERRO);
 }
 
 export type ResultadoTesteWix =
@@ -374,8 +416,16 @@ export async function buscarPedidosWix(
       body: JSON.stringify(corpoBusca),
     });
     if (!resp.ok) {
-      // Mensagem NOSSA — o corpo poderia ecoar credencial.
-      throw new Error(`A Wix respondeu ${resp.status} ao buscar pedidos.`);
+      /**
+       * O corpo entra SANITIZADO. Antes era descartado, e a mensagem virava
+       * "A Wix respondeu 400" — verdadeira e inútil: 400 é justamente o caso em
+       * que a API diz qual campo recusou, e é essa frase que permite corrigir o
+       * payload sem chutar.
+       */
+      const detalhe = sanitizarErroWix(await resp.text().catch(() => ""), apiKey);
+      throw new Error(
+        `A Wix respondeu ${resp.status} ao buscar pedidos${detalhe ? ` — ${detalhe}` : "."}`,
+      );
     }
     const dados = JSON.parse(await resp.text()) as Record<string, any>;
     const lote = (dados.orders ?? dados.results ?? []) as PedidoWix[];

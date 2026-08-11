@@ -12,7 +12,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it } from "vitest";
-import { agregarPedidosWix, normalizarPedidoWix, resumoDeFormato, testarConexaoWix, type PedidoWix, validarSiteId, validarUrlWix, WixCredencialInvalidaError } from "./wix";
+import { agregarPedidosWix, normalizarPedidoWix, resumoDeFormato, sanitizarErroWix, testarConexaoWix, type PedidoWix, validarSiteId, validarUrlWix, WixCredencialInvalidaError } from "./wix";
 
 describe("Site ID", () => {
   it("aceita o GUID do site da Aiká", () => {
@@ -330,5 +330,66 @@ describe("agregação — o que chega no BlocoVendas", () => {
   it("as limitações da Wix são declaradas", () => {
     const b = agregarPedidosWix(pedidos, "30d", "2026-08-01", "2026-08-31");
     expect(b.limitacoes.join(" ")).toMatch(/pendente/i);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Sanitização do erro — o corpo é útil, e é de terceiro
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Quando a Wix recusa o payload ela diz QUAL campo recusou, e é essa frase que
+ *  permite corrigir sem chutar. Descartá-la por precaução custou uma rodada
+ *  inteira de diagnóstico.
+ *
+ *  Mas ecoar resposta de terceiro é como credencial vaza para log. Estes testes
+ *  são a licença para aproveitar o corpo: se um deles cair, o corpo volta a ser
+ *  descartado.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("erro da Wix sai sanitizado", () => {
+  const CHAVE = "IST.eyJraWQiOiJQb3pIX2FDMiIsImFsZyI6IlJTMjU2In0.abcdefghijklmnop";
+
+  it("preserva a mensagem útil — é ela que corrige o payload", () => {
+    const t = sanitizarErroWix('{"message":"unknown field \'sort.fieldName\'","code":"INVALID_ARGUMENT"}', CHAVE);
+    expect(t).toContain("unknown field");
+    expect(t).toContain("sort.fieldName");
+    expect(t).toContain("INVALID_ARGUMENT");
+  });
+
+  it("a própria chave nunca sobrevive, nem no meio do JSON", () => {
+    const t = sanitizarErroWix(`{"echo":{"Authorization":"${CHAVE}"},"message":"bad"}`, CHAVE);
+    expect(t).not.toContain(CHAVE);
+    expect(t).toContain("bad");
+  });
+
+  /** Chave de OUTRO serviço que apareça no corpo também não pode passar. */
+  it("qualquer sequência longa parecida com token some", () => {
+    const outro = "shpat_1234567890abcdefghijklmnopqrstuvwxyz";
+    expect(sanitizarErroWix(`{"m":"erro","t":"${outro}"}`)).not.toContain(outro);
+  });
+
+  it.each(["Authorization", "api-key", "apiKey", "wix-site-id"])("cabeçalho %s é ocultado por nome", (nome) => {
+    const t = sanitizarErroWix(`{"${nome}":"valor-secreto-aqui","message":"x"}`);
+    expect(t).not.toContain("valor-secreto-aqui");
+    expect(t).toContain("«oculto»");
+  });
+
+  /** Mensagem em português não pode ser comida pelo corte de token. */
+  it("texto normal sobrevive inteiro", () => {
+    const t = sanitizarErroWix("O campo createdDate não é filtrável nesta coleção.");
+    expect(t).toBe("O campo createdDate não é filtrável nesta coleção.");
+  });
+
+  it("corpo gigante é truncado", () => {
+    expect(sanitizarErroWix("erro ".repeat(500)).length).toBeLessThanOrEqual(600);
+  });
+
+  it.each([[""], [null], [undefined]])("corpo %s vira string vazia", (v) => {
+    expect(sanitizarErroWix(v as string)).toBe("");
+  });
+
+  /** Chave curta demais não vira substituição que apagaria meio texto. */
+  it("segredo curto é ignorado no corte por igualdade", () => {
+    expect(sanitizarErroWix("erro no campo id", "id")).toContain("id");
   });
 });

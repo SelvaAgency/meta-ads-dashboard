@@ -160,3 +160,31 @@ describe("labels vêm do catálogo, nunca de um ternário", () => {
     expect(rotuloPlataforma("magento")).not.toBe("Woo");
   });
 });
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A tela não oferece o impossível
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O botão Sincronizar aparecia para qualquer conexão, inclusive plataforma sem
+ *  adaptador. Clicar produzia "Shopify ainda não tem integração de leitura" —
+ *  mensagem correta, situação errada: transforma um estado NORMAL ("registrada,
+ *  a coleta entra depois") num erro que alguém vai tentar consertar.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("sincronizar só existe com adaptador", () => {
+  it("a tela consulta o catálogo antes de oferecer o botão", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const fonte = fs.readFileSync(
+      path.join(__dirname, "..", "client/src/components/conexoes/LojasVinculos.tsx"), "utf8");
+    const i = fonte.indexOf("Sincronizar");
+    expect(i).toBeGreaterThan(-1);
+    // A guarda tem que estar ANTES do botão, no mesmo bloco.
+    const antes = fonte.slice(Math.max(0, i - 800), i);
+    expect(antes, "botão Sincronizar sem guarda de integração").toContain("temIntegracao(c.platform)");
+  });
+
+  it("hoje isso esconde o botão só da Shopify", () => {
+    expect(PLATAFORMAS_LOJA.filter((p) => !p.integrada).map((p) => p.id)).toEqual(["shopify"]);
+  });
+});

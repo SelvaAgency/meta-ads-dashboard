@@ -56,6 +56,8 @@ export function LojasVinculos() {
    * testar de novo só para ler.
    */
   const [ultimoDiagnostico, setUltimoDiagnostico] = useState<null | { id: number; texto: string }>(null);
+  /** Qual conexão está com o erro de importação aberto. */
+  const [erroAberto, setErroAberto] = useState<number | null>(null);
 
   const testar = trpc.ecommerce.testConnection.useMutation({
     onSuccess: (r, vars) => {
@@ -351,21 +353,43 @@ export function LojasVinculos() {
                       {c.lastSyncAt ? (
                         // Falha de sync NÃO apaga o lastSyncAt: a data é a da última
                         // importação BEM-SUCEDIDA; o status/erro é da última tentativa.
-                        <span className={c.lastSyncStatus === "ok" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}
-                          title={c.lastSyncError ?? undefined}>
-                          {c.lastSyncStatus === "ok" ? "ok" : "falhou"} · {new Date(c.lastSyncAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                        <span className={c.lastSyncStatus === "ok" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
+                          {c.lastSyncStatus === "ok" ? "ok" : (
+                            /*
+                              Tooltip não serve: o erro precisa ser COPIADO para
+                              chegar a quem vai corrigir o payload. Foi por isso
+                              que o diagnóstico do teste teve que ser refeito.
+                            */
+                            <button onClick={() => setErroAberto(erroAberto === c.id ? null : c.id)}
+                              className="underline decoration-dotted">falhou — ver erro</button>
+                          )} · {new Date(c.lastSyncAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                         </span>
                       ) : c.lastSyncStatus === "erro" ? (
-                        <span className="text-amber-600 dark:text-amber-400" title={c.lastSyncError ?? undefined}>falhou</span>
+                        <button onClick={() => setErroAberto(erroAberto === c.id ? null : c.id)}
+                          className="text-amber-600 dark:text-amber-400 underline decoration-dotted">
+                          falhou — ver erro
+                        </button>
                       ) : <span className="text-muted-foreground/60">nunca importada</span>}
                     </td>
                     <td className="px-5 py-2.5">
                       <div className="flex items-center justify-end gap-1.5">
-                        <button onClick={() => { setSincronizando(c.id); sincronizar.mutate({ id: c.id }); }}
-                          disabled={sincronizando === c.id}
-                          className="inline-flex h-7 px-2.5 rounded-md border border-border text-xs items-center gap-1 disabled:opacity-60">
-                          {sincronizando === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Sincronizar
-                        </button>
+                        {/*
+                          Sem adaptador, o botão não aparece. Oferecer uma ação
+                          que só pode falhar transforma um estado CORRETO
+                          ("registrada, integração ainda não existe") num erro
+                          que a pessoa vai tentar consertar.
+                        */}
+                        {temIntegracao(c.platform) ? (
+                          <button onClick={() => { setSincronizando(c.id); sincronizar.mutate({ id: c.id }); }}
+                            disabled={sincronizando === c.id}
+                            className="inline-flex h-7 px-2.5 rounded-md border border-border text-xs items-center gap-1 disabled:opacity-60">
+                            {sincronizando === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Sincronizar
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground px-1">
+                            Sem integração de leitura
+                          </span>
+                        )}
                         <button onClick={() => { setTestando(c.id); testar.mutate({ id: c.id }); }}
                           disabled={testando === c.id}
                           className="inline-flex h-7 px-2.5 rounded-md border border-border text-xs items-center gap-1 disabled:opacity-60">
@@ -383,6 +407,37 @@ export function LojasVinculos() {
                     </td>
                   </tr>
                 ))}
+                {/*
+                  Erro da última importação, em bloco selecionável — a mesma
+                  forma do diagnóstico do teste, e pelo mesmo motivo: o destino
+                  natural dele é ser copiado para quem vai corrigir.
+                */}
+                {erroAberto != null && (() => {
+                  const c = conexoes.find((x) => x.id === erroAberto);
+                  if (!c) return null;
+                  return (
+                    <tr key={`erro-${c.id}`}>
+                      <td colSpan={99} className="px-5 pb-3">
+                        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <p className="text-[11px] font-semibold text-amber-600">
+                              Erro da última importação — {nomeDoCliente(c.accountId)} · {plataformaPorId(c.platform)?.label ?? c.platform}
+                            </p>
+                            <button onClick={() => setErroAberto(null)}
+                              className="text-[11px] text-muted-foreground hover:text-foreground">fechar</button>
+                          </div>
+                          <pre className="text-[11px] font-mono whitespace-pre-wrap break-all select-all max-h-60 overflow-y-auto text-foreground">
+{c.lastSyncError ?? "(sem mensagem registrada)"}
+                          </pre>
+                          <p className="text-[10px] text-muted-foreground mt-1">
+                            Mensagem sanitizada — chaves e cabeçalhos de autorização são removidos antes de gravar.
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })()}
+
                 {/*
                   Diagnóstico do último teste, em bloco selecionável.
                   `whitespace-pre-wrap` e fonte mono porque o conteúdo é uma
