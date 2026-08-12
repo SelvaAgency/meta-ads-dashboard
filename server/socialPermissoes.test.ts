@@ -45,15 +45,49 @@ describe("toda procedure de Redes Sociais exige admin/dev", () => {
     expect(procedures.length).toBeGreaterThanOrEqual(12);
   });
 
-  it("nenhuma usa guarda mais fraca que contentProcedure", () => {
-    const fracas = procedures.filter((p) => p.guarda !== "contentProcedure" && p.guarda !== "adminProcedure");
+  /**
+   * `painel` é a ÚNICA exceção, e ela é explícita.
+   *
+   * A página analítica saiu do teste interno: quem tem acesso ao Tracker vê os
+   * números. O que NÃO abriu junto é o diagnóstico — mensagem da Meta, métrica
+   * recusada e validação interna continuam atrás de `canManageContent`, dentro
+   * da própria procedure.
+   *
+   * A lista de exceções é nominal de propósito: uma procedure nova que nasça
+   * `protectedProcedure` reprova aqui, em vez de entrar de carona numa regra
+   * afrouxada.
+   */
+  const ABERTAS_AO_COLABORADOR = ["painel"];
+
+  it("nenhuma usa guarda mais fraca que contentProcedure, fora a exceção nominal", () => {
+    const fracas = procedures.filter((p) =>
+      p.guarda !== "contentProcedure" && p.guarda !== "adminProcedure"
+      && !ABERTAS_AO_COLABORADOR.includes(p.nome));
     expect(fracas.map((p) => `${p.nome} → ${p.guarda}`)).toEqual([]);
+  });
+
+  it("a exceção é só `painel`, e ela é uma leitura", () => {
+    expect(ABERTAS_AO_COLABORADOR).toEqual(["painel"]);
+    const painel = procedures.find((p) => p.nome === "painel");
+    expect(painel?.guarda).toBe("protectedProcedure");
+  });
+
+  /** Abrir a leitura não pode ter aberto o diagnóstico junto. */
+  it("`painel` esconde o detalhe técnico de quem não é admin/dev", () => {
+    const s2 = routerSocial();
+    const i = s2.indexOf("painel: protectedProcedure");
+    const corpo = s2.slice(i, s2.indexOf("fontes: contentProcedure", i));
+    expect(corpo).toContain("canManageContent(ctx.user.role)");
+    expect(corpo).toContain("podeVerDiagnostico");
+    // E continua conferindo dono do cliente.
+    expect(corpo).toContain("getVerifiedAccount");
   });
 
   /** As que o pedido nomeou, uma a uma — para a lista não encolher em silêncio. */
   it.each([
     "credencial", "salvarCredencial", "diagnosticar", "paginasDisponiveis",
-    "vinculos", "vincular", "desvincular", "fontes", "desconectarConta", "painel", "sondar", "coletarAgora", "sondarInstagramDireto",
+    "vinculos", "vincular", "desvincular", "fontes", "desconectarConta",
+    "sondar", "coletarAgora", "sondarInstagramDireto", "sondarHorarios",
     "daConta", "salvar", "apagar",
   ])("`%s` existe e é admin/dev", (nome) => {
     const p = procedures.find((x) => x.nome === nome);
@@ -119,14 +153,31 @@ describe("as rotas HTTP de OAuth também barram", () => {
 });
 
 describe("a tela não oferece o que o servidor recusaria", () => {
-  it("o item de menu de Redes sociais é só para admin/dev", () => {
+  /**
+   * O menu abriu de propósito: a página analítica saiu do teste interno. O que
+   * NÃO abriu é onde se configura — e é isso que este teste agora protege.
+   */
+  it("o item de menu de Redes sociais aponta para a PÁGINA, não para as Conexões", () => {
     const layout = readFileSync(new URL("../client/src/components/MetaDashboardLayout.tsx", import.meta.url), "utf-8")
       .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-    const i = layout.indexOf("Redes sociais");
-    expect(i).toBeGreaterThan(-1);
-    // A condição do bloco que o renderiza precisa exigir isManager.
-    const bloco = layout.slice(Math.max(0, i - 600), i);
-    expect(bloco).toContain("isManager");
+    // Busca a partir do LINK, e não do rótulo: o href fica algumas linhas
+    // acima do texto, e uma janela curta para trás não o alcança.
+    const i = layout.indexOf('href="/social-networks"');
+    expect(i, "o item de menu não aponta mais para a página").toBeGreaterThan(-1);
+    const bloco = layout.slice(i, i + 600);
+    expect(bloco).toContain("Redes sociais");
+    // Levar o colaborador para o hub de Conexões seria oferecer uma tela que o
+    // servidor recusa — ele cairia no SemAcessoTracker.
+    expect(bloco).not.toContain("painel=conexoes");
+  });
+
+  it("a página analítica não exige admin/dev para ver, mas exige para diagnosticar", () => {
+    const pagina = readFileSync(new URL("../client/src/pages/RedesSociais.tsx", import.meta.url), "utf-8")
+      .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/\/\/[^\n]*/g, "");
+    expect(pagina).toContain("podeDiagnosticar");
+    expect(pagina).toContain("canManageContent");
+    // O gate de entrada deixou de ser o papel.
+    expect(pagina).not.toMatch(/const podeVer = canManageContent/);
   });
 
   it("Configurações inteira já é restrita — é onde Redes Sociais vive", () => {

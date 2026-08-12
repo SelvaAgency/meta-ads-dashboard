@@ -128,16 +128,18 @@ function PostRecente({ post }: { post: Midia }) {
 }
 
 /** Estado que pede AÇÃO, com o caminho — e sem cara de erro. */
-function PrecisaDeConfiguracao({ titulo, detalhe }: { titulo: string; detalhe: string }) {
+function PrecisaDeConfiguracao({ titulo, detalhe, podeConfigurar }: { titulo: string; detalhe: string; podeConfigurar: boolean }) {
   return (
     <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 flex flex-col gap-2.5">
       <p className="text-sm font-semibold text-amber-700 dark:text-amber-500">{titulo}</p>
       <p className="text-xs text-muted-foreground whitespace-pre-wrap select-all">{detalhe}</p>
-      <Link href="/settings?painel=conexoes">
-        <span className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border hover:bg-muted cursor-pointer w-fit">
-          <Settings2 className="w-3.5 h-3.5" /> Abrir Conexões → Redes sociais
-        </span>
-      </Link>
+      {podeConfigurar && (
+        <Link href="/settings?painel=conexoes">
+          <span className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border hover:bg-muted cursor-pointer w-fit">
+            <Settings2 className="w-3.5 h-3.5" /> Abrir Conexões → Redes sociais
+          </span>
+        </Link>
+      )}
     </div>
   );
 }
@@ -146,7 +148,11 @@ function PrecisaDeConfiguracao({ titulo, detalhe }: { titulo: string; detalhe: s
 
 export default function RedesSociais() {
   const { user } = useAuth();
-  const podeVer = canManageContent(user?.role);
+  // A página saiu do teste interno: quem tem acesso ao Tracker vê os números.
+  // `podeDiagnosticar` continua sendo admin/dev — os números são de todos, os
+  // motivos pelos quais um número falta são de quem consegue consertá-los.
+  const podeVer = !!user;
+  const podeDiagnosticar = canManageContent(user?.role);
   const { selectedAccountId, accounts } = useSelectedAccount();
   const { period, setPeriod, dateRange } = usePeriodFilter();
 
@@ -159,7 +165,7 @@ export default function RedesSociais() {
     return (
       <SemAcessoTracker
         title="Redes sociais"
-        message="A área de Redes sociais está em teste interno e é restrita a administradores e desenvolvedores."
+        message="Entre com sua conta para ver as redes sociais dos clientes."
       />
     );
   }
@@ -289,7 +295,7 @@ export default function RedesSociais() {
         )}
 
         {q.error && (
-          <PrecisaDeConfiguracao titulo="Não foi possível carregar" detalhe={q.error.message} />
+          <PrecisaDeConfiguracao titulo="Não foi possível carregar" detalhe={q.error.message} podeConfigurar={podeDiagnosticar} />
         )}
 
         {/* ── ORGÂNICO ─────────────────────────────────────────────────────
@@ -299,6 +305,7 @@ export default function RedesSociais() {
           <PrecisaDeConfiguracao
             titulo={d.fonte.usada ? "Instagram ainda não disponível" : d.fonte.titulo}
             detalhe={d.erro}
+            podeConfigurar={podeDiagnosticar}
           />
         )}
 
@@ -328,7 +335,7 @@ export default function RedesSociais() {
                 : "border-amber-500/30 bg-amber-500/5"}`}>
                 <p className="text-sm font-medium text-foreground">{leitura.titulo}</p>
                 <p className="text-xs text-muted-foreground">{leitura.explicacao}</p>
-                {organico.insights.recusadas.length > 0 && (
+                {podeDiagnosticar && organico.insights.recusadas.length > 0 && (
                   <pre className="text-[10px] font-mono whitespace-pre-wrap break-all select-all mt-1 max-h-40 overflow-y-auto text-muted-foreground">
                     {organico.insights.recusadas.join("\n")}
                   </pre>
@@ -360,7 +367,7 @@ export default function RedesSociais() {
             {/* Entradas e saídas NÃO aparecem enquanto a semântica de
                 FOLLOWER/NON_FOLLOWER não estiver provada por aritmética —
                 ver shared/socialSnapshot. Só o saldo, que é subtração. */}
-            {d && !podeMostrarEntradasESaidas(d.historico.direcao) && (
+            {d && podeDiagnosticar && !podeMostrarEntradasESaidas(d.historico.direcao) && (
               <p className="text-[10px] text-muted-foreground">
                 Entradas e saídas separadas ainda em validação: {d.historico.direcao.explicacao}
               </p>

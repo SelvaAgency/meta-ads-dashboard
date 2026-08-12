@@ -440,25 +440,36 @@ export async function diagnosticar(token: string, opts: {
   // cliente que a pergunta nunca teve — foi exatamente o que fez um painel de
   // vínculos salvos ser investigado como falha de persistência. Sem cliente, a
   // resposta é que a pergunta não se aplica, e o texto diz por quê.
+  let pagina: PaginaDescoberta | undefined;
   if (!opts.pageId) {
-    registrar(
-      "A Página do cliente foi encontrada?", "n/a",
-      opts.escopoDeCliente
-        ? "Este cliente ainda não tem Página salva. Escolha a Página no seletor e clique em Vincular."
-        : "Diagnóstico geral, sem cliente em foco — esta etapa só existe no teste de um cliente. Use Testar no cartão do cliente.",
-    );
-    return montar(true);
+    // Sem Página MAS com Instagram: é o vínculo direto pelo Portfólio, e ele
+    // não tem Página no caminho. Encerrar aqui — como fazia — deixaria a Musa
+    // parada numa pendência que ela nunca vai resolver, e o diagnóstico jamais
+    // chegaria aos insights, que é a única coisa que ele precisava responder.
+    if (opts.instagramUserId) {
+      registrar("A Página do cliente foi encontrada?", "n/a",
+        "Vínculo direto pelo Portfólio — não há Página neste caminho, e não falta nenhuma.");
+    } else {
+      registrar(
+        "A Página do cliente foi encontrada?", "n/a",
+        opts.escopoDeCliente
+          ? "Este cliente ainda não tem conta salva. Escolha no seletor e clique em Vincular."
+          : "Diagnóstico geral, sem cliente em foco — esta etapa só existe no teste de um cliente. Use Testar no cartão do cliente.",
+      );
+      return montar(true);
+    }
+  } else {
+    pagina = paginas.find((p) => p.pageId === opts.pageId);
+    if (!pagina) {
+      registrar("A Página do cliente foi encontrada?", "não",
+        `A Página ${opts.pageId} não aparece no portfólio com este token.`);
+      return montar(false);
+    }
+    registrar("A Página do cliente foi encontrada?", "sim", `"${pagina.pageName}".`);
   }
-  const pagina = paginas.find((p) => p.pageId === opts.pageId);
-  if (!pagina) {
-    registrar("A Página do cliente foi encontrada?", "não",
-      `A Página ${opts.pageId} não aparece no portfólio com este token.`);
-    return montar(false);
-  }
-  registrar("A Página do cliente foi encontrada?", "sim", `"${pagina.pageName}".`);
 
   // 5 — tem Instagram vinculado?
-  const igId = opts.instagramUserId ?? pagina.instagram?.id ?? null;
+  const igId = opts.instagramUserId ?? pagina?.instagram?.id ?? null;
   if (!igId) {
     // Estado PRÓPRIO, não erro: o vínculo é feito no Instagram, não aqui.
     registrar("A Página tem Instagram vinculado?", "não",
@@ -466,7 +477,7 @@ export async function diagnosticar(token: string, opts: {
     return montar(true);
   }
   registrar("A Página tem Instagram vinculado?", "sim",
-    pagina.instagram?.username ? `@${pagina.instagram.username}` : igId);
+    pagina?.instagram?.username ? `@${pagina.instagram.username}` : igId);
 
   // 6 — que tipo de conta é?
   //
@@ -480,7 +491,7 @@ export async function diagnosticar(token: string, opts: {
     const perfil = await perfilDe(token, igId);
     tipoConta = perfil.tipoConta;
     registrar("Que tipo de conta é?", "sim",
-      `${tipoConta}${perfil.username ? ` (@${perfil.username})` : ""} — profissional, por estar vinculada à Página.`);
+      `${tipoConta}${perfil.username ? ` (@${perfil.username})` : ""} — profissional, por estar no Portfólio.`);
   } catch (e) {
     tipoConta = "DESCONHECIDO";
     registrar("Que tipo de conta é?", "não", (e as Error).message);

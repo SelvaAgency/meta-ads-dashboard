@@ -29,7 +29,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search } from "lucide-react";
+import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock } from "lucide-react";
 import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
 import { ROTULO_VIA, viaDoVinculo, type OpcaoDeVinculo } from "@shared/vinculoInstagram";
@@ -238,6 +238,15 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
       r.status === "erro" || r.status === "pulado"
         ? toast.error(`Coleta ${r.status}: ${r.nota}`)
         : toast.success(`Coleta ${r.status} — ${r.nota}`);
+    },
+    onError: (e) => { setDiagnostico(e.message); toast.error(e.message); },
+  });
+
+  const horarios = trpc.social.sondarHorarios.useMutation({
+    onSuccess: (r) => {
+      setDiagnostico(r.texto);
+      r.formaUtil ? toast.success(`Horários: forma "${r.formaUtil}" respondeu.`)
+                  : toast.error("Nenhuma forma devolveu mapa de horários para esta conta.");
     },
     onError: (e) => { setDiagnostico(e.message); toast.error(e.message); },
   });
@@ -493,8 +502,11 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                       <Unplug className="w-3 h-3" /> Desconectar
                     </button>
                   )}
-                  {/* Testar serve às DUAS fontes: basta haver alguma conexão. */}
-                  {(v?.pageId || oauth) && (
+                  {/* Basta haver INSTAGRAM — e não Página. A condição antiga
+                      pedia pageId, então o vínculo direto ficava sem Testar: a
+                      Musa aparecia como "nunca testado" sem ter como sair
+                      disso, enquanto Sondar e Coletar funcionavam ao lado. */}
+                  {(v?.instagramUserId || oauth) && (
                     <button onClick={() => diag.mutate({ accountId: c.id })} disabled={diag.isPending}
                       className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1">
                       {diag.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
@@ -510,6 +522,14 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                       className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
                       {coletar.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <DatabaseZap className="w-3 h-3" />}
                       Coletar agora
+                    </button>
+                  )}
+                  {v?.instagramUserId && (
+                    <button onClick={() => horarios.mutate({ accountId: c.id })} disabled={horarios.isPending}
+                      title="Mede o que online_followers entrega para esta conta"
+                      className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
+                      {horarios.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
+                      Sondar horários
                     </button>
                   )}
                   {(v?.instagramUserId || oauth) && (

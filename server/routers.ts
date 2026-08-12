@@ -4126,6 +4126,24 @@ export const appRouter = router({
       return fonte.sondarInstagramDireto();
     }),
 
+    /**
+     * Mede `online_followers` antes de qualquer promessa de "melhores horários".
+     *
+     * Presença de audiência NÃO é melhor horário para publicar — publicar no
+     * pico é publicar junto de todo mundo. Antes de recomendar é preciso saber
+     * a forma exata do dado, e é só isso que esta sondagem responde.
+     */
+    sondarHorarios: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .mutation(async ({ input }) => {
+        const fonte = fonteAgencia();
+        const vinculo = (await vinculosSociais()).find((v) => v.accountId === input.accountId);
+        if (!fonte.sondarHorarios || !vinculo?.instagramUserId) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Vincule o Instagram deste cliente primeiro." });
+        }
+        return fonte.sondarHorarios({ pageId: vinculo.pageId, instagramUserId: vinculo.instagramUserId });
+      }),
+
     /** Páginas do portfólio, com o Instagram vinculado quando existir. */
     paginasDisponiveis: contentProcedure.mutation(async () => {
       const fonte = fonteAgencia();
@@ -4183,7 +4201,16 @@ export const appRouter = router({
      * Uma tela que quebra em cliente sem Instagram ensina que a área está
      * quebrada, quando só falta um passo de configuração.
      */
-    painel: contentProcedure
+    // ── A ÚNICA leitura de Redes Sociais aberta ao colaborador ────────────
+    //
+    // `protectedProcedure`, e não `contentProcedure`, porque a página analítica
+    // saiu do teste interno. Continua havendo `getVerifiedAccount`, então
+    // ninguém lê cliente que não é seu.
+    //
+    // O que NÃO abre junto: o detalhe técnico de por que um número falta.
+    // Mensagem da Meta, métrica recusada e estado de validação interna são
+    // diagnóstico, e diagnóstico segue restrito — ver `podeVerDiagnostico`.
+    painel: protectedProcedure
       .input(z.object({
         accountId: z.number().int(),
         startDate: z.string(),
@@ -4191,6 +4218,7 @@ export const appRouter = router({
       }))
       .query(async ({ ctx, input }) => {
         await getVerifiedAccount(input.accountId, ctx.user.id);
+        const podeVerDiagnostico = canManageContent(ctx.user.role);
 
         // ── PAGO — Meta Ads, do banco de campanhas. Origem declarada. ──────
         const linhas = await getAccountMetricsSummary(input.accountId, input.startDate, input.endDate);
@@ -4251,10 +4279,29 @@ export const appRouter = router({
         // — ele custa uma chamada por publicação. Vem do snapshot, que já o
         // coletou: é para isso que a tabela de mídias existe.
         const midiasSalvas = await midiasDoPeriodo(input.accountId, input.startDate, input.endDate);
-        const historico = { serie, coletaDesde, direcao, midias: midiasSalvas };
+        const historico = {
+          serie: podeVerDiagnostico ? serie : serie.map((p2) => ({ ...p2, recusadas: {}, breakdownCru: null })),
+          coletaDesde,
+          // A explicação da validação é sobre o funcionamento interno do
+          // Spaces, não sobre o cliente. O veredito em si fica, porque é ele
+          // que decide se entradas e saídas podem aparecer.
+          direcao: podeVerDiagnostico ? direcao : { ...direcao, explicacao: "", divergencias: [] },
+          midias: midiasSalvas,
+        };
+        /**
+         * Um colaborador precisa saber que a leitura não veio; não precisa da
+         * mensagem da Meta. Esconder tudo criaria a tela que "parece quebrada",
+         * que é o problema que esta frente inteira combate — então o estado
+         * continua dito, só sem o detalhe interno.
+         */
         const semOrganico = (motivo: string) => ({
-          fonte: escolha, vinculo: vinculo ?? null,
-          organico: null, erro: motivo, pago, historico,
+          fonte: podeVerDiagnostico ? escolha : { ...escolha, detalhe: "" },
+          vinculo: vinculo ?? null,
+          organico: null,
+          erro: podeVerDiagnostico
+            ? motivo
+            : "Este cliente ainda não está conectado ao Instagram. Fale com um administrador.",
+          pago, historico,
         });
 
         if (!escolha.usada) return semOrganico(`${escolha.titulo}. ${escolha.detalhe}`);
@@ -4282,7 +4329,10 @@ export const appRouter = router({
           ]);
           return {
             fonte: escolha, vinculo: vinculo ?? null, pago, erro: null,
-            organico: { origem: "instagram" as const, perfil, insights, midias },
+            organico: {
+              origem: "instagram" as const, perfil, midias,
+              insights: podeVerDiagnostico ? insights : { ...insights, recusadas: [] },
+            },
             historico,
           };
         } catch (e) {

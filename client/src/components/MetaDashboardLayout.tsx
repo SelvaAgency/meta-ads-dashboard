@@ -207,21 +207,19 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             )}
           </div>
         </Link>
-        {/* Redes sociais — liberação CONTROLADA: só admin/dev, enquanto a frente
-            está em teste interno. Para o colaborador não existe nem como "em
-            breve": um item permanentemente opaco ensina a ignorar a região do
-            menu, e some sozinho quando a área for liberada de verdade.
+        {/* Redes sociais — LIBERADO para todo mundo com acesso ao Tracker: a
+            página analítica saiu do teste interno. Configurar token, vincular e
+            diagnosticar continuam em Conexões, que é admin/dev.
 
             Aponta para a PÁGINA visual. Conexão, token e vínculo continuam em
             Configurações → Conexões: olhar e configurar são coisas diferentes,
             e juntá-las foi o que tornou a página antiga confusa. */}
-        {item.path === "/site" && sidebarOpen && isManager && (
+        {item.path === "/site" && sidebarOpen && (
           <Link href="/social-networks">
             <div className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150 ${location !== "/social-networks" ? HOVER_CLS : ""}`}
               style={location === "/social-networks" ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}>
               <Instagram className="w-4 h-4 flex-shrink-0" />
               <span className="text-sm font-medium flex-1 truncate">Redes sociais</span>
-              <span className="text-[8px] uppercase tracking-wide flex-shrink-0 opacity-60">teste</span>
             </div>
           </Link>
         )}

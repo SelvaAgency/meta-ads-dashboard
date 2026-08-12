@@ -251,3 +251,66 @@ describe("veredito de permissão", () => {
     expect(d.texto).not.toContain(TOKEN);
   });
 });
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Vínculo sem Página não é vínculo pela metade
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A Musa entra pelo Portfólio, sem Página nenhuma. O diagnóstico encerrava na
+ *  etapa da Página — `if (!pageId) return` — e devolvia "este cliente ainda não
+ *  tem Página salva". Ela nunca vai ter, e não precisa: o Instagram estava
+ *  salvo, medindo, e coletando ao lado.
+ *
+ *  O efeito era pior que uma mensagem errada. O diagnóstico jamais chegava aos
+ *  insights, que é a única coisa que ele existia para responder — e o cartão
+ *  ficava em "nunca testado" sem ter como sair disso.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("diagnóstico do vínculo direto, sem Página", () => {
+  it("não para na etapa da Página — vai até os insights", async () => {
+    simularGraph();
+    const d = await diagnosticar(TOKEN, { instagramUserId: IG, escopoDeCliente: true });
+
+    expect(etapa(d, "Página do cliente")?.resposta).toBe("n/a");
+    expect(etapa(d, "Página do cliente")?.detalhe).toContain("não há Página neste caminho");
+    // As etapas que importam existem, e é isso que mudou.
+    expect(etapa(d, "Instagram vinculado")?.resposta).toBe("sim");
+    expect(etapa(d, "tipo de conta")?.resposta).toBe("sim");
+    expect(etapa(d, "Insights")?.resposta).toBe("sim");
+    expect(d.statusInsight).toBe("DISPONIVEL");
+  });
+
+  /** A frase não pode acusar falta de algo que não faz falta. */
+  it("a etapa da Página não chama a ausência de pendência", async () => {
+    simularGraph();
+    const d = await diagnosticar(TOKEN, { instagramUserId: IG, escopoDeCliente: true });
+    const e = etapa(d, "Página do cliente")?.detalhe ?? "";
+    expect(e).not.toContain("ainda não tem");
+    expect(e).not.toContain("Vincular");
+  });
+
+  it("recusa de insights no vínculo direto é relatada normalmente", async () => {
+    simularGraph({ insights: "recusa" });
+    const d = await diagnosticar(TOKEN, { instagramUserId: IG, escopoDeCliente: true });
+    expect(d.statusInsight).toBe("INDISPONIVEL");
+    expect(d.metricasRecusadas).toHaveLength(4);
+    expect(d.veredito).not.toBeNull();
+  });
+
+  /** Sem Página E sem Instagram continua sendo pendência de verdade. */
+  it("sem nada salvo, continua pedindo para vincular", async () => {
+    simularGraph();
+    const d = await diagnosticar(TOKEN, { escopoDeCliente: true });
+    const e = etapa(d, "Página do cliente");
+    expect(e?.detalhe).toContain("Vincular");
+    expect(etapa(d, "Insights")).toBeUndefined();
+  });
+
+  /** O caminho por Página não pode ter mudado. */
+  it("com Página, a etapa continua afirmativa e nomeia a Página", async () => {
+    simularGraph();
+    const d = await diagnosticar(TOKEN, { pageId: PAGE, instagramUserId: IG, escopoDeCliente: true });
+    expect(etapa(d, "Página do cliente")?.resposta).toBe("sim");
+    expect(etapa(d, "Página do cliente")?.detalhe).toContain("UltraMalhas");
+  });
+});

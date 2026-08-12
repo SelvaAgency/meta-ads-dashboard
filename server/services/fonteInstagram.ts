@@ -30,6 +30,7 @@ import type { DiagnosticoInstagram, PaginaDescoberta } from "./instagram";
 import type { Sondagem } from "./instagramSondagem";
 import type { ColetaSocial } from "./coletaSocial";
 import type { SondagemDireta } from "./sondagemInstagramDireto";
+import type { SondagemDeHorarios } from "./sondagemHorarios";
 
 // Nome e rótulo da fonte vivem em shared: a tela também os usa, e duas listas
 // divergiriam no dia em que uma terceira fonte aparecer.
@@ -131,6 +132,9 @@ export interface FonteInstagram {
    * não tem o que descobrir. Optativa pelo mesmo motivo de `descobrirPaginas`.
    */
   sondarInstagramDireto?(): Promise<SondagemDireta>;
+
+  /** Mede o que `online_followers` entrega — antes de prometer horários. */
+  sondarHorarios?(alvo: AlvoInstagram): Promise<SondagemDeHorarios>;
 
   /** As contas de Instagram do Portfólio, para o seletor de vínculo. */
   descobrirInstagramDireto?(): Promise<{
