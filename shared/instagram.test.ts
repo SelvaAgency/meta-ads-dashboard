@@ -14,7 +14,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  ROTULO_INSIGHT, ROTULO_TIPO, lerVinculo, selecaoPendente, tipoDaResposta, tipoPermiteInsights,
+  PERMISSOES_INSIGHTS, ROTULO_INSIGHT, ROTULO_TIPO, lerPermissoes, lerVinculo, selecaoPendente,
+  tipoDaResposta, tipoPermiteInsights,
   type StatusInsight, type TipoConta,
 } from "./instagram";
 
@@ -218,5 +219,106 @@ describe("selecaoPendente", () => {
   it("não escolheu nada: nada pendente, mesmo sem vínculo", () => {
     expect(selecaoPendente({ escolhido: "", salvo: null })).toBe(false);
     expect(selecaoPendente({})).toBe(false);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  (#10) tem três culpados, e mandar regerar o token acerta um em três
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A Meta responde "Application does not have permission for this action" tanto
+ *  para escopo ausente quanto para escopo que não alcança o ativo quanto para
+ *  App sem Acesso Avançado. O conselho antigo — "confira instagram_manage_insights"
+ *  — mandava gerar token de novo nos três, e nos outros dois o token novo volta
+ *  com o mesmo erro, porque nunca foi ele o problema.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("de quem é a falta de permissão", () => {
+  const TODOS = ["pages_show_list", "instagram_basic", "instagram_manage_insights", "pages_read_engagement"];
+  const IG = "17841400000000000";
+  const PG = "111222333";
+
+  it("escopo ausente é culpa do TOKEN, e manda gerar de novo", () => {
+    const r = lerPermissoes({ escopos: TODOS.filter((e) => e !== "instagram_manage_insights") });
+    expect(r.culpado).toBe("token");
+    expect(r.faltandoNoToken).toEqual(["instagram_manage_insights"]);
+    expect(r.orientacao).toContain("gerado de novo");
+  });
+
+  /** O caso que o conselho antigo errava: o escopo ESTÁ lá. */
+  it("escopo restrito a outros ativos é culpa do ATIVO, e gerar token não resolve", () => {
+    const r = lerPermissoes({
+      escopos: TODOS,
+      granular: [{ scope: "instagram_manage_insights", target_ids: ["outro_ig"] }],
+      instagramUserId: IG, pageId: PG,
+    });
+    expect(r.culpado).toBe("ativo");
+    expect(r.faltandoNoToken).toEqual([]);
+    expect(r.semAcessoAoAtivo).toEqual(["instagram_manage_insights"]);
+    expect(r.orientacao).toContain("Gerar outro token não resolve");
+    expect(r.orientacao).toContain("Business Manager");
+  });
+
+  it("ativo presente na lista não é restrição", () => {
+    const r = lerPermissoes({
+      escopos: TODOS,
+      granular: [{ scope: "instagram_manage_insights", target_ids: [IG] }],
+      instagramUserId: IG, pageId: PG,
+    });
+    expect(r.culpado).toBe("app");
+    expect(r.semAcessoAoAtivo).toEqual([]);
+  });
+
+  /** `granular_scopes` sem target_ids significa "vale para todos". */
+  it("escopo sem lista de ativos não é restrição", () => {
+    const semLista = lerPermissoes({
+      escopos: TODOS, granular: [{ scope: "instagram_manage_insights" }],
+      instagramUserId: IG, pageId: PG,
+    });
+    const listaVazia = lerPermissoes({
+      escopos: TODOS, granular: [{ scope: "instagram_manage_insights", target_ids: [] }],
+      instagramUserId: IG, pageId: PG,
+    });
+    expect(semLista.culpado).toBe("app");
+    expect(listaVazia.culpado).toBe("app");
+  });
+
+  it("tudo em ordem e a Meta ainda recusa: é o APP, não o token", () => {
+    const r = lerPermissoes({ escopos: TODOS, instagramUserId: IG, pageId: PG });
+    expect(r.culpado).toBe("app");
+    expect(r.orientacao).toContain("Acesso Avançado");
+    expect(r.orientacao).toContain("Regerar o token não muda nada");
+  });
+
+  /** Escopo de Página é conferido contra a PÁGINA, não contra o Instagram. */
+  it("cada escopo é conferido contra o ativo que lhe corresponde", () => {
+    const r = lerPermissoes({
+      escopos: TODOS,
+      granular: [
+        { scope: "pages_read_engagement", target_ids: [PG] },
+        { scope: "instagram_manage_insights", target_ids: [PG] },
+      ],
+      instagramUserId: IG, pageId: PG,
+    });
+    // pages_* alcança a Página; instagram_* foi restrito ao id da Página, que
+    // não é o do Instagram — logo, não alcança o ativo certo.
+    expect(r.semAcessoAoAtivo).toEqual(["instagram_manage_insights"]);
+  });
+
+  it("sem saber o ativo, não acusa restrição que não pode conferir", () => {
+    const r = lerPermissoes({
+      escopos: TODOS,
+      granular: [{ scope: "instagram_manage_insights", target_ids: ["outro"] }],
+    });
+    expect(r.semAcessoAoAtivo).toEqual([]);
+    expect(r.culpado).toBe("app");
+  });
+
+  it("toda permissão exigida diz para que serve", () => {
+    for (const p of PERMISSOES_INSIGHTS) {
+      expect(p.escopo, p.escopo).toBeTruthy();
+      expect(p.para, p.escopo).toBeTruthy();
+    }
+    expect(PERMISSOES_INSIGHTS.map((p) => p.escopo)).toContain("instagram_manage_insights");
   });
 });

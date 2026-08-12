@@ -25,7 +25,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { logger } from "../logger";
-import { tipoDaResposta, type StatusInsight, type TipoConta } from "@shared/instagram";
+import { lerPermissoes, PERMISSOES_INSIGHTS, tipoDaResposta, type StatusInsight, type TipoConta, type VereditoPermissao } from "@shared/instagram";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -153,6 +153,46 @@ export async function descobrirPaginas(token: string, businessId = BUSINESS_ID_P
   return { paginas, avisos };
 }
 
+// ─── O que o token É ─────────────────────────────────────────────────────────
+
+export interface FichaDoToken {
+  tipo: string;
+  appId: string | null;
+  expira: string;
+  escopos: string[];
+  granular: Array<{ scope: string; target_ids?: string[] }>;
+}
+
+/**
+ * Pergunta à Meta o que o token é e o que ele pode — em vez de deduzir do erro.
+ *
+ * `debug_token` responde tipo (SYSTEM_USER, USER, PAGE), App, validade e a lista
+ * de escopos; `granular_scopes` diz ainda PARA QUAIS ativos cada escopo vale. É
+ * o que separa "falta a permissão" de "a permissão não alcança esta Página" —
+ * dois problemas que a Meta relata com a mesma mensagem (#10) e que têm
+ * conserto em lugares diferentes.
+ *
+ * Nada aqui revela o token: só o que ele autoriza.
+ */
+export async function fichaDoToken(token: string): Promise<FichaDoToken> {
+  const r = await graph<{ data?: Record<string, unknown> }>("debug_token", { input_token: token }, token);
+  const d = r.data ?? {};
+  const expiraEm = Number(d.expires_at ?? 0);
+  return {
+    tipo: String(d.type ?? "DESCONHECIDO"),
+    appId: d.app_id ? String(d.app_id) : null,
+    // 0 é o valor que a Meta usa para "não expira" — típico de System User.
+    expira: expiraEm === 0 ? "não expira" : new Date(expiraEm * 1000).toISOString().slice(0, 10),
+    escopos: Array.isArray(d.scopes) ? d.scopes.map(String) : [],
+    granular: Array.isArray(d.granular_scopes)
+      ? (d.granular_scopes as Array<{ scope?: unknown; target_ids?: unknown }>).map((g) => ({
+          scope: String(g.scope ?? ""),
+          target_ids: Array.isArray(g.target_ids) ? g.target_ids.map(String) : undefined,
+        }))
+      : [],
+  };
+}
+
 // ─── Diagnóstico ─────────────────────────────────────────────────────────────
 
 export interface EtapaDiagnostico {
@@ -170,6 +210,10 @@ export interface DiagnosticoInstagram {
   metricasRecusadas: string[];
   tipoConta: TipoConta;
   statusInsight: StatusInsight;
+  /** O que o token é e o que autoriza — sem revelá-lo. */
+  ficha: FichaDoToken | null;
+  /** De quem é a falta, quando insights não respondem. */
+  veredito: VereditoPermissao | null;
   /** Texto pronto para copiar. Nunca contém token. */
   texto: string;
 }
@@ -200,7 +244,7 @@ export async function diagnosticar(token: string, opts: {
   businessId?: string;
   pageId?: string | null;
   instagramUserId?: string | null;
-  /** true quando a chamada é o teste de UM cliente — muda o texto da etapa 3. */
+  /** true quando a chamada é o teste de UM cliente — muda o texto da etapa 4. */
   escopoDeCliente?: boolean;
 } = {}): Promise<DiagnosticoInstagram> {
   const etapas: EtapaDiagnostico[] = [];
@@ -210,6 +254,8 @@ export async function diagnosticar(token: string, opts: {
   let statusInsight: StatusInsight = "NAO_TESTADO";
   const metricasOk: string[] = [];
   const metricasRecusadas: string[] = [];
+  let ficha: FichaDoToken | null = null;
+  let veredito: VereditoPermissao | null = null;
 
   const registrar = (pergunta: string, resposta: EtapaDiagnostico["resposta"], detalhe: string) =>
     etapas.push({ pergunta, resposta, detalhe });
@@ -223,7 +269,25 @@ export async function diagnosticar(token: string, opts: {
     return montar(false);
   }
 
-  // 2 — alcança o portfólio?
+  // 2 — que token é este, e o que ele autoriza?
+  //
+  // Antes do portfólio de propósito: quando insights falham, a resposta já está
+  // medida aqui, e não deduzida do erro lá embaixo.
+  try {
+    ficha = await fichaDoToken(token);
+    const exigidos = PERMISSOES_INSIGHTS.map((p) => p.escopo);
+    const faltam = exigidos.filter((e) => !ficha!.escopos.includes(e));
+    registrar("Que token é este?", faltam.length ? "não" : "sim",
+      `${ficha.tipo}${ficha.appId ? ` · App ${ficha.appId}` : ""} · ${ficha.expira} · ` +
+      `escopos: ${ficha.escopos.length ? ficha.escopos.join(", ") : "nenhum declarado"}` +
+      (faltam.length ? ` · FALTAM para insights: ${faltam.join(", ")}` : " · tem tudo que insights exigem"));
+  } catch (e) {
+    // Não é fatal: sem a ficha o diagnóstico continua, só perde a precisão de
+    // dizer de quem é a falta.
+    registrar("Que token é este?", "n/a", `Não foi possível inspecionar o token: ${(e as Error).message}`);
+  }
+
+  // 3 — alcança o portfólio?
   let paginas: PaginaDescoberta[] = [];
   try {
     const r = await descobrirPaginas(token, businessId);
@@ -237,7 +301,7 @@ export async function diagnosticar(token: string, opts: {
     return montar(false);
   }
 
-  // 3 — a Página do cliente foi encontrada?
+  // 4 — a Página do cliente foi encontrada?
   //
   // O diagnóstico GERAL (o botão do topo) não tem cliente nenhum em foco, e
   // dizer "nenhuma Página vinculada a este cliente" ali afirma algo sobre um
@@ -261,7 +325,7 @@ export async function diagnosticar(token: string, opts: {
   }
   registrar("A Página do cliente foi encontrada?", "sim", `"${pagina.pageName}".`);
 
-  // 4 — tem Instagram vinculado?
+  // 5 — tem Instagram vinculado?
   const igId = opts.instagramUserId ?? pagina.instagram?.id ?? null;
   if (!igId) {
     // Estado PRÓPRIO, não erro: o vínculo é feito no Instagram, não aqui.
@@ -272,7 +336,7 @@ export async function diagnosticar(token: string, opts: {
   registrar("A Página tem Instagram vinculado?", "sim",
     pagina.instagram?.username ? `@${pagina.instagram.username}` : igId);
 
-  // 5 — que tipo de conta é?
+  // 6 — que tipo de conta é?
   //
   // `account_type` NÃO é pedido de propósito: ele não existe no nó
   // instagram_business_account (é da API de IG Login), e pedir campo inválido
@@ -291,7 +355,7 @@ export async function diagnosticar(token: string, opts: {
     registrar("Que tipo de conta é?", "não", (e as Error).message);
   }
 
-  // 6 — insights respondem? E QUAIS.
+  // 7 — insights respondem? E QUAIS.
   for (const grupo of GRUPOS_METRICAS) {
     try {
       await graph<{ data: unknown[] }>(`${igId}/insights`,
@@ -306,10 +370,25 @@ export async function diagnosticar(token: string, opts: {
   statusInsight = metricasOk.length > 0 ? "DISPONIVEL"
     : metricasRecusadas.length > 0 ? "INDISPONIVEL" : "NAO_TESTADO";
 
-  registrar("Insights respondem?", metricasOk.length > 0 ? "sim" : "não",
-    metricasOk.length > 0
-      ? `Responderam: ${metricasOk.join(", ")}.`
-      : "Nenhuma métrica respondeu. Para conta pessoal isto é esperado; para comercial, confira instagram_manage_insights no token.");
+  if (metricasOk.length > 0) {
+    registrar("Insights respondem?", "sim", `Responderam: ${metricasOk.join(", ")}.`);
+    return montar(true);
+  }
+
+  // Nenhuma métrica respondeu. "Confira instagram_manage_insights" era o
+  // conselho antigo, e ele acerta um caso em três: o escopo pode estar lá e não
+  // alcançar este ativo, ou estar tudo certo e o bloqueio ser do App. O veredito
+  // lê a ficha medida na etapa 2 e diz QUAL dos três é — e onde consertar.
+  veredito = ficha
+    ? lerPermissoes({
+        escopos: ficha.escopos, granular: ficha.granular,
+        instagramUserId: igId, pageId: opts.pageId,
+      })
+    : null;
+  registrar("Insights respondem?", "não",
+    veredito
+      ? `Nenhuma métrica respondeu. ${veredito.titulo}.`
+      : "Nenhuma métrica respondeu, e o token não pôde ser inspecionado para dizer o motivo.");
 
   return montar(true);
 
@@ -319,9 +398,15 @@ export async function diagnosticar(token: string, opts: {
       ...etapas.map((e) => `[${e.resposta.toUpperCase().padEnd(3)}] ${e.pergunta} — ${e.detalhe}`),
     ];
     if (metricasRecusadas.length) linhas.push("", "Métricas recusadas:", ...metricasRecusadas.map((m) => `  · ${m}`));
+    if (veredito) {
+      linhas.push("", `O que fazer (${veredito.culpado}): ${veredito.orientacao}`);
+      if (veredito.faltandoNoToken.length) linhas.push(`  falta no token: ${veredito.faltandoNoToken.join(", ")}`);
+      if (veredito.semAcessoAoAtivo.length) linhas.push(`  não alcança este ativo: ${veredito.semAcessoAoAtivo.join(", ")}`);
+    }
     logger.info(`[Instagram] diagnóstico (${impressao}): ${etapas.length} etapa(s), ok=${ok}`);
     return {
       ok, impressao, etapas, metricasOk, metricasRecusadas, tipoConta, statusInsight,
+      ficha, veredito,
       texto: linhas.join("\n"),
     };
   }

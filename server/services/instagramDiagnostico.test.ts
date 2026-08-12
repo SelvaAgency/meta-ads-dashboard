@@ -3,10 +3,10 @@
  *  O diagnóstico não pode afirmar nada sobre um cliente que ele não recebeu
  * ─────────────────────────────────────────────────────────────────────────────
  *  Este arquivo nasce de um erro concreto. O diagnóstico GERAL — o botão do topo,
- *  que não tem cliente nenhum em foco — respondia a etapa 3 com "Nenhuma Página
- *  vinculada a este cliente ainda". Os vínculos estavam salvos; a frase falava
- *  de um cliente que a chamada nunca teve. Resultado: uma investigação inteira
- *  de falha de persistência que não existia.
+ *  que não tem cliente nenhum em foco — respondia a etapa da Página com "Nenhuma
+ *  Página vinculada a este cliente ainda". Os vínculos estavam salvos; a frase
+ *  falava de um cliente que a chamada nunca teve. Resultado: uma investigação
+ *  inteira de falha de persistência que não existia.
  *
  *  A lição não é sobre texto. É que um diagnóstico que responde MAIS do que lhe
  *  foi perguntado é pior que um que responde menos: ele manda procurar no lugar
@@ -23,17 +23,36 @@ const TOKEN = "EAA-token-de-teste-que-nao-sai-daqui-0123456789";
 const PAGE = "111222333";
 const IG = "17841400000000000";
 
+const TODOS_ESCOPOS = ["pages_show_list", "instagram_basic", "instagram_manage_insights", "pages_read_engagement"];
+
 /**
- * Responde como a Graph API responderia, por caminho. `insights` é controlável
- * porque é a única etapa que varia sem o vínculo mudar.
+ * Responde como a Graph API responderia, por caminho. Cada opção existe para
+ * isolar UMA etapa: insights, escopos do token e ativos alcançados variam sem o
+ * vínculo mudar, e é aí que os vereditos se separam.
  */
-function simularGraph(opts: { insights?: "ok" | "recusa"; comInstagram?: boolean } = {}) {
+function simularGraph(opts: {
+  insights?: "ok" | "recusa";
+  comInstagram?: boolean;
+  escopos?: string[];
+  granular?: Array<{ scope: string; target_ids?: string[] }>;
+  tipoToken?: string;
+  semDebug?: boolean;
+} = {}) {
   const comIg = opts.comInstagram !== false;
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     const caminho = new URL(String(url)).pathname;
     const json = (corpo: unknown) => new Response(JSON.stringify(corpo), { status: 200 });
 
     if (caminho.endsWith("/me")) return json({ id: "1", name: "Guilherme T. Felberg" });
+    if (caminho.includes("debug_token")) {
+      return opts.semDebug
+        ? json({ error: { message: "sem acesso ao debug", code: 190 } })
+        : json({ data: {
+            type: opts.tipoToken ?? "SYSTEM_USER", app_id: "999", expires_at: 0, is_valid: true,
+            scopes: opts.escopos ?? TODOS_ESCOPOS,
+            ...(opts.granular ? { granular_scopes: opts.granular } : {}),
+          } });
+    }
     if (caminho.includes("/client_pages")) {
       return json({ data: [{
         id: PAGE, name: "UltraMalhas", category: "Loja",
@@ -56,7 +75,7 @@ const etapa = (d: Awaited<ReturnType<typeof diagnosticar>>, trecho: string) =>
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("etapa 3 — a Página do cliente", () => {
+describe("etapa 4 — a Página do cliente", () => {
   /** O bug, travado: sem cliente em foco, não se afirma nada sobre cliente. */
   it("diagnóstico GERAL não fala de 'este cliente'", async () => {
     simularGraph();
@@ -79,7 +98,7 @@ describe("etapa 3 — a Página do cliente", () => {
     expect(e?.detalhe).not.toContain("sem cliente em foco");
   });
 
-  /** Com Página salva, o diagnóstico AVANÇA — não para na etapa 3. */
+  /** Com Página salva, o diagnóstico AVANÇA — não para na etapa 4. */
   it("com Página salva, chega até os insights", async () => {
     simularGraph();
     const d = await diagnosticar(TOKEN, { pageId: PAGE, instagramUserId: IG, escopoDeCliente: true });
@@ -92,7 +111,7 @@ describe("etapa 3 — a Página do cliente", () => {
   });
 });
 
-describe("etapa 5 — tipo da conta", () => {
+describe("etapa 6 — tipo da conta", () => {
   /**
    * `account_type` não existe no nó instagram_business_account. Pedi-lo faria a
    * Meta recusar a chamada inteira e o tipo viraria DESCONHECIDO exatamente onde
@@ -106,7 +125,7 @@ describe("etapa 5 — tipo da conta", () => {
   });
 });
 
-describe("etapa 6 — insights", () => {
+describe("etapa 7 — insights", () => {
   it("métrica recusada é NOMEADA, e não vira 'não funcionou'", async () => {
     simularGraph({ insights: "recusa" });
     const d = await diagnosticar(TOKEN, { pageId: PAGE, instagramUserId: IG });
@@ -118,7 +137,7 @@ describe("etapa 6 — insights", () => {
 });
 
 describe("Página sem Instagram é estado próprio", () => {
-  it("para na etapa 4 sem chamar de erro", async () => {
+  it("para na etapa 5 sem chamar de erro", async () => {
     simularGraph({ comInstagram: false });
     const d = await diagnosticar(TOKEN, { pageId: PAGE, escopoDeCliente: true });
     expect(d.ok).toBe(true);
@@ -140,5 +159,95 @@ describe("nenhum token no texto", () => {
 
   it("mensagem da Meta com o token dentro sai sanitizada", () => {
     expect(sanitizar(`falhou para access_token=${TOKEN}`, TOKEN)).not.toContain(TOKEN);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Quando insights não respondem, o diagnóstico diz DE QUEM é a falta
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Antes ele mandava conferir instagram_manage_insights sempre — conselho que
+ *  acerta um caso em três e, nos outros dois, faz gerar um token novo que volta
+ *  com o mesmo erro. Agora ele mede antes de aconselhar.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("veredito de permissão", () => {
+  it("etapa 2 declara o TIPO do token e os escopos", async () => {
+    simularGraph();
+    const d = await diagnosticar(TOKEN);
+    const e = etapa(d, "Que token é este");
+    expect(e?.resposta).toBe("sim");
+    expect(e?.detalhe).toContain("SYSTEM_USER");
+    expect(e?.detalhe).toContain("não expira");
+    expect(e?.detalhe).toContain("instagram_manage_insights");
+    expect(d.ficha?.tipo).toBe("SYSTEM_USER");
+  });
+
+  it("token de usuário comum aparece como tal, sem ser confundido com System User", async () => {
+    simularGraph({ tipoToken: "USER" });
+    const d = await diagnosticar(TOKEN);
+    expect(d.ficha?.tipo).toBe("USER");
+    expect(etapa(d, "Que token é este")?.detalhe).toContain("USER");
+  });
+
+  it("escopo faltando é apontado JÁ na etapa 2, antes de os insights falharem", async () => {
+    simularGraph({ escopos: TODOS_ESCOPOS.filter((e) => e !== "instagram_manage_insights") });
+    const d = await diagnosticar(TOKEN);
+    const e = etapa(d, "Que token é este");
+    expect(e?.resposta).toBe("não");
+    expect(e?.detalhe).toContain("FALTAM para insights: instagram_manage_insights");
+  });
+
+  it("escopo ausente + insights recusados: culpa do token, e manda regerar", async () => {
+    simularGraph({ insights: "recusa", escopos: TODOS_ESCOPOS.filter((e) => e !== "instagram_manage_insights") });
+    const d = await diagnosticar(TOKEN, { pageId: PAGE, instagramUserId: IG, escopoDeCliente: true });
+    expect(d.veredito?.culpado).toBe("token");
+    expect(d.texto).toContain("O que fazer (token)");
+    expect(d.texto).toContain("gerado de novo");
+  });
+
+  /** O caso em que regerar o token seria perda de tempo. */
+  it("escopo restrito a outro ativo: culpa do ativo, e diz para NÃO regerar", async () => {
+    simularGraph({
+      insights: "recusa",
+      granular: [{ scope: "instagram_manage_insights", target_ids: ["outro_instagram"] }],
+    });
+    const d = await diagnosticar(TOKEN, { pageId: PAGE, instagramUserId: IG, escopoDeCliente: true });
+    expect(d.veredito?.culpado).toBe("ativo");
+    expect(d.texto).toContain("Gerar outro token não resolve");
+    expect(d.texto).toContain("não alcança este ativo: instagram_manage_insights");
+  });
+
+  /** O estado da Elwing: token completo, ativo alcançado, e Meta recusando. */
+  it("token completo e ativo alcançado: aponta o App, não o token", async () => {
+    simularGraph({ insights: "recusa" });
+    const d = await diagnosticar(TOKEN, { pageId: PAGE, instagramUserId: IG, escopoDeCliente: true });
+    expect(d.veredito?.culpado).toBe("app");
+    expect(d.texto).toContain("Acesso Avançado");
+    expect(d.texto).not.toContain("gerado de novo");
+  });
+
+  it("insights OK não produz veredito nenhum", async () => {
+    simularGraph({ insights: "ok" });
+    const d = await diagnosticar(TOKEN, { pageId: PAGE, instagramUserId: IG });
+    expect(d.veredito).toBeNull();
+    expect(d.texto).not.toContain("O que fazer");
+  });
+
+  /** Sem a ficha o diagnóstico continua — só perde a precisão, e diz isso. */
+  it("debug_token indisponível não derruba o diagnóstico", async () => {
+    simularGraph({ semDebug: true, insights: "recusa" });
+    const d = await diagnosticar(TOKEN, { pageId: PAGE, instagramUserId: IG });
+    expect(etapa(d, "Que token é este")?.resposta).toBe("n/a");
+    expect(etapa(d, "Insights")?.resposta).toBe("não");
+    expect(d.veredito).toBeNull();
+    expect(etapa(d, "Insights")?.detalhe).toContain("não pôde ser inspecionado");
+  });
+
+  it("a ficha do token não revela o token", async () => {
+    simularGraph({ insights: "recusa" });
+    const d = await diagnosticar(TOKEN, { pageId: PAGE, instagramUserId: IG });
+    expect(JSON.stringify(d.ficha)).not.toContain(TOKEN);
+    expect(d.texto).not.toContain(TOKEN);
   });
 });

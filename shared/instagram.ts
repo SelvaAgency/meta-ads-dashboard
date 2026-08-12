@@ -191,3 +191,105 @@ export function tipoDaResposta(bruto: {
   // Vinculado à Página sem tipo declarado: profissional, mas qual não se sabe.
   return bruto.vinculadoAPagina ? "BUSINESS" : "DESCONHECIDO";
 }
+
+// ─── Permissões: o que falta, e de quem é a falta ────────────────────────────
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  "Sem permissão" tem três culpados diferentes, e conserto diferente em cada
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A Meta responde (#10) "Application does not have permission" para os três, e
+ *  é por isso que ler o erro não basta:
+ *
+ *    TOKEN    o escopo não foi marcado quando o token foi gerado
+ *             → gerar de novo, marcando a permissão
+ *    ATIVO    o escopo existe, mas não alcança ESTA Página/Instagram
+ *             → atribuir o ativo ao System User no Business Manager
+ *    APP      escopo e ativo em ordem, e a Meta ainda recusa
+ *             → Acesso Avançado / App Review do App, não do token
+ *
+ *  Mandar "confira instagram_manage_insights" nos três casos manda regerar o
+ *  token duas vezes em três — e o token regerado volta com o mesmo erro, porque
+ *  nunca foi ele o problema.
+ *
+ *  Quem separa os três é `debug_token`: ele devolve os escopos do token e, em
+ *  `granular_scopes`, PARA QUAIS ativos cada escopo vale. Esta função só lê essa
+ *  resposta; ela não adivinha nada.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/** O que insights orgânicos do Instagram exigem, e por quê. */
+export const PERMISSOES_INSIGHTS: ReadonlyArray<{ escopo: string; para: string }> = [
+  { escopo: "pages_show_list", para: "listar as Páginas do portfólio" },
+  { escopo: "instagram_basic", para: "ler o perfil do Instagram vinculado à Página" },
+  { escopo: "instagram_manage_insights", para: "ler as métricas (reach, accounts_engaged, profile_views, total_interactions)" },
+  { escopo: "pages_read_engagement", para: "ler o engajamento da Página" },
+];
+
+/** Escopo cujo ativo é o Instagram; os demais miram a Página. */
+const ATIVO_DO_ESCOPO = (escopo: string): "instagram" | "pagina" =>
+  escopo.startsWith("instagram_") ? "instagram" : "pagina";
+
+export interface VereditoPermissao {
+  /** Quem consertar primeiro. `nenhum` = não há o que apontar no token. */
+  culpado: "token" | "ativo" | "app" | "indeterminado";
+  faltandoNoToken: string[];
+  semAcessoAoAtivo: string[];
+  titulo: string;
+  orientacao: string;
+}
+
+export function lerPermissoes(a: {
+  escopos: string[];
+  granular?: Array<{ scope: string; target_ids?: string[] }>;
+  instagramUserId?: string | null;
+  pageId?: string | null;
+}): VereditoPermissao {
+  const tem = new Set(a.escopos ?? []);
+  const exigidos = PERMISSOES_INSIGHTS.map((p) => p.escopo);
+  const faltandoNoToken = exigidos.filter((e) => !tem.has(e));
+
+  // Escopo concedido, mas restrito a ativos que NÃO incluem o nosso. Lista vazia
+  // ou ausente em granular_scopes significa "vale para todos" — não é restrição.
+  const semAcessoAoAtivo: string[] = [];
+  for (const escopo of exigidos) {
+    if (!tem.has(escopo)) continue;
+    const g = (a.granular ?? []).find((x) => x.scope === escopo);
+    const alvos = g?.target_ids;
+    if (!alvos || alvos.length === 0) continue;
+    const nosso = ATIVO_DO_ESCOPO(escopo) === "instagram" ? a.instagramUserId : a.pageId;
+    if (nosso && !alvos.includes(nosso)) semAcessoAoAtivo.push(escopo);
+  }
+
+  if (faltandoNoToken.length) {
+    return {
+      culpado: "token", faltandoNoToken, semAcessoAoAtivo,
+      titulo: `Faltam permissões no token: ${faltandoNoToken.join(", ")}`,
+      orientacao:
+        `O token alcança a Página e o Instagram, mas não tem ${faltandoNoToken.join(" nem ")}. ` +
+        "Gere um System User token novo marcando TODAS estas permissões: " +
+        `${exigidos.join(", ")}. Marcar depois não altera um token já emitido — ele precisa ser gerado de novo.`,
+    };
+  }
+
+  if (semAcessoAoAtivo.length) {
+    return {
+      culpado: "ativo", faltandoNoToken, semAcessoAoAtivo,
+      titulo: "Permissão existe, mas não alcança este ativo",
+      orientacao:
+        `O token tem ${semAcessoAoAtivo.join(", ")}, porém a Meta restringiu esse acesso a outros ativos — ` +
+        "esta Página/Instagram não está entre eles. Gerar outro token não resolve. " +
+        "No Business Manager, atribua a Página (e o Instagram vinculado a ela) ao System User dono do token, " +
+        "com acesso total, e teste de novo.",
+    };
+  }
+
+  return {
+    culpado: "app", faltandoNoToken, semAcessoAoAtivo,
+    titulo: "Token e ativos em ordem — o bloqueio é do App",
+    orientacao:
+      "O token tem todas as permissões necessárias e elas alcançam esta Página/Instagram. " +
+      "Uma recusa (#10) neste estado é do App, não do token: instagram_manage_insights precisa de " +
+      "Acesso Avançado (Advanced Access) no App, e o produto Instagram Graph API precisa estar adicionado a ele. " +
+      "Regerar o token não muda nada aqui — a mudança é em Meta for Developers → o App → Permissões e Recursos.",
+  };
+}
