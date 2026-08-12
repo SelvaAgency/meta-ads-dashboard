@@ -225,6 +225,52 @@ export async function coletarDeInstagram(
   return r;
 }
 
+/**
+ * Lista publicações até ultrapassar o início do período, paginando.
+ *
+ * Existe porque "posts publicados no período" precisa alcançar o passado, e uma
+ * página só não alcança: a coleta diária pega as 25 mais recentes, o que basta
+ * para um snapshot mas trunca a contagem de trinta dias de uma conta que publica
+ * todo dia. O número truncado apareceria plausível, arredondado e errado.
+ *
+ * Para no primeiro post ANTERIOR ao início — a lista vem em ordem decrescente de
+ * data, então dali para trás não há mais nada do período. `maxPaginas` é
+ * salvaguarda contra conta com histórico enorme e período muito antigo.
+ */
+export async function listarMidiasAte(
+  consultar: Consultar,
+  base: string,
+  inicio: string,
+  opts: { porPagina?: number; maxPaginas?: number } = {},
+): Promise<{ midias: Array<Record<string, unknown>>; completo: boolean; paginas: number }> {
+  const porPagina = opts.porPagina ?? 50;
+  const maxPaginas = opts.maxPaginas ?? 12;
+  const midias: Array<Record<string, unknown>> = [];
+  let depois: string | undefined;
+  let paginas = 0;
+
+  while (paginas < maxPaginas) {
+    const params: Record<string, string> = { fields: CAMPOS_MIDIA, limit: String(porPagina) };
+    if (depois) params.after = depois;
+    const r = await consultar<{ data?: Array<Record<string, unknown>>; paging?: { cursors?: { after?: string } } }>(
+      `${base}/media`, params);
+    paginas += 1;
+    const pagina = r.data ?? [];
+    midias.push(...pagina);
+
+    // Alcançou o período inteiro: o mais antigo desta página já é anterior.
+    const maisAntigo = pagina[pagina.length - 1]?.timestamp;
+    if (!pagina.length || (maisAntigo && diaDe(String(maisAntigo))! < inicio)) {
+      return { midias, completo: true, paginas };
+    }
+    depois = r.paging?.cursors?.after;
+    if (!depois) return { midias, completo: true, paginas };
+  }
+  // Bateu o teto: a contagem pode estar incompleta, e quem chama precisa saber
+  // para não apresentar um número truncado como se fosse total.
+  return { midias, completo: false, paginas };
+}
+
 /** O dia da coleta, no fuso de São Paulo — o mesmo que o resto do Spaces usa. */
 export function diaDeHoje(agora: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {

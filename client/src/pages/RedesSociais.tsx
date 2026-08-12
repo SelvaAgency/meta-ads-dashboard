@@ -30,6 +30,11 @@ import { trpc } from "@/lib/trpc";
 import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
 import { lerVinculo, ROTULO_TIPO, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { ROTULO_FONTE } from "@shared/fontesSociais";
+import { saldoDeSeguidores, podeMostrarEntradasESaidas, somarNoPeriodo } from "@shared/socialSnapshot";
+import { textoDeCobertura } from "@shared/periodosSociais";
+import { ROTULO_TAXA, avisoDeExclusao, rankingDePublicacoes, taxaPorAlcance, taxaPorSeguidores } from "@shared/engajamento";
+import { CONTA_COMO_POST, ROTULO_CONTEUDO, tipoDeConteudo, type TipoConteudo } from "@shared/tipoDeMidia";
+import { GraficoDeSeguidores, GraficoDeVisitas, type PontoDaSerie } from "@/components/redes/GraficosDoTopo";
 import {
   Instagram, Loader2, Users, Heart, MessageCircle, Eye, Image as ImageIcon,
   Activity, DollarSign, MousePointerClick, TrendingUp, Share2, Settings2, ExternalLink,
@@ -82,7 +87,7 @@ function MetricRow({ icon: Icon, label, value, color }: {
 }
 
 interface Midia {
-  id: string; caption: string | null; mediaType: string | null;
+  id: string; caption: string | null; mediaType: string | null; mediaProductType: string | null;
   mediaUrl: string | null; thumbnailUrl: string | null; permalink: string | null;
   timestamp: string | null; curtidas: number | null; comentarios: number | null;
 }
@@ -97,11 +102,17 @@ function PostRecente({ post }: { post: Midia }) {
         {img
           ? <img src={img} alt="" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
           : <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-8 h-8 text-muted-foreground/30" /></div>}
-        {(post.mediaType === "VIDEO" || post.mediaType === "CAROUSEL_ALBUM") && (
-          <div className="absolute top-2 right-2 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded">
-            {post.mediaType === "VIDEO" ? "VÍDEO" : "CARROSSEL"}
-          </div>
-        )}
+        {/* O selo usa a MESMA classificação da contagem. Lendo `mediaType` cru,
+            um reel apareceria como "VÍDEO" aqui e como Reels no card de posts —
+            dois nomes para a mesma publicação, na mesma tela. */}
+        {(() => {
+          const t = tipoDeConteudo({ mediaType: post.mediaType, mediaProductType: post.mediaProductType });
+          return t === "FEED" || t === "DESCONHECIDO" ? null : (
+            <div className="absolute top-2 right-2 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded uppercase">
+              {ROTULO_CONTEUDO[t]}
+            </div>
+          );
+        })()}
       </div>
       <div className="p-3">
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -157,6 +168,80 @@ export default function RedesSociais() {
   const d = q.data;
   const organico = d?.organico ?? null;
   const pago = d?.pago ?? null;
+
+  // ── Histórico: série, cobertura e os números derivados dela ─────────────
+  const serie = d?.historico.serie ?? [];
+  const hoje = new Date().toISOString().slice(0, 10);
+  const cobertura = textoDeCobertura({ coletaDesde: d?.historico.coletaDesde ?? null, hoje });
+
+  const pontos: PontoDaSerie[] = serie.map((p) => ({
+    dia: p.dia,
+    seguidores: p.seguidores,
+    visitas: typeof p.metricas.profile_views === "number" ? p.metricas.profile_views : null,
+  }));
+
+  const saldo = saldoDeSeguidores(serie.map((p) => ({
+    dia: p.dia, total: p.seguidores, follower: null, naoSeguidor: null,
+  })));
+  // O total ao vivo é mais atual que o último snapshot — e é o que o cliente vê
+  // ao abrir o próprio perfil.
+  const seguidoresAgora = saldo.fim;
+
+  const visitas = somarNoPeriodo("profile_views", serie);
+  const cliquesNoLink = somarNoPeriodo("website_clicks", serie);
+  const stories = {
+    total: serie.reduce((t, p) => t + (p.storiesVistos ?? 0), 0) || null,
+    diasMedidos: serie.filter((p) => p.storiesVistos != null).length,
+    diasSemDado: serie.filter((p) => p.storiesVistos == null).length,
+  };
+
+  // Taxa de engajamento: alcance como divisor principal, seguidores como apoio.
+  // O rótulo vem colado da conta — trocar de divisor sem avisar faria o número
+  // cair pela metade e parecer queda de desempenho.
+  const interacoes = somarNoPeriodo("total_interactions", serie);
+  const alcance = somarNoPeriodo("reach", serie);
+  const taxaAlcance = taxaPorAlcance(interacoes.total, alcance.total);
+  const taxaSeguidores = taxaPorSeguidores(interacoes.total, seguidoresAgora);
+
+  // Publicações do período, pela DATA DE PUBLICAÇÃO das mídias ao vivo.
+  //
+  // A classificação usa `tipoDeConteudo`, e não um ternário local: VIDEO+FEED é
+  // publicação antiga de feed, não reel, e decidir isso na tela recriaria
+  // exatamente o erro que a função pura existe para impedir.
+  const publicacoes = (organico?.midias ?? []) as Midia[];
+  const postsNoPeriodo = (() => {
+    const porTipo = new Map<TipoConteudo, number>();
+    for (const m of publicacoes) {
+      const dia = (m.timestamp ?? "").slice(0, 10);
+      if (dia < dateRange.startDate || dia > dateRange.endDate) continue;
+      const t = tipoDeConteudo({ mediaType: m.mediaType, mediaProductType: m.mediaProductType });
+      porTipo.set(t, (porTipo.get(t) ?? 0) + 1);
+    }
+    const total = Array.from(porTipo.entries())
+      .filter(([t]) => CONTA_COMO_POST.includes(t))
+      .reduce((soma, [, n]) => soma + n, 0);
+    const detalhe = Array.from(porTipo.entries())
+      .map(([t, n]) => `${ROTULO_CONTEUDO[t]} ${n}`).join(" · ");
+    return { total: total || null, detalhe: detalhe || "nenhuma no período" };
+  })();
+
+  // O ranking vem do SNAPSHOT, não do ao vivo: ele precisa de alcance, e a
+  // leitura ao vivo não o traz (custa uma chamada por publicação).
+  const midiasSalvas = d?.historico.midias ?? [];
+  const ranking = rankingDePublicacoes(
+    midiasSalvas
+      .filter((m) => m.produto !== "STORY")
+      .map((m) => ({
+        id: m.mediaId,
+        interacoes: m.totalInteractions ?? ((m.likes ?? 0) + (m.comentarios ?? 0) || null),
+        alcance: m.reach,
+        legenda: m.legenda?.slice(0, 60) ?? null,
+        permalink: m.permalink,
+        tipo: (m.tipo ?? "DESCONHECIDO") as TipoConteudo,
+      })), 3);
+  const avisoRanking = midiasSalvas.length === 0
+    ? "Melhores e piores publicações aparecem depois da primeira coleta — o ranking precisa de alcance, que só o snapshot guarda."
+    : avisoDeExclusao(ranking);
 
   const leitura = organico
     ? lerVinculo({
@@ -251,8 +336,84 @@ export default function RedesSociais() {
               </div>
             )}
 
+            {/* ── DESTAQUES: card + gráfico ─────────────────────────────
+                Seguidores e visitas ao perfil só dizem algo como evolução:
+                "9.464 seguidores" não informa nada sem saber se eram 9.000 ou
+                9.900 semana passada. Por isso saem da grade de cards. */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <GraficoDeSeguidores
+                serie={pontos}
+                atual={fmt(seguidoresAgora)}
+                saldo={saldo.saldo == null ? null
+                  : `${saldo.saldo >= 0 ? "+" : ""}${fmt(saldo.saldo)} no período · ${saldo.diasCobertos} dia(s) medidos`}
+                cobertura={cobertura}
+              />
+              <GraficoDeVisitas
+                serie={pontos}
+                total={fmt(visitas.total)}
+                cobertura={visitas.diasMedidos > 0
+                  ? `${visitas.diasMedidos} dia(s) medidos${visitas.diasSemDado > 0 ? ` · ${visitas.diasSemDado} sem coleta` : ""}`
+                  : cobertura}
+              />
+            </div>
+
+            {/* Entradas e saídas NÃO aparecem enquanto a semântica de
+                FOLLOWER/NON_FOLLOWER não estiver provada por aritmética —
+                ver shared/socialSnapshot. Só o saldo, que é subtração. */}
+            {d && !podeMostrarEntradasESaidas(d.historico.direcao) && (
+              <p className="text-[10px] text-muted-foreground">
+                Entradas e saídas separadas ainda em validação: {d.historico.direcao.explicacao}
+              </p>
+            )}
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <KpiCard icon={ImageIcon} label="Publicações" value={fmt(organico.perfil.posts)}
+              <KpiCard icon={Activity} label={ROTULO_TAXA.alcance}
+                value={taxaAlcance == null ? "–" : `${taxaAlcance.toFixed(2)}%`}
+                sublabel={taxaSeguidores == null ? "interações ÷ alcance"
+                  : `${ROTULO_TAXA.seguidores}: ${taxaSeguidores.toFixed(2)}%`}
+                color="#8B5CF6" bgColor="rgba(139,92,246,0.1)" />
+              <KpiCard icon={MousePointerClick} label="Cliques no link"
+                value={fmt(cliquesNoLink.total)}
+                sublabel={cliquesNoLink.diasMedidos > 0 ? `${cliquesNoLink.diasMedidos} dia(s) medidos` : "sem coleta ainda"}
+                color="#0EA5E9" bgColor="rgba(14,165,233,0.1)" />
+              <KpiCard icon={ImageIcon} label="Posts publicados no período"
+                value={fmt(postsNoPeriodo.total)}
+                sublabel={postsNoPeriodo.detalhe}
+                color="#E1306C" bgColor="rgba(225,48,108,0.1)" />
+              <KpiCard icon={Activity} label="Stories publicados"
+                value={fmt(stories.total)}
+                sublabel={stories.diasMedidos > 0
+                  ? `${stories.diasMedidos} dia(s) medidos${stories.diasSemDado > 0 ? ` · ${stories.diasSemDado} sem coleta` : ""}`
+                  : "Stories medidos a partir da coleta"}
+                color="#F59E0B" bgColor="rgba(245,158,11,0.1)" />
+            </div>
+
+            {/* ── Melhores e piores ─────────────────────────────────────── */}
+            {ranking.melhores.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {([["Melhores publicações", ranking.melhores], ["Piores publicações", ranking.piores]] as const).map(([titulo, lista]) => (
+                  <div key={titulo} className="rounded-xl border border-border bg-card p-4 flex flex-col gap-2">
+                    <p className="text-xs font-semibold text-muted-foreground">{titulo}</p>
+                    {lista.map((x) => (
+                      <a key={x.publicacao.id} href={x.publicacao.permalink ?? "#"} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center justify-between gap-3 text-xs py-1 hover:underline">
+                        <span className="truncate flex-1 text-muted-foreground">
+                          {x.publicacao.legenda || ROTULO_CONTEUDO[x.publicacao.tipo]}
+                        </span>
+                        <span className="tabular-nums font-semibold">{x.taxa.toFixed(1)}%</span>
+                        <span className="tabular-nums text-muted-foreground text-[10px] w-24 text-right">
+                          {fmt(x.publicacao.interacoes)} int · {fmt(x.publicacao.alcance)} alc
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+            {avisoRanking && <p className="text-[10px] text-muted-foreground">{avisoRanking}</p>}
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <KpiCard icon={ImageIcon} label="Publicações na conta" value={fmt(organico.perfil.posts)}
                 color="#E1306C" bgColor="rgba(225,48,108,0.1)" />
               <KpiCard icon={Activity} label="Métricas do perfil"
                 value={organico.insights.ok.length > 0 ? `${organico.insights.ok.length}/4` : "–"}

@@ -115,3 +115,51 @@ describe("permissão e escrita", () => {
     expect(semComentarios(pagina())).toContain("/settings?painel=conexoes");
   });
 });
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A tela não pode reimplementar as regras que já são puras
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Escrevi, ao montar o módulo de destaques, um ternário local para classificar
+ *  publicação: `mediaType === "VIDEO" ? "REELS" : "FEED"`. É exatamente o bug
+ *  que `shared/tipoDeMidia` existe para impedir — vídeo antigo de feed vira reel
+ *  e infla a métrica mais olhada. Foi pego na revisão, não pelo compilador, e
+ *  não seria pego pelos testes de `tipoDeMidia`, porque a tela não os usava.
+ *
+ *  A defesa: a página tem que CHAMAR as funções puras, não recriá-las.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("as decisões vêm das funções puras, não de ternários locais", () => {
+  const semC = (t: string) =>
+    t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/\/\/[^\n]*/g, "");
+
+  it("classificação de mídia chama tipoDeConteudo", () => {
+    const s = semC(pagina());
+    expect(s).toContain("tipoDeConteudo(");
+    // Nenhuma comparação solta com os valores crus da Meta.
+    expect(s).not.toMatch(/mediaType\s*===\s*"(VIDEO|CAROUSEL_ALBUM|IMAGE)"/);
+  });
+
+  it("taxa de engajamento chama as funções puras, com o rótulo do divisor", () => {
+    const s = semC(pagina());
+    expect(s).toContain("taxaPorAlcance(");
+    expect(s).toContain("taxaPorSeguidores(");
+    expect(s).toContain("ROTULO_TAXA.alcance");
+  });
+
+  it("saldo de seguidores sai de saldoDeSeguidores, e não de subtração local", () => {
+    expect(semC(pagina())).toContain("saldoDeSeguidores(");
+  });
+
+  /** A trava do pedido: nada de "novos" e "saídas" sem prova aritmética. */
+  it("entradas e saídas passam por podeMostrarEntradasESaidas", () => {
+    const s = semC(pagina());
+    expect(s).toContain("podeMostrarEntradasESaidas(");
+    expect(s).not.toContain("novos seguidores");
+    expect(s).not.toContain("deixaram de seguir");
+  });
+
+  it("o período honesto vem de textoDeCobertura", () => {
+    expect(semC(pagina())).toContain("textoDeCobertura(");
+  });
+});

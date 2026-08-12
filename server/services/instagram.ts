@@ -252,13 +252,14 @@ export async function insightsDe(token: string, instagramUserId: string): Promis
 
 /** Campos de mídia. Iguais nas duas fontes — a Meta usa os mesmos nomes. */
 export const CAMPOS_MIDIA =
-  "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count";
+  "id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count";
 
 export function mapearMidia(m: Record<string, unknown>): MidiaInstagram {
   return {
     id: String(m.id ?? ""),
     caption: m.caption ? String(m.caption) : null,
     mediaType: m.media_type ? String(m.media_type) : null,
+    mediaProductType: m.media_product_type ? String(m.media_product_type) : null,
     mediaUrl: m.media_url ? String(m.media_url) : null,
     thumbnailUrl: m.thumbnail_url ? String(m.thumbnail_url) : null,
     permalink: m.permalink ? String(m.permalink) : null,

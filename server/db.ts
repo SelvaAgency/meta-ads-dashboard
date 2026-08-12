@@ -2343,6 +2343,25 @@ export async function snapshotsSociais(accountId: number, desde?: string) {
   return db.select().from(socialSnapshots).where(cond).orderBy(socialSnapshots.dia);
 }
 
+/**
+ * Publicações do período, uma por mídia — a leitura mais recente de cada uma.
+ *
+ * A mesma publicação tem uma linha por dia (alcance e curtidas mudam), então
+ * sem o de-duplicar o mesmo post apareceria várias vezes no ranking e venceria
+ * a si mesmo.
+ */
+export async function midiasDoPeriodo(accountId: number, inicio: string, fim: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const linhas = await db.select().from(socialMediaSnapshots)
+    .where(and(eq(socialMediaSnapshots.accountId, accountId),
+      gte(socialMediaSnapshots.dia, inicio), lte(socialMediaSnapshots.dia, fim)))
+    .orderBy(socialMediaSnapshots.dia);
+  const porMidia = new Map<string, (typeof linhas)[number]>();
+  for (const l of linhas) porMidia.set(l.mediaId, l); // ordenado por dia: fica a última
+  return Array.from(porMidia.values());
+}
+
 /** O primeiro dia medido — é ele que decide quais períodos a tela pode oferecer. */
 export async function primeiroDiaDeColetaSocial(accountId: number): Promise<string | null> {
   const db = await getDb();

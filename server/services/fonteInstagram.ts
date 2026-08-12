@@ -67,6 +67,8 @@ export interface MidiaInstagram {
   id: string;
   caption: string | null;
   mediaType: string | null;
+  /** Sem ele, VIDEO+FEED viraria reel — ver shared/tipoDeMidia. */
+  mediaProductType: string | null;
   mediaUrl: string | null;
   thumbnailUrl: string | null;
   permalink: string | null;
@@ -109,6 +111,17 @@ export interface FonteInstagram {
    * Devolver uma coleta vazia seria gravar um dia inteiro de zeros falsos.
    */
   coletar?(alvo: AlvoInstagram, opts?: { apenasStories?: boolean }): Promise<ColetaSocial>;
+
+  /**
+   * Publicações desde um dia, paginando até alcançá-lo.
+   *
+   * Separado de `midias` porque a pergunta é outra: aquela quer as recentes para
+   * a grade, esta quer TODAS de um período para contar. Uma página só truncaria
+   * a contagem sem avisar.
+   */
+  midiasDesde?(alvo: AlvoInstagram, inicio: string): Promise<{
+    midias: Array<Record<string, unknown>>; completo: boolean;
+  }>;
 }
 
 /**

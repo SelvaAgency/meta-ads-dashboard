@@ -93,7 +93,7 @@ import {
   tokenSocial,
   registrarTesteSocial,
   registrarTesteVinculo,
-  vinculosSociais, desvincularInstagram,
+  vinculosSociais, snapshotsSociais, midiasDoPeriodo, primeiroDiaDeColetaSocial, desvincularInstagram,
   tokensDeContasInfo, apagarTokenDaConta,
   vincularInstagram,
   duplicatasDeContas,
@@ -351,6 +351,28 @@ import { diasAte } from "./services/fonteInstagramConta";
 import { estadosDasFontes, fonteInstagramDaConta } from "./services/resolucaoDeFonte";
 import { oauthConfigurado } from "./services/instagramOAuth";
 import { escolherFonte, type EstadoDaFonte } from "@shared/fontesSociais";
+import { validarDirecaoDeSeguidores } from "@shared/socialSnapshot";
+
+/**
+ * Lê FOLLOWER/NON_FOLLOWER do breakdown cru, SEM decidir o que significam.
+ *
+ * A tradução para "entradas" e "saídas" não acontece aqui nem em lugar nenhum
+ * antes de a aritmética confirmar — ver shared/socialSnapshot.
+ */
+function lerFollowType(bruto: unknown): { follower: number | null; naoSeguidor: number | null } {
+  const quebras = Array.isArray(bruto) ? bruto : [];
+  for (const q of quebras) {
+    const r = (q as { results?: Array<{ dimension_values?: unknown[]; value?: unknown }> }).results ?? [];
+    const de = (chave: string) => {
+      const achado = r.find((x) => String((x.dimension_values ?? [])[0] ?? "").toUpperCase() === chave);
+      return typeof achado?.value === "number" ? achado.value : null;
+    };
+    const follower = de("FOLLOWER");
+    const naoSeguidor = de("NON_FOLLOWER");
+    if (follower !== null || naoSeguidor !== null) return { follower, naoSeguidor };
+  }
+  return { follower: null, naoSeguidor: null };
+}
 import { normalizarConfirmacoes } from "./services/monitoramento/confirmacao";
 import { runCicloMonitoramento } from "./services/monitoramento/cicloMonitoramento";
 import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho, preferenciasEmailDoUsuario, salvarPreferenciasEmail } from "./db";
@@ -4163,9 +4185,44 @@ export const appRouter = router({
         const vinculo = (await vinculosSociais()).find((v) => v.accountId === input.accountId);
         const escolha = escolherFonte(await estadosDasFontes(input.accountId, conta, agencia));
 
+        // ── HISTÓRICO — dos snapshots, nunca da API ───────────────────────
+        // Série e "ao vivo" respondem perguntas diferentes e vêm de lugares
+        // diferentes; misturá-las faria a tela mostrar evolução onde só há uma
+        // foto de hoje.
+        const [linhasSnap, coletaDesde] = await Promise.all([
+          snapshotsSociais(input.accountId, input.startDate),
+          primeiroDiaDeColetaSocial(input.accountId),
+        ]);
+        const serie = linhasSnap
+          .filter((l) => l.dia <= input.endDate)
+          .map((l) => ({
+            dia: l.dia,
+            seguidores: l.followersCount,
+            storiesVistos: l.storiesVistos,
+            statusColeta: l.statusColeta,
+            metricas: (l.metricasJson ?? {}) as Record<string, number>,
+            recusadas: (l.recusadasJson ?? {}) as Record<string, string>,
+            breakdownCru: l.followTypeBreakdownRaw as unknown,
+            coletadoEm: l.coletadoEm,
+          }));
+
+        // A validação da direção olha a série INTEIRA, e não só o período: o
+        // veredito é sobre a semântica da métrica, que não muda com o filtro.
+        const todos = await snapshotsSociais(input.accountId);
+        const direcao = validarDirecaoDeSeguidores(todos.map((l) => ({
+          dia: l.dia,
+          total: l.followersCount,
+          ...lerFollowType(l.followTypeBreakdownRaw),
+        })));
+
+        // Melhores e piores precisam de ALCANCE, e a leitura ao vivo não o traz
+        // — ele custa uma chamada por publicação. Vem do snapshot, que já o
+        // coletou: é para isso que a tabela de mídias existe.
+        const midiasSalvas = await midiasDoPeriodo(input.accountId, input.startDate, input.endDate);
+        const historico = { serie, coletaDesde, direcao, midias: midiasSalvas };
         const semOrganico = (motivo: string) => ({
           fonte: escolha, vinculo: vinculo ?? null,
-          organico: null, erro: motivo, pago,
+          organico: null, erro: motivo, pago, historico,
         });
 
         if (!escolha.usada) return semOrganico(`${escolha.titulo}. ${escolha.detalhe}`);
@@ -4178,6 +4235,7 @@ export const appRouter = router({
 
         const fonte = escolha.usada === "oauth_conta" ? conta : agencia;
         const alvo = { pageId: vinculo?.pageId, instagramUserId: vinculo?.instagramUserId };
+
         try {
           // Perfil primeiro: sem ele não há o que mostrar. Insights e mídias
           // seguem em paralelo e cada um falha por conta própria — perder os
@@ -4193,6 +4251,7 @@ export const appRouter = router({
           return {
             fonte: escolha, vinculo: vinculo ?? null, pago, erro: null,
             organico: { origem: "instagram" as const, perfil, insights, midias },
+            historico,
           };
         } catch (e) {
           return semOrganico((e as Error).message);
