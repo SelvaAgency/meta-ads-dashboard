@@ -24,6 +24,7 @@ import {
 } from "./instagram";
 import { sondarInstagram, type Sondagem } from "./instagramSondagem";
 import { coletarDeInstagram, listarMidiasAte, type ColetaSocial } from "./coletaSocial";
+import { sondarInstagramDireto as sondarDireto, type SondagemDireta } from "./sondagemInstagramDireto";
 import {
   FonteSemCredencial,
   type AlvoInstagram, type FonteInstagram, type MidiaInstagram,
@@ -106,6 +107,16 @@ export function fonteAgencia(obterToken: () => Promise<string | null> = tokenGua
       const { consultarGraph } = await import("./instagram");
       const r = await listarMidiasAte((c, p2) => consultarGraph(c, p2, t), igId, inicio);
       return { midias: r.midias, completo: r.completo };
+    },
+
+    async sondarInstagramDireto(): Promise<SondagemDireta> {
+      const t = await token();
+      const { consultarGraph, descobrirPaginas: descobrir, BUSINESS_ID_PADRAO } = await import("./instagram");
+      // Os que JÁ vêm pela Página entram como referência: o que interessa na
+      // resposta não é a lista inteira, é quem só existe pela via direta.
+      const { paginas } = await descobrir(t);
+      const pelaPagina = paginas.map((p2) => p2.instagram?.id).filter((x): x is string => !!x);
+      return sondarDireto((c, p2) => consultarGraph(c, p2, t), BUSINESS_ID_PADRAO, pelaPagina);
     },
 
     /** Portfólio é conceito desta fonte — ver o cabeçalho da porta. */

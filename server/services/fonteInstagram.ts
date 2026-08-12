@@ -29,6 +29,7 @@ import type { FonteNome, StatusInsight, TipoConta } from "@shared/instagram";
 import type { DiagnosticoInstagram, PaginaDescoberta } from "./instagram";
 import type { Sondagem } from "./instagramSondagem";
 import type { ColetaSocial } from "./coletaSocial";
+import type { SondagemDireta } from "./sondagemInstagramDireto";
 
 // Nome e rótulo da fonte vivem em shared: a tela também os usa, e duas listas
 // divergiriam no dia em que uma terceira fonte aparecer.
@@ -122,6 +123,14 @@ export interface FonteInstagram {
   midiasDesde?(alvo: AlvoInstagram, inicio: string): Promise<{
     midias: Array<Record<string, unknown>>; completo: boolean;
   }>;
+
+  /**
+   * Instagram alcançável pelo Portfólio SEM passar por Página.
+   *
+   * Só faz sentido em fonte que tem portfólio — a de login já é uma conta só, e
+   * não tem o que descobrir. Optativa pelo mesmo motivo de `descobrirPaginas`.
+   */
+  sondarInstagramDireto?(): Promise<SondagemDireta>;
 }
 
 /**

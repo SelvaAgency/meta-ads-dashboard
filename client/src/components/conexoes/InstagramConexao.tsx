@@ -29,7 +29,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap } from "lucide-react";
+import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search } from "lucide-react";
 import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
 
@@ -108,6 +108,21 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
       setDiagnostico(d.texto);
       utils.social.vinculos.invalidate();
       d.ok ? toast.success("Diagnóstico concluído.") : toast.error("Diagnóstico encontrou problema — veja abaixo.");
+    },
+    onError: (e) => { setDiagnostico(e.message); toast.error(e.message); },
+  });
+
+  /**
+   * Sondagem do caso Musa. Fica junto do diagnóstico da CREDENCIAL, e não no
+   * cartão de um cliente: a pergunta é sobre o portfólio inteiro, e a Musa nem
+   * tem vínculo ainda — não haveria cartão onde clicar.
+   */
+  const sondarDireto = trpc.social.sondarInstagramDireto.useMutation({
+    onSuccess: (r) => {
+      setDiagnostico(r.texto);
+      r.somenteDiretos.length > 0
+        ? toast.success(`${r.somenteDiretos.length} Instagram só alcançável sem Página.`)
+        : toast.info("Nenhum Instagram exclusivo da via direta — todos já vêm por Página.");
     },
     onError: (e) => { setDiagnostico(e.message); toast.error(e.message); },
   });
@@ -271,6 +286,12 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
             className="text-xs px-3 py-2 rounded-lg border border-border flex items-center gap-1.5 disabled:opacity-60">
             {diag.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
             Diagnóstico
+          </button>
+          <button onClick={() => sondarDireto.mutate()} disabled={!cred?.existe || sondarDireto.isPending}
+            title="Procura Instagram alcançável pelo Portfólio sem passar por Página — o caso Musa"
+            className="text-xs px-3 py-2 rounded-lg border border-border flex items-center gap-1.5 disabled:opacity-60 text-muted-foreground">
+            {sondarDireto.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+            Instagram sem Página
           </button>
         </div>
         <p className="text-[10px] text-muted-foreground">

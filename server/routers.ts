@@ -4111,6 +4111,20 @@ export const appRouter = router({
         return coletarCliente(input.accountId, { apenasStories: input.apenasStories });
       }),
 
+    /**
+     * Sondagem do caso Musa: Instagram alcançável sem Página.
+     *
+     * Não é por cliente — pergunta o que o PORTFÓLIO expõe. Só lê; não vincula,
+     * não grava e não muda nada.
+     */
+    sondarInstagramDireto: contentProcedure.mutation(async () => {
+      const fonte = fonteAgencia();
+      if (!fonte.sondarInstagramDireto || !(await fonte.disponivel())) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre a credencial de Redes Sociais primeiro." });
+      }
+      return fonte.sondarInstagramDireto();
+    }),
+
     /** Páginas do portfólio, com o Instagram vinculado quando existir. */
     paginasDisponiveis: contentProcedure.mutation(async () => {
       const fonte = fonteAgencia();
