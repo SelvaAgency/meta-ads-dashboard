@@ -78,6 +78,16 @@ async function graph<T>(caminho: string, params: Record<string, string>, token: 
   return dados as T;
 }
 
+/**
+ * A chamada crua, para quem precisa perguntar coisas que este módulo não prevê
+ * — hoje, só a sondagem da Fase 0.
+ *
+ * Continua exigindo o token por parâmetro, e continua sem guardá-lo: quem chama
+ * é a FONTE, que já o tem. Nenhum caminho novo para a credencial sair.
+ */
+export const consultarGraph = <T>(caminho: string, params: Record<string, string>, token: string): Promise<T> =>
+  graph<T>(caminho, params, token);
+
 // ─── Descoberta ──────────────────────────────────────────────────────────────
 
 export interface PaginaDescoberta {

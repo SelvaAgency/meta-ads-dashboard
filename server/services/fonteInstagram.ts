@@ -27,6 +27,7 @@
  */
 import type { FonteNome, StatusInsight, TipoConta } from "@shared/instagram";
 import type { DiagnosticoInstagram, PaginaDescoberta } from "./instagram";
+import type { Sondagem } from "./instagramSondagem";
 
 // Nome e rótulo da fonte vivem em shared: a tela também os usa, e duas listas
 // divergiriam no dia em que uma terceira fonte aparecer.
@@ -90,6 +91,15 @@ export interface FonteInstagram {
 
   /** Só quem tem portfólio. Ver cabeçalho. */
   descobrirPaginas?(): Promise<{ paginas: PaginaDescoberta[]; avisos: string[] }>;
+
+  /**
+   * Fase 0: pergunta à Meta, item a item, o que ela entrega para esta conta.
+   *
+   * Opcional pelo mesmo motivo de `descobrirPaginas`: cada fonte fala com uma
+   * API diferente, e a que ainda não implementou deve DIZER que não implementou
+   * — devolver matriz vazia seria indistinguível de "a Meta não entrega nada".
+   */
+  sondar?(alvo: AlvoInstagram): Promise<Sondagem>;
 }
 
 /**

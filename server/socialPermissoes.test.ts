@@ -53,7 +53,7 @@ describe("toda procedure de Redes Sociais exige admin/dev", () => {
   /** As que o pedido nomeou, uma a uma — para a lista não encolher em silêncio. */
   it.each([
     "credencial", "salvarCredencial", "diagnosticar", "paginasDisponiveis",
-    "vinculos", "vincular", "desvincular", "fontes", "desconectarConta", "painel",
+    "vinculos", "vincular", "desvincular", "fontes", "desconectarConta", "painel", "sondar",
     "daConta", "salvar", "apagar",
   ])("`%s` existe e é admin/dev", (nome) => {
     const p = procedures.find((x) => x.nome === nome);

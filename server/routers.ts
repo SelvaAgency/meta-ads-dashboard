@@ -4045,6 +4045,36 @@ export const appRouter = router({
         return { ...d, fonteUsada: escolha.usada, texto: `fonte: ${escolha.usada}\n${d.texto}` };
       }),
 
+    /**
+     * Fase 0 — mede o que a Meta entrega para um cliente, item a item.
+     *
+     * Roda na mão, e é o pré-requisito do modelo de dados: enquanto ela não
+     * rodar, toda coluna de snapshot seria aposta. Faz ~37 chamadas, uma por
+     * item, porque campo inválido derruba a chamada inteira e em lote o culpado
+     * fica escondido atrás dos inocentes.
+     */
+    sondar: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .mutation(async ({ input }) => {
+        const conta = fonteInstagramDaConta(input.accountId);
+        const agencia = fonteAgencia();
+        const vinculo = (await vinculosSociais()).find((v) => v.accountId === input.accountId);
+        const escolha = escolherFonte(await estadosDasFontes(input.accountId, conta, agencia));
+
+        if (!escolha.usada) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: `${escolha.titulo}. ${escolha.detalhe}` });
+        }
+        const fonte = escolha.usada === "oauth_conta" ? conta : agencia;
+        if (!fonte.sondar) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `A fonte "${escolha.usada}" ainda não implementa sondagem. Use um cliente conectado pelo token da agência.`,
+          });
+        }
+        const r = await fonte.sondar({ pageId: vinculo?.pageId, instagramUserId: vinculo?.instagramUserId });
+        return { ...r, fonteUsada: escolha.usada, texto: `fonte: ${escolha.usada}\n${r.texto}` };
+      }),
+
     /** Páginas do portfólio, com o Instagram vinculado quando existir. */
     paginasDisponiveis: contentProcedure.mutation(async () => {
       const fonte = fonteAgencia();

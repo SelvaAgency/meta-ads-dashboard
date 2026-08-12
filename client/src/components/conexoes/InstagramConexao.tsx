@@ -29,7 +29,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off } from "lucide-react";
+import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope } from "lucide-react";
 import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
 
@@ -186,6 +186,19 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
     url.searchParams.delete("instagram");
     window.history.replaceState({}, "", url.toString());
   }, [utils]);
+
+  /**
+   * Fase 0. Cai no MESMO painel de diagnóstico: é ali que se olha quando algo
+   * não responde, e um segundo lugar para ler resultado de medição faria os dois
+   * competirem pela atenção.
+   */
+  const sondar = trpc.social.sondar.useMutation({
+    onSuccess: (r) => {
+      setDiagnostico(r.texto);
+      toast.success(`Sondagem concluída: ${r.disponiveis} de ${r.disponiveis + r.indisponiveis} itens disponíveis.`);
+    },
+    onError: (e) => { setDiagnostico(e.message); toast.error(e.message); },
+  });
 
   const desvincular = trpc.social.desvincular.useMutation({
     onSuccess: (r) => {
@@ -430,6 +443,17 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                       className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1">
                       {diag.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                       Testar
+                    </button>
+                  )}
+                  {/* Sondar é mais caro que Testar (~37 chamadas) e roda uma vez
+                      por conta, para decidir o modelo de dados. Fica ao lado,
+                      mas com nome que não convida ao clique repetido. */}
+                  {(v?.instagramUserId || oauth) && (
+                    <button onClick={() => sondar.mutate({ accountId: c.id })} disabled={sondar.isPending}
+                      title="Pergunta à Meta, campo a campo, o que ela entrega para esta conta"
+                      className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
+                      {sondar.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Microscope className="w-3 h-3" />}
+                      Sondar dados
                     </button>
                   )}
                 </div>

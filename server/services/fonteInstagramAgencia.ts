@@ -22,6 +22,7 @@ import {
   descobrirPaginas, diagnosticar, insightsDe, midiasDe, perfilDe,
   type DiagnosticoInstagram, type PaginaDescoberta,
 } from "./instagram";
+import { sondarInstagram, type Sondagem } from "./instagramSondagem";
 import {
   FonteSemCredencial,
   type AlvoInstagram, type FonteInstagram, type MidiaInstagram,
@@ -80,6 +81,15 @@ export function fonteAgencia(obterToken: () => Promise<string | null> = tokenGua
         instagramUserId: alvo.instagramUserId,
         escopoDeCliente: alvo.escopoDeCliente,
       });
+    },
+
+    async sondar(alvo: AlvoInstagram): Promise<Sondagem> {
+      const t = await token();
+      const igId = exigirInstagram(alvo);
+      // A sondagem recebe COMO consultar, não o token. Assim ela serve às duas
+      // fontes sem saber qual está usando — e sem a credencial passar por ela.
+      const { consultarGraph } = await import("./instagram");
+      return sondarInstagram((caminho, params) => consultarGraph(caminho, params, t), igId);
     },
 
     /** Portfólio é conceito desta fonte — ver o cabeçalho da porta. */
