@@ -344,7 +344,8 @@ import { normalizarHost } from "./services/monitoramento/dominioRegistravel";
 import { classificarContas, idLimpo, podeImportarSemForcar, ROTULO_STATUS } from "@shared/importacaoContas";
 import { temIntegracao } from "@shared/plataformasLoja";
 import { testarConexaoWix, validarSiteId, validarUrlWix } from "./services/wix";
-import { descobrirPaginas, diagnosticar as diagnosticarInstagram } from "./services/instagram";
+import { diagnosticar as diagnosticarInstagram } from "./services/instagram";
+import { fonteAgencia } from "./services/fonteInstagramAgencia";
 import { normalizarConfirmacoes } from "./services/monitoramento/confirmacao";
 import { runCicloMonitoramento } from "./services/monitoramento/cicloMonitoramento";
 import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho, preferenciasEmailDoUsuario, salvarPreferenciasEmail } from "./db";
@@ -3980,6 +3981,9 @@ export const appRouter = router({
     salvarCredencial: contentProcedure
       .input(z.object({ token: z.string().min(20), businessId: z.string().optional() }))
       .mutation(async ({ ctx, input }) => {
+        // A ÚNICA que não passa pela fonte, e não por descuido: aqui se testa um
+        // token CANDIDATO, que ainda não foi gravado. A fonte lê a credencial
+        // guardada — por definição, não é esta.
         const d = await diagnosticarInstagram(input.token, { businessId: input.businessId });
         if (!d.ok) {
           throw new TRPCError({ code: "BAD_REQUEST", message: `O token não passou no diagnóstico:\n${d.texto}` });
@@ -3993,14 +3997,16 @@ export const appRouter = router({
     diagnosticar: contentProcedure
       .input(z.object({ accountId: z.number().int().optional() }).optional())
       .mutation(async ({ input }) => {
-        const token = await tokenSocial();
-        if (!token) {
+        // Passa pela FONTE, não pelo token: quando existir a segunda fonte
+        // (login da conta), é aqui que ela entra sem esta procedure mudar.
+        const fonte = fonteAgencia();
+        if (!(await fonte.disponivel())) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Nenhuma credencial de Redes Sociais cadastrada. Cole o token em Conexões → Redes Sociais." });
         }
         const vinculo = input?.accountId
           ? (await vinculosSociais()).find((v) => v.accountId === input.accountId)
           : undefined;
-        const d = await diagnosticarInstagram(token, {
+        const d = await fonte.diagnosticar({
           pageId: vinculo?.pageId, instagramUserId: vinculo?.instagramUserId,
           escopoDeCliente: input?.accountId !== undefined,
         });
@@ -4021,11 +4027,11 @@ export const appRouter = router({
 
     /** Páginas do portfólio, com o Instagram vinculado quando existir. */
     paginasDisponiveis: contentProcedure.mutation(async () => {
-      const token = await tokenSocial();
-      if (!token) {
+      const fonte = fonteAgencia();
+      if (!fonte.descobrirPaginas || !(await fonte.disponivel())) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre a credencial de Redes Sociais primeiro." });
       }
-      return descobrirPaginas(token);
+      return fonte.descobrirPaginas();
     }),
 
     /** Vínculos de todos os clientes — alimenta o painel. */

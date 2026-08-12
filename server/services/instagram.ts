@@ -26,6 +26,7 @@
  */
 import { logger } from "../logger";
 import { lerPermissoes, PERMISSOES_INSIGHTS, tipoDaResposta, type StatusInsight, type TipoConta, type VereditoPermissao } from "@shared/instagram";
+import type { PerfilInstagram, ResultadoInsights } from "./fonteInstagram";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -193,6 +194,52 @@ export async function fichaDoToken(token: string): Promise<FichaDoToken> {
   };
 }
 
+// ─── Leituras isoladas ───────────────────────────────────────────────────────
+//
+// Extraídas de dentro do diagnóstico sem mudar uma chamada: ele continua sendo
+// quem as encadeia, e agora elas também servem sozinhas — é o que a fonte
+// (`fonteInstagram.ts`) precisa expor sem arrastar as seis perguntas junto.
+
+/**
+ * Perfil do Instagram alcançado pela Página.
+ *
+ * `account_type` NÃO é pedido: não existe no nó instagram_business_account (é da
+ * API de IG Login), e campo inválido faz a Meta recusar a chamada inteira. Quem
+ * é alcançável por esta aresta é profissional por construção — a Meta só cria o
+ * objeto para Business/Creator.
+ */
+export async function perfilDe(token: string, instagramUserId: string): Promise<PerfilInstagram> {
+  const p = await graph<{ username?: string; media_count?: number }>(
+    instagramUserId, { fields: "username,media_count" }, token);
+  return {
+    instagramUserId,
+    username: p.username ?? null,
+    tipoConta: tipoDaResposta({ vinculadoAPagina: true }),
+    posts: typeof p.media_count === "number" ? p.media_count : null,
+  };
+}
+
+/** Métricas em grupos, cada grupo falhando por conta própria. */
+export async function insightsDe(token: string, instagramUserId: string): Promise<ResultadoInsights> {
+  const ok: string[] = [];
+  const recusadas: string[] = [];
+  for (const grupo of GRUPOS_METRICAS) {
+    try {
+      await graph<{ data: unknown[] }>(`${instagramUserId}/insights`,
+        { metric: grupo.join(","), period: "day", metric_type: "total_value" }, token);
+      ok.push(...grupo);
+    } catch (e) {
+      // Nomeia a métrica recusada com o motivo — é o que permite corrigir a
+      // lista sem adivinhar qual das sete morreu.
+      recusadas.push(`${grupo.join(",")} → ${(e as Error).message}`);
+    }
+  }
+  return {
+    statusInsight: ok.length > 0 ? "DISPONIVEL" : recusadas.length > 0 ? "INDISPONIVEL" : "NAO_TESTADO",
+    ok, recusadas,
+  };
+}
+
 // ─── Diagnóstico ─────────────────────────────────────────────────────────────
 
 export interface EtapaDiagnostico {
@@ -345,9 +392,8 @@ export async function diagnosticar(token: string, opts: {
   // por esta aresta é profissional por construção: a Meta só cria o objeto para
   // Business/Creator. O que a chamada confirma é que o perfil RESPONDE.
   try {
-    const perfil = await graph<{ username?: string; media_count?: number }>(
-      igId, { fields: "username,media_count" }, token);
-    tipoConta = tipoDaResposta({ vinculadoAPagina: true });
+    const perfil = await perfilDe(token, igId);
+    tipoConta = perfil.tipoConta;
     registrar("Que tipo de conta é?", "sim",
       `${tipoConta}${perfil.username ? ` (@${perfil.username})` : ""} — profissional, por estar vinculada à Página.`);
   } catch (e) {
@@ -356,19 +402,10 @@ export async function diagnosticar(token: string, opts: {
   }
 
   // 7 — insights respondem? E QUAIS.
-  for (const grupo of GRUPOS_METRICAS) {
-    try {
-      await graph<{ data: unknown[] }>(`${igId}/insights`,
-        { metric: grupo.join(","), period: "day", metric_type: "total_value" }, token);
-      metricasOk.push(...grupo);
-    } catch (e) {
-      // Nomeia a métrica recusada com o motivo — é o que permite corrigir a
-      // lista sem adivinhar qual das sete morreu.
-      metricasRecusadas.push(`${grupo.join(",")} → ${(e as Error).message}`);
-    }
-  }
-  statusInsight = metricasOk.length > 0 ? "DISPONIVEL"
-    : metricasRecusadas.length > 0 ? "INDISPONIVEL" : "NAO_TESTADO";
+  const r = await insightsDe(token, igId);
+  metricasOk.push(...r.ok);
+  metricasRecusadas.push(...r.recusadas);
+  statusInsight = r.statusInsight;
 
   if (metricasOk.length > 0) {
     registrar("Insights respondem?", "sim", `Responderam: ${metricasOk.join(", ")}.`);
