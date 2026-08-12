@@ -29,7 +29,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope } from "lucide-react";
+import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap } from "lucide-react";
 import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
 
@@ -196,6 +196,21 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
     onSuccess: (r) => {
       setDiagnostico(r.texto);
       toast.success(`Sondagem concluída: ${r.disponiveis} de ${r.disponiveis + r.indisponiveis} itens disponíveis.`);
+    },
+    onError: (e) => { setDiagnostico(e.message); toast.error(e.message); },
+  });
+
+  /**
+   * Roda a coleta de um cliente agora, para conferir a linha gravada antes de o
+   * cron ligar. Gravar sozinho às 06:20 numa tabela que ninguém olhou é
+   * descobrir o erro depois de uma semana de linhas ruins.
+   */
+  const coletar = trpc.social.coletarAgora.useMutation({
+    onSuccess: (r) => {
+      setDiagnostico(`coleta manual · status ${r.status}\n${r.nota}`);
+      r.status === "erro" || r.status === "pulado"
+        ? toast.error(`Coleta ${r.status}: ${r.nota}`)
+        : toast.success(`Coleta ${r.status} — ${r.nota}`);
     },
     onError: (e) => { setDiagnostico(e.message); toast.error(e.message); },
   });
@@ -448,6 +463,14 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                   {/* Sondar é mais caro que Testar (~37 chamadas) e roda uma vez
                       por conta, para decidir o modelo de dados. Fica ao lado,
                       mas com nome que não convida ao clique repetido. */}
+                  {(v?.instagramUserId || oauth) && (
+                    <button onClick={() => coletar.mutate({ accountId: c.id })} disabled={coletar.isPending}
+                      title="Grava agora o snapshot de hoje deste cliente"
+                      className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
+                      {coletar.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <DatabaseZap className="w-3 h-3" />}
+                      Coletar agora
+                    </button>
+                  )}
                   {(v?.instagramUserId || oauth) && (
                     <button onClick={() => sondar.mutate({ accountId: c.id })} disabled={sondar.isPending}
                       title="Pergunta à Meta, campo a campo, o que ela entrega para esta conta"

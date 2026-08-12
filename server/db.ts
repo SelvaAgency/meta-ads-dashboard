@@ -2230,6 +2230,129 @@ export async function apagarTokenDaConta(accountId: number) {
     .where(and(eq(socialAccountTokens.accountId, accountId), eq(socialAccountTokens.provider, "instagram")));
 }
 
+// ─── Snapshots de Redes Sociais ─────────────────────────────────────────────
+
+/**
+ * Grava (ou atualiza) o snapshot do dia.
+ *
+ * Atualiza em vez de acumular: a chave é (conta, provider, dia), e duas coletas
+ * no mesmo dia — a geral das 06:20 e a de stories das 18:20 — descrevem o MESMO
+ * dia. Duas linhas fariam a série contar o dia duas vezes.
+ */
+export async function salvarSnapshotSocial(a: {
+  accountId: number; dia: string; connectionSource: string | null; instagramUserId: string | null;
+  followersCount: number | null; followsCount: number | null; mediaCount: number | null;
+  metricas: Record<string, number>; followTypeBreakdownRaw: unknown | null;
+  recusadas: Record<string, string>; storiesVistos: number | null;
+  status: string; erro: string | null;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const dados = {
+    connectionSource: a.connectionSource,
+    instagramUserId: a.instagramUserId,
+    followersCount: a.followersCount,
+    followsCount: a.followsCount,
+    mediaCount: a.mediaCount,
+    metricasJson: a.metricas,
+    followTypeBreakdownRaw: a.followTypeBreakdownRaw,
+    recusadasJson: a.recusadas,
+    storiesVistos: a.storiesVistos,
+    statusColeta: a.status,
+    erroDetalhe: a.erro ? a.erro.slice(0, 2_000) : null,
+  };
+  const existente = await db.select({ id: socialSnapshots.id }).from(socialSnapshots)
+    .where(and(eq(socialSnapshots.accountId, a.accountId), eq(socialSnapshots.provider, "instagram"),
+      eq(socialSnapshots.dia, a.dia)))
+    .limit(1);
+  if (existente[0]) {
+    await db.update(socialSnapshots).set(dados).where(eq(socialSnapshots.id, existente[0].id));
+  } else {
+    await db.insert(socialSnapshots).values({ accountId: a.accountId, provider: "instagram", dia: a.dia, ...dados });
+  }
+}
+
+/**
+ * Atualiza SÓ a contagem de stories.
+ *
+ * A passada das 18:20 não pode sobrescrever o snapshot inteiro com nulos: ela
+ * mede uma coisa só, e gravar o resto vazio apagaria a leitura da manhã. Se o
+ * dia ainda não existe, nasce com o que ela sabe.
+ */
+export async function registrarStoriesDoDia(accountId: number, dia: string, vistos: number | null, erro: string | null) {
+  const db = await getDb();
+  if (!db) return;
+  const existente = await db.select({
+    id: socialSnapshots.id, atual: socialSnapshots.storiesVistos,
+  }).from(socialSnapshots)
+    .where(and(eq(socialSnapshots.accountId, accountId), eq(socialSnapshots.provider, "instagram"),
+      eq(socialSnapshots.dia, dia)))
+    .limit(1);
+
+  if (existente[0]) {
+    // Fica o MAIOR: as duas passadas veem janelas de 24h que se sobrepõem, e a
+    // da tarde pode ver menos que a da manhã sem que nada tenha sumido.
+    const atual = existente[0].atual;
+    const novo = vistos === null ? atual : atual === null ? vistos : Math.max(atual, vistos);
+    await db.update(socialSnapshots).set({ storiesVistos: novo }).where(eq(socialSnapshots.id, existente[0].id));
+    return;
+  }
+  await db.insert(socialSnapshots).values({
+    accountId, provider: "instagram", dia, storiesVistos: vistos,
+    statusColeta: vistos === null ? "erro" : "parcial",
+    erroDetalhe: erro ? erro.slice(0, 2_000) : null,
+  });
+}
+
+export async function salvarMidiasDoSnapshot(accountId: number, dia: string, midias: Array<{
+  mediaId: string; publicadoEm: string | null; tipo: string | null; produto: string | null;
+  permalink: string | null; legenda: string | null;
+  likes: number | null; comentarios: number | null; reach: number | null; views: number | null;
+  saves: number | null; shares: number | null; totalInteractions: number | null;
+  recusadas: Record<string, string>;
+}>) {
+  const db = await getDb();
+  if (!db || midias.length === 0) return;
+  for (const m of midias) {
+    const dados = {
+      publicadoEm: m.publicadoEm, tipo: m.tipo, produto: m.produto,
+      permalink: m.permalink, legenda: m.legenda,
+      likes: m.likes, comentarios: m.comentarios, reach: m.reach, views: m.views,
+      saves: m.saves, shares: m.shares, totalInteractions: m.totalInteractions,
+      recusadasJson: m.recusadas,
+    };
+    const existente = await db.select({ id: socialMediaSnapshots.id }).from(socialMediaSnapshots)
+      .where(and(eq(socialMediaSnapshots.accountId, accountId), eq(socialMediaSnapshots.mediaId, m.mediaId),
+        eq(socialMediaSnapshots.dia, dia)))
+      .limit(1);
+    if (existente[0]) {
+      await db.update(socialMediaSnapshots).set(dados).where(eq(socialMediaSnapshots.id, existente[0].id));
+    } else {
+      await db.insert(socialMediaSnapshots).values({ accountId, mediaId: m.mediaId, dia, ...dados });
+    }
+  }
+}
+
+/** Snapshots de um cliente, do mais antigo ao mais novo. */
+export async function snapshotsSociais(accountId: number, desde?: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const cond = desde
+    ? and(eq(socialSnapshots.accountId, accountId), eq(socialSnapshots.provider, "instagram"), gte(socialSnapshots.dia, desde))
+    : and(eq(socialSnapshots.accountId, accountId), eq(socialSnapshots.provider, "instagram"));
+  return db.select().from(socialSnapshots).where(cond).orderBy(socialSnapshots.dia);
+}
+
+/** O primeiro dia medido — é ele que decide quais períodos a tela pode oferecer. */
+export async function primeiroDiaDeColetaSocial(accountId: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select({ dia: socialSnapshots.dia }).from(socialSnapshots)
+    .where(and(eq(socialSnapshots.accountId, accountId), eq(socialSnapshots.provider, "instagram")))
+    .orderBy(socialSnapshots.dia).limit(1);
+  return r[0]?.dia ?? null;
+}
+
 // ─── GA4 Accounts ───────────────────────────────────────────────────────────
 
 
@@ -2675,7 +2798,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, socialSnapshots, socialMediaSnapshots, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 

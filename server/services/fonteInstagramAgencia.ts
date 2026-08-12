@@ -23,6 +23,7 @@ import {
   type DiagnosticoInstagram, type PaginaDescoberta,
 } from "./instagram";
 import { sondarInstagram, type Sondagem } from "./instagramSondagem";
+import { coletarDeInstagram, type ColetaSocial } from "./coletaSocial";
 import {
   FonteSemCredencial,
   type AlvoInstagram, type FonteInstagram, type MidiaInstagram,
@@ -90,6 +91,13 @@ export function fonteAgencia(obterToken: () => Promise<string | null> = tokenGua
       // fontes sem saber qual está usando — e sem a credencial passar por ela.
       const { consultarGraph } = await import("./instagram");
       return sondarInstagram((caminho, params) => consultarGraph(caminho, params, t), igId);
+    },
+
+    async coletar(alvo: AlvoInstagram, opts?: { apenasStories?: boolean }): Promise<ColetaSocial> {
+      const t = await token();
+      const igId = exigirInstagram(alvo);
+      const { consultarGraph } = await import("./instagram");
+      return coletarDeInstagram((caminho, params) => consultarGraph(caminho, params, t), igId, opts);
     },
 
     /** Portfólio é conceito desta fonte — ver o cabeçalho da porta. */

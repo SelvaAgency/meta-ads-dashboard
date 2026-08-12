@@ -1317,6 +1317,84 @@ export const clientSocialAccounts = mysqlTable("client_social_accounts", {
  * O token vai CIFRADO. `impressao` é o SHA-256 curto, que identifica sem
  * revelar — é o que permite responder "é o mesmo token?" no diagnóstico.
  */
+/**
+ * Snapshot diário de Redes Sociais — uma linha por cliente por dia.
+ *
+ * Tabela própria, e não `client_site_snapshots`: aquela tem `url` e `estrategia`
+ * NOT NULL e DENTRO da chave única, então Instagram teria que inventar uma URL e
+ * uma "estratégia mobile" que não existem — e a unicidade passaria a depender de
+ * valor fictício.
+ *
+ * Toda coluna numérica é NULL por padrão e NUNCA recebe 0 de consolo: 0 quer
+ * dizer "mediu e deu zero", null quer dizer "não temos", e `recusadasJson` diz
+ * quais a Meta negou e por quê. A ausência da própria linha é o quarto estado —
+ * naquele dia não estávamos medindo.
+ */
+export const socialSnapshots = mysqlTable("social_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  provider: varchar("provider", { length: 20 }).default("instagram").notNull(),
+  dia: varchar("dia", { length: 10 }).notNull(),
+  connectionSource: varchar("connectionSource", { length: 24 }),
+  instagramUserId: varchar("instagramUserId", { length: 64 }),
+
+  followersCount: int("followersCount"),
+  followsCount: int("followsCount"),
+  mediaCount: int("mediaCount"),
+
+  /** reach, profile_views, website_clicks, profile_links_taps, total_interactions, views… */
+  metricasJson: json("metricasJson"),
+  /** O breakdown `follow_type` CRU, sem interpretação — ver shared/socialSnapshot. */
+  followTypeBreakdownRaw: json("followTypeBreakdownRaw"),
+  /** Métrica → motivo da recusa. É o que separa "deu zero" de "a Meta negou". */
+  recusadasJson: json("recusadasJson"),
+
+  /** Quantos stories a coleta VIU. Null quando a coleta do dia falhou. */
+  storiesVistos: int("storiesVistos"),
+
+  statusColeta: varchar("statusColeta", { length: 10 }).default("ok").notNull(),
+  erroDetalhe: text("erroDetalhe"),
+  coletadoEm: timestamp("coletadoEm").defaultNow().notNull(),
+  atualizadoEm: timestamp("atualizadoEm").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqDia: uniqueIndex("uq_social_snap").on(table.accountId, table.provider, table.dia),
+  idxConta: index("idx_social_snap_conta").on(table.accountId, table.dia),
+}));
+
+/**
+ * Snapshot de uma publicação num dia — likes e alcance mudam com o tempo, então
+ * a mesma mídia tem uma linha por dia de coleta.
+ *
+ * Stories entram aqui com `produto='STORY'`: é a única forma de existirem depois
+ * de expirar em 24h.
+ */
+export const socialMediaSnapshots = mysqlTable("social_media_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  mediaId: varchar("mediaId", { length: 64 }).notNull(),
+  dia: varchar("dia", { length: 10 }).notNull(),
+
+  publicadoEm: varchar("publicadoEm", { length: 32 }),
+  tipo: varchar("tipo", { length: 20 }),
+  produto: varchar("produto", { length: 20 }),
+  permalink: varchar("permalink", { length: 500 }),
+  legenda: varchar("legenda", { length: 500 }),
+
+  likes: int("likes"),
+  comentarios: int("comentarios"),
+  reach: int("reach"),
+  views: int("views"),
+  saves: int("saves"),
+  shares: int("shares"),
+  totalInteractions: int("totalInteractions"),
+
+  recusadasJson: json("recusadasJson"),
+  coletadoEm: timestamp("coletadoEm").defaultNow().notNull(),
+}, (table) => ({
+  uqMidiaDia: uniqueIndex("uq_social_midia_dia").on(table.accountId, table.mediaId, table.dia),
+  idxConta: index("idx_social_midia_conta").on(table.accountId, table.dia),
+}));
+
 export const socialAccountTokens = mysqlTable("social_account_tokens", {
   id: int("id").autoincrement().primaryKey(),
   accountId: int("accountId").notNull(),

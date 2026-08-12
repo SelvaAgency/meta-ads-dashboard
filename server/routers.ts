@@ -4075,6 +4075,20 @@ export const appRouter = router({
         return { ...r, fonteUsada: escolha.usada, texto: `fonte: ${escolha.usada}\n${r.texto}` };
       }),
 
+    /**
+     * Roda a coleta de UM cliente agora.
+     *
+     * Existe para o teste manual antes de o cron ligar: gravar sozinho às 06:20
+     * uma tabela que ninguém conferiu é descobrir o erro numa semana de linhas
+     * ruins.
+     */
+    coletarAgora: contentProcedure
+      .input(z.object({ accountId: z.number().int(), apenasStories: z.boolean().optional() }))
+      .mutation(async ({ input }) => {
+        const { coletarCliente } = await import("./services/rodarColetaSocial");
+        return coletarCliente(input.accountId, { apenasStories: input.apenasStories });
+      }),
+
     /** Páginas do portfólio, com o Instagram vinculado quando existir. */
     paginasDisponiveis: contentProcedure.mutation(async () => {
       const fonte = fonteAgencia();

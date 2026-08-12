@@ -28,6 +28,7 @@
 import type { FonteNome, StatusInsight, TipoConta } from "@shared/instagram";
 import type { DiagnosticoInstagram, PaginaDescoberta } from "./instagram";
 import type { Sondagem } from "./instagramSondagem";
+import type { ColetaSocial } from "./coletaSocial";
 
 // Nome e rótulo da fonte vivem em shared: a tela também os usa, e duas listas
 // divergiriam no dia em que uma terceira fonte aparecer.
@@ -100,6 +101,14 @@ export interface FonteInstagram {
    * — devolver matriz vazia seria indistinguível de "a Meta não entrega nada".
    */
   sondar?(alvo: AlvoInstagram): Promise<Sondagem>;
+
+  /**
+   * Fase 1: a leitura diária que vira snapshot.
+   *
+   * Opcional como as outras — a fonte que ainda não coleta precisa DIZER isso.
+   * Devolver uma coleta vazia seria gravar um dia inteiro de zeros falsos.
+   */
+  coletar?(alvo: AlvoInstagram, opts?: { apenasStories?: boolean }): Promise<ColetaSocial>;
 }
 
 /**

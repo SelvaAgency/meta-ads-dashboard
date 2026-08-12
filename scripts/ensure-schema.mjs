@@ -272,6 +272,64 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela social_account_tokens garantida");
 
+    // Snapshot diário de Redes Sociais. Tabela própria, e não
+    // client_site_snapshots: aquela tem url/estrategia NOT NULL dentro da chave
+    // única, e Instagram teria que inventar os dois. Toda coluna numérica é NULL
+    // por padrão — 0 significa "mediu e deu zero", e nunca serve de consolo.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`social_snapshots\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`accountId\` INT NOT NULL,
+        \`provider\` VARCHAR(20) NOT NULL DEFAULT 'instagram',
+        \`dia\` VARCHAR(10) NOT NULL,
+        \`connectionSource\` VARCHAR(24) NULL,
+        \`instagramUserId\` VARCHAR(64) NULL,
+        \`followersCount\` INT NULL,
+        \`followsCount\` INT NULL,
+        \`mediaCount\` INT NULL,
+        \`metricasJson\` JSON NULL,
+        \`followTypeBreakdownRaw\` JSON NULL,
+        \`recusadasJson\` JSON NULL,
+        \`storiesVistos\` INT NULL,
+        \`statusColeta\` VARCHAR(10) NOT NULL DEFAULT 'ok',
+        \`erroDetalhe\` TEXT NULL,
+        \`coletadoEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`atualizadoEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY \`uq_social_snap\` (\`accountId\`, \`provider\`, \`dia\`),
+        KEY \`idx_social_snap_conta\` (\`accountId\`, \`dia\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log("[ensure-schema] ok  · tabela social_snapshots garantida");
+
+    // Uma linha por publicação por dia: likes e alcance mudam com o tempo.
+    // Stories entram aqui com produto='STORY' — é a única forma de existirem
+    // depois de expirar em 24h.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`social_media_snapshots\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`accountId\` INT NOT NULL,
+        \`mediaId\` VARCHAR(64) NOT NULL,
+        \`dia\` VARCHAR(10) NOT NULL,
+        \`publicadoEm\` VARCHAR(32) NULL,
+        \`tipo\` VARCHAR(20) NULL,
+        \`produto\` VARCHAR(20) NULL,
+        \`permalink\` VARCHAR(500) NULL,
+        \`legenda\` VARCHAR(500) NULL,
+        \`likes\` INT NULL,
+        \`comentarios\` INT NULL,
+        \`reach\` INT NULL,
+        \`views\` INT NULL,
+        \`saves\` INT NULL,
+        \`shares\` INT NULL,
+        \`totalInteractions\` INT NULL,
+        \`recusadasJson\` JSON NULL,
+        \`coletadoEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY \`uq_social_midia_dia\` (\`accountId\`, \`mediaId\`, \`dia\`),
+        KEY \`idx_social_midia_conta\` (\`accountId\`, \`dia\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log("[ensure-schema] ok  · tabela social_media_snapshots garantida");
+
     // 3.0.9) Diagnóstico do teste de conexão de loja. Sem esta coluna o retorno
     //        do teste vive só num toast e some — e é ele que orienta o
     //        adaptador da plataforma.

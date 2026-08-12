@@ -1141,6 +1141,20 @@ export async function startAutoSync() {
   // Segurança básica + uptime (07:25 BRT). Leves e sem cota: rodam todo dia.
   cron.schedule("0 25 7 * * *", runSiteHealthChecks, TZ);
 
+  // ── Redes Sociais ─────────────────────────────────────────────────────────
+  // 06:20 é a coleta geral; 18:20 pega SÓ stories. A segunda existe porque
+  // story vive 24h: com uma passada por dia as janelas ficam encostadas e um
+  // atraso abre um buraco que nunca fecha. Com duas, elas se sobrepõem em 12h.
+  // Perfil e mídias não precisam: alcançam o passado e se recalculam.
+  cron.schedule("0 20 6 * * *", async () => {
+    const { rodarColetaSocial } = await import("./services/rodarColetaSocial");
+    await rodarColetaSocial();
+  }, TZ);
+  cron.schedule("0 20 18 * * *", async () => {
+    const { rodarColetaSocial } = await import("./services/rodarColetaSocial");
+    await rodarColetaSocial({ apenasStories: true });
+  }, TZ);
+
   // Geração híbrida de recomendações (07:45 BRT) — depois do ciclo noturno, com
   // as cores da IA já frescas. Só contas Atenção/Crítico sem sugestão recente.
   cron.schedule("0 45 7 * * *", runGeracaoRecomendacoes, TZ);
