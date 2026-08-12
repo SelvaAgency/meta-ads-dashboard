@@ -200,6 +200,8 @@ export async function diagnosticar(token: string, opts: {
   businessId?: string;
   pageId?: string | null;
   instagramUserId?: string | null;
+  /** true quando a chamada é o teste de UM cliente — muda o texto da etapa 3. */
+  escopoDeCliente?: boolean;
 } = {}): Promise<DiagnosticoInstagram> {
   const etapas: EtapaDiagnostico[] = [];
   const impressao = await impressaoDe(token);
@@ -236,8 +238,19 @@ export async function diagnosticar(token: string, opts: {
   }
 
   // 3 — a Página do cliente foi encontrada?
+  //
+  // O diagnóstico GERAL (o botão do topo) não tem cliente nenhum em foco, e
+  // dizer "nenhuma Página vinculada a este cliente" ali afirma algo sobre um
+  // cliente que a pergunta nunca teve — foi exatamente o que fez um painel de
+  // vínculos salvos ser investigado como falha de persistência. Sem cliente, a
+  // resposta é que a pergunta não se aplica, e o texto diz por quê.
   if (!opts.pageId) {
-    registrar("A Página do cliente foi encontrada?", "n/a", "Nenhuma Página vinculada a este cliente ainda.");
+    registrar(
+      "A Página do cliente foi encontrada?", "n/a",
+      opts.escopoDeCliente
+        ? "Este cliente ainda não tem Página salva. Escolha a Página no seletor e clique em Vincular."
+        : "Diagnóstico geral, sem cliente em foco — esta etapa só existe no teste de um cliente. Use Testar no cartão do cliente.",
+    );
     return montar(true);
   }
   const pagina = paginas.find((p) => p.pageId === opts.pageId);
@@ -260,12 +273,19 @@ export async function diagnosticar(token: string, opts: {
     pagina.instagram?.username ? `@${pagina.instagram.username}` : igId);
 
   // 5 — que tipo de conta é?
+  //
+  // `account_type` NÃO é pedido de propósito: ele não existe no nó
+  // instagram_business_account (é da API de IG Login), e pedir campo inválido
+  // faz a Meta recusar a chamada inteira — a etapa cairia no catch e o tipo
+  // viraria DESCONHECIDO justamente onde ele é conhecido. Uma conta alcançável
+  // por esta aresta é profissional por construção: a Meta só cria o objeto para
+  // Business/Creator. O que a chamada confirma é que o perfil RESPONDE.
   try {
-    const perfil = await graph<{ username?: string; account_type?: string; media_count?: number }>(
+    const perfil = await graph<{ username?: string; media_count?: number }>(
       igId, { fields: "username,media_count" }, token);
-    tipoConta = tipoDaResposta({ account_type: perfil.account_type, vinculadoAPagina: true });
+    tipoConta = tipoDaResposta({ vinculadoAPagina: true });
     registrar("Que tipo de conta é?", "sim",
-      `${tipoConta}${perfil.username ? ` (@${perfil.username})` : ""}.`);
+      `${tipoConta}${perfil.username ? ` (@${perfil.username})` : ""} — profissional, por estar vinculada à Página.`);
   } catch (e) {
     tipoConta = "DESCONHECIDO";
     registrar("Que tipo de conta é?", "não", (e as Error).message);

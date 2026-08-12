@@ -4002,10 +4002,16 @@ export const appRouter = router({
           : undefined;
         const d = await diagnosticarInstagram(token, {
           pageId: vinculo?.pageId, instagramUserId: vinculo?.instagramUserId,
+          escopoDeCliente: input?.accountId !== undefined,
         });
         if (input?.accountId && vinculo) {
           await registrarTesteVinculo(input.accountId, {
-            ok: d.ok, detalhe: d.texto, tipoConta: d.tipoConta, statusInsight: d.statusInsight,
+            ok: d.ok, detalhe: d.texto, statusInsight: d.statusInsight,
+            // DESCONHECIDO aqui significa "o diagnóstico não chegou a essa
+            // pergunta", e não "a conta não tem tipo". Gravá-lo apagaria o tipo
+            // que o vínculo já sabia — um teste que falhou antes da etapa 5
+            // pioraria o que a tela mostra.
+            tipoConta: d.tipoConta === "DESCONHECIDO" ? undefined : d.tipoConta,
           });
         } else {
           await registrarTesteSocial(d.ok, d.texto);
@@ -4036,7 +4042,8 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         await vincularInstagram(input);
-        return { success: true as const };
+        // Devolve o accountId: é ele que a tela usa para limpar a seleção local.
+        return { success: true as const, accountId: input.accountId };
       }),
 
     daConta: protectedProcedure

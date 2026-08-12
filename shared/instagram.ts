@@ -89,66 +89,86 @@ export function lerVinculo(v: {
   username?: string | null;
   pageName?: string | null;
 }): LeituraDoVinculo {
+  const pagina = v.pageName ? `"${v.pageName}"` : "a Página";
+  const arroba = v.username ? `@${v.username}` : "o Instagram";
+
   if (v.estado === "SEM_PAGINA") {
     return {
       nivel: "pendente",
       titulo: "Nenhuma Página vinculada",
-      explicacao: "Escolha a Página do Facebook deste cliente para o Instagram ser encontrado.",
+      explicacao: "Escolha a Página do Facebook deste cliente e clique em Vincular. Escolher no seletor sozinho não salva nada.",
     };
   }
   if (v.estado === "PAGINA_SEM_INSTAGRAM") {
     return {
       nivel: "pendente",
-      titulo: "Página conectada, Instagram não vinculado",
-      explicacao: `A Página${v.pageName ? ` "${v.pageName}"` : ""} não tem conta do Instagram vinculada. O vínculo é feito no próprio Instagram ou nas configurações da Página.`,
+      titulo: "Sem Instagram vinculado",
+      explicacao: `Página ${pagina} vinculada e salva, mas ela não tem conta do Instagram vinculada. O vínculo é feito no próprio Instagram ou nas configurações da Página — não aqui.`,
     };
   }
 
-  const arroba = v.username ? `@${v.username}` : "Instagram";
-
-  // Conta pessoal: estado VÁLIDO, não erro — ver cabeçalho.
+  // Conta pessoal: estado VÁLIDO, não erro — ver cabeçalho. Decidido antes do
+  // statusInsight porque para ela "sem métricas" não é resultado de teste
+  // nenhum: é o que a plataforma oferece, e testar não vai mudar.
   if (!tipoPermiteInsights(v.tipoConta)) {
-    return {
-      nivel: v.tipoConta === "DESCONHECIDO" ? "pendente" : "limitado",
-      titulo: v.tipoConta === "DESCONHECIDO"
-        ? `${arroba} conectado, tipo de conta não identificado`
-        : `${arroba} conectado, com dados limitados`,
-      explicacao: v.tipoConta === "PESSOAL"
-        ? "Conta pessoal: métricas de insights não disponíveis. Perfil, @ e link continuam funcionando."
-        : v.tipoConta === "CREATOR"
-          ? "Conta de criador."
-          : "Não foi possível identificar o tipo da conta. Teste a conexão para saber o que está disponível.",
-    };
+    return v.tipoConta === "DESCONHECIDO"
+      ? {
+          nivel: "pendente",
+          titulo: "Instagram vinculado, tipo de conta não identificado",
+          explicacao: `Página ${pagina} e ${arroba} salvos. Não foi possível identificar o tipo da conta — rode Testar para saber o que está disponível.`,
+        }
+      : {
+          nivel: "limitado",
+          titulo: "Conectado, dados limitados",
+          explicacao: v.tipoConta === "PESSOAL"
+            ? `Conta pessoal: métricas de insights não disponíveis. Perfil, ${arroba} e link continuam funcionando.`
+            : "Conta de criador.",
+        };
   }
 
   switch (v.statusInsight) {
     case "DISPONIVEL":
       return {
         nivel: "ok",
-        titulo: `${arroba} conectado, com métricas`,
-        explicacao: `${ROTULO_TIPO[v.tipoConta]} com insights respondendo.`,
+        titulo: "Conectado com métricas",
+        explicacao: `${ROTULO_TIPO[v.tipoConta]} ${arroba}, com insights respondendo.`,
       };
     case "INDISPONIVEL":
       return {
         // Business SEM insights é diferente de pessoal sem insights: aqui a
         // conta permite e a API não entregou — quase sempre permissão no token.
         nivel: "limitado",
-        titulo: `${arroba} conectado, sem métricas`,
+        titulo: "Conectado, dados limitados",
         explicacao: "Insights indisponíveis para este tipo de conta ou para o token atual. Rode o diagnóstico para ver qual permissão falta.",
       };
     case "ERRO":
       return {
         nivel: "erro",
-        titulo: `${arroba} conectado, métricas falhando`,
+        titulo: "Conectado, métricas falhando",
         explicacao: "A consulta de insights retornou erro. Veja o diagnóstico para a mensagem da Meta.",
       };
     default:
+      // "Instagram vinculado", e NÃO "conectado": o vínculo está salvo, mas
+      // ninguém falou com a API por esta conta ainda. Chamar isto de conectado
+      // faz o próximo passo (Testar) parecer opcional — foi assim que uma tela
+      // inteira de vínculos salvos passou por não-salva.
       return {
         nivel: "pendente",
-        titulo: `${arroba} conectado`,
-        explicacao: "Métricas ainda não testadas. Use Testar conexão.",
+        titulo: "Instagram vinculado",
+        explicacao: `Página ${pagina} e ${arroba} salvos. Rode Testar para verificar as métricas.`,
       };
   }
+}
+
+/**
+ * A Página escolhida no seletor ainda NÃO é a Página salva.
+ *
+ * O seletor mostra o portfólio inteiro; salvar é o clique em Vincular. Sem esta
+ * distinção na tela, escolher no seletor parece ter vinculado — e o cliente
+ * aparece com uma Página que o banco não tem.
+ */
+export function selecaoPendente(a: { escolhido?: string | null; salvo?: string | null }): boolean {
+  return !!a.escolhido && a.escolhido !== (a.salvo ?? null);
 }
 
 /**

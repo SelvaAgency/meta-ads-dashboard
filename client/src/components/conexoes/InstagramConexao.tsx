@@ -24,7 +24,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
 import { Instagram, Loader2, Key, Link2, Stethoscope } from "lucide-react";
-import { lerVinculo, ROTULO_TIPO, type StatusInsight, type TipoConta } from "@shared/instagram";
+import { lerVinculo, ROTULO_TIPO, selecaoPendente, type StatusInsight, type TipoConta } from "@shared/instagram";
 
 /** O que `paginasDisponiveis` devolve — a forma que a tela consome. */
 interface PaginasDoPortfolio {
@@ -94,7 +94,13 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
   });
 
   const vincular = trpc.social.vincular.useMutation({
-    onSuccess: () => { utils.social.vinculos.invalidate(); toast.success("Cliente vinculado."); },
+    onSuccess: (r) => {
+      utils.social.vinculos.invalidate();
+      // Limpa a escolha local: ela existe só para marcar "ainda não salvo", e
+      // mantida depois de salvar deixaria o aviso de pendência aceso à toa.
+      setEscolha((e) => { const { [r.accountId]: _, ...resto } = e; return resto; });
+      toast.success("Página vinculada. Rode Testar para verificar métricas.");
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -197,42 +203,69 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                 <p className="text-[11px] font-medium">{leitura.titulo}</p>
                 <p className="text-[10px] text-muted-foreground">{leitura.explicacao}</p>
 
-                {paginas && (
-                  <div className="flex gap-1.5 flex-wrap items-center mt-1">
-                    <select value={escolha[c.id] ?? v?.pageId ?? ""}
-                      onChange={(e) => setEscolha({ ...escolha, [c.id]: e.target.value })}
-                      className="text-[11px] border border-border rounded px-2 py-1 bg-background max-w-[260px]">
-                      <option value="">— escolher Página —</option>
-                      {paginas.paginas.map((p) => (
-                        <option key={p.pageId} value={p.pageId}>
-                          {p.pageName}{p.instagram?.username ? ` · @${p.instagram.username}` : " · sem Instagram"}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => {
-                        const pid = escolha[c.id] ?? v?.pageId;
-                        const p = paginas.paginas.find((x) => x.pageId === pid);
-                        if (!p) return toast.error("Escolha uma Página.");
-                        vincular.mutate({
-                          accountId: c.id, pageId: p.pageId, pageName: p.pageName,
-                          instagramUserId: p.instagram?.id ?? null,
-                          instagramUsername: p.instagram?.username ?? null,
-                          tipoConta: p.instagram?.tipoConta ?? "DESCONHECIDO",
-                        });
-                      }}
-                      disabled={vincular.isPending}
-                      className="text-[11px] px-2 py-1 rounded bg-primary text-primary-foreground disabled:opacity-60">
-                      Vincular
-                    </button>
-                    {v?.pageId && (
-                      <button onClick={() => diag.mutate({ accountId: c.id })} disabled={diag.isPending}
-                        className="text-[11px] px-2 py-1 rounded border border-border">
-                        Testar
-                      </button>
-                    )}
-                  </div>
+                {/* O que está NO BANCO, e não o que o seletor mostra. É a única
+                    forma de responder "vinculou mesmo?" olhando a tela — sem
+                    isto, a dúvida só se resolve consultando o banco. */}
+                {v?.pageId && (
+                  <p className="text-[10px] font-mono text-muted-foreground break-all">
+                    salvo: página {v.pageId}
+                    {v.instagramUserId ? ` · instagram ${v.instagramUserId}` : " · sem instagram"}
+                    {v.lastTestAt
+                      ? ` · testado ${new Date(v.lastTestAt).toLocaleString("pt-BR")} (${v.lastTestStatus})`
+                      : " · nunca testado"}
+                  </p>
                 )}
+
+                {/* Selecionado ≠ salvo. Aviso explícito enquanto diferirem. */}
+                {selecaoPendente({ escolhido: escolha[c.id], salvo: v?.pageId }) && (
+                  <p className="text-[10px] font-medium text-amber-600">
+                    Página selecionada, ainda não vinculada — clique em Vincular para salvar.
+                  </p>
+                )}
+
+                <div className="flex gap-1.5 flex-wrap items-center mt-1">
+                  {paginas ? (
+                    <>
+                      <select value={escolha[c.id] ?? v?.pageId ?? ""}
+                        onChange={(e) => setEscolha({ ...escolha, [c.id]: e.target.value })}
+                        className="text-[11px] border border-border rounded px-2 py-1 bg-background max-w-[260px]">
+                        <option value="">— escolher Página —</option>
+                        {paginas.paginas.map((p) => (
+                          <option key={p.pageId} value={p.pageId}>
+                            {p.pageName}{p.instagram?.username ? ` · @${p.instagram.username}` : " · sem Instagram"}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => {
+                          const pid = escolha[c.id] ?? v?.pageId;
+                          const p = paginas.paginas.find((x) => x.pageId === pid);
+                          if (!p) return toast.error("Escolha uma Página.");
+                          vincular.mutate({
+                            accountId: c.id, pageId: p.pageId, pageName: p.pageName,
+                            instagramUserId: p.instagram?.id ?? null,
+                            instagramUsername: p.instagram?.username ?? null,
+                            tipoConta: p.instagram?.tipoConta ?? "DESCONHECIDO",
+                          });
+                        }}
+                        disabled={vincular.isPending}
+                        className="text-[11px] px-2 py-1 rounded bg-primary text-primary-foreground disabled:opacity-60">
+                        Vincular
+                      </button>
+                    </>
+                  ) : null}
+                  {/* FORA do `paginas &&`: testar depende do vínculo salvo, não
+                      do portfólio carregado. Preso ali dentro, recarregar a tela
+                      obrigava a buscar as Páginas de novo só para poder testar —
+                      e sobrava só o diagnóstico geral, que não fala de cliente. */}
+                  {v?.pageId && (
+                    <button onClick={() => diag.mutate({ accountId: c.id })} disabled={diag.isPending}
+                      className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1">
+                      {diag.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                      Testar
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}

@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  ROTULO_INSIGHT, ROTULO_TIPO, lerVinculo, tipoDaResposta, tipoPermiteInsights,
+  ROTULO_INSIGHT, ROTULO_TIPO, lerVinculo, selecaoPendente, tipoDaResposta, tipoPermiteInsights,
   type StatusInsight, type TipoConta,
 } from "./instagram";
 
@@ -35,7 +35,8 @@ describe("conta pessoal é estado válido, nunca erro", () => {
   /** Perfil, @ e link continuam valendo — a explicação precisa dizer isso. */
   it("pessoal ainda mostra o que funciona", () => {
     const r = v({ tipoConta: "PESSOAL", statusInsight: "INDISPONIVEL" });
-    expect(r.titulo).toContain("@aikabodysoul");
+    expect(r.titulo).toBe("Conectado, dados limitados");
+    expect(r.explicacao).toContain("@aikabodysoul");
     expect(r.explicacao.toLowerCase()).toContain("continuam funcionando");
   });
 
@@ -62,7 +63,7 @@ describe("os dois eixos não se confundem", () => {
   it("Business com métricas é 'ok'", () => {
     const r = v();
     expect(r.nivel).toBe("ok");
-    expect(r.titulo).toContain("com métricas");
+    expect(r.titulo).toBe("Conectado com métricas");
   });
 
   it("Business com métricas falhando é ERRO — isso tem conserto", () => {
@@ -84,14 +85,17 @@ describe("estados que pedem AÇÃO, e não são erro", () => {
   it("sem Página é pendente, com o próximo passo", () => {
     const r = v({ estado: "SEM_PAGINA" });
     expect(r.nivel).toBe("pendente");
+    expect(r.titulo).toBe("Nenhuma Página vinculada");
     expect(r.explicacao).toContain("Escolha a Página");
+    // O passo que faltava ser dito: escolher no seletor não salva.
+    expect(r.explicacao).toContain("Vincular");
   });
 
   /** O estado que você pediu com nome próprio. */
   it("Página sem Instagram tem estado PRÓPRIO, não erro genérico", () => {
     const r = v({ estado: "PAGINA_SEM_INSTAGRAM" });
     expect(r.nivel).toBe("pendente");
-    expect(r.titulo).toBe("Página conectada, Instagram não vinculado");
+    expect(r.titulo).toBe("Sem Instagram vinculado");
     expect(r.explicacao).toContain("Aiká");
     expect(r.nivel).not.toBe("erro");
   });
@@ -99,11 +103,32 @@ describe("estados que pedem AÇÃO, e não são erro", () => {
   it("tipo desconhecido é pendente — falta descobrir, não está quebrado", () => {
     const r = v({ tipoConta: "DESCONHECIDO" });
     expect(r.nivel).toBe("pendente");
-    expect(r.explicacao).toContain("Teste a conexão");
+    expect(r.explicacao).toContain("Testar");
   });
 
-  it("métricas não testadas é pendente", () => {
-    expect(v({ statusInsight: "NAO_TESTADO" }).nivel).toBe("pendente");
+  /**
+   * O estado que fez um painel de vínculos SALVOS ser investigado como falha de
+   * persistência: "conectado" sem qualificação, num vínculo que nunca foi
+   * testado. Salvo e testado são coisas diferentes, e o título tem que separá-las
+   * — senão o próximo passo parece opcional.
+   */
+  it("vínculo salvo e não testado não se chama 'conectado'", () => {
+    const r = v({ statusInsight: "NAO_TESTADO" });
+    expect(r.nivel).toBe("pendente");
+    expect(r.titulo).toBe("Instagram vinculado");
+    expect(r.titulo.toLowerCase()).not.toContain("conectado");
+    // E precisa dizer o que ESTÁ salvo, senão a dúvida continua.
+    expect(r.explicacao).toContain("Aiká");
+    expect(r.explicacao).toContain("@aikabodysoul");
+    expect(r.explicacao).toContain("Testar");
+  });
+
+  /** "Conectado" só depois de a API ter respondido por esta conta. */
+  it("só estados já testados usam a palavra 'conectado'", () => {
+    for (const s of ["DISPONIVEL", "INDISPONIVEL", "ERRO"] as StatusInsight[]) {
+      expect(v({ statusInsight: s }).titulo.toLowerCase(), s).toContain("conectado");
+    }
+    expect(v({ statusInsight: "NAO_TESTADO" }).titulo.toLowerCase()).not.toContain("conectado");
   });
 });
 
@@ -168,5 +193,30 @@ describe("rótulos", () => {
     for (const s of ["DISPONIVEL", "INDISPONIVEL", "NAO_TESTADO", "ERRO"] as StatusInsight[]) {
       expect(ROTULO_INSIGHT[s]).toBeTruthy();
     }
+  });
+});
+
+/**
+ * Escolher no seletor não é vincular. Sem esta distinção a tela mostra a Página
+ * escolhida como se fosse a salva, e o cliente aparece com um vínculo que o
+ * banco não tem — a leitura fica boa justamente onde ela deveria alertar.
+ */
+describe("selecaoPendente", () => {
+  it("escolheu algo diferente do salvo: pendente", () => {
+    expect(selecaoPendente({ escolhido: "pg_2", salvo: "pg_1" })).toBe(true);
+  });
+
+  it("escolheu com nada salvo: pendente", () => {
+    expect(selecaoPendente({ escolhido: "pg_1", salvo: null })).toBe(true);
+    expect(selecaoPendente({ escolhido: "pg_1" })).toBe(true);
+  });
+
+  it("escolheu o que já está salvo: nada pendente", () => {
+    expect(selecaoPendente({ escolhido: "pg_1", salvo: "pg_1" })).toBe(false);
+  });
+
+  it("não escolheu nada: nada pendente, mesmo sem vínculo", () => {
+    expect(selecaoPendente({ escolhido: "", salvo: null })).toBe(false);
+    expect(selecaoPendente({})).toBe(false);
   });
 });

@@ -2019,10 +2019,15 @@ export async function vincularInstagram(a: {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
   const handle = a.instagramUsername ?? a.pageId;
-  const linhas = await db.select({ id: clientSocialAccounts.id, pageId: clientSocialAccounts.pageId })
-    .from(clientSocialAccounts)
+  const linhas = await db.select({
+    id: clientSocialAccounts.id, pageId: clientSocialAccounts.pageId, handle: clientSocialAccounts.handle,
+  }).from(clientSocialAccounts)
     .where(and(eq(clientSocialAccounts.accountId, a.accountId), eq(clientSocialAccounts.provider, "instagram")));
-  const alvo = linhaDaConexao(linhas);
+  // Uma linha que JÁ tem este handle vem primeiro: a chave única é
+  // (accountId, provider, handle), então gravar o handle numa linha enquanto
+  // outra do mesmo cliente já o tem estoura duplicidade — e o vínculo falharia
+  // exatamente para quem já tinha o @ cadastrado à mão.
+  const alvo = linhas.find((l) => l.handle === handle) ?? linhaDaConexao(linhas);
   const dados = {
     handle,
     profileUrl: a.instagramUsername ? `https://instagram.com/${a.instagramUsername}` : null,
@@ -2043,7 +2048,9 @@ export async function vincularInstagram(a: {
 }
 
 export async function registrarTesteVinculo(accountId: number, a: {
-  ok: boolean; detalhe: string; tipoConta: string; statusInsight: string;
+  ok: boolean; detalhe: string; statusInsight: string;
+  /** Ausente quando o diagnóstico não chegou a responder — não sobrescreve. */
+  tipoConta?: string;
 }) {
   const db = await getDb();
   if (!db) return;
@@ -2055,7 +2062,8 @@ export async function registrarTesteVinculo(accountId: number, a: {
   await db.update(clientSocialAccounts).set({
     lastTestAt: new Date(), lastTestStatus: a.ok ? "ok" : "erro",
     lastTestDetail: a.detalhe.slice(0, 12_000),
-    tipoConta: a.tipoConta, statusInsight: a.statusInsight,
+    statusInsight: a.statusInsight,
+    ...(a.tipoConta ? { tipoConta: a.tipoConta } : {}),
   }).where(eq(clientSocialAccounts.id, alvo.id));
 }
 
