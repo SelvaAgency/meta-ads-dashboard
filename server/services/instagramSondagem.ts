@@ -53,9 +53,57 @@ const CAMPOS_PERFIL = [
   "followers_count", "follows_count", "media_count",
 ];
 
-const METRICAS_PERFIL = [
-  "reach", "impressions", "profile_views", "accounts_engaged", "total_interactions",
-  "views", "website_clicks", "profile_links_taps", "follower_count", "follows_and_unfollows",
+/**
+ * As métricas de perfil, e COMO chamar cada uma.
+ *
+ * A lista cresceu porque a própria Meta a entregou: ao recusar `impressions`
+ * ela respondeu com o conjunto inteiro de valores válidos. Adivinhar nomes de
+ * métrica é o que esta sondagem existe para evitar — então o que veio do erro
+ * entrou aqui, e o que sobrou de dúvida virou tentativa.
+ *
+ * `tentativas` existe porque duas métricas falharam por FORMA de chamada, e não
+ * por ausência: `follower_count` é incompatível com `metric_type=total_value`, e
+ * `follows_and_unfollows` responde vazio sem `breakdown`. Uma métrica que existe
+ * e foi chamada errado apareceria como indisponível — e sumiria do modelo de
+ * dados por um erro nosso.
+ */
+interface FormaDeChamada {
+  nome: string;
+  params: Record<string, string>;
+}
+
+const TOTAL: FormaDeChamada = { nome: "total_value", params: { period: "day", metric_type: "total_value" } };
+const LEGADO: FormaDeChamada = { nome: "período (legado)", params: { period: "day" } };
+const POR_TIPO: FormaDeChamada = {
+  nome: "total_value + breakdown",
+  params: { period: "day", metric_type: "total_value", breakdown: "follow_type" },
+};
+
+const METRICAS_PERFIL: Array<{ metrica: string; tentativas: FormaDeChamada[] }> = [
+  // Confirmadas na primeira sondagem.
+  { metrica: "reach", tentativas: [TOTAL] },
+  { metrica: "profile_views", tentativas: [TOTAL] },
+  { metrica: "accounts_engaged", tentativas: [TOTAL] },
+  { metrica: "total_interactions", tentativas: [TOTAL] },
+  { metrica: "views", tentativas: [TOTAL] },
+  { metrica: "website_clicks", tentativas: [TOTAL] },
+  { metrica: "profile_links_taps", tentativas: [TOTAL] },
+
+  // Recusada com a lista de válidas junto. Fica para detectar se voltar.
+  { metrica: "impressions", tentativas: [TOTAL] },
+
+  // Falharam por forma, não por ausência.
+  { metrica: "follower_count", tentativas: [LEGADO, TOTAL] },
+  { metrica: "follows_and_unfollows", tentativas: [POR_TIPO, TOTAL, LEGADO] },
+
+  // Reveladas pela mensagem de erro da Meta — nunca foram testadas.
+  { metrica: "likes", tentativas: [TOTAL] },
+  { metrica: "comments", tentativas: [TOTAL] },
+  { metrica: "shares", tentativas: [TOTAL] },
+  { metrica: "saves", tentativas: [TOTAL] },
+  { metrica: "replies", tentativas: [TOTAL] },
+  { metrica: "content_views", tentativas: [TOTAL] },
+  { metrica: "online_followers", tentativas: [LEGADO, TOTAL] },
 ];
 
 const CAMPOS_MIDIA = [
@@ -108,17 +156,38 @@ export async function sondarInstagram(consultar: Consultar, base: string): Promi
   }
 
   // ── Insights de perfil ────────────────────────────────────────────────────
-  for (const metrica of METRICAS_PERFIL) {
-    try {
-      const r = await consultar<{ data?: Array<Record<string, unknown>> }>(
-        `${base}/insights`, { metric: metrica, period: "day", metric_type: "total_value" });
-      const item = r.data?.[0];
-      const valor = (item?.total_value as { value?: unknown } | undefined)?.value;
-      reg("insights_perfil", metrica, !!item,
-        item ? `respondeu · valor ${descrever(valor)}` : "respondeu sem dados");
-    } catch (e) {
-      reg("insights_perfil", metrica, false, erroDe(e));
+  //
+  // Cada métrica é tentada em mais de uma FORMA até uma devolver dado. O que
+  // interessa ao coletor não é só "responde?", mas "responde chamada como?" —
+  // e é por isso que a forma vencedora entra no relatório.
+  for (const { metrica, tentativas } of METRICAS_PERFIL) {
+    let ultimoErro = "";
+    let resolvida = false;
+
+    for (const forma of tentativas) {
+      try {
+        const r = await consultar<{ data?: Array<Record<string, unknown>> }>(
+          `${base}/insights`, { metric: metrica, ...forma.params });
+        const item = r.data?.[0];
+        const valor = (item?.total_value as { value?: unknown } | undefined)?.value
+          ?? (item?.values as Array<{ value?: unknown }> | undefined)?.[0]?.value;
+        const quebras = (item?.total_value as { breakdowns?: unknown[] } | undefined)?.breakdowns;
+
+        // "Respondeu vazio" não encerra: era exatamente o caso de
+        // follows_and_unfollows, que só entrega número com breakdown.
+        if (!item || (valor === undefined && !quebras)) {
+          ultimoErro = `respondeu sem dados em ${forma.nome}`;
+          continue;
+        }
+        reg("insights_perfil", metrica, true,
+          `respondeu em ${forma.nome} · valor ${quebras ? `${(quebras as unknown[]).length} quebra(s)` : descrever(valor)}`);
+        resolvida = true;
+        break;
+      } catch (e) {
+        ultimoErro = `${forma.nome}: ${erroDe(e)}`;
+      }
     }
+    if (!resolvida) reg("insights_perfil", metrica, false, ultimoErro || "nenhuma forma respondeu");
   }
 
   // ── Mídias ────────────────────────────────────────────────────────────────

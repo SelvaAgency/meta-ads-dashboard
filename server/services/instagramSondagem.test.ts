@@ -174,3 +174,107 @@ describe("a sondagem serve às duas fontes", () => {
     expect(caminhos).toContain("18001/insights");
   });
 });
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Métrica que existe e foi chamada errado não pode virar "indisponível"
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A primeira sondagem real reprovou duas métricas por FORMA de chamada, e não
+ *  por ausência: `follower_count` é incompatível com `metric_type=total_value`,
+ *  e `follows_and_unfollows` responde vazio sem `breakdown`. Nas duas, o erro
+ *  era nosso — e as duas teriam sumido do modelo de dados por isso.
+ *
+ *  Justamente elas são as que sustentam o crescimento de seguidores, que é a
+ *  métrica que o cliente mais olha.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("formas alternativas de chamada", () => {
+  /** Responde só quando chamada SEM metric_type — o caso do follower_count. */
+  const soLegado = (metricaAlvo: string): Consultar => vi.fn(async (caminho: string, params: Record<string, string>) => {
+    if (caminho.includes("/insights") && params.metric === metricaAlvo) {
+      if (params.metric_type) {
+        throw new Error(`Meta (100): (#100) The following metric (${metricaAlvo}) is incompatible with the metric type (total_value)`);
+      }
+      return { data: [{ values: [{ value: 17 }] }] } as never;
+    }
+    if (caminho.includes("/insights")) return { data: [{ total_value: { value: 1 } }] } as never;
+    if (caminho.includes("/stories")) return { data: [] } as never;
+    if (caminho.includes("/media")) return { data: [{ id: "1" }] } as never;
+    return { username: "x" } as never;
+  }) as Consultar;
+
+  it("follower_count é encontrado na forma de legado", async () => {
+    const s = await sondarInstagram(soLegado("follower_count"), "123");
+    const l = acha(s, "follower_count");
+    expect(l?.disponivel).toBe(true);
+    expect(l?.detalhe).toContain("legado");
+    expect(l?.detalhe).toContain("17");
+  });
+
+  /** Responde vazio sem breakdown, e com dados quando ele vem. */
+  it("follows_and_unfollows é encontrado com breakdown", async () => {
+    const comBreakdown: Consultar = vi.fn(async (caminho: string, params: Record<string, string>) => {
+      if (caminho.includes("/insights") && params.metric === "follows_and_unfollows") {
+        return params.breakdown
+          ? { data: [{ total_value: { breakdowns: [{ results: [] }, { results: [] }] } }] } as never
+          : { data: [{ total_value: {} }] } as never;
+      }
+      if (caminho.includes("/insights")) return { data: [{ total_value: { value: 1 } }] } as never;
+      if (caminho.includes("/stories")) return { data: [] } as never;
+      if (caminho.includes("/media")) return { data: [{ id: "1" }] } as never;
+      return { username: "x" } as never;
+    }) as Consultar;
+
+    const s = await sondarInstagram(comBreakdown, "123");
+    const l = acha(s, "follows_and_unfollows");
+    expect(l?.disponivel).toBe(true);
+    expect(l?.detalhe).toContain("breakdown");
+    expect(l?.detalhe).toContain("quebra");
+  });
+
+  /**
+   * "Respondeu vazio" não pode encerrar a busca — era exatamente o bug do
+   * `follows_and_unfollows`, que devolvia 200 com corpo sem valor. Aqui a
+   * PRIMEIRA forma responde vazio e a segunda entrega, então só há sucesso se a
+   * busca continuar depois de uma resposta bem-sucedida e inútil.
+   */
+  it("resposta vazia faz tentar a forma seguinte, em vez de desistir", async () => {
+    const vazioDepoisCheio: Consultar = vi.fn(async (caminho: string, params: Record<string, string>) => {
+      if (caminho.includes("/insights") && params.metric === "follower_count") {
+        // LEGADO (sem metric_type) é a primeira tentativa: responde vazio.
+        return params.metric_type
+          ? { data: [{ total_value: { value: 23 } }] } as never
+          : { data: [{}] } as never;
+      }
+      if (caminho.includes("/insights")) return { data: [{ total_value: { value: 1 } }] } as never;
+      if (caminho.includes("/stories")) return { data: [] } as never;
+      if (caminho.includes("/media")) return { data: [{ id: "1" }] } as never;
+      return { username: "x" } as never;
+    }) as Consultar;
+
+    const s = await sondarInstagram(vazioDepoisCheio, "123");
+    const chamadas = (vazioDepoisCheio as unknown as { mock: { calls: Array<[string, Record<string, string>]> } }).mock.calls;
+    expect(chamadas.filter(([, p]) => p.metric === "follower_count")).toHaveLength(2);
+    const l = acha(s, "follower_count");
+    expect(l?.disponivel).toBe(true);
+    expect(l?.detalhe).toContain("23");
+  });
+
+  it("esgotadas as formas, fica indisponível com o último erro", async () => {
+    const s = await sondarInstagram(consultor({ metricasRecusadas: ["impressions"] }), "123");
+    const l = acha(s, "impressions");
+    expect(l?.disponivel).toBe(false);
+    expect(l?.detalhe).toContain("total_value");
+  });
+
+  /**
+   * Estas saíram da mensagem de erro da própria Meta, que ao recusar
+   * `impressions` devolveu a lista inteira de métricas válidas. Nunca haviam
+   * sido testadas — e adivinhar nome de métrica é o que a sondagem evita.
+   */
+  it.each(["likes", "comments", "shares", "saves", "replies", "content_views", "online_followers"])(
+    "a métrica revelada `%s` entrou na sondagem", async (metrica) => {
+      const s = await sondarInstagram(consultor(), "123");
+      expect(acha(s, metrica), `\`${metrica}\` não está sendo sondada`).toBeDefined();
+    });
+});
