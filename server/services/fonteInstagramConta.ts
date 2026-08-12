@@ -24,13 +24,14 @@
 import { DIAS_PARA_RENOVAR } from "@shared/fontesSociais";
 import { tipoDaResposta, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { logger } from "../logger";
-import { impressaoDe, type DiagnosticoInstagram, type EtapaDiagnostico } from "./instagram";
+import { CAMPOS_MIDIA, impressaoDe, mapearMidia, type DiagnosticoInstagram, type EtapaDiagnostico } from "./instagram";
 import {
   ESCOPOS_INSTAGRAM, graphIg, perfilDaConta, renovarTokenLongo,
 } from "./instagramOAuth";
 import {
   FonteSemCredencial,
-  type AlvoInstagram, type FonteInstagram, type PerfilInstagram, type ResultadoInsights,
+  type AlvoInstagram, type FonteInstagram, type MidiaInstagram,
+  type PerfilInstagram, type ResultadoInsights,
 } from "./fonteInstagram";
 
 /** Mesmos grupos da outra fonte, e pelo mesmo motivo: uma métrica morta não pode derrubar o resto. */
@@ -129,6 +130,12 @@ export function fonteDaConta(
 
     async insights(_alvo: AlvoInstagram): Promise<ResultadoInsights> {
       return lerInsights((await credencial()).token);
+    },
+
+    async midias(_alvo: AlvoInstagram, limite = 12): Promise<MidiaInstagram[]> {
+      const r = await graphIg<{ data?: Record<string, unknown>[] }>(
+        "me/media", { fields: CAMPOS_MIDIA, limit: String(limite) }, (await credencial()).token);
+      return (r.data ?? []).map(mapearMidia);
     },
 
     async diagnosticar(): Promise<DiagnosticoInstagram> {

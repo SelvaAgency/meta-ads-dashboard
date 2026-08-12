@@ -1,6 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
+import RedesSociais from "@/pages/RedesSociais";
 import { Route, Switch, useRoute } from "wouter";
 import Settings from "./pages/Settings";
 import { useEffect } from "react";
@@ -160,13 +161,18 @@ function Router() {
       <Route path="/suggestions-hub" component={() => <RedirectTo to="/overview" />} />
       <Route path="/admin" component={() => <Interna><Admin /></Interna>} />
       {/*
-        `/social-networks` saiu com o router `socialNetworks`. A página era solta
-        e dependia de `accounts[0].accessToken`; a exibição volta como ABA dentro
-        do cliente, no padrão de Site → Monitoramento.
+        `/social-networks` voltou a ser página, e não mais redirecionamento.
 
-        Vira redirecionamento em vez de sumir: link morto mora em favorito.
+        Ela morreu junto com o router `socialNetworks` porque lia o Instagram com
+        `accounts[0].accessToken` — o token de mídia de uma conta arbitrária — e
+        misturava número de campanha com número de perfil sob o mesmo rótulo.
+        Renasce sobre a porta `FonteInstagram`, com orgânico e pago em blocos
+        separados, e restrita a admin/dev enquanto a frente está em teste.
+
+        O caminho antigo continua valendo: era ele que estava nos favoritos.
       */}
-      <Route path="/social-networks" component={() => <RedirectTo to="/settings?painel=conexoes" />} />
+      <Route path="/social-networks" component={() => <Interna><RedesSociais /></Interna>} />
+      <Route path="/redes-sociais" component={() => <RedirectTo to="/social-networks" />} />
       <Route path="/experiments" component={() => <Interna><Experiments /></Interna>} />
       <Route path="/experiments/:id" component={() => <Interna><ExperimentDetail /></Interna>} />
 

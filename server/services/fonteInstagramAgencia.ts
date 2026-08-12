@@ -19,12 +19,13 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import {
-  descobrirPaginas, diagnosticar, insightsDe, perfilDe,
+  descobrirPaginas, diagnosticar, insightsDe, midiasDe, perfilDe,
   type DiagnosticoInstagram, type PaginaDescoberta,
 } from "./instagram";
 import {
   FonteSemCredencial,
-  type AlvoInstagram, type FonteInstagram, type PerfilInstagram, type ResultadoInsights,
+  type AlvoInstagram, type FonteInstagram, type MidiaInstagram,
+  type PerfilInstagram, type ResultadoInsights,
 } from "./fonteInstagram";
 
 /** Import tardio: mantém `server/db` fora do grafo de quem só usa a fonte. */
@@ -67,6 +68,10 @@ export function fonteAgencia(obterToken: () => Promise<string | null> = tokenGua
 
     async insights(alvo: AlvoInstagram): Promise<ResultadoInsights> {
       return insightsDe(await token(), exigirInstagram(alvo));
+    },
+
+    async midias(alvo: AlvoInstagram, limite = 12): Promise<MidiaInstagram[]> {
+      return midiasDe(await token(), exigirInstagram(alvo), limite);
     },
 
     async diagnosticar(alvo: AlvoInstagram & { escopoDeCliente?: boolean }): Promise<DiagnosticoInstagram> {

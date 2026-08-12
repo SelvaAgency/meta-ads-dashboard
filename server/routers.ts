@@ -4073,6 +4073,89 @@ export const appRouter = router({
       }),
 
     /**
+     * O painel visual de um cliente: orgânico e pago, em BLOCOS SEPARADOS.
+     *
+     * A separação é estrutural, não de rótulo. `organico` e `pago` são objetos
+     * distintos, com origens distintas declaradas dentro deles — não há como a
+     * tela pintar um número de campanha num card de orgânico por descuido,
+     * porque os dois nunca se encontram no mesmo objeto. A página antiga
+     * misturava as duas origens e foi por isso que ela saiu do ar.
+     *
+     * NUNCA lança por falta de vínculo, permissão ou token: devolve o estado.
+     * Uma tela que quebra em cliente sem Instagram ensina que a área está
+     * quebrada, quando só falta um passo de configuração.
+     */
+    painel: contentProcedure
+      .input(z.object({
+        accountId: z.number().int(),
+        startDate: z.string(),
+        endDate: z.string(),
+      }))
+      .query(async ({ ctx, input }) => {
+        await getVerifiedAccount(input.accountId, ctx.user.id);
+
+        // ── PAGO — Meta Ads, do banco de campanhas. Origem declarada. ──────
+        const linhas = await getAccountMetricsSummary(input.accountId, input.startDate, input.endDate);
+        const soma = (f: (r: (typeof linhas)[number]) => unknown) =>
+          linhas.reduce((t, r) => t + (Number(f(r)) || 0), 0);
+        const investimento = soma((r) => r.totalSpend);
+        const impressoes = soma((r) => r.totalImpressions);
+        const cliques = soma((r) => r.totalClicks);
+        const pago = linhas.length === 0 ? null : {
+          origem: "meta_ads" as const,
+          investimento,
+          alcance: soma((r) => r.totalReach),
+          impressoes,
+          cliques,
+          conversoes: soma((r) => r.totalConversions),
+          valorDeConversao: soma((r) => r.totalConversionValue),
+          ctr: impressoes > 0 ? (cliques / impressoes) * 100 : 0,
+          cpc: cliques > 0 ? investimento / cliques : 0,
+        };
+
+        // ── ORGÂNICO — Instagram, pela fonte resolvida. ────────────────────
+        const conta = fonteInstagramDaConta(input.accountId);
+        const agencia = fonteAgencia();
+        const vinculo = (await vinculosSociais()).find((v) => v.accountId === input.accountId);
+        const escolha = escolherFonte(await estadosDasFontes(input.accountId, conta, agencia));
+
+        const semOrganico = (motivo: string) => ({
+          fonte: escolha, vinculo: vinculo ?? null,
+          organico: null, erro: motivo, pago,
+        });
+
+        if (!escolha.usada) return semOrganico(`${escolha.titulo}. ${escolha.detalhe}`);
+        // Vínculo sem Instagram é estado próprio, não erro — a tela sabe pintar.
+        if (escolha.usada === "agencia_system_user" && !vinculo?.instagramUserId) {
+          return semOrganico(vinculo?.pageId
+            ? "A Página vinculada não tem conta do Instagram. O vínculo é feito no próprio Instagram."
+            : "Este cliente ainda não tem Página vinculada. Configure em Conexões → Redes sociais.");
+        }
+
+        const fonte = escolha.usada === "oauth_conta" ? conta : agencia;
+        const alvo = { pageId: vinculo?.pageId, instagramUserId: vinculo?.instagramUserId };
+        try {
+          // Perfil primeiro: sem ele não há o que mostrar. Insights e mídias
+          // seguem em paralelo e cada um falha por conta própria — perder os
+          // posts porque insights foram recusados esconderia metade do que
+          // funciona.
+          const perfil = await fonte.perfil(alvo);
+          const [insights, midias] = await Promise.all([
+            fonte.insights(alvo).catch((e: Error) => ({
+              statusInsight: "ERRO" as const, ok: [] as string[], recusadas: [e.message],
+            })),
+            fonte.midias(alvo, 12).catch(() => []),
+          ]);
+          return {
+            fonte: escolha, vinculo: vinculo ?? null, pago, erro: null,
+            organico: { origem: "instagram" as const, perfil, insights, midias },
+          };
+        } catch (e) {
+          return semOrganico((e as Error).message);
+        }
+      }),
+
+    /**
      * Estado da conexão de cada cliente, com a fonte escolhida e o motivo.
      *
      * Uma consulta só para o painel inteiro: uma por cliente faria 18 idas ao

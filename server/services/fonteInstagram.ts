@@ -60,6 +60,19 @@ export interface ResultadoInsights {
   recusadas: string[];
 }
 
+/** Um post. Mesmos campos nas duas fontes — a Meta usa os mesmos nomes. */
+export interface MidiaInstagram {
+  id: string;
+  caption: string | null;
+  mediaType: string | null;
+  mediaUrl: string | null;
+  thumbnailUrl: string | null;
+  permalink: string | null;
+  timestamp: string | null;
+  curtidas: number | null;
+  comentarios: number | null;
+}
+
 export interface FonteInstagram {
   readonly nome: FonteNome;
 
@@ -71,6 +84,9 @@ export interface FonteInstagram {
   insights(alvo: AlvoInstagram): Promise<ResultadoInsights>;
 
   diagnosticar(alvo: AlvoInstagram & { escopoDeCliente?: boolean }): Promise<DiagnosticoInstagram>;
+
+  /** Posts recentes. Vazio é resposta válida — conta nova não é conta quebrada. */
+  midias(alvo: AlvoInstagram, limite?: number): Promise<MidiaInstagram[]>;
 
   /** Só quem tem portfólio. Ver cabeçalho. */
   descobrirPaginas?(): Promise<{ paginas: PaginaDescoberta[]; avisos: string[] }>;

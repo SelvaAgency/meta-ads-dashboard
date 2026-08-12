@@ -26,7 +26,7 @@
  */
 import { logger } from "../logger";
 import { lerPermissoes, PERMISSOES_INSIGHTS, tipoDaResposta, type StatusInsight, type TipoConta, type VereditoPermissao } from "@shared/instagram";
-import type { PerfilInstagram, ResultadoInsights } from "./fonteInstagram";
+import type { MidiaInstagram, PerfilInstagram, ResultadoInsights } from "./fonteInstagram";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -238,6 +238,31 @@ export async function insightsDe(token: string, instagramUserId: string): Promis
     statusInsight: ok.length > 0 ? "DISPONIVEL" : recusadas.length > 0 ? "INDISPONIVEL" : "NAO_TESTADO",
     ok, recusadas,
   };
+}
+
+/** Campos de mídia. Iguais nas duas fontes — a Meta usa os mesmos nomes. */
+export const CAMPOS_MIDIA =
+  "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count";
+
+export function mapearMidia(m: Record<string, unknown>): MidiaInstagram {
+  return {
+    id: String(m.id ?? ""),
+    caption: m.caption ? String(m.caption) : null,
+    mediaType: m.media_type ? String(m.media_type) : null,
+    mediaUrl: m.media_url ? String(m.media_url) : null,
+    thumbnailUrl: m.thumbnail_url ? String(m.thumbnail_url) : null,
+    permalink: m.permalink ? String(m.permalink) : null,
+    timestamp: m.timestamp ? String(m.timestamp) : null,
+    // `like_count` some quando a conta esconde curtidas — ausência não é zero.
+    curtidas: typeof m.like_count === "number" ? m.like_count : null,
+    comentarios: typeof m.comments_count === "number" ? m.comments_count : null,
+  };
+}
+
+export async function midiasDe(token: string, instagramUserId: string, limite = 12): Promise<MidiaInstagram[]> {
+  const r = await graph<{ data?: Record<string, unknown>[] }>(
+    `${instagramUserId}/media`, { fields: CAMPOS_MIDIA, limit: String(limite) }, token);
+  return (r.data ?? []).map(mapearMidia);
 }
 
 // ─── Diagnóstico ─────────────────────────────────────────────────────────────
