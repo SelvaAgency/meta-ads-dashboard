@@ -21,7 +21,6 @@ import { canAccessAdmin } from "@shared/permissions";
 import Admin from "./pages/Admin";
 import ReportView from "./pages/ReportView";
 
-import SocialNetworks from "./pages/SocialNetworks";
 
 import Experiments from "./pages/Experiments";
 import ExperimentDetail from "./pages/ExperimentDetail";
@@ -160,7 +159,14 @@ function Router() {
       <Route path="/suggestions" component={() => <Interna><Suggestions /></Interna>} />
       <Route path="/suggestions-hub" component={() => <RedirectTo to="/overview" />} />
       <Route path="/admin" component={() => <Interna><Admin /></Interna>} />
-      <Route path="/social-networks" component={() => <Interna><SocialNetworks /></Interna>} />
+      {/*
+        `/social-networks` saiu com o router `socialNetworks`. A página era solta
+        e dependia de `accounts[0].accessToken`; a exibição volta como ABA dentro
+        do cliente, no padrão de Site → Monitoramento.
+
+        Vira redirecionamento em vez de sumir: link morto mora em favorito.
+      */}
+      <Route path="/social-networks" component={() => <RedirectTo to="/settings?painel=conexoes" />} />
       <Route path="/experiments" component={() => <Interna><Experiments /></Interna>} />
       <Route path="/experiments/:id" component={() => <Interna><ExperimentDetail /></Interna>} />
 

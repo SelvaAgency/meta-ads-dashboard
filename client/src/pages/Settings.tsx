@@ -15,6 +15,7 @@ import { DominioVinculos } from "@/components/conexoes/DominioVinculos";
 import { FotoDoCliente } from "@/components/FotoDoCliente";
 import { pediuConexoes } from "@/pages/hub/trackerRoutes";
 import { RedesVinculos } from "@/components/conexoes/RedesVinculos";
+import { InstagramConexao } from "@/components/conexoes/InstagramConexao";
 import { GmailVinculos } from "@/components/conexoes/GmailVinculos";
 import { toast } from "sonner";
 import {
@@ -760,8 +761,17 @@ function ConexoesPanel() {
         <DominioVinculos />
       </SecaoConexao>
 
-      <SecaoConexao titulo="Redes sociais" subtitulo="Cadastro de perfis por cliente (coleta ainda não automática)">
-        <RedesVinculos />
+      {/* Duas coisas diferentes na mesma seção, e a ordem é proposital:
+          InstagramConexao é a conexão DE VERDADE (token próprio + vínculo de
+          Página/Instagram), RedesVinculos é o cadastro de @ para as redes que
+          ainda não têm integração. Invertido, o cadastro manual pareceria a
+          coisa principal — foi ele que por anos foi confundido com conexão. */}
+      <SecaoConexao titulo="Redes sociais" subtitulo="Instagram conectado por token próprio · demais redes, cadastro de perfil">
+        <InstagramConexao />
+        <div className="border-t border-border pt-3 mt-1">
+          <p className="text-xs font-semibold text-muted-foreground mb-2">Outros perfis (LinkedIn, YouTube)</p>
+          <RedesVinculos />
+        </div>
       </SecaoConexao>
 
       {/* Gmail é conexão de SAÍDA (envio), não de leitura de dados de cliente —

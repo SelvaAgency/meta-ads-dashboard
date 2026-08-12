@@ -227,6 +227,25 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela site_compliance_settings garantida");
 
+    // 3.1.0) Redes Sociais — credencial PRÓPRIA, separada de Meta Ads. Uma linha
+    //        só: o token é da agência, não do cliente. Cifrado, diferente do
+    //        token de campanhas (dívida existente que não vale replicar).
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`social_credentials\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`tokenEncrypted\` TEXT NOT NULL,
+        \`impressao\` VARCHAR(16) NOT NULL,
+        \`businessId\` VARCHAR(64) NULL,
+        \`lastTestAt\` TIMESTAMP NULL,
+        \`lastTestStatus\` VARCHAR(8) NULL,
+        \`lastTestDetail\` TEXT NULL,
+        \`updatedBy\` INT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabela social_credentials garantida");
+
     // 3.0.9) Diagnóstico do teste de conexão de loja. Sem esta coluna o retorno
     //        do teste vive só num toast e some — e é ele que orienta o
     //        adaptador da plataforma.
@@ -802,6 +821,37 @@ async function main() {
         KEY \`idx_social_conta\` (\`accountId\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · client_social_accounts garantida");
+
+    // Vínculo Página/Instagram por cliente. `tipoConta` e `statusInsight` são
+    // eixos SEPARADOS: identidade do perfil não é estado da API.
+    //
+    // Mora AQUI, logo depois do CREATE acima, e não junto das outras adições de
+    // coluna lá em cima: naquele ponto a tabela ainda não existe num banco novo,
+    // e um `tableExists` teria pulado as 13 colunas em silêncio — em produção a
+    // tabela já existe, então o buraco só apareceria em ambiente novo, na
+    // primeira tentativa de vincular uma Página.
+    for (const [col, ddl] of [
+      ["pageId", "ADD COLUMN `pageId` VARCHAR(64) NULL"],
+      ["pageName", "ADD COLUMN `pageName` VARCHAR(255) NULL"],
+      ["instagramUserId", "ADD COLUMN `instagramUserId` VARCHAR(64) NULL"],
+      ["instagramUsername", "ADD COLUMN `instagramUsername` VARCHAR(120) NULL"],
+      ["tipoConta", "ADD COLUMN `tipoConta` VARCHAR(16) NOT NULL DEFAULT 'DESCONHECIDO'"],
+      ["statusInsight", "ADD COLUMN `statusInsight` VARCHAR(16) NOT NULL DEFAULT 'NAO_TESTADO'"],
+      ["tokenSource", "ADD COLUMN `tokenSource` VARCHAR(16) NOT NULL DEFAULT 'agencia'"],
+      ["lastTestAt", "ADD COLUMN `lastTestAt` TIMESTAMP NULL"],
+      ["lastTestStatus", "ADD COLUMN `lastTestStatus` VARCHAR(8) NULL"],
+      ["lastTestDetail", "ADD COLUMN `lastTestDetail` TEXT NULL"],
+      ["lastSyncAt", "ADD COLUMN `lastSyncAt` TIMESTAMP NULL"],
+      ["lastSyncStatus", "ADD COLUMN `lastSyncStatus` VARCHAR(8) NULL"],
+      ["lastSyncError", "ADD COLUMN `lastSyncError` VARCHAR(500) NULL"],
+    ]) {
+      if (await columnExists(conn, "client_social_accounts", col)) {
+        console.log(`[ensure-schema] ok  · client_social_accounts.${col} já existe`);
+      } else {
+        await conn.query(`ALTER TABLE \`client_social_accounts\` ${ddl}`);
+        console.log(`[ensure-schema] +   · client_social_accounts.${col} adicionada`);
+      }
+    }
 
     // Google Ads: a tabela existia em prod via db:push, mas sem migration —
     // some em ambiente novo. CREATE IF NOT EXISTS a garante. O refreshToken

@@ -88,6 +88,13 @@ import {
   criarContaMetaSeNova,
   diagnosticoDeTokens,
   tokenMetaDaConta,
+  credencialSocialInfo,
+  salvarCredencialSocial,
+  tokenSocial,
+  registrarTesteSocial,
+  registrarTesteVinculo,
+  vinculosSociais,
+  vincularInstagram,
   duplicatasDeContas,
   mesclarContas,
   renomearConta,
@@ -337,6 +344,7 @@ import { normalizarHost } from "./services/monitoramento/dominioRegistravel";
 import { classificarContas, idLimpo, podeImportarSemForcar, ROTULO_STATUS } from "@shared/importacaoContas";
 import { temIntegracao } from "@shared/plataformasLoja";
 import { testarConexaoWix, validarSiteId, validarUrlWix } from "./services/wix";
+import { descobrirPaginas, diagnosticar as diagnosticarInstagram } from "./services/instagram";
 import { normalizarConfirmacoes } from "./services/monitoramento/confirmacao";
 import { runCicloMonitoramento } from "./services/monitoramento/cicloMonitoramento";
 import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho, preferenciasEmailDoUsuario, salvarPreferenciasEmail } from "./db";
@@ -3960,6 +3968,77 @@ export const appRouter = router({
 
   // ─── Redes sociais por cliente (cadastro) ────────────────────────────────────
   social: router({
+    /** Estado da credencial — SEM o token. É o que pode ir para a tela. */
+    credencial: contentProcedure.query(() => credencialSocialInfo()),
+
+    /**
+     * Grava a credencial de Redes Sociais.
+     *
+     * Testa ANTES de gravar: um token que não alcança o portfólio gravado é um
+     * problema que só apareceria no primeiro uso, longe daqui.
+     */
+    salvarCredencial: contentProcedure
+      .input(z.object({ token: z.string().min(20), businessId: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const d = await diagnosticarInstagram(input.token, { businessId: input.businessId });
+        if (!d.ok) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `O token não passou no diagnóstico:\n${d.texto}` });
+        }
+        await salvarCredencialSocial(input.token, d.impressao, ctx.user.id, input.businessId);
+        await registrarTesteSocial(true, d.texto);
+        return { impressao: d.impressao, diagnostico: d.texto };
+      }),
+
+    /** Diagnóstico da credencial guardada. Leitura pura. */
+    diagnosticar: contentProcedure
+      .input(z.object({ accountId: z.number().int().optional() }).optional())
+      .mutation(async ({ input }) => {
+        const token = await tokenSocial();
+        if (!token) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Nenhuma credencial de Redes Sociais cadastrada. Cole o token em Conexões → Redes Sociais." });
+        }
+        const vinculo = input?.accountId
+          ? (await vinculosSociais()).find((v) => v.accountId === input.accountId)
+          : undefined;
+        const d = await diagnosticarInstagram(token, {
+          pageId: vinculo?.pageId, instagramUserId: vinculo?.instagramUserId,
+        });
+        if (input?.accountId && vinculo) {
+          await registrarTesteVinculo(input.accountId, {
+            ok: d.ok, detalhe: d.texto, tipoConta: d.tipoConta, statusInsight: d.statusInsight,
+          });
+        } else {
+          await registrarTesteSocial(d.ok, d.texto);
+        }
+        return d;
+      }),
+
+    /** Páginas do portfólio, com o Instagram vinculado quando existir. */
+    paginasDisponiveis: contentProcedure.mutation(async () => {
+      const token = await tokenSocial();
+      if (!token) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre a credencial de Redes Sociais primeiro." });
+      }
+      return descobrirPaginas(token);
+    }),
+
+    /** Vínculos de todos os clientes — alimenta o painel. */
+    vinculos: contentProcedure.query(() => vinculosSociais()),
+
+    vincular: contentProcedure
+      .input(z.object({
+        accountId: z.number().int(),
+        pageId: z.string().min(1),
+        pageName: z.string().min(1),
+        instagramUserId: z.string().nullable(),
+        instagramUsername: z.string().nullable(),
+        tipoConta: z.enum(["BUSINESS", "CREATOR", "PESSOAL", "DESCONHECIDO"]),
+      }))
+      .mutation(async ({ input }) => {
+        await vincularInstagram(input);
+        return { success: true as const };
+      }),
+
     daConta: protectedProcedure
       .input(z.object({ accountId: z.number().int() }))
       .query(({ input }) => listarSociaisDaConta(input.accountId)),
@@ -5520,345 +5599,24 @@ export const appRouter = router({
   }),
 
   // ─── Social Networks (Pages + Instagram from SELVA Portfolio) ────────────
-  socialNetworks: router({
-    list: protectedProcedure.query(async () => {
-      const accounts = await getMetaAdAccountsByUserId(1);
-      if (!accounts.length) return { pages: [] };
-      const token = accounts[0].accessToken;
-      const BUSINESS_ID = "803399908519541";
+  /**
+   * `socialNetworks` foi REMOVIDO nesta fatia.
+   *
+   * Suas quatro procedures (`list`, `pageInsights`, `socialPaidMetrics`,
+   * `forAccount`) usavam `accounts[0].accessToken` — o token de mídia de uma
+   * conta ARBITRÁRIA servindo de credencial para todo o Instagram. Se aquela
+   * conta trocasse de token, o orgânico de todos os clientes cairia junto, e o
+   * erro não diria isso.
+   *
+   * Duas fontes de credencial para a mesma coisa foi exatamente como o
+   * portfólio acabou com dois tokens diferentes sem ninguém perceber. O
+   * substituto é o router `social` abaixo, com credencial própria em
+   * `social_credentials`.
+   *
+   * `socialPaidMetrics` não foi substituído de propósito: mídia paga vive em
+   * Meta Ads. Redes Sociais aqui é orgânico.
+   */
 
-      // Hard global timeout — guarantee response within 10s
-      const fetchPages = async (): Promise<{ pages: any[]; error?: string }> => {
-        const pageMap = new Map<string, any>();
-
-        // Try owned_pages first (most reliable for System User)
-        for (const edge of ["owned_pages", "client_pages"]) {
-          try {
-            const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}&limit=100&access_token=${token}`;
-            const res = await Promise.race([
-              fetch(url),
-              new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000))
-            ]);
-            const data = await res.json() as any;
-            if (data.data) {
-              for (const page of data.data) {
-                if (page.id && !pageMap.has(page.id)) {
-                  pageMap.set(page.id, page);
-                }
-              }
-            }
-            logger.info(`[socialNetworks.list] ${edge}: found ${data.data?.length ?? 0} pages`);
-          } catch (e: any) {
-            logger.info(`[socialNetworks.list] ${edge} failed: ${e.message}`);
-          }
-        }
-
-        const pages = Array.from(pageMap.values());
-        logger.info(`[socialNetworks.list] Total: ${pages.length} pages`);
-        if (pages.length > 0) return { pages };
-        return { pages: [], error: "Nenhuma página encontrada. Verifique permissões do token." };
-      };
-
-      try {
-        return await Promise.race([
-          fetchPages(),
-          new Promise<{ pages: any[]; error: string }>((resolve) =>
-            setTimeout(() => resolve({ pages: [], error: "Timeout ao buscar páginas (10s)" }), 10000)
-          )
-        ]);
-      } catch (e: any) {
-        console.error("[socialNetworks.list] Error:", e.message);
-        return { pages: [], error: e.message };
-      }
-    }),
-
-    pageInsights: protectedProcedure
-      .input(z.object({ pageId: z.string(), period: z.enum(["day", "week_28", "days_28"]).optional(), since: z.string().optional(), until: z.string().optional() }))
-      .query(async ({ input }) => {
-        const accounts = await getMetaAdAccountsByUserId(1);
-        if (!accounts.length) return null;
-        const systemToken = accounts[0].accessToken;
-        const period = input.period ?? "days_28";
-        const BUSINESS_ID = "803399908519541";
-        try {
-          // 0. Get page data via Business Portfolio edges (same approach as forAccount)
-          //    IMPORTANT: Do NOT include 'access_token' in fields — System User tokens
-          //    can list pages but requesting access_token causes silent failures.
-          let pageData: any = null;
-          const PAGE_FIELDS = "id,name,fan_count,followers_count,new_like_count,talking_about_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}";
-
-          // Fetch both edges in parallel for speed
-          const edgeResults = await Promise.allSettled(
-            ["owned_pages", "client_pages"].map(async (edge) => {
-              const ctrl = new AbortController();
-              const t = setTimeout(() => ctrl.abort(), 12000);
-              const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=${PAGE_FIELDS}&limit=100&access_token=${systemToken}`;
-              const res = await fetch(url, { signal: ctrl.signal });
-              clearTimeout(t);
-              return res.json() as Promise<any>;
-            })
-          );
-
-          for (const result of edgeResults) {
-            if (result.status === "fulfilled" && result.value?.data) {
-              const match = result.value.data.find((p: any) => p.id === input.pageId);
-              if (match) {
-                pageData = { ...match };
-                logger.info(`[socialNetworks.pageInsights] Found page ${input.pageId} via portfolio edge`);
-                break;
-              }
-            }
-          }
-
-          if (!pageData) {
-            logger.info(`[socialNetworks.pageInsights] Page ${input.pageId} not found in portfolio edges`);
-            return { id: input.pageId, _fbMetrics: null, _igMetrics: null, _recentPosts: [] };
-          }
-
-          // 1. FB Page Insights — best-effort (will likely fail with System User token)
-          let fbMetrics: any = null;
-          try {
-            const ctrl2 = new AbortController();
-            const t2 = setTimeout(() => ctrl2.abort(), 8000);
-            const metricsUrl = `https://graph.facebook.com/v21.0/${input.pageId}/insights?metric=page_impressions,page_impressions_unique,page_engaged_users,page_post_engagements,page_fan_adds,page_views_total,page_actions_post_reactions_total&period=${period}&access_token=${systemToken}`;
-            const mRes = await fetch(metricsUrl, { signal: ctrl2.signal });
-            clearTimeout(t2);
-            const mData = await mRes.json() as any;
-            if (mData.data && !mData.error) {
-              fbMetrics = {};
-              for (const metric of mData.data) {
-                const vals = metric.values ?? [];
-                const lastVal = vals[vals.length - 1]?.value ?? 0;
-                const numVal = typeof lastVal === "object" ? Object.values(lastVal as Record<string, number>).reduce((a: number, b: number) => a + b, 0) : Number(lastVal) || 0;
-                fbMetrics[metric.name] = numVal;
-              }
-            }
-          } catch {}
-
-          // 2. Instagram Insights + Media — best-effort
-          let igMetrics: any = null;
-          let recentPosts: any[] = [];
-          const igId = pageData.instagram_business_account?.id;
-          if (igId) {
-            // IG insights (will likely fail without page token)
-            try {
-              const ctrl3 = new AbortController();
-              const t3 = setTimeout(() => ctrl3.abort(), 8000);
-              const sinceTs = input.since 
-                ? Math.floor(new Date(input.since).getTime()/1000)
-                : Math.floor(Date.now()/1000) - 28*86400;
-              const untilTs = input.until
-                ? Math.floor(new Date(input.until + "T23:59:59").getTime()/1000)
-                : Math.floor(Date.now()/1000);
-              const igUrl = `https://graph.facebook.com/v21.0/${igId}/insights?metric=impressions,reach,accounts_engaged,profile_views&period=day&metric_type=total_value&since=${sinceTs}&until=${untilTs}&access_token=${systemToken}`;
-              const igRes = await fetch(igUrl, { signal: ctrl3.signal });
-              clearTimeout(t3);
-              const igData = await igRes.json() as any;
-              if (igData.data && !igData.error) {
-                igMetrics = {};
-                for (const metric of igData.data) {
-                  const totalValue = metric.total_value?.value ?? 0;
-                  igMetrics[metric.name] = Number(totalValue) || 0;
-                }
-              }
-            } catch {}
-
-            // IG media (recent posts)
-            try {
-              const ctrl4 = new AbortController();
-              const t4 = setTimeout(() => ctrl4.abort(), 8000);
-              const mediaUrl = `https://graph.facebook.com/v21.0/${igId}/media?fields=id,like_count,comments_count,timestamp,media_url,thumbnail_url,media_type,caption,permalink&limit=25&access_token=${systemToken}`;
-              const mediaRes = await fetch(mediaUrl, { signal: ctrl4.signal });
-              clearTimeout(t4);
-              const mediaData = await mediaRes.json() as any;
-              if (mediaData.data && !mediaData.error) {
-                const posts = mediaData.data;
-                recentPosts = posts;
-                const totalLikes = posts.reduce((s: number, p: any) => s + (p.like_count ?? 0), 0);
-                const totalComments = posts.reduce((s: number, p: any) => s + (p.comments_count ?? 0), 0);
-                if (!igMetrics) igMetrics = {};
-                igMetrics.recent_posts = posts.length;
-                igMetrics.recent_likes = totalLikes;
-                igMetrics.recent_comments = totalComments;
-                igMetrics.avg_likes = posts.length > 0 ? Math.round(totalLikes / posts.length) : 0;
-                igMetrics.avg_comments = posts.length > 0 ? Math.round(totalComments / posts.length) : 0;
-              }
-            } catch {}
-          }
-
-          return { ...pageData, _fbMetrics: fbMetrics, _igMetrics: igMetrics, _recentPosts: recentPosts };
-        } catch (e: any) {
-          console.error("[socialNetworks.pageInsights] Error:", e.message);
-          return null;
-        }
-      }),
-
-    // ─── Paid metrics for the Social Networks tab ──────────────────────────
-    socialPaidMetrics: protectedProcedure
-      .input(z.object({ accountId: z.number(), startDate: z.string(), endDate: z.string() }))
-      .query(async ({ input }) => {
-        try {
-          const rows = await getAccountMetricsSummary(input.accountId, input.startDate, input.endDate);
-          if (!rows || rows.length === 0) return null;
-          // Aggregate all days into a single summary
-          let totalSpend = 0, totalImpressions = 0, totalClicks = 0, totalConversions = 0, totalConversionValue = 0, totalReach = 0;
-          for (const r of rows) {
-            totalSpend += Number(r.totalSpend) || 0;
-            totalImpressions += Number(r.totalImpressions) || 0;
-            totalClicks += Number(r.totalClicks) || 0;
-            totalConversions += Number(r.totalConversions) || 0;
-            totalConversionValue += Number(r.totalConversionValue) || 0;
-            totalReach += Number(r.totalReach) || 0;
-          }
-          return {
-            spend: totalSpend,
-            impressions: totalImpressions,
-            clicks: totalClicks,
-            conversions: totalConversions,
-            conversionValue: totalConversionValue,
-            reach: totalReach,
-            ctr: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
-            cpc: totalClicks > 0 ? totalSpend / totalClicks : 0,
-            cpm: totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0,
-            roas: totalSpend > 0 ? totalConversionValue / totalSpend : 0,
-            cpa: totalConversions > 0 ? totalSpend / totalConversions : 0,
-          };
-        } catch (e: any) {
-          console.error("[socialNetworks.socialPaidMetrics] Error:", e.message);
-          return null;
-        }
-      }),
-
-        // ─── Pages filtered by ad account (for per-client filtering) ─────────
-    forAccount: protectedProcedure
-      .input(z.object({ accountId: z.number() }))
-      .query(async ({ input }) => {
-        const account = await getMetaAdAccountById(input.accountId);
-        if (!account) return { pages: [], error: "Conta não encontrada" };
-        const token = account.accessToken;
-        const metaId = account.accountId; // e.g. "2060651151073806"
-        const BUSINESS_ID = "803399908519541";
-
-        const PAGE_FIELDS = "id,name,category,fan_count,picture{url},instagram_business_account{id,username,followers_count,media_count,profile_picture_url,biography}";
-
-        // Helper: fetch ALL portfolio pages from business (owned + client)
-        // Cached per-request so Strategy 0 and Strategy 3 don't double-fetch
-        let _portfolioCache: Map<string, any> | null = null;
-        const fetchAllPortfolioPages = async (): Promise<Map<string, any>> => {
-          if (_portfolioCache) return _portfolioCache;
-          const pageMap = new Map<string, any>();
-          // Fetch both edges in parallel for speed
-          const results = await Promise.allSettled(
-            ["owned_pages", "client_pages"].map(async (edge) => {
-              const url = `https://graph.facebook.com/v21.0/${BUSINESS_ID}/${edge}?fields=${PAGE_FIELDS}&limit=100&access_token=${token}`;
-              const res = await fetch(url);
-              return res.json() as Promise<any>;
-            })
-          );
-          for (const result of results) {
-            if (result.status === "fulfilled" && result.value?.data) {
-              for (const page of result.value.data) {
-                if (page.id && !pageMap.has(page.id)) pageMap.set(page.id, page);
-              }
-            }
-          }
-          logger.info(`[socialNetworks.forAccount] Portfolio cache loaded: ${pageMap.size} pages`);
-          _portfolioCache = pageMap;
-          return pageMap;
-        };
-
-        const fetchPagesForAccount = async (): Promise<{ pages: any[]; error?: string; fallback?: boolean }> => {
-          // Strategy 0 (primary): Use hardcoded page mapping + portfolio fetch + filter
-          // We fetch ALL portfolio pages first, then filter by the known IDs.
-          // This is reliable because the System User token can read portfolio edges
-          // but NOT individual pages by ID directly.
-          const knownPageIds = getPageIdsForAdAccount(metaId);
-
-          if (knownPageIds && knownPageIds.length > 0) {
-            logger.info(`[socialNetworks.forAccount] Strategy 0: filtering portfolio by mapping for act_${metaId} → pageIds: [${knownPageIds.join(",")}]`);
-            const allPages = await fetchAllPortfolioPages();
-            const filtered = knownPageIds
-              .map(pid => allPages.get(pid))
-              .filter(Boolean);
-            if (filtered.length > 0) {
-              logger.info(`[socialNetworks.forAccount] Strategy 0 SUCCESS: ${filtered.length} pages matched for act_${metaId}`);
-              return { pages: filtered };
-            }
-            logger.info(`[socialNetworks.forAccount] Strategy 0 FAILED: no matches in ${allPages.size} portfolio pages for IDs [${knownPageIds.join(",")}]`);
-          }
-
-          // If mapping exists but is empty (client has no dedicated page), return empty
-          if (knownPageIds && knownPageIds.length === 0) {
-            logger.info(`[socialNetworks.forAccount] No pages mapped for act_${metaId}`);
-            return { pages: [], error: "Esta conta não possui página Facebook vinculada no portfólio" };
-          }
-
-          // Strategy 1: promote_pages edge on ad account
-          try {
-            const url = `https://graph.facebook.com/v21.0/act_${metaId}/promote_pages?fields=${PAGE_FIELDS}&limit=100&access_token=${token}`;
-            const res = await Promise.race([
-              fetch(url),
-              new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000))
-            ]);
-            const data = await res.json() as any;
-            if (data.data && data.data.length > 0) {
-              logger.info(`[socialNetworks.forAccount] Strategy 1 (promote_pages) for act_${metaId}: ${data.data.length} pages`);
-              return { pages: data.data };
-            }
-          } catch (e: any) {
-            logger.info(`[socialNetworks.forAccount] Strategy 1 failed: ${e.message}`);
-          }
-
-          // Strategy 2: Find pages from recent ad creatives, then filter from portfolio
-          try {
-            const url = `https://graph.facebook.com/v21.0/act_${metaId}/ads?fields=creative{effective_object_story_id,object_story_spec}&limit=50&access_token=${token}`;
-            const res = await Promise.race([
-              fetch(url),
-              new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000))
-            ]);
-            const data = await res.json() as any;
-            const creativePageIds = new Set<string>();
-            if (data.data) {
-              for (const ad of data.data) {
-                const storyId = ad.creative?.effective_object_story_id;
-                if (storyId) {
-                  const pageId = storyId.split("_")[0];
-                  if (pageId) creativePageIds.add(pageId);
-                }
-                const specPageId = ad.creative?.object_story_spec?.page_id;
-                if (specPageId) creativePageIds.add(specPageId);
-              }
-            }
-            if (creativePageIds.size > 0) {
-              logger.info(`[socialNetworks.forAccount] Strategy 2: ${creativePageIds.size} page IDs from creatives for act_${metaId}`);
-              const allPages = await fetchAllPortfolioPages();
-              const pages = Array.from(creativePageIds)
-                .map(pid => allPages.get(pid))
-                .filter(Boolean);
-              if (pages.length > 0) return { pages };
-            }
-          } catch (e: any) {
-            logger.info(`[socialNetworks.forAccount] Strategy 2 failed: ${e.message}`);
-          }
-
-          // Strategy 3: Fallback — return ALL portfolio pages
-          logger.info(`[socialNetworks.forAccount] Strategy 3 FALLBACK: all portfolio pages for act_${metaId}`);
-          const allPages = await fetchAllPortfolioPages();
-          return { pages: Array.from(allPages.values()), fallback: true };
-        };
-
-        try {
-          return await Promise.race([
-            fetchPagesForAccount(),
-            new Promise<{ pages: any[]; error: string }>((resolve) =>
-              setTimeout(() => resolve({ pages: [], error: "Timeout (25s)" }), 25000)
-            )
-          ]);
-        } catch (e: any) {
-          return { pages: [], error: e.message };
-        }
-      }),
-  }),
 
   // ─── Sync Management ─────────────────────────────────────────────────────
   sync: router({

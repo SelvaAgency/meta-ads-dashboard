@@ -1897,6 +1897,168 @@ export async function aplicarTokenEmContas(ids: number[], token: string): Promis
   return ids.length;
 }
 
+// ─── Redes Sociais: credencial própria ───────────────────────────────────────
+
+/**
+ * Credencial de Redes Sociais — UMA linha, separada de Meta Ads.
+ *
+ * O token é da AGÊNCIA, não do cliente: guardá-lo por cliente significaria a
+ * mesma chave copiada em dez linhas, que foi como o portfólio acabou com dois
+ * tokens diferentes sem ninguém perceber.
+ */
+export async function salvarCredencialSocial(token: string, impressao: string, userId: number, businessId?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const existente = await db.select({ id: socialCredentials.id }).from(socialCredentials).limit(1);
+  const dados = {
+    tokenEncrypted: encryptSecret(token),
+    impressao,
+    ...(businessId ? { businessId } : {}),
+    updatedBy: userId,
+  };
+  if (existente[0]) {
+    await db.update(socialCredentials).set(dados).where(eq(socialCredentials.id, existente[0].id));
+  } else {
+    await db.insert(socialCredentials).values(dados);
+  }
+  logger.info(`[Social] credencial gravada (impressão ${impressao})`);
+}
+
+/** Metadados da credencial, SEM o token. É o que pode ir para a tela. */
+export async function credencialSocialInfo(): Promise<{
+  existe: boolean; impressao: string | null; businessId: string | null;
+  lastTestAt: Date | null; lastTestStatus: string | null; lastTestDetail: string | null;
+  atualizadaEm: Date | null;
+}> {
+  const db = await getDb();
+  const vazio = { existe: false, impressao: null, businessId: null, lastTestAt: null, lastTestStatus: null, lastTestDetail: null, atualizadaEm: null };
+  if (!db) return vazio;
+  const r = await db.select().from(socialCredentials).limit(1);
+  const c = r[0];
+  if (!c) return vazio;
+  return {
+    existe: true, impressao: c.impressao, businessId: c.businessId,
+    lastTestAt: c.lastTestAt, lastTestStatus: c.lastTestStatus, lastTestDetail: c.lastTestDetail,
+    atualizadaEm: c.updatedAt,
+  };
+}
+
+/** Token em claro — uso EXCLUSIVO do servidor. Nunca exponha. */
+export async function tokenSocial(): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select({ t: socialCredentials.tokenEncrypted }).from(socialCredentials).limit(1);
+  if (!r[0]) return null;
+  try { return decryptSecret(r[0].t); } catch { return null; }
+}
+
+export async function registrarTesteSocial(ok: boolean, detalhe: string) {
+  const db = await getDb();
+  if (!db) return;
+  const r = await db.select({ id: socialCredentials.id }).from(socialCredentials).limit(1);
+  if (!r[0]) return;
+  await db.update(socialCredentials).set({
+    lastTestAt: new Date(), lastTestStatus: ok ? "ok" : "erro",
+    lastTestDetail: detalhe.slice(0, 12_000),
+  }).where(eq(socialCredentials.id, r[0].id));
+}
+
+/** Vínculos de todos os clientes — alimenta o painel de Conexões. */
+export async function vinculosSociais() {
+  const db = await getDb();
+  if (!db) return [];
+  const linhas = await db.select({
+    id: clientSocialAccounts.id,
+    accountId: clientSocialAccounts.accountId,
+    provider: clientSocialAccounts.provider,
+    handle: clientSocialAccounts.handle,
+    profileUrl: clientSocialAccounts.profileUrl,
+    pageId: clientSocialAccounts.pageId,
+    pageName: clientSocialAccounts.pageName,
+    instagramUserId: clientSocialAccounts.instagramUserId,
+    instagramUsername: clientSocialAccounts.instagramUsername,
+    tipoConta: clientSocialAccounts.tipoConta,
+    statusInsight: clientSocialAccounts.statusInsight,
+    enabled: clientSocialAccounts.enabled,
+    lastTestAt: clientSocialAccounts.lastTestAt,
+    lastTestStatus: clientSocialAccounts.lastTestStatus,
+    lastTestDetail: clientSocialAccounts.lastTestDetail,
+  }).from(clientSocialAccounts).where(eq(clientSocialAccounts.provider, "instagram"));
+
+  // Uma linha por cliente, pela MESMA regra que vincular e testar usam.
+  const porConta = new Map<number, (typeof linhas)[number][]>();
+  for (const l of linhas) porConta.set(l.accountId, [...(porConta.get(l.accountId) ?? []), l]);
+  return Array.from(porConta.values()).map((g) => linhaDaConexao(g)!).filter(Boolean);
+}
+
+/**
+ * Qual linha É a conexão de um cliente.
+ *
+ * A chave única é (accountId, provider, handle), então nada impede um cliente de
+ * ter mais de um @ de Instagram cadastrado à mão — mas a CONEXÃO é uma só.
+ * Escolhemos sempre a mesma linha: a que já carrega pageId, senão a mais antiga.
+ * Sem uma regra única, vincular gravaria numa linha, o teste atualizaria outra e
+ * a tela leria uma terceira — e o vínculo pareceria não ter sido salvo.
+ */
+export function linhaDaConexao<T extends { id: number; pageId: string | null }>(linhas: T[]): T | undefined {
+  return linhas.find((l) => l.pageId) ?? linhas.slice().sort((x, y) => x.id - y.id)[0];
+}
+
+/**
+ * Vincula (ou revincula) a Página/Instagram de um cliente.
+ *
+ * `handle` é NOT NULL de quando a tabela guardava só o @ digitado à mão. O
+ * username descoberto passa a ocupá-lo, e o pageId serve de reserva — assim o
+ * cadastro antigo e o novo convivem sem migração de dados.
+ */
+export async function vincularInstagram(a: {
+  accountId: number; pageId: string; pageName: string;
+  instagramUserId: string | null; instagramUsername: string | null;
+  tipoConta: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const handle = a.instagramUsername ?? a.pageId;
+  const linhas = await db.select({ id: clientSocialAccounts.id, pageId: clientSocialAccounts.pageId })
+    .from(clientSocialAccounts)
+    .where(and(eq(clientSocialAccounts.accountId, a.accountId), eq(clientSocialAccounts.provider, "instagram")));
+  const alvo = linhaDaConexao(linhas);
+  const dados = {
+    handle,
+    profileUrl: a.instagramUsername ? `https://instagram.com/${a.instagramUsername}` : null,
+    externalId: a.instagramUserId,
+    pageId: a.pageId, pageName: a.pageName,
+    instagramUserId: a.instagramUserId, instagramUsername: a.instagramUsername,
+    tipoConta: a.tipoConta,
+    // Vínculo novo NÃO herda estado de insight antigo: ele ainda não foi testado.
+    statusInsight: "NAO_TESTADO",
+    enabled: true,
+  };
+  if (alvo) {
+    await db.update(clientSocialAccounts).set(dados).where(eq(clientSocialAccounts.id, alvo.id));
+  } else {
+    await db.insert(clientSocialAccounts).values({ accountId: a.accountId, provider: "instagram", ...dados });
+  }
+  logger.info(`[Social] cliente #${a.accountId} vinculado à Página ${a.pageId}`);
+}
+
+export async function registrarTesteVinculo(accountId: number, a: {
+  ok: boolean; detalhe: string; tipoConta: string; statusInsight: string;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  const linhas = await db.select({ id: clientSocialAccounts.id, pageId: clientSocialAccounts.pageId })
+    .from(clientSocialAccounts)
+    .where(and(eq(clientSocialAccounts.accountId, accountId), eq(clientSocialAccounts.provider, "instagram")));
+  const alvo = linhaDaConexao(linhas);
+  if (!alvo) return;
+  await db.update(clientSocialAccounts).set({
+    lastTestAt: new Date(), lastTestStatus: a.ok ? "ok" : "erro",
+    lastTestDetail: a.detalhe.slice(0, 12_000),
+    tipoConta: a.tipoConta, statusInsight: a.statusInsight,
+  }).where(eq(clientSocialAccounts.id, alvo.id));
+}
+
 // ─── GA4 Accounts ───────────────────────────────────────────────────────────
 
 
@@ -2342,7 +2504,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 

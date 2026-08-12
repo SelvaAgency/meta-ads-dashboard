@@ -1248,12 +1248,75 @@ export const clientSocialAccounts = mysqlTable("client_social_accounts", {
   externalId: varchar("externalId", { length: 64 }),
   enabled: boolean("enabled").default(true).notNull(),
   notes: text("notes"),
+
+  /** Página do Facebook — é por ela que a Meta expõe o Instagram profissional. */
+  pageId: varchar("pageId", { length: 64 }),
+  pageName: varchar("pageName", { length: 255 }),
+  instagramUserId: varchar("instagramUserId", { length: 64 }),
+  instagramUsername: varchar("instagramUsername", { length: 120 }),
+
+  /**
+   * DOIS eixos, de propósito (ver shared/instagram.ts):
+   *   `tipoConta`     QUEM é o perfil — Business, Creator, pessoal
+   *   `statusInsight` o que a API ENTREGA hoje
+   * Um campo só obrigaria a inventar um valor por combinação, e o primeiro caso
+   * não previsto viraria "desconhecido" — que é como estado legítimo vira erro.
+   */
+  tipoConta: varchar("tipoConta", { length: 16 }).default("DESCONHECIDO").notNull(),
+  statusInsight: varchar("statusInsight", { length: 16 }).default("NAO_TESTADO").notNull(),
+
+  /** De onde veio a credencial. Prepara OAuth por cliente sem migração. */
+  tokenSource: varchar("tokenSource", { length: 16 }).default("agencia").notNull(),
+
+  lastTestAt: timestamp("lastTestAt"),
+  lastTestStatus: varchar("lastTestStatus", { length: 8 }),
+  lastTestDetail: text("lastTestDetail"),
+  lastSyncAt: timestamp("lastSyncAt"),
+  lastSyncStatus: varchar("lastSyncStatus", { length: 8 }),
+  lastSyncError: varchar("lastSyncError", { length: 500 }),
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   uqContaProvider: uniqueIndex("uq_social_conta_provider").on(table.accountId, table.provider, table.handle),
   idxConta: index("idx_social_conta").on(table.accountId),
 }));
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Credencial de Redes Sociais — UMA linha, separada de Meta Ads
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Tabela própria, e não colunas em `client_social_accounts`, porque o token é
+ *  DA AGÊNCIA e não do cliente. Guardá-lo por cliente significaria a mesma
+ *  chave copiada em dez linhas — que foi exatamente como o portfólio acabou com
+ *  dois tokens diferentes sem ninguém perceber.
+ *
+ *  Separada de Meta Ads por decisão de produto: campanhas caindo não podem
+ *  derrubar o orgânico, e vice-versa. Cada frente com token, diagnóstico e
+ *  permissões próprias.
+ *
+ *  CIFRADA, diferente do token de Meta Ads (que está em claro em
+ *  `meta_ad_accounts.accessToken`). Isso é dívida existente que não vale
+ *  replicar numa tabela nova.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export const socialCredentials = mysqlTable("social_credentials", {
+  id: int("id").autoincrement().primaryKey(),
+  /** System User token do Portfólio, cifrado. NUNCA sai daqui em claro. */
+  tokenEncrypted: text("tokenEncrypted").notNull(),
+  /** Hash curto: compara e diagnostica sem revelar. */
+  impressao: varchar("impressao", { length: 16 }).notNull(),
+  /** Portfólio Empresarial que o token alcança. */
+  businessId: varchar("businessId", { length: 64 }),
+  lastTestAt: timestamp("lastTestAt"),
+  lastTestStatus: varchar("lastTestStatus", { length: 8 }),
+  /** Diagnóstico completo do último teste — copiável, nunca com segredo. */
+  lastTestDetail: text("lastTestDetail"),
+  updatedBy: int("updatedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type SocialCredential = typeof socialCredentials.$inferSelect;
+
 export type ClientSocialAccount = typeof clientSocialAccounts.$inferSelect;
 export type InsertClientSocialAccount = typeof clientSocialAccounts.$inferInsert;
 
