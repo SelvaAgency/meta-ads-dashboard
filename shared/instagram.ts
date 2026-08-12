@@ -30,6 +30,14 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
+/**
+ * De onde vêm os dados deste cliente.
+ *
+ * Mora aqui, e não no servidor, porque a TELA também precisa nomear a fonte —
+ * e duas listas de nomes divergiriam no dia em que uma terceira aparecer.
+ */
+export type FonteNome = "agencia_system_user" | "oauth_conta";
+
 /** QUEM é o perfil. Não diz nada sobre o que a API entrega. */
 export type TipoConta = "BUSINESS" | "CREATOR" | "PESSOAL" | "DESCONHECIDO";
 

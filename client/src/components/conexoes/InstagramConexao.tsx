@@ -2,10 +2,16 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *  Redes Sociais — credencial própria e vínculo por cliente
  * ─────────────────────────────────────────────────────────────────────────────
- *  Duas camadas, e a separação é o produto:
+ *  Duas FONTES, e a separação é o produto:
  *
- *   CREDENCIAL  um token da agência, guardado uma vez, cifrado
- *   VÍNCULO     qual Página/Instagram é de qual cliente
+ *   AGÊNCIA     um System User token, guardado uma vez, cifrado. Chega ao
+ *               Instagram pelo Portfólio e pela Página.
+ *   LOGIN       o dono da conta autoriza por OAuth. Sem Página, sem Portfólio,
+ *               sem ativo atribuído no Business Manager.
+ *
+ *  Qual usar é decisão de `shared/fontesSociais`, e ela NUNCA troca em silêncio:
+ *  um login expirado não vira "conectado via agência" sem avisar, porque isso
+ *  faria o cliente quebrado parecer igual ao que nunca conectou.
  *
  *  O token é separado do de Meta Ads por decisão de produto: campanhas caindo
  *  não podem derrubar o orgânico, e vice-versa. Antes disto o Instagram usava
@@ -18,13 +24,14 @@
  *  tentar consertar uma conta que está como o cliente quer.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Instagram, Loader2, Key, Link2, Stethoscope } from "lucide-react";
-import { lerVinculo, ROTULO_TIPO, selecaoPendente, type StatusInsight, type TipoConta } from "@shared/instagram";
+import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug } from "lucide-react";
+import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
+import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
 
 /** O que `paginasDisponiveis` devolve — a forma que a tela consome. */
 interface PaginasDoPortfolio {
@@ -35,6 +42,26 @@ interface PaginasDoPortfolio {
   }>;
   avisos: string[];
 }
+
+/**
+ * O que o callback do OAuth devolve na URL.
+ *
+ * O redirect volta com `?instagram=<código>` e, sem ninguém ler, o usuário
+ * chegaria numa tela idêntica à que deixou — sem saber se conectou, se cancelou
+ * ou se falhou. Códigos curtos, e não a mensagem da Meta: querystring vira log
+ * de proxy e histórico de navegador.
+ */
+const RETORNO_OAUTH: Record<string, { tom: "ok" | "erro" | "aviso"; texto: string }> = {
+  conectado: { tom: "ok", texto: "Instagram conectado pelo login da conta. Rode Testar para ver as métricas." },
+  cancelado: { tom: "aviso", texto: "Autorização cancelada na tela do Instagram. Nada foi alterado." },
+  negado: { tom: "aviso", texto: "O Instagram negou a autorização. Confira se a conta é profissional e se foi convidada como testadora do app." },
+  retorno_incompleto: { tom: "erro", texto: "O Instagram voltou sem o código de autorização. Tente conectar de novo." },
+  state_invalido: { tom: "erro", texto: "O retorno não confere com quem iniciou a conexão. Comece de novo pelo botão Conectar." },
+  erro_na_troca: { tom: "erro", texto: "A troca do código por token falhou. O detalhe está no log do servidor; rode Testar para o diagnóstico." },
+  sem_permissao: { tom: "erro", texto: "Seu usuário não pode gerenciar conexões." },
+  nao_configurado: { tom: "erro", texto: "Faltam INSTAGRAM_APP_ID e INSTAGRAM_APP_SECRET no ambiente." },
+  cliente_invalido: { tom: "erro", texto: "Cliente inválido no início da conexão." },
+};
 
 const COR_NIVEL: Record<string, string> = {
   ok: "text-emerald-600 border-emerald-500/30 bg-emerald-500/5",
@@ -65,6 +92,7 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
 
   const credQ = trpc.social.credencial.useQuery();
   const vinculosQ = trpc.social.vinculos.useQuery();
+  const fontesQ = trpc.social.fontes.useQuery();
 
   const salvar = trpc.social.salvarCredencial.useMutation({
     onSuccess: (r) => {
@@ -107,6 +135,62 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
   const cred = credQ.data;
   const vinculos = vinculosQ.data ?? [];
   const vinculoDe = (accountId: number) => vinculos.find((v) => v.accountId === accountId);
+
+  const fontes = fontesQ.data;
+  const oauthDe = (accountId: number) => fontes?.clientes.find((c) => c.accountId === accountId);
+
+  /**
+   * A MESMA decisão que o servidor toma, rodando aqui.
+   *
+   * É por isso que ela é pura e mora em shared: duas cópias da regra fariam a
+   * tela dizer "conectado via agência" para um cliente que o servidor recusa.
+   */
+  const fonteDe = (accountId: number) => {
+    const o = oauthDe(accountId);
+    const expirado = typeof o?.diasParaExpirar === "number" && o.diasParaExpirar <= 0;
+    return escolherFonte([
+      {
+        fonte: "oauth_conta",
+        configurada: !!o,
+        utilizavel: !!o && !expirado,
+        diasParaExpirar: o?.diasParaExpirar ?? null,
+        problema: !o ? null
+          : expirado ? "O login desta conta expirou. Token expirado não se renova — é preciso reconectar a conta."
+          : o.refreshFalhaDetalhe ? `A última renovação automática falhou: ${o.refreshFalhaDetalhe}`
+          : null,
+      },
+      {
+        fonte: "agencia_system_user",
+        configurada: !!fontes?.agencia.existe,
+        utilizavel: !!fontes?.agencia.existe && fontes.agencia.ultimoTeste !== "erro",
+        problema: fontes?.agencia.ultimoTeste === "erro"
+          ? "O token da agência falhou no último teste. Rode o diagnóstico geral para o detalhe."
+          : null,
+      },
+    ]);
+  };
+
+  /**
+   * Lê o retorno do OAuth uma vez e LIMPA o parâmetro da URL — senão um F5
+   * repetiria "conectado" para sempre, e o aviso viraria ruído que se aprende a
+   * ignorar justo onde ele precisa ser notado.
+   */
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const codigo = url.searchParams.get("instagram");
+    if (!codigo) return;
+    const r = RETORNO_OAUTH[codigo] ?? { tom: "erro" as const, texto: `Retorno não reconhecido: ${codigo}` };
+    if (r.tom === "ok") { toast.success(r.texto); utils.social.fontes.invalidate(); utils.social.vinculos.invalidate(); }
+    else if (r.tom === "aviso") toast.info(r.texto);
+    else toast.error(r.texto);
+    url.searchParams.delete("instagram");
+    window.history.replaceState({}, "", url.toString());
+  }, [utils]);
+
+  const desconectar = trpc.social.desconectarConta.useMutation({
+    onSuccess: () => { utils.social.fontes.invalidate(); toast.success("Login da conta desconectado."); },
+    onError: (e) => toast.error(e.message),
+  });
 
   return (
     <div className="flex flex-col gap-3">
@@ -184,6 +268,8 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
         <div className="flex flex-col gap-2">
           {clientes.map((c) => {
             const v = vinculoDe(c.id);
+            const fonteEscolhida = fonteDe(c.id);
+            const oauth = oauthDe(c.id);
             const leitura = lerVinculo({
               estado: !v?.pageId ? "SEM_PAGINA" : !v?.instagramUserId ? "PAGINA_SEM_INSTAGRAM" : "VINCULADO",
               tipoConta: (v?.tipoConta as TipoConta) ?? "DESCONHECIDO",
@@ -203,9 +289,32 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                 <p className="text-[11px] font-medium">{leitura.titulo}</p>
                 <p className="text-[10px] text-muted-foreground">{leitura.explicacao}</p>
 
+                {/* De ONDE vêm os dados, e por que a outra fonte não entrou.
+                    Sem esta linha, um login expirado e um cliente que nunca
+                    conectou por login ficam idênticos na tela. */}
+                <p className={`text-[10px] ${fonteEscolhida.nivel === "pendente" ? "font-medium text-amber-600" : "text-muted-foreground"}`}>
+                  {fonteEscolhida.usada
+                    ? `Fonte: ${ROTULO_FONTE[fonteEscolhida.usada as FonteNome]}`
+                    : `Fonte: nenhuma — ${fonteEscolhida.titulo}`}
+                  {" · "}{fonteEscolhida.detalhe}
+                </p>
+
                 {/* O que está NO BANCO, e não o que o seletor mostra. É a única
                     forma de responder "vinculou mesmo?" olhando a tela — sem
                     isto, a dúvida só se resolve consultando o banco. */}
+                {oauth && (
+                  <p className="text-[10px] font-mono text-muted-foreground break-all">
+                    login: impressão {oauth.impressao}
+                    {oauth.instagramUsername ? ` · @${oauth.instagramUsername}` : ""}
+                    {typeof oauth.diasParaExpirar === "number"
+                      ? oauth.diasParaExpirar > 0
+                        ? ` · expira em ${oauth.diasParaExpirar} dia(s)`
+                        : " · EXPIRADO"
+                      : " · sem prazo informado"}
+                    {oauth.refreshFalhaDetalhe ? ` · última renovação falhou` : ""}
+                  </p>
+                )}
+
                 {v?.pageId && (
                   <p className="text-[10px] font-mono text-muted-foreground break-all">
                     salvo: página {v.pageId}
@@ -258,7 +367,25 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                       do portfólio carregado. Preso ali dentro, recarregar a tela
                       obrigava a buscar as Páginas de novo só para poder testar —
                       e sobrava só o diagnóstico geral, que não fala de cliente. */}
-                  {v?.pageId && (
+                  {/* Conectar é por REDIRECT, não por mutation: o OAuth sai do
+                      app e volta. Um <a> deixa isso explícito — e o accountId
+                      viaja assinado dentro do state, não solto na query. */}
+                  {fontes?.oauthConfigurado && (
+                    <a href={`/api/social/instagram/start?accountId=${c.id}`}
+                      className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 hover:bg-muted">
+                      <LogIn className="w-3 h-3" />
+                      {oauth ? "Reconectar Instagram" : "Conectar Instagram da conta"}
+                    </a>
+                  )}
+                  {oauth && (
+                    <button onClick={() => { if (confirm(`Desconectar o login do Instagram de ${c.accountName ?? `#${c.id}`}?`)) desconectar.mutate({ accountId: c.id }); }}
+                      disabled={desconectar.isPending}
+                      className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
+                      <Unplug className="w-3 h-3" /> Desconectar
+                    </button>
+                  )}
+                  {/* Testar serve às DUAS fontes: basta haver alguma conexão. */}
+                  {(v?.pageId || oauth) && (
                     <button onClick={() => diag.mutate({ accountId: c.id })} disabled={diag.isPending}
                       className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1">
                       {diag.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
@@ -270,6 +397,13 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
             );
           })}
         </div>
+        {fontes && !fontes.oauthConfigurado && (
+          <p className="text-[10px] text-muted-foreground border-t border-border pt-2">
+            O login por conta ainda não está configurado: faltam <strong>INSTAGRAM_APP_ID</strong> e
+            <strong> INSTAGRAM_APP_SECRET</strong> no ambiente. Sem eles só existe a fonte da agência.
+          </p>
+        )}
+
         {!paginas && (
           <p className="text-[10px] text-muted-foreground">
             Use <strong>Buscar Páginas do portfólio</strong> para escolher a Página de cada cliente.

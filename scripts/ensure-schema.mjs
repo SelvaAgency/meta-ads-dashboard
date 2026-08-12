@@ -246,6 +246,32 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela social_credentials garantida");
 
+    // Token OAuth por CONTA de cliente — o outro lado do híbrido. Separado de
+    // social_credentials porque expira, é renovável e há um por cliente; juntos,
+    // metade das colunas ficaria nula em metade das linhas.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`social_account_tokens\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`accountId\` INT NOT NULL,
+        \`provider\` VARCHAR(20) NOT NULL DEFAULT 'instagram',
+        \`flow\` VARCHAR(24) NOT NULL DEFAULT 'oauth_conta',
+        \`tokenEncrypted\` TEXT NOT NULL,
+        \`impressao\` VARCHAR(16) NOT NULL,
+        \`instagramUserId\` VARCHAR(64) NULL,
+        \`instagramUsername\` VARCHAR(120) NULL,
+        \`escopos\` TEXT NULL,
+        \`expiresAt\` TIMESTAMP NULL,
+        \`refreshedAt\` TIMESTAMP NULL,
+        \`refreshFalhaEm\` TIMESTAMP NULL,
+        \`refreshFalhaDetalhe\` TEXT NULL,
+        \`createdBy\` INT NULL,
+        \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY \`uq_social_token_conta\` (\`accountId\`, \`provider\`)
+      )
+    `);
+    console.log("[ensure-schema] ok  · tabela social_account_tokens garantida");
+
     // 3.0.9) Diagnóstico do teste de conexão de loja. Sem esta coluna o retorno
     //        do teste vive só num toast e some — e é ele que orienta o
     //        adaptador da plataforma.
@@ -830,6 +856,15 @@ async function main() {
     // e um `tableExists` teria pulado as 13 colunas em silêncio — em produção a
     // tabela já existe, então o buraco só apareceria em ambiente novo, na
     // primeira tentativa de vincular uma Página.
+    // `tokenSource` virou `connectionSource` (nome da CONEXÃO, não do token).
+    // A coluna nasceu ontem e só tinha o default, então a troca é uma adição
+    // seguida de descarte — nada a migrar. O DROP fica condicionado para o
+    // script continuar idempotente em banco que já rodou a versão nova.
+    if (await columnExists(conn, "client_social_accounts", "tokenSource")) {
+      await conn.query("ALTER TABLE `client_social_accounts` DROP COLUMN `tokenSource`");
+      console.log("[ensure-schema] +   · client_social_accounts.tokenSource removida (virou connectionSource)");
+    }
+
     for (const [col, ddl] of [
       ["pageId", "ADD COLUMN `pageId` VARCHAR(64) NULL"],
       ["pageName", "ADD COLUMN `pageName` VARCHAR(255) NULL"],
@@ -837,7 +872,7 @@ async function main() {
       ["instagramUsername", "ADD COLUMN `instagramUsername` VARCHAR(120) NULL"],
       ["tipoConta", "ADD COLUMN `tipoConta` VARCHAR(16) NOT NULL DEFAULT 'DESCONHECIDO'"],
       ["statusInsight", "ADD COLUMN `statusInsight` VARCHAR(16) NOT NULL DEFAULT 'NAO_TESTADO'"],
-      ["tokenSource", "ADD COLUMN `tokenSource` VARCHAR(16) NOT NULL DEFAULT 'agencia'"],
+      ["connectionSource", "ADD COLUMN `connectionSource` VARCHAR(24) NOT NULL DEFAULT 'agencia_system_user'"],
       ["lastTestAt", "ADD COLUMN `lastTestAt` TIMESTAMP NULL"],
       ["lastTestStatus", "ADD COLUMN `lastTestStatus` VARCHAR(8) NULL"],
       ["lastTestDetail", "ADD COLUMN `lastTestDetail` TEXT NULL"],

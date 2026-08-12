@@ -94,6 +94,7 @@ import {
   registrarTesteSocial,
   registrarTesteVinculo,
   vinculosSociais,
+  tokensDeContasInfo, apagarTokenDaConta,
   vincularInstagram,
   duplicatasDeContas,
   mesclarContas,
@@ -346,6 +347,10 @@ import { temIntegracao } from "@shared/plataformasLoja";
 import { testarConexaoWix, validarSiteId, validarUrlWix } from "./services/wix";
 import { diagnosticar as diagnosticarInstagram } from "./services/instagram";
 import { fonteAgencia } from "./services/fonteInstagramAgencia";
+import { diasAte } from "./services/fonteInstagramConta";
+import { estadosDasFontes, fonteInstagramDaConta } from "./services/resolucaoDeFonte";
+import { oauthConfigurado } from "./services/instagramOAuth";
+import { escolherFonte, type EstadoDaFonte } from "@shared/fontesSociais";
 import { normalizarConfirmacoes } from "./services/monitoramento/confirmacao";
 import { runCicloMonitoramento } from "./services/monitoramento/cicloMonitoramento";
 import { getConexaoGmailAgencia, registrarVerificacaoIntegracao, contasParaPreferencias, usuarioAtivoPorEmail, contasDoJornalzinho, grupoJornalzinhoDoUsuario, definirGrupoJornalzinho, pessoasComGrupoJornalzinho, preferenciasEmailDoUsuario, salvarPreferenciasEmail } from "./db";
@@ -3997,21 +4002,36 @@ export const appRouter = router({
     diagnosticar: contentProcedure
       .input(z.object({ accountId: z.number().int().optional() }).optional())
       .mutation(async ({ input }) => {
-        // Passa pela FONTE, não pelo token: quando existir a segunda fonte
-        // (login da conta), é aqui que ela entra sem esta procedure mudar.
-        const fonte = fonteAgencia();
-        if (!(await fonte.disponivel())) {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Nenhuma credencial de Redes Sociais cadastrada. Cole o token em Conexões → Redes Sociais." });
+        // Sem cliente em foco só existe uma pergunta possível: a da credencial
+        // da agência. A fonte por conta é sempre de ALGUÉM.
+        if (input?.accountId === undefined) {
+          const agencia = fonteAgencia();
+          if (!(await agencia.disponivel())) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Nenhuma credencial de Redes Sociais cadastrada. Cole o token em Conexões → Redes Sociais." });
+          }
+          const geral = await agencia.diagnosticar({ escopoDeCliente: false });
+          await registrarTesteSocial(geral.ok, geral.texto);
+          return geral;
         }
-        const vinculo = input?.accountId
-          ? (await vinculosSociais()).find((v) => v.accountId === input.accountId)
-          : undefined;
+
+        // Com cliente: a fonte é escolhida, e a escolha carrega o motivo — nada
+        // de cair para a agência em silêncio quando o OAuth quebrou.
+        const accountId = input.accountId;
+        const conta = fonteInstagramDaConta(accountId);
+        const agencia = fonteAgencia();
+        const vinculo = (await vinculosSociais()).find((v) => v.accountId === accountId);
+        const escolha = escolherFonte(await estadosDasFontes(accountId, conta, agencia));
+
+        if (!escolha.usada) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: `${escolha.titulo}. ${escolha.detalhe}` });
+        }
+        const fonte = escolha.usada === "oauth_conta" ? conta : agencia;
         const d = await fonte.diagnosticar({
           pageId: vinculo?.pageId, instagramUserId: vinculo?.instagramUserId,
-          escopoDeCliente: input?.accountId !== undefined,
+          escopoDeCliente: true,
         });
-        if (input?.accountId && vinculo) {
-          await registrarTesteVinculo(input.accountId, {
+        if (vinculo) {
+          await registrarTesteVinculo(accountId, {
             ok: d.ok, detalhe: d.texto, statusInsight: d.statusInsight,
             // DESCONHECIDO aqui significa "o diagnóstico não chegou a essa
             // pergunta", e não "a conta não tem tipo". Gravá-lo apagaria o tipo
@@ -4019,10 +4039,10 @@ export const appRouter = router({
             // pioraria o que a tela mostra.
             tipoConta: d.tipoConta === "DESCONHECIDO" ? undefined : d.tipoConta,
           });
-        } else {
-          await registrarTesteSocial(d.ok, d.texto);
         }
-        return d;
+        // O texto diz a fonte na primeira linha: dois diagnósticos com etapas
+        // diferentes, colados um sob o outro, seriam indistinguíveis sem isso.
+        return { ...d, fonteUsada: escolha.usada, texto: `fonte: ${escolha.usada}\n${d.texto}` };
       }),
 
     /** Páginas do portfólio, com o Instagram vinculado quando existir. */
@@ -4050,6 +4070,43 @@ export const appRouter = router({
         await vincularInstagram(input);
         // Devolve o accountId: é ele que a tela usa para limpar a seleção local.
         return { success: true as const, accountId: input.accountId };
+      }),
+
+    /**
+     * Estado da conexão de cada cliente, com a fonte escolhida e o motivo.
+     *
+     * Uma consulta só para o painel inteiro: uma por cliente faria 18 idas ao
+     * banco para desenhar uma lista.
+     */
+    fontes: contentProcedure.query(async () => {
+      const [vinculos, porConta, agenciaOk] = await Promise.all([
+        vinculosSociais(), tokensDeContasInfo(), fonteAgencia().disponivel(),
+      ]);
+      const credAgencia = await credencialSocialInfo();
+      const agora = new Date();
+      return {
+        oauthConfigurado: oauthConfigurado(),
+        agencia: { existe: agenciaOk, ultimoTeste: credAgencia?.lastTestStatus ?? null },
+        clientes: porConta.map((t) => ({
+          accountId: t.accountId,
+          impressao: t.impressao,
+          instagramUsername: t.instagramUsername,
+          instagramUserId: t.instagramUserId,
+          expiresAt: t.expiresAt,
+          diasParaExpirar: diasAte(t.expiresAt, agora),
+          refreshFalhaEm: t.refreshFalhaEm,
+          refreshFalhaDetalhe: t.refreshFalhaDetalhe,
+        })),
+        vinculos: vinculos.map((v) => ({ accountId: v.accountId, connectionSource: v.connectionSource })),
+      };
+    }),
+
+    /** Desconecta o login da conta. O vínculo continua, agora sem fonte OAuth. */
+    desconectarConta: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .mutation(async ({ input }) => {
+        await apagarTokenDaConta(input.accountId);
+        return { success: true as const };
       }),
 
     daConta: protectedProcedure

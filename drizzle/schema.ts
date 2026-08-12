@@ -1266,7 +1266,12 @@ export const clientSocialAccounts = mysqlTable("client_social_accounts", {
   statusInsight: varchar("statusInsight", { length: 16 }).default("NAO_TESTADO").notNull(),
 
   /** De onde veio a credencial. Prepara OAuth por cliente sem migração. */
-  tokenSource: varchar("tokenSource", { length: 16 }).default("agencia").notNull(),
+  /**
+   * De onde vêm os dados deste vínculo: `agencia_system_user` ou `oauth_conta`.
+   * Nasceu como `tokenSource`/"agencia"; renomeado porque descreve a CONEXÃO,
+   * não só o token — e a fonte por conta muda mais que a credencial.
+   */
+  connectionSource: varchar("connectionSource", { length: 24 }).default("agencia_system_user").notNull(),
 
   lastTestAt: timestamp("lastTestAt"),
   lastTestStatus: varchar("lastTestStatus", { length: 8 }),
@@ -1299,6 +1304,38 @@ export const clientSocialAccounts = mysqlTable("client_social_accounts", {
  *  replicar numa tabela nova.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+/**
+ * Token OAuth de UMA conta de cliente — o outro lado do híbrido.
+ *
+ * Separado de `social_credentials` porque as duas coisas têm dono e ciclo de
+ * vida diferentes: aquela é UMA credencial da agência, sem prazo; esta é uma
+ * por cliente, expira em 60 dias e é renovável. Guardar as duas na mesma tabela
+ * obrigaria metade das colunas a ficar nula em metade das linhas — e a primeira
+ * consulta que esquecesse o filtro misturaria credencial de agência com a de
+ * cliente.
+ *
+ * O token vai CIFRADO. `impressao` é o SHA-256 curto, que identifica sem
+ * revelar — é o que permite responder "é o mesmo token?" no diagnóstico.
+ */
+export const socialAccountTokens = mysqlTable("social_account_tokens", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  provider: varchar("provider", { length: 20 }).default("instagram").notNull(),
+  flow: varchar("flow", { length: 24 }).default("oauth_conta").notNull(),
+  tokenEncrypted: text("tokenEncrypted").notNull(),
+  impressao: varchar("impressao", { length: 16 }).notNull(),
+  instagramUserId: varchar("instagramUserId", { length: 64 }),
+  instagramUsername: varchar("instagramUsername", { length: 120 }),
+  escopos: text("escopos"),
+  expiresAt: timestamp("expiresAt"),
+  refreshedAt: timestamp("refreshedAt"),
+  refreshFalhaEm: timestamp("refreshFalhaEm"),
+  refreshFalhaDetalhe: text("refreshFalhaDetalhe"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const socialCredentials = mysqlTable("social_credentials", {
   id: int("id").autoincrement().primaryKey(),
   /** System User token do Portfólio, cifrado. NUNCA sai daqui em claro. */

@@ -25,15 +25,13 @@
  *  repassar: era assim que `accounts[0].accessToken` circulava pelo código.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import type { StatusInsight, TipoConta } from "@shared/instagram";
+import type { FonteNome, StatusInsight, TipoConta } from "@shared/instagram";
 import type { DiagnosticoInstagram, PaginaDescoberta } from "./instagram";
 
-export type FonteNome = "agencia_system_user" | "oauth_conta";
-
-export const ROTULO_FONTE: Record<FonteNome, string> = {
-  agencia_system_user: "Token da agência",
-  oauth_conta: "Login da conta",
-};
+// Nome e rótulo da fonte vivem em shared: a tela também os usa, e duas listas
+// divergiriam no dia em que uma terceira fonte aparecer.
+export type { FonteNome } from "@shared/instagram";
+export { ROTULO_FONTE } from "@shared/fontesSociais";
 
 /** Onde a fonte deve olhar. Nem toda fonte usa os dois campos. */
 export interface AlvoInstagram {

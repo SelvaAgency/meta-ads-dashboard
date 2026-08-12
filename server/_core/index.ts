@@ -7,6 +7,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerGoogleOAuthRoutes } from "../googleOAuthCallback";
 import { registerIntegrationsRoutes } from "../integrationsOAuth";
+import { registerSocialOAuthRoutes } from "../socialOAuthRoutes";
 import { registerUploadRoutes } from "../uploadsRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
@@ -42,6 +43,7 @@ async function startServer() {
   registerOAuthRoutes(app);
   registerGoogleOAuthRoutes(app);
   registerIntegrationsRoutes(app);
+  registerSocialOAuthRoutes(app);
   registerUploadRoutes(app);
   // Debug endpoint - raw Meta API diagnostic
   app.get('/api/debug-ads/:id', async (req, res) => {

@@ -1979,6 +1979,7 @@ export async function vinculosSociais() {
     instagramUsername: clientSocialAccounts.instagramUsername,
     tipoConta: clientSocialAccounts.tipoConta,
     statusInsight: clientSocialAccounts.statusInsight,
+    connectionSource: clientSocialAccounts.connectionSource,
     enabled: clientSocialAccounts.enabled,
     lastTestAt: clientSocialAccounts.lastTestAt,
     lastTestStatus: clientSocialAccounts.lastTestStatus,
@@ -2012,13 +2013,19 @@ export function linhaDaConexao<T extends { id: number; pageId: string | null }>(
  * cadastro antigo e o novo convivem sem migração de dados.
  */
 export async function vincularInstagram(a: {
-  accountId: number; pageId: string; pageName: string;
+  accountId: number;
+  /** Nulo na fonte OAuth: ali não existe Página no caminho. */
+  pageId: string | null; pageName: string | null;
   instagramUserId: string | null; instagramUsername: string | null;
   tipoConta: string;
+  connectionSource?: "agencia_system_user" | "oauth_conta";
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
-  const handle = a.instagramUsername ?? a.pageId;
+  // Handle nunca fica vazio: NOT NULL de quando a tabela guardava só o @ digitado
+  // à mão. Sem Página nem username (OAuth recém-fechado), o id do Instagram
+  // serve de reserva até o primeiro Testar descobrir o @.
+  const handle = a.instagramUsername ?? a.pageId ?? a.instagramUserId ?? `conta-${a.accountId}`;
   const linhas = await db.select({
     id: clientSocialAccounts.id, pageId: clientSocialAccounts.pageId, handle: clientSocialAccounts.handle,
   }).from(clientSocialAccounts)
@@ -2038,6 +2045,7 @@ export async function vincularInstagram(a: {
     // Vínculo novo NÃO herda estado de insight antigo: ele ainda não foi testado.
     statusInsight: "NAO_TESTADO",
     enabled: true,
+    ...(a.connectionSource ? { connectionSource: a.connectionSource } : {}),
   };
   if (alvo) {
     await db.update(clientSocialAccounts).set(dados).where(eq(clientSocialAccounts.id, alvo.id));
@@ -2065,6 +2073,111 @@ export async function registrarTesteVinculo(accountId: number, a: {
     statusInsight: a.statusInsight,
     ...(a.tipoConta ? { tipoConta: a.tipoConta } : {}),
   }).where(eq(clientSocialAccounts.id, alvo.id));
+}
+
+// ─── Token OAuth por conta de cliente ────────────────────────────────────────
+
+/**
+ * Grava (ou substitui) o token OAuth de um cliente.
+ *
+ * Substitui em vez de acumular: um cliente tem UMA conexão por conta, e um
+ * histórico de tokens antigos cifrados é superfície de vazamento sem uso.
+ */
+export async function salvarTokenDaConta(a: {
+  accountId: number; token: string; impressao: string;
+  instagramUserId: string | null; instagramUsername: string | null;
+  escopos: string[]; expiresAt: Date | null; createdBy: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const dados = {
+    tokenEncrypted: encryptSecret(a.token),
+    impressao: a.impressao,
+    instagramUserId: a.instagramUserId,
+    instagramUsername: a.instagramUsername,
+    escopos: JSON.stringify(a.escopos),
+    expiresAt: a.expiresAt,
+    // Conexão nova zera o histórico de falha da anterior: manter faria a tela
+    // acusar um problema que a reconexão acabou de resolver.
+    refreshedAt: null, refreshFalhaEm: null, refreshFalhaDetalhe: null,
+    createdBy: a.createdBy,
+  };
+  const existente = await db.select({ id: socialAccountTokens.id }).from(socialAccountTokens)
+    .where(and(eq(socialAccountTokens.accountId, a.accountId), eq(socialAccountTokens.provider, "instagram")))
+    .limit(1);
+  if (existente[0]) {
+    await db.update(socialAccountTokens).set(dados).where(eq(socialAccountTokens.id, existente[0].id));
+  } else {
+    await db.insert(socialAccountTokens).values({ accountId: a.accountId, provider: "instagram", flow: "oauth_conta", ...dados });
+  }
+  logger.info(`[Social] token OAuth salvo para cliente #${a.accountId} (impressao ${a.impressao})`);
+}
+
+/** Estado da conexão de UM cliente, sem o token. */
+export async function tokenDaContaInfo(accountId: number) {
+  const todas = await tokensDeContasInfo();
+  return todas.find((t) => t.accountId === accountId) ?? null;
+}
+
+/** Todas as conexões por conta, SEM token — alimenta o painel de uma vez só. */
+export async function tokensDeContasInfo() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    accountId: socialAccountTokens.accountId,
+    impressao: socialAccountTokens.impressao,
+    instagramUsername: socialAccountTokens.instagramUsername,
+    instagramUserId: socialAccountTokens.instagramUserId,
+    escopos: socialAccountTokens.escopos,
+    expiresAt: socialAccountTokens.expiresAt,
+    refreshedAt: socialAccountTokens.refreshedAt,
+    refreshFalhaEm: socialAccountTokens.refreshFalhaEm,
+    refreshFalhaDetalhe: socialAccountTokens.refreshFalhaDetalhe,
+  }).from(socialAccountTokens).where(eq(socialAccountTokens.provider, "instagram"));
+}
+
+/** O token decifrado. Só a fonte chama — ver o cabeçalho de `fonteInstagram`. */
+export async function credencialDaConta(accountId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(socialAccountTokens)
+    .where(and(eq(socialAccountTokens.accountId, accountId), eq(socialAccountTokens.provider, "instagram")))
+    .limit(1);
+  const linha = r[0];
+  if (!linha) return null;
+  let escopos: string[] = [];
+  try { escopos = JSON.parse(linha.escopos ?? "[]") as string[]; } catch { escopos = []; }
+  return {
+    token: decryptSecret(linha.tokenEncrypted),
+    instagramUserId: linha.instagramUserId,
+    instagramUsername: linha.instagramUsername,
+    escopos,
+    expiresAt: linha.expiresAt,
+  };
+}
+
+export async function atualizarTokenRenovado(accountId: number, a: { token: string; expiresAt: Date | null }) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(socialAccountTokens).set({
+    tokenEncrypted: encryptSecret(a.token), expiresAt: a.expiresAt,
+    refreshedAt: new Date(), refreshFalhaEm: null, refreshFalhaDetalhe: null,
+  }).where(and(eq(socialAccountTokens.accountId, accountId), eq(socialAccountTokens.provider, "instagram")));
+}
+
+export async function registrarFalhaDeRenovacao(accountId: number, detalhe: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(socialAccountTokens).set({
+    refreshFalhaEm: new Date(), refreshFalhaDetalhe: detalhe.slice(0, 2_000),
+  }).where(and(eq(socialAccountTokens.accountId, accountId), eq(socialAccountTokens.provider, "instagram")));
+}
+
+export async function apagarTokenDaConta(accountId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(socialAccountTokens)
+    .where(and(eq(socialAccountTokens.accountId, accountId), eq(socialAccountTokens.provider, "instagram")));
 }
 
 // ─── GA4 Accounts ───────────────────────────────────────────────────────────
@@ -2512,7 +2625,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 
