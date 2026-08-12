@@ -32,15 +32,15 @@ import { toast } from "sonner";
 import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search } from "lucide-react";
 import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
+import { ROTULO_VIA, viaDoVinculo, type OpcaoDeVinculo } from "@shared/vinculoInstagram";
 
 /** O que `paginasDisponiveis` devolve — a forma que a tela consome. */
 interface PaginasDoPortfolio {
-  paginas: Array<{
-    pageId: string;
-    pageName: string;
-    instagram: { id: string; username: string | null; tipoConta: TipoConta } | null;
-  }>;
+  /** As duas vias na mesma lista — ver `opcoesDeVinculo` em shared. */
+  opcoes: OpcaoDeVinculo[];
   avisos: string[];
+  /** Quantas só existem sem Página. É o caso Musa, e vale dizer na tela. */
+  semPagina: number;
 }
 
 /**
@@ -130,7 +130,9 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
   const listar = trpc.social.paginasDisponiveis.useMutation({
     onSuccess: (r) => {
       setPaginas(r);
-      toast.success(`${r.paginas.length} Página(s) no portfólio.`);
+      toast.success(
+        `${r.opcoes.length} conta(s) no portfólio` +
+        (r.semPagina > 0 ? ` · ${r.semPagina} sem Página` : ""));
       if (r.avisos.length) toast.info(`Avisos: ${r.avisos.join(" · ")}`);
     },
     onError: (e) => toast.error(e.message),
@@ -146,6 +148,16 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
     },
     onError: (e) => toast.error(e.message),
   });
+
+  /**
+   * A chave da opção que corresponde ao vínculo salvo.
+   *
+   * O seletor mistura duas vias, então o valor não é mais o pageId: uma conta
+   * direta não tem Página, e comparar por pageId a deixaria sempre marcada como
+   * "nada escolhido".
+   */
+  const chaveSalva = (v?: { pageId?: string | null; instagramUserId?: string | null }): string | null =>
+    v?.pageId ? `pagina:${v.pageId}` : v?.instagramUserId ? `direto:${v.instagramUserId}` : null;
 
   const cred = credQ.data;
   const vinculos = vinculosQ.data ?? [];
@@ -321,7 +333,7 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
           <button onClick={() => listar.mutate()} disabled={!cred?.existe || listar.isPending}
             className="text-[11px] px-2.5 py-1 rounded border border-border disabled:opacity-60 flex items-center gap-1.5">
             {listar.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-            Buscar Páginas do portfólio
+            Buscar contas do portfólio
           </button>
         </div>
 
@@ -375,9 +387,10 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                   </p>
                 )}
 
-                {v?.pageId && (
+                {(v?.pageId || v?.instagramUserId) && (
                   <p className="text-[10px] font-mono text-muted-foreground break-all">
-                    salvo: página {v.pageId}
+                    salvo: {ROTULO_VIA[viaDoVinculo(v)].toLowerCase()}
+                    {v.pageId ? ` · página ${v.pageId}` : ""}
                     {v.instagramUserId ? ` · instagram ${v.instagramUserId}` : " · sem instagram"}
                     {v.lastTestAt
                       ? ` · testado ${new Date(v.lastTestAt).toLocaleString("pt-BR")} (${v.lastTestStatus})`
@@ -386,7 +399,7 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                 )}
 
                 {/* Selecionado ≠ salvo. Aviso explícito enquanto diferirem. */}
-                {selecaoPendente({ escolhido: escolha[c.id], salvo: v?.pageId }) && (
+                {selecaoPendente({ escolhido: escolha[c.id], salvo: chaveSalva(v) }) && (
                   <p className="text-[10px] font-medium text-amber-600">
                     Página selecionada, ainda não vinculada — clique em Vincular para salvar.
                   </p>
@@ -395,38 +408,45 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                 <div className="flex gap-1.5 flex-wrap items-center mt-1">
                   {paginas ? (
                     <>
-                      <select value={escolha[c.id] ?? v?.pageId ?? ""}
+                      <select value={escolha[c.id] ?? chaveSalva(v) ?? ""}
                         onChange={(e) => setEscolha({ ...escolha, [c.id]: e.target.value })}
-                        className="text-[11px] border border-border rounded px-2 py-1 bg-background max-w-[260px]">
-                        <option value="">— escolher Página —</option>
-                        {paginas.paginas.map((p) => (
-                          <option key={p.pageId} value={p.pageId}>
-                            {p.pageName}{p.instagram?.username ? ` · @${p.instagram.username}` : " · sem Instagram"}
-                          </option>
-                        ))}
+                        className="text-[11px] border border-border rounded px-2 py-1 bg-background max-w-[280px]">
+                        <option value="">— escolher conta —</option>
+                        <optgroup label="Por Página do Facebook">
+                          {paginas.opcoes.filter((o) => o.via === "pagina").map((o) => (
+                            <option key={o.chave} value={o.chave}>{o.rotulo}</option>
+                          ))}
+                        </optgroup>
+                        {paginas.opcoes.some((o) => o.via === "instagram_direto") && (
+                          <optgroup label="Instagram direto (sem Página)">
+                            {paginas.opcoes.filter((o) => o.via === "instagram_direto").map((o) => (
+                              <option key={o.chave} value={o.chave}>{o.rotulo}</option>
+                            ))}
+                          </optgroup>
+                        )}
                       </select>
                       <button
                         onClick={() => {
-                          const pid = escolha[c.id] ?? v?.pageId;
-                          const p = paginas.paginas.find((x) => x.pageId === pid);
-                          if (!p) return toast.error("Escolha uma Página.");
+                          const chave = escolha[c.id] ?? chaveSalva(v);
+                          const p = paginas.opcoes.find((x) => x.chave === chave);
+                          if (!p) return toast.error("Escolha uma conta.");
                           // Trocar a Página de um cliente JÁ vinculado é a ação
                           // que erra caro: o número de um cliente passa a
                           // aparecer no outro, e nada no resultado denuncia isso.
                           // Vincular pela primeira vez não pergunta nada.
-                          if (v?.pageId && v.pageId !== p.pageId) {
-                            const de = v.pageName ?? v.pageId;
+                          if (v?.instagramUserId && v.instagramUserId !== p.instagramUserId) {
+                            const de = v.instagramUsername ? `@${v.instagramUsername}` : v.pageName ?? v.instagramUserId;
                             if (!confirm(
-                              `Você está trocando a Página vinculada de ${c.accountName ?? `#${c.id}`}.\n\n` +
-                              `De:   ${de}\nPara: ${p.pageName}\n\n` +
-                              "O resultado do último teste será descartado, porque ele era sobre a Página anterior. Confirmar?",
+                              `Você está trocando a conta vinculada de ${c.accountName ?? `#${c.id}`}.\n\n` +
+                              `De:   ${de}\nPara: ${p.rotulo}\n\n` +
+                              "O resultado do último teste será descartado, porque ele era sobre a conta anterior. Confirmar?",
                             )) return;
                           }
                           vincular.mutate({
                             accountId: c.id, pageId: p.pageId, pageName: p.pageName,
-                            instagramUserId: p.instagram?.id ?? null,
-                            instagramUsername: p.instagram?.username ?? null,
-                            tipoConta: p.instagram?.tipoConta ?? "DESCONHECIDO",
+                            instagramUserId: p.instagramUserId,
+                            instagramUsername: p.instagramUsername,
+                            tipoConta: p.tipoConta,
                           });
                         }}
                         disabled={vincular.isPending}
@@ -514,8 +534,8 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
 
         {!paginas && (
           <p className="text-[10px] text-muted-foreground">
-            Use <strong>Buscar Páginas do portfólio</strong> para escolher a Página de cada cliente.
-            O Instagram vem junto quando a Página tiver um vinculado.
+            Use <strong>Buscar contas do portfólio</strong> para escolher a conta de cada cliente.
+            A lista traz as Páginas e também os Instagram que o Portfólio expõe sem Página.
           </p>
         )}
       </div>

@@ -119,6 +119,12 @@ export function fonteAgencia(obterToken: () => Promise<string | null> = tokenGua
       return sondarDireto((c, p2) => consultarGraph(c, p2, t), BUSINESS_ID_PADRAO, pelaPagina);
     },
 
+    async descobrirInstagramDireto() {
+      const t = await token();
+      const { descobrirInstagramDireto: descobrir } = await import("./instagram");
+      return descobrir(t);
+    },
+
     /** Portfólio é conceito desta fonte — ver o cabeçalho da porta. */
     async descobrirPaginas(): Promise<{ paginas: PaginaDescoberta[]; avisos: string[] }> {
       return descobrirPaginas(await token());

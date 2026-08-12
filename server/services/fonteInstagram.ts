@@ -131,6 +131,11 @@ export interface FonteInstagram {
    * não tem o que descobrir. Optativa pelo mesmo motivo de `descobrirPaginas`.
    */
   sondarInstagramDireto?(): Promise<SondagemDireta>;
+
+  /** As contas de Instagram do Portfólio, para o seletor de vínculo. */
+  descobrirInstagramDireto?(): Promise<{
+    contas: Array<{ id: string; username: string | null }>; avisos: string[];
+  }>;
 }
 
 /**

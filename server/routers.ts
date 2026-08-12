@@ -352,6 +352,7 @@ import { estadosDasFontes, fonteInstagramDaConta } from "./services/resolucaoDeF
 import { oauthConfigurado } from "./services/instagramOAuth";
 import { escolherFonte, type EstadoDaFonte } from "@shared/fontesSociais";
 import { validarDirecaoDeSeguidores } from "@shared/socialSnapshot";
+import { faltaParaLer, opcoesDeVinculo, viaDoVinculo } from "@shared/vinculoInstagram";
 
 /**
  * Lê FOLLOWER/NON_FOLLOWER do breakdown cru, SEM decidir o que significam.
@@ -4131,7 +4132,21 @@ export const appRouter = router({
       if (!fonte.descobrirPaginas || !(await fonte.disponivel())) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre a credencial de Redes Sociais primeiro." });
       }
-      return fonte.descobrirPaginas();
+      // As duas vias na MESMA lista. Dois seletores competiriam pela mesma
+      // decisão, e escolher no segundo sem limpar o primeiro deixaria dois
+      // destinos marcados ao mesmo tempo.
+      const [porPagina, direto] = await Promise.all([
+        fonte.descobrirPaginas(),
+        fonte.descobrirInstagramDireto?.() ?? Promise.resolve({ contas: [], avisos: [] }),
+      ]);
+      const opcoes = opcoesDeVinculo(porPagina.paginas, direto.contas);
+      return {
+        opcoes,
+        // Mantido para não quebrar quem já lia daqui.
+        paginas: porPagina.paginas,
+        avisos: [...porPagina.avisos, ...direto.avisos],
+        semPagina: opcoes.filter((o) => o.via === "instagram_direto").length,
+      };
     }),
 
     /** Vínculos de todos os clientes — alimenta o painel. */
@@ -4140,8 +4155,11 @@ export const appRouter = router({
     vincular: contentProcedure
       .input(z.object({
         accountId: z.number().int(),
-        pageId: z.string().min(1),
-        pageName: z.string().min(1),
+        // Anuláveis desde a Musa: o Portfólio expõe Instagram como ativo
+        // próprio, e exigir Página aqui era o único ponto do sistema que ainda
+        // a tornava obrigatória — o banco, o coletor e o painel nunca exigiram.
+        pageId: z.string().nullable(),
+        pageName: z.string().nullable(),
         instagramUserId: z.string().nullable(),
         instagramUsername: z.string().nullable(),
         tipoConta: z.enum(["BUSINESS", "CREATOR", "PESSOAL", "DESCONHECIDO"]),
@@ -4242,9 +4260,9 @@ export const appRouter = router({
         if (!escolha.usada) return semOrganico(`${escolha.titulo}. ${escolha.detalhe}`);
         // Vínculo sem Instagram é estado próprio, não erro — a tela sabe pintar.
         if (escolha.usada === "agencia_system_user" && !vinculo?.instagramUserId) {
-          return semOrganico(vinculo?.pageId
-            ? "A Página vinculada não tem conta do Instagram. O vínculo é feito no próprio Instagram."
-            : "Este cliente ainda não tem Página vinculada. Configure em Conexões → Redes sociais.");
+          // A condição real sempre foi não ter Instagram, e não não ter Página —
+          // a Musa nunca vai ter Página, e nem precisa.
+          return semOrganico(faltaParaLer(vinculo, escolha.usada) ?? "Sem Instagram vinculado.");
         }
 
         const fonte = escolha.usada === "oauth_conta" ? conta : agencia;
@@ -4297,7 +4315,9 @@ export const appRouter = router({
           refreshFalhaEm: t.refreshFalhaEm,
           refreshFalhaDetalhe: t.refreshFalhaDetalhe,
         })),
-        vinculos: vinculos.map((v) => ({ accountId: v.accountId, connectionSource: v.connectionSource })),
+        vinculos: vinculos.map((v) => ({
+          accountId: v.accountId, connectionSource: v.connectionSource, via: viaDoVinculo(v),
+        })),
       };
     }),
 

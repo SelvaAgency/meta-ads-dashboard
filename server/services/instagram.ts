@@ -276,6 +276,55 @@ export async function midiasDe(token: string, instagramUserId: string, limite = 
   return (r.data ?? []).map(mapearMidia);
 }
 
+/**
+ * Instagram que o Portfólio expõe como ativo próprio, sem Página.
+ *
+ * A sondagem de 12/08 mostrou que a aresta que responde é `instagram_accounts`
+ * — a legada: `owned_instagram_accounts` volta vazia e `client_instagram_accounts`
+ * nem existe como campo. As três continuam sendo tentadas porque a Meta já as
+ * renomeou uma vez, e uma que falha não pode derrubar a que funciona.
+ *
+ * Diferente da sondagem, aqui não se testa mensurabilidade: quem chama é o
+ * seletor de vínculo, e a verificação é o Testar do cartão. Medir 13 contas para
+ * desenhar uma lista custaria 26 chamadas a cada abertura.
+ */
+export async function descobrirInstagramDireto(token: string, businessId = BUSINESS_ID_PADRAO): Promise<{
+  contas: Array<{ id: string; username: string | null }>;
+  avisos: string[];
+}> {
+  const avisos: string[] = [];
+  const vistos = new Set<string>();
+  const contas: Array<{ id: string; username: string | null }> = [];
+
+  for (const aresta of ["instagram_accounts", "owned_instagram_accounts", "client_instagram_accounts"]) {
+    let itens: Array<Record<string, unknown>> = [];
+    try {
+      const r = await graph<{ data?: Array<Record<string, unknown>> }>(
+        `${businessId}/${aresta}`, { fields: "id,username", limit: "100" }, token);
+      itens = r.data ?? [];
+    } catch {
+      // O nó de conta do Business Manager tem campos diferentes do de IG User;
+      // um campo inválido derruba a chamada, e a aresta pareceria não existir.
+      try {
+        const r = await graph<{ data?: Array<Record<string, unknown>> }>(
+          `${businessId}/${aresta}`, { limit: "100" }, token);
+        itens = r.data ?? [];
+      } catch (e) {
+        avisos.push(`${aresta}: ${sanitizar((e as Error).message, token)}`);
+        continue;
+      }
+    }
+    for (const i of itens) {
+      const id = String(i.id ?? "");
+      if (!id || vistos.has(id)) continue;
+      vistos.add(id);
+      contas.push({ id, username: i.username ? String(i.username) : null });
+    }
+  }
+  contas.sort((a, b) => (a.username ?? a.id).localeCompare(b.username ?? b.id, "pt-BR"));
+  return { contas, avisos };
+}
+
 // ─── Diagnóstico ─────────────────────────────────────────────────────────────
 
 export interface EtapaDiagnostico {
