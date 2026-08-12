@@ -58,6 +58,27 @@ export interface SondagemDeHorarios {
   texto: string;
 }
 
+/**
+ * Descreve a FORMA do que veio, sem os valores.
+ *
+ * "respondeu sem mapa de horários" foi uma resposta ruim: ela não distingue
+ * objeto vazio de objeto com forma inesperada, e os dois têm conclusões
+ * opostas — vazio significa que a métrica não tem dado para esta conta; forma
+ * inesperada significa que estou lendo no lugar errado. Na Fase 0 este mesmo
+ * valor apareceu como "objeto", e provavelmente já era `{}`.
+ */
+function formaDoValor(valor: unknown): string {
+  if (valor === null || valor === undefined) return "veio nulo";
+  if (typeof valor !== "object") return `${typeof valor}, e não objeto`;
+  if (Array.isArray(valor)) return `lista de ${valor.length}`;
+  const entradas = Object.entries(valor as Record<string, unknown>);
+  if (entradas.length === 0) return "objeto VAZIO — a métrica respondeu sem dado para esta conta";
+  const tipos = new Map<string, number>();
+  for (const [, v] of entradas) tipos.set(typeof v, (tipos.get(typeof v) ?? 0) + 1);
+  const resumo = Array.from(tipos.entries()).map(([t, n]) => `${n}×${t}`).join(", ");
+  return `objeto com ${entradas.length} chave(s) [${resumo}] · exemplos: ${entradas.slice(0, 5).map(([k]) => k).join(", ")}`;
+}
+
 function analisar(valor: unknown): {
   chaves: string[]; maior: LeituraDeHorario["maior"]; menor: LeituraDeHorario["menor"]; varia: boolean;
 } {
@@ -118,7 +139,8 @@ export async function sondarHorarios(
           ? `${a.chaves.length} chave(s) · ${pontos?.length ?? 0} ponto(s)` +
             (a.varia ? ` · pico em ${a.maior?.chave} (${a.maior?.valor}), vale em ${a.menor?.chave} (${a.menor?.valor})`
                      : " · TODAS as chaves com o mesmo valor — não distingue horário")
-          : "respondeu sem mapa de horários",
+          // A forma exata, para separar "não tem dado" de "estou lendo errado".
+          : `sem mapa · ${pontos?.length ?? 0} ponto(s) · ${formaDoValor(primeiro)}`,
       });
     } catch (e) {
       leituras.push({
@@ -142,7 +164,19 @@ function montar(conta: string, leituras: LeituraDeHorario[], formaUtil: string |
 
   if (!formaUtil) {
     out.push("NENHUMA forma devolveu mapa de horários para esta conta.");
-    out.push("Sem isso não há como recomendar janela de publicação — nem com IA.");
+    const vazio = leituras.some((l) => l.detalhe.includes("objeto VAZIO"));
+    out.push(vazio
+      ? "A métrica ACEITA a chamada e responde vazio — não é erro de leitura nossa,"
+      : "A forma do retorno não é a esperada — pode ser leitura no lugar errado,");
+    out.push(vazio
+      ? "é ausência de dado. Vale repetir em outra conta antes de concluir."
+      : "e vale conferir a forma acima antes de concluir.");
+    out.push("");
+    out.push("Caminho alternativo: 'melhores horários' também sai do que já");
+    out.push("coletamos — a hora de publicação de cada post cruzada com o");
+    out.push("alcance e o engajamento que ele teve. Não é 'quando a audiência");
+    out.push("está online', é 'quando os posts desta conta funcionaram', que é");
+    out.push("mais perto da pergunta.");
     return out.join("\n");
   }
 
