@@ -93,7 +93,7 @@ import {
   tokenSocial,
   registrarTesteSocial,
   registrarTesteVinculo,
-  vinculosSociais,
+  vinculosSociais, desvincularInstagram,
   tokensDeContasInfo, apagarTokenDaConta,
   vincularInstagram,
   duplicatasDeContas,
@@ -4101,6 +4101,17 @@ export const appRouter = router({
       };
     }),
 
+    /**
+     * Desfaz o vínculo de Página/Instagram deste cliente.
+     *
+     * Diferente de `desconectarConta`: aquela remove a CREDENCIAL OAuth, esta
+     * remove QUAL conta é de quem. Durante os testes, corrigir uma Página errada
+     * não pode custar a conexão inteira.
+     */
+    desvincular: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .mutation(async ({ input }) => desvincularInstagram(input.accountId)),
+
     /** Desconecta o login da conta. O vínculo continua, agora sem fonte OAuth. */
     desconectarConta: contentProcedure
       .input(z.object({ accountId: z.number().int() }))
@@ -4109,7 +4120,10 @@ export const appRouter = router({
         return { success: true as const };
       }),
 
-    daConta: protectedProcedure
+    // contentProcedure, e não protectedProcedure: esta frente está em liberação
+    // controlada para teste interno. Era a única leitura do router que um
+    // colaborador alcançava — pelo console, ainda que a tela nunca a mostrasse.
+    daConta: contentProcedure
       .input(z.object({ accountId: z.number().int() }))
       .query(({ input }) => listarSociaisDaConta(input.accountId)),
 

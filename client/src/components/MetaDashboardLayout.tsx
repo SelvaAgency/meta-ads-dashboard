@@ -207,13 +207,21 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             )}
           </div>
         </Link>
-        {/* Redes sociais — "EM BREVE" para TODOS (opaco, não clicável), abaixo de Site. */}
-        {item.path === "/site" && sidebarOpen && (
-          <div className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-default select-none" style={{ color: "rgba(255,255,255,0.25)" }} title="Em breve">
-            <Instagram className="w-4 h-4 flex-shrink-0" />
-            <span className="text-sm font-medium flex-1 truncate">Redes sociais</span>
-            <span className="text-[8px] uppercase tracking-wide flex-shrink-0">em breve</span>
-          </div>
+        {/* Redes sociais — liberação CONTROLADA: só admin/dev, enquanto a frente
+            está em teste interno. Para o colaborador não existe nem como "em
+            breve": um item permanentemente opaco ensina a ignorar a região do
+            menu, e some sozinho quando a área for liberada de verdade.
+
+            Aponta para o hub de Conexões porque é lá que a área vive — não há
+            página própria de Redes sociais desde que `/social-networks` saiu. */}
+        {item.path === "/site" && sidebarOpen && isManager && (
+          <Link href="/settings?painel=conexoes">
+            <div className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150 ${HOVER_CLS}`} style={{ color: TEXT_NORMAL }}>
+              <Instagram className="w-4 h-4 flex-shrink-0" />
+              <span className="text-sm font-medium flex-1 truncate">Redes sociais</span>
+              <span className="text-[8px] uppercase tracking-wide flex-shrink-0 opacity-60">teste</span>
+            </div>
+          </Link>
         )}
         {/* Plano de Ação — só admin/dev; colaborador vê "EM BREVE" opaco e não clicável. */}
         {item.path === "/campaigns" && sidebarOpen && (

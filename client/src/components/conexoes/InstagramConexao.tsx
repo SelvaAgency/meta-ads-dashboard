@@ -29,7 +29,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug } from "lucide-react";
+import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off } from "lucide-react";
 import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
 
@@ -127,7 +127,7 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
       // Limpa a escolha local: ela existe só para marcar "ainda não salvo", e
       // mantida depois de salvar deixaria o aviso de pendência aceso à toa.
       setEscolha((e) => { const { [r.accountId]: _, ...resto } = e; return resto; });
-      toast.success("Página vinculada. Rode Testar para verificar métricas.");
+      toast.success("Página vinculada. Rode Testar para atualizar métricas e status.");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -186,6 +186,17 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
     url.searchParams.delete("instagram");
     window.history.replaceState({}, "", url.toString());
   }, [utils]);
+
+  const desvincular = trpc.social.desvincular.useMutation({
+    onSuccess: (r) => {
+      utils.social.vinculos.invalidate();
+      utils.social.fontes.invalidate();
+      toast.success(r.desvinculado
+        ? "Vínculo desfeito. O cliente continua aqui; escolha outra Página quando quiser."
+        : "Este cliente não tinha vínculo para desfazer.");
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const desconectar = trpc.social.desconectarConta.useMutation({
     onSuccess: () => { utils.social.fontes.invalidate(); toast.success("Login da conta desconectado."); },
@@ -350,6 +361,18 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                           const pid = escolha[c.id] ?? v?.pageId;
                           const p = paginas.paginas.find((x) => x.pageId === pid);
                           if (!p) return toast.error("Escolha uma Página.");
+                          // Trocar a Página de um cliente JÁ vinculado é a ação
+                          // que erra caro: o número de um cliente passa a
+                          // aparecer no outro, e nada no resultado denuncia isso.
+                          // Vincular pela primeira vez não pergunta nada.
+                          if (v?.pageId && v.pageId !== p.pageId) {
+                            const de = v.pageName ?? v.pageId;
+                            if (!confirm(
+                              `Você está trocando a Página vinculada de ${c.accountName ?? `#${c.id}`}.\n\n` +
+                              `De:   ${de}\nPara: ${p.pageName}\n\n` +
+                              "O resultado do último teste será descartado, porque ele era sobre a Página anterior. Confirmar?",
+                            )) return;
+                          }
                           vincular.mutate({
                             accountId: c.id, pageId: p.pageId, pageName: p.pageName,
                             instagramUserId: p.instagram?.id ?? null,
@@ -376,6 +399,23 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                       <LogIn className="w-3 h-3" />
                       {oauth ? "Reconectar Instagram" : "Conectar Instagram da conta"}
                     </a>
+                  )}
+                  {/* Desvincular ≠ Desconectar: aquele desfaz QUAL conta é de
+                      quem; este remove a CREDENCIAL. Corrigir uma Página errada
+                      não pode custar a conexão inteira. */}
+                  {(v?.pageId || v?.instagramUserId) && (
+                    <button
+                      onClick={() => {
+                        if (confirm(
+                          `Desfazer o vínculo de Instagram de ${c.accountName ?? `#${c.id}`}?\n\n` +
+                          "A Página e o Instagram deixam de estar associados a este cliente. " +
+                          "O cliente, o token da agência e o login da conta NÃO são afetados.",
+                        )) desvincular.mutate({ accountId: c.id });
+                      }}
+                      disabled={desvincular.isPending}
+                      className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
+                      <Link2Off className="w-3 h-3" /> Desvincular
+                    </button>
                   )}
                   {oauth && (
                     <button onClick={() => { if (confirm(`Desconectar o login do Instagram de ${c.accountName ?? `#${c.id}`}?`)) desconectar.mutate({ accountId: c.id }); }}

@@ -2006,6 +2006,67 @@ export function linhaDaConexao<T extends { id: number; pageId: string | null }>(
 }
 
 /**
+ * O que um vínculo grava — puro, para o teste alcançar.
+ *
+ * A parte que importa é o que ele APAGA. Revincular trocando a Página mantinha
+ * `lastTestAt`/`lastTestStatus`/`lastTestDetail` da Página anterior, e o cartão
+ * seguia exibindo "testado 12/08 (ok)" para um vínculo que acabara de mudar —
+ * um resultado verdadeiro sobre uma pergunta que não existe mais. Estado de
+ * teste pertence ao vínculo testado; trocado o vínculo, ele volta a zero.
+ */
+export function camposDoVinculo(a: {
+  handle: string;
+  pageId: string | null; pageName: string | null;
+  instagramUserId: string | null; instagramUsername: string | null;
+  tipoConta: string;
+  connectionSource?: "agencia_system_user" | "oauth_conta";
+}) {
+  return {
+    handle: a.handle,
+    profileUrl: a.instagramUsername ? `https://instagram.com/${a.instagramUsername}` : null,
+    externalId: a.instagramUserId,
+    pageId: a.pageId, pageName: a.pageName,
+    instagramUserId: a.instagramUserId, instagramUsername: a.instagramUsername,
+    tipoConta: a.tipoConta,
+    // Vínculo novo NÃO herda estado de insight antigo: ele ainda não foi testado.
+    statusInsight: "NAO_TESTADO",
+    lastTestAt: null, lastTestStatus: null, lastTestDetail: null,
+    enabled: true,
+    ...(a.connectionSource ? { connectionSource: a.connectionSource } : {}),
+  };
+}
+
+/**
+ * Desfaz o vínculo de Página/Instagram, sem apagar nada além dele.
+ *
+ * Não apaga a linha: o `@` cadastrado à mão pode ser a única coisa que se sabe
+ * daquele cliente, e some junto se a linha for embora. Também não toca no token
+ * da agência nem no OAuth do cliente — desvincular é sobre QUAL conta é de quem,
+ * e desconectar é sobre a credencial. Confundir os dois faria "corrigir a Página
+ * errada" derrubar a conexão inteira.
+ */
+export async function desvincularInstagram(accountId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const linhas = await db.select({ id: clientSocialAccounts.id, pageId: clientSocialAccounts.pageId })
+    .from(clientSocialAccounts)
+    .where(and(eq(clientSocialAccounts.accountId, accountId), eq(clientSocialAccounts.provider, "instagram")));
+  const alvo = linhaDaConexao(linhas);
+  if (!alvo) return { desvinculado: false as const };
+  await db.update(clientSocialAccounts).set({
+    pageId: null, pageName: null,
+    instagramUserId: null, instagramUsername: null,
+    externalId: null,
+    tipoConta: "DESCONHECIDO",
+    statusInsight: "NAO_TESTADO",
+    lastTestAt: null, lastTestStatus: null, lastTestDetail: null,
+    connectionSource: "agencia_system_user",
+  }).where(eq(clientSocialAccounts.id, alvo.id));
+  logger.info(`[Social] vínculo de Instagram desfeito para cliente #${accountId}`);
+  return { desvinculado: true as const };
+}
+
+/**
  * Vincula (ou revincula) a Página/Instagram de um cliente.
  *
  * `handle` é NOT NULL de quando a tabela guardava só o @ digitado à mão. O
@@ -2035,18 +2096,7 @@ export async function vincularInstagram(a: {
   // outra do mesmo cliente já o tem estoura duplicidade — e o vínculo falharia
   // exatamente para quem já tinha o @ cadastrado à mão.
   const alvo = linhas.find((l) => l.handle === handle) ?? linhaDaConexao(linhas);
-  const dados = {
-    handle,
-    profileUrl: a.instagramUsername ? `https://instagram.com/${a.instagramUsername}` : null,
-    externalId: a.instagramUserId,
-    pageId: a.pageId, pageName: a.pageName,
-    instagramUserId: a.instagramUserId, instagramUsername: a.instagramUsername,
-    tipoConta: a.tipoConta,
-    // Vínculo novo NÃO herda estado de insight antigo: ele ainda não foi testado.
-    statusInsight: "NAO_TESTADO",
-    enabled: true,
-    ...(a.connectionSource ? { connectionSource: a.connectionSource } : {}),
-  };
+  const dados = camposDoVinculo({ ...a, handle });
   if (alvo) {
     await db.update(clientSocialAccounts).set(dados).where(eq(clientSocialAccounts.id, alvo.id));
   } else {

@@ -115,3 +115,6 @@ client/public/__manus__/version.json
 # Dados financeiros sensíveis — nunca versionar
 import/
 backups/
+
+# Guia operacional para o Business Manager — documento, não código do app.
+permissoes-instagram.html
