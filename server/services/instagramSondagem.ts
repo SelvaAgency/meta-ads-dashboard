@@ -74,6 +74,8 @@ interface FormaDeChamada {
 
 const TOTAL: FormaDeChamada = { nome: "total_value", params: { period: "day", metric_type: "total_value" } };
 const LEGADO: FormaDeChamada = { nome: "período (legado)", params: { period: "day" } };
+/** `online_followers` recusa `day`: ele é uma métrica de janela de vida. */
+const VITALICIO: FormaDeChamada = { nome: "lifetime", params: { period: "lifetime" } };
 const POR_TIPO: FormaDeChamada = {
   nome: "total_value + breakdown",
   params: { period: "day", metric_type: "total_value", breakdown: "follow_type" },
@@ -102,8 +104,8 @@ const METRICAS_PERFIL: Array<{ metrica: string; tentativas: FormaDeChamada[] }> 
   { metrica: "shares", tentativas: [TOTAL] },
   { metrica: "saves", tentativas: [TOTAL] },
   { metrica: "replies", tentativas: [TOTAL] },
-  { metrica: "content_views", tentativas: [TOTAL] },
-  { metrica: "online_followers", tentativas: [LEGADO, TOTAL] },
+  { metrica: "content_views", tentativas: [TOTAL, LEGADO] },
+  { metrica: "online_followers", tentativas: [VITALICIO, LEGADO, TOTAL] },
 ];
 
 const CAMPOS_MIDIA = [
@@ -121,6 +123,27 @@ const METRICAS_MIDIA = [
  * A regra é a diferença entre "este campo responde" e "aqui está o que ele diz".
  * A sondagem só precisa da primeira.
  */
+/**
+ * O que veio dentro de um `breakdowns`.
+ *
+ * Contar quebras respondia "veio alguma coisa", que não é a pergunta. A
+ * pergunta em `follows_and_unfollows` é se ENTRADAS e SAÍDAS vêm separadas —
+ * e isso só se lê nas dimensões de dentro. Sem elas, a sondagem diria
+ * "disponível" para uma métrica que talvez só devolva o total.
+ *
+ * Dimensões são rótulos da Meta (FOLLOW, UNFOLLOW…), não dado do cliente.
+ */
+function descreverQuebras(quebras: unknown[]): string {
+  const partes: string[] = [];
+  for (const q of quebras) {
+    const b = q as { dimension_keys?: unknown[]; results?: Array<{ dimension_values?: unknown[]; value?: unknown }> };
+    const chaves = (b.dimension_keys ?? []).map(String).join(", ");
+    const itens = (b.results ?? []).map((r) => `${(r.dimension_values ?? []).map(String).join("/")}=${r.value ?? "?"}`);
+    partes.push(`${chaves || "sem dimensão"} → ${itens.length ? itens.join(" · ") : "sem resultados"}`);
+  }
+  return partes.join(" | ") || "quebra vazia";
+}
+
 function descrever(v: unknown): string {
   if (v === null || v === undefined) return "veio vazio";
   if (typeof v === "number") return `${v}`;
@@ -161,7 +184,11 @@ export async function sondarInstagram(consultar: Consultar, base: string): Promi
   // interessa ao coletor não é só "responde?", mas "responde chamada como?" —
   // e é por isso que a forma vencedora entra no relatório.
   for (const { metrica, tentativas } of METRICAS_PERFIL) {
-    let ultimoErro = "";
+    // Todas as falhas, e não só a última: com três formas, guardar apenas a
+    // final esconde justamente o erro da forma que DEVERIA ter funcionado —
+    // foi o que aconteceu com `online_followers`, cuja recusa informativa se
+    // perdeu atrás da recusa genérica da última tentativa.
+    const falhas: string[] = [];
     let resolvida = false;
 
     for (const forma of tentativas) {
@@ -176,18 +203,18 @@ export async function sondarInstagram(consultar: Consultar, base: string): Promi
         // "Respondeu vazio" não encerra: era exatamente o caso de
         // follows_and_unfollows, que só entrega número com breakdown.
         if (!item || (valor === undefined && !quebras)) {
-          ultimoErro = `respondeu sem dados em ${forma.nome}`;
+          falhas.push(`${forma.nome}: respondeu sem dados`);
           continue;
         }
         reg("insights_perfil", metrica, true,
-          `respondeu em ${forma.nome} · valor ${quebras ? `${(quebras as unknown[]).length} quebra(s)` : descrever(valor)}`);
+          `respondeu em ${forma.nome} · ${quebras ? descreverQuebras(quebras as unknown[]) : `valor ${descrever(valor)}`}`);
         resolvida = true;
         break;
       } catch (e) {
-        ultimoErro = `${forma.nome}: ${erroDe(e)}`;
+        falhas.push(`${forma.nome}: ${erroDe(e)}`);
       }
     }
-    if (!resolvida) reg("insights_perfil", metrica, false, ultimoErro || "nenhuma forma respondeu");
+    if (!resolvida) reg("insights_perfil", metrica, false, falhas.join(" ¦ ") || "nenhuma forma respondeu");
   }
 
   // ── Mídias ────────────────────────────────────────────────────────────────

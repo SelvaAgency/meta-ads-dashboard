@@ -211,12 +211,25 @@ describe("formas alternativas de chamada", () => {
     expect(l?.detalhe).toContain("17");
   });
 
-  /** Responde vazio sem breakdown, e com dados quando ele vem. */
-  it("follows_and_unfollows é encontrado com breakdown", async () => {
+  /**
+   * Responde vazio sem breakdown, e com dados quando ele vem.
+   *
+   * O que o relatório precisa dizer não é "veio uma quebra" — é QUAIS
+   * dimensões vieram. A pergunta real é se entradas e saídas chegam separadas,
+   * e contar quebras responderia "disponível" para uma métrica que talvez só
+   * devolva o total.
+   */
+  it("follows_and_unfollows mostra as DIMENSÕES, não a contagem de quebras", async () => {
     const comBreakdown: Consultar = vi.fn(async (caminho: string, params: Record<string, string>) => {
       if (caminho.includes("/insights") && params.metric === "follows_and_unfollows") {
         return params.breakdown
-          ? { data: [{ total_value: { breakdowns: [{ results: [] }, { results: [] }] } }] } as never
+          ? { data: [{ total_value: { breakdowns: [{
+              dimension_keys: ["follow_type"],
+              results: [
+                { dimension_values: ["FOLLOWER"], value: 37 },
+                { dimension_values: ["UNFOLLOWER"], value: 12 },
+              ],
+            }] } }] } as never
           : { data: [{ total_value: {} }] } as never;
       }
       if (caminho.includes("/insights")) return { data: [{ total_value: { value: 1 } }] } as never;
@@ -228,8 +241,30 @@ describe("formas alternativas de chamada", () => {
     const s = await sondarInstagram(comBreakdown, "123");
     const l = acha(s, "follows_and_unfollows");
     expect(l?.disponivel).toBe(true);
-    expect(l?.detalhe).toContain("breakdown");
-    expect(l?.detalhe).toContain("quebra");
+    expect(l?.detalhe).toContain("follow_type");
+    // As duas direções, com os números — é o que decide se a tela mostra
+    // entradas e saídas separadas ou apenas o saldo.
+    expect(l?.detalhe).toContain("FOLLOWER=37");
+    expect(l?.detalhe).toContain("UNFOLLOWER=12");
+  });
+
+  /** Com três formas, guardar só a última esconde o erro que interessa. */
+  it("todas as formas que falharam aparecem no relatório", async () => {
+    const tudoFalha: Consultar = vi.fn(async (caminho: string, params: Record<string, string>) => {
+      if (caminho.includes("/insights") && params.metric === "online_followers") {
+        throw new Error(`Meta (100): recusou em ${params.period}${params.metric_type ? "/total_value" : ""}`);
+      }
+      if (caminho.includes("/insights")) return { data: [{ total_value: { value: 1 } }] } as never;
+      if (caminho.includes("/stories")) return { data: [] } as never;
+      if (caminho.includes("/media")) return { data: [{ id: "1" }] } as never;
+      return { username: "x" } as never;
+    }) as Consultar;
+
+    const s = await sondarInstagram(tudoFalha, "123");
+    const l = acha(s, "online_followers");
+    expect(l?.disponivel).toBe(false);
+    expect(l?.detalhe).toContain("lifetime");
+    expect(l?.detalhe).toContain("total_value");
   });
 
   /**
