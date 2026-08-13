@@ -4310,7 +4310,15 @@ export const appRouter = router({
         // Melhores e piores precisam de ALCANCE, e a leitura ao vivo não o traz
         // — ele custa uma chamada por publicação. Vem do snapshot, que já o
         // coletou: é para isso que a tabela de mídias existe.
-        const midiasSalvas = await midiasDoPeriodo(input.accountId, input.startDate, input.endDate);
+        const midiasCruas = await midiasDoPeriodo(input.accountId, input.startDate, input.endDate);
+        // Seguidores do DIA em que a publicação foi medida — é o que faz o
+        // alcance relativo sobreviver ao crescimento da conta: 500 numa base de
+        // 1.000 é o dobro de 500 numa base de 2.000, e o bruto diria que
+        // empataram.
+        const seguidoresPorDia = new Map(todos.map((l) => [l.dia, l.followersCount]));
+        const midiasSalvas = midiasCruas.map((m) => ({
+          ...m, seguidoresNaEpoca: seguidoresPorDia.get(m.dia) ?? null,
+        }));
         // O status da conta olha a série INTEIRA, e não a do período: com "7
         // dias" selecionado e a última coleta há dez, a tela diria "nunca
         // coletado" para um cliente que tem dado.

@@ -28,6 +28,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { trpc } from "@/lib/trpc";
 import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
+import { useState } from "react";
 import { lerVinculo, ROTULO_TIPO, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { ROTULO_FONTE } from "@shared/fontesSociais";
 import { saldoDeSeguidores, podeMostrarEntradasESaidas, somarNoPeriodo } from "@shared/socialSnapshot";
@@ -35,7 +36,10 @@ import { textoDeCobertura } from "@shared/periodosSociais";
 import { lerColetaAutomatica, lerColetaManual } from "@shared/statusDaColeta";
 import { lerStatusDoCliente } from "@shared/statusDoCliente";
 import { StatusDoDado } from "@/components/redes/StatusDoDado";
-import { ROTULO_TAXA, avisoDeExclusao, rankingDePublicacoes, taxaPorAlcance, taxaPorSeguidores } from "@shared/engajamento";
+import {
+  ROTULO_CRITERIO, ROTULO_TAXA, avisoDeExclusao, rankingDePublicacoes,
+  taxaPorAlcance, taxaPorSeguidores, type CriterioDeRanking,
+} from "@shared/engajamento";
 import { CONTA_COMO_POST, ROTULO_CONTEUDO, tipoDeConteudo, type TipoConteudo } from "@shared/tipoDeMidia";
 import { GraficoDeSeguidores, GraficoDeVisitas, type PontoDaSerie } from "@/components/redes/GraficosDoTopo";
 import {
@@ -158,6 +162,9 @@ export default function RedesSociais() {
   const podeDiagnosticar = canManageContent(user?.role);
   const { selectedAccountId, accounts } = useSelectedAccount();
   const { period, setPeriod, dateRange } = usePeriodFilter();
+  // Um ranking com dois eixos, e não duas listas: quatro colunas na tela
+  // fariam ninguém ler nenhuma. O eixo ativo fica escrito no cabeçalho.
+  const [criterio, setCriterio] = useState<CriterioDeRanking>("engajamento");
 
   const coletas = trpc.social.ultimasColetas.useQuery(undefined, { enabled: podeVer });
 
@@ -246,10 +253,11 @@ export default function RedesSociais() {
         id: m.mediaId,
         interacoes: m.totalInteractions ?? ((m.likes ?? 0) + (m.comentarios ?? 0) || null),
         alcance: m.reach,
+        seguidoresNaEpoca: m.seguidoresNaEpoca,
         legenda: m.legenda?.slice(0, 60) ?? null,
         permalink: m.permalink,
         tipo: (m.tipo ?? "DESCONHECIDO") as TipoConteudo,
-      })), 3);
+      })), 3, criterio);
   const avisoRanking = midiasSalvas.length === 0
     ? "Melhores e piores publicações aparecem depois da primeira coleta — o ranking precisa de alcance, que só o snapshot guarda."
     : avisoDeExclusao(ranking);
@@ -422,6 +430,12 @@ export default function RedesSociais() {
             )}
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <KpiCard icon={TrendingUp} label="Crescimento no período"
+                value={saldo.saldo == null ? "–" : `${saldo.saldo >= 0 ? "+" : ""}${fmt(saldo.saldo)}`}
+                sublabel={saldo.saldo == null || !saldo.inicio
+                  ? `${saldo.diasCobertos} dia(s) medidos`
+                  : `${((saldo.saldo / saldo.inicio) * 100).toFixed(2)}% · ${saldo.diasCobertos} dia(s) medidos`}
+                color="#10B981" bgColor="rgba(16,185,129,0.1)" />
               <KpiCard icon={Activity} label={ROTULO_TAXA.alcance}
                 value={taxaAlcance == null ? "–" : `${taxaAlcance.toFixed(2)}%`}
                 sublabel={taxaSeguidores == null ? "interações ÷ alcance"
@@ -444,11 +458,36 @@ export default function RedesSociais() {
             </div>
 
             {/* ── Melhores e piores ─────────────────────────────────────── */}
+            {/* ── Performance de conteúdo ───────────────────────────────
+                A base fica SEMPRE visível: "melhor publicação" apoiada em três
+                posts e em trinta são afirmações de peso muito diferente, e a
+                tela não pode fazê-las parecer iguais. */}
+            <div className="flex items-center gap-2 flex-wrap pt-1">
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Performance de conteúdo
+              </h2>
+              <span className="text-[11px] text-muted-foreground">
+                Analisados {ranking.analisadas} post(s) no período · {ranking.elegiveis} no ranking
+              </span>
+              <div className="flex gap-1 ml-auto">
+                {(["engajamento", "alcanceRelativo"] as CriterioDeRanking[]).map((c) => (
+                  <button key={c} onClick={() => setCriterio(c)}
+                    className={`text-[11px] px-2 py-1 rounded border ${criterio === c
+                      ? "border-primary/40 bg-primary/10 text-foreground font-medium"
+                      : "border-border text-muted-foreground hover:bg-muted"}`}>
+                    {ROTULO_CRITERIO[c]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {ranking.melhores.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {([["Melhores publicações", ranking.melhores], ["Piores publicações", ranking.piores]] as const).map(([titulo, lista]) => (
                   <div key={titulo} className="rounded-xl border border-border bg-card p-4 flex flex-col gap-2">
-                    <p className="text-xs font-semibold text-muted-foreground">{titulo}</p>
+                    <p className="text-xs font-semibold text-muted-foreground">
+                      {titulo} <span className="font-normal">· por {ROTULO_CRITERIO[criterio].toLowerCase()}</span>
+                    </p>
                     {lista.map((x) => (
                       <a key={x.publicacao.id} href={x.publicacao.permalink ?? "#"} target="_blank" rel="noopener noreferrer"
                         className="flex items-center justify-between gap-3 text-xs py-1 hover:underline">

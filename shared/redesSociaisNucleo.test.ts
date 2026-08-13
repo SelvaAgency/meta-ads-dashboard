@@ -19,8 +19,8 @@ import {
   type TipoConteudo,
 } from "./tipoDeMidia";
 import {
-  PISO_DO_RANKING, ROTULO_TAXA, avisoDeExclusao, mediana,
-  rankingDePublicacoes, taxaPorAlcance, taxaPorSeguidores,
+  PISO_DO_RANKING, ROTULO_CRITERIO, ROTULO_TAXA, alcanceRelativo, avisoDeExclusao,
+  mediana, rankingDePublicacoes, taxaPorAlcance, taxaPorSeguidores,
 } from "./engajamento";
 import {
   DIAS_PARA_TENDENCIA, diasDeColeta, diasEntre, periodosDisponiveis,
@@ -367,5 +367,98 @@ describe("texto de cobertura e tendência", () => {
     const r = podeFalarDeTendencia({ coletaDesde: "2026-08-01", hoje: "2026-08-05" });
     expect(r.liberaEm).toBe("2026-08-14");
     expect(r.motivo).toContain("14/08/2026");
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Dois eixos, a mesma base
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Engajamento e alcance relativo respondem coisas diferentes — "quem viu
+ *  interagiu?" e "quanto da base foi alcançada?" — e o segundo é o que
+ *  sobrevive ao crescimento da conta: 500 de alcance numa base de 1.000 é o
+ *  dobro de 500 numa base de 2.000, e o número bruto diria que empataram.
+ *
+ *  O piso continua sendo o alcance nos dois. Não é detalhe: é o que mantém a
+ *  base do ranking idêntica entre os eixos, e é por isso que trocar de eixo
+ *  compara as mesmas publicações em vez de trocar também o conjunto.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("ranking por alcance relativo", () => {
+  const p = (id: string, interacoes: number, alcance: number, seguidores: number | null) =>
+    ({ id, interacoes, alcance, seguidoresNaEpoca: seguidores });
+
+  it("alcance relativo é alcance ÷ seguidores", () => {
+    expect(alcanceRelativo(500, 1000)).toBeCloseTo(50);
+    expect(alcanceRelativo(500, 2000)).toBeCloseTo(25);
+  });
+
+  it("sem base conhecida, null — e nunca 0", () => {
+    expect(alcanceRelativo(500, null)).toBeNull();
+    expect(alcanceRelativo(500, 0)).toBeNull();
+    expect(alcanceRelativo(null, 1000)).toBeNull();
+  });
+
+  /** O ponto do eixo: a conta cresceu, e o alcance bruto mente sobre isso. */
+  it("o mesmo alcance em bases diferentes NÃO empata", () => {
+    const r = rankingDePublicacoes([
+      p("antigo", 50, 500, 1000),   // 50% da base
+      p("recente", 50, 500, 2000),  // 25% da base
+      p("a", 40, 500, 2000), p("b", 30, 500, 2000),
+    ], 1, "alcanceRelativo");
+    expect(r.melhores[0].publicacao.id).toBe("antigo");
+    expect(r.melhores[0].taxa).toBeCloseTo(50);
+  });
+
+  it("trocar de eixo pode trocar o vencedor — é o objetivo", () => {
+    const posts = [
+      p("engaja", 200, 1000, 10_000),  // 20% engajamento · 10% da base
+      p("alcanca", 50, 5000, 10_000),  // 1% engajamento · 50% da base
+      p("c", 20, 2000, 10_000), p("d", 10, 2000, 10_000),
+    ];
+    expect(rankingDePublicacoes(posts, 1, "engajamento").melhores[0].publicacao.id).toBe("engaja");
+    expect(rankingDePublicacoes(posts, 1, "alcanceRelativo").melhores[0].publicacao.id).toBe("alcanca");
+  });
+
+  /** Sem essa igualdade, trocar de eixo trocaria também o conjunto comparado. */
+  it("o piso e a base são os mesmos nos dois eixos", () => {
+    const posts = [
+      p("minusculo", 3, 40, 10_000),
+      p("a", 100, 10_000, 10_000), p("b", 200, 10_000, 10_000),
+      p("c", 300, 10_000, 10_000), p("d", 400, 10_000, 10_000),
+    ];
+    const e = rankingDePublicacoes(posts, 2, "engajamento");
+    const ar = rankingDePublicacoes(posts, 2, "alcanceRelativo");
+    expect(e.alcanceMinimo).toBe(ar.alcanceMinimo);
+    expect(e.elegiveis).toBe(ar.elegiveis);
+    expect(e.excluidasPorAlcance).toBe(ar.excluidasPorAlcance);
+  });
+
+  /** Publicação sem base não pode entrar num ranking que divide por ela. */
+  it("sem seguidores da época, a publicação sai do eixo relativo", () => {
+    const r = rankingDePublicacoes([
+      p("sem", 50, 1000, null),
+      p("a", 40, 1000, 5000), p("b", 30, 1000, 5000),
+      p("c", 20, 1000, 5000), p("d", 10, 1000, 5000),
+    ], 2, "alcanceRelativo");
+    expect([...r.melhores, ...r.piores].map((x) => x.publicacao.id)).not.toContain("sem");
+    // No eixo de engajamento ela continua valendo — só falta a base do outro.
+    const e = rankingDePublicacoes([
+      p("sem", 50, 1000, null), p("a", 40, 1000, 5000),
+      p("c", 20, 1000, 5000), p("d", 10, 1000, 5000),
+    ], 2, "engajamento");
+    expect([...e.melhores, ...e.piores].map((x) => x.publicacao.id)).toContain("sem");
+  });
+
+  /** A base da afirmação, sempre à vista. */
+  it("o ranking declara quantas publicações o período trouxe", () => {
+    const r = rankingDePublicacoes([p("a", 1, 100, 1000), p("b", 2, 100, 1000)], 3);
+    expect(r.analisadas).toBe(2);
+    expect(r.criterio).toBe("engajamento");
+  });
+
+  it("todo critério tem rótulo legível", () => {
+    expect(ROTULO_CRITERIO.engajamento).toBeTruthy();
+    expect(ROTULO_CRITERIO.alcanceRelativo).toBeTruthy();
   });
 });

@@ -56,6 +56,33 @@ export interface PublicacaoRanqueavel {
   id: string;
   interacoes: number | null;
   alcance: number | null;
+  /**
+   * Seguidores no dia em que a publicação foi medida.
+   *
+   * Necessário para o alcance relativo, e é ele que faz a comparação sobreviver
+   * ao crescimento da conta: 500 de alcance numa base de 1.000 é o dobro de 500
+   * numa base de 2.000, e o número bruto diria que empataram.
+   */
+  seguidoresNaEpoca?: number | null;
+}
+
+/** Por qual eixo ordenar. Os dois usam o MESMO piso de alcance. */
+export type CriterioDeRanking = "engajamento" | "alcanceRelativo";
+
+export const ROTULO_CRITERIO: Record<CriterioDeRanking, string> = {
+  engajamento: "Taxa de engajamento",
+  alcanceRelativo: "Alcance relativo",
+};
+
+/**
+ * Quanto da base a publicação alcançou.
+ *
+ * `null` sem seguidores — dividir por uma base que não se conhece produziria um
+ * número com aparência de percentual e sem denominador.
+ */
+export function alcanceRelativo(alcance: number | null, seguidores: number | null): number | null {
+  if (alcance == null || seguidores == null || seguidores <= 0) return null;
+  return (alcance / seguidores) * 100;
 }
 
 export interface PublicacaoRanqueada<T extends PublicacaoRanqueavel> {
@@ -74,6 +101,9 @@ export interface Ranking<T extends PublicacaoRanqueavel> {
   /** Quantas não puderam ser avaliadas por falta de dado. */
   semDados: number;
   elegiveis: number;
+  criterio: CriterioDeRanking;
+  /** A base da afirmação — "analisados X posts". Sempre visível na tela. */
+  analisadas: number;
 }
 
 /** Mediana de verdade: com par de elementos, a média dos dois centrais. */
@@ -87,6 +117,7 @@ export function mediana(valores: number[]): number | null {
 export function rankingDePublicacoes<T extends PublicacaoRanqueavel>(
   publicacoes: T[],
   quantidade = 3,
+  criterio: CriterioDeRanking = "engajamento",
 ): Ranking<T> {
   // Sem alcance ou sem interações não há taxa — e um post sem dado não pode ser
   // chamado de pior. Ele é contado à parte, para a tela poder dizer por quê.
@@ -101,8 +132,18 @@ export function rankingDePublicacoes<T extends PublicacaoRanqueavel>(
     : comDados.filter((p) => (p.alcance as number) >= alcanceMinimo);
   const excluidasPorAlcance = comDados.length - elegiveis.length;
 
+  // O PISO continua sendo o alcance nos dois critérios: uma publicação que
+  // quase ninguém viu não pode liderar nem por engajamento nem por alcance
+  // relativo — no segundo caso ela seria descartada pelo próprio valor, mas o
+  // piso mantém a base do ranking idêntica entre os eixos, e é isso que torna
+  // as duas listas comparáveis.
+  const valorDe = (p: T): number | null => criterio === "alcanceRelativo"
+    ? alcanceRelativo(p.alcance, p.seguidoresNaEpoca ?? null)
+    : taxaPorAlcance(p.interacoes, p.alcance);
+
   const ordenadas = elegiveis
-    .map((p) => ({ publicacao: p, taxa: taxaPorAlcance(p.interacoes, p.alcance) as number }))
+    .map((p) => ({ publicacao: p, taxa: valorDe(p) }))
+    .filter((x): x is { publicacao: T; taxa: number } => x.taxa !== null)
     // Empate na taxa desempata por interações absolutas: entre dois posts com a
     // mesma taxa, o que engajou mais gente é o melhor.
     .sort((a, b) => b.taxa - a.taxa || (b.publicacao.interacoes ?? 0) - (a.publicacao.interacoes ?? 0));
@@ -120,6 +161,9 @@ export function rankingDePublicacoes<T extends PublicacaoRanqueavel>(
     excluidasPorAlcance,
     semDados,
     elegiveis: ordenadas.length,
+    criterio,
+    /** Quantas publicações o período trouxe, antes de qualquer corte. */
+    analisadas: publicacoes.length,
   };
 }
 
