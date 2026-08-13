@@ -65,7 +65,8 @@ describe("coleta parcial", () => {
     expect(r.nivel).toBe("atencao");
     expect(r.faltando).toContain("visitas ao perfil");
     expect(r.atualizados).toContain("alcance");
-    expect(r.resumo).toContain("sem visitas ao perfil");
+    expect(r.principal).toContain("Dados atualizados");
+    expect(r.secundaria).toContain("parcial");
   });
 
   /** Stories nulo é "não medido", e entra em faltando — nunca como zero. */
@@ -98,7 +99,10 @@ describe("a última tentativa falhou", () => {
     expect(r.nivel).toBe("erro");
     expect(r.atualizadoEm).toBe("hoje às 06:20");
     expect(r.ultimaValidaEm).toBe("11/08 às 06:20");
-    expect(r.resumo).toContain("última tentativa falhou");
+    expect(r.principal).toBe("Dados desatualizados");
+    // As DUAS datas na mesma frase — é a distinção que o módulo existe para fazer.
+    expect(r.secundaria).toContain("Última coleta válida: 11/08 às 06:20");
+    expect(r.secundaria).toContain("Última tentativa: hoje às 06:20");
   });
 
   /** Snapshot gravado com status ok mas sem número nenhum também não vale. */
@@ -106,7 +110,7 @@ describe("a última tentativa falhou", () => {
     const r = lerStatusDoCliente([snap({ statusColeta: "ok", seguidores: null, metricas: {} })], AGORA, 0);
     expect(r.nivel).toBe("erro");
     expect(r.ultimaValidaEm).toBeNull();
-    expect(r.resumo).toContain("Nenhuma coleta");
+    expect(r.secundaria).toContain("Nenhuma coleta trouxe dado");
   });
 
   it("busca a última válida por trás de várias falhas seguidas", () => {
@@ -133,7 +137,50 @@ describe("ordem e ausência", () => {
     const r = lerStatusDoCliente([], AGORA, 0);
     expect(r.nivel).toBe("nunca");
     expect(r.atualizadoEm).toBeNull();
-    expect(r.resumo).toContain("leitura ao vivo");
+    expect(r.principal).toBe("Dados ainda não coletados");
+    expect(r.secundaria).toContain("leitura ao vivo");
     expect(r.faltando).toHaveLength(CAMPOS_DO_STATUS.length);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A linha principal responde sozinha
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Ela mora no cabeçalho, antes de qualquer número. Se precisar da secundária
+ *  para significar alguma coisa, quem só bate o olho sai com a impressão errada
+ *  — e a impressão errada aqui é "este dado está fresco".
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("a linha do cabeçalho se basta", () => {
+  const casos = [
+    ["em dia", [snap()], "Dados atualizados hoje às 06:20"],
+    ["nunca coletado", [], "Dados ainda não coletados"],
+    ["última falhou", [snap({ statusColeta: "erro", seguidores: null, metricas: {} })], "Dados desatualizados"],
+  ] as const;
+
+  it.each(casos)("%s → %s", (_n, snaps, esperado) => {
+    expect(lerStatusDoCliente(snaps as SnapshotDoCliente[], AGORA, 1).principal).toBe(esperado);
+  });
+
+  /** Nenhum estado pode sair com a linha vazia. */
+  it("toda combinação produz linha principal", () => {
+    for (const snaps of [[], [snap()], [snap({ statusColeta: "parcial", metricas: { reach: 1 } })],
+      [snap({ statusColeta: "erro", seguidores: null, metricas: {} })]]) {
+      const r = lerStatusDoCliente(snaps as SnapshotDoCliente[], AGORA, 0);
+      expect(r.principal, r.nivel).toBeTruthy();
+    }
+  });
+
+  /** "Desatualizado" nunca aparece junto de uma data que sugira frescor. */
+  it("estado desatualizado não anuncia a data da tentativa como se fosse o dado", () => {
+    const r = lerStatusDoCliente([
+      snap({ dia: "2026-08-11", coletadoEm: new Date("2026-08-11T06:20:00") }),
+      snap({ dia: "2026-08-13", statusColeta: "erro", seguidores: null, metricas: {} }),
+    ], AGORA, 0);
+    expect(r.principal).not.toContain("hoje");
+    // `not.toContain("atualizados")` seria ingênuo: "desatualizados" o contém.
+    // O que não pode é a frase AFIRMAR que os dados estão atualizados.
+    expect(r.principal).not.toMatch(/^Dados atualizados/);
   });
 });

@@ -51,6 +51,13 @@ export const ROTULO_ORIGEM: Record<string, string> = {
 
 export interface StatusDoCliente {
   nivel: "ok" | "atencao" | "erro" | "nunca";
+  /**
+   * A linha que responde "posso confiar neste número?" — e é a única que
+   * precisa ser lida. Tudo o mais é detalhe.
+   */
+  principal: string;
+  /** Origem, quando está em dia; as duas datas, quando não está. */
+  secundaria: string | null;
   /** "Hoje às 06:20" — a última tentativa. */
   atualizadoEm: string | null;
   fonte: string | null;
@@ -58,7 +65,6 @@ export interface StatusDoCliente {
   faltando: string[];
   /** Preenchido só quando a última tentativa NÃO trouxe dado. */
   ultimaValidaEm: string | null;
-  resumo: string;
 }
 
 /** Um snapshot conta como válido quando trouxe algum número. */
@@ -96,10 +102,12 @@ export function lerStatusDoCliente(
 
   if (!ultimo) {
     return {
-      nivel: "nunca", atualizadoEm: null, fonte: null,
+      nivel: "nunca",
+      principal: "Dados ainda não coletados",
+      secundaria: "Os números da tela são leitura ao vivo, sem histórico.",
+      atualizadoEm: null, fonte: null,
       atualizados: [], faltando: CAMPOS_DO_STATUS.map((c) => c.rotulo),
       ultimaValidaEm: null,
-      resumo: "Ainda não há coleta para este cliente. Os números acima são leitura ao vivo.",
     };
   }
 
@@ -110,26 +118,36 @@ export function lerStatusDoCliente(
   // trouxe, e as duas precisam aparecer juntas.
   if (ultimo.statusColeta === "erro" || !trouxeDado(ultimo)) {
     const valida = ordenados.find((s) => s.statusColeta !== "erro" && trouxeDado(s));
+    const validaEm = valida ? quando(valida.coletadoEm, agora) : null;
     return {
       nivel: "erro",
+      // "Desatualizados" e não "erro": o problema de quem lê não é a falha, é a
+      // idade do número que está na tela.
+      principal: "Dados desatualizados",
+      secundaria: validaEm
+        ? `Última coleta válida: ${validaEm} · Última tentativa: ${atualizadoEm}`
+        : `Nenhuma coleta trouxe dado até agora · Última tentativa: ${atualizadoEm}`,
       atualizadoEm, fonte,
       atualizados: [], faltando: CAMPOS_DO_STATUS.map((c) => c.rotulo),
-      ultimaValidaEm: valida ? quando(valida.coletadoEm, agora) : null,
-      resumo: valida
-        ? `A última tentativa falhou. Os números são da coleta de ${quando(valida.coletadoEm, agora)}.`
-        : "Nenhuma coleta deste cliente trouxe dado até agora.",
+      ultimaValidaEm: validaEm,
     };
   }
 
   const { atualizados, faltando } = camposDe(ultimo, publicacoesNoDia);
   if (faltando.length > 0) {
     return {
-      nivel: "atencao", atualizadoEm, fonte, atualizados, faltando, ultimaValidaEm: null,
-      resumo: `Coleta parcial — sem ${faltando.join(", ")}.`,
+      nivel: "atencao",
+      principal: `Dados atualizados ${atualizadoEm}`,
+      // A lista completa fica no detalhe expandível; aqui só a quantidade, para
+      // a linha caber no cabeçalho sem virar parágrafo.
+      secundaria: `${fonte ?? "Coleta"} · parcial, ${faltando.length} item(ns) sem dado`,
+      atualizadoEm, fonte, atualizados, faltando, ultimaValidaEm: null,
     };
   }
   return {
-    nivel: "ok", atualizadoEm, fonte, atualizados, faltando: [], ultimaValidaEm: null,
-    resumo: "Todos os dados desta conta foram atualizados na última coleta.",
+    nivel: "ok",
+    principal: `Dados atualizados ${atualizadoEm}`,
+    secundaria: fonte,
+    atualizadoEm, fonte, atualizados, faltando: [], ultimaValidaEm: null,
   };
 }
