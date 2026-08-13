@@ -35,6 +35,7 @@ import { saldoDeSeguidores, podeMostrarEntradasESaidas, somarNoPeriodo } from "@
 import { textoDeCobertura } from "@shared/periodosSociais";
 import { lerColetaAutomatica, lerColetaManual } from "@shared/statusDaColeta";
 import { lerStatusDoCliente } from "@shared/statusDoCliente";
+import { coletasSaoComparaveis, rotuloDeEstoque, rotuloDeFluxo } from "@shared/janelaDaMetrica";
 import { StatusDoDado } from "@/components/redes/StatusDoDado";
 import {
   ROTULO_CRITERIO, ROTULO_TAXA, avisoDeExclusao, rankingDePublicacoes,
@@ -265,6 +266,19 @@ export default function RedesSociais() {
   // Uma linha no cabeçalho, e não um bloco no meio: a pergunta "posso confiar
   // neste número?" vem ANTES do número, e um cartão grande em toda conta
   // saudável ensinaria a pular a região onde o aviso vai aparecer.
+  // ── A janela que cada número cobre ──────────────────────────────────────
+  // profile_views e cliques são métricas de FLUXO: acumulam de 00:00 até a
+  // consulta, e a Meta não devolve dia fechado do passado. A coleta das 06:20
+  // mede ~6h de um dia de 24 — o rótulo precisa dizer isso, e a SOMA do período
+  // também, senão o total continua errado sob um título honesto.
+  const comparabilidade = coletasSaoComparaveis(
+    serie.map((p) => ({ dia: p.dia, coletadoEm: p.coletadoEm as string | Date })));
+  const rotuloVisitas = rotuloDeFluxo("Visitas ao perfil", comparabilidade.faixa, visitas.diasMedidos);
+  const rotuloCliques = rotuloDeFluxo("Cliques no link", comparabilidade.faixa, cliquesNoLink.diasMedidos);
+  const brl = (d?: string) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : null);
+  const rotuloCrescimento = rotuloDeEstoque(
+    "Crescimento no período", brl(serie[0]?.dia), brl(serie[serie.length - 1]?.dia));
+
   const statusDoDado = lerStatusDoCliente(
     d?.historico.statusDaConta ?? [], new Date(), postsNoPeriodo.total ?? 0);
 
@@ -413,9 +427,10 @@ export default function RedesSociais() {
               />
               <GraficoDeVisitas
                 serie={pontos}
+                titulo={rotuloVisitas.titulo}
                 total={fmt(visitas.total)}
                 cobertura={visitas.diasMedidos > 0
-                  ? `${visitas.diasMedidos} dia(s) medidos${visitas.diasSemDado > 0 ? ` · ${visitas.diasSemDado} sem coleta` : ""}`
+                  ? `${rotuloVisitas.ressalva ?? ""}${visitas.diasSemDado > 0 ? ` · ${visitas.diasSemDado} dia(s) sem coleta` : ""}`
                   : cobertura}
               />
             </div>
@@ -423,6 +438,16 @@ export default function RedesSociais() {
             {/* Entradas e saídas NÃO aparecem enquanto a semântica de
                 FOLLOWER/NON_FOLLOWER não estiver provada por aritmética —
                 ver shared/socialSnapshot. Só o saldo, que é subtração. */}
+            {/* Coletas em horários diferentes não são comparáveis numa métrica
+                que acumula ao longo do dia — o ponto coletado à tarde pareceria
+                um pico. Aviso para todos, não só para admin: distorce a leitura
+                de quem só olha o gráfico. */}
+            {!comparabilidade.comparavel && (
+              <p className="text-[10px] font-medium text-amber-600 dark:text-amber-500">
+                ⚠ {comparabilidade.motivo}
+              </p>
+            )}
+
             {d && podeDiagnosticar && !podeMostrarEntradasESaidas(d.historico.direcao) && (
               <p className="text-[10px] text-muted-foreground">
                 Entradas e saídas separadas ainda em validação: {d.historico.direcao.explicacao}
@@ -430,20 +455,20 @@ export default function RedesSociais() {
             )}
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <KpiCard icon={TrendingUp} label="Crescimento no período"
+              <KpiCard icon={TrendingUp} label={rotuloCrescimento.titulo}
                 value={saldo.saldo == null ? "–" : `${saldo.saldo >= 0 ? "+" : ""}${fmt(saldo.saldo)}`}
                 sublabel={saldo.saldo == null || !saldo.inicio
-                  ? `${saldo.diasCobertos} dia(s) medidos`
-                  : `${((saldo.saldo / saldo.inicio) * 100).toFixed(2)}% · ${saldo.diasCobertos} dia(s) medidos`}
+                  ? rotuloCrescimento.ressalva ?? undefined
+                  : `${((saldo.saldo / saldo.inicio) * 100).toFixed(2)}% · ${rotuloCrescimento.ressalva}`}
                 color="#10B981" bgColor="rgba(16,185,129,0.1)" />
               <KpiCard icon={Activity} label={ROTULO_TAXA.alcance}
                 value={taxaAlcance == null ? "–" : `${taxaAlcance.toFixed(2)}%`}
                 sublabel={taxaSeguidores == null ? "interações ÷ alcance"
                   : `${ROTULO_TAXA.seguidores}: ${taxaSeguidores.toFixed(2)}%`}
                 color="#8B5CF6" bgColor="rgba(139,92,246,0.1)" />
-              <KpiCard icon={MousePointerClick} label="Cliques no link"
+              <KpiCard icon={MousePointerClick} label={rotuloCliques.titulo}
                 value={fmt(cliquesNoLink.total)}
-                sublabel={cliquesNoLink.diasMedidos > 0 ? `${cliquesNoLink.diasMedidos} dia(s) medidos` : "sem coleta ainda"}
+                sublabel={cliquesNoLink.diasMedidos > 0 ? rotuloCliques.ressalva ?? undefined : "sem coleta ainda"}
                 color="#0EA5E9" bgColor="rgba(14,165,233,0.1)" />
               <KpiCard icon={ImageIcon} label="Posts publicados no período"
                 value={fmt(postsNoPeriodo.total)}

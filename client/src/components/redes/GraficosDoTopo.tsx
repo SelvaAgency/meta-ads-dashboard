@@ -102,12 +102,12 @@ export function GraficoDeSeguidores({ serie, atual, saldo, cobertura }: {
   );
 }
 
-export function GraficoDeVisitas({ serie, total, cobertura }: {
-  serie: PontoDaSerie[]; total: string; cobertura: string;
+export function GraficoDeVisitas({ serie, total, cobertura, titulo = "Visitas ao perfil" }: {
+  serie: PontoDaSerie[]; total: string; cobertura: string; titulo?: string;
 }) {
   const temSerie = serie.some((p) => p.visitas != null);
   return (
-    <Moldura titulo="Visitas ao perfil" valor={total} apoio={cobertura}>
+    <Moldura titulo={titulo} valor={total} apoio={cobertura}>
       {temSerie ? (
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={serie} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
