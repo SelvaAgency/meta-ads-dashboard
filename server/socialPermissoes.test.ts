@@ -57,7 +57,7 @@ describe("toda procedure de Redes Sociais exige admin/dev", () => {
    * `protectedProcedure` reprova aqui, em vez de entrar de carona numa regra
    * afrouxada.
    */
-  const ABERTAS_AO_COLABORADOR = ["painel"];
+  const ABERTAS_AO_COLABORADOR = ["painel", "ultimasColetas"];
 
   it("nenhuma usa guarda mais fraca que contentProcedure, fora a exceção nominal", () => {
     const fracas = procedures.filter((p) =>
@@ -66,10 +66,21 @@ describe("toda procedure de Redes Sociais exige admin/dev", () => {
     expect(fracas.map((p) => `${p.nome} → ${p.guarda}`)).toEqual([]);
   });
 
-  it("a exceção é só `painel`, e ela é uma leitura", () => {
-    expect(ABERTAS_AO_COLABORADOR).toEqual(["painel"]);
-    const painel = procedures.find((p) => p.nome === "painel");
-    expect(painel?.guarda).toBe("protectedProcedure");
+  it("as exceções são leituras, e nenhuma delas escreve", () => {
+    expect(ABERTAS_AO_COLABORADOR).toEqual(["painel", "ultimasColetas"]);
+    for (const nome of ABERTAS_AO_COLABORADOR) {
+      expect(procedures.find((p) => p.nome === nome)?.guarda, nome).toBe("protectedProcedure");
+    }
+  });
+
+  /** Saber que o robô rodou é de todos; o detalhe por conta não é. */
+  it("`ultimasColetas` retira o detalhe de quem não é admin/dev", () => {
+    const s2 = routerSocial();
+    const i = s2.indexOf("ultimasColetas: protectedProcedure");
+    expect(i).toBeGreaterThan(-1);
+    const corpo = s2.slice(i, i + 700);
+    expect(corpo).toContain("canManageContent(ctx.user.role)");
+    expect(corpo).toContain("detalheJson");
   });
 
   /** Abrir a leitura não pode ter aberto o diagnóstico junto. */

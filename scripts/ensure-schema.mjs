@@ -343,6 +343,29 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela social_media_snapshots garantida");
 
+    // Cada execução da coleta. Tabela própria: "quantas contas foram
+    // coletadas" é fato da EXECUÇÃO, e social_snapshots é sobrescrita no mesmo
+    // dia — a coleta manual apagaria o horário da automática.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`social_coleta_execucoes\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`provider\` VARCHAR(20) NOT NULL DEFAULT 'instagram',
+        \`origem\` VARCHAR(10) NOT NULL,
+        \`escopo\` VARCHAR(10) NOT NULL DEFAULT 'geral',
+        \`dia\` VARCHAR(10) NOT NULL,
+        \`tentados\` INT NOT NULL DEFAULT 0,
+        \`ok\` INT NOT NULL DEFAULT 0,
+        \`parciais\` INT NOT NULL DEFAULT 0,
+        \`erros\` INT NOT NULL DEFAULT 0,
+        \`pulados\` INT NOT NULL DEFAULT 0,
+        \`disparadaPor\` INT NULL,
+        \`detalheJson\` JSON NULL,
+        \`executadaEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY \`idx_social_exec\` (\`provider\`, \`origem\`, \`executadaEm\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    console.log("[ensure-schema] ok  · tabela social_coleta_execucoes garantida");
+
     // 3.0.9) Diagnóstico do teste de conexão de loja. Sem esta coluna o retorno
     //        do teste vive só num toast e some — e é ele que orienta o
     //        adaptador da plataforma.

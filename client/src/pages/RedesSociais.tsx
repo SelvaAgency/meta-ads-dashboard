@@ -32,6 +32,7 @@ import { lerVinculo, ROTULO_TIPO, type StatusInsight, type TipoConta } from "@sh
 import { ROTULO_FONTE } from "@shared/fontesSociais";
 import { saldoDeSeguidores, podeMostrarEntradasESaidas, somarNoPeriodo } from "@shared/socialSnapshot";
 import { textoDeCobertura } from "@shared/periodosSociais";
+import { lerColetaAutomatica, lerColetaManual } from "@shared/statusDaColeta";
 import { ROTULO_TAXA, avisoDeExclusao, rankingDePublicacoes, taxaPorAlcance, taxaPorSeguidores } from "@shared/engajamento";
 import { CONTA_COMO_POST, ROTULO_CONTEUDO, tipoDeConteudo, type TipoConteudo } from "@shared/tipoDeMidia";
 import { GraficoDeSeguidores, GraficoDeVisitas, type PontoDaSerie } from "@/components/redes/GraficosDoTopo";
@@ -156,6 +157,8 @@ export default function RedesSociais() {
   const { selectedAccountId, accounts } = useSelectedAccount();
   const { period, setPeriod, dateRange } = usePeriodFilter();
 
+  const coletas = trpc.social.ultimasColetas.useQuery(undefined, { enabled: podeVer });
+
   const q = trpc.social.painel.useQuery(
     { accountId: selectedAccountId!, startDate: dateRange.startDate, endDate: dateRange.endDate },
     { enabled: podeVer && !!selectedAccountId, staleTime: 5 * 60 * 1000 },
@@ -275,6 +278,40 @@ export default function RedesSociais() {
           </div>
           <PeriodFilter period={period} onChange={setPeriod} compact />
         </div>
+
+        {/* ── Observabilidade da coleta ────────────────────────────────
+            Automática e manual separadas de propósito: um clique bem-sucedido
+            às 10h não responde "o robô rodou às 06:20?", e num sinal só ele
+            esconderia justamente o silêncio que precisa aparecer. */}
+        {coletas.data && (() => {
+          const auto = lerColetaAutomatica(coletas.data.automatica, new Date());
+          const manual = lerColetaManual(coletas.data.manual, new Date());
+          const cor = auto.nivel === "ok" ? "text-emerald-600"
+            : auto.nivel === "erro" || auto.nivel === "silencio" ? "text-destructive"
+            : auto.nivel === "atencao" ? "text-amber-600" : "text-muted-foreground";
+          const marca = auto.nivel === "ok" ? "✓"
+            : auto.nivel === "erro" || auto.nivel === "silencio" ? "⚠" : auto.nivel === "atencao" ? "⚠" : "—";
+          return (
+            <div className="rounded-lg border border-border bg-card/60 px-3 py-2 flex flex-col gap-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-xs font-medium ${cor}`}>{marca} {auto.titulo}</span>
+                <span className="text-[11px] text-muted-foreground">{auto.detalhe}</span>
+              </div>
+              {manual && <p className="text-[10px] text-muted-foreground">{manual}</p>}
+              {/* O detalhe por conta é diagnóstico: o servidor já o retira de
+                  quem não é admin/dev, então aqui basta desenhar o que veio. */}
+              {podeDiagnosticar && coletas.data.automatica?.detalheJson != null && (
+                <details className="text-[10px] text-muted-foreground">
+                  <summary className="cursor-pointer">detalhe por conta</summary>
+                  <pre className="whitespace-pre-wrap break-all select-all mt-1 max-h-48 overflow-y-auto">
+                    {(coletas.data.automatica.detalheJson as Array<{ accountId: number; status: string; nota: string }>)
+                      .map((x) => `#${x.accountId} · ${x.status} · ${x.nota}`).join("\n")}
+                  </pre>
+                </details>
+              )}
+            </div>
+          );
+        })()}
 
         {!selectedAccountId && (
           <div className="flex flex-col items-center justify-center h-64 text-center gap-3">

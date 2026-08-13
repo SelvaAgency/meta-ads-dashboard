@@ -93,7 +93,7 @@ import {
   tokenSocial,
   registrarTesteSocial,
   registrarTesteVinculo,
-  vinculosSociais, snapshotsSociais, midiasDoPeriodo, primeiroDiaDeColetaSocial, desvincularInstagram,
+  vinculosSociais, snapshotsSociais, registrarExecucaoDeColeta, ultimasExecucoesDeColeta, midiasDoPeriodo, primeiroDiaDeColetaSocial, desvincularInstagram,
   tokensDeContasInfo, apagarTokenDaConta,
   vincularInstagram,
   duplicatasDeContas,
@@ -4107,9 +4107,25 @@ export const appRouter = router({
      */
     coletarAgora: contentProcedure
       .input(z.object({ accountId: z.number().int(), apenasStories: z.boolean().optional() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const { coletarCliente } = await import("./services/rodarColetaSocial");
-        return coletarCliente(input.accountId, { apenasStories: input.apenasStories });
+        const { diaDeHoje } = await import("./services/coletaSocial");
+        const r = await coletarCliente(input.accountId, { apenasStories: input.apenasStories });
+        // Registrada como execução própria: a coleta manual não pode ser
+        // confundida com a do robô, senão um clique esconderia o silêncio do
+        // cron — que é justamente o que se quer enxergar.
+        await registrarExecucaoDeColeta({
+          origem: "manual",
+          escopo: input.apenasStories ? "stories" : "geral",
+          dia: diaDeHoje(), tentados: 1,
+          ok: r.status === "ok" ? 1 : 0,
+          parciais: r.status === "parcial" ? 1 : 0,
+          erros: r.status === "erro" ? 1 : 0,
+          pulados: r.status === "pulado" ? 1 : 0,
+          disparadaPor: ctx.user.id,
+          detalhe: [{ accountId: input.accountId, status: r.status, nota: r.nota }],
+        });
+        return r;
       }),
 
     /**
@@ -4143,6 +4159,22 @@ export const appRouter = router({
         }
         return fonte.sondarHorarios({ pageId: vinculo.pageId, instagramUserId: vinculo.instagramUserId });
       }),
+
+    /**
+     * Quando a coleta rodou pela última vez — automática e manual, separadas.
+     *
+     * `protectedProcedure`: saber se o robô rodou hoje é informação de todo
+     * mundo. O DETALHE por conta é diagnóstico, e sai para quem não é admin/dev
+     * pela mesma regra do painel.
+     */
+    ultimasColetas: protectedProcedure.query(async ({ ctx }) => {
+      const r = await ultimasExecucoesDeColeta();
+      const podeVerDetalhe = canManageContent(ctx.user.role);
+      const limpar = (e: typeof r.automatica) => e && ({
+        ...e, detalheJson: podeVerDetalhe ? e.detalheJson : null,
+      });
+      return { automatica: limpar(r.automatica), manual: limpar(r.manual) };
+    }),
 
     /** Páginas do portfólio, com o Instagram vinculado quando existir. */
     paginasDisponiveis: contentProcedure.mutation(async () => {

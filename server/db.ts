@@ -2374,6 +2374,42 @@ export async function midiasDoPeriodo(accountId: number, inicio: string, fim: st
   return Array.from(porMidia.values());
 }
 
+export async function registrarExecucaoDeColeta(a: {
+  origem: "cron" | "manual"; escopo: "geral" | "stories"; dia: string;
+  tentados: number; ok: number; parciais: number; erros: number; pulados: number;
+  disparadaPor?: number | null;
+  detalhe?: Array<{ accountId: number; status: string; nota: string }>;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(socialColetaExecucoes).values({
+    origem: a.origem, escopo: a.escopo, dia: a.dia,
+    tentados: a.tentados, ok: a.ok, parciais: a.parciais, erros: a.erros, pulados: a.pulados,
+    disparadaPor: a.disparadaPor ?? null,
+    detalheJson: a.detalhe ?? null,
+  });
+}
+
+/**
+ * A última execução de cada origem.
+ *
+ * Duas consultas e não uma: "o robô rodou hoje?" e "alguém mexeu à mão?" são
+ * perguntas diferentes, e a mais recente das duas responderia só uma delas —
+ * uma coleta manual esconderia o silêncio do cron, que é o que importa saber.
+ */
+export async function ultimasExecucoesDeColeta(provider = "instagram") {
+  const db = await getDb();
+  if (!db) return { automatica: null, manual: null };
+  const ultima = async (origem: string) => {
+    const r = await db.select().from(socialColetaExecucoes)
+      .where(and(eq(socialColetaExecucoes.provider, provider), eq(socialColetaExecucoes.origem, origem)))
+      .orderBy(desc(socialColetaExecucoes.executadaEm)).limit(1);
+    return r[0] ?? null;
+  };
+  const [automatica, manual] = await Promise.all([ultima("cron"), ultima("manual")]);
+  return { automatica, manual };
+}
+
 /** O primeiro dia medido — é ele que decide quais períodos a tela pode oferecer. */
 export async function primeiroDiaDeColetaSocial(accountId: number): Promise<string | null> {
   const db = await getDb();
@@ -2829,7 +2865,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, socialSnapshots, socialMediaSnapshots, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, socialSnapshots, socialMediaSnapshots, socialColetaExecucoes, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 

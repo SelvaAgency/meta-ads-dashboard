@@ -1395,6 +1395,43 @@ export const socialMediaSnapshots = mysqlTable("social_media_snapshots", {
   idxConta: index("idx_social_midia_conta").on(table.accountId, table.dia),
 }));
 
+/**
+ * Cada execução da coleta — o cron e o botão.
+ *
+ * Tabela própria porque a pergunta é sobre a EXECUÇÃO, não sobre o cliente:
+ * "quantas contas foram coletadas" não cabe numa linha por cliente, e
+ * `social_snapshots` é sobrescrita no mesmo dia — a coleta manual das 10h
+ * apagaria o horário da automática das 06:20, que é justamente o que se quer
+ * saber.
+ *
+ * `origem` separa as duas leituras que o usuário faz: "o robô rodou hoje?" e
+ * "alguém mexeu nisso à mão?". Juntas num campo só, a segunda esconderia a
+ * primeira.
+ */
+export const socialColetaExecucoes = mysqlTable("social_coleta_execucoes", {
+  id: int("id").autoincrement().primaryKey(),
+  provider: varchar("provider", { length: 20 }).default("instagram").notNull(),
+  /** `cron` ou `manual`. */
+  origem: varchar("origem", { length: 10 }).notNull(),
+  /** `geral` (06:20) ou `stories` (18:20). */
+  escopo: varchar("escopo", { length: 10 }).default("geral").notNull(),
+  dia: varchar("dia", { length: 10 }).notNull(),
+
+  tentados: int("tentados").default(0).notNull(),
+  ok: int("ok").default(0).notNull(),
+  parciais: int("parciais").default(0).notNull(),
+  erros: int("erros").default(0).notNull(),
+  pulados: int("pulados").default(0).notNull(),
+
+  /** Quem clicou, quando foi manual. Nulo no cron. */
+  disparadaPor: int("disparadaPor"),
+  /** Resumo por conta, sanitizado. É o detalhe do diagnóstico. */
+  detalheJson: json("detalheJson"),
+  executadaEm: timestamp("executadaEm").defaultNow().notNull(),
+}, (table) => ({
+  idxQuando: index("idx_social_exec").on(table.provider, table.origem, table.executadaEm),
+}));
+
 export const socialAccountTokens = mysqlTable("social_account_tokens", {
   id: int("id").autoincrement().primaryKey(),
   accountId: int("accountId").notNull(),

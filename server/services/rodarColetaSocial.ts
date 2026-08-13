@@ -24,8 +24,8 @@
  */
 import { logger } from "../logger";
 import {
-  primeiroDiaDeColetaSocial, registrarStoriesDoDia, salvarMidiasDoSnapshot,
-  salvarSnapshotSocial, vinculosSociais,
+  primeiroDiaDeColetaSocial, registrarExecucaoDeColeta, registrarStoriesDoDia,
+  salvarMidiasDoSnapshot, salvarSnapshotSocial, vinculosSociais,
 } from "../db";
 import { fonteAgencia } from "./fonteInstagramAgencia";
 import { estadosDasFontes, fonteInstagramDaConta } from "./resolucaoDeFonte";
@@ -124,6 +124,15 @@ export async function rodarColetaSocial(opts: { apenasStories?: boolean } = {}):
     }
     await pausa(1_500);
   }
+
+  // A execução é gravada, e não só logada: o log some do Railway e a tela
+  // precisa responder "o robô rodou hoje?" sem ninguém abrir terminal.
+  await registrarExecucaoDeColeta({
+    origem: "cron",
+    escopo: opts.apenasStories ? "stories" : "geral",
+    dia, tentados: r.tentados, ok: r.ok, parciais: r.parciais, erros: r.erros, pulados: r.pulados,
+    detalhe: r.detalhes,
+  });
 
   logger.info(
     `[ColetaSocial] ${opts.apenasStories ? "stories" : "geral"} ${dia}: ` +
