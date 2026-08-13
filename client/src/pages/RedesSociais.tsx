@@ -241,7 +241,15 @@ export default function RedesSociais() {
       .reduce((soma, [, n]) => soma + n, 0);
     const detalhe = Array.from(porTipo.entries())
       .map(([t, n]) => `${ROTULO_CONTEUDO[t]} ${n}`).join(" · ");
-    return { total: total || null, detalhe: detalhe || "nenhuma no período" };
+    // "Nenhuma publicação encontrada" é afirmação sobre o CLIENTE; só cabe
+    // quando a leitura funcionou. Se ela falhou, a frase honesta é sobre NÓS.
+    const naoConseguimosLer = d?.historico.statusDaConta?.slice(-1)[0]?.midiasIndisponiveis;
+    return {
+      total: total || null,
+      detalhe: detalhe || (naoConseguimosLer
+        ? "Publicações indisponíveis nesta coleta"
+        : "Nenhuma publicação encontrada no período"),
+    };
   })();
 
   // O ranking vem do SNAPSHOT, não do ao vivo: ele precisa de alcance, e a
@@ -280,8 +288,7 @@ export default function RedesSociais() {
   const rotuloCrescimento = rotuloDeEstoque(
     "Crescimento no período", brl(serie[0]?.dia), brl(serie[serie.length - 1]?.dia));
 
-  const statusDoDado = lerStatusDoCliente(
-    d?.historico.statusDaConta ?? [], new Date(), postsNoPeriodo.total ?? 0);
+  const statusDoDado = lerStatusDoCliente(d?.historico.statusDaConta ?? [], new Date());
 
   const leitura = organico
     ? lerVinculo({

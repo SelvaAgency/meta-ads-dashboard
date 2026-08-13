@@ -32,12 +32,13 @@ const snap = (over: Partial<SnapshotDoCliente> = {}): SnapshotDoCliente => ({
   seguidores: 9464,
   storiesVistos: 2,
   metricas: { ...completo },
+  midiasIndisponiveis: false,
   ...over,
 });
 
 describe("tudo coletado", () => {
   it("é verde, com a fonte e a hora", () => {
-    const r = lerStatusDoCliente([snap()], AGORA, 3);
+    const r = lerStatusDoCliente([snap()], AGORA);
     expect(r.nivel).toBe("ok");
     expect(r.atualizadoEm).toBe("hoje às 06:20");
     expect(r.fonte).toBe("Coleta automática");
@@ -47,14 +48,14 @@ describe("tudo coletado", () => {
   });
 
   it("coleta manual se identifica como tal", () => {
-    expect(lerStatusDoCliente([snap({ origem: "manual" })], AGORA, 1).fonte).toBe("Atualização manual");
+    expect(lerStatusDoCliente([snap({ origem: "manual" })], AGORA).fonte).toBe("Atualização manual");
     expect(ROTULO_ORIGEM.cron).toBeTruthy();
     expect(ROTULO_ORIGEM.manual).toBeTruthy();
   });
 
   /** A última VÁLIDA não aparece quando é a mesma da tentativa — seria ruído. */
   it("sem falha, não repete a data como 'última válida'", () => {
-    expect(lerStatusDoCliente([snap()], AGORA, 1).ultimaValidaEm).toBeNull();
+    expect(lerStatusDoCliente([snap()], AGORA).ultimaValidaEm).toBeNull();
   });
 });
 
@@ -77,17 +78,32 @@ describe("coleta parcial", () => {
 
   /** Stories nulo é "não medido", e entra em faltando — nunca como zero. */
   it("stories não medido conta como faltando", () => {
-    const r = lerStatusDoCliente([snap({ storiesVistos: null })], AGORA, 1);
+    const r = lerStatusDoCliente([snap({ storiesVistos: null })], AGORA);
     expect(r.faltando).toContain("stories");
   });
 
   it("zero real de cliques NÃO conta como faltando", () => {
-    const r = lerStatusDoCliente([snap({ metricas: { ...completo, website_clicks: 0 } })], AGORA, 1);
+    const r = lerStatusDoCliente([snap({ metricas: { ...completo, website_clicks: 0 } })], AGORA);
     expect(r.faltando).not.toContain("cliques no link");
   });
 
-  it("nenhuma publicação no período deixa 'publicações' em falta", () => {
-    expect(lerStatusDoCliente([snap()], AGORA, 0).faltando).toContain("publicações");
+  /**
+   * A distinção que faltava: zero publicações LIDAS não é ausência de dado.
+   * Confundir as duas transforma "a conta não publicou" — afirmação sobre o
+   * cliente, que ninguém mediu — em "não conseguimos ler".
+   */
+  it("zero publicações lidas com sucesso NÃO conta como faltando", () => {
+    const r = lerStatusDoCliente([snap({ midiasIndisponiveis: false })], AGORA);
+    expect(r.faltando).not.toContain("publicações");
+    expect(r.atualizados).toContain("publicações");
+    expect(r.nivel).toBe("ok");
+  });
+
+  it("consulta de publicações que falhou é que conta como faltando", () => {
+    const r = lerStatusDoCliente([snap({ midiasIndisponiveis: true })], AGORA);
+    expect(r.faltando).toEqual(["publicações"]);
+    expect(r.nivel).toBe("atencao");
+    expect(r.principal).toContain("parcialmente atualizados");
   });
 });
 
@@ -100,7 +116,7 @@ describe("a última tentativa falhou", () => {
         dia: "2026-08-13", statusColeta: "erro", seguidores: null, metricas: {},
         coletadoEm: new Date("2026-08-13T06:20:00"),
       }),
-    ], AGORA, 0);
+    ], AGORA);
 
     expect(r.nivel).toBe("erro");
     expect(r.atualizadoEm).toBe("hoje às 06:20");
@@ -113,7 +129,7 @@ describe("a última tentativa falhou", () => {
 
   /** Snapshot gravado com status ok mas sem número nenhum também não vale. */
   it("linha sem dado nenhum não passa por válida, mesmo com status ok", () => {
-    const r = lerStatusDoCliente([snap({ statusColeta: "ok", seguidores: null, metricas: {} })], AGORA, 0);
+    const r = lerStatusDoCliente([snap({ statusColeta: "ok", seguidores: null, metricas: {} })], AGORA);
     expect(r.nivel).toBe("erro");
     expect(r.ultimaValidaEm).toBeNull();
     expect(r.secundaria).toContain("Nenhuma coleta trouxe dado");
@@ -125,7 +141,7 @@ describe("a última tentativa falhou", () => {
       snap({ dia: "2026-08-11", statusColeta: "erro", seguidores: null, metricas: {} }),
       snap({ dia: "2026-08-12", statusColeta: "erro", seguidores: null, metricas: {} }),
       snap({ dia: "2026-08-13", statusColeta: "erro", seguidores: null, metricas: {} }),
-    ], AGORA, 0);
+    ], AGORA);
     expect(r.ultimaValidaEm).toBe("09/08 às 06:20");
   });
 });
@@ -134,13 +150,13 @@ describe("ordem e ausência", () => {
   it("a ordem de entrada não importa — a função ordena", () => {
     const antigo = snap({ dia: "2026-08-10", coletadoEm: new Date("2026-08-10T06:20:00") });
     const novo = snap({ dia: "2026-08-13" });
-    expect(lerStatusDoCliente([antigo, novo], AGORA, 1).atualizadoEm)
-      .toBe(lerStatusDoCliente([novo, antigo], AGORA, 1).atualizadoEm);
+    expect(lerStatusDoCliente([antigo, novo], AGORA).atualizadoEm)
+      .toBe(lerStatusDoCliente([novo, antigo], AGORA).atualizadoEm);
   });
 
   /** Cliente novo não é falha — e o texto explica de onde vêm os números. */
   it("sem snapshot nenhum é estado próprio, e não erro", () => {
-    const r = lerStatusDoCliente([], AGORA, 0);
+    const r = lerStatusDoCliente([], AGORA);
     expect(r.nivel).toBe("nunca");
     expect(r.atualizadoEm).toBeNull();
     expect(r.principal).toBe("Dados ainda não coletados");
@@ -167,14 +183,14 @@ describe("a linha do cabeçalho se basta", () => {
   ] as const;
 
   it.each(casos)("%s → %s", (_n, snaps, esperado) => {
-    expect(lerStatusDoCliente(snaps as SnapshotDoCliente[], AGORA, 1).principal).toBe(esperado);
+    expect(lerStatusDoCliente(snaps as SnapshotDoCliente[], AGORA).principal).toBe(esperado);
   });
 
   /** Nenhum estado pode sair com a linha vazia. */
   it("toda combinação produz linha principal", () => {
     for (const snaps of [[], [snap()], [snap({ statusColeta: "parcial", metricas: { reach: 1 } })],
       [snap({ statusColeta: "erro", seguidores: null, metricas: {} })]]) {
-      const r = lerStatusDoCliente(snaps as SnapshotDoCliente[], AGORA, 0);
+      const r = lerStatusDoCliente(snaps as SnapshotDoCliente[], AGORA);
       expect(r.principal, r.nivel).toBeTruthy();
     }
   });
@@ -184,7 +200,7 @@ describe("a linha do cabeçalho se basta", () => {
     const r = lerStatusDoCliente([
       snap({ dia: "2026-08-11", coletadoEm: new Date("2026-08-11T06:20:00") }),
       snap({ dia: "2026-08-13", statusColeta: "erro", seguidores: null, metricas: {} }),
-    ], AGORA, 0);
+    ], AGORA);
     expect(r.principal).not.toContain("hoje");
     // `not.toContain("atualizados")` seria ingênuo: "desatualizados" o contém.
     // O que não pode é a frase AFIRMAR que os dados estão atualizados.
@@ -207,7 +223,7 @@ describe("hora e origem vêm da MESMA coleta", () => {
   it("a hora exibida é a do `coletadoEm` da linha, seja qual for", () => {
     const r = lerStatusDoCliente([snap({
       origem: "manual", coletadoEm: new Date("2026-08-13T12:57:00"),
-    })], AGORA, 1);
+    })], AGORA);
     expect(r.atualizadoEm).toBe("hoje às 12:57");
     expect(r.fonte).toBe("Atualização manual");
     expect(r.principal).toContain("12:57");
@@ -217,7 +233,7 @@ describe("hora e origem vêm da MESMA coleta", () => {
   it("origem manual nunca aparece com a hora do cron", () => {
     const r = lerStatusDoCliente([snap({
       origem: "manual", coletadoEm: new Date("2026-08-13T12:57:00"),
-    })], AGORA, 1);
+    })], AGORA);
     expect(r.principal).not.toContain("06:20");
   });
 });

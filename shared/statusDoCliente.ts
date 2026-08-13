@@ -31,6 +31,15 @@ export interface SnapshotDoCliente {
   seguidores: number | null;
   storiesVistos: number | null;
   metricas: Record<string, number>;
+  /**
+   * A consulta de publicações falhou nesta coleta?
+   *
+   * Diferente de "a conta não publicou". Contar zero e chamar de ausência de
+   * dado confunde as duas — e a segunda é uma afirmação sobre o cliente que a
+   * gente não mediu. Um booleano, e não a mensagem de erro: a disponibilidade
+   * é para todos, o motivo é diagnóstico.
+   */
+  midiasIndisponiveis?: boolean;
 }
 
 /** O que a tela lista como "dados atualizados". Ordem é a de importância. */
@@ -72,11 +81,14 @@ function trouxeDado(s: SnapshotDoCliente): boolean {
   return s.seguidores !== null || Object.keys(s.metricas ?? {}).length > 0;
 }
 
-function camposDe(s: SnapshotDoCliente, publicacoesNoDia: number): { atualizados: string[]; faltando: string[] } {
+function camposDe(s: SnapshotDoCliente): { atualizados: string[]; faltando: string[] } {
   const tem = (chave: string): boolean => {
     if (chave === "seguidores") return s.seguidores !== null;
     if (chave === "stories") return s.storiesVistos !== null;
-    if (chave === "publicacoes") return publicacoesNoDia > 0;
+    // A pergunta é "conseguimos LER as publicações?", e não "existe alguma".
+    // Zero publicações lidas com sucesso é resposta — a mesma regra que faz
+    // `website_clicks: 0` contar como medido, e não como ausente.
+    if (chave === "publicacoes") return !s.midiasIndisponiveis;
     return typeof s.metricas?.[chave] === "number";
   };
   const atualizados: string[] = [];
@@ -95,7 +107,6 @@ function camposDe(s: SnapshotDoCliente, publicacoesNoDia: number): { atualizados
 export function lerStatusDoCliente(
   snapshots: SnapshotDoCliente[],
   agora: Date,
-  publicacoesNoDia = 0,
 ): StatusDoCliente {
   const ordenados = snapshots.slice().sort((a, b) => b.dia.localeCompare(a.dia));
   const ultimo = ordenados[0];
@@ -133,7 +144,7 @@ export function lerStatusDoCliente(
     };
   }
 
-  const { atualizados, faltando } = camposDe(ultimo, publicacoesNoDia);
+  const { atualizados, faltando } = camposDe(ultimo);
   if (faltando.length > 0) {
     return {
       // "Parcialmente atualizados" descreve; "atenção" alarmaria. A maior parte

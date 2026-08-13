@@ -4378,6 +4378,10 @@ export const appRouter = router({
           seguidores: l.followersCount,
           storiesVistos: l.storiesVistos,
           metricas: (l.metricasJson ?? {}) as Record<string, number>,
+          // Um booleano, e não a recusa inteira: "a consulta falhou" é fato de
+          // disponibilidade e vale para todos; o motivo é diagnóstico e fica
+          // atrás de `podeVerDiagnostico`, como o resto.
+          midiasIndisponiveis: !!((l.recusadasJson ?? {}) as Record<string, string>).midias,
         }));
 
         const historico = {
