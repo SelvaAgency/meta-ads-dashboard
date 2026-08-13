@@ -121,6 +121,10 @@ export async function coletarCliente(
     nota: r.status === "erro" && r.erro
       ? r.erro
       : `${r.followersCount ?? "?"} seguidores · ${r.midias.length} publicações · ${Object.keys(r.recusadas).length} recusa(s)` +
+        // Só aparece quando o caminho aninhado NÃO serviu. No caminho normal a
+        // linha ficaria poluída por uma informação sempre igual; quando ele
+        // falha, é ela que explica por que as chamadas daquela conta pularam.
+        (r.caminhoDasMidias !== "aninhado" ? ` · mídias via ${r.caminhoDasMidias}` : "") +
         (r.erro ? ` · ${r.erro}` : ""),
     chamadas: r.chamadas, chamadasComErro: r.chamadasComErro,
   };

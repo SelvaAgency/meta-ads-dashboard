@@ -44,11 +44,97 @@ const METRICAS_PERFIL: Array<{ nome: string; params: Record<string, string> }> =
   { nome: "follower_count", params: { period: "day" } },
 ];
 
+/**
+ * Agrupa as métricas de perfil pela FORMA da chamada.
+ *
+ * Métricas com os mesmos parâmetros cabem numa chamada só. As que pedem
+ * parâmetros diferentes — `follower_count` recusa `metric_type` — ficam em
+ * grupos próprios. Agrupar por conveniência, e não pela forma medida, faria
+ * uma métrica exigente derrubar o lote inteiro.
+ */
+function gruposDePerfil(): Array<{
+  params: Record<string, string>;
+  metricas: typeof METRICAS_PERFIL;
+}> {
+  const porForma = new Map<string, { params: Record<string, string>; metricas: typeof METRICAS_PERFIL }>();
+  for (const m of METRICAS_PERFIL) {
+    const chave = JSON.stringify(Object.entries(m.params).sort());
+    const grupo = porForma.get(chave) ?? { params: m.params, metricas: [] };
+    grupo.metricas.push(m);
+    porForma.set(chave, grupo);
+  }
+  return Array.from(porForma.values());
+}
+
+/**
+ * Lê uma resposta em lote, casando cada item pelo `name`.
+ *
+ * O que foi PEDIDO e não voltou entra em `recusadas`. Em lote a Meta responde
+ * só com o que aceitou, então a ausência é silenciosa: sem esta regra, a
+ * métrica sumida viraria `undefined` e depois `null` — indistinguível de "não
+ * perguntamos". Os quatro estados morreriam aqui, sem ninguém notar.
+ */
+function lerLoteDeInsights(
+  dados: Array<Record<string, unknown>>, pedidas: string[],
+  rotulo = "não veio na resposta do lote",
+): { valores: Record<string, number>; recusadas: Record<string, string> } {
+  const valores: Record<string, number> = {};
+  const recusadas: Record<string, string> = {};
+  for (const nome of pedidas) {
+    const item = dados.find((d) => String(d.name ?? "") === nome);
+    if (!item) {
+      recusadas[nome] = rotulo;
+      continue;
+    }
+    // As duas formas medidas: perfil responde em `total_value`, mídia em
+    // `values[]`. Aceitar as duas evita um leitor por endpoint.
+    const v = (item.total_value as { value?: unknown } | undefined)?.value
+      ?? (item.values as Array<{ value?: unknown }> | undefined)?.[0]?.value;
+    if (typeof v === "number") valores[nome] = v;
+    else recusadas[nome] = "respondeu sem valor";
+  }
+  return { valores, recusadas };
+}
+
 const CAMPOS_MIDIA =
   "id,caption,media_type,media_product_type,timestamp,permalink,like_count,comments_count";
 
 /** Métricas por publicação, todas confirmadas na sondagem. */
-const METRICAS_MIDIA = ["reach", "views", "likes", "saved", "shares", "comments", "total_interactions"];
+export const METRICAS_MIDIA = ["reach", "views", "likes", "saved", "shares", "comments", "total_interactions"];
+
+/**
+ * A listagem com os insights ANINHADOS — o caminho que derruba 175 chamadas
+ * para zero extras.
+ *
+ * Medido em 13/08: 25 de 25 mídias vieram com insights, em carrossel, reel e
+ * imagem, com as sete métricas e no formato que o normalizador já lê.
+ *
+ * O risco conhecido é que um campo inválido derrube a listagem INTEIRA — e aí o
+ * cliente ficaria sem publicação nenhuma, que é pior do que o desenho antigo.
+ * Por isso existe a queda em cascata logo abaixo.
+ */
+const CAMPOS_MIDIA_COM_INSIGHTS =
+  `${CAMPOS_MIDIA},insights.metric(${METRICAS_MIDIA.join(",")})`;
+
+/** Por onde as métricas de mídia vieram — entra no diagnóstico da rodada. */
+export type CaminhoDasMidias = "aninhado" | "lote" | "individual" | "nenhum";
+
+/**
+ * Lê os insights que vieram grudados na mídia.
+ *
+ * A métrica PEDIDA e não devolvida entra em `recusadas`, e não some: em lote a
+ * Meta responde só com o que aceitou, e mapear apenas o que chegou faria a
+ * ausente virar `undefined` e depois `null` — indistinguível de "não
+ * perguntamos". Os quatro estados morreriam aqui, em silêncio.
+ */
+function lerInsightsAninhados(ins: unknown, rotulo = "não veio na resposta aninhada"): {
+  valores: Record<string, number>; recusadas: Record<string, string>;
+} {
+  const dados = Array.isArray((ins as { data?: unknown })?.data)
+    ? ((ins as { data: Array<Record<string, unknown>> }).data)
+    : [];
+  return lerLoteDeInsights(dados, METRICAS_MIDIA, rotulo);
+}
 
 export interface MidiaColetada {
   mediaId: string;
@@ -68,6 +154,8 @@ export interface MidiaColetada {
 }
 
 export interface ColetaSocial {
+  /** Por onde as métricas de mídia vieram nesta coleta. */
+  caminhoDasMidias: CaminhoDasMidias;
   /** Quantas chamadas a Meta recebeu por esta conta — a conta que faltava. */
   chamadas: number;
   /** Quantas delas falharam. Separa "poucas chamadas ruins" de "tudo caiu". */
@@ -121,7 +209,7 @@ export async function coletarDeInstagram(
   const consultar = consultarContado;
 
   const r: ColetaSocial = {
-    chamadas: 0, chamadasComErro: 0,
+    caminhoDasMidias: "nenhum", chamadas: 0, chamadasComErro: 0,
     followersCount: null, followsCount: null, mediaCount: null,
     metricas, recusadas, followTypeBreakdownRaw: null,
     midias: [], storiesVistos: null, status: "ok", erro: null,
@@ -158,18 +246,43 @@ export async function coletarDeInstagram(
     recusadas["perfil"] = erroDe(e);
   }
 
-  // ── Insights de perfil ────────────────────────────────────────────────────
-  for (const { nome, params } of METRICAS_PERFIL) {
-    try {
-      const resp = await consultar<{ data?: Array<Record<string, unknown>> }>(
-        `${base}/insights`, { metric: nome, ...params });
-      const item = resp.data?.[0];
-      const v = (item?.total_value as { value?: unknown } | undefined)?.value
-        ?? (item?.values as Array<{ value?: unknown }> | undefined)?.[0]?.value;
-      if (typeof v === "number") metricas[nome] = v;
-      else recusadas[nome] = "respondeu sem valor";
-    } catch (e) {
-      recusadas[nome] = erroDe(e);
+  // ── Insights de perfil, em lotes por forma de chamada ─────────────────────
+  //
+  // As sete métricas viravam sete chamadas. Seis delas pedem exatamente os
+  // mesmos parâmetros (`period=day&metric_type=total_value`) e cabem numa só;
+  // `follower_count` recusa `metric_type` e continua sozinha, porque agrupar
+  // por conveniência derrubaria o lote inteiro por causa dela.
+  //
+  // Se o lote cair, cada métrica é pedida individualmente — uma métrica ruim
+  // não pode levar as outras cinco junto.
+  for (const grupo of gruposDePerfil()) {
+    const nomes = grupo.metricas.map((m) => m.nome);
+    if (nomes.length > 1) {
+      try {
+        const resp = await consultar<{ data?: Array<Record<string, unknown>> }>(
+          `${base}/insights`, { metric: nomes.join(","), ...grupo.params });
+        const lido = lerLoteDeInsights(resp.data ?? [], nomes);
+        Object.assign(metricas, lido.valores);
+        Object.assign(recusadas, lido.recusadas);
+        continue;
+      } catch (e) {
+        recusadas["insights_perfil_lote"] = erroDe(e);
+      }
+    }
+    // Um a um: o caminho antigo, agora só quando o lote falha ou o grupo tem
+    // uma métrica só.
+    for (const { nome, params } of grupo.metricas) {
+      try {
+        const resp = await consultar<{ data?: Array<Record<string, unknown>> }>(
+          `${base}/insights`, { metric: nome, ...params });
+        const item = resp.data?.[0];
+        const v = (item?.total_value as { value?: unknown } | undefined)?.value
+          ?? (item?.values as Array<{ value?: unknown }> | undefined)?.[0]?.value;
+        if (typeof v === "number") metricas[nome] = v;
+        else recusadas[nome] = "respondeu sem valor";
+      } catch (e) {
+        recusadas[nome] = erroDe(e);
+      }
     }
   }
 
@@ -185,33 +298,76 @@ export async function coletarDeInstagram(
     recusadas["follows_and_unfollows"] = erroDe(e);
   }
 
-  // ── Mídias ────────────────────────────────────────────────────────────────
+  // ── Mídias, com os insights grudados ──────────────────────────────────────
+  //
+  // Cascata de três degraus, e ela existe por causa de um risco conhecido: um
+  // campo inválido derruba a listagem INTEIRA, e aí o cliente ficaria sem
+  // publicação nenhuma — pior que o desenho antigo, onde uma métrica morta
+  // custava uma métrica.
+  //
+  //   1. listagem + insights aninhados      1 chamada     (o caminho medido)
+  //   2. listagem pura + lote por mídia     1 + N
+  //   3. listagem pura + métrica por métrica 1 + 7N       (o desenho antigo)
+  //
+  // Cada degrau só é tentado se o anterior falhar, então o custo normal é 1.
+  const limite = String(opts.limiteMidias ?? 25);
   let lista: Array<Record<string, unknown>> = [];
+  let aninhado = false;
   try {
     const resp = await consultar<{ data?: Array<Record<string, unknown>> }>(
-      `${base}/media`, { fields: CAMPOS_MIDIA, limit: String(opts.limiteMidias ?? 25) });
+      `${base}/media`, { fields: CAMPOS_MIDIA_COM_INSIGHTS, limit: limite });
     lista = resp.data ?? [];
+    aninhado = true;
+    r.caminhoDasMidias = "aninhado";
   } catch (e) {
-    recusadas["midias"] = erroDe(e);
+    // Degrau 2: a listagem sem insights quase sempre passa, e é ela que salva
+    // as publicações mesmo quando os números não vêm.
+    recusadas["midias_aninhadas"] = erroDe(e);
+    try {
+      const resp = await consultar<{ data?: Array<Record<string, unknown>> }>(
+        `${base}/media`, { fields: CAMPOS_MIDIA, limit: limite });
+      lista = resp.data ?? [];
+      r.caminhoDasMidias = "lote";
+    } catch (e2) {
+      recusadas["midias"] = erroDe(e2);
+    }
   }
 
   for (const m of lista) {
     const mediaId = String(m.id ?? "");
     if (!mediaId) continue;
-    const recusasDaMidia: Record<string, string> = {};
-    const valores: Record<string, number> = {};
+    let recusasDaMidia: Record<string, string> = {};
+    let valores: Record<string, number> = {};
 
-    for (const metrica of METRICAS_MIDIA) {
+    if (aninhado) {
+      // Zero chamadas: os números vieram junto da própria mídia.
+      const lido = lerInsightsAninhados(m.insights);
+      valores = lido.valores;
+      recusasDaMidia = lido.recusadas;
+    } else {
+      // Degrau 2: as sete métricas numa chamada. Se a Meta recusar o lote por
+      // causa de uma delas, o degrau 3 descobre QUAL — pedindo uma a uma.
       try {
         const resp = await consultar<{ data?: Array<Record<string, unknown>> }>(
-          `${mediaId}/insights`, { metric: metrica });
-        const item = resp.data?.[0];
-        const v = (item?.values as Array<{ value?: unknown }> | undefined)?.[0]?.value
-          ?? (item?.total_value as { value?: unknown } | undefined)?.value;
-        if (typeof v === "number") valores[metrica] = v;
-        else recusasDaMidia[metrica] = "respondeu sem valor";
-      } catch (e) {
-        recusasDaMidia[metrica] = erroDe(e);
+          `${mediaId}/insights`, { metric: METRICAS_MIDIA.join(",") });
+        const lido = lerInsightsAninhados({ data: resp.data ?? [] }, "não veio na resposta do lote");
+        valores = lido.valores;
+        recusasDaMidia = lido.recusadas;
+      } catch {
+        r.caminhoDasMidias = "individual";
+        for (const metrica of METRICAS_MIDIA) {
+          try {
+            const resp = await consultar<{ data?: Array<Record<string, unknown>> }>(
+              `${mediaId}/insights`, { metric: metrica });
+            const item = resp.data?.[0];
+            const v = (item?.values as Array<{ value?: unknown }> | undefined)?.[0]?.value
+              ?? (item?.total_value as { value?: unknown } | undefined)?.value;
+            if (typeof v === "number") valores[metrica] = v;
+            else recusasDaMidia[metrica] = "respondeu sem valor";
+          } catch (e) {
+            recusasDaMidia[metrica] = erroDe(e);
+          }
+        }
       }
     }
 

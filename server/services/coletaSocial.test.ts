@@ -15,7 +15,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it, vi } from "vitest";
-import { coletarDeInstagram, diaDeHoje } from "./coletaSocial";
+import { coletarDeInstagram, diaDeHoje, METRICAS_MIDIA } from "./coletaSocial";
 import type { Consultar } from "./instagramSondagem";
 
 const BREAKDOWN = [{
@@ -26,13 +26,41 @@ const BREAKDOWN = [{
   ],
 }];
 
-/** Responde como a Graph API respondeu na sondagem real de 12/08. */
+const VALORES: Record<string, number> = {
+  reach: 287, profile_views: 30, website_clicks: 0, profile_links_taps: 0,
+  total_interactions: 13, views: 487,
+  saved: 0, shares: 1, likes: 6, comments: 0,
+};
+
+const MIDIA_PADRAO = {
+  id: "18001", caption: "Bastidores do ensaio", media_type: "VIDEO",
+  media_product_type: "FEED", timestamp: "2026-08-10T21:00:00-0300",
+  permalink: "https://instagram.com/p/x", like_count: 6, comments_count: 0,
+};
+
+/**
+ * Responde como a Graph API respondeu nas sondagens reais de 12 e 13/08.
+ *
+ * Duas assimetrias medidas, e elas são o que este fake existe para reproduzir:
+ *
+ *   PERFIL EM LOTE   uma métrica inválida derruba a chamada INTEIRA — é por
+ *                    isso que existe a queda para pedidos individuais
+ *   MÍDIA ANINHADA   a métrica que não vale para aquele tipo simplesmente NÃO
+ *                    VEM, em silêncio, e a listagem continua de pé
+ *
+ * A segunda é a perigosa: sem a regra do "pedida e não devolvida", a ausência
+ * silenciosa viraria `null` e ficaria indistinguível de "não perguntamos".
+ */
 function api(opts: {
   metricasRecusadas?: string[];
   semStories?: boolean;
   storiesErro?: boolean;
   perfilErro?: boolean;
   midiasErro?: boolean;
+  /** A listagem com `insights.metric(...)` é recusada; a listagem pura passa. */
+  semAninhamento?: boolean;
+  /** Qualquer chamada com mais de uma métrica é recusada. */
+  loteRecusado?: boolean;
   midias?: Array<Record<string, unknown>>;
 } = {}): Consultar {
   const recusadas = new Set(opts.metricasRecusadas ?? []);
@@ -42,31 +70,46 @@ function api(opts: {
       return { data: opts.semStories ? [] : [{ id: "s1" }, { id: "s2" }, { id: "s3" }] } as never;
     }
     if (caminho.includes("/insights")) {
-      const m = params.metric;
-      if (recusadas.has(m)) throw new Error(`Meta (100): (#100) métrica ${m} indisponível`);
-      if (m === "follows_and_unfollows") {
+      const pedidas = (params.metric ?? "").split(",").filter(Boolean);
+      if (pedidas.length > 1 && opts.loteRecusado) {
+        throw new Error("Meta (100): (#100) lote recusado");
+      }
+      // A recusa derruba a chamada inteira, e não só a métrica ruim.
+      const ruim = pedidas.find((m) => recusadas.has(m));
+      if (ruim) throw new Error(`Meta (100): (#100) métrica ${ruim} indisponível`);
+      if (pedidas[0] === "follows_and_unfollows") {
         return { data: [{ total_value: { breakdowns: BREAKDOWN } }] } as never;
       }
-      if (m === "follower_count") return { data: [{ values: [{ value: 1 }] }] } as never;
-      const valores: Record<string, number> = {
-        reach: 287, profile_views: 30, website_clicks: 0, profile_links_taps: 0,
-        total_interactions: 13, views: 487,
-        saved: 0, shares: 1, likes: 6, comments: 0,
-      };
-      return { data: [{ total_value: { value: valores[m] ?? 0 } }] } as never;
+      if (pedidas[0] === "follower_count") return { data: [{ values: [{ value: 1 }] }] } as never;
+      return { data: pedidas.map((m) => ({ name: m, total_value: { value: VALORES[m] ?? 0 } })) } as never;
     }
     if (caminho.includes("/media")) {
       if (opts.midiasErro) throw new Error("Meta (100): mídias indisponíveis");
-      return { data: opts.midias ?? [{
-        id: "18001", caption: "Bastidores do ensaio", media_type: "VIDEO",
-        media_product_type: "FEED", timestamp: "2026-08-10T21:00:00-0300",
-        permalink: "https://instagram.com/p/x", like_count: 6, comments_count: 0,
-      }] } as never;
+      const aninhado = (params.fields ?? "").includes("insights.metric(");
+      if (aninhado && opts.semAninhamento) {
+        throw new Error("Meta (100): (#100) campo insights inválido");
+      }
+      const lista = opts.midias ?? [MIDIA_PADRAO];
+      if (!aninhado) return { data: lista } as never;
+      // Aninhado: a métrica que não vale para o tipo some da resposta, calada.
+      return {
+        data: lista.map((m) => ({
+          ...m,
+          insights: {
+            data: METRICAS_MIDIA.filter((n) => !recusadas.has(n))
+              .map((n) => ({ name: n, values: [{ value: VALORES[n] ?? 0 }] })),
+          },
+        })),
+      } as never;
     }
     if (opts.perfilErro) throw new Error("Meta (190): token inválido");
     return { followers_count: 9464, follows_count: 1383, media_count: 587 } as never;
   }) as Consultar;
 }
+
+/** Os caminhos consultados, na ordem — o fake é um mock do vitest. */
+const caminhosDe = (c: Consultar) =>
+  (c as unknown as { mock: { calls: Array<[string, Record<string, string>]> } }).mock.calls;
 
 describe("a coleta traz o que a sondagem provou existir", () => {
   it("perfil, métricas e publicação", async () => {
@@ -84,8 +127,7 @@ describe("a coleta traz o que a sondagem provou existir", () => {
   it("follower_count é pedido SEM metric_type", async () => {
     const c = api();
     await coletarDeInstagram(c, "123");
-    const chamadas = (c as unknown as { mock: { calls: Array<[string, Record<string, string>]> } }).mock.calls;
-    const fc = chamadas.find(([, p]) => p.metric === "follower_count");
+    const fc = caminhosDe(c).find(([, p]) => p.metric === "follower_count");
     expect(fc?.[1].metric_type).toBeUndefined();
     expect(fc?.[1].period).toBe("day");
   });
@@ -132,11 +174,34 @@ describe("nenhum zero de consolo", () => {
     expect(r.recusadas.stories).toBeUndefined();
   });
 
-  it("métrica de publicação recusada fica null, com o motivo por publicação", async () => {
+  /**
+   * O risco novo do caminho aninhado: a métrica ausente vem CALADA, sem erro. Se
+   * o coletor mapeasse só o que chegou, ela viraria `null` — e `null` sem motivo
+   * quer dizer "não perguntamos". Os dois primeiros estados colapsariam num só.
+   */
+  it("métrica de publicação ausente no aninhado é recusa, e não null mudo", async () => {
     const r = await coletarDeInstagram(api({ metricasRecusadas: ["saved"] }), "123");
     expect(r.midias[0].saves).toBeNull();
-    expect(r.midias[0].recusadas.saved).toBeTruthy();
+    expect(r.midias[0].recusadas.saved).toContain("não veio");
     expect(r.midias[0].reach).toBe(287);
+  });
+
+  /** O mesmo silêncio existe no lote de perfil, e a regra ali é a mesma. */
+  it("métrica de perfil ausente no lote entra em recusadas", async () => {
+    const c: Consultar = vi.fn(async (caminho: string, params: Record<string, string>) => {
+      if (caminho.includes("/stories")) return { data: [] } as never;
+      if (caminho.includes("/media")) return { data: [] } as never;
+      if (caminho.includes("/insights")) {
+        // Devolve tudo menos `views` — sem erro nenhum, como a Meta faz.
+        const pedidas = (params.metric ?? "").split(",").filter((m) => m !== "views");
+        return { data: pedidas.map((m) => ({ name: m, total_value: { value: VALORES[m] ?? 0 } })) } as never;
+      }
+      return { followers_count: 10 } as never;
+    }) as Consultar;
+    const r = await coletarDeInstagram(c, "123");
+    expect(r.metricas.views).toBeUndefined();
+    expect(r.recusadas.views).toContain("não veio");
+    expect(r.metricas.reach).toBe(287);
   });
 });
 
@@ -195,7 +260,7 @@ describe("a passada só de stories", () => {
   it("não consulta perfil, insights nem mídias", async () => {
     const c = api();
     const r = await coletarDeInstagram(c, "123", { apenasStories: true });
-    const caminhos = (c as unknown as { mock: { calls: string[][] } }).mock.calls.map((x) => x[0]);
+    const caminhos = caminhosDe(c).map((x) => x[0]);
     expect(caminhos).toEqual(["123/stories"]);
     expect(r.storiesVistos).toBe(3);
     expect(r.status).toBe("ok");
@@ -211,8 +276,82 @@ describe("a passada só de stories", () => {
   it("stories são lidos ANTES de qualquer outra coisa", async () => {
     const c = api();
     await coletarDeInstagram(c, "123");
-    const caminhos = (c as unknown as { mock: { calls: string[][] } }).mock.calls.map((x) => x[0]);
+    const caminhos = caminhosDe(c).map((x) => x[0]);
     expect(caminhos[0]).toBe("123/stories");
+  });
+});
+
+describe("o caminho aninhado, e a cascata que protege contra ele", () => {
+  const tresMidias = [
+    { ...MIDIA_PADRAO, id: "1" },
+    { ...MIDIA_PADRAO, id: "2", media_type: "CAROUSEL_ALBUM" },
+    { ...MIDIA_PADRAO, id: "3", media_type: "VIDEO", media_product_type: "REELS" },
+  ];
+
+  /**
+   * A conta que motivou a mudança: eram 186 chamadas por cliente, e a Meta
+   * respondia com código de volume nas últimas contas da fila.
+   */
+  it("a coleta inteira cabe em 6 chamadas, com quantas publicações forem", async () => {
+    const cAninhado = api({ midias: tresMidias });
+    const r3 = await coletarDeInstagram(cAninhado, "123");
+
+    // stories · perfil · lote de 6 métricas · follower_count ·
+    // follows_and_unfollows · listagem com insights = 6
+    expect(r3.chamadas).toBe(6);
+    expect(r3.caminhoDasMidias).toBe("aninhado");
+    expect(r3.midias).toHaveLength(3);
+    // O número NÃO cresce com a quantidade de publicações — era isso que
+    // custava 175 chamadas antes.
+    expect(caminhosDe(cAninhado).filter(([p]) => p.includes("/insights"))).toHaveLength(3);
+  });
+
+  it("nenhuma métrica se perde no aninhamento", async () => {
+    const r = await coletarDeInstagram(api({ midias: tresMidias }), "123");
+    for (const m of r.midias) {
+      expect(m.reach).toBe(287);
+      expect(m.views).toBe(487);
+      expect(m.shares).toBe(1);
+      expect(m.saves).toBe(0);
+      expect(m.totalInteractions).toBe(13);
+      expect(m.recusadas).toEqual({});
+    }
+  });
+
+  /**
+   * O risco que a cascata existe para cobrir: um campo inválido derruba a
+   * listagem INTEIRA. Sem o degrau 2, o cliente ficaria sem publicação nenhuma
+   * — pior que o desenho antigo, onde uma métrica morta custava uma métrica.
+   */
+  it("listagem aninhada recusada não custa as publicações", async () => {
+    const c = api({ semAninhamento: true, midias: tresMidias });
+    const r = await coletarDeInstagram(c, "123");
+    expect(r.midias).toHaveLength(3);
+    expect(r.midias[0].reach).toBe(287);
+    expect(r.caminhoDasMidias).toBe("lote");
+    expect(r.recusadas.midias_aninhadas).toBeTruthy();
+    // A listagem foi refeita sem insights, e cada mídia pediu seu lote.
+    expect(r.chamadas).toBe(10);
+  });
+
+  /** Degrau 3: o desenho antigo, agora só quando os dois de cima falham. */
+  it("lote recusado cai para métrica por métrica, sem perder nada", async () => {
+    const r = await coletarDeInstagram(
+      api({ semAninhamento: true, loteRecusado: true, midias: tresMidias }), "123");
+    expect(r.caminhoDasMidias).toBe("individual");
+    expect(r.midias[0].reach).toBe(287);
+    // O perfil também caiu para individual, e as métricas continuam lá.
+    expect(r.metricas.reach).toBe(287);
+    expect(r.metricas.profile_views).toBe(30);
+  });
+
+  /** Perder cinco métricas boas por causa de uma ruim seria o pior desfecho. */
+  it("uma métrica de perfil inválida não leva as outras junto", async () => {
+    const r = await coletarDeInstagram(api({ metricasRecusadas: ["profile_views"] }), "123");
+    expect(r.metricas.reach).toBe(287);
+    expect(r.metricas.views).toBe(487);
+    expect(r.metricas.total_interactions).toBe(13);
+    expect(r.metricas.profile_views).toBeUndefined();
   });
 });
 
