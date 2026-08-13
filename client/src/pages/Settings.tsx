@@ -16,6 +16,7 @@ import { FotoDoCliente } from "@/components/FotoDoCliente";
 import { pediuConexoes } from "@/pages/hub/trackerRoutes";
 import { RedesVinculos } from "@/components/conexoes/RedesVinculos";
 import { InstagramConexao } from "@/components/conexoes/InstagramConexao";
+import { LinkedInFase0 } from "@/components/conexoes/LinkedInFase0";
 import { GmailVinculos } from "@/components/conexoes/GmailVinculos";
 import { toast } from "sonner";
 import {
@@ -768,8 +769,15 @@ function ConexoesPanel() {
           coisa principal — foi ele que por anos foi confundido com conexão. */}
       <SecaoConexao titulo="Redes sociais" subtitulo="Instagram conectado por token próprio · demais redes, cadastro de perfil">
         <InstagramConexao />
+        {/* LinkedIn entra ANTES do cadastro manual, e depois do Instagram: ele
+            já não é só um @ cadastrado (tem token e sondagem), mas ainda não é
+            integração (não coleta nada). A ordem conta essa diferença sem
+            precisar de rótulo. */}
         <div className="border-t border-border pt-3 mt-1">
-          <p className="text-xs font-semibold text-muted-foreground mb-2">Outros perfis (LinkedIn, YouTube)</p>
+          <LinkedInFase0 />
+        </div>
+        <div className="border-t border-border pt-3 mt-1">
+          <p className="text-xs font-semibold text-muted-foreground mb-2">Outros perfis (YouTube e demais redes)</p>
           <RedesVinculos />
         </div>
       </SecaoConexao>

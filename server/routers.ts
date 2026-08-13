@@ -345,7 +345,9 @@ import { normalizarHost } from "./services/monitoramento/dominioRegistravel";
 import { classificarContas, idLimpo, podeImportarSemForcar, ROTULO_STATUS } from "@shared/importacaoContas";
 import { temIntegracao } from "@shared/plataformasLoja";
 import { testarConexaoWix, validarSiteId, validarUrlWix } from "./services/wix";
-import { diagnosticar as diagnosticarInstagram } from "./services/instagram";
+import { diagnosticar as diagnosticarInstagram, impressaoDe } from "./services/instagram";
+import { testarTokenLinkedIn } from "./services/linkedin";
+import { sondarLinkedIn } from "./services/sondagemLinkedIn";
 import { fonteAgencia } from "./services/fonteInstagramAgencia";
 import { diasAte } from "./services/fonteInstagramConta";
 import { estadosDasFontes, fonteInstagramDaConta } from "./services/resolucaoDeFonte";
@@ -4097,6 +4099,77 @@ export const appRouter = router({
         const r = await fonte.sondar({ pageId: vinculo?.pageId, instagramUserId: vinculo?.instagramUserId });
         return { ...r, fonteUsada: escolha.usada, texto: `fonte: ${escolha.usada}\n${r.texto}` };
       }),
+
+    /**
+     * ── LinkedIn · Fase 0 ────────────────────────────────────────────────
+     *
+     * Só medição. Nenhuma tabela de dados, nenhum coletor, nenhuma tela de
+     * cliente — pelo mesmo motivo que valeu no Instagram: o modelo de dados
+     * não pode nascer de documentação.
+     *
+     * A credencial reaproveita `social_credentials` com `provider="linkedin"`.
+     * A coluna já existia justamente para isto, e foi criada com o comentário
+     * de que o `limit(1)` sem filtro devolveria a credencial errada no dia da
+     * segunda rede. Hoje é esse dia, e não houve migração nenhuma.
+     */
+    linkedin: router({
+      credencial: contentProcedure.query(() => credencialSocialInfo("linkedin")),
+
+      /**
+       * Grava o token do LinkedIn.
+       *
+       * O portão é MAIS FROUXO que o do Instagram, de propósito: lá o token ia
+       * direto coletar em produção; aqui ele existe para ser medido. Token sem
+       * escopo é exatamente o caso que a Fase 0 precisa gravar para depois
+       * dizer qual escopo falta. Só token morto é barrado.
+       */
+      salvarCredencial: contentProcedure
+        .input(z.object({ token: z.string().min(20) }))
+        .mutation(async ({ ctx, input }) => {
+          const t = await testarTokenLinkedIn(input.token);
+          if (!t.ok) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `O token não respondeu a nenhuma chamada:\n${t.texto}` });
+          }
+          const impressao = await impressaoDe(input.token);
+          await salvarCredencialSocial(input.token, impressao, ctx.user.id, undefined, "linkedin");
+          await registrarTesteSocial(true, t.texto, "linkedin");
+          return { impressao, diagnostico: t.texto };
+        }),
+
+      /**
+       * A sondagem inteira. Roda na mão e demora — são dezenas de chamadas, uma
+       * por item, porque em lote o item culpado fica escondido atrás dos
+       * inocentes (a mesma razão da Fase 0 da Meta).
+       *
+       * `clientId` e `clientSecret` são opcionais e NÃO são gravados: servem
+       * uma vez, para o LinkedIn dizer quais escopos o token tem. Sem eles a
+       * sondagem roda igual, só que os escopos passam a ser deduzidos do que
+       * falha — que é justamente a dedução que a introspecção evita.
+       */
+      sondar: contentProcedure
+        .input(z.object({
+          clientId: z.string().max(200).optional(),
+          clientSecret: z.string().max(400).optional(),
+          organizationId: z.string().max(40).optional(),
+        }).optional())
+        .mutation(async ({ input }) => {
+          const token = await tokenSocial("linkedin");
+          if (!token) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Nenhuma credencial de LinkedIn cadastrada. Cole o token em Conexões → Redes sociais → LinkedIn.",
+            });
+          }
+          const r = await sondarLinkedIn({
+            token,
+            clientId: input?.clientId || undefined,
+            clientSecret: input?.clientSecret || undefined,
+            organizationId: input?.organizationId || undefined,
+          });
+          await registrarTesteSocial(r.ok, r.texto, "linkedin");
+          return r;
+        }),
+    }),
 
     /**
      * Roda a coleta de UM cliente agora.
