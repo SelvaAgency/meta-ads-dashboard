@@ -82,7 +82,10 @@ function formaDosInsights(ins: unknown): { compativel: boolean; forma: string; n
 export async function sondarInsightsAninhados(
   consultar: Consultar,
   base: string,
-  limite = 12,
+  // 25, o MESMO limite do coletor. Com menos, os tipos que aparecem só mais
+  // atrás na linha do tempo — um carrossel antigo, um reel esparso — ficariam
+  // de fora, e a sondagem concluiria pelos tipos recentes.
+  limite = 25,
 ): Promise<SondagemAninhada> {
   const tentativas: SondagemAninhada["tentativas"] = [];
   let conjuntoQueServiu: string | null = null;
