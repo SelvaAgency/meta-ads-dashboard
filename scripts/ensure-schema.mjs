@@ -314,6 +314,18 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela social_snapshots garantida");
 
+    // De onde veio a linha. Adivinhar pela proximidade de horário com
+    // social_coleta_execucoes erraria no dia em que as duas rodassem perto — e
+    // erraria em silêncio.
+    if (await tableExists(conn, "social_snapshots")) {
+      if (await columnExists(conn, "social_snapshots", "origem")) {
+        console.log("[ensure-schema] ok  · social_snapshots.origem já existe");
+      } else {
+        await conn.query("ALTER TABLE `social_snapshots` ADD COLUMN `origem` VARCHAR(10) NULL");
+        console.log("[ensure-schema] +   · social_snapshots.origem adicionada");
+      }
+    }
+
     // Uma linha por publicação por dia: likes e alcance mudam com o tempo.
     // Stories entram aqui com produto='STORY' — é a única forma de existirem
     // depois de expirar em 24h.

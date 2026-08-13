@@ -4110,7 +4110,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const { coletarCliente } = await import("./services/rodarColetaSocial");
         const { diaDeHoje } = await import("./services/coletaSocial");
-        const r = await coletarCliente(input.accountId, { apenasStories: input.apenasStories });
+        const r = await coletarCliente(input.accountId, { apenasStories: input.apenasStories, origem: "manual" });
         // Registrada como execução própria: a coleta manual não pode ser
         // confundida com a do robô, senão um clique esconderia o silêncio do
         // cron — que é justamente o que se quer enxergar.
@@ -4311,8 +4311,22 @@ export const appRouter = router({
         // — ele custa uma chamada por publicação. Vem do snapshot, que já o
         // coletou: é para isso que a tabela de mídias existe.
         const midiasSalvas = await midiasDoPeriodo(input.accountId, input.startDate, input.endDate);
+        // O status da conta olha a série INTEIRA, e não a do período: com "7
+        // dias" selecionado e a última coleta há dez, a tela diria "nunca
+        // coletado" para um cliente que tem dado.
+        const statusDaConta = todos.slice(-30).map((l) => ({
+          dia: l.dia,
+          coletadoEm: l.coletadoEm,
+          statusColeta: l.statusColeta,
+          origem: l.origem,
+          seguidores: l.followersCount,
+          storiesVistos: l.storiesVistos,
+          metricas: (l.metricasJson ?? {}) as Record<string, number>,
+        }));
+
         const historico = {
           serie: podeVerDiagnostico ? serie : serie.map((p2) => ({ ...p2, recusadas: {}, breakdownCru: null })),
+          statusDaConta,
           coletaDesde,
           // A explicação da validação é sobre o funcionamento interno do
           // Spaces, não sobre o cliente. O veredito em si fica, porque é ele

@@ -33,6 +33,7 @@ import { ROTULO_FONTE } from "@shared/fontesSociais";
 import { saldoDeSeguidores, podeMostrarEntradasESaidas, somarNoPeriodo } from "@shared/socialSnapshot";
 import { textoDeCobertura } from "@shared/periodosSociais";
 import { lerColetaAutomatica, lerColetaManual } from "@shared/statusDaColeta";
+import { lerStatusDoCliente } from "@shared/statusDoCliente";
 import { ROTULO_TAXA, avisoDeExclusao, rankingDePublicacoes, taxaPorAlcance, taxaPorSeguidores } from "@shared/engajamento";
 import { CONTA_COMO_POST, ROTULO_CONTEUDO, tipoDeConteudo, type TipoConteudo } from "@shared/tipoDeMidia";
 import { GraficoDeSeguidores, GraficoDeVisitas, type PontoDaSerie } from "@/components/redes/GraficosDoTopo";
@@ -362,6 +363,44 @@ export default function RedesSociais() {
                 {ROTULO_TIPO[organico.perfil.tipoConta as TipoConta]}
               </span>
             </div>
+
+            {/* ── Confiança do dado DESTA conta ─────────────────────────
+                Camada complementar à saúde do robô, não substituta: uma rodada
+                com "11 de 12 contas" é saudável do ponto de vista operacional,
+                e a décima segunda pode ser justamente esta. */}
+            {(() => {
+              const st = lerStatusDoCliente(
+                d?.historico.statusDaConta ?? [], new Date(), postsNoPeriodo.total ?? 0);
+              const cor = st.nivel === "ok" ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-500"
+                : st.nivel === "erro" ? "border-destructive/30 bg-destructive/5 text-destructive"
+                : st.nivel === "atencao" ? "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-500"
+                : "border-border bg-card text-muted-foreground";
+              const marca = st.nivel === "ok" ? "✓" : st.nivel === "nunca" ? "—" : "⚠";
+              return (
+                <div className={`rounded-lg border px-3 py-2 flex flex-col gap-1 ${cor}`}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-medium">
+                      {marca} {st.atualizadoEm
+                        ? `Última atualização dos dados: ${st.atualizadoEm}`
+                        : "Dados desta conta ainda não coletados"}
+                    </span>
+                    {st.fonte && <span className="text-[10px] opacity-80">· {st.fonte}</span>}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">{st.resumo}</p>
+                  {/* A última VÁLIDA só aparece quando difere da tentativa —
+                      senão repetiria a mesma data e viraria ruído. */}
+                  {st.ultimaValidaEm && (
+                    <p className="text-[11px] font-medium">Última coleta válida: {st.ultimaValidaEm}</p>
+                  )}
+                  {st.atualizados.length > 0 && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Atualizados: {st.atualizados.join(", ")}
+                      {st.faltando.length > 0 && ` · sem: ${st.faltando.join(", ")}`}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Conta pessoal e Business-sem-permissão são estados VÁLIDOS: azul,
                 com explicação, nunca vermelho. Ver shared/instagram. */}

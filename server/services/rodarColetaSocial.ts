@@ -52,7 +52,7 @@ const pausa = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  */
 export async function coletarCliente(
   accountId: number,
-  opts: { apenasStories?: boolean; dia?: string } = {},
+  opts: { apenasStories?: boolean; dia?: string; origem?: "cron" | "manual" } = {},
 ): Promise<{ status: string; nota: string }> {
   const dia = opts.dia ?? diaDeHoje();
 
@@ -87,7 +87,7 @@ export async function coletarCliente(
     followersCount: r.followersCount, followsCount: r.followsCount, mediaCount: r.mediaCount,
     metricas: r.metricas, followTypeBreakdownRaw: r.followTypeBreakdownRaw,
     recusadas: r.recusadas, storiesVistos: r.storiesVistos,
-    status: r.status, erro: r.erro,
+    status: r.status, erro: r.erro, origem: opts.origem ?? "cron",
   });
   await salvarMidiasDoSnapshot(accountId, dia, r.midias);
 
@@ -111,7 +111,7 @@ export async function rodarColetaSocial(opts: { apenasStories?: boolean } = {}):
 
   for (const v of alvos) {
     try {
-      const res = await coletarCliente(v.accountId, { apenasStories: opts.apenasStories, dia });
+      const res = await coletarCliente(v.accountId, { apenasStories: opts.apenasStories, dia, origem: "cron" });
       r.detalhes.push({ accountId: v.accountId, status: res.status, nota: res.nota });
       if (res.status === "ok") r.ok += 1;
       else if (res.status === "parcial") r.parciais += 1;

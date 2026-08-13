@@ -1353,6 +1353,14 @@ export const socialSnapshots = mysqlTable("social_snapshots", {
   storiesVistos: int("storiesVistos"),
 
   statusColeta: varchar("statusColeta", { length: 10 }).default("ok").notNull(),
+  /**
+   * `cron` ou `manual` — de onde veio ESTA linha.
+   *
+   * Atributo da linha, e não fonte nova: cruzar o horário com
+   * `social_coleta_execucoes` para adivinhar a origem daria errado no dia em que
+   * as duas rodassem perto, e daria errado em silêncio. A linha se descreve.
+   */
+  origem: varchar("origem", { length: 10 }),
   erroDetalhe: text("erroDetalhe"),
   coletadoEm: timestamp("coletadoEm").defaultNow().notNull(),
   atualizadoEm: timestamp("atualizadoEm").defaultNow().onUpdateNow().notNull(),

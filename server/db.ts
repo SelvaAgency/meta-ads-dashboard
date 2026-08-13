@@ -2256,7 +2256,7 @@ export async function salvarSnapshotSocial(a: {
   followersCount: number | null; followsCount: number | null; mediaCount: number | null;
   metricas: Record<string, number>; followTypeBreakdownRaw: unknown | null;
   recusadas: Record<string, string>; storiesVistos: number | null;
-  status: string; erro: string | null;
+  status: string; erro: string | null; origem?: "cron" | "manual";
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
@@ -2271,6 +2271,7 @@ export async function salvarSnapshotSocial(a: {
     recusadasJson: a.recusadas,
     storiesVistos: a.storiesVistos,
     statusColeta: a.status,
+    ...(a.origem ? { origem: a.origem } : {}),
     erroDetalhe: a.erro ? a.erro.slice(0, 2_000) : null,
   };
   const existente = await db.select({ id: socialSnapshots.id }).from(socialSnapshots)
