@@ -29,9 +29,10 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock, PlayCircle, CalendarClock } from "lucide-react";
+import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock, PlayCircle, CalendarClock, ClipboardList } from "lucide-react";
 import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
+import { resumirExecucao } from "@shared/resumoDaExecucao";
 import { ROTULO_VIA, viaDoVinculo, type OpcaoDeVinculo } from "@shared/vinculoInstagram";
 
 /** O que `paginasDisponiveis` devolve — a forma que a tela consome. */
@@ -89,6 +90,8 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
   const [diagnostico, setDiagnostico] = useState<string | null>(null);
   const [paginas, setPaginas] = useState<null | PaginasDoPortfolio>(null);
   const [escolha, setEscolha] = useState<Record<number, string>>({});
+
+  const coletasQ = trpc.social.ultimasColetas.useQuery();
 
   const credQ = trpc.social.credencial.useQuery();
   const vinculosQ = trpc.social.vinculos.useQuery();
@@ -259,7 +262,7 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
    */
   const rodada = trpc.social.rodarColetaAgora.useMutation({
     onSuccess: (r) => {
-      toast.success(`Rodada iniciada para ${r.contas} conta(s). Acompanhe em Redes sociais → última coleta manual.`);
+      toast.success(`Rodada iniciada para ${r.contas} conta(s). Use "Resumo da última rodada" quando terminar.`);
       setDiagnostico(
         `rodada manual iniciada · ${r.contas} conta(s)\n\n` +
         "Ela roda em segundo plano e leva alguns minutos. O resultado — status por\n" +
@@ -335,6 +338,23 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
             className="text-xs px-3 py-2 rounded-lg border border-border flex items-center gap-1.5 disabled:opacity-60">
             {diag.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
             Diagnóstico
+          </button>
+          {/* O resumo vai para o MESMO painel copiável do diagnóstico. Um
+              segundo lugar para ler resultado de medição faria os dois
+              competirem pela atenção. */}
+          <button
+            onClick={() => {
+              const r = coletasQ.data;
+              const ultima = [r?.manual, r?.automatica]
+                .filter(Boolean)
+                .sort((a, b) => +new Date(b!.executadaEm) - +new Date(a!.executadaEm))[0];
+              setDiagnostico(resumirExecucao(ultima as never).texto);
+            }}
+            disabled={coletasQ.isLoading}
+            title="Resumo da última rodada, com o padrão de falha calculado"
+            className="text-xs px-3 py-2 rounded-lg border border-border flex items-center gap-1.5 disabled:opacity-60 text-muted-foreground">
+            <ClipboardList className="w-3.5 h-3.5" />
+            Resumo da última rodada
           </button>
           <button onClick={() => { if (confirm("Rodar a coleta de TODAS as contas agora?\n\nÉ o mesmo fluxo do cron das 06:20 e leva alguns minutos.")) rodada.mutate({}); }}
             disabled={!cred?.existe || rodada.isPending}
