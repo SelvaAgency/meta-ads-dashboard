@@ -46,7 +46,7 @@ export const CAMPOS_DO_STATUS: Array<{ chave: string; rotulo: string }> = [
 
 export const ROTULO_ORIGEM: Record<string, string> = {
   cron: "Coleta automática",
-  manual: "Coleta manual",
+  manual: "Atualização manual",
 };
 
 export interface StatusDoCliente {
@@ -136,11 +136,14 @@ export function lerStatusDoCliente(
   const { atualizados, faltando } = camposDe(ultimo, publicacoesNoDia);
   if (faltando.length > 0) {
     return {
+      // "Parcialmente atualizados" descreve; "atenção" alarmaria. A maior parte
+      // do dado ESTÁ correta, e tratar isso como falha faria o cliente duvidar
+      // de seis números por causa de um.
       nivel: "atencao",
-      principal: `Dados atualizados ${atualizadoEm}`,
-      // A lista completa fica no detalhe expandível; aqui só a quantidade, para
-      // a linha caber no cabeçalho sem virar parágrafo.
-      secundaria: `${fonte ?? "Coleta"} · parcial, ${faltando.length} item(ns) sem dado`,
+      principal: `Dados parcialmente atualizados ${atualizadoEm}`,
+      // Só a origem. "1 item(ns) sem dado" ocupava o lugar de dizer QUAL item, e
+      // não dizia — o nome do que faltou está no detalhe, onde cabe inteiro.
+      secundaria: fonte,
       atualizadoEm, fonte, atualizados, faltando, ultimaValidaEm: null,
     };
   }

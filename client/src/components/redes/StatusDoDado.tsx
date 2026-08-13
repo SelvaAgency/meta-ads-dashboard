@@ -33,13 +33,21 @@ import type { StatusDoCliente } from "@shared/statusDoCliente";
 
 const CORES: Record<StatusDoCliente["nivel"], string> = {
   ok: "text-emerald-600 dark:text-emerald-500",
-  atencao: "text-amber-600 dark:text-amber-500",
+  // Âmbar mais suave que o do erro: incompleto não é quebrado.
+  atencao: "text-amber-600/90 dark:text-amber-500/90",
   erro: "text-destructive",
   nunca: "text-muted-foreground",
 };
 
+/**
+ * Parcial usa "◐", e não "⚠".
+ *
+ * O triângulo é o mesmo símbolo do dado desatualizado, e igualá-los faria uma
+ * coleta com seis métricas certas e uma faltando parecer o mesmo problema que
+ * nenhuma coleta. O meio-círculo descreve — está incompleto — em vez de alarmar.
+ */
 const MARCAS: Record<StatusDoCliente["nivel"], string> = {
-  ok: "✓", atencao: "⚠", erro: "⚠", nunca: "—",
+  ok: "✓", atencao: "◐", erro: "⚠", nunca: "—",
 };
 
 export interface ExecucaoResumida {
@@ -88,7 +96,12 @@ export function StatusDoDado({ status, saudeDoRobo, execucoes }: {
               <p><span className="text-emerald-600 dark:text-emerald-500">✓</span> {status.atualizados.join(", ")}</p>
             )}
             {status.faltando.length > 0 && (
-              <p><span className="text-amber-600 dark:text-amber-500">—</span> sem dado: {status.faltando.join(", ")}</p>
+              <p>
+                <span className="text-amber-600 dark:text-amber-500">—</span>{" "}
+                {/* "Nesta coleta", e não "sem dado": a ausência é da leitura de
+                    hoje, não uma propriedade da conta. */}
+                indisponível nesta coleta: {status.faltando.join(", ")}
+              </p>
             )}
             {saudeDoRobo && (
               <p className="pt-1 border-t border-border/50 mt-1">

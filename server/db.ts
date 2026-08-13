@@ -2273,6 +2273,11 @@ export async function salvarSnapshotSocial(a: {
     statusColeta: a.status,
     ...(a.origem ? { origem: a.origem } : {}),
     erroDetalhe: a.erro ? a.erro.slice(0, 2_000) : null,
+    // Explícito, e não pelo `defaultNow()`: o padrão só vale na criação da
+    // linha, e a linha do dia é ATUALIZADA a cada coleta. Sem isto, uma coleta
+    // manual das 12:57 gravava dado novo e o cabeçalho seguia dizendo 06:20 —
+    // hora da criação, não da medição, com a origem já trocada para "manual".
+    coletadoEm: new Date(),
   };
   const existente = await db.select({ id: socialSnapshots.id }).from(socialSnapshots)
     .where(and(eq(socialSnapshots.accountId, a.accountId), eq(socialSnapshots.provider, "instagram"),

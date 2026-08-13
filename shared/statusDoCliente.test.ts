@@ -47,7 +47,7 @@ describe("tudo coletado", () => {
   });
 
   it("coleta manual se identifica como tal", () => {
-    expect(lerStatusDoCliente([snap({ origem: "manual" })], AGORA, 1).fonte).toBe("Coleta manual");
+    expect(lerStatusDoCliente([snap({ origem: "manual" })], AGORA, 1).fonte).toBe("Atualização manual");
     expect(ROTULO_ORIGEM.cron).toBeTruthy();
     expect(ROTULO_ORIGEM.manual).toBeTruthy();
   });
@@ -65,8 +65,14 @@ describe("coleta parcial", () => {
     expect(r.nivel).toBe("atencao");
     expect(r.faltando).toContain("visitas ao perfil");
     expect(r.atualizados).toContain("alcance");
-    expect(r.principal).toContain("Dados atualizados");
-    expect(r.secundaria).toContain("parcial");
+    // Descreve o estado, e não alarma: seis métricas certas e uma faltando não
+    // é o mesmo problema que nenhuma coleta.
+    expect(r.principal).toBe("Dados parcialmente atualizados hoje às 06:20");
+    // A secundária carrega só a ORIGEM. "1 item(ns) sem dado" ocupava o lugar
+    // de dizer qual item, e não dizia.
+    expect(r.secundaria).toBe("Coleta automática");
+    expect(r.secundaria).not.toContain("item");
+    expect(r.faltando).toContain("visitas ao perfil");
   });
 
   /** Stories nulo é "não medido", e entra em faltando — nunca como zero. */
@@ -155,6 +161,7 @@ describe("ordem e ausência", () => {
 describe("a linha do cabeçalho se basta", () => {
   const casos = [
     ["em dia", [snap()], "Dados atualizados hoje às 06:20"],
+    ["parcial", [snap({ metricas: { reach: 1 } })], "Dados parcialmente atualizados hoje às 06:20"],
     ["nunca coletado", [], "Dados ainda não coletados"],
     ["última falhou", [snap({ statusColeta: "erro", seguidores: null, metricas: {} })], "Dados desatualizados"],
   ] as const;
@@ -182,5 +189,35 @@ describe("a linha do cabeçalho se basta", () => {
     // `not.toContain("atualizados")` seria ingênuo: "desatualizados" o contém.
     // O que não pode é a frase AFIRMAR que os dados estão atualizados.
     expect(r.principal).not.toMatch(/^Dados atualizados/);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A hora é a da MEDIÇÃO, não a da criação da linha
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Bug real: o snapshot do dia é ATUALIZADO a cada coleta, e `coletadoEm` tinha
+ *  só `defaultNow()` — que só vale na criação. Uma coleta manual às 12:57
+ *  gravava dado novo e trocava a origem para "manual", mas o cabeçalho seguia
+ *  dizendo 06:20. Origem nova com hora velha: as duas metades da frase vinham de
+ *  coletas diferentes.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("hora e origem vêm da MESMA coleta", () => {
+  it("a hora exibida é a do `coletadoEm` da linha, seja qual for", () => {
+    const r = lerStatusDoCliente([snap({
+      origem: "manual", coletadoEm: new Date("2026-08-13T12:57:00"),
+    })], AGORA, 1);
+    expect(r.atualizadoEm).toBe("hoje às 12:57");
+    expect(r.fonte).toBe("Atualização manual");
+    expect(r.principal).toContain("12:57");
+  });
+
+  /** O sintoma que o usuário viu, invertido: não pode voltar. */
+  it("origem manual nunca aparece com a hora do cron", () => {
+    const r = lerStatusDoCliente([snap({
+      origem: "manual", coletadoEm: new Date("2026-08-13T12:57:00"),
+    })], AGORA, 1);
+    expect(r.principal).not.toContain("06:20");
   });
 });
