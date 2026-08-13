@@ -47,8 +47,8 @@ function Dica({ active, payload, label, sufixo }: {
 }
 
 /** A moldura comum: mesmo tamanho com dado ou sem, ver cabeçalho. */
-function Moldura({ titulo, valor, apoio, children }: {
-  titulo: string; valor: string; apoio?: string; children: React.ReactNode;
+function Moldura({ titulo, valor, apoio, nota, children }: {
+  titulo: string; valor: string; apoio?: string; nota?: string; children: React.ReactNode;
 }) {
   return (
     <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
@@ -58,6 +58,9 @@ function Moldura({ titulo, valor, apoio, children }: {
         {apoio && <p className="text-[11px] text-muted-foreground mt-0.5">{apoio}</p>}
       </div>
       <div className="h-[160px]">{children}</div>
+      {/* Abaixo do gráfico, e não no cabeçalho: ela explica a BARRA que a
+          pessoa está olhando, e o lugar de responder isso é ao lado dela. */}
+      {nota && <p className="text-[10px] text-muted-foreground/80">{nota}</p>}
     </div>
   );
 }
@@ -102,12 +105,12 @@ export function GraficoDeSeguidores({ serie, atual, saldo, cobertura }: {
   );
 }
 
-export function GraficoDeVisitas({ serie, total, cobertura, titulo = "Visitas ao perfil" }: {
-  serie: PontoDaSerie[]; total: string; cobertura: string; titulo?: string;
+export function GraficoDeVisitas({ serie, total, cobertura, titulo = "Visitas ao perfil", nota }: {
+  serie: PontoDaSerie[]; total: string; cobertura: string; titulo?: string; nota?: string;
 }) {
   const temSerie = serie.some((p) => p.visitas != null);
   return (
-    <Moldura titulo={titulo} valor={total} apoio={cobertura}>
+    <Moldura titulo={titulo} valor={total} apoio={cobertura} nota={temSerie ? nota : undefined}>
       {temSerie ? (
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={serie} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>

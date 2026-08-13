@@ -42,12 +42,30 @@ const MARCAS: Record<StatusDoCliente["nivel"], string> = {
   ok: "✓", atencao: "⚠", erro: "⚠", nunca: "—",
 };
 
-export function StatusDoDado({ status, saudeDoRobo }: {
+export interface ExecucaoResumida {
+  origem: string;
+  executadaEm: string | Date;
+  tentados: number; ok: number; parciais: number; erros: number; pulados: number;
+  duracaoMs: number | null; chamadas: number | null; chamadasComErro: number | null;
+  detalheJson: unknown;
+}
+
+export function StatusDoDado({ status, saudeDoRobo, execucoes }: {
   status: StatusDoCliente;
   /** Saúde do cron, para admin/dev. Fica no detalhe — ver cabeçalho. */
   saudeDoRobo?: { titulo: string; detalhe: string; nivel: string } | null;
+  /**
+   * As execuções, para auditoria. Admin/dev.
+   *
+   * As DUAS origens, e não só a automática: quem roda a coleta manualmente para
+   * investigar precisa do resultado dela — e foi exatamente esse detalhe que
+   * sumiu quando o bloco do topo saiu.
+   */
+  execucoes?: { automatica: ExecucaoResumida | null; manual: ExecucaoResumida | null } | null;
 }) {
-  const temDetalhe = status.atualizados.length > 0 || status.faltando.length > 0 || !!saudeDoRobo;
+  const comExecucao = [execucoes?.automatica, execucoes?.manual].filter(Boolean) as ExecucaoResumida[];
+  const temDetalhe = status.atualizados.length > 0 || status.faltando.length > 0
+    || !!saudeDoRobo || comExecucao.length > 0;
 
   return (
     <div className="flex flex-col gap-0.5">
@@ -77,6 +95,33 @@ export function StatusDoDado({ status, saudeDoRobo }: {
                 <span className="font-medium">Robô:</span> {saudeDoRobo.titulo} · {saudeDoRobo.detalhe}
               </p>
             )}
+
+            {comExecucao.map((e) => (
+              <div key={`${e.origem}-${String(e.executadaEm)}`} className="pt-1 border-t border-border/50 mt-1">
+                <p className="font-medium">
+                  Rodada {e.origem === "cron" ? "automática" : "manual"} ·{" "}
+                  {new Date(e.executadaEm).toLocaleString("pt-BR")}
+                </p>
+                <p>
+                  {e.ok} ok · {e.parciais} parcial(is) · {e.erros} com erro · {e.pulados} pulada(s)
+                  {e.chamadas != null && ` · ${e.chamadas} chamadas`}
+                  {e.chamadasComErro != null && e.chamadasComErro > 0 && ` (${e.chamadasComErro} falharam)`}
+                  {e.duracaoMs != null && ` · ${Math.round(e.duracaoMs / 1000)}s`}
+                </p>
+                {Array.isArray(e.detalheJson) && (e.detalheJson as unknown[]).length > 0 && (
+                  <pre className="whitespace-pre-wrap break-all select-all mt-1 max-h-56 overflow-y-auto">
+                    {(e.detalheJson as Array<{ accountId: number; status: string; nota: string; ms?: number; chamadas?: number; chamadasComErro?: number }>)
+                      .map((x) =>
+                        `#${x.accountId} · ${x.status.padEnd(7)} · ` +
+                        (x.chamadas != null ? `${x.chamadas} chamadas` : "") +
+                        (x.chamadasComErro ? ` (${x.chamadasComErro} erro)` : "") +
+                        (x.ms != null ? ` · ${Math.round(x.ms / 1000)}s` : "") +
+                        ` · ${x.nota}`)
+                      .join("\n")}
+                  </pre>
+                )}
+              </div>
+            ))}
           </div>
         </details>
       )}

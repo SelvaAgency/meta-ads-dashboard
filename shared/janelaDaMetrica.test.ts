@@ -68,6 +68,28 @@ describe("o rótulo de fluxo nunca promete o dia inteiro", () => {
   it("o texto preserva que dias são comparáveis entre si", () => {
     expect(rotuloDeFluxo("Visitas", "06:20", 7).ressalva).toContain("comparar dias entre si");
   });
+
+  /**
+   * A explicação do PONTO responde outra pergunta que a ressalva: aquela fala
+   * do total do período, esta da barra que a pessoa está olhando. Quem passa o
+   * olho num gráfico lê cada barra como "o dia".
+   */
+  it("cada ponto se explica, e não fala em total do dia", () => {
+    const r = rotuloDeFluxo("Visitas ao perfil", "06:20", 7, "as visitas acumuladas");
+    expect(r.porPonto).toBe("Cada ponto representa as visitas acumuladas desde 00:00 até o horário da coleta.");
+    expect(r.porPonto).not.toContain("total do dia");
+  });
+
+  it("sem substantivo declarado, a frase continua correta", () => {
+    expect(rotuloDeFluxo("Cliques", "06:20", 3).porPonto).toContain("o acumulado desde 00:00");
+  });
+
+  /** Estoque não acumula: o horário não muda o que o ponto significa. */
+  it("ponto de estoque é fotografia, não acumulado", () => {
+    const r = rotuloDeEstoque("Crescimento", "06/08", "13/08");
+    expect(r.porPonto).toContain("total no momento da coleta");
+    expect(r.porPonto).not.toContain("00:00");
+  });
 });
 
 describe("o rótulo de estoque diz entre quando e quando", () => {
@@ -102,7 +124,10 @@ describe("comparabilidade da série", () => {
     ]);
     expect(r.comparavel).toBe(false);
     expect(r.espalhamentoMin).toBe(465);
-    expect(r.motivo).toContain("pedaços de tamanhos diferentes");
+    expect(r.motivo).toContain("horários diferentes");
+    expect(r.motivo).toContain("podem distorcer a comparação");
+    // "Podem", e não "não é justa": afirmar mais do que se sabe gasta o aviso.
+    expect(r.motivo).not.toContain("não é justa");
     expect(r.faixa).toBe("06:20–14:05");
   });
 

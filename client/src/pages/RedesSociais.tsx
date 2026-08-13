@@ -273,7 +273,8 @@ export default function RedesSociais() {
   // também, senão o total continua errado sob um título honesto.
   const comparabilidade = coletasSaoComparaveis(
     serie.map((p) => ({ dia: p.dia, coletadoEm: p.coletadoEm as string | Date })));
-  const rotuloVisitas = rotuloDeFluxo("Visitas ao perfil", comparabilidade.faixa, visitas.diasMedidos);
+  const rotuloVisitas = rotuloDeFluxo(
+    "Visitas ao perfil", comparabilidade.faixa, visitas.diasMedidos, "as visitas acumuladas");
   const rotuloCliques = rotuloDeFluxo("Cliques no link", comparabilidade.faixa, cliquesNoLink.diasMedidos);
   const brl = (d?: string) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : null);
   const rotuloCrescimento = rotuloDeEstoque(
@@ -315,6 +316,7 @@ export default function RedesSociais() {
                   saudeDoRobo={podeDiagnosticar && coletas.data
                     ? lerColetaAutomatica(coletas.data.automatica, new Date())
                     : null}
+                  execucoes={podeDiagnosticar ? coletas.data ?? null : null}
                 />
               </div>
             )}
@@ -404,6 +406,7 @@ export default function RedesSociais() {
               <GraficoDeVisitas
                 serie={pontos}
                 titulo={rotuloVisitas.titulo}
+                nota={visitas.diasMedidos > 0 ? rotuloVisitas.porPonto : undefined}
                 total={fmt(visitas.total)}
                 cobertura={visitas.diasMedidos > 0
                   ? `${rotuloVisitas.ressalva ?? ""}${visitas.diasSemDado > 0 ? ` · ${visitas.diasSemDado} dia(s) sem coleta` : ""}`
@@ -414,9 +417,9 @@ export default function RedesSociais() {
             {/* Entradas e saídas NÃO aparecem enquanto a semântica de
                 FOLLOWER/NON_FOLLOWER não estiver provada por aritmética —
                 ver shared/socialSnapshot. Só o saldo, que é subtração. */}
-            {/* Coletas em horários diferentes não são comparáveis numa métrica
-                que acumula ao longo do dia — o ponto coletado à tarde pareceria
-                um pico. Aviso para todos, não só para admin: distorce a leitura
+            {/* Só quando há diferença relevante — o limiar mora em
+                `ESPALHAMENTO_TOLERADO_MIN`, para um atraso do cron não virar
+                alarme. Aviso para todos, não só para admin: distorce a leitura
                 de quem só olha o gráfico. */}
             {!comparabilidade.comparavel && (
               <p className="text-[10px] font-medium text-amber-600 dark:text-amber-500">

@@ -115,7 +115,13 @@ export async function coletarCliente(
 
   return {
     status: r.status,
-    nota: `${r.followersCount ?? "?"} seguidores · ${r.midias.length} publicações · ${Object.keys(r.recusadas).length} recusa(s)`,
+    // Conta que falhou precisa dizer POR QUÊ na própria linha: "? seguidores ·
+    // 0 publicações" não distingue limite da Meta de token vencido, e é essa
+    // distinção que o registro da execução existe para permitir.
+    nota: r.status === "erro" && r.erro
+      ? r.erro
+      : `${r.followersCount ?? "?"} seguidores · ${r.midias.length} publicações · ${Object.keys(r.recusadas).length} recusa(s)` +
+        (r.erro ? ` · ${r.erro}` : ""),
     chamadas: r.chamadas, chamadasComErro: r.chamadasComErro,
   };
 }

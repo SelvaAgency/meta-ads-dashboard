@@ -95,10 +95,12 @@ export function coletasSaoComparaveis(coletas: ColetaComHorario[]): Comparabilid
   }
   return {
     comparavel: false, faixa, espalhamentoMin: espalhamento,
+    // "Podem distorcer", e não "não é justa": a distorção depende de quanto a
+    // métrica acumula naquelas horas, e afirmar mais do que se sabe gasta a
+    // credibilidade do aviso.
     motivo:
-      `As coletas aconteceram entre ${faixa}, com ${Math.round(espalhamento / 60)}h de diferença. ` +
-      "Como esta métrica acumula ao longo do dia, os pontos cobrem pedaços de tamanhos diferentes — " +
-      "a comparação entre eles não é justa.",
+      "Algumas coletas foram feitas em horários diferentes. Como essa métrica acumula durante o dia, " +
+      `períodos com horários diferentes podem distorcer a comparação. (${faixa})`,
   };
 }
 
@@ -107,6 +109,15 @@ export interface RotuloDeJanela {
   titulo: string;
   /** A ressalva, sempre visível. `null` quando não há o que ressalvar. */
   ressalva: string | null;
+  /**
+   * O que UM ponto do gráfico representa.
+   *
+   * Separado da ressalva porque responde outra pergunta: aquela fala do total
+   * do período, esta fala da barra que a pessoa está olhando. Quem passa o olho
+   * num gráfico de barras lê cada barra como "o dia", e é essa leitura que
+   * precisa ser corrigida no lugar onde ela acontece.
+   */
+  porPonto: string;
 }
 
 /**
@@ -115,13 +126,18 @@ export interface RotuloDeJanela {
  * `faixa` é o horário em que as coletas acontecem, quando conhecido — dizer
  * "até a coleta" sem dizer que horas é ela deixa a ressalva sem conteúdo.
  */
-export function rotuloDeFluxo(nome: string, faixa: string | null, dias: number): RotuloDeJanela {
+export function rotuloDeFluxo(
+  nome: string, faixa: string | null, dias: number, oQue = "o acumulado",
+): RotuloDeJanela {
   const janela = faixa ? `00:00 até ${faixa}` : "00:00 até a coleta";
   return {
     titulo: dias <= 1 ? `${nome} (parcial do dia)` : `${nome} (soma de dias parciais)`,
     ressalva: dias <= 1
       ? `Mede ${janela}, e não o dia inteiro.`
       : `Soma de ${dias} dias, cada um medido de ${janela}. Serve para comparar dias entre si, não como total do período.`,
+    // "Horário da coleta", e não a hora fixa: ela varia, e é justamente essa
+    // variação que o aviso de comparabilidade existe para pegar.
+    porPonto: `Cada ponto representa ${oQue} desde 00:00 até o horário da coleta.`,
   };
 }
 
@@ -137,5 +153,8 @@ export function rotuloDeEstoque(nome: string, de: string | null, ate: string | n
     ressalva: de && ate
       ? `Variação entre as coletas de ${de} e ${ate}.`
       : "Variação desde a última coleta.",
+    // Estoque não acumula dentro do dia: cada ponto é a fotografia do momento,
+    // e o horário da coleta não muda o que ele significa.
+    porPonto: "Cada ponto é o total no momento da coleta daquele dia.",
   };
 }
