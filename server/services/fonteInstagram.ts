@@ -31,6 +31,7 @@ import type { Sondagem } from "./instagramSondagem";
 import type { ColetaSocial } from "./coletaSocial";
 import type { SondagemDireta } from "./sondagemInstagramDireto";
 import type { SondagemDeHorarios } from "./sondagemHorarios";
+import type { SondagemDeJanela } from "./sondagemJanela";
 
 // Nome e rótulo da fonte vivem em shared: a tela também os usa, e duas listas
 // divergiriam no dia em que uma terceira fonte aparecer.
@@ -132,6 +133,9 @@ export interface FonteInstagram {
    * não tem o que descobrir. Optativa pelo mesmo motivo de `descobrirPaginas`.
    */
   sondarInstagramDireto?(): Promise<SondagemDireta>;
+
+  /** Que janela cada número cobre, e em que fuso o dia vira. */
+  sondarJanela?(alvo: AlvoInstagram, metrica?: string): Promise<SondagemDeJanela>;
 
   /** Mede o que `online_followers` entrega — antes de prometer horários. */
   sondarHorarios?(alvo: AlvoInstagram): Promise<SondagemDeHorarios>;

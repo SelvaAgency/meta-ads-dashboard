@@ -4176,6 +4176,54 @@ export const appRouter = router({
       return { automatica: limpar(r.automatica), manual: limpar(r.manual) };
     }),
 
+    /**
+     * Dispara a rodada COMPLETA agora — o mesmo `rodarColetaSocial` do cron.
+     *
+     * Mesma função, e não uma versão de teste: um caminho paralelo mediria um
+     * comportamento que não é o que roda às 06:20, e o teste não valeria nada.
+     * Só a `origem` muda, para o registro não fingir que o robô rodou.
+     *
+     * Não espera terminar: ~2.200 chamadas levam minutos, e a requisição HTTP
+     * morreria antes. Dispara, devolve na hora, e o resultado aparece em
+     * `ultimasColetas` quando fechar.
+     */
+    rodarColetaAgora: contentProcedure
+      .input(z.object({ apenasStories: z.boolean().optional() }).optional())
+      .mutation(async ({ input }) => {
+        const { rodarColetaSocial, rodadaEstaEmAndamento } = await import("./services/rodarColetaSocial");
+        const emAndamento = rodadaEstaEmAndamento();
+        if (emAndamento) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `Já existe uma rodada em andamento (${emAndamento}). Duas ao mesmo tempo dobrariam a pressão sobre a API — que é justamente o que se quer medir.`,
+          });
+        }
+        const alvos = (await vinculosSociais()).filter((v) => v.instagramUserId).length;
+        // Sem `await`: o erro cai no log, e o resultado no registro da execução.
+        void rodarColetaSocial({ apenasStories: input?.apenasStories, origem: "manual" })
+          .catch(() => { /* registrado em social_coleta_execucoes */ });
+        return { iniciada: true as const, contas: alvos };
+      }),
+
+    /**
+     * Que janela cada número cobre — e em que fuso o dia vira.
+     *
+     * Nenhum horário de coleta pode ser escolhido antes disto: "meia-noite" não
+     * quer dizer nada sem saber de quem. O `end_time` da própria resposta é que
+     * revela o fuso do dia da conta.
+     */
+    sondarJanela: contentProcedure
+      .input(z.object({ accountId: z.number().int(), metrica: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        const fonte = fonteAgencia();
+        const vinculo = (await vinculosSociais()).find((v) => v.accountId === input.accountId);
+        if (!fonte.sondarJanela || !vinculo?.instagramUserId) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Vincule o Instagram deste cliente primeiro." });
+        }
+        return fonte.sondarJanela(
+          { pageId: vinculo.pageId, instagramUserId: vinculo.instagramUserId }, input.metrica);
+      }),
+
     /** Páginas do portfólio, com o Instagram vinculado quando existir. */
     paginasDisponiveis: contentProcedure.mutation(async () => {
       const fonte = fonteAgencia();

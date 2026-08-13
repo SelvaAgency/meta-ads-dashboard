@@ -29,7 +29,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock } from "lucide-react";
+import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock, PlayCircle, CalendarClock } from "lucide-react";
 import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
 import { ROTULO_VIA, viaDoVinculo, type OpcaoDeVinculo } from "@shared/vinculoInstagram";
@@ -251,6 +251,34 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
     onError: (e) => { setDiagnostico(e.message); toast.error(e.message); },
   });
 
+  /**
+   * Ferramenta de diagnóstico: roda a fila inteira como o cron roda.
+   *
+   * Fica na área da credencial, e não no cartão de um cliente — ela não é sobre
+   * um cliente, é sobre a rodada.
+   */
+  const rodada = trpc.social.rodarColetaAgora.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Rodada iniciada para ${r.contas} conta(s). Acompanhe em Redes sociais → última coleta manual.`);
+      setDiagnostico(
+        `rodada manual iniciada · ${r.contas} conta(s)\n\n` +
+        "Ela roda em segundo plano e leva alguns minutos. O resultado — status por\n" +
+        "conta, tempo e número de chamadas — aparece na linha de status da página\n" +
+        "Redes sociais quando terminar.",
+      );
+    },
+    onError: (e) => { setDiagnostico(e.message); toast.error(e.message); },
+  });
+
+  const janela = trpc.social.sondarJanela.useMutation({
+    onSuccess: (r) => {
+      setDiagnostico(r.texto);
+      r.fusoDoDia ? toast.success(`Dia vira em ${r.fusoDoDia.split(" ")[0]}.`)
+                  : toast.info("Não deu para deduzir o fuso — veja o detalhe.");
+    },
+    onError: (e) => { setDiagnostico(e.message); toast.error(e.message); },
+  });
+
   const desvincular = trpc.social.desvincular.useMutation({
     onSuccess: (r) => {
       utils.social.vinculos.invalidate();
@@ -307,6 +335,13 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
             className="text-xs px-3 py-2 rounded-lg border border-border flex items-center gap-1.5 disabled:opacity-60">
             {diag.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
             Diagnóstico
+          </button>
+          <button onClick={() => { if (confirm("Rodar a coleta de TODAS as contas agora?\n\nÉ o mesmo fluxo do cron das 06:20 e leva alguns minutos.")) rodada.mutate({}); }}
+            disabled={!cred?.existe || rodada.isPending}
+            title="Dispara a rodada completa, igual ao cron — para medir o comportamento real"
+            className="text-xs px-3 py-2 rounded-lg border border-border flex items-center gap-1.5 disabled:opacity-60 text-muted-foreground">
+            {rodada.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PlayCircle className="w-3.5 h-3.5" />}
+            Rodar coleta completa
           </button>
           <button onClick={() => sondarDireto.mutate()} disabled={!cred?.existe || sondarDireto.isPending}
             title="Procura Instagram alcançável pelo Portfólio sem passar por Página — o caso Musa"
@@ -522,6 +557,14 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                       className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
                       {coletar.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <DatabaseZap className="w-3 h-3" />}
                       Coletar agora
+                    </button>
+                  )}
+                  {v?.instagramUserId && (
+                    <button onClick={() => janela.mutate({ accountId: c.id })} disabled={janela.isPending}
+                      title="Que janela profile_views cobre, e em que fuso o dia vira"
+                      className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
+                      {janela.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CalendarClock className="w-3 h-3" />}
+                      Sondar janela
                     </button>
                   )}
                   {v?.instagramUserId && (

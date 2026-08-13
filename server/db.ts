@@ -2378,6 +2378,7 @@ export async function midiasDoPeriodo(accountId: number, inicio: string, fim: st
 export async function registrarExecucaoDeColeta(a: {
   origem: "cron" | "manual"; escopo: "geral" | "stories"; dia: string;
   tentados: number; ok: number; parciais: number; erros: number; pulados: number;
+  duracaoMs?: number; chamadas?: number; chamadasComErro?: number;
   disparadaPor?: number | null;
   detalhe?: Array<{ accountId: number; status: string; nota: string }>;
 }) {
@@ -2386,6 +2387,7 @@ export async function registrarExecucaoDeColeta(a: {
   await db.insert(socialColetaExecucoes).values({
     origem: a.origem, escopo: a.escopo, dia: a.dia,
     tentados: a.tentados, ok: a.ok, parciais: a.parciais, erros: a.erros, pulados: a.pulados,
+    duracaoMs: a.duracaoMs ?? null, chamadas: a.chamadas ?? null, chamadasComErro: a.chamadasComErro ?? null,
     disparadaPor: a.disparadaPor ?? null,
     detalheJson: a.detalhe ?? null,
   });

@@ -1431,6 +1431,11 @@ export const socialColetaExecucoes = mysqlTable("social_coleta_execucoes", {
   erros: int("erros").default(0).notNull(),
   pulados: int("pulados").default(0).notNull(),
 
+  /** Duração total, para separar "falhou rápido" de "demorou e caiu". */
+  duracaoMs: int("duracaoMs"),
+  /** Chamadas à Meta na rodada — o número que confirma ou nega o volume. */
+  chamadas: int("chamadas"),
+  chamadasComErro: int("chamadasComErro"),
   /** Quem clicou, quando foi manual. Nulo no cron. */
   disparadaPor: int("disparadaPor"),
   /** Resumo por conta, sanitizado. É o detalhe do diagnóstico. */

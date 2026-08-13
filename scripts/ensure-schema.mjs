@@ -378,6 +378,20 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela social_coleta_execucoes garantida");
 
+    // Duração e contagem de chamadas: sem elas a execução diz que falhou, e não
+    // diz se falhou por volume.
+    if (await tableExists(conn, "social_coleta_execucoes")) {
+      for (const [col, ddl] of [
+        ["duracaoMs", "ADD COLUMN `duracaoMs` INT NULL"],
+        ["chamadas", "ADD COLUMN `chamadas` INT NULL"],
+        ["chamadasComErro", "ADD COLUMN `chamadasComErro` INT NULL"],
+      ]) {
+        if (await columnExists(conn, "social_coleta_execucoes", col)) continue;
+        await conn.query(`ALTER TABLE \`social_coleta_execucoes\` ${ddl}`);
+        console.log(`[ensure-schema] +   · social_coleta_execucoes.${col} adicionada`);
+      }
+    }
+
     // 3.0.9) Diagnóstico do teste de conexão de loja. Sem esta coluna o retorno
     //        do teste vive só num toast e some — e é ele que orienta o
     //        adaptador da plataforma.

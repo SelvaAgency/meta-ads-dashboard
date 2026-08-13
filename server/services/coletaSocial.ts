@@ -68,6 +68,10 @@ export interface MidiaColetada {
 }
 
 export interface ColetaSocial {
+  /** Quantas chamadas a Meta recebeu por esta conta — a conta que faltava. */
+  chamadas: number;
+  /** Quantas delas falharam. Separa "poucas chamadas ruins" de "tudo caiu". */
+  chamadasComErro: number;
   followersCount: number | null;
   followsCount: number | null;
   mediaCount: number | null;
@@ -92,7 +96,7 @@ const numero = (v: unknown): number | null => (typeof v === "number" ? v : null)
  * entre as duas APIs neste fluxo.
  */
 export async function coletarDeInstagram(
-  consultar: Consultar,
+  consultarCru: Consultar,
   base: string,
   opts: { limiteMidias?: number; apenasStories?: boolean } = {},
 ): Promise<ColetaSocial> {
@@ -100,7 +104,24 @@ export async function coletarDeInstagram(
   const recusadas: Record<string, string> = {};
   const erroDe = (e: unknown) => sanitizar((e as Error).message ?? "erro sem mensagem");
 
+  // Contador em volta do consultor: é ele que transforma "acho que são muitas
+  // chamadas" em número. A hipótese de volume não se confirma por estimativa —
+  // minha estimativa no plano errou por duas ordens de grandeza.
+  let chamadas = 0;
+  let chamadasComErro = 0;
+  const consultarContado: Consultar = async (caminho, params) => {
+    chamadas += 1;
+    try {
+      return await consultarCru(caminho, params);
+    } catch (e) {
+      chamadasComErro += 1;
+      throw e;
+    }
+  };
+  const consultar = consultarContado;
+
   const r: ColetaSocial = {
+    chamadas: 0, chamadasComErro: 0,
     followersCount: null, followsCount: null, mediaCount: null,
     metricas, recusadas, followTypeBreakdownRaw: null,
     midias: [], storiesVistos: null, status: "ok", erro: null,
@@ -120,6 +141,8 @@ export async function coletarDeInstagram(
   if (opts.apenasStories) {
     r.status = r.storiesVistos === null ? "erro" : "ok";
     r.erro = recusadas["stories"] ?? null;
+    r.chamadas = chamadas;
+    r.chamadasComErro = chamadasComErro;
     return r;
   }
 
@@ -222,6 +245,8 @@ export async function coletarDeInstagram(
   const nadaVeio = r.followersCount === null && Object.keys(metricas).length === 0 && r.midias.length === 0;
   r.status = nadaVeio ? "erro" : Object.keys(recusadas).length > 0 ? "parcial" : "ok";
   r.erro = nadaVeio ? Object.values(recusadas)[0] ?? "nenhum dado retornado" : null;
+  r.chamadas = chamadas;
+  r.chamadasComErro = chamadasComErro;
   return r;
 }
 
