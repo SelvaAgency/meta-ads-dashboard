@@ -8,8 +8,12 @@
  *  às 10h esconderia o silêncio das 06:20 — que é exatamente o que precisa
  *  aparecer.
  *
- *  Por isso as duas origens são lidas separadas, e é a AUTOMÁTICA que governa o
- *  sinal principal.
+ *  Por isso `lerColetaAutomatica` olha SÓ execuções do cron. A origem da última
+ *  coleta de cada cliente é dita noutro lugar — em `statusDoCliente`, junto do
+ *  número que ela produziu, que é onde alguém pergunta isso.
+ *
+ *  Este módulo responde uma coisa só: o robô está vivo? É pergunta de quem cuida
+ *  do robô, e por isso ela vive no detalhe da tela, não no topo dela.
  *
  *  ── "Nunca rodou" não é erro ───────────────────────────────────────────────
  *  Cliente recém-conectado, ou instalação nova, não tem execução nenhuma. Pintar
@@ -110,19 +114,4 @@ export function lerColetaAutomatica(
     titulo: `Última coleta automática: ${quandoTexto}`,
     detalhe: resumo,
   };
-}
-
-/**
- * A linha da coleta manual, quando existir.
- *
- * Sempre secundária: ela informa que alguém mexeu, e nunca substitui o sinal do
- * robô. Devolve `null` quando nunca houve — ausência de clique não é notícia.
- */
-export function lerColetaManual(
-  execucao: ExecucaoDeColeta | null | undefined,
-  agora: Date,
-): string | null {
-  if (!execucao) return null;
-  const alvo = execucao.tentados === 1 ? "1 conta" : `${execucao.tentados} contas`;
-  return `Última coleta manual: ${quando(execucao.executadaEm, agora)} · ${alvo}`;
 }

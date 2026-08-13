@@ -14,8 +14,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  HORAS_ATE_SILENCIO, lerColetaAutomatica, lerColetaManual, quando,
-  type ExecucaoDeColeta,
+  HORAS_ATE_SILENCIO, lerColetaAutomatica, quando, type ExecucaoDeColeta,
 } from "./statusDaColeta";
 
 const AGORA = new Date("2026-08-13T14:00:00");
@@ -90,29 +89,19 @@ describe("o sinal da coleta automática", () => {
   });
 });
 
-describe("a coleta manual é sempre secundária", () => {
-  /** O ponto do módulo inteiro. */
-  it("coleta manual recente NÃO altera o sinal do robô", () => {
+describe("um clique não mascara o silêncio do robô", () => {
+  /**
+   * A separação continua valendo, e é `lerColetaAutomatica` que a garante: ela
+   * lê SÓ execuções do cron. Coleta manual entra por outro caminho — junto do
+   * número que produziu, em `statusDoCliente`.
+   */
+  it("coleta manual recente não altera o sinal do robô", () => {
     const semRobo = lerColetaAutomatica(null, AGORA);
-    const manual = lerColetaManual(exec({ origem: "manual", tentados: 1, executadaEm: emHoras(1) }), AGORA);
     expect(semRobo.nivel).toBe("nunca");
-    expect(manual).toContain("Última coleta manual");
-    // As duas frases coexistem, e a do robô continua dizendo que ele não rodou.
     expect(semRobo.titulo).toContain("ainda não rodou");
   });
 
-  it("robô calado há dias continua calado mesmo com clique de hoje", () => {
-    const r = lerColetaAutomatica(exec({ executadaEm: emHoras(72) }), AGORA);
-    expect(r.nivel).toBe("silencio");
-  });
-
-  it("uma conta ou várias, a frase concorda", () => {
-    expect(lerColetaManual(exec({ tentados: 1 }), AGORA)).toContain("1 conta");
-    expect(lerColetaManual(exec({ tentados: 4 }), AGORA)).toContain("4 contas");
-  });
-
-  /** Ninguém ter clicado não é notícia. */
-  it("sem coleta manual, não há linha", () => {
-    expect(lerColetaManual(null, AGORA)).toBeNull();
+  it("robô calado há dias continua calado", () => {
+    expect(lerColetaAutomatica(exec({ executadaEm: emHoras(72) }), AGORA).nivel).toBe("silencio");
   });
 });

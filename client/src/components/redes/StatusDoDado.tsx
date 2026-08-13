@@ -7,15 +7,26 @@
  *  snapshots — então LinkedIn e qualquer rede futura usam os dois sem mudar uma
  *  linha aqui.
  *
+ *  ── A hierarquia, e por que a origem é secundária ──────────────────────────
+ *  Quem analisa uma conta pergunta "quando isso foi atualizado?" — e não "foi o
+ *  robô ou foi alguém?". A hora vem primeiro e sozinha; a origem entra depois
+ *  do separador, para auditoria.
+ *
+ *    1. Dados atualizados hoje às 12:57
+ *    2. · Coleta manual
+ *    3. o que foi atualizado          (detalhe)
+ *    4. saúde do robô                 (detalhe, admin/dev)
+ *
+ *  A saúde do cron desceu para o quarto nível de propósito. Ela já ocupou o topo
+ *  da página, e ali dizia "coleta automática ainda não rodou" em contas com dado
+ *  fresco — alarme sobre um problema que não existia para quem estava lendo. Ela
+ *  importa (cron morto com coletas manuais diárias é dado fresco e operação
+ *  quebrada), mas é pergunta de quem cuida do robô, não de quem lê o número.
+ *
  *  ── Discreto, e sempre presente ────────────────────────────────────────────
- *  Uma linha no cabeçalho, do tamanho de um rótulo. A tentação seria dar a ele
- *  o peso do problema que representa — mas um bloco grande no topo de toda
+ *  Uma linha no cabeçalho, do tamanho de um rótulo. Um bloco grande em toda
  *  conta saudável ensina a pular a região onde o aviso vai aparecer no dia em
  *  que houver um.
- *
- *  Por isso a lista de métricas atualizadas vive num `<details>`: ela responde
- *  "o que exatamente veio", que é a terceira pergunta de quem já desconfiou —
- *  não a primeira de quem só quer olhar um gráfico.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import type { StatusDoCliente } from "@shared/statusDoCliente";
@@ -31,8 +42,12 @@ const MARCAS: Record<StatusDoCliente["nivel"], string> = {
   ok: "✓", atencao: "⚠", erro: "⚠", nunca: "—",
 };
 
-export function StatusDoDado({ status }: { status: StatusDoCliente }) {
-  const temDetalhe = status.atualizados.length > 0 || status.faltando.length > 0;
+export function StatusDoDado({ status, saudeDoRobo }: {
+  status: StatusDoCliente;
+  /** Saúde do cron, para admin/dev. Fica no detalhe — ver cabeçalho. */
+  saudeDoRobo?: { titulo: string; detalhe: string; nivel: string } | null;
+}) {
+  const temDetalhe = status.atualizados.length > 0 || status.faltando.length > 0 || !!saudeDoRobo;
 
   return (
     <div className="flex flex-col gap-0.5">
@@ -56,6 +71,11 @@ export function StatusDoDado({ status }: { status: StatusDoCliente }) {
             )}
             {status.faltando.length > 0 && (
               <p><span className="text-amber-600 dark:text-amber-500">—</span> sem dado: {status.faltando.join(", ")}</p>
+            )}
+            {saudeDoRobo && (
+              <p className="pt-1 border-t border-border/50 mt-1">
+                <span className="font-medium">Robô:</span> {saudeDoRobo.titulo} · {saudeDoRobo.detalhe}
+              </p>
             )}
           </div>
         </details>
