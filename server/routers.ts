@@ -4224,6 +4224,26 @@ export const appRouter = router({
           { pageId: vinculo.pageId, instagramUserId: vinculo.instagramUserId }, input.metrica);
       }),
 
+    /**
+     * Os insights cabem na mesma chamada da listagem de mídias?
+     *
+     * Decide entre 186→31 (otimização já confirmada) e 186→~6. A pergunta que
+     * importa não é "responde?", é o que acontece quando uma métrica não vale
+     * para um tipo: mídia sem insights é tolerável, chamada inteira recusada
+     * seria pior que o desenho atual.
+     */
+    sondarInsightsAninhados: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .mutation(async ({ input }) => {
+        const fonte = fonteAgencia();
+        const vinculo = (await vinculosSociais()).find((v) => v.accountId === input.accountId);
+        if (!fonte.sondarInsightsAninhados || !vinculo?.instagramUserId) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Vincule o Instagram deste cliente primeiro." });
+        }
+        return fonte.sondarInsightsAninhados(
+          { pageId: vinculo.pageId, instagramUserId: vinculo.instagramUserId });
+      }),
+
     /** Páginas do portfólio, com o Instagram vinculado quando existir. */
     paginasDisponiveis: contentProcedure.mutation(async () => {
       const fonte = fonteAgencia();

@@ -29,7 +29,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock, PlayCircle, CalendarClock, ClipboardList } from "lucide-react";
+import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock, PlayCircle, CalendarClock, ClipboardList, Layers } from "lucide-react";
 import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
 import { resumirExecucao } from "@shared/resumoDaExecucao";
@@ -278,6 +278,16 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
       setDiagnostico(r.texto);
       r.fusoDoDia ? toast.success(`Dia vira em ${r.fusoDoDia.split(" ")[0]}.`)
                   : toast.info("Não deu para deduzir o fuso — veja o detalhe.");
+    },
+    onError: (e) => { setDiagnostico(e.message); toast.error(e.message); },
+  });
+
+  const aninhados = trpc.social.sondarInsightsAninhados.useMutation({
+    onSuccess: (r) => {
+      setDiagnostico(r.texto);
+      r.conjuntoQueServiu && r.formatoCompativel
+        ? toast.success(`Aninhamento funciona (${r.conjuntoQueServiu}) — 186 → ~6 chamadas.`)
+        : toast.info("Aninhamento não serve — seguir com 186 → 31.");
     },
     onError: (e) => { setDiagnostico(e.message); toast.error(e.message); },
   });
@@ -577,6 +587,14 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                       className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
                       {coletar.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <DatabaseZap className="w-3 h-3" />}
                       Coletar agora
+                    </button>
+                  )}
+                  {v?.instagramUserId && (
+                    <button onClick={() => aninhados.mutate({ accountId: c.id })} disabled={aninhados.isPending}
+                      title="Os insights cabem na mesma chamada da listagem de mídias?"
+                      className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
+                      {aninhados.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Layers className="w-3 h-3" />}
+                      Sondar aninhamento
                     </button>
                   )}
                   {v?.instagramUserId && (
