@@ -246,6 +246,19 @@ async function main() {
     `);
     console.log("[ensure-schema] ok  · tabela social_credentials garantida");
 
+    // A tabela nasceu com uma linha e Instagram implícito; as leituras usavam
+    // `limit(1)` sem filtro. Com a segunda rede, isso devolveria a credencial
+    // errada em silêncio. A coluna torna a suposição explícita.
+    if (await tableExists(conn, "social_credentials")) {
+      if (await columnExists(conn, "social_credentials", "provider")) {
+        console.log("[ensure-schema] ok  · social_credentials.provider já existe");
+      } else {
+        await conn.query(
+          "ALTER TABLE `social_credentials` ADD COLUMN `provider` VARCHAR(20) NOT NULL DEFAULT 'instagram'");
+        console.log("[ensure-schema] +   · social_credentials.provider adicionada");
+      }
+    }
+
     // Token OAuth por CONTA de cliente — o outro lado do híbrido. Separado de
     // social_credentials porque expira, é renovável e há um por cliente; juntos,
     // metade das colunas ficaria nula em metade das linhas.

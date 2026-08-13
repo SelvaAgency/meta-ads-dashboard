@@ -1906,10 +1906,20 @@ export async function aplicarTokenEmContas(ids: number[], token: string): Promis
  * mesma chave copiada em dez linhas, que foi como o portfólio acabou com dois
  * tokens diferentes sem ninguém perceber.
  */
-export async function salvarCredencialSocial(token: string, impressao: string, userId: number, businessId?: string) {
+/**
+ * Uma credencial POR REDE.
+ *
+ * O `provider` é parâmetro com padrão, e não constante: as consultas usavam
+ * `limit(1)` sem filtro, o que funcionava por só existir uma rede — e devolveria
+ * a credencial errada, sem erro, no dia da segunda.
+ */
+export async function salvarCredencialSocial(
+  token: string, impressao: string, userId: number, businessId?: string, provider = "instagram",
+) {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
-  const existente = await db.select({ id: socialCredentials.id }).from(socialCredentials).limit(1);
+  const existente = await db.select({ id: socialCredentials.id }).from(socialCredentials)
+    .where(eq(socialCredentials.provider, provider)).limit(1);
   const dados = {
     tokenEncrypted: encryptSecret(token),
     impressao,
@@ -1919,13 +1929,13 @@ export async function salvarCredencialSocial(token: string, impressao: string, u
   if (existente[0]) {
     await db.update(socialCredentials).set(dados).where(eq(socialCredentials.id, existente[0].id));
   } else {
-    await db.insert(socialCredentials).values(dados);
+    await db.insert(socialCredentials).values({ provider, ...dados });
   }
-  logger.info(`[Social] credencial gravada (impressão ${impressao})`);
+  logger.info(`[Social] credencial de ${provider} gravada (impressão ${impressao})`);
 }
 
 /** Metadados da credencial, SEM o token. É o que pode ir para a tela. */
-export async function credencialSocialInfo(): Promise<{
+export async function credencialSocialInfo(provider = "instagram"): Promise<{
   existe: boolean; impressao: string | null; businessId: string | null;
   lastTestAt: Date | null; lastTestStatus: string | null; lastTestDetail: string | null;
   atualizadaEm: Date | null;
@@ -1933,7 +1943,7 @@ export async function credencialSocialInfo(): Promise<{
   const db = await getDb();
   const vazio = { existe: false, impressao: null, businessId: null, lastTestAt: null, lastTestStatus: null, lastTestDetail: null, atualizadaEm: null };
   if (!db) return vazio;
-  const r = await db.select().from(socialCredentials).limit(1);
+  const r = await db.select().from(socialCredentials).where(eq(socialCredentials.provider, provider)).limit(1);
   const c = r[0];
   if (!c) return vazio;
   return {
@@ -1944,18 +1954,20 @@ export async function credencialSocialInfo(): Promise<{
 }
 
 /** Token em claro — uso EXCLUSIVO do servidor. Nunca exponha. */
-export async function tokenSocial(): Promise<string | null> {
+export async function tokenSocial(provider = "instagram"): Promise<string | null> {
   const db = await getDb();
   if (!db) return null;
-  const r = await db.select({ t: socialCredentials.tokenEncrypted }).from(socialCredentials).limit(1);
+  const r = await db.select({ t: socialCredentials.tokenEncrypted }).from(socialCredentials)
+    .where(eq(socialCredentials.provider, provider)).limit(1);
   if (!r[0]) return null;
   try { return decryptSecret(r[0].t); } catch { return null; }
 }
 
-export async function registrarTesteSocial(ok: boolean, detalhe: string) {
+export async function registrarTesteSocial(ok: boolean, detalhe: string, provider = "instagram") {
   const db = await getDb();
   if (!db) return;
-  const r = await db.select({ id: socialCredentials.id }).from(socialCredentials).limit(1);
+  const r = await db.select({ id: socialCredentials.id }).from(socialCredentials)
+    .where(eq(socialCredentials.provider, provider)).limit(1);
   if (!r[0]) return;
   await db.update(socialCredentials).set({
     lastTestAt: new Date(), lastTestStatus: ok ? "ok" : "erro",

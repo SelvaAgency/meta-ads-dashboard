@@ -1416,6 +1416,16 @@ export const socialAccountTokens = mysqlTable("social_account_tokens", {
 
 export const socialCredentials = mysqlTable("social_credentials", {
   id: int("id").autoincrement().primaryKey(),
+  /**
+   * De qual rede é esta credencial.
+   *
+   * A tabela nasceu com UMA linha e Instagram implícito — as leituras faziam
+   * `limit(1)` sem filtro. Isso funcionava por acidente de haver uma rede só, e
+   * o dia em que a segunda entrasse a primeira consulta devolveria a credencial
+   * errada, sem erro nenhum. A coluna existe para essa suposição não ficar
+   * escondida no `limit(1)`.
+   */
+  provider: varchar("provider", { length: 20 }).default("instagram").notNull(),
   /** System User token do Portfólio, cifrado. NUNCA sai daqui em claro. */
   tokenEncrypted: text("tokenEncrypted").notNull(),
   /** Hash curto: compara e diagnostica sem revelar. */
