@@ -27,16 +27,38 @@ export const GRUPOS = ["cc", "gtm1", "gtm2"] as const;
 export type Grupo = (typeof GRUPOS)[number];
 
 export const ROTULO_GRUPO: Record<Grupo, string> = {
+  cc: "Casa de Criação",
+  gtm1: "GTM (Squad 1)",
+  gtm2: "GTM (Squad 2)",
+};
+
+/**
+ * A forma curta, para marcar o grupo DENTRO de um item.
+ *
+ * Existe só por causa da aba "Todos": ali cada linha precisa dizer de quem ela
+ * é, e repetir "Casa de Criação" em quinze itens transformaria a identificação
+ * — que é contexto — no elemento mais pesado da linha, competindo com o título,
+ * que é a informação.
+ */
+export const SIGLA_GRUPO: Record<Grupo, string> = {
   cc: "CC",
   gtm1: "GTM 1",
   gtm2: "GTM 2",
 };
 
-/** O nome por extenso, para onde houver espaço (title, leitor de tela). */
-export const NOME_GRUPO: Record<Grupo, string> = {
-  cc: "Casa de Criação",
-  gtm1: "GTM 1",
-  gtm2: "GTM 2",
+/**
+ * A aba: os três grupos mais "todos".
+ *
+ * `todos` é FILTRO, e não grupo — nenhum item pertence a ele. Por isso ele não
+ * entra em `Grupo`: um tipo que aceitasse "todos" deixaria `criar({grupo:
+ * "todos"})` passar pelo compilador e gravar um item que nenhuma aba mostra.
+ */
+export const ABAS = ["todos", ...GRUPOS] as const;
+export type Aba = (typeof ABAS)[number];
+
+export const ROTULO_ABA: Record<Aba, string> = {
+  todos: "Todos",
+  ...ROTULO_GRUPO,
 };
 
 export const ehGrupo = (v: string): v is Grupo => (GRUPOS as readonly string[]).includes(v);

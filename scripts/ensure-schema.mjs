@@ -1392,6 +1392,18 @@ async function main() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · weekly_priorities garantida");
 
+    // Responsável deixou de ser texto livre e passou a apontar para users.id —
+    // é o que permite mostrar a foto do perfil sem duplicar cadastro. A coluna
+    // antiga fica: ela ainda é lida quando não há responsavelUserId, então
+    // nenhum item já criado perde o responsável.
+    const [wpCols] = await conn.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'weekly_priorities' AND column_name = 'responsavelUserId'",
+    );
+    if (wpCols.length === 0) {
+      await conn.query("ALTER TABLE `weekly_priorities` ADD COLUMN `responsavelUserId` INT NULL");
+      console.log("[ensure-schema] ok  · weekly_priorities.responsavelUserId adicionada");
+    }
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

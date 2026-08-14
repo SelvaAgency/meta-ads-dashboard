@@ -27,7 +27,13 @@ export const users = mysqlTable("users", {
   role: mysqlEnum("role", ["user", "admin", "developer"]).default("user").notNull(),
   // RESPONSABILIDADE operacional — por quais clientes a pessoa responde. Ortogonal a
   // `role`: uma coordenadora normalmente é role=user + operationalRole=coordinator.
-  // Só afeta destinatário de alerta; não concede permissão nenhuma.
+  //
+  // Afeta destinatário de alerta e, desde 14/08/2026, concede UMA permissão e
+  // só uma: editar as Prioridades da Semana na Home (`canManagePriorities`).
+  // Foi por aqui e não por um quarto valor em `role` porque `role` é lido em
+  // quase toda verificação do sistema — acrescentar um valor obrigaria a
+  // revisar cada uma para decidir de que lado o coordenador cai, e errar uma
+  // delas é um vazamento de acesso silencioso. Coordenador NÃO é admin.
   operationalRole: mysqlEnum("operationalRole", ["collaborator", "coordinator"]).default("collaborator").notNull(),
   // Perfil de colaborador
   jobTitle: varchar("jobTitle", { length: 255 }),
@@ -1861,6 +1867,14 @@ export const weeklyPriorities = mysqlTable("weekly_priorities", {
   tipo: varchar("tipo", { length: 12 }).notNull(),
   titulo: varchar("titulo", { length: 200 }).notNull(),
   descricao: text("descricao"),
+  /**
+   * Quem responde — `users.id`.
+   *
+   * Era texto livre. Virou referência para a foto do perfil poder aparecer no
+   * item sem duplicar cadastro de gente. Sem FK física, como o resto da base.
+   */
+  responsavelUserId: int("responsavelUserId"),
+  /** Legado do texto livre. Só é lido quando não há `responsavelUserId`. */
   responsavel: varchar("responsavel", { length: 80 }),
   /** `AAAA-MM-DD` ou nulo. Ausência é ausência — nunca "sem prazo" gravado. */
   prazo: varchar("prazo", { length: 10 }),

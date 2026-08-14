@@ -62,7 +62,10 @@ export interface ItemPrioridade {
   /** `AAAA-MM-DD` ou `null`. Nunca a string "sem prazo". */
   prazo: string | null;
   status: StatusPrioridade;
-  ordem: number;
+  /** Quem responde, resolvido no servidor. `null` = sem responsável. */
+  responsavelUserId: number | null;
+  responsavelNome: string | null;
+  responsavelAvatarUrl: string | null;
 }
 
 /**
@@ -80,6 +83,37 @@ export interface SecaoDeTipo {
 }
 
 /**
+ * A ordem, e ela é do PRAZO — não há ordenação manual.
+ *
+ * ── Por que a seta saiu ────────────────────────────────────────────────────
+ * Ordem manual e prazo competem: a pessoa arrasta o item para o topo porque ele
+ * é urgente, e no dia seguinte outro item venceu antes e o topo está errado.
+ * Aí a ordem passa a ser mantida à mão para continuar significando o que o
+ * prazo já dizia sozinho. Derivar do prazo elimina o trabalho e a divergência.
+ *
+ * ── Vencido vem primeiro, e isso é intencional ─────────────────────────────
+ * A ordenação é crescente pela data, então prazo que JÁ PASSOU aparece antes de
+ * qualquer outro. É o que se quer: um prazo estourado é a coisa mais urgente da
+ * lista, e escondê-lo no fim seria o oposto da função do painel.
+ *
+ * Sem prazo vai para o fim — não por ser menos importante, mas porque não
+ * compete no eixo que ordena. Entre eles, a ordem de criação (o `id`), que é
+ * estável: sem critério estável a lista se reembaralharia a cada leitura.
+ */
+export function ordenarPorPrazo(itens: ItemPrioridade[]): ItemPrioridade[] {
+  return [...itens].sort((a, b) => {
+    if (a.prazo && b.prazo) {
+      // Comparação de string funciona porque AAAA-MM-DD é ordenável como texto.
+      if (a.prazo !== b.prazo) return a.prazo < b.prazo ? -1 : 1;
+      return a.id - b.id;
+    }
+    if (a.prazo) return -1;
+    if (b.prazo) return 1;
+    return a.id - b.id;
+  });
+}
+
+/**
  * Agrupa por tipo, na ordem da hierarquia, DESCARTANDO tipo sem item.
  *
  * O descarte é a regra, não uma otimização: renderizar "ENTREGAS — nenhuma"
@@ -88,12 +122,7 @@ export interface SecaoDeTipo {
  */
 export function agruparPorTipo(itens: ItemPrioridade[]): SecaoDeTipo[] {
   return TIPOS
-    .map((tipo) => ({
-      tipo,
-      itens: itens
-        .filter((i) => i.tipo === tipo)
-        .sort((a, b) => a.ordem - b.ordem || a.id - b.id),
-    }))
+    .map((tipo) => ({ tipo, itens: ordenarPorPrazo(itens.filter((i) => i.tipo === tipo)) }))
     .filter((s) => s.itens.length > 0);
 }
 
@@ -120,20 +149,4 @@ export function cortar(secoes: SecaoDeTipo[], limite: number): {
     visiveis.push({ tipo: s.tipo, itens });
   }
   return { visiveis, ocultos: total - limite };
-}
-
-/**
- * A posição de destino ao mover um item.
- *
- * Devolve `null` quando o movimento não existe (primeiro subindo, último
- * descendo) para quem chama não gravar uma troca consigo mesmo — que gera
- * escrita, entrada de "atualizado por" e nenhuma mudança visível.
- */
-export function vizinhoNaOrdem(
-  itens: ItemPrioridade[], id: number, direcao: -1 | 1,
-): ItemPrioridade | null {
-  const ordenados = [...itens].sort((a, b) => a.ordem - b.ordem || a.id - b.id);
-  const i = ordenados.findIndex((x) => x.id === id);
-  if (i < 0) return null;
-  return ordenados[i + direcao] ?? null;
 }

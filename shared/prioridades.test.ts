@@ -18,14 +18,15 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  agruparPorTipo, cortar, vizinhoNaOrdem, type ItemPrioridade, type TipoPrioridade,
+  agruparPorTipo, cortar, ordenarPorPrazo, type ItemPrioridade, type TipoPrioridade,
 } from "./prioridades";
 
 let seq = 0;
 const item = (tipo: TipoPrioridade, over: Partial<ItemPrioridade> = {}): ItemPrioridade => ({
   id: ++seq, grupo: "cc", semana: "2026-08-10", tipo,
-  titulo: `item ${seq}`, descricao: null, responsavel: null, prazo: null,
-  status: "PLANEJADO", ordem: 0, ...over,
+  titulo: `item ${seq}`, descricao: null, prazo: null, status: "PLANEJADO",
+  responsavelUserId: null, responsavelNome: null, responsavelAvatarUrl: null,
+  ...over,
 });
 
 describe("tipo sem item não aparece", () => {
@@ -52,10 +53,10 @@ describe("a ordem dos tipos é a hierarquia da leitura", () => {
     expect(s.map((x) => x.tipo)).toEqual(["PRIORIDADE", "ENTREGA", "ATENCAO"]);
   });
 
-  it("dentro do tipo, manda o campo ordem", () => {
+  it("dentro do tipo, manda o prazo", () => {
     const s = agruparPorTipo([
-      item("PRIORIDADE", { ordem: 2, titulo: "segundo" }),
-      item("PRIORIDADE", { ordem: 1, titulo: "primeiro" }),
+      item("PRIORIDADE", { prazo: "2026-08-20", titulo: "segundo" }),
+      item("PRIORIDADE", { prazo: "2026-08-14", titulo: "primeiro" }),
     ]);
     expect(s[0].itens.map((i) => i.titulo)).toEqual(["primeiro", "segundo"]);
   });
@@ -103,23 +104,49 @@ describe("o corte é sobre o total, e não por tipo", () => {
   });
 });
 
-describe("mover na ordem", () => {
-  it("acha o vizinho de cima e o de baixo", () => {
-    const a = item("PRIORIDADE", { ordem: 1 });
-    const b = item("PRIORIDADE", { ordem: 2 });
-    const c = item("PRIORIDADE", { ordem: 3 });
-    expect(vizinhoNaOrdem([a, b, c], b.id, -1)?.id).toBe(a.id);
-    expect(vizinhoNaOrdem([a, b, c], b.id, 1)?.id).toBe(c.id);
+describe("a ordem é do prazo, e ninguém a arrasta", () => {
+  it("prazo mais próximo primeiro", () => {
+    const r = ordenarPorPrazo([
+      item("PRIORIDADE", { prazo: "2026-08-30", titulo: "c" }),
+      item("PRIORIDADE", { prazo: "2026-08-14", titulo: "a" }),
+      item("PRIORIDADE", { prazo: "2026-08-21", titulo: "b" }),
+    ]);
+    expect(r.map((i) => i.titulo)).toEqual(["a", "b", "c"]);
+  });
+
+  /** Sem prazo não é menos importante — só não compete no eixo que ordena. */
+  it("sem prazo vai para o fim, depois de todos os que têm", () => {
+    const r = ordenarPorPrazo([
+      item("PRIORIDADE", { titulo: "sem" }),
+      item("PRIORIDADE", { prazo: "2026-08-30", titulo: "longe" }),
+    ]);
+    expect(r.map((i) => i.titulo)).toEqual(["longe", "sem"]);
   });
 
   /**
-   * `null` na ponta evita gravar uma troca consigo mesmo — que produz escrita,
-   * carimba "atualizado por" e não muda nada na tela.
+   * Prazo estourado é a coisa mais urgente da lista. Ordenação crescente já o
+   * coloca em primeiro; escondê-lo no fim seria o oposto da função do painel.
    */
-  it("nas pontas não existe vizinho, e isso não é um erro", () => {
-    const a = item("PRIORIDADE", { ordem: 1 });
-    const b = item("PRIORIDADE", { ordem: 2 });
-    expect(vizinhoNaOrdem([a, b], a.id, -1)).toBeNull();
-    expect(vizinhoNaOrdem([a, b], b.id, 1)).toBeNull();
+  it("prazo vencido vem antes do que ainda vai vencer", () => {
+    const r = ordenarPorPrazo([
+      item("PRIORIDADE", { prazo: "2026-08-25", titulo: "futuro" }),
+      item("PRIORIDADE", { prazo: "2026-08-01", titulo: "vencido" }),
+    ]);
+    expect(r.map((i) => i.titulo)).toEqual(["vencido", "futuro"]);
+  });
+
+  /** Sem critério estável a lista se reembaralharia a cada leitura. */
+  it("empate no prazo cai na ordem de criação, e é estável", () => {
+    const a = item("PRIORIDADE", { prazo: "2026-08-14", titulo: "a" });
+    const b = item("PRIORIDADE", { prazo: "2026-08-14", titulo: "b" });
+    expect(ordenarPorPrazo([b, a]).map((i) => i.titulo)).toEqual(["a", "b"]);
+    expect(ordenarPorPrazo([a, b]).map((i) => i.titulo)).toEqual(["a", "b"]);
+  });
+
+  it("não muda a lista original", () => {
+    const lista = [item("PRIORIDADE", { prazo: "2026-08-30" }), item("PRIORIDADE", { prazo: "2026-08-01" })];
+    const antes = lista.map((i) => i.id);
+    ordenarPorPrazo(lista);
+    expect(lista.map((i) => i.id)).toEqual(antes);
   });
 });

@@ -39,6 +39,25 @@ export function canManageContent(r: unknown): boolean {
   return x === "admin" || x === "developer";
 }
 
+/**
+ * Editar as Prioridades da Semana na Home.
+ *
+ * ── Por que isto lê `operationalRole`, e é o único que lê ──────────────────
+ * "Coordenador" já existia no sistema, mas como RESPONSABILIDADE (por quais
+ * clientes a pessoa responde), não como permissão — o enum `role` tem três
+ * valores e é consultado por quase tudo. Acrescentar um quarto valor obrigaria
+ * a revisar cada verificação existente para decidir de que lado o coordenador
+ * cai, e o custo de errar uma delas é um vazamento de acesso silencioso.
+ *
+ * Conceder por `operationalRole` mantém `role` intacto e dá exatamente a
+ * autorização pedida: o coordenador escreve no quadro da semana e em nada mais.
+ * Ele NÃO vira admin — nenhuma outra função deste arquivo o consulta.
+ */
+export function canManagePriorities(r: unknown, operational?: unknown): boolean {
+  const x = role(r);
+  return x === "admin" || x === "developer" || operational === "coordinator";
+}
+
 /** Gerenciar colaboradores (CRUD, reset de senha). Somente admin. */
 export function canManagePeople(r: unknown): boolean {
   return role(r) === "admin";

@@ -2,6 +2,7 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
+import { canManagePriorities } from "@shared/permissions";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -53,6 +54,34 @@ export const adminProcedure = t.procedure.use(
 );
 
 // Gestão de conteúdo operacional (News bar, SelvaTV): admin OU developer.
+/**
+ * Editar as Prioridades da Semana — admin, dev OU coordenador.
+ *
+ * O único portão do sistema que olha `operationalRole`. A regra em si vive em
+ * `shared/canManagePriorities`, para a tela esconder o botão pelo MESMO critério
+ * que o servidor usa para recusar: dois critérios escritos separados divergem, e
+ * a divergência aparece como um botão que existe e não funciona.
+ *
+ * Coordenador não vira admin: nenhuma outra procedure consulta este campo.
+ */
+export const prioridadesProcedure = t.procedure.use(
+  t.middleware(async ({ ctx, next }) => {
+    if (!ctx.user) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+    if (ctx.user.mustChangePassword) {
+      throw new TRPCError({ code: "FORBIDDEN", message: PASSWORD_CHANGE_REQUIRED });
+    }
+    if (!canManagePriorities(ctx.user.role, ctx.user.operationalRole)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Só Administrativo, Desenvolvedor ou Coordenador podem editar as prioridades da semana.",
+      });
+    }
+    return next({ ctx: { ...ctx, user: ctx.user } });
+  }),
+);
+
 export const contentProcedure = t.procedure.use(
   t.middleware(async ({ ctx, next }) => {
     if (!ctx.user) {

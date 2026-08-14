@@ -6453,23 +6453,53 @@ export async function renomearContaGoogle(id: number, accountName: string) {
  * "atualizado hoje às 10:42 por Guilherme", e um id não diz isso.
  */
 export async function prioridadesDaSemana(semana: string): Promise<{
-  itens: Array<typeof weeklyPriorities.$inferSelect>;
+  itens: Array<Record<string, unknown>>;
   atualizadoEm: Date | null;
   atualizadoPor: string | null;
 }> {
   const db = await getDb();
   if (!db) return { itens: [], atualizadoEm: null, atualizadoPor: null };
 
-  const itens = await db.select().from(weeklyPriorities)
+  const linhas = await db.select().from(weeklyPriorities)
     .where(eq(weeklyPriorities.semana, semana))
-    .orderBy(weeklyPriorities.ordem, weeklyPriorities.id);
+    .orderBy(weeklyPriorities.id);
+
+  // Nome e foto de quem responde são resolvidos AQUI, e não pela tela.
+  //
+  // A lista de colaboradores é adminProcedure, e a Home é vista por todo mundo:
+  // se o avatar viesse de uma consulta do cliente, mostrar a foto do
+  // responsável obrigaria a abrir a lista de pessoas para o portal inteiro.
+  // Resolvido no servidor, quem só visualiza recebe exatamente os nomes e as
+  // fotos que já estão na tela — e nada além.
+  const ids = Array.from(new Set(
+    linhas.map((l) => l.responsavelUserId).filter((x): x is number => typeof x === "number"),
+  ));
+  // A chave do avatar sai daqui; quem a transforma em URL é o router, que já
+  // fala com o storage. `db.ts` não precisa conhecer o storage para isto.
+  const pessoas = new Map<number, { nome: string | null; avatarKey: string | null }>();
+  if (ids.length) {
+    const us = await db.select({ id: users.id, name: users.name, avatarKey: users.avatarKey })
+      .from(users).where(inArray(users.id, ids));
+    for (const u of us) pessoas.set(u.id, { nome: u.name ?? null, avatarKey: u.avatarKey ?? null });
+  }
+
+  const itens = linhas.map((l) => {
+    const p = l.responsavelUserId !== null ? pessoas.get(l.responsavelUserId) : undefined;
+    return {
+      ...l,
+      // O texto livre antigo só aparece quando não há pessoa vinculada — assim
+      // item criado antes da mudança não perde o responsável.
+      responsavelNome: p?.nome ?? l.responsavel ?? null,
+      responsavelAvatarKey: p?.avatarKey ?? null,
+    };
+  });
 
   // O mais recente da SEMANA, e não da tabela: navegar para uma semana antiga
   // e ver "atualizado agora" (por causa de uma edição em outra semana) faria o
   // rodapé mentir sobre o que está na tela.
   let atualizadoEm: Date | null = null;
   let updatedBy: number | null = null;
-  for (const i of itens) {
+  for (const i of linhas) {
     if (!atualizadoEm || i.updatedAt > atualizadoEm) {
       atualizadoEm = i.updatedAt;
       updatedBy = i.updatedBy ?? i.createdBy ?? null;
@@ -6485,26 +6515,31 @@ export async function prioridadesDaSemana(semana: string): Promise<{
 }
 
 /**
- * Cria um item no fim da lista do seu tipo.
+ * Os colaboradores que podem ser responsáveis.
  *
- * A ordem nasce depois do último do MESMO grupo e tipo — item novo aparecendo no
- * meio da lista é o tipo de surpresa que faz alguém desconfiar de que salvou
- * errado.
+ * Só quem está ATIVO: um desligado no dropdown é um convite a atribuir trabalho
+ * a quem não vai receber. Quem já está atribuído continua aparecendo no item —
+ * a resolução do nome não filtra por ativo, senão o histórico perderia o nome.
  */
+export async function colaboradoresParaResponsavel(): Promise<Array<{
+  id: number; nome: string; avatarKey: string | null;
+}>> {
+  const db = await getDb();
+  if (!db) return [];
+  const us = await db.select({ id: users.id, name: users.name, avatarKey: users.avatarKey })
+    .from(users).where(eq(users.active, true));
+  return us
+    .map((u) => ({ id: u.id, nome: u.name ?? "sem nome", avatarKey: u.avatarKey ?? null }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+}
+
 export async function criarPrioridade(
-  dados: Omit<InsertWeeklyPriority, "ordem">, userId: number,
+  dados: InsertWeeklyPriority, userId: number,
 ): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
-  const irmaos = await db.select({ ordem: weeklyPriorities.ordem }).from(weeklyPriorities)
-    .where(and(
-      eq(weeklyPriorities.semana, dados.semana),
-      eq(weeklyPriorities.grupo, dados.grupo),
-      eq(weeklyPriorities.tipo, dados.tipo),
-    ));
-  const ordem = irmaos.reduce((max, i) => Math.max(max, i.ordem), 0) + 1;
   const r = await db.insert(weeklyPriorities).values({
-    ...dados, ordem, createdBy: userId, updatedBy: userId,
+    ...dados, createdBy: userId, updatedBy: userId,
   });
   return Number((r as unknown as { insertId?: number }).insertId ?? 0);
 }
@@ -6522,24 +6557,6 @@ export async function excluirPrioridade(id: number): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
   await db.delete(weeklyPriorities).where(eq(weeklyPriorities.id, id));
-}
-
-/**
- * Troca a posição de dois itens.
- *
- * Duas escritas e não um recálculo da lista: reordenar tudo a cada seta gravaria
- * N linhas e carimbaria "atualizado por" em itens que ninguém tocou — e o rodapé
- * da Home passaria a acusar edição onde não houve.
- */
-export async function trocarOrdemPrioridades(
-  a: { id: number; ordem: number }, b: { id: number; ordem: number }, userId: number,
-): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("DB indisponível");
-  await db.update(weeklyPriorities).set({ ordem: b.ordem, updatedBy: userId })
-    .where(eq(weeklyPriorities.id, a.id));
-  await db.update(weeklyPriorities).set({ ordem: a.ordem, updatedBy: userId })
-    .where(eq(weeklyPriorities.id, b.id));
 }
 
 /** Um item, para as operações que precisam conferir o estado antes de mexer. */

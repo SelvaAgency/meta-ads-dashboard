@@ -22,7 +22,7 @@ import { SelvaTV } from "./SelvaTV";
 import { NewsTicker } from "./NewsTicker";
 import { greetingForHour, firstName } from "./hubMocks";
 import type { NewsItem, SelvaTVImage } from "./hubMocks";
-import { AgendaCard } from "./AgendaCard";
+import { LinhaPrioridadesAgenda } from "./AgendaColapsavel";
 import { PrioridadesCard } from "./PrioridadesCard";
 
 /** Atalhos de destaque na Home — acesso rápido aos principais recursos. */
@@ -148,15 +148,10 @@ export default function Hub() {
               </p>
             </header>
 
-            {/* Prioridades (2/3) + Agenda (1/3) na mesma linha. As Prioridades
-                pedem largura por causa das abas e da hierarquia; a Agenda é uma
-                lista estreita e cabe bem no terço. No mobile, uma coluna. */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="md:col-span-2 min-w-0">
-                <PrioridadesCard />
-              </div>
-              <AgendaCard />
-            </div>
+            {/* Prioridades (2/3) + Agenda (1/3). A Agenda recolhe, e o espaço
+                vai para as Prioridades — as duas larguras são a mesma decisão,
+                então o layout vive junto em LinhaPrioridadesAgenda. */}
+            <LinhaPrioridadesAgenda prioridades={<PrioridadesCard />} />
 
             {/* Acesso rápido às 2 funcionalidades mais legais do Spaces */}
             <AtalhosRapidos />
