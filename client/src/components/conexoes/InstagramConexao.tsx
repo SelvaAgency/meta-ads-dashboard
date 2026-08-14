@@ -29,7 +29,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock, PlayCircle, CalendarClock, ClipboardList, Layers } from "lucide-react";
+import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock, PlayCircle, CalendarClock, ClipboardList, Layers, Megaphone } from "lucide-react";
 import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
 import { resumirExecucao } from "@shared/resumoDaExecucao";
@@ -303,6 +303,18 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
     onError: (e) => toast.error(e.message),
   });
 
+  /**
+   * Sondagem de post impulsionado.
+   *
+   * Pede o id da mídia porque é ele que transforma indício em prova: sem
+   * apontar um post SABIDAMENTE pago, a sondagem responde "o campo existe?",
+   * que não é a pergunta — a pergunta é "o campo DISTINGUE?".
+   */
+  const sondarImpulsionado = trpc.social.sondarImpulsionado.useMutation({
+    onSuccess: (r) => setDiagnostico(r.texto),
+    onError: (e) => toast.error(e.message),
+  });
+
   const desconectar = trpc.social.desconectarConta.useMutation({
     onSuccess: () => { utils.social.fontes.invalidate(); toast.success("Login da conta desconectado."); },
     onError: (e) => toast.error(e.message),
@@ -311,7 +323,7 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
   return (
     <div className="flex flex-col gap-3">
       <div>
-        <h3 className="text-sm font-bold flex items-center gap-2"><Instagram className="w-4 h-4" /> Redes Sociais · Instagram</h3>
+        <h3 className="text-sm font-bold flex items-center gap-2"><Instagram className="w-4 h-4" /> Social · Instagram</h3>
         <p className="text-xs text-muted-foreground mt-0.5">
           Credencial <strong>própria</strong>, separada de Meta Ads — se campanhas caírem, o orgânico continua.
         </p>
@@ -595,6 +607,27 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                       className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
                       {aninhados.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Layers className="w-3 h-3" />}
                       Sondar aninhamento
+                    </button>
+                  )}
+                  {v?.instagramUserId && (
+                    <button
+                      onClick={() => {
+                        // O id é OPCIONAL, e a diferença entre informar e não
+                        // informar é a diferença entre prova e indício — está
+                        // dito no prompt, não escondido num tooltip.
+                        const id = prompt(
+                          "Id da mídia impulsionada (opcional).\n\n"
+                          + "Com um post SABIDAMENTE impulsionado, a sondagem prova se a API distingue.\n"
+                          + "Sem ele, ela só diz se os campos existem — deixe em branco para medir a publicação mais recente.",
+                        );
+                        if (id === null) return;
+                        sondarImpulsionado.mutate({ accountId: c.id, mediaId: id.trim() || undefined });
+                      }}
+                      disabled={sondarImpulsionado.isPending}
+                      title="A API do Instagram diz que uma publicação foi impulsionada? (caso MNBR)"
+                      className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
+                      {sondarImpulsionado.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Megaphone className="w-3 h-3" />}
+                      Sondar impulsionado
                     </button>
                   )}
                   {v?.instagramUserId && (

@@ -284,7 +284,7 @@ const TITULO: Record<GrupoSondagem, string> = {
 
 function montarTexto(linhas: LinhaSondagem[], disponiveis: number): string {
   const out: string[] = [
-    `sondagem de Redes Sociais · ${disponiveis}/${linhas.length} itens disponíveis`,
+    `sondagem de Social · ${disponiveis}/${linhas.length} itens disponíveis`,
     "",
   ];
   for (const grupo of Object.keys(TITULO) as GrupoSondagem[]) {

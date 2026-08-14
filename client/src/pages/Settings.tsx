@@ -767,7 +767,7 @@ function ConexoesPanel() {
           Página/Instagram), RedesVinculos é o cadastro de @ para as redes que
           ainda não têm integração. Invertido, o cadastro manual pareceria a
           coisa principal — foi ele que por anos foi confundido com conexão. */}
-      <SecaoConexao titulo="Redes sociais" subtitulo="Instagram conectado por token próprio · demais redes, cadastro de perfil">
+      <SecaoConexao titulo="Social" subtitulo="Instagram conectado por token próprio · demais redes, cadastro de perfil">
         <InstagramConexao />
         {/* LinkedIn entra ANTES do cadastro manual, e depois do Instagram: ele
             já não é só um @ cadastrado (tem token e sondagem), mas ainda não é

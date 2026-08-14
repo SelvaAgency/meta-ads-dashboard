@@ -155,7 +155,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
    */
   const sidebarOpen = pinnedOpen || hovering || clientDropdownOpen || mobile.aberto;
 
-  // Visibilidade temporária: Alertas/Google Ads/Redes sociais ficam ocultos para
+  // Visibilidade temporária: Alertas/Google Ads/Social ficam ocultos para
   // o colaborador. Também desliga as queries de alerta e o sino do topo.
   const isManager = canManageContent(user?.role);
 
@@ -179,7 +179,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   // Base: sempre visível, inclusive para o colaborador.
   const baseNavItems = [
     { path: "/dashboard", label: "Resumo", icon: LayoutDashboard },
-    { path: "/campaigns", label: "Campanhas", icon: BarChart3 },
+    { path: "/campaigns", label: "Mídia", icon: BarChart3 },
     { path: "/site", label: "Site", icon: Globe },
     { path: "/reports", label: "Relatórios", icon: FileText },
   ];
@@ -207,7 +207,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             )}
           </div>
         </Link>
-        {/* Redes sociais — LIBERADO para todo mundo com acesso ao Tracker: a
+        {/* Social — LIBERADO para todo mundo com acesso ao Tracker: a
             página analítica saiu do teste interno. Configurar token, vincular e
             diagnosticar continuam em Conexões, que é admin/dev.
 
@@ -219,7 +219,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             <div className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150 ${location !== "/social-networks" ? HOVER_CLS : ""}`}
               style={location === "/social-networks" ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}>
               <Instagram className="w-4 h-4 flex-shrink-0" />
-              <span className="text-sm font-medium flex-1 truncate">Redes sociais</span>
+              <span className="text-sm font-medium flex-1 truncate">Social</span>
             </div>
           </Link>
         )}

@@ -1,20 +1,50 @@
+describe("nenhum dado de mídia paga entra na página", () => {
+  /**
+   * O objeto `pago` continua vindo do servidor — outras telas o usam, e mexer
+   * no `painel` por causa desta página seria pagar caro por uma limpeza visual.
+   * O que não pode é a página LER dele.
+   */
+  it("a página não lê `pago` em lugar nenhum", () => {
+    const linhas = semComentarios(pagina()).split("\n").filter((l) => /\bpago\b/.test(l));
+    expect(linhas, `a página voltou a ler mídia paga:\n${linhas.join("\n")}`).toEqual([]);
+  });
+
+  /** Os termos que só existem em campanha. Nenhum deles pertence a esta tela. */
+  it("nenhum vocabulário de campanha sobrou", () => {
+    const texto = semComentarios(pagina());
+    for (const termo of ["investimento", "ROAS", "roas", "CPA", "cpc", "conversoes", "valorDeConversao"]) {
+      expect(texto, `"${termo}" voltou para a página Social`).not.toContain(termo);
+    }
+  });
+
+  /** Se o rodapé parar de dizer onde os números de campanha moram, alguém vai
+      procurá-los aqui — e a ausência vai parecer perda de funcionalidade. */
+  it("a página diz para onde foram os números de campanha", () => {
+    expect(pagina()).toContain("Mídia");
+  });
+});
+
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Pago e orgânico não podem se encontrar
+ *  A página Social é orgânica — e agora isso é estrutural
  * ─────────────────────────────────────────────────────────────────────────────
- *  A página antiga de Redes Sociais saiu do ar por duas razões, e esta é a que
- *  não deixa rastro no compilador: ela mostrava número de CAMPANHA e número de
- *  PERFIL na mesma superfície, sob rótulos que não diziam qual era qual. Quem
- *  lia via "alcance" e supunha orgânico.
+ *  A página antiga saiu do ar por duas razões, e esta é a que não deixa rastro
+ *  no compilador: ela mostrava número de CAMPANHA e número de PERFIL na mesma
+ *  superfície, sob rótulos que não diziam qual era qual. Quem lia via "alcance"
+ *  e supunha orgânico.
  *
- *  A defesa não é o rótulo — é a separação estrutural. O servidor devolve
- *  `organico` e `pago` como objetos distintos, e cada bloco da tela lê de um só.
- *  Um card orgânico que quisesse mostrar investimento teria que atravessar a
- *  fronteira, e é isso que estes testes procuram.
+ *  A primeira defesa foi separar os blocos e exigir que cada um lesse de um
+ *  objeto só. A defesa ATUAL é mais forte e mais simples: a seção de mídia paga
+ *  saiu da página inteira. Não há fronteira a atravessar porque não há o outro
+ *  lado — os números de campanha vivem em Mídia.
+ *
+ *  Um teste de fronteira, hoje, guardaria uma fronteira que não existe. Estes
+ *  guardam a ausência: se `pago` voltar a ser lido aqui, o problema antigo volta
+ *  junto, e ele é do tipo que ninguém reporta — o número aparece plausível.
  *
  *  A outra razão da morte era `accounts[0].accessToken` — o token de mídia de
- *  uma conta arbitrária como credencial de todo o Instagram. O último teste
- *  garante que ele não voltou junto com os blocos visuais.
+ *  uma conta arbitrária como credencial de todo o Instagram. Ele também é
+ *  guardado aqui.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it } from "vitest";
@@ -24,60 +54,6 @@ const semComentarios = (t: string) =>
   t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/\/\/[^\n]*/g, "");
 
 const pagina = () => readFileSync(new URL("./RedesSociais.tsx", import.meta.url), "utf-8");
-
-/** As duas metades da tela, recortadas pelos marcadores de seção. */
-function blocos() {
-  const cru = pagina();
-  const iOrg = cru.indexOf("── ORGÂNICO");
-  const iPago = cru.indexOf("── PAGO");
-  expect(iOrg, "marcador de seção ORGÂNICO sumiu").toBeGreaterThan(-1);
-  expect(iPago, "marcador de seção PAGO sumiu").toBeGreaterThan(iOrg);
-  // Os marcadores vivem DENTRO de comentários JSX. Cortar neles deixa o recorte
-  // começando no meio de um comentário, cujo fecho sobrevive à limpeza — e o
-  // texto do comentário passaria por código. Avança até depois do fecho.
-  const depoisDoComentario = (t: string) => {
-    const i = t.indexOf("*/}");
-    return i === -1 ? t : t.slice(i + 3);
-  };
-  return {
-    organico: semComentarios(depoisDoComentario(cru.slice(iOrg, iPago))),
-    pago: semComentarios(depoisDoComentario(cru.slice(iPago))),
-  };
-}
-
-describe("a fronteira entre as origens", () => {
-  it("o bloco orgânico não lê nada de `pago`", () => {
-    const linhas = blocos().organico.split("\n").filter((l) => /\bpago\b/.test(l));
-    expect(linhas.map((l) => l.trim())).toEqual([]);
-  });
-
-  it("o bloco pago não lê nada de `organico`", () => {
-    const linhas = blocos().pago.split("\n").filter((l) => /\borganico\b/.test(l));
-    expect(linhas.map((l) => l.trim())).toEqual([]);
-  });
-
-  /**
-   * Rótulo não substitui a separação, mas some junto com ela: se um dia os
-   * blocos se fundirem, é a palavra "pago"/"campanha" que desaparece primeiro.
-   */
-  it("todo rótulo do bloco pago se identifica como pago ou de campanha", () => {
-    const b = blocos().pago;
-    const rotulos = Array.from(b.matchAll(/label="([^"]+)"/g), (m) => m[1]);
-    expect(rotulos.length).toBeGreaterThanOrEqual(6);
-    const ambiguos = rotulos.filter((r) => !/pag[oa]|campanha|mídia|investimento/i.test(r));
-    expect(ambiguos).toEqual([]);
-  });
-
-  it("nenhum rótulo do bloco pago se diz orgânico", () => {
-    expect(blocos().pago.toLowerCase()).not.toContain("orgânico");
-  });
-
-  it("os dois cabeçalhos declaram a origem", () => {
-    const cru = pagina();
-    expect(cru).toContain("Orgânico · Instagram");
-    expect(cru).toContain("Mídia paga · Meta Ads");
-  });
-});
 
 describe("o que matou a página antiga não voltou", () => {
   it("nada de accounts[0].accessToken", () => {
@@ -133,18 +109,34 @@ describe("as decisões vêm das funções puras, não de ternários locais", () 
   const semC = (t: string) =>
     t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/\/\/[^\n]*/g, "");
 
-  it("classificação de mídia chama tipoDeConteudo", () => {
-    const s = semC(pagina());
-    expect(s).toContain("tipoDeConteudo(");
-    // Nenhuma comparação solta com os valores crus da Meta.
-    expect(s).not.toMatch(/mediaType\s*===\s*"(VIDEO|CAROUSEL_ALBUM|IMAGE)"/);
+  /**
+   * A classificação MUDOU DE LUGAR, não sumiu: o coletor grava `tipo` já
+   * classificado por `tipoDeConteudo`, e a tela lê o campo. Exigir a chamada
+   * aqui obrigaria a reclassificar o que já veio classificado.
+   *
+   * O que continua valendo é a proibição, e ela é a parte que pega o erro: uma
+   * comparação solta com o valor cru da Meta recriaria o bug que a função pura
+   * existe para impedir — VIDEO+FEED é publicação antiga de feed, não reel.
+   */
+  it("nenhuma comparação solta com os valores crus da Meta", () => {
+    expect(semC(pagina())).not.toMatch(/mediaType\s*===\s*"(VIDEO|CAROUSEL_ALBUM|IMAGE)"/);
   });
 
-  it("taxa de engajamento chama as funções puras, com o rótulo do divisor", () => {
+  /**
+   * A taxa por SEGUIDORES saiu com o seletor de dois eixos: o redesenho usa
+   * alcance como divisor único. O que o teste guarda é o que sempre importou —
+   * que a taxa venha da função pura, e não de uma divisão escrita na tela.
+   *
+   * A divisão local é o erro perigoso aqui: ela não trata alcance zero, e
+   * produziria `Infinity` ou `NaN` num post sem medição — que apareceria no
+   * ranking como o melhor de todos.
+   */
+  it("toda taxa de engajamento sai de taxaPorAlcance", () => {
     const s = semC(pagina());
     expect(s).toContain("taxaPorAlcance(");
-    expect(s).toContain("taxaPorSeguidores(");
-    expect(s).toContain("ROTULO_TAXA.alcance");
+    // Nenhuma divisão manual por alcance.
+    expect(s).not.toMatch(/\/\s*\w*[Aa]lcance\w*\s*\)?\s*\*\s*100/);
+    expect(s).not.toMatch(/\/\s*m\.reach\s*\)?\s*\*\s*100/);
   });
 
   it("saldo de seguidores sai de saldoDeSeguidores, e não de subtração local", () => {

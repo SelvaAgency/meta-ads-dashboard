@@ -33,6 +33,7 @@ import type { SondagemDireta } from "./sondagemInstagramDireto";
 import type { SondagemDeHorarios } from "./sondagemHorarios";
 import type { SondagemDeJanela } from "./sondagemJanela";
 import type { SondagemAninhada } from "./sondagemAninhada";
+import type { SondagemImpulsionado } from "./sondagemImpulsionado";
 
 // Nome e rótulo da fonte vivem em shared: a tela também os usa, e duas listas
 // divergiriam no dia em que uma terceira fonte aparecer.
@@ -137,6 +138,14 @@ export interface FonteInstagram {
 
   /** Os insights cabem na mesma chamada da listagem? Decide 186→31 ou 186→6. */
   sondarInsightsAninhados?(alvo: AlvoInstagram): Promise<SondagemAninhada>;
+
+  /**
+   * A API diz que uma publicação foi impulsionada?
+   *
+   * `mediaId` aponta um post sabidamente pago — sem ele a sondagem responde "o
+   * campo existe?", que não é a pergunta. A pergunta é "o campo DISTINGUE?".
+   */
+  sondarImpulsionado?(alvo: AlvoInstagram, mediaId?: string): Promise<SondagemImpulsionado>;
 
   /** Que janela cada número cobre, e em que fuso o dia vira. */
   sondarJanela?(alvo: AlvoInstagram, metrica?: string): Promise<SondagemDeJanela>;

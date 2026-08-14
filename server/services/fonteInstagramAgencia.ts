@@ -28,6 +28,7 @@ import { sondarInstagramDireto as sondarDireto, type SondagemDireta } from "./so
 import { sondarHorarios as sondarHrs, type SondagemDeHorarios } from "./sondagemHorarios";
 import { sondarJanela as sondarJan, type SondagemDeJanela } from "./sondagemJanela";
 import { sondarInsightsAninhados as sondarAnin, type SondagemAninhada } from "./sondagemAninhada";
+import { sondarImpulsionado as sondarImp, type SondagemImpulsionado } from "./sondagemImpulsionado";
 import {
   FonteSemCredencial,
   type AlvoInstagram, type FonteInstagram, type MidiaInstagram,
@@ -127,6 +128,13 @@ export function fonteAgencia(obterToken: () => Promise<string | null> = tokenGua
       const igId = exigirInstagram(alvo);
       const { consultarGraph } = await import("./instagram");
       return sondarAnin((c, p2) => consultarGraph(c, p2, t), igId);
+    },
+
+    async sondarImpulsionado(alvo: AlvoInstagram, mediaId?: string): Promise<SondagemImpulsionado> {
+      const t = await token();
+      const igId = exigirInstagram(alvo);
+      const { consultarGraph } = await import("./instagram");
+      return sondarImp((c, p2) => consultarGraph(c, p2, t), igId, mediaId);
     },
 
     async sondarJanela(alvo: AlvoInstagram, metrica?: string): Promise<SondagemDeJanela> {

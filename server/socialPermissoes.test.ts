@@ -169,7 +169,7 @@ describe("a tela não oferece o que o servidor recusaria", () => {
    * O menu abriu de propósito: a página analítica saiu do teste interno. O que
    * NÃO abriu é onde se configura — e é isso que este teste agora protege.
    */
-  it("o item de menu de Redes sociais aponta para a PÁGINA, não para as Conexões", () => {
+  it("o item de menu de Social aponta para a PÁGINA, não para as Conexões", () => {
     const layout = readFileSync(new URL("../client/src/components/MetaDashboardLayout.tsx", import.meta.url), "utf-8")
       .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
     // Busca a partir do LINK, e não do rótulo: o href fica algumas linhas
@@ -177,7 +177,7 @@ describe("a tela não oferece o que o servidor recusaria", () => {
     const i = layout.indexOf('href="/social-networks"');
     expect(i, "o item de menu não aponta mais para a página").toBeGreaterThan(-1);
     const bloco = layout.slice(i, i + 600);
-    expect(bloco).toContain("Redes sociais");
+    expect(bloco).toContain("Social");
     // Levar o colaborador para o hub de Conexões seria oferecer uma tela que o
     // servidor recusa — ele cairia no SemAcessoTracker.
     expect(bloco).not.toContain("painel=conexoes");

@@ -4149,7 +4149,7 @@ export const appRouter = router({
         if (input?.accountId === undefined) {
           const agencia = fonteAgencia();
           if (!(await agencia.disponivel())) {
-            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Nenhuma credencial de Redes Sociais cadastrada. Cole o token em Conexões → Redes Sociais." });
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Nenhuma credencial de Social cadastrada. Cole o token em Conexões → Social." });
           }
           const geral = await agencia.diagnosticar({ escopoDeCliente: false });
           await registrarTesteSocial(geral.ok, geral.texto);
@@ -4218,6 +4218,40 @@ export const appRouter = router({
       }),
 
     /**
+     * Sondagem: dá para saber pela API que uma publicação foi impulsionada?
+     *
+     * O caso real é o MNBR — posts impulsionados pelo botão do Instagram que
+     * não aparecem na conta de anúncios conectada. Enquanto isto não responder
+     * de forma que DISTINGA (e não só responda), nenhum selo aparece na tela:
+     * "impulsionado" errado num post orgânico faria alguém cortar um formato
+     * que funcionava.
+     *
+     * `mediaId` aponta um post sabidamente impulsionado — é o que transforma
+     * indício em prova.
+     */
+    sondarImpulsionado: contentProcedure
+      .input(z.object({ accountId: z.number().int(), mediaId: z.string().max(40).optional() }))
+      .mutation(async ({ input }) => {
+        const conta = fonteInstagramDaConta(input.accountId);
+        const agencia = fonteAgencia();
+        const vinculo = (await vinculosSociais()).find((v) => v.accountId === input.accountId);
+        const escolha = escolherFonte(await estadosDasFontes(input.accountId, conta, agencia));
+        if (!escolha.usada) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: `${escolha.titulo}. ${escolha.detalhe}` });
+        }
+        const fonte = escolha.usada === "oauth_conta" ? conta : agencia;
+        if (!fonte.sondarImpulsionado) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `A fonte "${escolha.usada}" ainda não implementa esta sondagem.`,
+          });
+        }
+        const r = await fonte.sondarImpulsionado(
+          { pageId: vinculo?.pageId, instagramUserId: vinculo?.instagramUserId }, input.mediaId);
+        return { ...r, texto: `fonte: ${escolha.usada}\n${r.texto}` };
+      }),
+
+    /**
      * ── LinkedIn · Fase 0 ────────────────────────────────────────────────
      *
      * Só medição. Nenhuma tabela de dados, nenhum coletor, nenhuma tela de
@@ -4274,7 +4308,7 @@ export const appRouter = router({
           if (!token) {
             throw new TRPCError({
               code: "PRECONDITION_FAILED",
-              message: "Nenhuma credencial de LinkedIn cadastrada. Cole o token em Conexões → Redes sociais → LinkedIn.",
+              message: "Nenhuma credencial de LinkedIn cadastrada. Cole o token em Conexões → Social → LinkedIn.",
             });
           }
           const r = await sondarLinkedIn({
@@ -4327,7 +4361,7 @@ export const appRouter = router({
     sondarInstagramDireto: contentProcedure.mutation(async () => {
       const fonte = fonteAgencia();
       if (!fonte.sondarInstagramDireto || !(await fonte.disponivel())) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre a credencial de Redes Sociais primeiro." });
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre a credencial de Social primeiro." });
       }
       return fonte.sondarInstagramDireto();
     }),
@@ -4438,7 +4472,7 @@ export const appRouter = router({
     paginasDisponiveis: contentProcedure.mutation(async () => {
       const fonte = fonteAgencia();
       if (!fonte.descobrirPaginas || !(await fonte.disponivel())) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre a credencial de Redes Sociais primeiro." });
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Cadastre a credencial de Social primeiro." });
       }
       // As duas vias na MESMA lista. Dois seletores competiriam pela mesma
       // decisão, e escolher no segundo sem limpar o primeiro deixaria dois

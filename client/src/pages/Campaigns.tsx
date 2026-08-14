@@ -695,7 +695,7 @@ export default function Campaigns() {
 
   if (clienteSemMidia(activeAccount)) {
     return (
-      <MetaDashboardLayout title="Campanhas">
+      <MetaDashboardLayout title="Mídia">
         <SemMidia nome={activeAccount?.accountName} accountId={activeAccount?.id} area="a lista de campanhas" />
       </MetaDashboardLayout>
     );
@@ -703,7 +703,7 @@ export default function Campaigns() {
 
   if (!accounts || accounts.length === 0) {
     return (
-      <MetaDashboardLayout title="Campanhas">
+      <MetaDashboardLayout title="Mídia">
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 256, textAlign: "center" }}>
           <div style={{ width: 64, height: 64, borderRadius: 16, background: "var(--color-background-secondary)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
             <Link2 size={28} style={{ color: "#D4537E" }} />
@@ -732,13 +732,13 @@ export default function Campaigns() {
   const th = (left?: boolean): React.CSSProperties => ({ padding: "8px 12px", textAlign: left ? "left" as const : "right" as const, fontWeight: 500, fontSize: 11, color: "var(--color-text-secondary)", borderBottom: "0.5px solid var(--color-border-tertiary)", whiteSpace: "nowrap" as const, background: "var(--color-background-secondary)" });
 
   return (
-    <MetaDashboardLayout title="Campanhas">
+    <MetaDashboardLayout title="Mídia">
       <div style={{ padding: "24px 28px" }}>
 
         {/* ── Topbar ── */}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 500 }}>Campanhas</div>
+            <div style={{ fontSize: 18, fontWeight: 500 }}>Mídia</div>
             <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>{acct?.accountName ?? "Conta"} · {periodLabel}</div>
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>

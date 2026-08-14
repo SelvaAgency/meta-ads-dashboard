@@ -1,26 +1,36 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Redes Sociais — a página visual, por cliente
+ *  Social — a página por cliente
  * ─────────────────────────────────────────────────────────────────────────────
- *  Sucessora de `SocialNetworks.tsx`. Os blocos visuais vieram de lá quase
- *  intactos — KpiCard, MetricRow, RecentPostCard; o que mudou foi de onde os
- *  dados vêm e como as duas origens convivem.
+ *  Quatro níveis de informação, e a hierarquia é o produto desta versão:
  *
- *  ── O que matou a página antiga ────────────────────────────────────────────
- *  Ela lia o Instagram com `accounts[0].accessToken` — o token de mídia de uma
- *  conta ARBITRÁRIA servindo de credencial para todos os clientes — e misturava
- *  números de campanha com números de perfil sob o mesmo rótulo. Aqui as duas
- *  coisas chegam em objetos SEPARADOS (`organico` e `pago`), cada um com a
- *  origem declarada: não existe caminho para pintar investimento num card de
- *  alcance orgânico, porque os dois nunca se encontram.
+ *    CABEÇALHO      leitura do período + ontem × hoje + trajetória. É a área
+ *                   mais importante e a única que responde sem rolar.
+ *    SEGUIDORES     saldo, entradas e saídas — separados, porque "9.500 ↑" dá
+ *                   impressão de crescimento contínuo mesmo numa base que
+ *                   perde tanto quanto ganha.
+ *    DADOS GERAIS   compacto. Ativações, engajamento, visitas, cliques.
+ *    CONTEÚDO       publicações densas para escanear; performance para analisar.
+ *
+ *  ── O que saiu, e por quê ──────────────────────────────────────────────────
+ *  A seção de MÍDIA PAGA foi removida: esta página é orgânica. Os números de
+ *  campanha continuam existindo no sistema e vivem em Mídia — misturá-los aqui
+ *  era o que a página anterior fazia, e produzia leituras em que investimento
+ *  aparecia ao lado de alcance de perfil como se fossem da mesma natureza.
+ *
+ *  O bloco de status da coleta saiu do cabeçalho pelo mesmo motivo: "quando o
+ *  robô rodou" é pergunta de quem cuida do robô, e ela ocupava a região onde a
+ *  performance da conta deveria estar. A instrumentação continua inteira — em
+ *  Conexões, junto de quem conserta.
  *
  *  ── Esta página não escreve nada ───────────────────────────────────────────
  *  Token, vínculo, diagnóstico e conexão vivem em Configurações → Conexões.
- *  Aqui só se olha. Quando falta configuração, a página diz qual é e manda para
- *  lá — em vez de parecer quebrada por falta de um passo que tem dono.
+ *  Quando falta configuração, a página diz qual é e manda para lá — em vez de
+ *  parecer quebrada por falta de um passo que tem dono.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { Link } from "wouter";
+import { useMemo, useState } from "react";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { SemAcessoTracker } from "@/components/SemAcessoTracker";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
@@ -28,115 +38,31 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { trpc } from "@/lib/trpc";
 import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
-import { useState } from "react";
 import { lerVinculo, ROTULO_TIPO, type StatusInsight, type TipoConta } from "@shared/instagram";
-import { ROTULO_FONTE } from "@shared/fontesSociais";
 import { saldoDeSeguidores, podeMostrarEntradasESaidas, somarNoPeriodo } from "@shared/socialSnapshot";
 import { textoDeCobertura } from "@shared/periodosSociais";
-import { lerColetaAutomatica } from "@shared/statusDaColeta";
-import { lerStatusDoCliente } from "@shared/statusDoCliente";
-import { coletasSaoComparaveis, rotuloDeEstoque, rotuloDeFluxo } from "@shared/janelaDaMetrica";
-import { StatusDoDado } from "@/components/redes/StatusDoDado";
+import { coletasSaoComparaveis, rotuloDeFluxo } from "@shared/janelaDaMetrica";
+import { contarAtivacoes, textoDaComposicao } from "@shared/ativacoes";
+import { lerUltimosDias, type DiaDaLeitura } from "@shared/leituraSocial";
+import { taxaPorAlcance } from "@shared/engajamento";
+import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 import {
-  ROTULO_CRITERIO, ROTULO_TAXA, avisoDeExclusao, rankingDePublicacoes,
-  taxaPorAlcance, taxaPorSeguidores, type CriterioDeRanking,
-} from "@shared/engajamento";
-import { CONTA_COMO_POST, ROTULO_CONTEUDO, tipoDeConteudo, type TipoConteudo } from "@shared/tipoDeMidia";
-import { GraficoDeSeguidores, GraficoDeVisitas, type PontoDaSerie } from "@/components/redes/GraficosDoTopo";
+  IdentidadeDaConta, LeituraDoPeriodo, OntemEHoje, type ValorDoDia,
+} from "@/components/redes/CabecalhoDaConta";
+import { GraficoDaConta, GraficoDeMovimento } from "@/components/redes/GraficoDaConta";
 import {
-  Instagram, Loader2, Users, Heart, MessageCircle, Eye, Image as ImageIcon,
-  Activity, DollarSign, MousePointerClick, TrendingUp, Share2, Settings2, ExternalLink,
-} from "lucide-react";
+  PerformanceDeConteudo, UltimasPublicacoes,
+  type DesempenhoPorTipo, type PublicacaoEmLinha,
+} from "@/components/redes/PublicacoesEConteudo";
+import { Loader2, Settings2, Users, Heart, Eye, MousePointerClick, Layers } from "lucide-react";
 
-// ─── Formatação ─────────────────────────────────────────────────────────────
-// `null` vira "–", e nunca 0: uma métrica que a Meta não devolveu não é uma
-// métrica que deu zero, e um zero inventado é pior que um traço honesto.
 const fmt = (n: number | null | undefined): string =>
   n == null ? "–" : n.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
-const fmtMoeda = (n: number | null | undefined): string =>
-  n == null ? "–" : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const fmtPct = (n: number | null | undefined): string =>
-  n == null ? "–" : `${n.toFixed(2)}%`;
-
-// ─── Blocos visuais (herdados da página antiga) ─────────────────────────────
-
-function KpiCard({ icon: Icon, label, value, sublabel, color, bgColor }: {
-  icon: typeof Users; label: string; value: string; sublabel?: string; color: string; bgColor: string;
-}) {
-  return (
-    <div className="bg-card rounded-xl border border-border p-4">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: bgColor }}>
-          <Icon className="w-5 h-5" style={{ color }} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-2xl font-bold text-foreground leading-tight tabular-nums">{value}</p>
-          <p className="text-xs text-muted-foreground truncate">{label}</p>
-          {sublabel && <p className="text-[10px] text-muted-foreground/70 mt-0.5">{sublabel}</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MetricRow({ icon: Icon, label, value, color }: {
-  icon: typeof Users; label: string; value: string; color: string;
-}) {
-  const vazio = value === "–";
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-border/30 last:border-b-0">
-      <div className="flex items-center gap-2.5">
-        <Icon className="w-4 h-4 flex-shrink-0" style={{ color: vazio ? "#9CA3AF" : color }} />
-        <span className="text-sm text-muted-foreground">{label}</span>
-      </div>
-      <span className={`text-sm font-semibold tabular-nums ${vazio ? "text-muted-foreground/50" : "text-foreground"}`}>{value}</span>
-    </div>
-  );
-}
-
-interface Midia {
-  id: string; caption: string | null; mediaType: string | null; mediaProductType: string | null;
-  mediaUrl: string | null; thumbnailUrl: string | null; permalink: string | null;
-  timestamp: string | null; curtidas: number | null; comentarios: number | null;
-}
-
-function PostRecente({ post }: { post: Midia }) {
-  const img = post.thumbnailUrl || post.mediaUrl;
-  const data = post.timestamp ? new Date(post.timestamp) : null;
-  return (
-    <a href={post.permalink ?? "#"} target="_blank" rel="noopener noreferrer"
-      className="bg-card rounded-lg border border-border overflow-hidden hover:shadow-md transition-all group block">
-      <div className="aspect-square bg-muted relative overflow-hidden">
-        {img
-          ? <img src={img} alt="" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-          : <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-8 h-8 text-muted-foreground/30" /></div>}
-        {/* O selo usa a MESMA classificação da contagem. Lendo `mediaType` cru,
-            um reel apareceria como "VÍDEO" aqui e como Reels no card de posts —
-            dois nomes para a mesma publicação, na mesma tela. */}
-        {(() => {
-          const t = tipoDeConteudo({ mediaType: post.mediaType, mediaProductType: post.mediaProductType });
-          return t === "FEED" || t === "DESCONHECIDO" ? null : (
-            <div className="absolute top-2 right-2 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded uppercase">
-              {ROTULO_CONTEUDO[t]}
-            </div>
-          );
-        })()}
-      </div>
-      <div className="p-3">
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1"><Heart className="w-3 h-3 text-pink-500" />{fmt(post.curtidas)}</span>
-          <span className="flex items-center gap-1"><MessageCircle className="w-3 h-3 text-blue-500" />{fmt(post.comentarios)}</span>
-        </div>
-        {data && <p className="text-[10px] text-muted-foreground/60 mt-1.5">
-          {data.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}
-        </p>}
-      </div>
-    </a>
-  );
-}
 
 /** Estado que pede AÇÃO, com o caminho — e sem cara de erro. */
-function PrecisaDeConfiguracao({ titulo, detalhe, podeConfigurar }: { titulo: string; detalhe: string; podeConfigurar: boolean }) {
+function PrecisaDeConfiguracao({ titulo, detalhe, podeConfigurar }: {
+  titulo: string; detalhe: string; podeConfigurar: boolean;
+}) {
   return (
     <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 flex flex-col gap-2.5">
       <p className="text-sm font-semibold text-amber-700 dark:text-amber-500">{titulo}</p>
@@ -144,7 +70,7 @@ function PrecisaDeConfiguracao({ titulo, detalhe, podeConfigurar }: { titulo: st
       {podeConfigurar && (
         <Link href="/settings?painel=conexoes">
           <span className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border hover:bg-muted cursor-pointer w-fit">
-            <Settings2 className="w-3.5 h-3.5" /> Abrir Conexões → Redes sociais
+            <Settings2 className="w-3.5 h-3.5" /> Abrir Conexões → Social
           </span>
         </Link>
       )}
@@ -152,145 +78,180 @@ function PrecisaDeConfiguracao({ titulo, detalhe, podeConfigurar }: { titulo: st
   );
 }
 
-// ─── Página ─────────────────────────────────────────────────────────────────
+/**
+ * Um número dos dados gerais.
+ *
+ * Compacto de propósito: esta faixa é referência, não destaque. Cards altos aqui
+ * competiriam com o cabeçalho, que é onde a leitura acontece.
+ */
+function Geral({ icon: Icon, rotulo, valor, detalhe, ressalva }: {
+  icon: typeof Users; rotulo: string; valor: string; detalhe?: string | null; ressalva?: string | null;
+}) {
+  const vazio = valor === "–";
+  return (
+    <div className="flex flex-col gap-0.5 px-4 py-3 min-w-0">
+      <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <Icon className="w-3 h-3" /> {rotulo}
+      </span>
+      <span className={`text-2xl font-bold tabular-nums leading-tight ${vazio ? "text-muted-foreground/40" : "text-foreground"}`}>
+        {valor}
+      </span>
+      {detalhe && <span className="text-[11px] text-muted-foreground truncate">{detalhe}</span>}
+      {ressalva && <span className="text-[10px] text-muted-foreground/60 leading-snug">{ressalva}</span>}
+    </div>
+  );
+}
 
 export default function RedesSociais() {
   const { user } = useAuth();
-  // A página saiu do teste interno: quem tem acesso ao Tracker vê os números.
-  // `podeDiagnosticar` continua sendo admin/dev — os números são de todos, os
-  // motivos pelos quais um número falta são de quem consegue consertá-los.
   const podeVer = !!user;
   const podeDiagnosticar = canManageContent(user?.role);
   const { selectedAccountId, accounts } = useSelectedAccount();
   const { period, setPeriod, dateRange } = usePeriodFilter();
-  // Um ranking com dois eixos, e não duas listas: quatro colunas na tela
-  // fariam ninguém ler nenhuma. O eixo ativo fica escrito no cabeçalho.
-  const [criterio, setCriterio] = useState<CriterioDeRanking>("engajamento");
-
-  const coletas = trpc.social.ultimasColetas.useQuery(undefined, { enabled: podeVer });
 
   const q = trpc.social.painel.useQuery(
     { accountId: selectedAccountId!, startDate: dateRange.startDate, endDate: dateRange.endDate },
     { enabled: podeVer && !!selectedAccountId, staleTime: 5 * 60 * 1000 },
   );
 
-  if (!podeVer) {
-    return (
-      <SemAcessoTracker
-        title="Redes sociais"
-        message="Entre com sua conta para ver as redes sociais dos clientes."
-      />
-    );
-  }
-
-  const cliente = accounts?.find((a: { id: number }) => a.id === selectedAccountId);
   const d = q.data;
   const organico = d?.organico ?? null;
-  const pago = d?.pago ?? null;
+  const serie = useMemo(() => d?.historico.serie ?? [], [d]);
+  const midiasSalvas = useMemo(() => d?.historico.midias ?? [], [d]);
 
-  // ── Histórico: série, cobertura e os números derivados dela ─────────────
-  const serie = d?.historico.serie ?? [];
+  // ── Derivações ──────────────────────────────────────────────────────────
   const hoje = new Date().toISOString().slice(0, 10);
   const cobertura = textoDeCobertura({ coletaDesde: d?.historico.coletaDesde ?? null, hoje });
 
-  const pontos: PontoDaSerie[] = serie.map((p) => ({
-    dia: p.dia,
-    seguidores: p.seguidores,
-    visitas: typeof p.metricas.profile_views === "number" ? p.metricas.profile_views : null,
-  }));
+  const mets = (p: (typeof serie)[number], k: string): number | null =>
+    typeof p.metricas?.[k] === "number" ? p.metricas[k] : null;
+
+  // Ativações por DIA: publicações daquele dia + stories medidos naquele dia.
+  const ativacoesPorDia = useMemo(() => {
+    const porDia = new Map<string, number>();
+    for (const m of midiasSalvas) {
+      const dia = (m.dia ?? "").slice(0, 10);
+      if (!dia || m.produto === "STORY") continue;
+      porDia.set(dia, (porDia.get(dia) ?? 0) + 1);
+    }
+    return porDia;
+  }, [midiasSalvas]);
+
+  const leitura = useMemo(() => {
+    const dias: DiaDaLeitura[] = serie.map((p) => ({
+      dia: p.dia,
+      seguidores: p.seguidores,
+      visitas: mets(p, "profile_views"),
+      interacoes: mets(p, "total_interactions"),
+      ativacoes: (ativacoesPorDia.get(p.dia) ?? 0) + (p.storiesVistos ?? 0) || null,
+    }));
+    return lerUltimosDias(dias);
+  }, [serie, ativacoesPorDia]);
 
   const saldo = saldoDeSeguidores(serie.map((p) => ({
     dia: p.dia, total: p.seguidores, follower: null, naoSeguidor: null,
   })));
-  // O total ao vivo é mais atual que o último snapshot — e é o que o cliente vê
-  // ao abrir o próprio perfil.
   const seguidoresAgora = saldo.fim;
 
-  const visitas = somarNoPeriodo("profile_views", serie);
-  const cliquesNoLink = somarNoPeriodo("website_clicks", serie);
-  const stories = {
-    total: serie.reduce((t, p) => t + (p.storiesVistos ?? 0), 0) || null,
-    diasMedidos: serie.filter((p) => p.storiesVistos != null).length,
-    diasSemDado: serie.filter((p) => p.storiesVistos == null).length,
-  };
+  // A semântica de FOLLOWER/NON_FOLLOWER ainda está em validação. Enquanto o
+  // veredito não fechar, entradas e saídas NÃO são apresentadas como verdade —
+  // o saldo continua vindo dos snapshots consecutivos, que é aritmética.
+  const movimentoProvado = d?.historico.direcao ? podeMostrarEntradasESaidas(d.historico.direcao) : false;
 
-  // Taxa de engajamento: alcance como divisor principal, seguidores como apoio.
-  // O rótulo vem colado da conta — trocar de divisor sem avisar faria o número
-  // cair pela metade e parecer queda de desempenho.
+  const visitas = somarNoPeriodo("profile_views", serie);
+  const cliques = somarNoPeriodo("website_clicks", serie);
   const interacoes = somarNoPeriodo("total_interactions", serie);
   const alcance = somarNoPeriodo("reach", serie);
-  const taxaAlcance = taxaPorAlcance(interacoes.total, alcance.total);
-  const taxaSeguidores = taxaPorSeguidores(interacoes.total, seguidoresAgora);
+  const taxa = taxaPorAlcance(interacoes.total, alcance.total);
 
-  // Publicações do período, pela DATA DE PUBLICAÇÃO das mídias ao vivo.
-  //
-  // A classificação usa `tipoDeConteudo`, e não um ternário local: VIDEO+FEED é
-  // publicação antiga de feed, não reel, e decidir isso na tela recriaria
-  // exatamente o erro que a função pura existe para impedir.
-  const publicacoes = (organico?.midias ?? []) as Midia[];
-  const postsNoPeriodo = (() => {
-    const porTipo = new Map<TipoConteudo, number>();
-    for (const m of publicacoes) {
-      const dia = (m.timestamp ?? "").slice(0, 10);
-      if (dia < dateRange.startDate || dia > dateRange.endDate) continue;
-      const t = tipoDeConteudo({ mediaType: m.mediaType, mediaProductType: m.mediaProductType });
-      porTipo.set(t, (porTipo.get(t) ?? 0) + 1);
-    }
-    const total = Array.from(porTipo.entries())
-      .filter(([t]) => CONTA_COMO_POST.includes(t))
-      .reduce((soma, [, n]) => soma + n, 0);
-    const detalhe = Array.from(porTipo.entries())
-      .map(([t, n]) => `${ROTULO_CONTEUDO[t]} ${n}`).join(" · ");
-    // "Nenhuma publicação encontrada" é afirmação sobre o CLIENTE; só cabe
-    // quando a leitura funcionou. Se ela falhou, a frase honesta é sobre NÓS.
-    const naoConseguimosLer = d?.historico.statusDaConta?.slice(-1)[0]?.midiasIndisponiveis;
-    return {
-      total: total || null,
-      detalhe: detalhe || (naoConseguimosLer
-        ? "Publicações indisponíveis nesta coleta"
-        : "Nenhuma publicação encontrada no período"),
-    };
-  })();
+  const publicacoesIndisponiveis =
+    !!d?.historico.statusDaConta?.slice(-1)[0]?.midiasIndisponiveis;
 
-  // O ranking vem do SNAPSHOT, não do ao vivo: ele precisa de alcance, e a
-  // leitura ao vivo não o traz (custa uma chamada por publicação).
-  const midiasSalvas = d?.historico.midias ?? [];
-  const ranking = rankingDePublicacoes(
+  const ativacoes = useMemo(() => contarAtivacoes(
     midiasSalvas
       .filter((m) => m.produto !== "STORY")
       .map((m) => ({
-        id: m.mediaId,
-        interacoes: m.totalInteractions ?? ((m.likes ?? 0) + (m.comentarios ?? 0) || null),
-        alcance: m.reach,
-        seguidoresNaEpoca: m.seguidoresNaEpoca,
-        legenda: m.legenda?.slice(0, 60) ?? null,
-        permalink: m.permalink,
+        dia: (m.dia ?? "").slice(0, 10) || null,
         tipo: (m.tipo ?? "DESCONHECIDO") as TipoConteudo,
-      })), 3, criterio);
-  const avisoRanking = midiasSalvas.length === 0
-    ? "Melhores e piores publicações aparecem depois da primeira coleta — o ranking precisa de alcance, que só o snapshot guarda."
-    : avisoDeExclusao(ranking);
+      })),
+    serie.map((p) => ({ storiesVistos: p.storiesVistos })),
+    { inicio: dateRange.startDate, fim: dateRange.endDate },
+    { publicacoesIndisponiveis },
+  ), [midiasSalvas, serie, dateRange, publicacoesIndisponiveis]);
 
-  // Uma linha no cabeçalho, e não um bloco no meio: a pergunta "posso confiar
-  // neste número?" vem ANTES do número, e um cartão grande em toda conta
-  // saudável ensinaria a pular a região onde o aviso vai aparecer.
-  // ── A janela que cada número cobre ──────────────────────────────────────
-  // profile_views e cliques são métricas de FLUXO: acumulam de 00:00 até a
-  // consulta, e a Meta não devolve dia fechado do passado. A coleta das 06:20
-  // mede ~6h de um dia de 24 — o rótulo precisa dizer isso, e a SOMA do período
-  // também, senão o total continua errado sob um título honesto.
+  // ── Ontem × hoje ────────────────────────────────────────────────────────
+  const ultimos = serie.slice(-2);
+  const linhaDoDia = (p: (typeof serie)[number] | undefined, anterior: number | null): ValorDoDia[] => [
+    { rotulo: "Ativações", natureza: "fluxo",
+      valor: p ? (ativacoesPorDia.get(p.dia) ?? 0) + (p.storiesVistos ?? 0) : null },
+    { rotulo: "Engajamento", natureza: "fluxo", valor: p ? mets(p, "total_interactions") : null },
+    { rotulo: "Visitas ao perfil", natureza: "fluxo", valor: p ? mets(p, "profile_views") : null },
+    { rotulo: "Seguidores", natureza: "estoque", valor: p?.seguidores ?? null,
+      variacao: p?.seguidores != null && anterior != null ? p.seguidores - anterior : null },
+  ];
+  const ontem = linhaDoDia(ultimos.length === 2 ? ultimos[0] : undefined, serie.slice(-3)[0]?.seguidores ?? null);
+  const doDia = linhaDoDia(ultimos[ultimos.length - 1], ultimos.length === 2 ? ultimos[0].seguidores : null);
+
   const comparabilidade = coletasSaoComparaveis(
     serie.map((p) => ({ dia: p.dia, coletadoEm: p.coletadoEm as string | Date })));
   const rotuloVisitas = rotuloDeFluxo(
     "Visitas ao perfil", comparabilidade.faixa, visitas.diasMedidos, "as visitas acumuladas");
-  const rotuloCliques = rotuloDeFluxo("Cliques no link", comparabilidade.faixa, cliquesNoLink.diasMedidos);
-  const brl = (d?: string) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : null);
-  const rotuloCrescimento = rotuloDeEstoque(
-    "Crescimento no período", brl(serie[0]?.dia), brl(serie[serie.length - 1]?.dia));
 
-  const statusDoDado = lerStatusDoCliente(d?.historico.statusDaConta ?? [], new Date());
+  // ── Publicações ─────────────────────────────────────────────────────────
+  const publicacoes: PublicacaoEmLinha[] = useMemo(() => midiasSalvas
+    .filter((m) => m.produto !== "STORY")
+    .map((m) => {
+      const inter = m.totalInteractions ?? ((m.likes ?? 0) + (m.comentarios ?? 0) || null);
+      return {
+        id: m.mediaId,
+        tipo: (m.tipo ?? "DESCONHECIDO") as TipoConteudo,
+        quando: m.publicadoEm ?? null,
+        thumb: null,
+        permalink: m.permalink,
+        legenda: m.legenda?.slice(0, 80) ?? null,
+        alcance: m.reach,
+        interacoes: inter,
+        // Mesma função pura da taxa geral, e não uma divisão local: sem
+        // alcance não há divisor, e `taxaPorAlcance` já devolve `null` nesse
+        // caso — inventar um divisor faria a taxa de um post sem medição
+        // competir no ranking com a de um post medido.
+        taxa: taxaPorAlcance(inter, m.reach),
+      };
+    })
+    .sort((a, b) => (b.quando ?? "").localeCompare(a.quando ?? "")), [midiasSalvas]);
 
-  const leitura = organico
+  const melhores = useMemo(
+    () => publicacoes.filter((p) => p.taxa != null).sort((a, b) => b.taxa! - a.taxa!).slice(0, 3),
+    [publicacoes]);
+
+  const porTipo: DesempenhoPorTipo[] = useMemo(() => {
+    const grupos = new Map<TipoConteudo, PublicacaoEmLinha[]>();
+    for (const p of publicacoes) grupos.set(p.tipo, [...(grupos.get(p.tipo) ?? []), p]);
+    const media = (xs: Array<number | null>) => {
+      const v = xs.filter((x): x is number => x != null);
+      return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+    };
+    return Array.from(grupos.entries())
+      .map(([tipo, ps]) => ({
+        tipo, rotulo: ROTULO_CONTEUDO[tipo], publicacoes: ps.length,
+        alcanceMedio: media(ps.map((p) => p.alcance)),
+        taxaMedia: media(ps.map((p) => p.taxa)),
+      }))
+      .sort((a, b) => (b.alcanceMedio ?? -1) - (a.alcanceMedio ?? -1));
+  }, [publicacoes]);
+
+  // ── Gráficos ────────────────────────────────────────────────────────────
+  const pontosDaConta = serie.map((p) => ({
+    dia: p.dia,
+    seguidores: p.seguidores,
+    visitas: mets(p, "profile_views"),
+    ativacoes: (ativacoesPorDia.get(p.dia) ?? 0) + (p.storiesVistos ?? 0) || null,
+  }));
+  const pontosDeMovimento = serie.map((p) => ({
+    dia: p.dia, total: p.seguidores, entradas: null, saidas: null,
+  }));
+
+  const leituraDoVinculo = organico
     ? lerVinculo({
         estado: "VINCULADO",
         tipoConta: organico.perfil.tipoConta as TipoConta,
@@ -300,46 +261,29 @@ export default function RedesSociais() {
       })
     : null;
 
-  return (
-    <MetaDashboardLayout>
-      <div className="max-w-6xl mx-auto p-6 max-md:p-0 flex flex-col gap-5">
+  if (!podeVer) {
+    return <SemAcessoTracker title="Social" message="Entre com sua conta para ver o social dos clientes." />;
+  }
 
+  const cliente = accounts?.find((a: { id: number }) => a.id === selectedAccountId);
+
+  return (
+    <MetaDashboardLayout title="Social">
+      <div className="flex flex-col gap-6 p-4 md:p-6">
         <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
-              <Instagram className="w-5 h-5" /> Redes sociais
-            </h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {cliente?.accountName ?? "Selecione um cliente"}
-              {d?.fonte.usada && ` · dados via ${ROTULO_FONTE[d.fonte.usada].toLowerCase()}`}
-            </p>
-            {selectedAccountId && !q.isLoading && (
-              <div className="mt-1.5">
-                <StatusDoDado
-                  status={statusDoDado}
-                  // A saúde do robô só para quem cuida dele — ver o cabeçalho do
-                  // componente. Ela já ocupou o topo da página e alarmava contas
-                  // que estavam com dado fresco.
-                  saudeDoRobo={podeDiagnosticar && coletas.data
-                    ? lerColetaAutomatica(coletas.data.automatica, new Date())
-                    : null}
-                  execucoes={podeDiagnosticar ? coletas.data ?? null : null}
-                />
-              </div>
-            )}
-          </div>
-          <PeriodFilter period={period} onChange={setPeriod} compact />
+          <IdentidadeDaConta
+            nome={cliente?.accountName ?? "Social"}
+            username={organico?.perfil.username ?? null}
+            rede="Instagram"
+            tipoConta={organico ? ROTULO_TIPO[organico.perfil.tipoConta as TipoConta] : undefined}
+          />
+          <PeriodFilter period={period} onChange={setPeriod} />
         </div>
 
         {!selectedAccountId && (
-          <div className="flex flex-col items-center justify-center h-64 text-center gap-3">
-            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-              <Share2 className="w-7 h-7 text-primary" />
-            </div>
+          <div className="rounded-xl border border-border bg-card p-8 text-center">
             <h2 className="text-lg font-semibold text-foreground">Selecione um cliente</h2>
-            <p className="text-sm text-muted-foreground max-w-sm">
-              Escolha um cliente no menu lateral para ver o Instagram dele.
-            </p>
+            <p className="text-sm text-muted-foreground mt-1">Escolha uma conta no menu para ver o social dela.</p>
           </div>
         )}
 
@@ -353,9 +297,6 @@ export default function RedesSociais() {
           <PrecisaDeConfiguracao titulo="Não foi possível carregar" detalhe={q.error.message} podeConfigurar={podeDiagnosticar} />
         )}
 
-        {/* ── ORGÂNICO ─────────────────────────────────────────────────────
-            Tudo aqui vem do Instagram. Nenhum número de campanha entra neste
-            bloco — eles chegam num objeto separado. */}
         {d && !organico && d.erro && (
           <PrecisaDeConfiguracao
             titulo={d.fonte.usada ? "Instagram ainda não disponível" : d.fonte.titulo}
@@ -364,236 +305,112 @@ export default function RedesSociais() {
           />
         )}
 
-        {organico && leitura && (
+        {organico && leituraDoVinculo && (
           <>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Orgânico · Instagram
-              </h2>
-              {organico.perfil.username && (
-                <a href={`https://instagram.com/${organico.perfil.username}`} target="_blank" rel="noopener noreferrer"
-                  className="text-xs font-mono underline text-muted-foreground inline-flex items-center gap-1">
-                  @{organico.perfil.username} <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-              <span className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted-foreground">
-                {ROTULO_TIPO[organico.perfil.tipoConta as TipoConta]}
-              </span>
-            </div>
-
             {/* Conta pessoal e Business-sem-permissão são estados VÁLIDOS: azul,
                 com explicação, nunca vermelho. Ver shared/instagram. */}
-            {leitura.nivel !== "ok" && (
+            {leituraDoVinculo.nivel !== "ok" && (
               <div className={`rounded-xl border p-4 flex flex-col gap-1.5 ${
-                leitura.nivel === "erro" ? "border-destructive/30 bg-destructive/5"
-                : leitura.nivel === "limitado" ? "border-sky-500/30 bg-sky-500/5"
+                leituraDoVinculo.nivel === "erro" ? "border-destructive/30 bg-destructive/5"
+                : leituraDoVinculo.nivel === "limitado" ? "border-sky-500/30 bg-sky-500/5"
                 : "border-amber-500/30 bg-amber-500/5"}`}>
-                <p className="text-sm font-medium text-foreground">{leitura.titulo}</p>
-                <p className="text-xs text-muted-foreground">{leitura.explicacao}</p>
-                {podeDiagnosticar && organico.insights.recusadas.length > 0 && (
-                  <pre className="text-[10px] font-mono whitespace-pre-wrap break-all select-all mt-1 max-h-40 overflow-y-auto text-muted-foreground">
-                    {organico.insights.recusadas.join("\n")}
-                  </pre>
-                )}
+                <p className="text-sm font-medium text-foreground">{leituraDoVinculo.titulo}</p>
+                <p className="text-xs text-muted-foreground">{leituraDoVinculo.explicacao}</p>
               </div>
             )}
 
-            {/* ── DESTAQUES: card + gráfico ─────────────────────────────
-                Seguidores e visitas ao perfil só dizem algo como evolução:
-                "9.464 seguidores" não informa nada sem saber se eram 9.000 ou
-                9.900 semana passada. Por isso saem da grade de cards. */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <GraficoDeSeguidores
-                serie={pontos}
-                atual={fmt(seguidoresAgora)}
-                saldo={saldo.saldo == null ? null
-                  : `${saldo.saldo >= 0 ? "+" : ""}${fmt(saldo.saldo)} no período · ${saldo.diasCobertos} dia(s) medidos`}
-                cobertura={cobertura}
-              />
-              <GraficoDeVisitas
-                serie={pontos}
-                titulo={rotuloVisitas.titulo}
-                nota={visitas.diasMedidos > 0 ? rotuloVisitas.porPonto : undefined}
-                total={fmt(visitas.total)}
-                cobertura={visitas.diasMedidos > 0
-                  ? `${rotuloVisitas.ressalva ?? ""}${visitas.diasSemDado > 0 ? ` · ${visitas.diasSemDado} dia(s) sem coleta` : ""}`
-                  : cobertura}
-              />
-            </div>
-
-            {/* Entradas e saídas NÃO aparecem enquanto a semântica de
-                FOLLOWER/NON_FOLLOWER não estiver provada por aritmética —
-                ver shared/socialSnapshot. Só o saldo, que é subtração. */}
-            {/* Só quando há diferença relevante — o limiar mora em
-                `ESPALHAMENTO_TOLERADO_MIN`, para um atraso do cron não virar
-                alarme. Aviso para todos, não só para admin: distorce a leitura
-                de quem só olha o gráfico. */}
-            {!comparabilidade.comparavel && (
-              <p className="text-[10px] font-medium text-amber-600 dark:text-amber-500">
-                ⚠ {comparabilidade.motivo}
-              </p>
-            )}
-
-            {d && podeDiagnosticar && !podeMostrarEntradasESaidas(d.historico.direcao) && (
-              <p className="text-[10px] text-muted-foreground">
-                Entradas e saídas separadas ainda em validação: {d.historico.direcao.explicacao}
-              </p>
-            )}
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <KpiCard icon={TrendingUp} label={rotuloCrescimento.titulo}
-                value={saldo.saldo == null ? "–" : `${saldo.saldo >= 0 ? "+" : ""}${fmt(saldo.saldo)}`}
-                sublabel={saldo.saldo == null || !saldo.inicio
-                  ? rotuloCrescimento.ressalva ?? undefined
-                  : `${((saldo.saldo / saldo.inicio) * 100).toFixed(2)}% · ${rotuloCrescimento.ressalva}`}
-                color="#10B981" bgColor="rgba(16,185,129,0.1)" />
-              <KpiCard icon={Activity} label={ROTULO_TAXA.alcance}
-                value={taxaAlcance == null ? "–" : `${taxaAlcance.toFixed(2)}%`}
-                sublabel={taxaSeguidores == null ? "interações ÷ alcance"
-                  : `${ROTULO_TAXA.seguidores}: ${taxaSeguidores.toFixed(2)}%`}
-                color="#8B5CF6" bgColor="rgba(139,92,246,0.1)" />
-              <KpiCard icon={MousePointerClick} label={rotuloCliques.titulo}
-                value={fmt(cliquesNoLink.total)}
-                sublabel={cliquesNoLink.diasMedidos > 0 ? rotuloCliques.ressalva ?? undefined : "sem coleta ainda"}
-                color="#0EA5E9" bgColor="rgba(14,165,233,0.1)" />
-              <KpiCard icon={ImageIcon} label="Posts publicados no período"
-                value={fmt(postsNoPeriodo.total)}
-                sublabel={postsNoPeriodo.detalhe}
-                color="#E1306C" bgColor="rgba(225,48,108,0.1)" />
-              <KpiCard icon={Activity} label="Stories publicados"
-                value={fmt(stories.total)}
-                sublabel={stories.diasMedidos > 0
-                  ? `${stories.diasMedidos} dia(s) medidos${stories.diasSemDado > 0 ? ` · ${stories.diasSemDado} sem coleta` : ""}`
-                  : "Stories medidos a partir da coleta"}
-                color="#F59E0B" bgColor="rgba(245,158,11,0.1)" />
-            </div>
-
-            {/* ── Melhores e piores ─────────────────────────────────────── */}
-            {/* ── Performance de conteúdo ───────────────────────────────
-                A base fica SEMPRE visível: "melhor publicação" apoiada em três
-                posts e em trinta são afirmações de peso muito diferente, e a
-                tela não pode fazê-las parecer iguais. */}
-            <div className="flex items-center gap-2 flex-wrap pt-1">
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Performance de conteúdo
-              </h2>
-              <span className="text-[11px] text-muted-foreground">
-                Analisados {ranking.analisadas} post(s) no período · {ranking.elegiveis} no ranking
-              </span>
-              <div className="flex gap-1 ml-auto">
-                {(["engajamento", "alcanceRelativo"] as CriterioDeRanking[]).map((c) => (
-                  <button key={c} onClick={() => setCriterio(c)}
-                    className={`text-[11px] px-2 py-1 rounded border ${criterio === c
-                      ? "border-primary/40 bg-primary/10 text-foreground font-medium"
-                      : "border-border text-muted-foreground hover:bg-muted"}`}>
-                    {ROTULO_CRITERIO[c]}
-                  </button>
-                ))}
+            {/* ── CABEÇALHO EXECUTIVO ──────────────────────────────────── */}
+            <section className="rounded-2xl border border-border bg-card p-5 flex flex-col gap-5">
+              <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-6">
+                <LeituraDoPeriodo leitura={leitura} />
+                <OntemEHoje ontem={ontem} hoje={doDia}
+                  avisoParcial={
+                    "O dia corrente é parcial: a coleta mede de 00:00 até o horário da última leitura. "
+                    + "Seguidores é total da conta, não ganho do dia."
+                  } />
               </div>
-            </div>
-
-            {ranking.melhores.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {([["Melhores publicações", ranking.melhores], ["Piores publicações", ranking.piores]] as const).map(([titulo, lista]) => (
-                  <div key={titulo} className="rounded-xl border border-border bg-card p-4 flex flex-col gap-2">
-                    <p className="text-xs font-semibold text-muted-foreground">
-                      {titulo} <span className="font-normal">· por {ROTULO_CRITERIO[criterio].toLowerCase()}</span>
-                    </p>
-                    {lista.map((x) => (
-                      <a key={x.publicacao.id} href={x.publicacao.permalink ?? "#"} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center justify-between gap-3 text-xs py-1 hover:underline">
-                        <span className="truncate flex-1 text-muted-foreground">
-                          {x.publicacao.legenda || ROTULO_CONTEUDO[x.publicacao.tipo]}
-                        </span>
-                        <span className="tabular-nums font-semibold">{x.taxa.toFixed(1)}%</span>
-                        <span className="tabular-nums text-muted-foreground text-[10px] w-24 text-right">
-                          {fmt(x.publicacao.interacoes)} int · {fmt(x.publicacao.alcance)} alc
-                        </span>
-                      </a>
-                    ))}
-                  </div>
-                ))}
+              <div className="border-t border-border/50 pt-4">
+                <GraficoDaConta pontos={pontosDaConta} nota={cobertura} />
               </div>
-            )}
-            {avisoRanking && <p className="text-[10px] text-muted-foreground">{avisoRanking}</p>}
+            </section>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <KpiCard icon={ImageIcon} label="Publicações na conta" value={fmt(organico.perfil.posts)}
-                color="#E1306C" bgColor="rgba(225,48,108,0.1)" />
-              <KpiCard icon={Activity} label="Métricas do perfil"
-                value={organico.insights.ok.length > 0 ? `${organico.insights.ok.length}/4` : "–"}
-                sublabel={organico.insights.ok.length > 0 ? organico.insights.ok.join(", ") : "nenhuma respondeu"}
-                color="#8B5CF6" bgColor="rgba(139,92,246,0.1)" />
-              <KpiCard icon={Heart} label="Curtidas nos posts recentes"
-                value={fmt(organico.midias.reduce((t: number, m: Midia) => t + (m.curtidas ?? 0), 0) || null)}
-                color="#EC4899" bgColor="rgba(236,72,153,0.1)" />
-              <KpiCard icon={MessageCircle} label="Comentários nos posts recentes"
-                value={fmt(organico.midias.reduce((t: number, m: Midia) => t + (m.comentarios ?? 0), 0) || null)}
-                color="#3B82F6" bgColor="rgba(59,130,246,0.1)" />
-            </div>
-
-            {organico.midias.length > 0 && (
-              <div className="flex flex-col gap-2.5">
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Publicações recentes
-                </h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                  {organico.midias.map((m: Midia) => <PostRecente key={m.id} post={m} />)}
+            {/* ── SEGUIDORES ───────────────────────────────────────────── */}
+            <section className="flex flex-col gap-3">
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Seguidores</h2>
+              <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-4 items-start">
+                <div className="grid grid-cols-3 rounded-xl border border-border bg-card divide-x divide-border/50 min-w-0 lg:min-w-[300px]">
+                  <Geral icon={Users} rotulo="Saldo atual" valor={fmt(seguidoresAgora)} />
+                  {/* Entradas e saídas só aparecem quando a semântica do
+                      breakdown estiver PROVADA. Até lá, o traço é honesto: o
+                      saldo é aritmética de snapshots, o resto ainda não é. */}
+                  <Geral icon={Users} rotulo="Entraram"
+                    valor={movimentoProvado ? fmt(null) : "–"}
+                    ressalva={movimentoProvado ? null : "em validação"} />
+                  <Geral icon={Users} rotulo="Saíram"
+                    valor={movimentoProvado ? fmt(null) : "–"}
+                    ressalva={movimentoProvado ? null : "em validação"} />
+                </div>
+                <div className="rounded-xl border border-border bg-card p-4">
+                  <GraficoDeMovimento pontos={pontosDeMovimento} temMovimento={movimentoProvado}
+                    nota={movimentoProvado ? null : "entradas e saídas em validação — só o saldo é exibido"} />
                 </div>
               </div>
-            )}
-            {organico.midias.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Nenhuma publicação recente foi retornada para esta conta.
-              </p>
-            )}
+              {saldo.saldo != null && (
+                <p className="text-[11px] text-muted-foreground">
+                  Variação no período: <span className={saldo.saldo >= 0 ? "text-emerald-600" : "text-destructive"}>
+                    {saldo.saldo > 0 ? "+" : ""}{fmt(saldo.saldo)}
+                  </span> — diferença entre a primeira e a última coleta.
+                </p>
+              )}
+            </section>
+
+            {/* ── DADOS GERAIS ─────────────────────────────────────────── */}
+            <section className="flex flex-col gap-3">
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Dados gerais</h2>
+              <div className="grid grid-cols-2 lg:grid-cols-4 rounded-xl border border-border bg-card divide-x divide-y lg:divide-y-0 divide-border/50">
+                <Geral icon={Layers} rotulo="Ativações" valor={fmt(ativacoes.total)}
+                  detalhe={textoDaComposicao(ativacoes)}
+                  ressalva={ativacoes.publicacoesIndisponiveis
+                    ? "publicações indisponíveis nesta coleta"
+                    : ativacoes.diasSemMedicaoDeStories > 0
+                      ? `${ativacoes.diasSemMedicaoDeStories} dia(s) sem medição de stories`
+                      : null} />
+                <Geral icon={Heart} rotulo="Engajamento" valor={fmt(interacoes.total)}
+                  detalhe={taxa != null ? `${taxa.toFixed(2)}% do alcance` : null} />
+                <Geral icon={Eye} rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
+                  ressalva={rotuloVisitas.ressalva} />
+                <Geral icon={MousePointerClick} rotulo="Cliques no link" valor={fmt(cliques.total)} />
+              </div>
+              {!comparabilidade.comparavel && comparabilidade.motivo && (
+                <p className="text-[10px] text-amber-600 leading-snug">{comparabilidade.motivo}</p>
+              )}
+            </section>
+
+            {/* ── PUBLICAÇÕES E CONTEÚDO ───────────────────────────────── */}
+            <UltimasPublicacoes
+              instagram={publicacoes.slice(0, 8)}
+              // Só quando existir conexão de verdade. Hoje nunca — a Fase 0 do
+              // LinkedIn ainda não coleta nada.
+              temLinkedin={false}
+              aviso={publicacoesIndisponiveis
+                ? "Não conseguimos ler as publicações nesta coleta."
+                : "Nenhuma publicação medida no período."}
+            />
+
+            <PerformanceDeConteudo
+              melhores={melhores}
+              porTipo={porTipo}
+              amostraPequena={publicacoes.length > 0 && publicacoes.length < 5}
+              aviso={publicacoes.length === 0
+                ? "O ranking precisa de alcance, que só o snapshot guarda — ele aparece depois da primeira coleta."
+                : null}
+            />
+
+            <p className="text-[10px] text-muted-foreground/70">
+              Orgânico do Instagram. Números de campanha ficam em Mídia. Conexão, token e vínculo,
+              em Configurações → Conexões → Social.
+            </p>
           </>
-        )}
-
-        {/* ── PAGO ─────────────────────────────────────────────────────────
-            Bloco separado, origem Meta Ads. Todo rótulo diz "pago" ou
-            "campanha": ler um número daqui como orgânico é o erro que a página
-            antiga cometia. */}
-        {selectedAccountId && (
-          <div className="flex flex-col gap-2.5 pt-2 border-t border-border">
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-              <DollarSign className="w-3.5 h-3.5" /> Mídia paga · Meta Ads
-              <span className="font-normal normal-case tracking-normal text-[10px] text-muted-foreground/70">
-                origem diferente do bloco acima — campanhas, não perfil
-              </span>
-            </h2>
-            {pago ? (
-              <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <KpiCard icon={DollarSign} label="Investimento em mídia" value={fmtMoeda(pago.investimento)}
-                    color="#10B981" bgColor="rgba(16,185,129,0.1)" />
-                  <KpiCard icon={Eye} label="Alcance pago" value={fmt(pago.alcance)}
-                    color="#F59E0B" bgColor="rgba(245,158,11,0.1)" />
-                  <KpiCard icon={MousePointerClick} label="Cliques pagos" value={fmt(pago.cliques)}
-                    color="#6366F1" bgColor="rgba(99,102,241,0.1)" />
-                  <KpiCard icon={TrendingUp} label="Resultados de campanha" value={fmt(pago.conversoes)}
-                    color="#14B8A6" bgColor="rgba(20,184,166,0.1)" />
-                </div>
-                <div className="bg-card rounded-xl border border-border p-4">
-                  <MetricRow icon={Eye} label="Impressões pagas" value={fmt(pago.impressoes)} color="#F59E0B" />
-                  <MetricRow icon={MousePointerClick} label="CTR pago" value={fmtPct(pago.ctr)} color="#6366F1" />
-                  <MetricRow icon={DollarSign} label="CPC pago" value={fmtMoeda(pago.cpc)} color="#10B981" />
-                  <MetricRow icon={TrendingUp} label="Valor de conversão (campanha)" value={fmtMoeda(pago.valorDeConversao)} color="#14B8A6" />
-                </div>
-              </>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Nenhuma campanha com dados no período selecionado.
-              </p>
-            )}
-          </div>
-        )}
-
-        {selectedAccountId && (
-          <p className="text-[10px] text-muted-foreground/70">
-            Leitura ao vivo, sem histórico guardado. Conexão, token e vínculo ficam em
-            Configurações → Conexões → Redes sociais.
-          </p>
         )}
       </div>
     </MetaDashboardLayout>
