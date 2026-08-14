@@ -166,3 +166,54 @@ export function situacaoDaSemana(inicio: string, hoje: string): string | null {
   if (pos === "passada") return n === 1 ? "semana passada" : `${n} semanas atrás`;
   return n === 1 ? "próxima semana" : `daqui a ${n} semanas`;
 }
+
+
+// ─── Janela de retenção ──────────────────────────────────────────────────────
+
+/**
+ * Quantas semanas ficam guardadas: a atual e três anteriores.
+ *
+ * O painel é direcionamento, não arquivo. Semana de dois meses atrás não é
+ * consultada por ninguém — e uma tabela que só cresce vira, com o tempo, um
+ * custo sem leitor.
+ */
+export const SEMANAS_MANTIDAS = 4;
+
+/**
+ * A semana mais antiga que sobrevive. Tudo ANTERIOR a ela pode ser apagado.
+ *
+ * Comparação de string funciona porque `AAAA-MM-DD` é ordenável como texto —
+ * a mesma propriedade que faz a chave da semana ser texto em primeiro lugar.
+ */
+export function semanaMaisAntigaMantida(hoje: string): string {
+  return deslocarSemana(inicioDaSemana(hoje), -(SEMANAS_MANTIDAS - 1));
+}
+
+/**
+ * A semana deve ser apagada?
+ *
+ * ── O que esta função NÃO apaga, e é a decisão que importa ─────────────────
+ * Semana FUTURA. A janela é "a atual e três anteriores", mas a tela sempre
+ * permitiu navegar para a frente e planejar a semana que vem — quem escreve o
+ * direcionamento na sexta o faz para a segunda seguinte.
+ *
+ * Uma limpeza que olhasse só "está dentro das quatro?" apagaria exatamente esse
+ * planejamento, horas depois de alguém escrevê-lo, sem aviso e sem log. Por isso
+ * a regra é ANTERIOR à janela, e não FORA dela: retenção existe para conter
+ * acúmulo de passado, e o futuro não acumula — ele vira presente sozinho.
+ */
+export function semanaExpirada(semana: string, hoje: string): boolean {
+  return semana < semanaMaisAntigaMantida(hoje);
+}
+
+/**
+ * As semanas que a navegação alcança para trás, da mais nova para a mais antiga.
+ *
+ * A tela usa isto para parar a seta: deixar navegar para uma semana que a
+ * limpeza já esvaziou mostraria "nada registrado" — que é a mesma frase de uma
+ * semana sem prioridades, e as duas situações não são a mesma coisa.
+ */
+export function semanasDisponiveis(hoje: string): string[] {
+  const atual = inicioDaSemana(hoje);
+  return Array.from({ length: SEMANAS_MANTIDAS }, (_, i) => deslocarSemana(atual, -i));
+}

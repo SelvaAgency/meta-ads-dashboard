@@ -16,8 +16,9 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  deslocarSemana, fimDaSemana, hojeISO, inicioDaSemana, posicaoDaSemana,
-  rotuloDaSemana, rotuloDeDia, situacaoDaSemana,
+  SEMANAS_MANTIDAS, deslocarSemana, fimDaSemana, hojeISO, inicioDaSemana,
+  posicaoDaSemana, rotuloDaSemana, rotuloDeDia, semanaExpirada,
+  semanaMaisAntigaMantida, semanasDisponiveis, situacaoDaSemana,
 } from "./semana";
 
 describe("a segunda-feira da semana", () => {
@@ -113,5 +114,58 @@ describe("hoje é o único ponto que olha o fuso", () => {
   it("usa São Paulo, e não UTC", () => {
     expect(hojeISO(new Date("2026-08-31T23:30:00-03:00"))).toBe("2026-08-31");
     expect(hojeISO(new Date("2026-09-01T02:30:00Z"))).toBe("2026-08-31");
+  });
+});
+
+
+describe("a janela de retenção guarda quatro semanas", () => {
+  const HOJE = "2026-08-13"; // quinta da semana de 10/08
+
+  it("a mais antiga mantida é três semanas atrás", () => {
+    expect(semanaMaisAntigaMantida(HOJE)).toBe("2026-07-20");
+    expect(semanasDisponiveis(HOJE)).toEqual(
+      ["2026-08-10", "2026-08-03", "2026-07-27", "2026-07-20"],
+    );
+    expect(semanasDisponiveis(HOJE)).toHaveLength(SEMANAS_MANTIDAS);
+  });
+
+  /** A borda: a quarta semana FICA, a quinta sai. É onde um `<=` trocado dói. */
+  it("a terceira semana anterior sobrevive; a quarta expira", () => {
+    expect(semanaExpirada("2026-07-20", HOJE)).toBe(false);
+    expect(semanaExpirada("2026-07-13", HOJE)).toBe(true);
+  });
+
+  it("a semana atual nunca expira", () => {
+    expect(semanaExpirada("2026-08-10", HOJE)).toBe(false);
+  });
+
+  /**
+   * A decisão que a limpeza precisa acertar. A tela sempre deixou planejar a
+   * semana seguinte — quem escreve o direcionamento na sexta o faz para a
+   * segunda. Uma regra "está fora das quatro?" apagaria esse planejamento
+   * horas depois de alguém escrevê-lo, sem aviso e sem log.
+   */
+  it("semana FUTURA nunca expira, mesmo estando fora da janela", () => {
+    expect(semanaExpirada("2026-08-17", HOJE)).toBe(false);
+    expect(semanaExpirada("2026-10-05", HOJE)).toBe(false);
+  });
+
+  it("a janela anda junto com hoje", () => {
+    // Uma semana depois, a mais antiga de antes passa a expirar.
+    expect(semanaExpirada("2026-07-20", "2026-08-20")).toBe(true);
+    expect(semanaMaisAntigaMantida("2026-08-20")).toBe("2026-07-27");
+  });
+
+  it("atravessa a virada do ano", () => {
+    expect(semanasDisponiveis("2027-01-06")).toEqual(
+      ["2027-01-04", "2026-12-28", "2026-12-21", "2026-12-14"],
+    );
+  });
+
+  /** Qualquer dia da semana dá a mesma janela — a chave é a segunda-feira. */
+  it("não depende do dia em que hoje cai", () => {
+    for (const d of ["2026-08-10", "2026-08-13", "2026-08-16"]) {
+      expect(semanaMaisAntigaMantida(d)).toBe("2026-07-20");
+    }
   });
 });

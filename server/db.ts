@@ -6578,6 +6578,29 @@ export async function excluirPrioridade(id: number): Promise<void> {
   await db.delete(weeklyPriorities).where(eq(weeklyPriorities.id, id));
 }
 
+/**
+ * Apaga tudo de semanas anteriores a `limite`.
+ *
+ * Os vínculos primeiro: sem FK física, apagar só a prioridade deixaria linhas
+ * órfãs apontando para um id que o AUTO_INCREMENT vai reaproveitar — e aí um
+ * item novo nasceria com os responsáveis de um item apagado.
+ *
+ * Devolve quantas prioridades saíram, para quem chama poder registrar. Uma
+ * limpeza silenciosa é indistinguível de uma limpeza que não rodou.
+ */
+export async function limparPrioridadesAntigas(limite: string): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const antigas = await db.select({ id: weeklyPriorities.id }).from(weeklyPriorities)
+    .where(lt(weeklyPriorities.semana, limite));
+  if (!antigas.length) return 0;
+  const ids = antigas.map((a) => a.id);
+  await db.delete(weeklyPriorityResponsaveis)
+    .where(inArray(weeklyPriorityResponsaveis.prioridadeId, ids));
+  await db.delete(weeklyPriorities).where(inArray(weeklyPriorities.id, ids));
+  return ids.length;
+}
+
 /** Um item, para as operações que precisam conferir o estado antes de mexer. */
 export async function prioridadePorId(id: number) {
   const db = await getDb();

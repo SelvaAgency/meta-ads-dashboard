@@ -41,9 +41,9 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { canManagePriorities } from "@shared/permissions";
 import { toast } from "sonner";
 import {
-  ABAS, GRUPOS, ROTULO_ABA, ROTULO_GRUPO, SIGLA_GRUPO, deslocarSemana, hojeISO,
-  inicioDaSemana, rotuloDaSemana, rotuloDeDia, situacaoDaSemana,
-  type Aba, type Grupo,
+  ABAS, GRUPOS, ROTULO_ABA, ROTULO_GRUPO, SEMANAS_MANTIDAS, SIGLA_GRUPO,
+  deslocarSemana, hojeISO, inicioDaSemana, rotuloDaSemana, rotuloDeDia,
+  semanaMaisAntigaMantida, situacaoDaSemana, type Aba, type Grupo,
 } from "@shared/semana";
 import {
   ITENS_VISIVEIS, ROTULO_STATUS, STATUS, TIPOS, TITULO_TIPO, agruparPorTipo,
@@ -146,6 +146,13 @@ export function PrioridadesCard() {
 
   const situacao = situacaoDaSemana(semana, hoje);
   const total = secoes.reduce((n, s) => n + s.itens.length, 0);
+  // O servidor apaga o que passa da janela, então navegar além dela mostraria
+  // "nada registrado" — a MESMA frase de uma semana sem prioridades. As duas
+  // situações não são a mesma coisa, e a seta parar é o que as separa.
+  //
+  // Só para trás: planejar a semana que vem continua liberado, e a poda não
+  // toca em semana futura.
+  const noLimite = semana <= semanaMaisAntigaMantida(hoje);
   // Sempre sobre a semana INTEIRA, e não sobre `doFiltro`: filtrar por um grupo
   // e o gráfico virar 100% daquele grupo transformaria a resposta em tautologia.
   const distribuicao = useMemo(() => distribuicaoPorGrupo(itens, GRUPOS), [itens]);
@@ -216,8 +223,10 @@ export function PrioridadesCard() {
           </div>
 
           <div className="flex items-center gap-0.5 flex-shrink-0">
-            <button onClick={() => irPara(-1)} title="Semana anterior" aria-label="Semana anterior"
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors">
+            <button onClick={() => irPara(-1)} disabled={noLimite}
+              title={noLimite ? `O histórico guarda as últimas ${SEMANAS_MANTIDAS} semanas` : "Semana anterior"}
+              aria-label="Semana anterior"
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors disabled:opacity-30 disabled:pointer-events-none">
               <ChevronLeft className="w-4 h-4" />
             </button>
             {/* Só fora da semana atual: um botão "hoje" permanente ocupa espaço
@@ -381,7 +390,9 @@ export function PrioridadesCard() {
           direita, quem definiu o direcionamento e quando. */}
       <div className="px-5 py-4 mt-auto flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
         <span className="text-[11px] text-muted-foreground/70">
-          {total > 1 ? "Ordenado por prazo" : ""}
+          {noLimite
+            ? `Histórico: últimas ${SEMANAS_MANTIDAS} semanas`
+            : total > 1 ? "Ordenado por prazo" : ""}
         </span>
         {q.data?.atualizadoEm && (
           <span className="text-[11px] text-muted-foreground">

@@ -93,6 +93,7 @@ import {
   colaboradoresParaResponsavel,
   criarPrioridade,
   definirResponsaveis,
+  limparPrioridadesAntigas,
   atualizarPrioridade,
   excluirPrioridade,
   registrarTesteVinculo,
@@ -349,7 +350,10 @@ import { classificarContas, idLimpo, podeImportarSemForcar, ROTULO_STATUS } from
 import { temIntegracao } from "@shared/plataformasLoja";
 import { testarConexaoWix, validarSiteId, validarUrlWix } from "./services/wix";
 import { diagnosticar as diagnosticarInstagram, impressaoDe } from "./services/instagram";
-import { GRUPOS as GRUPOS_PRIORIDADE, inicioDaSemana } from "@shared/semana";
+import {
+  GRUPOS as GRUPOS_PRIORIDADE, hojeISO, inicioDaSemana, semanaExpirada,
+  semanaMaisAntigaMantida,
+} from "@shared/semana";
 import { STATUS, TIPOS } from "@shared/prioridades";
 import { testarTokenLinkedIn } from "./services/linkedin";
 import { sondarLinkedIn } from "./services/sondagemLinkedIn";
@@ -1079,6 +1083,39 @@ const financeRouter = router({
       .query(({ input }) => financeSerieHistorica(input.granularidade, input.janela)),
   }),
 });
+
+/**
+ * Apaga as semanas que saíram da janela de retenção.
+ *
+ * ── Por que aqui e não num cron ────────────────────────────────────────────
+ * Um cron para isto teria que existir, ser monitorado e falhar em silêncio
+ * quando parasse. A leitura da Home acontece todo dia, várias vezes, e é o
+ * único momento em que a poda precisa ter acontecido — se ninguém abre o
+ * painel, semana velha guardada não incomoda ninguém.
+ *
+ * ── Uma vez por semana, por processo ───────────────────────────────────────
+ * Sem o memo, seria um DELETE a cada carregamento da Home. Com ele, roda na
+ * primeira leitura de cada semana nova e cala a boca até a próxima. Reinício do
+ * processo faz rodar de novo — inofensivo, porque a segunda passada não acha
+ * nada. Em várias instâncias, cada uma roda a sua; a operação é idempotente.
+ */
+let semanaJaPodada: string | null = null;
+
+async function podarSemanasAntigas(): Promise<void> {
+  const limite = semanaMaisAntigaMantida(hojeISO());
+  if (semanaJaPodada === limite) return;
+  semanaJaPodada = limite;
+  try {
+    const n = await limparPrioridadesAntigas(limite);
+    if (n > 0) logger.info(`[Prioridades] ${n} item(ns) de semanas anteriores a ${limite} removido(s)`);
+  } catch (e) {
+    // Falhar a poda NÃO pode derrubar a leitura da Home: o painel funciona
+    // perfeitamente com uma semana velha a mais no banco. Solta a marca para
+    // a próxima leitura tentar de novo.
+    semanaJaPodada = null;
+    logger.error(`[Prioridades] poda falhou: ${(e as Error).message}`);
+  }
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -3965,6 +4002,7 @@ export const appRouter = router({
         // chamada com qualquer outro dia gravaria/leria uma semana fantasma
         // que nunca mais seria encontrada.
         const semana = inicioDaSemana(input.semana);
+        await podarSemanasAntigas();
         const r = await prioridadesDaSemana(semana);
         // A chave do avatar vira URL aqui — é o router que fala com o storage.
         // Uma pessoa que aparece em cinco itens é resolvida UMA vez: assinar URL
@@ -4018,6 +4056,15 @@ export const appRouter = router({
         status: z.enum(STATUS).default("PLANEJADO"),
       }))
       .mutation(async ({ ctx, input }) => {
+        // Escrever numa semana já expirada gravaria um item que a próxima poda
+        // apaga — trabalho perdido em silêncio. A tela não deixa chegar aqui;
+        // esta é a garantia de que nenhum outro caminho deixe.
+        if (semanaExpirada(inicioDaSemana(input.semana), hojeISO())) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Essa semana saiu do histórico — só é possível editar as últimas 4 semanas.",
+          });
+        }
         const { responsaveis, ...campos } = input;
         const id = await criarPrioridade({
           ...campos,
