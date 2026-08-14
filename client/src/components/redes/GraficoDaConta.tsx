@@ -25,12 +25,20 @@ import {
   Area, Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from "recharts";
+import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 
 export interface PontoDaConta {
   dia: string;
   seguidores: number | null;
   visitas: number | null;
-  ativacoes: number | null;
+  /**
+   * Uma chave por TIPO de conteúdo publicado naquele dia — as barras empilhadas.
+   *
+   * Só entram os tipos que a classificação encontrou. Um segmento de valor zero
+   * apareceria na legenda e em nenhuma barra, e legenda que promete uma cor sem
+   * mostrá-la faz procurar o que não existe.
+   */
+  porTipo: Partial<Record<TipoConteudo, number>>;
 }
 
 export interface PontoDeSeguidores {
@@ -43,10 +51,28 @@ export interface PontoDeSeguidores {
 const COR = {
   seguidores: "#8B5CF6",
   visitas: "#0EA5E9",
-  ativacoes: "#F59E0B",
   entradas: "#10B981",
   saidas: "#EF4444",
 };
+
+/**
+ * A cor de cada tipo de conteúdo, nos tons quentes.
+ *
+ * Frio para as LINHAS (seguidores, visitas) e quente para as BARRAS: a divisão
+ * por temperatura separa as duas naturezas antes de qualquer legenda ser lida,
+ * e sobra distinção interna suficiente entre os quatro tipos.
+ */
+const COR_TIPO: Record<TipoConteudo, string> = {
+  FEED: "#F59E0B",
+  REELS: "#EF701B",
+  CARROSSEL: "#FBBF24",
+  STORY: "#FCD34D",
+  ANUNCIO: "#A16207",
+  DESCONHECIDO: "#D6D3D1",
+};
+
+/** A ordem do empilhamento, de baixo para cima. */
+const ORDEM_TIPO: TipoConteudo[] = ["FEED", "CARROSSEL", "REELS", "STORY", "ANUNCIO", "DESCONHECIDO"];
 
 const diaCurto = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 const num = (v: unknown) => (typeof v === "number" ? v.toLocaleString("pt-BR") : "–");
@@ -73,35 +99,63 @@ function Moldura({ titulo, nota, vazio, altura = 180, children }: {
   );
 }
 
-/** Trajetória da conta: estoque à esquerda, fluxo à direita. */
+/**
+ * Trajetória da conta: estoque à esquerda, fluxo à direita.
+ *
+ * Ativações são BARRAS EMPILHADAS, uma faixa por tipo de conteúdo: a altura
+ * total é quanto se publicou naquele dia, e as cores dizem de que foi feito.
+ * Como linha única, ela informava o volume e escondia a composição — e volume
+ * sem composição é o indicador que sobe do jeito mais barato.
+ */
 export function GraficoDaConta({ pontos, nota }: { pontos: PontoDaConta[]; nota?: string | null }) {
-  const temDado = pontos.some((p) => p.seguidores != null || p.visitas != null || p.ativacoes != null);
+  // Só os tipos que existem nos dados. Um segmento zerado apareceria na legenda
+  // e em nenhuma barra — legenda que promete cor sem mostrá-la faz procurar o
+  // que não existe.
+  const tiposPresentes = ORDEM_TIPO.filter((t) => pontos.some((p) => (p.porTipo?.[t] ?? 0) > 0));
+
+  const dados = pontos.map((p) => ({
+    dia: p.dia,
+    seguidores: p.seguidores,
+    visitas: p.visitas,
+    ...Object.fromEntries(tiposPresentes.map((t) => [t, p.porTipo?.[t] ?? 0])),
+  }));
+
+  const temDado = pontos.some((p) => p.seguidores != null || p.visitas != null) || tiposPresentes.length > 0;
   // 150px: o gráfico divide a linha do cabeçalho com outras duas colunas, e a
   // altura precisa caber sem esticar a caixa inteira.
   return (
     <Moldura titulo="Evolução" nota={nota} altura={150} vazio={!temDado || pontos.length < 2}>
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={pontos} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+        {/* `left: 4` e não margem negativa: a margem negativa puxava o eixo para
+            fora da caixa e cortava os milhares dos seguidores. A largura de cada
+            eixo é reservada em `width`, e a margem só afasta da borda. */}
+        <ComposedChart data={dados} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.12} vertical={false} />
           <XAxis dataKey="dia" tickFormatter={diaCurto} tick={EIXO} axisLine={false} tickLine={false} minTickGap={24} />
           {/* Esquerda: só seguidores. `domain` automático em torno dos valores
               reais — começar em zero achataria a variação de uma base grande a
-              ponto de ela sumir. */}
+              ponto de ela sumir. 52px comporta cinco dígitos sem cortar. */}
           <YAxis yAxisId="estoque" tick={EIXO} axisLine={false} tickLine={false}
-            domain={["dataMin - 10", "dataMax + 10"]} width={46} />
-          <YAxis yAxisId="fluxo" orientation="right" tick={EIXO} axisLine={false} tickLine={false} width={34} />
+            domain={["dataMin - 10", "dataMax + 10"]} width={52} tickMargin={4} />
+          <YAxis yAxisId="fluxo" orientation="right" tick={EIXO} axisLine={false} tickLine={false}
+            width={38} tickMargin={4} />
           <Tooltip
             contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)" }}
             labelFormatter={(d) => diaCurto(String(d))}
             formatter={(v, nome) => [num(v), String(nome)]}
           />
           <Legend wrapperStyle={{ fontSize: 10 }} iconType="circle" iconSize={7} />
+          {tiposPresentes.map((t) => (
+            <Bar key={t} yAxisId="fluxo" dataKey={t} name={ROTULO_CONTEUDO[t]} stackId="ativacoes"
+              fill={COR_TIPO[t]} opacity={0.85} maxBarSize={14}
+              // Só o topo da pilha arredonda; os de baixo ficam retos para as
+              // faixas se encostarem sem folga entre elas.
+              radius={t === tiposPresentes[tiposPresentes.length - 1] ? [2, 2, 0, 0] : undefined} />
+          ))}
           <Line yAxisId="estoque" type="monotone" dataKey="seguidores" name="Seguidores"
             stroke={COR.seguidores} strokeWidth={2} dot={false} connectNulls={false} />
           <Line yAxisId="fluxo" type="monotone" dataKey="visitas" name="Visitas ao perfil"
             stroke={COR.visitas} strokeWidth={2} dot={false} connectNulls={false} />
-          <Bar yAxisId="fluxo" dataKey="ativacoes" name="Ativações" fill={COR.ativacoes} opacity={0.55}
-            radius={[2, 2, 0, 0]} maxBarSize={14} />
         </ComposedChart>
       </ResponsiveContainer>
     </Moldura>
@@ -134,13 +188,14 @@ export function GraficoDeMovimento({ pontos, temMovimento, nota }: {
   return (
     <Moldura titulo="Movimento da base" nota={nota} vazio={!temTotal || pontos.length < 2}>
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={dados} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+        <ComposedChart data={dados} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.12} vertical={false} />
           <XAxis dataKey="dia" tickFormatter={diaCurto} tick={EIXO} axisLine={false} tickLine={false} minTickGap={24} />
           <YAxis yAxisId="total" tick={EIXO} axisLine={false} tickLine={false}
-            domain={["dataMin - 10", "dataMax + 10"]} width={46} />
+            domain={["dataMin - 10", "dataMax + 10"]} width={52} tickMargin={4} />
           {temMovimento && (
-            <YAxis yAxisId="mov" orientation="right" tick={EIXO} axisLine={false} tickLine={false} width={34} />
+            <YAxis yAxisId="mov" orientation="right" tick={EIXO} axisLine={false} tickLine={false}
+              width={38} tickMargin={4} />
           )}
           <Tooltip
             contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)" }}

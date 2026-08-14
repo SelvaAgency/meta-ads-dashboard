@@ -39,7 +39,7 @@ import { canManageContent } from "@shared/permissions";
 import { trpc } from "@/lib/trpc";
 import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
 import { lerVinculo, type StatusInsight, type TipoConta } from "@shared/instagram";
-import { movimentoDaBase, somarNoPeriodo } from "@shared/socialSnapshot";
+import { movimentoDaBase, movimentoPorDia, somarNoPeriodo } from "@shared/socialSnapshot";
 import { textoDeCobertura } from "@shared/periodosSociais";
 import { coletasSaoComparaveis, rotuloDeFluxo } from "@shared/janelaDaMetrica";
 import { contarAtivacoes, textoDaComposicao } from "@shared/ativacoes";
@@ -55,16 +55,11 @@ import {
   type DesempenhoPorTipo, type PublicacaoEmLinha,
 } from "@/components/redes/PublicacoesEConteudo";
 import {
-  Loader2, Settings2, Users, Heart, Eye, MousePointerClick, Layers,
-  MessageCircle, Image as ImageIcon, Clapperboard,
+  Loader2, Settings2, Users, Heart, Eye, MousePointerClick, Layers, MessageCircle,
 } from "lucide-react";
 
 const fmt = (n: number | null | undefined): string =>
   n == null ? "–" : n.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
-
-/** Uma parcela das ativações pelo rótulo. `null` quando ela não foi medida. */
-const parcela = (a: { parcelas: Array<{ rotulo: string; total: number }> }, rotulo: string): number | null =>
-  a.parcelas.find((p) => p.rotulo === rotulo)?.total ?? null;
 
 /** Estado que pede AÇÃO, com o caminho — e sem cara de erro. */
 function PrecisaDeConfiguracao({ titulo, detalhe, podeConfigurar }: {
@@ -152,16 +147,67 @@ export default function RedesSociais() {
     return porDia;
   }, [midiasSalvas]);
 
+  /**
+   * A janela do CABEÇALHO, independente do filtro de período.
+   *
+   * O cabeçalho é resumo executivo: ele responde "como a conta está AGORA", e
+   * essa pergunta não muda quando alguém escolhe 30 dias para analisar o
+   * conteúdo. `statusDaConta` são as últimas 30 coletas, sem filtro — é a
+   * mesma lógica da referência, onde os resultados são de hoje e o gráfico é
+   * dos últimos 30 dias.
+   */
+  const janelaFixa = useMemo(() => (d?.historico.statusDaConta ?? []), [d]);
+
+  /**
+   * A composição de cada dia, por tipo de conteúdo.
+   *
+   * A classificação vem do snapshot (`m.tipo`), gravada pelo coletor com
+   * `tipoDeConteudo` — reclassificar aqui recriaria o erro que a função pura
+   * existe para impedir. E o dia é o de PUBLICAÇÃO, nunca o da coleta: agrupar
+   * pela coleta é o que fazia toda conta exibir 25 publicações diárias.
+   */
+  const composicaoPorDia = useMemo(() => {
+    const porDia = new Map<string, Partial<Record<TipoConteudo, number>>>();
+    const somar = (dia: string, tipo: TipoConteudo, n: number) => {
+      if (n <= 0) return;
+      const atual = porDia.get(dia) ?? {};
+      atual[tipo] = (atual[tipo] ?? 0) + n;
+      porDia.set(dia, atual);
+    };
+    for (const m of (d?.historico.midiasRecentes ?? [])) {
+      const publicado = (m.publicadoEm ?? "").slice(0, 10);
+      if (!publicado || m.produto === "STORY") continue;
+      somar(publicado, (m.tipo ?? "DESCONHECIDO") as TipoConteudo, 1);
+    }
+    // Stories não vêm da listagem de mídias: eles são contados por dia na
+    // série, porque a coleta lê o que está NO AR naquele momento.
+    for (const p of (d?.historico.statusDaConta ?? [])) {
+      somar(p.dia, "STORY", p.storiesVistos ?? 0);
+    }
+    return porDia;
+  }, [d]);
+
+  /** O total do dia — a altura da barra. */
+  const ativacoesRecentesPorDia = useMemo(() => {
+    const total = new Map<string, number>();
+    for (const [dia, tipos] of Array.from(composicaoPorDia.entries())) {
+      total.set(dia, Object.values(tipos).reduce((a, b) => a + (b ?? 0), 0));
+    }
+    return total;
+  }, [composicaoPorDia]);
+
   const leitura = useMemo(() => {
-    const dias: DiaDaLeitura[] = serie.map((p) => ({
+    // Os últimos 7 dias COLETADOS, e não o período do filtro: o resumo mora no
+    // cabeçalho e segue a mesma regra dele.
+    const dias: DiaDaLeitura[] = janelaFixa.slice(-7).map((p) => ({
       dia: p.dia,
       seguidores: p.seguidores,
-      visitas: mets(p, "profile_views"),
-      interacoes: mets(p, "total_interactions"),
-      ativacoes: (ativacoesPorDia.get(p.dia) ?? 0) + (p.storiesVistos ?? 0) || null,
+      visitas: typeof p.metricas?.profile_views === "number" ? p.metricas.profile_views : null,
+      interacoes: typeof p.metricas?.total_interactions === "number" ? p.metricas.total_interactions : null,
+      ativacoes: ativacoesRecentesPorDia.get(p.dia) || null,
     }));
     return lerUltimosDias(dias);
-  }, [serie, ativacoesPorDia]);
+  }, [janelaFixa, ativacoesRecentesPorDia]);
 
   /**
    * Entradas e saídas SEM o breakdown ainda não provado.
@@ -200,19 +246,26 @@ export default function RedesSociais() {
   ), [midiasSalvas, serie, dateRange, publicacoesIndisponiveis]);
 
   // ── Ontem × hoje ────────────────────────────────────────────────────────
-  const ultimos = serie.slice(-2);
-  const linhaDoDia = (p: (typeof serie)[number] | undefined, anterior: number | null): ValorDoDia[] => [
+  // As duas ÚLTIMAS COLETAS, sempre — o filtro de período não alcança aqui.
+  const ultimos = janelaFixa.slice(-2);
+  const met = (p: (typeof janelaFixa)[number] | undefined, k: string): number | null =>
+    p && typeof p.metricas?.[k] === "number" ? p.metricas[k] : null;
+
+  const linhaDoDia = (
+    p: (typeof janelaFixa)[number] | undefined, anterior: number | null,
+  ): ValorDoDia[] => [
+    // O total já soma stories: `composicaoPorDia` os inclui como um tipo.
     { rotulo: "Ativações", natureza: "fluxo",
-      valor: p ? (ativacoesPorDia.get(p.dia) ?? 0) + (p.storiesVistos ?? 0) : null },
+      valor: p ? ativacoesRecentesPorDia.get(p.dia) ?? 0 : null },
     // Taxa, e não contagem: um dia com 3 posts e outro com 1 têm volumes
     // incomparáveis de interação. A taxa sobre alcance compara os dois.
     { rotulo: "Engajamento", natureza: "fluxo", formato: "percentual",
-      valor: p ? taxaPorAlcance(mets(p, "total_interactions"), mets(p, "reach")) : null },
-    { rotulo: "Visitas ao perfil", natureza: "fluxo", valor: p ? mets(p, "profile_views") : null },
+      valor: taxaPorAlcance(met(p, "total_interactions"), met(p, "reach")) },
+    { rotulo: "Visitas ao perfil", natureza: "fluxo", valor: met(p, "profile_views") },
     { rotulo: "Seguidores", natureza: "estoque", valor: p?.seguidores ?? null,
       variacao: p?.seguidores != null && anterior != null ? p.seguidores - anterior : null },
   ];
-  const ontem = linhaDoDia(ultimos.length === 2 ? ultimos[0] : undefined, serie.slice(-3)[0]?.seguidores ?? null);
+  const ontem = linhaDoDia(ultimos.length === 2 ? ultimos[0] : undefined, janelaFixa.slice(-3)[0]?.seguidores ?? null);
   const doDia = linhaDoDia(ultimos[ultimos.length - 1], ultimos.length === 2 ? ultimos[0].seguidores : null);
 
   const comparabilidade = coletasSaoComparaveis(
@@ -288,15 +341,17 @@ export default function RedesSociais() {
   }, [publicacoes]);
 
   // ── Gráficos ────────────────────────────────────────────────────────────
-  const pontosDaConta = serie.map((p) => ({
+  const pontosDaConta = janelaFixa.map((p) => ({
     dia: p.dia,
     seguidores: p.seguidores,
-    visitas: mets(p, "profile_views"),
-    ativacoes: (ativacoesPorDia.get(p.dia) ?? 0) + (p.storiesVistos ?? 0) || null,
+    visitas: typeof p.metricas?.profile_views === "number" ? p.metricas.profile_views : null,
+    porTipo: composicaoPorDia.get(p.dia) ?? {},
   }));
-  const pontosDeMovimento = serie.map((p) => ({
-    dia: p.dia, total: p.seguidores, entradas: null, saidas: null,
-  }));
+
+  // O gráfico de movimento segue o FILTRO: ele é análise, não resumo.
+  const pontosDeMovimento = movimentoPorDia(serie.map((p) => ({
+    dia: p.dia, total: p.seguidores, novos: mets(p, "follower_count"),
+  })));
 
   const leituraDoVinculo = organico
     ? lerVinculo({
@@ -317,14 +372,11 @@ export default function RedesSociais() {
   return (
     <MetaDashboardLayout title="Social">
       <div className="flex flex-col gap-6 p-4 md:p-6">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <IdentidadeDaConta
-            nome={cliente?.accountName ?? "Social"}
-            username={organico?.perfil.username ?? null}
-            rede="Instagram"
-          />
-          <PeriodFilter period={period} onChange={setPeriod} />
-        </div>
+        <IdentidadeDaConta
+          nome={cliente?.accountName ?? "Social"}
+          username={organico?.perfil.username ?? null}
+          rede="Instagram"
+        />
 
         {!selectedAccountId && (
           <div className="rounded-xl border border-border bg-card p-8 text-center">
@@ -382,17 +434,35 @@ export default function RedesSociais() {
                     aviso="O dia corrente é parcial. Seguidores é o total da conta." />
                 </div>
                 <div className="p-5 min-w-0">
-                  <GraficoDaConta pontos={pontosDaConta} nota={cobertura} />
+                  <GraficoDaConta pontos={pontosDaConta} nota="últimos 30 dias" />
                 </div>
               </div>
             </section>
+
+            {/* ── O FILTRO COMEÇA AQUI ─────────────────────────────────────
+                Ele fica DEPOIS do cabeçalho porque não vale para ele: o
+                cabeçalho é resumo executivo e mostra sempre hoje × ontem. No
+                topo, o filtro pareceria governar a página inteira — e a
+                primeira coisa que ele não move é justamente a que está acima
+                dele. */}
+            <div className="flex items-center justify-between gap-3 flex-wrap border-t border-border/50 pt-5">
+              <p className="text-[11px] text-muted-foreground">
+                Os blocos abaixo seguem o período selecionado.
+              </p>
+              <PeriodFilter period={period} onChange={setPeriod} />
+            </div>
 
             {/* ── DADOS GERAIS ─────────────────────────────────────────────
                 Ativações no primeiro lugar da faixa e com a composição colada:
                 é o número que resume produção, e os outros a qualificam. */}
             <section className="flex flex-col gap-3">
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Dados gerais</h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 rounded-xl border border-border bg-card
+              {/* Cinco, numa linha só. Posts e Stories NÃO ganham cartão
+                  próprio: eles são a composição das ativações, e repetidos ao
+                  lado do total virariam o mesmo número contado duas vezes na
+                  mesma faixa. A composição vive embaixo do total, em corpo
+                  menor — presente, sem competir. */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 rounded-xl border border-border bg-card
                               divide-x divide-y lg:divide-y-0 divide-border/50">
                 <Geral icon={Layers} rotulo="Ativações" valor={fmt(ativacoes.total)}
                   detalhe={textoDaComposicao(ativacoes)}
@@ -401,9 +471,6 @@ export default function RedesSociais() {
                     : ativacoes.diasSemMedicaoDeStories > 0
                       ? `${ativacoes.diasSemMedicaoDeStories} dia(s) sem medição de stories`
                       : null} />
-                <Geral icon={ImageIcon} rotulo="Posts" valor={fmt(parcela(ativacoes, "Posts"))} />
-                <Geral icon={Clapperboard} rotulo="Stories" valor={fmt(parcela(ativacoes, "Stories"))}
-                  ressalva={parcela(ativacoes, "Stories") != null ? "mínimo: mede o que está no ar" : null} />
                 <Geral icon={Heart} rotulo="Engajamento" valor={fmt(interacoes.total)}
                   detalhe={taxa != null ? `${taxa.toFixed(2)}% do alcance` : null} />
                 {/* Respostas aos Stories é métrica de ENGAJAMENTO e fica na
@@ -413,8 +480,6 @@ export default function RedesSociais() {
                   ressalva={respostas.total == null ? "não medida nesta coleta" : null} />
                 <Geral icon={Eye} rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
                   ressalva={rotuloVisitas.ressalva} />
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
                 <Geral icon={MousePointerClick} rotulo="Cliques no link" valor={fmt(cliques.total)} />
               </div>
               {!comparabilidade.comparavel && comparabilidade.motivo && (
@@ -461,7 +526,11 @@ export default function RedesSociais() {
                     ressalva={movimento.saidas == null ? "não derivável" : "derivado do saldo"} />
                 </div>
                 <div className="rounded-xl border border-border bg-card p-4">
-                  <GraficoDeMovimento pontos={pontosDeMovimento} temMovimento={false}
+                  {/* As barras só entram quando a derivação fecha. Quando não
+                      fecha, o gráfico mostra o saldo sozinho — metade de um
+                      comparativo é melhor que um comparativo inventado. */}
+                  <GraficoDeMovimento pontos={pontosDeMovimento}
+                    temMovimento={movimento.origem === "follower_count"}
                     nota={movimento.origem === "follower_count" ? null : "só o saldo — ver ressalva abaixo"} />
                 </div>
               </div>

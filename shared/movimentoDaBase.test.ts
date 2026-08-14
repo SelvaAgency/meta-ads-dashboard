@@ -15,7 +15,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it } from "vitest";
-import { movimentoDaBase } from "./socialSnapshot";
+import { movimentoDaBase, movimentoPorDia } from "./socialSnapshot";
 
 const amostra = (dia: string, total: number | null) => ({ dia, total, follower: null, naoSeguidor: null });
 
@@ -93,5 +93,59 @@ describe("saber quando a derivação não se sustenta", () => {
     const m = movimentoDaBase(
       [amostra("2026-08-10", 1000), amostra("2026-08-13", 1050)], [30, null, 25]);
     expect(m.diasMedidos).toBe(2);
+  });
+});
+
+describe("o movimento dia a dia, para o gráfico", () => {
+  const dia = (d: string, total: number | null, novos: number | null) => ({ dia: d, total, novos });
+
+  it("as saídas de cada dia caem pela mesma identidade", () => {
+    const r = movimentoPorDia([
+      dia("2026-08-10", 1000, 20),
+      dia("2026-08-11", 1015, 20), // cresceu 15, entraram 20 → saíram 5
+      dia("2026-08-12", 1005, 10), // caiu 10, entraram 10 → saíram 20
+    ]);
+    expect(r.map((x) => x.saidas)).toEqual([null, 5, 20]);
+    expect(r.map((x) => x.entradas)).toEqual([20, 20, 10]);
+  });
+
+  /** Sem dia anterior não há variação, e sem variação não há o que subtrair. */
+  it("o primeiro dia entra sem saída, e não com zero", () => {
+    const r = movimentoPorDia([dia("2026-08-10", 1000, 30), dia("2026-08-11", 1020, 25)]);
+    expect(r[0].saidas).toBeNull();
+    expect(r[0].entradas).toBe(30);
+  });
+
+  /**
+   * O motivo de a checagem ser por dia: no agregado, um dia impossível é
+   * anulado por outro folgado e o total fecha, escondendo os dois.
+   */
+  it("dia em que a base cresceu mais do que entrou vira buraco, não barra negativa", () => {
+    const r = movimentoPorDia([
+      dia("2026-08-10", 1000, 10),
+      dia("2026-08-11", 1100, 10), // cresceu 100, entraram 10 → impossível
+      dia("2026-08-12", 1090, 10),
+    ]);
+    expect(r[1].saidas).toBeNull();
+    // O dia seguinte continua sendo calculado normalmente.
+    expect(r[2].saidas).toBe(20);
+  });
+
+  it("dia sem follower_count medido não inventa saída", () => {
+    const r = movimentoPorDia([dia("2026-08-10", 1000, 20), dia("2026-08-11", 1010, null)]);
+    expect(r[1].entradas).toBeNull();
+    expect(r[1].saidas).toBeNull();
+  });
+
+  /** Buraco de coleta não pode virar variação gigante no dia seguinte. */
+  it("dia sem total usa o último total conhecido como referência", () => {
+    const r = movimentoPorDia([
+      dia("2026-08-10", 1000, 10),
+      dia("2026-08-11", null, 10),
+      dia("2026-08-12", 1015, 10),
+    ]);
+    expect(r[1].saidas).toBeNull();
+    // 1015 − 1000 = 15 de variação; entraram 10 → conta não fecha, vira buraco.
+    expect(r[2].saidas).toBeNull();
   });
 });

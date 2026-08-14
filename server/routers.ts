@@ -354,6 +354,12 @@ import {
   GRUPOS as GRUPOS_PRIORIDADE, hojeISO, inicioDaSemana, semanaExpirada,
   semanaMaisAntigaMantida,
 } from "@shared/semana";
+
+/** `AAAA-MM-DD` menos N dias, sem sair da aritmética de string. */
+const diaMenos = (iso: string, n: number): string =>
+  new Date(Date.UTC(
+    Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)),
+  ) - n * 86_400_000).toISOString().slice(0, 10);
 import { STATUS, TIPOS } from "@shared/prioridades";
 import { testarTokenLinkedIn } from "./services/linkedin";
 import { sondarLinkedIn } from "./services/sondagemLinkedIn";
@@ -4628,9 +4634,24 @@ export const appRouter = router({
           midiasIndisponiveis: !!((l.recusadasJson ?? {}) as Record<string, string>).midias,
         }));
 
+        /**
+         * Mídias das últimas semanas, INDEPENDENTE do filtro de período.
+         *
+         * O cabeçalho da página é resumo executivo e mostra sempre hoje ×
+         * ontem — com "30 dias" selecionado, `midiasSalvas` já cobre; com um
+         * período antigo, não cobriria, e as ativações de hoje ficariam em
+         * branco num bloco que promete falar de hoje.
+         *
+         * Custa uma consulta ao BANCO, não à Meta: a otimização de chamadas
+         * continua intacta.
+         */
+        const midiasRecentes = await midiasDoPeriodo(
+          input.accountId, diaMenos(hojeISO(), 30), hojeISO());
+
         const historico = {
           serie: podeVerDiagnostico ? serie : serie.map((p2) => ({ ...p2, recusadas: {}, breakdownCru: null })),
           statusDaConta,
+          midiasRecentes,
           coletaDesde,
           // A explicação da validação é sobre o funcionamento interno do
           // Spaces, não sobre o cliente. O veredito em si fica, porque é ele

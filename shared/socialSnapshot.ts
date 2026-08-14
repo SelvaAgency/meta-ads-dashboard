@@ -304,3 +304,48 @@ export function movimentoDaBase(
 
   return { ...base, entradas, saidas, origem: "follower_count", motivo: null };
 }
+
+export interface DiaDoMovimento {
+  dia: string;
+  total: number | null;
+  entradas: number | null;
+  /** DERIVADA por dia. `null` quando a conta daquele dia não fecha. */
+  saidas: number | null;
+}
+
+/**
+ * O movimento DIA A DIA, para o gráfico.
+ *
+ * Mesma identidade do total, aplicada a cada par de dias consecutivos:
+ *
+ *     saídas(dia) = entradas(dia) − (total(dia) − total(dia anterior))
+ *
+ * ── Por que a checagem tem que ser por dia, e não só no total ──────────────
+ * No agregado as folgas se compensam: um dia em que a conta cresceu mais do que
+ * entrou é anulado por outro em que cresceu menos. O total fecha e esconde os
+ * dois. Por dia, o dia impossível aparece — e é ele que precisa virar buraco no
+ * gráfico, e não uma barra negativa desenhada para baixo como se fosse saída.
+ *
+ * ── O primeiro dia nunca tem saída ─────────────────────────────────────────
+ * Sem o dia anterior não há variação, e sem variação não há o que subtrair. Ele
+ * entra com `entradas` (que é medida) e `saidas: null` — e o gráfico abre com
+ * um vão de propósito, em vez de fingir que ninguém saiu naquele dia.
+ */
+export function movimentoPorDia(
+  amostras: Array<{ dia: string; total: number | null; novos: number | null }>,
+): DiaDoMovimento[] {
+  const ordenadas = amostras.slice().sort((a, b) => a.dia.localeCompare(b.dia));
+  let anterior: number | null = null;
+
+  return ordenadas.map((a) => {
+    const variacao = a.total != null && anterior != null ? a.total - anterior : null;
+    if (a.total != null) anterior = a.total;
+
+    if (a.novos == null || variacao == null) {
+      return { dia: a.dia, total: a.total, entradas: a.novos, saidas: null };
+    }
+    const saidas = a.novos - variacao;
+    // Dia impossível: a base cresceu mais do que entrou. Vira buraco, não barra.
+    return { dia: a.dia, total: a.total, entradas: a.novos, saidas: saidas < 0 ? null : saidas };
+  });
+}
