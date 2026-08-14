@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { contarAtivacoes, textoDaComposicao } from "./ativacoes";
 
 const JANELA = { inicio: "2026-08-10", fim: "2026-08-16" };
-const post = (dia: string, tipo = "FEED" as const) => ({ dia, tipo });
+const post = (publicadoEm: string, tipo = "FEED" as const) => ({ publicadoEm, tipo });
 
 describe("o total nunca aparece sem a composição", () => {
   it("soma posts e stories, e diz de que é feito", () => {
@@ -38,6 +38,44 @@ describe("o total nunca aparece sem a composição", () => {
   });
 });
 
+describe("o LOTE de 25 não é a produção do período", () => {
+  /**
+   * A regressão que este arquivo existe para impedir, reproduzida.
+   *
+   * O coletor pede as 25 mídias mais recentes numa chamada — 25 é o tamanho do
+   * lote. Se a contagem usar a lista inteira, toda conta exibe "25 ativações"
+   * todo dia: um número plausível, estável e errado, que ninguém reporta como
+   * bug porque ele nunca parece quebrado.
+   */
+  it("25 mídias retornadas com 2 do período contam 2, e não 25", () => {
+    const lote = [
+      post("2026-08-12"), post("2026-08-13"),
+      // As outras 23 são anteriores ao período — vieram no lote por serem as
+      // mais recentes da conta, não por terem sido publicadas agora.
+      ...Array.from({ length: 23 }, (_, i) => post(`2026-07-${String(i + 1).padStart(2, "0")}`)),
+    ];
+    expect(lote).toHaveLength(25);
+    const a = contarAtivacoes(lote, [], JANELA);
+    expect(a.total).toBe(2);
+    expect(textoDaComposicao(a)).toBe("2 posts");
+  });
+
+  /** O mesmo engano visto por outro ângulo: nenhuma do período. */
+  it("lote cheio sem nenhuma publicação do período conta zero", () => {
+    const lote = Array.from({ length: 25 }, () => post("2026-07-01"));
+    expect(contarAtivacoes(lote, [], JANELA).total).toBe(0);
+  });
+
+  /** E o desempenho por tipo herda o mesmo filtro. */
+  it("por tipo também conta só o período", () => {
+    const a = contarAtivacoes([
+      post("2026-08-12", "REELS"),
+      ...Array.from({ length: 20 }, () => post("2026-07-01", "REELS")),
+    ], [], JANELA);
+    expect(a.porTipo).toEqual([{ tipo: "REELS", rotulo: "Reels", total: 1 }]);
+  });
+});
+
 describe("a janela é respeitada", () => {
   it("publicação fora do período não entra", () => {
     const a = contarAtivacoes(
@@ -50,7 +88,7 @@ describe("a janela é respeitada", () => {
    * um zero MEDIDO — diferente do `null` de quando nada foi lido.
    */
   it("publicação sem data não entra, e o zero resultante é medido", () => {
-    const a = contarAtivacoes([{ dia: null, tipo: "FEED" }], [], JANELA);
+    const a = contarAtivacoes([{ publicadoEm: null, tipo: "FEED" }], [], JANELA);
     expect(a.total).toBe(0);
     expect(textoDaComposicao(a)).toBe("0 posts");
   });

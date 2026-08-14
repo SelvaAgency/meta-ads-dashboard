@@ -1379,6 +1379,15 @@ export const socialMediaSnapshots = mysqlTable("social_media_snapshots", {
   tipo: varchar("tipo", { length: 20 }),
   produto: varchar("produto", { length: 20 }),
   permalink: varchar("permalink", { length: 500 }),
+  /**
+   * Miniatura do CDN da Meta. URL ASSINADA — ela expira.
+   *
+   * Guardada porque vem de graça na listagem que o coletor já faz; buscar a
+   * imagem por publicação na renderização traria de volta o volume de chamadas
+   * que a otimização 186→6 eliminou. Não é histórico permanente de imagem: a
+   * coleta renova a URL das mídias ainda recentes, e as antigas apodrecem.
+   */
+  thumbnailUrl: varchar("thumbnailUrl", { length: 1000 }),
   legenda: varchar("legenda", { length: 500 }),
 
   likes: int("likes"),

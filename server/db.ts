@@ -2301,7 +2301,8 @@ export async function registrarStoriesDoDia(accountId: number, dia: string, vist
 }
 
 export async function salvarMidiasDoSnapshot(accountId: number, dia: string, midias: Array<{
-  mediaId: string; publicadoEm: string | null; tipo: string | null; produto: string | null;
+  mediaId: string; publicadoEm: string | null; thumbnailUrl?: string | null;
+  tipo: string | null; produto: string | null;
   permalink: string | null; legenda: string | null;
   likes: number | null; comentarios: number | null; reach: number | null; views: number | null;
   saves: number | null; shares: number | null; totalInteractions: number | null;
@@ -2311,7 +2312,8 @@ export async function salvarMidiasDoSnapshot(accountId: number, dia: string, mid
   if (!db || midias.length === 0) return;
   for (const m of midias) {
     const dados = {
-      publicadoEm: m.publicadoEm, tipo: m.tipo, produto: m.produto,
+      publicadoEm: m.publicadoEm, thumbnailUrl: m.thumbnailUrl ?? null,
+      tipo: m.tipo, produto: m.produto,
       permalink: m.permalink, legenda: m.legenda,
       likes: m.likes, comentarios: m.comentarios, reach: m.reach, views: m.views,
       saves: m.saves, shares: m.shares, totalInteractions: m.totalInteractions,

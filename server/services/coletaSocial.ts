@@ -96,8 +96,21 @@ function lerLoteDeInsights(
   return { valores, recusadas };
 }
 
+/**
+ * Campos da listagem de mídia.
+ *
+ * `media_url` e `thumbnail_url` entraram em 14/08 e custaram ZERO chamadas: são
+ * campos da MESMA requisição de listagem que já acontecia. A alternativa —
+ * buscar a imagem por publicação na hora de renderizar — reintroduziria
+ * exatamente o volume que a otimização 186→6 acabou de eliminar.
+ *
+ * As URLs do CDN da Meta são assinadas e EXPIRAM. Guardá-las não dá histórico
+ * permanente de imagem: a coleta diária renova a URL das mídias que ainda estão
+ * nas 25 mais recentes, e as mais antigas apodrecem. A tela trata isso com
+ * fallback, e é uma limitação da origem, não do desenho.
+ */
 const CAMPOS_MIDIA =
-  "id,caption,media_type,media_product_type,timestamp,permalink,like_count,comments_count";
+  "id,caption,media_type,media_product_type,timestamp,permalink,like_count,comments_count,media_url,thumbnail_url";
 
 /** Métricas por publicação, todas confirmadas na sondagem. */
 export const METRICAS_MIDIA = ["reach", "views", "likes", "saved", "shares", "comments", "total_interactions"];
@@ -139,6 +152,8 @@ function lerInsightsAninhados(ins: unknown, rotulo = "não veio na resposta anin
 export interface MidiaColetada {
   mediaId: string;
   publicadoEm: string | null;
+  /** URL do CDN da Meta. ASSINADA e temporária — ver CAMPOS_MIDIA. */
+  thumbnailUrl: string | null;
   tipo: string | null;
   produto: string | null;
   permalink: string | null;
@@ -381,6 +396,10 @@ export async function coletarDeInstagram(
       }),
       produto: m.media_product_type ? String(m.media_product_type) : null,
       permalink: m.permalink ? String(m.permalink) : null,
+      // `thumbnail_url` só existe em vídeo; imagem e carrossel usam `media_url`.
+      // Sem o fallback, todo post de imagem ficaria sem miniatura.
+      thumbnailUrl: m.thumbnail_url ? String(m.thumbnail_url)
+        : m.media_url ? String(m.media_url) : null,
       // Truncada: a legenda serve para reconhecer o post numa lista, não para
       // guardar o conteúdo do cliente.
       legenda: legenda ? legenda.slice(0, 300) : null,

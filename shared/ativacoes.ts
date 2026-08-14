@@ -19,6 +19,12 @@
  *  é, portanto, um PISO — e `diasSemMedicao` existe para a tela poder dizer
  *  isso em vez de apresentar um total como se fosse completo.
  *
+ *  ── Amostra não é contagem ─────────────────────────────────────────────────
+ *  O coletor pede as 25 mídias mais recentes numa chamada só. 25 é o tamanho do
+ *  LOTE, não a produção do período: dessas, talvez duas sejam de hoje. Contar a
+ *  lista inteira produz um número plausível, estável e errado — o tipo que
+ *  ninguém reporta como bug, só como estranheza.
+ *
  *  ── Preparado para o LinkedIn, sem fingir que ele existe ───────────────────
  *  `fontes` é uma lista, e hoje ela tem um item. Quando o LinkedIn entrar, ele
  *  vira outro item — e nada aqui muda. O que NÃO existe é um item de LinkedIn
@@ -48,8 +54,20 @@ export interface Ativacoes {
 }
 
 export interface MidiaParaContagem {
-  /** `AAAA-MM-DD` da publicação. */
-  dia: string | null;
+  /**
+   * O dia em que a mídia foi PUBLICADA — `AAAA-MM-DD`, de `publicadoEm`.
+   *
+   * ── O campo se chama assim por causa de um bug real ───────────────────────
+   * Ele já se chamou `dia`, e `dia` é exatamente o nome da outra coluna do
+   * snapshot de mídia: o dia da COLETA. Passar a errada compilava, e o efeito
+   * era mudo — a coleta guarda as 25 mídias mais recentes com o carimbo de
+   * hoje, então toda conta passou a exibir "25 ativações" todo santo dia.
+   *
+   * Um número plausível, estável e errado: ninguém reporta isso como bug, só
+   * como estranheza. O nome do campo é a defesa — `publicadoEm` não aceita o
+   * dia da coleta sem alguém notar o que está escrevendo.
+   */
+  publicadoEm: string | null;
   tipo: TipoConteudo;
 }
 
@@ -71,9 +89,13 @@ export function contarAtivacoes(
   janela: { inicio: string; fim: string },
   opcoes: { publicacoesIndisponiveis?: boolean } = {},
 ): Ativacoes {
+  // A lista que chega é a AMOSTRA — até 25 mídias, o tamanho do lote que o
+  // coletor pede numa chamada. Quantas delas são do período é outra pergunta, e
+  // é o `publicadoEm` que responde. Confundir as duas é o bug que este filtro
+  // existe para impedir.
   const porTipo = new Map<TipoConteudo, number>();
   for (const m of midias) {
-    if (!m.dia || m.dia < janela.inicio || m.dia > janela.fim) continue;
+    if (!m.publicadoEm || m.publicadoEm < janela.inicio || m.publicadoEm > janela.fim) continue;
     porTipo.set(m.tipo, (porTipo.get(m.tipo) ?? 0) + 1);
   }
 

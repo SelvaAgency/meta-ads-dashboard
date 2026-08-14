@@ -38,7 +38,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { trpc } from "@/lib/trpc";
 import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
-import { lerVinculo, ROTULO_TIPO, type StatusInsight, type TipoConta } from "@shared/instagram";
+import { lerVinculo, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { saldoDeSeguidores, podeMostrarEntradasESaidas, somarNoPeriodo } from "@shared/socialSnapshot";
 import { textoDeCobertura } from "@shared/periodosSociais";
 import { coletasSaoComparaveis, rotuloDeFluxo } from "@shared/janelaDaMetrica";
@@ -47,7 +47,7 @@ import { lerUltimosDias, type DiaDaLeitura } from "@shared/leituraSocial";
 import { taxaPorAlcance } from "@shared/engajamento";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 import {
-  IdentidadeDaConta, LeituraDoPeriodo, OntemEHoje, type ValorDoDia,
+  IdentidadeDaConta, Resultados, ResumoCurto, type ValorDoDia,
 } from "@/components/redes/CabecalhoDaConta";
 import { GraficoDaConta, GraficoDeMovimento } from "@/components/redes/GraficoDaConta";
 import {
@@ -126,13 +126,21 @@ export default function RedesSociais() {
   const mets = (p: (typeof serie)[number], k: string): number | null =>
     typeof p.metricas?.[k] === "number" ? p.metricas[k] : null;
 
-  // Ativações por DIA: publicações daquele dia + stories medidos naquele dia.
+  /**
+   * Ativações por DIA DE PUBLICAÇÃO.
+   *
+   * `m.publicadoEm` e nunca `m.dia`: os dois existem na linha do snapshot e
+   * significam coisas opostas — `dia` é o dia da COLETA. Como a coleta guarda
+   * as 25 mídias mais recentes carimbadas com hoje, agrupar por `dia` fazia
+   * toda conta exibir 25 publicações diárias. Número plausível, estável e
+   * errado.
+   */
   const ativacoesPorDia = useMemo(() => {
     const porDia = new Map<string, number>();
     for (const m of midiasSalvas) {
-      const dia = (m.dia ?? "").slice(0, 10);
-      if (!dia || m.produto === "STORY") continue;
-      porDia.set(dia, (porDia.get(dia) ?? 0) + 1);
+      const publicado = (m.publicadoEm ?? "").slice(0, 10);
+      if (!publicado || m.produto === "STORY") continue;
+      porDia.set(publicado, (porDia.get(publicado) ?? 0) + 1);
     }
     return porDia;
   }, [midiasSalvas]);
@@ -171,7 +179,7 @@ export default function RedesSociais() {
     midiasSalvas
       .filter((m) => m.produto !== "STORY")
       .map((m) => ({
-        dia: (m.dia ?? "").slice(0, 10) || null,
+        publicadoEm: (m.publicadoEm ?? "").slice(0, 10) || null,
         tipo: (m.tipo ?? "DESCONHECIDO") as TipoConteudo,
       })),
     serie.map((p) => ({ storiesVistos: p.storiesVistos })),
@@ -184,7 +192,10 @@ export default function RedesSociais() {
   const linhaDoDia = (p: (typeof serie)[number] | undefined, anterior: number | null): ValorDoDia[] => [
     { rotulo: "Ativações", natureza: "fluxo",
       valor: p ? (ativacoesPorDia.get(p.dia) ?? 0) + (p.storiesVistos ?? 0) : null },
-    { rotulo: "Engajamento", natureza: "fluxo", valor: p ? mets(p, "total_interactions") : null },
+    // Taxa, e não contagem: um dia com 3 posts e outro com 1 têm volumes
+    // incomparáveis de interação. A taxa sobre alcance compara os dois.
+    { rotulo: "Engajamento", natureza: "fluxo", formato: "percentual",
+      valor: p ? taxaPorAlcance(mets(p, "total_interactions"), mets(p, "reach")) : null },
     { rotulo: "Visitas ao perfil", natureza: "fluxo", valor: p ? mets(p, "profile_views") : null },
     { rotulo: "Seguidores", natureza: "estoque", valor: p?.seguidores ?? null,
       variacao: p?.seguidores != null && anterior != null ? p.seguidores - anterior : null },
@@ -198,7 +209,14 @@ export default function RedesSociais() {
     "Visitas ao perfil", comparabilidade.faixa, visitas.diasMedidos, "as visitas acumuladas");
 
   // ── Publicações ─────────────────────────────────────────────────────────
-  const publicacoes: PublicacaoEmLinha[] = useMemo(() => midiasSalvas
+  // A lista é a AMOSTRA (25 mídias). O que entra na tela é o que foi publicado
+  // DENTRO do período — a mesma regra das ativações, pelo mesmo motivo.
+  const noPeriodo = useMemo(() => midiasSalvas.filter((m) => {
+    const publicado = (m.publicadoEm ?? "").slice(0, 10);
+    return !!publicado && publicado >= dateRange.startDate && publicado <= dateRange.endDate;
+  }), [midiasSalvas, dateRange]);
+
+  const publicacoes: PublicacaoEmLinha[] = useMemo(() => noPeriodo
     .filter((m) => m.produto !== "STORY")
     .map((m) => {
       const inter = m.totalInteractions ?? ((m.likes ?? 0) + (m.comentarios ?? 0) || null);
@@ -206,7 +224,7 @@ export default function RedesSociais() {
         id: m.mediaId,
         tipo: (m.tipo ?? "DESCONHECIDO") as TipoConteudo,
         quando: m.publicadoEm ?? null,
-        thumb: null,
+        thumb: m.thumbnailUrl ?? null,
         permalink: m.permalink,
         legenda: m.legenda?.slice(0, 80) ?? null,
         alcance: m.reach,
@@ -218,7 +236,7 @@ export default function RedesSociais() {
         taxa: taxaPorAlcance(inter, m.reach),
       };
     })
-    .sort((a, b) => (b.quando ?? "").localeCompare(a.quando ?? "")), [midiasSalvas]);
+    .sort((a, b) => (b.quando ?? "").localeCompare(a.quando ?? "")), [noPeriodo]);
 
   const melhores = useMemo(
     () => publicacoes.filter((p) => p.taxa != null).sort((a, b) => b.taxa! - a.taxa!).slice(0, 3),
@@ -275,7 +293,6 @@ export default function RedesSociais() {
             nome={cliente?.accountName ?? "Social"}
             username={organico?.perfil.username ?? null}
             rede="Instagram"
-            tipoConta={organico ? ROTULO_TIPO[organico.perfil.tipoConta as TipoConta] : undefined}
           />
           <PeriodFilter period={period} onChange={setPeriod} />
         </div>
@@ -319,19 +336,17 @@ export default function RedesSociais() {
               </div>
             )}
 
-            {/* ── CABEÇALHO EXECUTIVO ──────────────────────────────────── */}
-            <section className="rounded-2xl border border-border bg-card p-5 flex flex-col gap-5">
-              <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-6">
-                <LeituraDoPeriodo leitura={leitura} />
-                <OntemEHoje ontem={ontem} hoje={doDia}
-                  avisoParcial={
-                    "O dia corrente é parcial: a coleta mede de 00:00 até o horário da última leitura. "
-                    + "Seguidores é total da conta, não ganho do dia."
-                  } />
+            {/* ── CABEÇALHO ────────────────────────────────────────────────
+                Uma faixa, três regiões, nenhuma moldura interna. As bordas em
+                volta de cada parte eram o que fazia a versão anterior parecer
+                uma coleção de componentes em vez de uma visão da conta. */}
+            <section className="rounded-2xl border border-border bg-card px-6 py-5 flex flex-col gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_auto] gap-8 items-start">
+                <ResumoCurto leitura={leitura} />
+                <Resultados ontem={ontem} hoje={doDia}
+                  aviso="O dia corrente é parcial. Seguidores é o total da conta." />
               </div>
-              <div className="border-t border-border/50 pt-4">
-                <GraficoDaConta pontos={pontosDaConta} nota={cobertura} />
-              </div>
+              <GraficoDaConta pontos={pontosDaConta} nota={cobertura} />
             </section>
 
             {/* ── SEGUIDORES ───────────────────────────────────────────── */}
@@ -388,7 +403,7 @@ export default function RedesSociais() {
 
             {/* ── PUBLICAÇÕES E CONTEÚDO ───────────────────────────────── */}
             <UltimasPublicacoes
-              instagram={publicacoes.slice(0, 8)}
+              instagram={publicacoes.slice(0, 4)}
               // Só quando existir conexão de verdade. Hoje nunca — a Fase 0 do
               // LinkedIn ainda não coleta nada.
               temLinkedin={false}

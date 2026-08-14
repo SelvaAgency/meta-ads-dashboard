@@ -1,164 +1,129 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Social — o cabeçalho executivo da conta
+ *  Social — o cabeçalho da conta
  * ─────────────────────────────────────────────────────────────────────────────
- *  A primeira área da página responde uma pergunta: como esta conta está indo?
- *  Leitura, ontem × hoje e trajetória, na mesma faixa — em vez de uma fileira de
- *  cards iguais em que nada é mais importante que nada.
+ *  Uma faixa só, com três regiões: quem é a conta, o que aconteceu, e a
+ *  trajetória. Nada de moldura em volta de cada parte — as bordas internas eram
+ *  o que fazia a versão anterior parecer uma coleção de componentes em vez de
+ *  uma visão da conta.
+ *
+ *  ── Curto é requisito, não estilo ──────────────────────────────────────────
+ *  Um parágrafo no topo é lido uma vez e pulado nas próximas. O resumo cabe em
+ *  uma linha e meia; quando não há o que dizer, ele diz isso em meia linha. O
+ *  espaço economizado vai para o branco entre as regiões, que é o que separa
+ *  hierarquia de amontoado.
  *
  *  ── Ontem × hoje respeita a natureza de cada métrica ───────────────────────
  *  Seguidores é ESTOQUE: "hoje 9.500" é o total da conta, não o que ela ganhou
- *  hoje. Mostrá-lo na mesma coluna de ativações e visitas, que são FLUXO,
- *  convida a ler os quatro do mesmo jeito — e aí 9.500 vira "9.500 seguidores
- *  hoje", que é o erro mais caro que esta tela pode cometer.
- *
- *  Por isso o estoque aparece com o total e a variação SEPARADOS, e o rótulo da
- *  coluna diz de que tipo é cada linha.
- *
- *  ── O dia de hoje é sempre parcial ─────────────────────────────────────────
- *  A coleta das 06:20 mede ~6h de um dia de 24. "Hoje" contra "ontem" num fluxo
- *  compara 6h com 24h e sempre acusaria queda. O aviso é discreto e permanente:
- *  a comparação serve para acompanhar, não para concluir.
+ *  hoje. Na mesma coluna de ativações e visitas, que são FLUXO, os quatro se
+ *  leem do mesmo jeito — e aí 9.500 vira "9.500 seguidores hoje", que é o erro
+ *  mais caro que esta tela pode induzir. Por isso o estoque mostra o total e a
+ *  variação em alturas diferentes.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { ExternalLink, Instagram, Sparkles } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import type { LeituraSocial } from "@shared/leituraSocial";
 
 export interface ValorDoDia {
   rotulo: string;
   /** `null` = não medido. Nunca 0 de consolo. */
   valor: number | null;
-  /** Estoque mostra o total; fluxo mostra o acumulado do dia. */
   natureza: "fluxo" | "estoque";
   /** Só em estoque: a variação em relação ao dia anterior. */
   variacao?: number | null;
+  /** Quando o número não é contagem — "5,1%". */
+  formato?: "numero" | "percentual";
 }
 
-const fmt = (n: number | null | undefined): string =>
-  n == null ? "–" : n.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+const fmt = (v: ValorDoDia | undefined): string => {
+  if (!v || v.valor == null) return "–";
+  if (v.formato === "percentual") return `${v.valor.toFixed(1)}%`;
+  return v.valor.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+};
+const inteiro = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 
-/**
- * O bloco de identidade da conta.
- *
- * Separado do resto porque ele não é dado — é contexto. Quem já sabe de qual
- * conta está olhando passa direto; quem chegou pelo menu precisa dele antes de
- * qualquer número.
- */
-export function IdentidadeDaConta({ nome, username, rede, tipoConta }: {
-  nome: string; username: string | null; rede: string; tipoConta?: string;
+/** Identidade: nome, @ e rede. Contexto, não dado — por isso é a linha menor. */
+export function IdentidadeDaConta({ nome, username, rede }: {
+  nome: string; username: string | null; rede: string;
 }) {
   return (
-    <div className="flex items-center gap-3 flex-wrap">
-      <h1 className="text-xl font-bold text-foreground leading-none">{nome}</h1>
+    <div className="flex items-baseline gap-2.5 flex-wrap min-w-0">
+      <h1 className="text-2xl font-bold text-foreground leading-none tracking-tight">{nome}</h1>
       {username && (
         <a href={`https://instagram.com/${username}`} target="_blank" rel="noopener noreferrer"
-          className="text-sm font-mono text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors">
+          className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors">
           @{username} <ExternalLink className="w-3 h-3" />
         </a>
       )}
-      <span className="inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full border border-border text-muted-foreground">
-        <Instagram className="w-3 h-3" /> {rede}
-      </span>
-      {tipoConta && (
-        <span className="text-[11px] px-2 py-0.5 rounded-full border border-border text-muted-foreground">
-          {tipoConta}
-        </span>
-      )}
+      <span className="text-[11px] uppercase tracking-wider text-muted-foreground/60">{rede}</span>
     </div>
   );
 }
 
 /**
- * A leitura do período.
+ * O resumo, em uma linha e meia.
  *
- * Ocupa o lugar do resumo executivo, mas NÃO é texto de IA: cada frase sai de
- * uma comparação aritmética sobre os snapshots, e por isso é conferível na
- * mesma tela. Quando a série é curta demais, ele diz que não dá para afirmar —
- * um resumo fluente sobre três pontos é indistinguível de um sobre trinta.
+ * Sem ícone, sem título, sem caixa: ele é a primeira frase da página e não
+ * precisa se anunciar. A nota de rodapé existe porque a frase parece texto de
+ * IA e não é — cada número dela sai de aritmética sobre os snapshots, e dizer
+ * isso protege a confiança nos dois sentidos.
  */
-export function LeituraDoPeriodo({ leitura }: { leitura: LeituraSocial }) {
+export function ResumoCurto({ leitura }: { leitura: LeituraSocial }) {
   return (
-    <div className="flex flex-col gap-2 min-w-0">
-      <div className="flex items-center gap-1.5">
-        <Sparkles className="w-3.5 h-3.5 text-primary" />
-        <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-          Leitura do período
-        </h2>
-      </div>
-      {leitura.texto ? (
-        <p className="text-sm text-foreground leading-relaxed">{leitura.texto}</p>
-      ) : (
-        <p className="text-sm text-muted-foreground leading-relaxed">{leitura.motivo}</p>
-      )}
-      <p className="text-[10px] text-muted-foreground/70">
-        Calculado dos snapshots — não é texto gerado.
+    <div className="min-w-0">
+      <p className={`text-sm leading-relaxed ${leitura.texto ? "text-foreground" : "text-muted-foreground"}`}>
+        {leitura.texto ?? leitura.motivo}
       </p>
+      {leitura.texto && (
+        <p className="text-[10px] text-muted-foreground/50 mt-1">calculado dos snapshots</p>
+      )}
     </div>
   );
 }
 
 /**
- * Ontem × hoje, quatro linhas.
+ * Resultados: ontem e hoje, quatro linhas.
  *
- * As duas colunas ficam lado a lado e não empilhadas: comparar é a função do
- * bloco, e comparação empilhada obriga a rolar entre os dois números.
+ * Grade de três colunas sem borda nenhuma — o alinhamento das colunas já separa
+ * os dois dias. Linhas divisórias aqui somariam três traços por métrica numa
+ * região que precisa ser lida de relance.
  */
-export function OntemEHoje({ ontem, hoje, avisoParcial }: {
-  ontem: ValorDoDia[]; hoje: ValorDoDia[]; avisoParcial: string | null;
+export function Resultados({ ontem, hoje, aviso }: {
+  ontem: ValorDoDia[]; hoje: ValorDoDia[]; aviso?: string | null;
 }) {
   return (
     <div className="min-w-0">
-      <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-0 text-sm">
-        <span />
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-right pb-1.5">
-          Ontem
+      <div className="grid grid-cols-[1fr_auto_auto] gap-x-5 items-baseline">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground pb-2">
+          Resultados
         </span>
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground text-right pb-1.5">
-          Hoje
-        </span>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 text-right pb-2">Ontem</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground text-right pb-2">Hoje</span>
 
-        {hoje.map((h, i) => {
-          const o = ontem[i];
-          return (
-            <Linha key={h.rotulo} rotulo={h.rotulo} ontem={o} hoje={h} />
-          );
-        })}
+        {hoje.map((h, i) => (
+          <Linha key={h.rotulo} ontem={ontem[i]} hoje={h} />
+        ))}
       </div>
-      {avisoParcial && (
-        <p className="text-[10px] text-muted-foreground/70 mt-2 leading-snug">{avisoParcial}</p>
-      )}
+      {aviso && <p className="text-[10px] text-muted-foreground/50 mt-2.5 leading-snug">{aviso}</p>}
     </div>
   );
 }
 
-function Linha({ rotulo, ontem, hoje }: { rotulo: string; ontem?: ValorDoDia; hoje: ValorDoDia }) {
-  // Estoque mostra o TOTAL e, embaixo, a variação. Sem essa separação, o total
-  // ocuparia a mesma posição de um número de fluxo e seria lido como "ganho no
-  // dia" — o erro mais caro que este bloco pode induzir.
-  const celula = (v?: ValorDoDia, forte = false) => {
-    if (!v) return <span className="text-right tabular-nums text-muted-foreground/40 py-1.5">–</span>;
-    return (
-      <span className={`text-right tabular-nums py-1.5 ${forte ? "text-foreground font-semibold" : "text-muted-foreground"}`}>
-        {fmt(v.valor)}
-        {v.natureza === "estoque" && v.variacao != null && v.variacao !== 0 && (
-          <span className={`block text-[10px] font-normal ${v.variacao > 0 ? "text-emerald-600" : "text-destructive"}`}>
-            {v.variacao > 0 ? "+" : ""}{fmt(v.variacao)}
+function Linha({ ontem, hoje }: { ontem?: ValorDoDia; hoje: ValorDoDia }) {
+  return (
+    <>
+      <span className="text-[13px] text-muted-foreground py-1">{hoje.rotulo}</span>
+      <span className="text-[13px] text-right tabular-nums text-muted-foreground/70 py-1">{fmt(ontem)}</span>
+      <span className="text-[13px] text-right tabular-nums text-foreground font-semibold py-1">
+        {fmt(hoje)}
+        {/* A variação do estoque fica ABAIXO do total, em corpo menor: elas
+            respondem perguntas diferentes e empatariam se dividissem a linha. */}
+        {hoje.natureza === "estoque" && hoje.variacao != null && hoje.variacao !== 0 && (
+          <span className={`block text-[10px] font-normal ${hoje.variacao > 0 ? "text-emerald-600" : "text-destructive"}`}>
+            {hoje.variacao > 0 ? "+" : ""}{inteiro(hoje.variacao)}
           </span>
         )}
       </span>
-    );
-  };
-
-  return (
-    <>
-      <span className="text-muted-foreground py-1.5 border-t border-border/40 flex items-center gap-1.5">
-        {rotulo}
-        {hoje.natureza === "estoque" && (
-          <span className="text-[9px] uppercase tracking-wider text-muted-foreground/50">total</span>
-        )}
-      </span>
-      <span className="border-t border-border/40">{celula(ontem)}</span>
-      <span className="border-t border-border/40">{celula(hoje, true)}</span>
     </>
   );
 }

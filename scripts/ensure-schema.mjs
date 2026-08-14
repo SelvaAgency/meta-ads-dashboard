@@ -1478,6 +1478,16 @@ async function main() {
       console.log(`[ensure-schema] ok  · ${cfgLimpas.affectedRows} configuração(ões) legada(s) da SELVA TV removida(s)`);
     }
 
+    // Miniatura da publicação. Vem de graça na listagem que o coletor já faz —
+    // nenhuma chamada nova. URL assinada do CDN da Meta, portanto temporária.
+    const [thumbCol] = await conn.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'social_media_snapshots' AND column_name = 'thumbnailUrl'",
+    );
+    if (thumbCol.length === 0) {
+      await conn.query("ALTER TABLE `social_media_snapshots` ADD COLUMN `thumbnailUrl` VARCHAR(1000) NULL");
+      console.log("[ensure-schema] ok  · social_media_snapshots.thumbnailUrl adicionada");
+    }
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();
