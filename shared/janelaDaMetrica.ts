@@ -110,6 +110,14 @@ export interface RotuloDeJanela {
   /** A ressalva, sempre visível. `null` quando não há o que ressalvar. */
   ressalva: string | null;
   /**
+   * A versão curta — só o que o card precisa: "Soma de 3 dias".
+   *
+   * A explicação sobre horários e comparabilidade mora no aviso da faixa, e
+   * repeti-la dentro de cada card faz o leitor pular as duas: texto que se
+   * repete vira ruído, e o aviso perde o efeito justamente onde ele importa.
+   */
+  resumo: string | null;
+  /**
    * O que UM ponto do gráfico representa.
    *
    * Separado da ressalva porque responde outra pergunta: aquela fala do total
@@ -135,6 +143,7 @@ export function rotuloDeFluxo(
     ressalva: dias <= 1
       ? `Mede ${janela}, e não o dia inteiro.`
       : `Soma de ${dias} dias, cada um medido de ${janela}. Serve para comparar dias entre si, não como total do período.`,
+    resumo: dias <= 1 ? "Parcial do dia" : `Soma de ${dias} dias`,
     // "Horário da coleta", e não a hora fixa: ela varia, e é justamente essa
     // variação que o aviso de comparabilidade existe para pegar.
     porPonto: `Cada ponto representa ${oQue} desde 00:00 até o horário da coleta.`,
@@ -153,6 +162,7 @@ export function rotuloDeEstoque(nome: string, de: string | null, ate: string | n
     ressalva: de && ate
       ? `Variação entre as coletas de ${de} e ${ate}.`
       : "Variação desde a última coleta.",
+    resumo: de && ate ? `${de} → ${ate}` : null,
     // Estoque não acumula dentro do dia: cada ponto é a fotografia do momento,
     // e o horário da coleta não muda o que ele significa.
     porPonto: "Cada ponto é o total no momento da coleta daquele dia.",

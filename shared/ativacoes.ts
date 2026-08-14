@@ -140,3 +140,41 @@ export function textoDaComposicao(a: Ativacoes): string | null {
   if (!a.parcelas.length) return null;
   return a.parcelas.map((p) => `${p.total} ${p.rotulo.toLowerCase()}`).join(" · ");
 }
+
+// ─── A composição das ativações ──────────────────────────────────────────────
+
+export interface ParteDaAtivacao {
+  rotulo: string;
+  /** `null` = não medido. Zero medido continua sendo 0. */
+  total: number | null;
+}
+
+/**
+ * As três caixas que a tela mostra: posts, stories e reels.
+ *
+ * ── Por que reels sai de dentro de "posts" ─────────────────────────────────
+ * Na contagem, reel É publicação — ele está em `CONTA_COMO_POST` e entra no
+ * total. Mas na leitura ele é a decisão de formato que mais muda a produção de
+ * uma conta, e escondê-lo dentro de "posts" apagaria justamente o que se quer
+ * acompanhar. Aqui "posts" passa a significar feed e carrossel; reels aparece
+ * ao lado. As três somam o total, sem sobreposição.
+ *
+ * ── Zero medido aparece; não medido, não ───────────────────────────────────
+ * `0 reels` é informação: a conta não publicou reel nenhum. Já stories quando a
+ * coleta não mediu vira `null` e some da linha — escrever "0 stories" ali
+ * afirmaria sobre o cliente o que é lacuna nossa.
+ */
+export function composicaoDeAtivacoes(a: Ativacoes): ParteDaAtivacao[] {
+  const porTipo = new Map(a.porTipo.map((t) => [t.tipo, t.total]));
+  const leuPublicacoes = !a.publicacoesIndisponiveis;
+  const stories = a.parcelas.find((p) => p.rotulo === "Stories")?.total ?? null;
+
+  return [
+    {
+      rotulo: "posts",
+      total: leuPublicacoes ? (porTipo.get("FEED") ?? 0) + (porTipo.get("CARROSSEL") ?? 0) : null,
+    },
+    { rotulo: "stories", total: stories },
+    { rotulo: "reels", total: leuPublicacoes ? porTipo.get("REELS") ?? 0 : null },
+  ].filter((p) => p.total !== null);
+}

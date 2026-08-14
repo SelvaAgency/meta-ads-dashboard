@@ -42,9 +42,9 @@ import { lerVinculo, type StatusInsight, type TipoConta } from "@shared/instagra
 import { movimentoDaBase, movimentoPorDia, somarNoPeriodo } from "@shared/socialSnapshot";
 import { textoDeCobertura } from "@shared/periodosSociais";
 import { coletasSaoComparaveis, rotuloDeFluxo } from "@shared/janelaDaMetrica";
-import { contarAtivacoes, textoDaComposicao } from "@shared/ativacoes";
+import { composicaoDeAtivacoes, contarAtivacoes } from "@shared/ativacoes";
 import { lerUltimosDias, type DiaDaLeitura } from "@shared/leituraSocial";
-import { taxaPorAlcance } from "@shared/engajamento";
+import { composicaoDoEngajamento, taxaPorAlcance } from "@shared/engajamento";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 import {
   IdentidadeDaConta, Resultados, ResumoCurto, type ValorDoDia,
@@ -86,8 +86,12 @@ function PrecisaDeConfiguracao({ titulo, detalhe, podeConfigurar }: {
  * Compacto de propósito: esta faixa é referência, não destaque. Cards altos aqui
  * competiriam com o cabeçalho, que é onde a leitura acontece.
  */
-function Geral({ icon: Icon, rotulo, valor, detalhe, ressalva }: {
-  icon: typeof Users; rotulo: string; valor: string; detalhe?: string | null; ressalva?: string | null;
+function Geral({ icon: Icon, rotulo, valor, detalhe, partes, ressalva }: {
+  icon: typeof Users; rotulo: string; valor: string;
+  detalhe?: string | null;
+  /** A composição do número. Linha de apoio, nunca competindo com o total. */
+  partes?: string[];
+  ressalva?: string | null;
 }) {
   const vazio = valor === "–";
   return (
@@ -99,6 +103,14 @@ function Geral({ icon: Icon, rotulo, valor, detalhe, ressalva }: {
         {valor}
       </span>
       {detalhe && <span className="text-[11px] text-muted-foreground truncate">{detalhe}</span>}
+      {/* Quebra em várias linhas em vez de truncar: a composição que não cabe
+          numa linha só é informação perdida, e ela existe justamente para
+          explicar o número de cima. */}
+      {partes && partes.length > 0 && (
+        <span className="text-[10px] text-muted-foreground/80 leading-snug mt-0.5">
+          {partes.join(" · ")}
+        </span>
+      )}
       {ressalva && <span className="text-[10px] text-muted-foreground/60 leading-snug">{ressalva}</span>}
     </div>
   );
@@ -227,6 +239,16 @@ export default function RedesSociais() {
   const cliques = somarNoPeriodo("website_clicks", serie);
   const interacoes = somarNoPeriodo("total_interactions", serie);
   const respostas = somarNoPeriodo("replies", serie);
+
+  // A composição vem do PERFIL, mesmo escopo do total — somar as mídias cobriria
+  // só as publicações do período, e a linha de apoio não fecharia o número que
+  // está logo acima dela.
+  const composicao = composicaoDoEngajamento({
+    likes: somarNoPeriodo("likes", serie).total,
+    comments: somarNoPeriodo("comments", serie).total,
+    shares: somarNoPeriodo("shares", serie).total,
+    saves: somarNoPeriodo("saves", serie).total,
+  }, interacoes.total);
   const alcance = somarNoPeriodo("reach", serie);
   const taxa = taxaPorAlcance(interacoes.total, alcance.total);
 
@@ -465,21 +487,23 @@ export default function RedesSociais() {
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 rounded-xl border border-border bg-card
                               divide-x divide-y lg:divide-y-0 divide-border/50">
                 <Geral icon={Layers} rotulo="Ativações" valor={fmt(ativacoes.total)}
-                  detalhe={textoDaComposicao(ativacoes)}
+                  partes={composicaoDeAtivacoes(ativacoes).map((p) => `${fmt(p.total)} ${p.rotulo}`)}
                   ressalva={ativacoes.publicacoesIndisponiveis
                     ? "publicações indisponíveis nesta coleta"
                     : ativacoes.diasSemMedicaoDeStories > 0
                       ? `${ativacoes.diasSemMedicaoDeStories} dia(s) sem medição de stories`
                       : null} />
                 <Geral icon={Heart} rotulo="Engajamento" valor={fmt(interacoes.total)}
-                  detalhe={taxa != null ? `${taxa.toFixed(2)}% do alcance` : null} />
+                  detalhe={taxa != null ? `${taxa.toFixed(2)}% do alcance` : null}
+                  partes={composicao.partes.map((p) => `${fmt(p.total)} ${p.rotulo}`)}
+                  ressalva={composicao.ressalva} />
                 {/* Respostas aos Stories é métrica de ENGAJAMENTO e fica na
                     faixa geral, ao lado das outras — seção própria a
                     transformaria num destaque que ela não é. */}
                 <Geral icon={MessageCircle} rotulo="Respostas aos Stories" valor={fmt(respostas.total)}
                   ressalva={respostas.total == null ? "não medida nesta coleta" : null} />
                 <Geral icon={Eye} rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
-                  ressalva={rotuloVisitas.ressalva} />
+                  ressalva={rotuloVisitas.resumo} />
                 <Geral icon={MousePointerClick} rotulo="Cliques no link" valor={fmt(cliques.total)} />
               </div>
               {!comparabilidade.comparavel && comparabilidade.motivo && (

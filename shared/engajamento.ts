@@ -183,3 +183,81 @@ export function avisoDeExclusao(r: Ranking<PublicacaoRanqueavel>): string | null
   }
   return partes.length ? `${partes.join(" · ")}.` : null;
 }
+
+// ─── A composição do engajamento ─────────────────────────────────────────────
+
+export interface ParteDoEngajamento {
+  chave: "likes" | "comments" | "shares" | "saves";
+  rotulo: string;
+  total: number;
+}
+
+export interface ComposicaoDoEngajamento {
+  partes: ParteDoEngajamento[];
+  /** As quatro responderam? */
+  completa: boolean;
+  /**
+   * As partes somam o total apresentado?
+   *
+   * `null` quando não dá para verificar — falta o total ou falta parte. Só
+   * `false` significa divergência de verdade.
+   */
+  fecha: boolean | null;
+  /** A ressalva para a tela, quando há. */
+  ressalva: string | null;
+}
+
+const ROTULO_PARTE: Record<ParteDoEngajamento["chave"], string> = {
+  likes: "curtidas",
+  comments: "comentários",
+  shares: "compartilhamentos",
+  saves: "salvamentos",
+};
+
+/**
+ * De que é feito o engajamento do período.
+ *
+ * ── A conferência é o produto, não o enfeite ───────────────────────────────
+ * Uma linha de apoio embaixo de um número grande é lida como explicação DELE.
+ * Se as partes não somarem o total, a tela estará afirmando uma decomposição
+ * falsa — e ninguém confere de cabeça quatro parcelas contra um total.
+ *
+ * Por isso `fecha` existe e é ternário: `true` quando bate, `false` quando
+ * diverge de verdade, e `null` quando falta peça para verificar. Só o `false`
+ * é problema; o `null` é honestidade sobre o que não se sabe.
+ *
+ * ── Parcela ausente não vira zero ──────────────────────────────────────────
+ * Uma categoria que a Meta não devolveu fica FORA da lista. Escrevê-la como
+ * "0 salvamentos" afirmaria que ninguém salvou, quando o que houve foi não
+ * termos perguntado ou não termos recebido resposta.
+ */
+export function composicaoDoEngajamento(
+  valores: Partial<Record<ParteDoEngajamento["chave"], number | null>>,
+  total: number | null,
+): ComposicaoDoEngajamento {
+  const chaves: Array<ParteDoEngajamento["chave"]> = ["likes", "comments", "shares", "saves"];
+  const partes = chaves
+    .filter((c) => typeof valores[c] === "number")
+    .map((c) => ({ chave: c, rotulo: ROTULO_PARTE[c], total: valores[c] as number }));
+
+  const completa = partes.length === chaves.length;
+  if (!partes.length) {
+    return { partes: [], completa: false, fecha: null, ressalva: null };
+  }
+
+  const soma = partes.reduce((n, p) => n + p.total, 0);
+  const fecha = total == null || !completa ? null : soma === total;
+
+  let ressalva: string | null = null;
+  if (!completa) {
+    const faltando = chaves.filter((c) => typeof valores[c] !== "number").map((c) => ROTULO_PARTE[c]);
+    ressalva = `sem ${faltando.join(" e ")} nesta coleta`;
+  } else if (fecha === false) {
+    // Divergência dita, e não escondida: a Meta pode contar no total algo que
+    // não devolve como parcela, e apresentar a soma como se fosse o total
+    // transformaria uma diferença conhecida num erro invisível.
+    ressalva = `as parcelas somam ${soma.toLocaleString("pt-BR")}, e o total é outro`;
+  }
+
+  return { partes, completa, fecha, ressalva };
+}

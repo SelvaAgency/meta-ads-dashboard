@@ -37,17 +37,17 @@ const METRICAS_PERFIL: Array<{
   nome: string;
   params: Record<string, string>;
   /**
-   * Pede sozinha, mesmo compartilhando a forma com o lote.
+   * Em que lote esta métrica viaja. Sem isso, ela vai no lote da sua FORMA.
    *
    * Existe por causa de um risco assimétrico: se uma métrica do lote for
-   * inválida, a Meta recusa a chamada INTEIRA e a cascata pede as sete
-   * individualmente — 1 chamada vira 8, em toda conta, todo dia, para sempre.
+   * inválida, a Meta recusa a chamada INTEIRA e a cascata pede todas
+   * individualmente — 1 chamada vira N, em toda conta, todo dia, para sempre.
    *
    * Métrica ainda não confirmada em produção não pode carregar esse risco pelas
-   * outras seis. Isolada, uma recusa custa exatamente uma chamada falha e entra
-   * em `recusadas` — os quatro estados fazem o resto.
+   * que já rodam. Num lote próprio, uma recusa custa aquele lote e nada mais —
+   * e os quatro estados fazem o resto.
    */
-  isolada?: boolean;
+  grupo?: string;
 }> = [
   { nome: "reach", params: { period: "day", metric_type: "total_value" } },
   { nome: "profile_views", params: { period: "day", metric_type: "total_value" } },
@@ -68,7 +68,24 @@ const METRICAS_PERFIL: Array<{
    * caixa de entrada e são coisas diferentes. Direct exige
    * `instagram_manage_messages` e a Conversations API, que não temos.
    */
-  { nome: "replies", params: { period: "day", metric_type: "total_value" }, isolada: true },
+  { nome: "replies", params: { period: "day", metric_type: "total_value" }, grupo: "replies" },
+
+  /**
+   * A composição do engajamento.
+   *
+   * Vem do PERFIL, e não da soma das mídias, por um motivo aritmético: a soma
+   * das mídias cobre só as publicações do período, enquanto `total_interactions`
+   * conta o que aconteceu no dia em qualquer conteúdo — inclusive em post
+   * antigo. As duas nunca fechariam, e a tela mostraria uma composição que não
+   * soma o total que está logo acima dela.
+   *
+   * Viajam num lote PRÓPRIO: as quatro nunca rodaram em produção, e uma recusa
+   * dentro do lote principal derrubaria as seis que já funcionam.
+   */
+  { nome: "likes", params: { period: "day", metric_type: "total_value" }, grupo: "engajamento" },
+  { nome: "comments", params: { period: "day", metric_type: "total_value" }, grupo: "engajamento" },
+  { nome: "shares", params: { period: "day", metric_type: "total_value" }, grupo: "engajamento" },
+  { nome: "saves", params: { period: "day", metric_type: "total_value" }, grupo: "engajamento" },
 ];
 
 /**
@@ -85,10 +102,10 @@ function gruposDePerfil(): Array<{
 }> {
   const porForma = new Map<string, { params: Record<string, string>; metricas: typeof METRICAS_PERFIL }>();
   for (const m of METRICAS_PERFIL) {
-    // `isolada` ganha uma chave própria: mesmo compartilhando os parâmetros com
-    // o lote, ela não pode arrastá-lo numa recusa.
-    const chave = m.isolada
-      ? `isolada:${m.nome}`
+    // `grupo` ganha chave própria: mesmo compartilhando os parâmetros com o
+    // lote principal, essas métricas não podem arrastá-lo numa recusa.
+    const chave = m.grupo
+      ? `grupo:${m.grupo}`
       : JSON.stringify(Object.entries(m.params).sort());
     const grupo = porForma.get(chave) ?? { params: m.params, metricas: [] };
     grupo.metricas.push(m);
