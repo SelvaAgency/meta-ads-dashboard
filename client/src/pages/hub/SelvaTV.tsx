@@ -5,9 +5,15 @@
  *  Container com aspect ratio FIXO 8:3 (igual à dimensão recomendada 1600×600),
  *  então uma imagem nessa proporção aparece INTEIRA (object-cover sem corte).
  *
- *  A SELVA TV nunca fica vazia: além dos uploads e do "Você prefere?" (se ativo),
- *  há dois slides institucionais SEMPRE no fim — a piscina "GravityField" e o
- *  slide fixo SELVA Spaces (DVD), este por ÚLTIMO.
+ *  Só uploads. Os dois slides editoriais que existiam aqui — "Você prefere?" e a
+ *  piscina GravityField — foram removidos em 14/08/2026: eram da composição
+ *  antiga da box e viviam desligados nas Configurações.
+ *
+ *  O DVD ficou, mas deixou de ser conteúdo: virou FALLBACK VISUAL, e só. Ele
+ *  entra em dois casos, os dois de ausência de imagem — quando nenhum arquivo
+ *  foi enviado, e quando o arquivo de um item não carrega. Não é mais
+ *  configurável, porque não é mais uma escolha editorial: ninguém liga ou
+ *  desliga o que aparece quando falta imagem.
  *
  *  TRANSIÇÃO (mascara o custo dos slides pesados): as setas não trocam o slide
  *  na hora. Elas disparam uma CORTINA de barras (SlideCurtain) que:
@@ -29,12 +35,7 @@ import {
 } from "@/components/ui/carousel";
 import type { SelvaTVImage } from "./hubMocks";
 import { DvdSlide } from "./DvdSlide";
-import { VocePrefereSlide } from "./VocePrefereSlide";
-import { GravityField } from "./GravityField";
 import { SlideCurtain, type CurtainPhase } from "./SlideCurtain";
-
-export interface VocePrefereConfig { active: boolean; leftText: string; rightText: string }
-export interface FixedSlidesConfig { gravity: boolean; dvd: boolean }
 
 // Setas no estilo SELVA Spaces (escuro translúcido, borda creme/rosa, glow).
 const ARROW_CLS =
@@ -52,10 +53,18 @@ function Frame({ children }: { children: React.ReactNode }) {
   return <div className="relative w-full aspect-[3/1] overflow-hidden rounded-xl bg-secondary">{children}</div>;
 }
 
-function ImageSlide({ image, eager }: { image: SelvaTVImage; eager?: boolean }) {
+function ImageSlide({ image, eager, active }: { image: SelvaTVImage; eager?: boolean; active?: boolean }) {
   // Skeleton escuro discreto até a imagem decodificar (sem flash branco). Ativo +
   // vizinhos carregam eager (pré-aquecidos p/ a transição); demais lazy.
   const [loaded, setLoaded] = useState(false);
+  const [falhou, setFalhou] = useState(false);
+
+  // Sem imagem utilizável, o DVD entra no lugar. O caso não é hipotético: a URL
+  // do storage é assinada e expira, então um item antigo em aba aberta há horas
+  // erra o carregamento — e o retângulo preto do skeleton ficaria para sempre,
+  // parecendo um item quebrado em vez de um item sem imagem.
+  if (falhou || !image.src) return <Frame><DvdSlide active={active} /></Frame>;
+
   return (
     <Frame>
       {!loaded && <div className="absolute inset-0 bg-[#0b0b0f]" />}
@@ -65,6 +74,7 @@ function ImageSlide({ image, eager }: { image: SelvaTVImage; eager?: boolean }) 
         loading={eager ? "eager" : "lazy"}
         decoding="async"
         onLoad={() => setLoaded(true)}
+        onError={() => setFalhou(true)}
         className="absolute inset-0 h-full w-full object-cover transition-opacity duration-500"
         style={{ opacity: loaded ? 1 : 0 }}
       />
@@ -116,11 +126,9 @@ function useReducedMotion() {
 
 type Slide =
   | { key: string; kind: "image"; image: SelvaTVImage }
-  | { key: string; kind: "vp" }
-  | { key: string; kind: "gravity" }
-  | { key: string; kind: "fixed" };
+  | { key: string; kind: "fallback" };
 
-export function SelvaTV({ images, vocePrefere, fixedSlides }: { images: SelvaTVImage[]; vocePrefere?: VocePrefereConfig; fixedSlides?: FixedSlidesConfig }) {
+export function SelvaTV({ images }: { images: SelvaTVImage[] }) {
   const [api, setApi] = useState<CarouselApi>();
   const [selected, setSelected] = useState(0);
   const [phase, setPhase] = useState<CurtainPhase>("idle");
@@ -145,19 +153,13 @@ export function SelvaTV({ images, vocePrefere, fixedSlides }: { images: SelvaTVI
     return () => { api.off("select", onSelect); api.off("reInit", onSelect); };
   }, [api]);
 
-  // Ordem aprovada: uploads → "Você prefere?" (se ativo) → GravityField → DVD.
-  // Os dois slides fixos institucionais só entram se ligados nas Configurações
-  // (default OFF) — ficam no código, apenas desativados. Nunca fica vazia.
+  // Só o que foi enviado para a SELVA TV — e, se nada foi, o DVD segura a
+  // seção. É a mesma regra do item sem imagem, aplicada à lista inteira: sem
+  // ele, o carrossel ficaria com setas que não levam a lugar nenhum.
   const slides = useMemo<Slide[]>(() => {
-    const list: Slide[] = [
-      ...(images ?? []).map((im) => ({ key: `u${im.id}`, kind: "image" as const, image: im })),
-      ...(vocePrefere?.active ? [{ key: "voce-prefere", kind: "vp" as const }] : []),
-      ...(fixedSlides?.gravity ? [{ key: "__gravity", kind: "gravity" as const }] : []),
-      ...(fixedSlides?.dvd ? [{ key: "__fixed", kind: "fixed" as const }] : []),
-    ];
-    if (list.length === 0) list.push({ key: "__fixed", kind: "fixed" as const });
-    return list;
-  }, [images, vocePrefere?.active, fixedSlides?.gravity, fixedSlides?.dvd]);
+    const enviados = (images ?? []).map((im) => ({ key: `u${im.id}`, kind: "image" as const, image: im }));
+    return enviados.length ? enviados : [{ key: "__dvd", kind: "fallback" as const }];
+  }, [images]);
 
   const n = slides.length;
 
@@ -189,28 +191,9 @@ export function SelvaTV({ images, vocePrefere, fixedSlides }: { images: SelvaTVI
 
   const renderSlide = (s: Slide, i: number) => {
     const active = live && activeIndex === i;
-    switch (s.kind) {
-      case "image":
-        return <ImageSlide image={s.image} eager={isNeighbor(i)} />;
-      case "vp":
-        return <Frame><VocePrefereSlide leftText={vocePrefere!.leftText} rightText={vocePrefere!.rightText} active={active} /></Frame>;
-      case "gravity":
-        return (
-          <Frame>
-            <GravityField fill active={active} />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center pb-3">
-              <span
-                className="text-[10px] uppercase tracking-[0.22em]"
-                style={{ color: "rgba(253,255,237,0.32)" }}
-              >
-                CREATING COOL SHIT
-              </span>
-            </div>
-          </Frame>
-        );
-      case "fixed":
-        return <Frame><DvdSlide active={active} /></Frame>;
-    }
+    return s.kind === "image"
+      ? <ImageSlide image={s.image} eager={isNeighbor(i)} active={active} />
+      : <Frame><DvdSlide active={active} /></Frame>;
   };
 
   return (

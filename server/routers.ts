@@ -28,9 +28,6 @@ import {
   createAccessAudit,
   getAppSetting,
   setAppSetting,
-  getPollVotesWithUsers,
-  upsertPollVote,
-  clearPollVotes,
 } from "./db";
 import {
   GOOGLE_CALENDAR_PROVIDER,
@@ -745,11 +742,8 @@ ${contextBlocks}`;
 });
 
 // Chave da config do slide "Você prefere?" (app_settings).
-const VOCE_PREFERE_KEY = "selvatv_voce_prefere";
 // Config dos slides fixos institucionais da SELVA TV (ligar/desligar sem excluir).
 // Default: ambos DESLIGADOS (só "Você prefere?" ativo por padrão nesta etapa).
-const SELVATV_FIXED_KEY = "selvatv_fixed_slides";
-type FixedSlidesCfg = { gravity: boolean; dvd: boolean };
 
 // ─── Helpers do cofre de Acessos ──────────────────────────────────────────────
 function slugify(name: string): string {
@@ -1558,64 +1552,6 @@ export const appRouter = router({
       }),
 
     // Slide nativo "Você prefere?" — config única (ativo + textos das opções).
-    vocePrefereGet: protectedProcedure.query(async () => {
-      const cfg = await getAppSetting<{ active: boolean; leftText: string; rightText: string }>(VOCE_PREFERE_KEY);
-      return {
-        active: cfg?.active ?? false,
-        leftText: cfg?.leftText ?? "Falar com animais",
-        rightText: cfg?.rightText ?? "Falar todas as línguas do mundo",
-      };
-    }),
-    vocePrefereUpdate: contentProcedure
-      .input(z.object({ active: z.boolean(), leftText: z.string().max(120), rightText: z.string().max(120) }))
-      .mutation(async ({ ctx, input }) => {
-        const prev = await getAppSetting<{ leftText: string; rightText: string }>(VOCE_PREFERE_KEY);
-        const leftText = input.leftText.trim();
-        const rightText = input.rightText.trim();
-        // Se qualquer opção mudou, os votos antigos perdem sentido → resetar.
-        const optionsChanged = !prev || prev.leftText !== leftText || prev.rightText !== rightText;
-        await setAppSetting(VOCE_PREFERE_KEY, { active: input.active, leftText, rightText }, ctx.user.id);
-        if (optionsChanged) await clearPollVotes();
-        return { success: true, votesReset: optionsChanged } as const;
-      }),
-
-    // Votos do slide "Você prefere?" — qualquer usuário logado vota (1 voto).
-    vocePrefereVotes: protectedProcedure.query(async ({ ctx }) => {
-      const rows = await getPollVotesWithUsers();
-      const build = async (opt: "left" | "right") => {
-        const voters = rows.filter((r) => r.optionKey === opt);
-        const shown = await Promise.all(voters.slice(0, 8).map(async (v) => {
-          let avatarUrl: string | undefined;
-          if (v.avatarKey) { try { avatarUrl = await getReadUrl(v.avatarKey); } catch { /* storage off */ } }
-          return { name: v.name ?? "", avatarUrl };
-        }));
-        return { count: voters.length, voters: shown };
-      };
-      return {
-        left: await build("left"),
-        right: await build("right"),
-        myVote: (rows.find((r) => r.userId === ctx.user.id)?.optionKey ?? null) as "left" | "right" | null,
-      };
-    }),
-    vocePrefereVote: protectedProcedure
-      .input(z.object({ option: z.enum(["left", "right"]) }))
-      .mutation(async ({ ctx, input }) => {
-        await upsertPollVote(ctx.user.id, input.option);
-        return { success: true } as const;
-      }),
-
-    // Slides fixos institucionais (piscina "GravityField" e slide DVD SELVA
-    // Spaces): ligáveis/desligáveis sem excluir do código. Default: ambos OFF.
-    fixedSlidesGet: protectedProcedure.query(async () => {
-      const cfg = await getAppSetting<FixedSlidesCfg>(SELVATV_FIXED_KEY);
-      return { gravity: cfg?.gravity ?? false, dvd: cfg?.dvd ?? false };
-    }),
-    fixedSlidesUpdate: contentProcedure
-      .input(z.object({ gravity: z.boolean(), dvd: z.boolean() }))
-      .mutation(async ({ ctx, input }) => {
-        await setAppSetting(SELVATV_FIXED_KEY, { gravity: input.gravity, dvd: input.dvd }, ctx.user.id);
-        return { success: true } as const;
-      }),
   }),
 
   // ─── Acessos (cofre de credenciais) — todos os usuários logados ─────────────

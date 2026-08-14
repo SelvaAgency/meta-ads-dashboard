@@ -1461,6 +1461,23 @@ async function main() {
       console.log(`[ensure-schema] ok  · ${migrados.affectedRows} responsável(is) migrado(s) para a tabela de relação`);
     }
 
+    // ── SELVA TV: limpeza dos slides editoriais legados ───────────────────
+    //
+    // "Você prefere?" e a piscina GravityField saíram do produto. As duas linhas
+    // de configuração ficariam em `app_settings` apontando para código que não
+    // existe mais — órfãs e invisíveis, do tipo que confunde quem for ler a
+    // tabela daqui a um ano. O DELETE é idempotente.
+    //
+    // A TABELA `selvatv_poll_votes` NÃO é derrubada aqui de propósito: apagar
+    // dados é irreversível, e o modelo Drizzle já saiu do código. Se ela precisar
+    // sumir, que seja numa decisão própria, e não de carona numa limpeza de UI.
+    const [cfgLimpas] = await conn.query(
+      "DELETE FROM `app_settings` WHERE `settingKey` IN ('selvatv_voce_prefere', 'selvatv_fixed_slides')",
+    );
+    if (cfgLimpas.affectedRows > 0) {
+      console.log(`[ensure-schema] ok  · ${cfgLimpas.affectedRows} configuração(ões) legada(s) da SELVA TV removida(s)`);
+    }
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

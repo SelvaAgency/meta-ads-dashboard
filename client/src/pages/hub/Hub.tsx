@@ -30,8 +30,11 @@ const ATALHOS = [
   {
     href: "/tracker",
     icon: Bot,
-    title: "Brand Inteligent Tracker",
-    desc: "O robô de performance da SELVA.",
+    // Encurtado para o cartão de um quarto de largura: "Brand Inteligent
+    // Tracker" truncaria em "Brand Inteligent Tr…", que não é nome de nada. A
+    // sigla é como o time já chama o produto, e o nome inteiro está no title.
+    title: "BIT",
+    desc: "Brand Inteligent Tracker — o robô de performance da SELVA.",
   },
   {
     href: "/reports",
@@ -53,41 +56,60 @@ const ATALHOS = [
   },
 ] as const;
 
+/**
+ * Quatro atalhos numa linha só.
+ *
+ * Eram 2×2 com cartões altos — do tamanho de um módulo da Home, competindo com
+ * as Prioridades e a Agenda pela atenção. Atalho não é conteúdo: é o caminho
+ * para outro lugar, e o peso visual dele tinha que ser menor que o do que ele
+ * atravessa.
+ *
+ * O que encolheu foi o CARTÃO, não o alvo de clique: ícone e título continuam
+ * na mesma linha, e a área clicável cobre o bloco inteiro. A descrição saiu —
+ * quatro cartões numa linha não têm largura para ela, e "Gere relatórios
+ * prontos para o cliente" embaixo de "Relatório" é a mesma informação duas
+ * vezes. Ela virou `title`, para quem passar o mouse.
+ *
+ * No mobile são 2×2: quatro colunas num celular dariam quatro tiras estreitas
+ * demais para um toque confortável.
+ */
 function AtalhosRapidos() {
   return (
     <section aria-label="Acesso rápido">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {ATALHOS.map(({ href, icon: Icon, title, desc }) => (
           <Link
             key={href}
             href={href}
-            className="group relative overflow-hidden rounded-xl border border-[#EF701B]/30 p-5 transition-all hover:-translate-y-0.5 hover:border-[#EF701B]/80 hover:shadow-xl hover:shadow-[#EF701B]/25"
+            title={desc}
+            className="group relative overflow-hidden rounded-lg border border-[#EF701B]/25 px-3.5 py-3 transition-all hover:-translate-y-0.5 hover:border-[#EF701B]/70 hover:shadow-lg hover:shadow-[#EF701B]/20"
             style={{ background: "linear-gradient(135deg, #12141c 0%, #0a0b11 100%)" }}
           >
-            {/* faixa laranja no topo — some quando parado, acende no hover */}
+            {/* Os mesmos dois recursos dos cartões antigos, em escala menor: a
+                faixa no topo e o brilho no canto. Trocá-los por um estilo novo
+                faria os atalhos deixarem de parecer da mesma família. */}
             <div
-              className="pointer-events-none absolute inset-x-0 top-0 h-px opacity-40 transition-opacity duration-300 group-hover:opacity-100"
+              className="pointer-events-none absolute inset-x-0 top-0 h-px opacity-30 transition-opacity duration-300 group-hover:opacity-100"
               style={{ background: "linear-gradient(90deg, transparent, #EF701B, transparent)" }}
             />
-            {/* brilho laranja de fundo no hover */}
             <div
-              className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full opacity-50 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
+              className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
               style={{ background: "radial-gradient(circle, rgba(239,112,27,0.6), transparent 70%)" }}
             />
-            <div className="relative flex items-start gap-4">
+            <div className="relative flex items-center gap-2.5 min-w-0">
               <span
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ring-1 ring-[#EF701B]/20 transition-all group-hover:scale-105 group-hover:ring-[#EF701B]/60"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md ring-1 ring-[#EF701B]/20 transition-all group-hover:ring-[#EF701B]/60"
                 style={{ background: "rgba(239,112,27,0.16)", color: "#EF701B" }}
               >
-                <Icon className="h-5 w-5" />
+                <Icon className="h-4 w-4" />
               </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <h3 className="font-semibold leading-tight" style={{ color: "#FDFFED" }}>{title}</h3>
-                  <ArrowUpRight className="h-4 w-4 shrink-0 transition-all group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-[#EF701B]" style={{ color: "rgba(253,255,237,0.45)" }} />
-                </div>
-                <p className="mt-1.5 text-sm" style={{ color: "rgba(253,255,237,0.55)" }}>{desc}</p>
-              </div>
+              <span className="min-w-0 flex-1 text-[13px] font-medium leading-tight truncate" style={{ color: "#FDFFED" }}>
+                {title}
+              </span>
+              <ArrowUpRight
+                className="h-3.5 w-3.5 shrink-0 opacity-0 transition-all group-hover:opacity-100 group-hover:text-[#EF701B]"
+                style={{ color: "rgba(253,255,237,0.45)" }}
+              />
             </div>
           </Link>
         ))}
@@ -103,8 +125,6 @@ export default function Hub() {
   // News/SelvaTV ATIVOS vêm do backend (globais para todos os usuários).
   const newsQ = trpc.news.listActive.useQuery(undefined, { refetchOnWindowFocus: false });
   const tvQ = trpc.selvaTV.listActive.useQuery(undefined, { refetchOnWindowFocus: false });
-  const vpQ = trpc.selvaTV.vocePrefereGet.useQuery(undefined, { refetchOnWindowFocus: false });
-  const fsQ = trpc.selvaTV.fixedSlidesGet.useQuery(undefined, { refetchOnWindowFocus: false });
 
   const news: NewsItem[] = (newsQ.data ?? []).map((n) => ({ id: String(n.id), text: n.text }));
   const tvImages: SelvaTVImage[] = (tvQ.data ?? []).map((im) => ({
@@ -157,7 +177,7 @@ export default function Hub() {
             <AtalhosRapidos />
 
             {/* SELVA TV — carrossel (uploads + "Você prefere?" + slide fixo) */}
-            <SelvaTV images={tvImages} vocePrefere={vpQ.data} fixedSlides={fsQ.data} />
+            <SelvaTV images={tvImages} />
           </div>
         </main>
     </HubShell>

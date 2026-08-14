@@ -32,7 +32,6 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { HubShell } from "./HubShell";
-import { VocePrefereSlide } from "./VocePrefereSlide";
 import { canManageContent, ROLE_LABELS, type Role } from "@shared/permissions";
 
 /**
@@ -542,106 +541,6 @@ function IntegrationsSection() {
   );
 }
 
-// ─── Admin: slide "Você prefere?" (SELVA TV) ─────────────────────────────────
-function VocePrefereAdminSection() {
-  const utils = trpc.useUtils();
-  const cfgQ = trpc.selvaTV.vocePrefereGet.useQuery();
-  const votesQ = trpc.selvaTV.vocePrefereVotes.useQuery();
-  const [form, setForm] = useState<{ active: boolean; leftText: string; rightText: string } | null>(null);
-  const [saved, setSaved] = useState(false);
-  useEffect(() => { if (cfgQ.data && !form) setForm(cfgQ.data); }, [cfgQ.data, form]);
-  const update = trpc.selvaTV.vocePrefereUpdate.useMutation({
-    onSuccess: () => {
-      utils.selvaTV.vocePrefereGet.invalidate();
-      utils.selvaTV.vocePrefereVotes.invalidate(); // votos podem ter sido resetados
-      setSaved(true); setTimeout(() => setSaved(false), 1500);
-    },
-  });
-
-  return (
-    <SectionCard icon={SplitSquareHorizontal} title='Slide "Você prefere?"' description="Slide nativo da SELVA TV — entra no carrossel quando ativo.">
-      {!form ? (
-        <p className="text-xs text-muted-foreground">Carregando…</p>
-      ) : (
-        <>
-          <div className="flex items-center gap-2 mb-4">
-            <Switch checked={form.active} onCheckedChange={(v) => setForm({ ...form, active: v })} id="vp-active" />
-            <Label htmlFor="vp-active" className="text-sm cursor-pointer">Ativo no carrossel</Label>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5"><Label className="text-xs">Opção esquerda (rosa)</Label><Input value={form.leftText} onChange={(e) => setForm({ ...form, leftText: e.target.value })} /></div>
-            <div className="flex flex-col gap-1.5"><Label className="text-xs">Opção direita (azul)</Label><Input value={form.rightText} onChange={(e) => setForm({ ...form, rightText: e.target.value })} /></div>
-          </div>
-
-          {/* Contagem de votos (secundário) */}
-          <p className="mt-4 text-xs text-muted-foreground">
-            Votos — esquerda: <strong className="text-foreground">{votesQ.data?.left.count ?? 0}</strong> · direita:{" "}
-            <strong className="text-foreground">{votesQ.data?.right.count ?? 0}</strong>
-          </p>
-
-          {/* Mini preview (não interativo) */}
-          <div className="mt-3">
-            <p className="text-[11px] text-muted-foreground mb-1.5">Prévia</p>
-            <div className="rounded-lg overflow-hidden border border-border aspect-[8/3] max-w-md">
-              <VocePrefereSlide leftText={form.leftText || "Opção esquerda"} rightText={form.rightText || "Opção direita"} preview />
-            </div>
-          </div>
-
-          <div className="mt-4 flex items-center gap-3">
-            <button
-              onClick={() => update.mutate(form)}
-              disabled={update.isPending}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium px-4 py-2 hover:opacity-90 disabled:opacity-60"
-            >
-              {update.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {saved ? "Salvo" : "Salvar"}
-            </button>
-          </div>
-        </>
-      )}
-    </SectionCard>
-  );
-}
-
-// ─── Admin: slides fixos institucionais da SELVA TV (ligar/desligar) ─────────
-function FixedSlidesAdminSection() {
-  const utils = trpc.useUtils();
-  const cfgQ = trpc.selvaTV.fixedSlidesGet.useQuery();
-  const update = trpc.selvaTV.fixedSlidesUpdate.useMutation({
-    onSuccess: () => utils.selvaTV.fixedSlidesGet.invalidate(),
-  });
-  const cfg = cfgQ.data;
-  const save = (patch: { gravity?: boolean; dvd?: boolean }) => {
-    if (!cfg) return;
-    update.mutate({ gravity: cfg.gravity, dvd: cfg.dvd, ...patch });
-  };
-
-  return (
-    <SectionCard icon={ImageIcon} title="Slides fixos da SELVA TV" description="Liga/desliga os slides institucionais no carrossel. Desligados continuam no código, só não aparecem.">
-      {!cfg ? (
-        <p className="text-xs text-muted-foreground">Carregando…</p>
-      ) : (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Slide institucional (piscina)</p>
-              <p className="text-xs text-muted-foreground">Campo gravitacional com a logo SELVA.SPACES.</p>
-            </div>
-            <Switch checked={cfg.gravity} onCheckedChange={(v) => save({ gravity: v })} disabled={update.isPending} />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Slide SELVA Spaces (DVD)</p>
-              <p className="text-xs text-muted-foreground">Protetor de tela com os atalhos do Spaces.</p>
-            </div>
-            <Switch checked={cfg.dvd} onCheckedChange={(v) => save({ dvd: v })} disabled={update.isPending} />
-          </div>
-          <p className="text-[11px] text-muted-foreground">Com ambos desligados, a SELVA TV mostra só os uploads e o “Você prefere?”.</p>
-        </div>
-      )}
-    </SectionCard>
-  );
-}
-
 export default function HubSettings() {
   const { user } = useAuth();
   const canContent = canManageContent((user as { role?: string } | null)?.role);
@@ -678,8 +577,6 @@ export default function HubSettings() {
               </div>
               <NewsAdminSection />
               <SelvaTVAdminSection storageConfigured={storage.data?.configured ?? false} />
-              <VocePrefereAdminSection />
-              <FixedSlidesAdminSection />
             </>
           )}
         </div>

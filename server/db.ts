@@ -34,7 +34,6 @@ import {
   type InsertFinanceRecorrencia,
   financeProjetos,
   appSettings,
-  selvatvPollVotes,
   aiSuggestions,
   alerts,
   campaignMetrics,
@@ -372,27 +371,6 @@ export async function setAppSetting(key: string, value: unknown, userId: number 
 }
 
 // ─── Votos do slide "Você prefere?" ───────────────────────────────────────────
-export async function getPollVotesWithUsers() {
-  const db = await getDb();
-  if (!db) return [];
-  return db
-    .select({ userId: selvatvPollVotes.userId, optionKey: selvatvPollVotes.optionKey, name: users.name, avatarKey: users.avatarKey })
-    .from(selvatvPollVotes)
-    .innerJoin(users, eq(selvatvPollVotes.userId, users.id));
-}
-export async function upsertPollVote(userId: number, optionKey: "left" | "right") {
-  const db = await getDb();
-  if (!db) throw new Error("DB indisponível");
-  await db.insert(selvatvPollVotes)
-    .values({ userId, optionKey })
-    .onDuplicateKeyUpdate({ set: { optionKey } });
-}
-/** Zera todos os votos da enquete (usado quando a pergunta/opções mudam). */
-export async function clearPollVotes() {
-  const db = await getDb();
-  if (!db) return;
-  await db.delete(selvatvPollVotes);
-}
 
 // ─── Integrações por usuário (OAuth) ──────────────────────────────────────────
 
