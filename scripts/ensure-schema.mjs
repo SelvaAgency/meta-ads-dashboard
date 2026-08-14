@@ -1366,6 +1366,32 @@ async function main() {
       }
     }
 
+    // Prioridades da Semana — substitui a box do Trello na Home.
+    //
+    // `semana` é VARCHAR e não DATE de propósito: ela é a chave (a
+    // segunda-feira em AAAA-MM-DD), e DATE viraria instante com fuso — a
+    // semana andaria um dia para trás na leitura em São Paulo.
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`weekly_priorities\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`grupo\` VARCHAR(8) NOT NULL,
+      \`semana\` VARCHAR(10) NOT NULL,
+      \`tipo\` VARCHAR(12) NOT NULL,
+      \`titulo\` VARCHAR(200) NOT NULL,
+      \`descricao\` TEXT NULL,
+      \`responsavel\` VARCHAR(80) NULL,
+      \`prazo\` VARCHAR(10) NULL,
+      \`status\` VARCHAR(12) NOT NULL DEFAULT 'PLANEJADO',
+      \`ordem\` INT NOT NULL DEFAULT 0,
+      \`createdBy\` INT NULL,
+      \`updatedBy\` INT NULL,
+      \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      KEY \`idx_wp_semana\` (\`semana\`),
+      KEY \`idx_wp_semana_grupo\` (\`semana\`, \`grupo\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · weekly_priorities garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

@@ -2873,7 +2873,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, socialSnapshots, socialMediaSnapshots, socialColetaExecucoes, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, socialSnapshots, socialMediaSnapshots, socialColetaExecucoes, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings, weeklyPriorities, type InsertWeeklyPriority } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 
@@ -6438,4 +6438,114 @@ export async function renomearContaGoogle(id: number, accountName: string) {
   const db = await getDb();
   if (!db) return;
   await db.update(googleAdAccounts).set({ accountName }).where(eq(googleAdAccounts.id, id));
+}
+
+// ─── Prioridades da Semana ───────────────────────────────────────────────────
+
+/**
+ * Uma semana inteira, os TRÊS grupos de uma vez.
+ *
+ * De propósito: a troca de aba na Home não pode ir à rede. Três queries — uma
+ * por aba — fariam CC / GTM 1 / GTM 2 piscarem a cada clique num painel cuja
+ * função é ser lido em poucos segundos.
+ *
+ * Volta junto quem mexeu por último, com o NOME: o rodapé precisa dizer
+ * "atualizado hoje às 10:42 por Guilherme", e um id não diz isso.
+ */
+export async function prioridadesDaSemana(semana: string): Promise<{
+  itens: Array<typeof weeklyPriorities.$inferSelect>;
+  atualizadoEm: Date | null;
+  atualizadoPor: string | null;
+}> {
+  const db = await getDb();
+  if (!db) return { itens: [], atualizadoEm: null, atualizadoPor: null };
+
+  const itens = await db.select().from(weeklyPriorities)
+    .where(eq(weeklyPriorities.semana, semana))
+    .orderBy(weeklyPriorities.ordem, weeklyPriorities.id);
+
+  // O mais recente da SEMANA, e não da tabela: navegar para uma semana antiga
+  // e ver "atualizado agora" (por causa de uma edição em outra semana) faria o
+  // rodapé mentir sobre o que está na tela.
+  let atualizadoEm: Date | null = null;
+  let updatedBy: number | null = null;
+  for (const i of itens) {
+    if (!atualizadoEm || i.updatedAt > atualizadoEm) {
+      atualizadoEm = i.updatedAt;
+      updatedBy = i.updatedBy ?? i.createdBy ?? null;
+    }
+  }
+
+  let atualizadoPor: string | null = null;
+  if (updatedBy !== null) {
+    const u = await db.select({ name: users.name }).from(users).where(eq(users.id, updatedBy)).limit(1);
+    atualizadoPor = u[0]?.name ?? null;
+  }
+  return { itens, atualizadoEm, atualizadoPor };
+}
+
+/**
+ * Cria um item no fim da lista do seu tipo.
+ *
+ * A ordem nasce depois do último do MESMO grupo e tipo — item novo aparecendo no
+ * meio da lista é o tipo de surpresa que faz alguém desconfiar de que salvou
+ * errado.
+ */
+export async function criarPrioridade(
+  dados: Omit<InsertWeeklyPriority, "ordem">, userId: number,
+): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const irmaos = await db.select({ ordem: weeklyPriorities.ordem }).from(weeklyPriorities)
+    .where(and(
+      eq(weeklyPriorities.semana, dados.semana),
+      eq(weeklyPriorities.grupo, dados.grupo),
+      eq(weeklyPriorities.tipo, dados.tipo),
+    ));
+  const ordem = irmaos.reduce((max, i) => Math.max(max, i.ordem), 0) + 1;
+  const r = await db.insert(weeklyPriorities).values({
+    ...dados, ordem, createdBy: userId, updatedBy: userId,
+  });
+  return Number((r as unknown as { insertId?: number }).insertId ?? 0);
+}
+
+export async function atualizarPrioridade(
+  id: number, patch: Partial<InsertWeeklyPriority>, userId: number,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(weeklyPriorities).set({ ...patch, updatedBy: userId })
+    .where(eq(weeklyPriorities.id, id));
+}
+
+export async function excluirPrioridade(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.delete(weeklyPriorities).where(eq(weeklyPriorities.id, id));
+}
+
+/**
+ * Troca a posição de dois itens.
+ *
+ * Duas escritas e não um recálculo da lista: reordenar tudo a cada seta gravaria
+ * N linhas e carimbaria "atualizado por" em itens que ninguém tocou — e o rodapé
+ * da Home passaria a acusar edição onde não houve.
+ */
+export async function trocarOrdemPrioridades(
+  a: { id: number; ordem: number }, b: { id: number; ordem: number }, userId: number,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(weeklyPriorities).set({ ordem: b.ordem, updatedBy: userId })
+    .where(eq(weeklyPriorities.id, a.id));
+  await db.update(weeklyPriorities).set({ ordem: a.ordem, updatedBy: userId })
+    .where(eq(weeklyPriorities.id, b.id));
+}
+
+/** Um item, para as operações que precisam conferir o estado antes de mexer. */
+export async function prioridadePorId(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const r = await db.select().from(weeklyPriorities).where(eq(weeklyPriorities.id, id)).limit(1);
+  return r[0] ?? null;
 }

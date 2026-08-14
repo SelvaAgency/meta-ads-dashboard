@@ -4,8 +4,10 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *  Reutiliza primitivos de UI existentes (Card, Carousel), tokens, ícones
  *  lucide e useAuth. News e SelvaTV vêm do store local (editável em
- *  Configurações). Agenda (Google Calendar) e Meus cards (Trello) são reais,
- *  por usuário, tratados no backend.
+ *  Configurações). Agenda (Google Calendar) é real, por usuário, tratada no
+ *  backend. "Prioridades da semana" substituiu a box do Trello: direcionamento
+ *  escrito no Spaces, por grupo e por semana — o Trello segue existindo em
+ *  Configurações e nas integrações, só não ocupa mais espaço na Home.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useState, useEffect } from "react";
@@ -21,7 +23,7 @@ import { NewsTicker } from "./NewsTicker";
 import { greetingForHour, firstName } from "./hubMocks";
 import type { NewsItem, SelvaTVImage } from "./hubMocks";
 import { AgendaCard } from "./AgendaCard";
-import { MyCardsCard } from "./MyCardsCard";
+import { PrioridadesCard } from "./PrioridadesCard";
 
 /** Atalhos de destaque na Home — acesso rápido aos principais recursos. */
 const ATALHOS = [
@@ -146,10 +148,14 @@ export default function Hub() {
               </p>
             </header>
 
-            {/* Cards: Agenda (Google Calendar) + Meus cards (Trello) — reais */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Prioridades (2/3) + Agenda (1/3) na mesma linha. As Prioridades
+                pedem largura por causa das abas e da hierarquia; a Agenda é uma
+                lista estreita e cabe bem no terço. No mobile, uma coluna. */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="md:col-span-2 min-w-0">
+                <PrioridadesCard />
+              </div>
               <AgendaCard />
-              <MyCardsCard />
             </div>
 
             {/* Acesso rápido às 2 funcionalidades mais legais do Spaces */}

@@ -1824,3 +1824,59 @@ export const financeMesesFechados = mysqlTable("finance_meses_fechados", {
   uqMes: uniqueIndex("uq_mes_fechado").on(table.mes),
 }));
 export type FinanceMesFechado = typeof financeMesesFechados.$inferSelect;
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Prioridades da Semana — o direcionamento da Home
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Substitui a box do Trello. NÃO reaproveita a estrutura dele, e a diferença é
+ *  de natureza: card do Trello é objeto externo, somente-leitura, que existe lá
+ *  e é espelhado aqui. Isto é conteúdo NOSSO, escrito no Spaces, e some se o
+ *  Trello sumir — o módulo não pode depender dele para funcionar.
+ *
+ *  ── `semana` é uma string, e isso é a chave do desenho ─────────────────────
+ *  Guarda a SEGUNDA-FEIRA em `AAAA-MM-DD`. Um `date` ou `timestamp` viraria
+ *  instante, e instante tem fuso: `2026-08-10` gravado em UTC é 09/08 às 21h em
+ *  São Paulo, e a semana andaria um dia para trás na leitura. Como texto, a
+ *  chave é a mesma em qualquer fuso. Ver `shared/semana.ts`.
+ *
+ *  ── Por que o histórico não precisa de nada ────────────────────────────────
+ *  Virar a semana não move, copia nem arquiva linha nenhuma: a semana seguinte
+ *  é outro valor de `semana`, e a anterior continua onde sempre esteve. O
+ *  histórico é consequência da chave, não uma funcionalidade a manter.
+ *
+ *  ── `responsavel` é texto, e não FK para users ─────────────────────────────
+ *  Uma prioridade pode ser de alguém que não tem login no Spaces — um sócio, um
+ *  terceiro, um time. FK transformaria o campo num select que não consegue
+ *  expressar isso, e aí o responsável iria para dentro do título.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export const weeklyPriorities = mysqlTable("weekly_priorities", {
+  id: int("id").autoincrement().primaryKey(),
+  /** `cc` | `gtm1` | `gtm2` — ver GRUPOS em shared/semana.ts. */
+  grupo: varchar("grupo", { length: 8 }).notNull(),
+  /** A segunda-feira, `AAAA-MM-DD`. Texto de propósito: chave, não instante. */
+  semana: varchar("semana", { length: 10 }).notNull(),
+  /** `PRIORIDADE` | `ENTREGA` | `ATENCAO`. */
+  tipo: varchar("tipo", { length: 12 }).notNull(),
+  titulo: varchar("titulo", { length: 200 }).notNull(),
+  descricao: text("descricao"),
+  responsavel: varchar("responsavel", { length: 80 }),
+  /** `AAAA-MM-DD` ou nulo. Ausência é ausência — nunca "sem prazo" gravado. */
+  prazo: varchar("prazo", { length: 10 }),
+  /** `PLANEJADO` | `EM_ANDAMENTO` | `CONCLUIDO`. */
+  status: varchar("status", { length: 12 }).default("PLANEJADO").notNull(),
+  ordem: int("ordem").default(0).notNull(),
+  createdBy: int("createdBy"),
+  /** Quem mexeu por último — é o que o rodapé do componente mostra. */
+  updatedBy: int("updatedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  // A consulta da Home é sempre por semana (os três grupos de uma vez, para a
+  // troca de aba não ir à rede). O índice acompanha isso.
+  idxSemana: index("idx_wp_semana").on(table.semana),
+  idxSemanaGrupo: index("idx_wp_semana_grupo").on(table.semana, table.grupo),
+}));
+export type WeeklyPriority = typeof weeklyPriorities.$inferSelect;
+export type InsertWeeklyPriority = typeof weeklyPriorities.$inferInsert;

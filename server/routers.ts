@@ -92,6 +92,12 @@ import {
   salvarCredencialSocial,
   tokenSocial,
   registrarTesteSocial,
+  prioridadesDaSemana,
+  criarPrioridade,
+  atualizarPrioridade,
+  excluirPrioridade,
+  trocarOrdemPrioridades,
+  prioridadePorId,
   registrarTesteVinculo,
   vinculosSociais, snapshotsSociais, registrarExecucaoDeColeta, ultimasExecucoesDeColeta, midiasDoPeriodo, primeiroDiaDeColetaSocial, desvincularInstagram,
   tokensDeContasInfo, apagarTokenDaConta,
@@ -346,6 +352,8 @@ import { classificarContas, idLimpo, podeImportarSemForcar, ROTULO_STATUS } from
 import { temIntegracao } from "@shared/plataformasLoja";
 import { testarConexaoWix, validarSiteId, validarUrlWix } from "./services/wix";
 import { diagnosticar as diagnosticarInstagram, impressaoDe } from "./services/instagram";
+import { GRUPOS as GRUPOS_PRIORIDADE, inicioDaSemana } from "@shared/semana";
+import { STATUS, TIPOS, vizinhoNaOrdem } from "@shared/prioridades";
 import { testarTokenLinkedIn } from "./services/linkedin";
 import { sondarLinkedIn } from "./services/sondagemLinkedIn";
 import { fonteAgencia } from "./services/fonteInstagramAgencia";
@@ -3998,6 +4006,116 @@ export const appRouter = router({
   }),
 
   // ─── Redes sociais por cliente (cadastro) ────────────────────────────────────
+  /**
+   * ── Prioridades da Semana ──────────────────────────────────────────────
+   *
+   * O direcionamento semanal da Home, no lugar da box do Trello. Leitura para
+   * todo mundo logado; escrita só admin/dev — a mesma divisão que a tela
+   * assume, e que precisa existir aqui porque a tela pode mentir.
+   */
+  prioridades: router({
+    /**
+     * A semana inteira, com os TRÊS grupos.
+     *
+     * Uma query e não três: a troca de aba na Home não pode ir à rede. Um
+     * painel cuja função é ser lido em poucos segundos não pode piscar a cada
+     * clique de aba.
+     */
+    listar: protectedProcedure
+      .input(z.object({ semana: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+      .query(async ({ input }) => {
+        // Normaliza para a segunda-feira: a tela já manda assim, mas uma
+        // chamada com qualquer outro dia gravaria/leria uma semana fantasma
+        // que nunca mais seria encontrada.
+        const semana = inicioDaSemana(input.semana);
+        const r = await prioridadesDaSemana(semana);
+        return { semana, ...r };
+      }),
+
+    criar: contentProcedure
+      .input(z.object({
+        grupo: z.enum(GRUPOS_PRIORIDADE),
+        semana: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        tipo: z.enum(TIPOS),
+        titulo: z.string().trim().min(1).max(200),
+        descricao: z.string().trim().max(2000).optional(),
+        responsavel: z.string().trim().max(80).optional(),
+        prazo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        status: z.enum(STATUS).default("PLANEJADO"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const id = await criarPrioridade({
+          ...input,
+          semana: inicioDaSemana(input.semana),
+          // Vazio vira NULL, e não string vazia: a tela decide "mostrar ou
+          // não" por ausência, e `""` é presença de nada — apareceria como um
+          // rótulo em branco.
+          descricao: input.descricao || null,
+          responsavel: input.responsavel || null,
+          prazo: input.prazo || null,
+        }, ctx.user.id);
+        return { id };
+      }),
+
+    atualizar: contentProcedure
+      .input(z.object({
+        id: z.number().int(),
+        grupo: z.enum(GRUPOS_PRIORIDADE).optional(),
+        tipo: z.enum(TIPOS).optional(),
+        titulo: z.string().trim().min(1).max(200).optional(),
+        descricao: z.string().trim().max(2000).nullable().optional(),
+        responsavel: z.string().trim().max(80).nullable().optional(),
+        prazo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+        status: z.enum(STATUS).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...patch } = input;
+        const limpo: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(patch)) {
+          if (v === undefined) continue;
+          limpo[k] = v === "" ? null : v;
+        }
+        await atualizarPrioridade(id, limpo, ctx.user.id);
+        return { success: true } as const;
+      }),
+
+    excluir: contentProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ input }) => {
+        await excluirPrioridade(input.id);
+        return { success: true } as const;
+      }),
+
+    /**
+     * Sobe ou desce um item dentro do seu tipo.
+     *
+     * O vizinho é calculado NO SERVIDOR, a partir do que está gravado, e não
+     * recebido da tela: dois editores na mesma semana mandariam trocas
+     * calculadas sobre listas diferentes, e a ordem gravada viraria uma mistura
+     * das duas.
+     */
+    mover: contentProcedure
+      .input(z.object({ id: z.number().int(), direcao: z.union([z.literal(-1), z.literal(1)]) }))
+      .mutation(async ({ ctx, input }) => {
+        const item = await prioridadePorId(input.id);
+        if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Item não encontrado." });
+
+        const { itens } = await prioridadesDaSemana(item.semana);
+        const irmaos = itens.filter((i) => i.grupo === item.grupo && i.tipo === item.tipo);
+        const vizinho = vizinhoNaOrdem(irmaos as never, item.id, input.direcao);
+        // Ponta da lista: nada a fazer, e isso NÃO é erro. Gravar uma troca
+        // consigo mesmo carimbaria "atualizado por" sem mudar nada na tela.
+        if (!vizinho) return { movido: false } as const;
+
+        await trocarOrdemPrioridades(
+          { id: item.id, ordem: item.ordem },
+          { id: vizinho.id, ordem: vizinho.ordem },
+          ctx.user.id,
+        );
+        return { movido: true } as const;
+      }),
+  }),
+
   social: router({
     /** Estado da credencial — SEM o token. É o que pode ir para a tela. */
     credencial: contentProcedure.query(() => credencialSocialInfo()),
