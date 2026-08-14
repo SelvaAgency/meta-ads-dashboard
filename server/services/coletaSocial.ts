@@ -33,7 +33,22 @@ import { sanitizar } from "./instagram";
 import type { Consultar } from "./instagramSondagem";
 
 /** Forma de chamada de cada métrica de perfil, medida na Fase 0. */
-const METRICAS_PERFIL: Array<{ nome: string; params: Record<string, string> }> = [
+const METRICAS_PERFIL: Array<{
+  nome: string;
+  params: Record<string, string>;
+  /**
+   * Pede sozinha, mesmo compartilhando a forma com o lote.
+   *
+   * Existe por causa de um risco assimétrico: se uma métrica do lote for
+   * inválida, a Meta recusa a chamada INTEIRA e a cascata pede as sete
+   * individualmente — 1 chamada vira 8, em toda conta, todo dia, para sempre.
+   *
+   * Métrica ainda não confirmada em produção não pode carregar esse risco pelas
+   * outras seis. Isolada, uma recusa custa exatamente uma chamada falha e entra
+   * em `recusadas` — os quatro estados fazem o resto.
+   */
+  isolada?: boolean;
+}> = [
   { nome: "reach", params: { period: "day", metric_type: "total_value" } },
   { nome: "profile_views", params: { period: "day", metric_type: "total_value" } },
   { nome: "website_clicks", params: { period: "day", metric_type: "total_value" } },
@@ -42,6 +57,18 @@ const METRICAS_PERFIL: Array<{ nome: string; params: Record<string, string> }> =
   { nome: "views", params: { period: "day", metric_type: "total_value" } },
   // Novos seguidores do dia. Recusa `metric_type` — ver Fase 0.
   { nome: "follower_count", params: { period: "day" } },
+  /**
+   * Respostas recebidas nos stories.
+   *
+   * A Meta revelou esta métrica ao recusar `impressions` na Fase 0, e a
+   * sondagem a testou. Ela entra ISOLADA porque nunca rodou em produção: se
+   * for recusada dentro do lote, derruba as outras seis junto.
+   *
+   * É resposta a STORY, e não mensagem de Direct — as duas chegam na mesma
+   * caixa de entrada e são coisas diferentes. Direct exige
+   * `instagram_manage_messages` e a Conversations API, que não temos.
+   */
+  { nome: "replies", params: { period: "day", metric_type: "total_value" }, isolada: true },
 ];
 
 /**
@@ -58,7 +85,11 @@ function gruposDePerfil(): Array<{
 }> {
   const porForma = new Map<string, { params: Record<string, string>; metricas: typeof METRICAS_PERFIL }>();
   for (const m of METRICAS_PERFIL) {
-    const chave = JSON.stringify(Object.entries(m.params).sort());
+    // `isolada` ganha uma chave própria: mesmo compartilhando os parâmetros com
+    // o lote, ela não pode arrastá-lo numa recusa.
+    const chave = m.isolada
+      ? `isolada:${m.nome}`
+      : JSON.stringify(Object.entries(m.params).sort());
     const grupo = porForma.get(chave) ?? { params: m.params, metricas: [] };
     grupo.metricas.push(m);
     porForma.set(chave, grupo);

@@ -139,16 +139,38 @@ describe("as decisões vêm das funções puras, não de ternários locais", () 
     expect(s).not.toMatch(/\/\s*m\.reach\s*\)?\s*\*\s*100/);
   });
 
-  it("saldo de seguidores sai de saldoDeSeguidores, e não de subtração local", () => {
-    expect(semC(pagina())).toContain("saldoDeSeguidores(");
+  /**
+   * A função mudou de nome porque o escopo cresceu: `movimentoDaBase` devolve
+   * saldo, entradas e saídas de uma vez, e é ela que sabe quando a derivação
+   * NÃO se sustenta. O que o teste guarda é o mesmo de sempre — nenhuma dessas
+   * contas escrita na tela.
+   */
+  it("saldo e movimento saem de movimentoDaBase, e não de subtração local", () => {
+    const s = semC(pagina());
+    expect(s).toContain("movimentoDaBase(");
+    // Nenhuma subtração de seguidores na tela.
+    expect(s).not.toMatch(/seguidores\s*-\s*\w*seguidores/);
   });
 
   /** A trava do pedido: nada de "novos" e "saídas" sem prova aritmética. */
-  it("entradas e saídas passam por podeMostrarEntradasESaidas", () => {
+  /**
+   * Entradas e saídas deixaram de depender do breakdown não provado: elas vêm
+   * de `follower_count` e de uma identidade aritmética, e `movimentoDaBase`
+   * devolve `null` quando a conta não fecha. O guarda agora é sobre isso — a
+   * tela não pode inventar os números que a função se recusou a dar.
+   */
+  it("entradas e saídas só aparecem quando movimentoDaBase as devolve", () => {
     const s = semC(pagina());
-    expect(s).toContain("podeMostrarEntradasESaidas(");
-    expect(s).not.toContain("novos seguidores");
+    expect(s).toContain("movimento.entradas");
+    expect(s).toContain("movimento.saidas");
+    // A proibição original continua, e agora escrita pelo que ela realmente
+    // protege: o BREAKDOWN não provado não pode virar entrada nem saída. A
+    // derivação nova não passa nem perto dele.
+    expect(s).not.toContain("breakdownCru");
+    expect(s).not.toContain("FOLLOWER");
     expect(s).not.toContain("deixaram de seguir");
+    // Nenhuma aritmética de entradas/saídas escrita na tela.
+    expect(s).not.toMatch(/entradas\s*[-+]\s*\w/);
   });
 
   it("o período honesto vem de textoDeCobertura", () => {

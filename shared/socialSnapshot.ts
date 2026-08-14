@@ -208,3 +208,99 @@ const diaSeguinte = (dia: string): string => {
   const [a, m, d] = dia.split("-").map(Number);
   return new Date(Date.UTC(a, m - 1, d) + 86_400_000).toISOString().slice(0, 10);
 };
+
+// ─── Movimento da base: entradas, saídas e saldo ─────────────────────────────
+
+export interface MovimentoDaBase {
+  /** Total atual — a última fotografia. */
+  saldoAtual: number | null;
+  /** Variação no período: última fotografia menos a primeira. */
+  saldo: number | null;
+  /** Novos seguidores somados. `null` quando a métrica não foi medida. */
+  entradas: number | null;
+  /** DERIVADA: entradas − saldo. `null` quando a derivação não se sustenta. */
+  saidas: number | null;
+  /** De onde saiu cada número, para a tela poder dizer. */
+  origem: "follower_count" | "apenas_saldo" | "sem_dados";
+  /** Por que entradas/saídas não apareceram, quando não aparecem. */
+  motivo: string | null;
+  diasMedidos: number;
+}
+
+/**
+ * Entradas, saídas e saldo — sem depender do breakdown não provado.
+ *
+ * ── A derivação, e por que ela é legítima ──────────────────────────────────
+ * `follower_count` é métrica documentada da Meta: novos seguidores DAQUELE DIA.
+ * É uma contagem BRUTA de entradas. O saldo, por sua vez, sai da diferença
+ * entre duas fotografias de `followers_count`, que é aritmética pura.
+ *
+ * Com os dois, as saídas caem por identidade:
+ *
+ *     saldo = entradas − saídas    ⟹    saídas = entradas − saldo
+ *
+ * Nada aqui usa FOLLOWER/NON_FOLLOWER, cuja semântica segue em validação. São
+ * duas medições independentes e uma subtração.
+ *
+ * ── A verificação que decide se dá para publicar ───────────────────────────
+ * Se `entradas − saldo` der NEGATIVO, a conta cresceu mais do que entrou — o
+ * que é impossível quando `follower_count` é entrada bruta. Isso refuta a
+ * premissa, e nesse caso a função devolve `null` em vez do número.
+ *
+ * É o mesmo princípio da validação de direção: publicar só o que a aritmética
+ * sustenta. Um "saíram: -12" na tela seria pior que um traço, porque parece
+ * dado e não é.
+ *
+ * ── A ressalva de janela ───────────────────────────────────────────────────
+ * `follower_count` é de fluxo diário e só existe nos dias coletados. Se a
+ * coleta falhou num dia, aquelas entradas não estão na soma — e as saídas
+ * derivadas ficam subestimadas na mesma medida. `diasMedidos` existe para a
+ * tela poder dizer sobre quantos dias está falando.
+ */
+export function movimentoDaBase(
+  amostras: AmostraDeSeguidores[],
+  novosPorDia: Array<number | null>,
+): MovimentoDaBase {
+  const s = saldoDeSeguidores(amostras);
+  const medidos = novosPorDia.filter((n): n is number => typeof n === "number");
+
+  if (s.fim == null) {
+    return {
+      saldoAtual: null, saldo: null, entradas: null, saidas: null,
+      origem: "sem_dados", motivo: "Ainda não há coleta de seguidores no período.",
+      diasMedidos: 0,
+    };
+  }
+
+  const base = {
+    saldoAtual: s.fim, saldo: s.saldo, diasMedidos: medidos.length,
+  };
+
+  if (medidos.length === 0) {
+    return {
+      ...base, entradas: null, saidas: null, origem: "apenas_saldo",
+      motivo: "Entradas e saídas dependem de `follower_count`, que não foi medido no período.",
+    };
+  }
+
+  const entradas = medidos.reduce((a, b) => a + b, 0);
+  if (s.saldo == null) {
+    return {
+      ...base, entradas, saidas: null, origem: "apenas_saldo",
+      motivo: "As saídas precisam do saldo do período, e ele exige duas coletas.",
+    };
+  }
+
+  const saidas = entradas - s.saldo;
+  if (saidas < 0) {
+    // A premissa não se sustenta nesta conta: a base cresceu mais do que entrou.
+    // Publicar o número negativo seria apresentar como dado o que é sinal de que
+    // a leitura está errada.
+    return {
+      ...base, entradas, saidas: null, origem: "apenas_saldo",
+      motivo: "O saldo do período é maior que as entradas medidas — as saídas não podem ser derivadas com segurança.",
+    };
+  }
+
+  return { ...base, entradas, saidas, origem: "follower_count", motivo: null };
+}

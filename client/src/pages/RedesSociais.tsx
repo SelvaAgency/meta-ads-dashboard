@@ -39,7 +39,7 @@ import { canManageContent } from "@shared/permissions";
 import { trpc } from "@/lib/trpc";
 import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
 import { lerVinculo, type StatusInsight, type TipoConta } from "@shared/instagram";
-import { saldoDeSeguidores, podeMostrarEntradasESaidas, somarNoPeriodo } from "@shared/socialSnapshot";
+import { movimentoDaBase, somarNoPeriodo } from "@shared/socialSnapshot";
 import { textoDeCobertura } from "@shared/periodosSociais";
 import { coletasSaoComparaveis, rotuloDeFluxo } from "@shared/janelaDaMetrica";
 import { contarAtivacoes, textoDaComposicao } from "@shared/ativacoes";
@@ -54,10 +54,17 @@ import {
   PerformanceDeConteudo, UltimasPublicacoes,
   type DesempenhoPorTipo, type PublicacaoEmLinha,
 } from "@/components/redes/PublicacoesEConteudo";
-import { Loader2, Settings2, Users, Heart, Eye, MousePointerClick, Layers } from "lucide-react";
+import {
+  Loader2, Settings2, Users, Heart, Eye, MousePointerClick, Layers,
+  MessageCircle, Image as ImageIcon, Clapperboard,
+} from "lucide-react";
 
 const fmt = (n: number | null | undefined): string =>
   n == null ? "–" : n.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+
+/** Uma parcela das ativações pelo rótulo. `null` quando ela não foi medida. */
+const parcela = (a: { parcelas: Array<{ rotulo: string; total: number }> }, rotulo: string): number | null =>
+  a.parcelas.find((p) => p.rotulo === rotulo)?.total ?? null;
 
 /** Estado que pede AÇÃO, com o caminho — e sem cara de erro. */
 function PrecisaDeConfiguracao({ titulo, detalhe, podeConfigurar }: {
@@ -156,19 +163,24 @@ export default function RedesSociais() {
     return lerUltimosDias(dias);
   }, [serie, ativacoesPorDia]);
 
-  const saldo = saldoDeSeguidores(serie.map((p) => ({
-    dia: p.dia, total: p.seguidores, follower: null, naoSeguidor: null,
-  })));
-  const seguidoresAgora = saldo.fim;
-
-  // A semântica de FOLLOWER/NON_FOLLOWER ainda está em validação. Enquanto o
-  // veredito não fechar, entradas e saídas NÃO são apresentadas como verdade —
-  // o saldo continua vindo dos snapshots consecutivos, que é aritmética.
-  const movimentoProvado = d?.historico.direcao ? podeMostrarEntradasESaidas(d.historico.direcao) : false;
+  /**
+   * Entradas e saídas SEM o breakdown ainda não provado.
+   *
+   * `follower_count` é métrica documentada da Meta — novos seguidores do dia,
+   * contagem bruta — e o saldo sai da diferença entre duas fotografias. As
+   * saídas caem por identidade, e a função devolve `null` quando a aritmética
+   * não sustenta o resultado. Nada aqui usa FOLLOWER/NON_FOLLOWER.
+   */
+  const movimento = movimentoDaBase(
+    serie.map((p) => ({ dia: p.dia, total: p.seguidores, follower: null, naoSeguidor: null })),
+    serie.map((p) => mets(p, "follower_count")),
+  );
+  const seguidoresAgora = movimento.saldoAtual;
 
   const visitas = somarNoPeriodo("profile_views", serie);
   const cliques = somarNoPeriodo("website_clicks", serie);
   const interacoes = somarNoPeriodo("total_interactions", serie);
+  const respostas = somarNoPeriodo("replies", serie);
   const alcance = somarNoPeriodo("reach", serie);
   const taxa = taxaPorAlcance(interacoes.total, alcance.total);
 
@@ -216,6 +228,23 @@ export default function RedesSociais() {
     return !!publicado && publicado >= dateRange.startDate && publicado <= dateRange.endDate;
   }), [midiasSalvas, dateRange]);
 
+  /**
+   * A miniatura vem de DUAS fontes, e a ordem importa.
+   *
+   * A leitura ao vivo (que já acontece no `painel`, sem chamada nova) traz a URL
+   * do CDN recém-assinada. A do snapshot foi assinada no dia da coleta e pode já
+   * ter expirado. Preferir a viva dá imagem imediata nas mais recentes; a
+   * guardada cobre as publicações que saíram das 12 ao vivo.
+   */
+  const thumbAoVivo = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const x of (organico?.midias ?? []) as Array<{ id?: string; thumbnailUrl?: string | null; mediaUrl?: string | null }>) {
+      const url = x.thumbnailUrl || x.mediaUrl;
+      if (x.id && url) m.set(String(x.id), url);
+    }
+    return m;
+  }, [organico]);
+
   const publicacoes: PublicacaoEmLinha[] = useMemo(() => noPeriodo
     .filter((m) => m.produto !== "STORY")
     .map((m) => {
@@ -224,7 +253,7 @@ export default function RedesSociais() {
         id: m.mediaId,
         tipo: (m.tipo ?? "DESCONHECIDO") as TipoConteudo,
         quando: m.publicadoEm ?? null,
-        thumb: m.thumbnailUrl ?? null,
+        thumb: thumbAoVivo.get(m.mediaId) ?? m.thumbnailUrl ?? null,
         permalink: m.permalink,
         legenda: m.legenda?.slice(0, 80) ?? null,
         alcance: m.reach,
@@ -236,7 +265,7 @@ export default function RedesSociais() {
         taxa: taxaPorAlcance(inter, m.reach),
       };
     })
-    .sort((a, b) => (b.quando ?? "").localeCompare(a.quando ?? "")), [noPeriodo]);
+    .sort((a, b) => (b.quando ?? "").localeCompare(a.quando ?? "")), [noPeriodo, thumbAoVivo]);
 
   const melhores = useMemo(
     () => publicacoes.filter((p) => p.taxa != null).sort((a, b) => b.taxa! - a.taxa!).slice(0, 3),
@@ -336,53 +365,35 @@ export default function RedesSociais() {
               </div>
             )}
 
-            {/* ── CABEÇALHO ────────────────────────────────────────────────
-                Uma faixa, três regiões, nenhuma moldura interna. As bordas em
-                volta de cada parte eram o que fazia a versão anterior parecer
-                uma coleção de componentes em vez de uma visão da conta. */}
-            <section className="rounded-2xl border border-border bg-card px-6 py-5 flex flex-col gap-6">
-              <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_auto] gap-8 items-start">
-                <ResumoCurto leitura={leitura} />
-                <Resultados ontem={ontem} hoje={doDia}
-                  aviso="O dia corrente é parcial. Seguidores é o total da conta." />
-              </div>
-              <GraficoDaConta pontos={pontosDaConta} nota={cobertura} />
-            </section>
-
-            {/* ── SEGUIDORES ───────────────────────────────────────────── */}
-            <section className="flex flex-col gap-3">
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Seguidores</h2>
-              <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-4 items-start">
-                <div className="grid grid-cols-3 rounded-xl border border-border bg-card divide-x divide-border/50 min-w-0 lg:min-w-[300px]">
-                  <Geral icon={Users} rotulo="Saldo atual" valor={fmt(seguidoresAgora)} />
-                  {/* Entradas e saídas só aparecem quando a semântica do
-                      breakdown estiver PROVADA. Até lá, o traço é honesto: o
-                      saldo é aritmética de snapshots, o resto ainda não é. */}
-                  <Geral icon={Users} rotulo="Entraram"
-                    valor={movimentoProvado ? fmt(null) : "–"}
-                    ressalva={movimentoProvado ? null : "em validação"} />
-                  <Geral icon={Users} rotulo="Saíram"
-                    valor={movimentoProvado ? fmt(null) : "–"}
-                    ressalva={movimentoProvado ? null : "em validação"} />
+            {/* ── ACCOUNT HEADER ───────────────────────────────────────────
+                Uma caixa, uma linha, três colunas — o molde da referência.
+                A largura é o que carrega a hierarquia: resumo estreito,
+                resultados no meio, gráfico com a maior área. Divisórias
+                verticais finas em vez de três cartões: cartão separado faria
+                deles blocos independentes, e a referência é UM bloco. */}
+            <section className="rounded-2xl border border-border bg-card overflow-hidden">
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1.6fr)]
+                              divide-y lg:divide-y-0 lg:divide-x divide-border/60">
+                <div className="p-5 min-w-0">
+                  <ResumoCurto leitura={leitura} />
                 </div>
-                <div className="rounded-xl border border-border bg-card p-4">
-                  <GraficoDeMovimento pontos={pontosDeMovimento} temMovimento={movimentoProvado}
-                    nota={movimentoProvado ? null : "entradas e saídas em validação — só o saldo é exibido"} />
+                <div className="p-5 min-w-0">
+                  <Resultados ontem={ontem} hoje={doDia}
+                    aviso="O dia corrente é parcial. Seguidores é o total da conta." />
+                </div>
+                <div className="p-5 min-w-0">
+                  <GraficoDaConta pontos={pontosDaConta} nota={cobertura} />
                 </div>
               </div>
-              {saldo.saldo != null && (
-                <p className="text-[11px] text-muted-foreground">
-                  Variação no período: <span className={saldo.saldo >= 0 ? "text-emerald-600" : "text-destructive"}>
-                    {saldo.saldo > 0 ? "+" : ""}{fmt(saldo.saldo)}
-                  </span> — diferença entre a primeira e a última coleta.
-                </p>
-              )}
             </section>
 
-            {/* ── DADOS GERAIS ─────────────────────────────────────────── */}
+            {/* ── DADOS GERAIS ─────────────────────────────────────────────
+                Ativações no primeiro lugar da faixa e com a composição colada:
+                é o número que resume produção, e os outros a qualificam. */}
             <section className="flex flex-col gap-3">
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Dados gerais</h2>
-              <div className="grid grid-cols-2 lg:grid-cols-4 rounded-xl border border-border bg-card divide-x divide-y lg:divide-y-0 divide-border/50">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 rounded-xl border border-border bg-card
+                              divide-x divide-y lg:divide-y-0 divide-border/50">
                 <Geral icon={Layers} rotulo="Ativações" valor={fmt(ativacoes.total)}
                   detalhe={textoDaComposicao(ativacoes)}
                   ressalva={ativacoes.publicacoesIndisponiveis
@@ -390,10 +401,20 @@ export default function RedesSociais() {
                     : ativacoes.diasSemMedicaoDeStories > 0
                       ? `${ativacoes.diasSemMedicaoDeStories} dia(s) sem medição de stories`
                       : null} />
+                <Geral icon={ImageIcon} rotulo="Posts" valor={fmt(parcela(ativacoes, "Posts"))} />
+                <Geral icon={Clapperboard} rotulo="Stories" valor={fmt(parcela(ativacoes, "Stories"))}
+                  ressalva={parcela(ativacoes, "Stories") != null ? "mínimo: mede o que está no ar" : null} />
                 <Geral icon={Heart} rotulo="Engajamento" valor={fmt(interacoes.total)}
                   detalhe={taxa != null ? `${taxa.toFixed(2)}% do alcance` : null} />
+                {/* Respostas aos Stories é métrica de ENGAJAMENTO e fica na
+                    faixa geral, ao lado das outras — seção própria a
+                    transformaria num destaque que ela não é. */}
+                <Geral icon={MessageCircle} rotulo="Respostas aos Stories" valor={fmt(respostas.total)}
+                  ressalva={respostas.total == null ? "não medida nesta coleta" : null} />
                 <Geral icon={Eye} rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
                   ressalva={rotuloVisitas.ressalva} />
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
                 <Geral icon={MousePointerClick} rotulo="Cliques no link" valor={fmt(cliques.total)} />
               </div>
               {!comparabilidade.comparavel && comparabilidade.motivo && (
@@ -404,8 +425,6 @@ export default function RedesSociais() {
             {/* ── PUBLICAÇÕES E CONTEÚDO ───────────────────────────────── */}
             <UltimasPublicacoes
               instagram={publicacoes.slice(0, 4)}
-              // Só quando existir conexão de verdade. Hoje nunca — a Fase 0 do
-              // LinkedIn ainda não coleta nada.
               temLinkedin={false}
               aviso={publicacoesIndisponiveis
                 ? "Não conseguimos ler as publicações nesta coleta."
@@ -420,6 +439,43 @@ export default function RedesSociais() {
                 ? "O ranking precisa de alcance, que só o snapshot guarda — ele aparece depois da primeira coleta."
                 : null}
             />
+
+            {/* ── SEGUIDORES ────────────────────────────────────────────────
+                Por último de propósito: é a análise mais detalhada, e quem
+                chega aqui já viu o panorama, os números gerais e o conteúdo. */}
+            <section className="flex flex-col gap-3">
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Seguidores · movimento da base
+              </h2>
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-4 items-stretch">
+                <div className="grid grid-cols-3 rounded-xl border border-border bg-card divide-x divide-border/50">
+                  <Geral icon={Users} rotulo="Saldo atual" valor={fmt(movimento.saldoAtual)}
+                    detalhe={movimento.saldo != null
+                      ? `${movimento.saldo > 0 ? "+" : ""}${fmt(movimento.saldo)} no período` : null} />
+                  <Geral icon={Users} rotulo="Entraram"
+                    valor={movimento.entradas == null ? "–" : `+${fmt(movimento.entradas)}`}
+                    ressalva={movimento.entradas != null && movimento.diasMedidos < serie.length
+                      ? `${movimento.diasMedidos} de ${serie.length} dias medidos` : null} />
+                  <Geral icon={Users} rotulo="Saíram"
+                    valor={movimento.saidas == null ? "–" : `−${fmt(movimento.saidas)}`}
+                    ressalva={movimento.saidas == null ? "não derivável" : "derivado do saldo"} />
+                </div>
+                <div className="rounded-xl border border-border bg-card p-4">
+                  <GraficoDeMovimento pontos={pontosDeMovimento} temMovimento={false}
+                    nota={movimento.origem === "follower_count" ? null : "só o saldo — ver ressalva abaixo"} />
+                </div>
+              </div>
+              {movimento.motivo && (
+                <p className="text-[11px] text-muted-foreground leading-snug">{movimento.motivo}</p>
+              )}
+              {movimento.origem === "follower_count" && (
+                <p className="text-[10px] text-muted-foreground/60 leading-snug">
+                  Entradas vêm de <span className="font-mono">follower_count</span> — quem passou a seguir naquele dia,
+                  medido pela Meta. As saídas são derivadas: entradas menos o saldo do período. Nenhum dos dois usa a
+                  quebra por tipo de seguidor, cuja semântica segue em validação.
+                </p>
+              )}
+            </section>
 
             <p className="text-[10px] text-muted-foreground/70">
               Orgânico do Instagram. Números de campanha ficam em Mídia. Conexão, token e vínculo,

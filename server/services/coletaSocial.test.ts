@@ -292,18 +292,23 @@ describe("o caminho aninhado, e a cascata que protege contra ele", () => {
    * A conta que motivou a mudança: eram 186 chamadas por cliente, e a Meta
    * respondia com código de volume nas últimas contas da fila.
    */
-  it("a coleta inteira cabe em 6 chamadas, com quantas publicações forem", async () => {
+  it("a coleta inteira cabe em 7 chamadas, com quantas publicações forem", async () => {
     const cAninhado = api({ midias: tresMidias });
     const r3 = await coletarDeInstagram(cAninhado, "123");
 
-    // stories · perfil · lote de 6 métricas · follower_count ·
-    // follows_and_unfollows · listagem com insights = 6
-    expect(r3.chamadas).toBe(6);
+    // stories · perfil · lote de 6 métricas · follower_count · replies ·
+    // follows_and_unfollows · listagem com insights = 7
+    //
+    // `replies` custa a sétima de propósito: ela nunca rodou em produção, e
+    // dentro do lote uma recusa dela derrubaria as outras seis — 1 chamada
+    // viraria 8, em toda conta, todo dia. Isolada, a recusa custa uma.
+    expect(r3.chamadas).toBe(7);
     expect(r3.caminhoDasMidias).toBe("aninhado");
     expect(r3.midias).toHaveLength(3);
     // O número NÃO cresce com a quantidade de publicações — era isso que
-    // custava 175 chamadas antes.
-    expect(caminhosDe(cAninhado).filter(([p]) => p.includes("/insights"))).toHaveLength(3);
+    // custava 175 chamadas antes. São 4 de insights: o lote de 6,
+    // `follower_count`, `replies` (isolada) e `follows_and_unfollows`.
+    expect(caminhosDe(cAninhado).filter(([p]) => p.includes("/insights"))).toHaveLength(4);
   });
 
   it("nenhuma métrica se perde no aninhamento", async () => {
@@ -331,7 +336,7 @@ describe("o caminho aninhado, e a cascata que protege contra ele", () => {
     expect(r.caminhoDasMidias).toBe("lote");
     expect(r.recusadas.midias_aninhadas).toBeTruthy();
     // A listagem foi refeita sem insights, e cada mídia pediu seu lote.
-    expect(r.chamadas).toBe(10);
+    expect(r.chamadas).toBe(11);
   });
 
   /** Degrau 3: o desenho antigo, agora só quando os dois de cima falham. */

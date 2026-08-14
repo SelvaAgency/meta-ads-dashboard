@@ -53,8 +53,8 @@ const num = (v: unknown) => (typeof v === "number" ? v.toLocaleString("pt-BR") :
 
 const EIXO = { fontSize: 10, fill: "currentColor" } as const;
 
-function Moldura({ titulo, nota, vazio, children }: {
-  titulo: string; nota?: string | null; vazio: boolean; children: React.ReactNode;
+function Moldura({ titulo, nota, vazio, altura = 180, children }: {
+  titulo: string; nota?: string | null; vazio: boolean; altura?: number; children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1 min-w-0">
@@ -63,11 +63,11 @@ function Moldura({ titulo, nota, vazio, children }: {
         {nota && <span className="text-[10px] text-muted-foreground/70">{nota}</span>}
       </div>
       {vazio ? (
-        <div className="h-[180px] flex items-center justify-center text-xs text-muted-foreground">
+        <div style={{ height: altura }} className="flex items-center justify-center text-xs text-muted-foreground">
           Sem dados suficientes no período.
         </div>
       ) : (
-        <div className="h-[180px] text-muted-foreground">{children}</div>
+        <div style={{ height: altura }} className="text-muted-foreground">{children}</div>
       )}
     </div>
   );
@@ -76,8 +76,10 @@ function Moldura({ titulo, nota, vazio, children }: {
 /** Trajetória da conta: estoque à esquerda, fluxo à direita. */
 export function GraficoDaConta({ pontos, nota }: { pontos: PontoDaConta[]; nota?: string | null }) {
   const temDado = pontos.some((p) => p.seguidores != null || p.visitas != null || p.ativacoes != null);
+  // 150px: o gráfico divide a linha do cabeçalho com outras duas colunas, e a
+  // altura precisa caber sem esticar a caixa inteira.
   return (
-    <Moldura titulo="Evolução" nota={nota} vazio={!temDado || pontos.length < 2}>
+    <Moldura titulo="Evolução" nota={nota} altura={150} vazio={!temDado || pontos.length < 2}>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={pontos} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.12} vertical={false} />
