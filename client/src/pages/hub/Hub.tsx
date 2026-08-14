@@ -14,10 +14,11 @@ import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Link } from "wouter";
-import { Bot, FileText, KeyRound, Settings, ArrowUpRight } from "lucide-react";
+import { Bot, FileText, KeyRound, Settings, ArrowUpRight, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { HubShell } from "./HubShell";
+import { ATALHOS, type Atalho } from "./atalhos";
 import { SelvaTV } from "./SelvaTV";
 import { NewsTicker } from "./NewsTicker";
 import { greetingForHour, firstName } from "./hubMocks";
@@ -25,36 +26,13 @@ import type { NewsItem, SelvaTVImage } from "./hubMocks";
 import { LinhaPrioridadesAgenda } from "./AgendaColapsavel";
 import { PrioridadesCard } from "./PrioridadesCard";
 
-/** Atalhos de destaque na Home — acesso rápido aos principais recursos. */
-const ATALHOS = [
-  {
-    href: "/tracker",
-    icon: Bot,
-    // Encurtado para o cartão de um quarto de largura: "Brand Inteligent
-    // Tracker" truncaria em "Brand Inteligent Tr…", que não é nome de nada. A
-    // sigla é como o time já chama o produto, e o nome inteiro está no title.
-    title: "BIT",
-    desc: "Brand Inteligent Tracker — o robô de performance da SELVA.",
-  },
-  {
-    href: "/reports",
-    icon: FileText,
-    title: "Relatório",
-    desc: "Gere relatórios prontos para o cliente.",
-  },
-  {
-    href: "/access",
-    icon: KeyRound,
-    title: "Acessos",
-    desc: "Credenciais dos clientes — organizadas e seguras.",
-  },
-  {
-    href: "/settings",
-    icon: Settings,
-    title: "Configurações",
-    desc: "Personalize seu SELVA Spaces.",
-  },
-] as const;
+/** O ícone de cada atalho na Home. Destinos e nomes vêm de `atalhos.ts`. */
+const ICONE_DO_ATALHO: Record<Atalho["key"], LucideIcon> = {
+  tracker: Bot,
+  reports: FileText,
+  access: KeyRound,
+  settings: Settings,
+};
 
 /**
  * Quatro atalhos numa linha só.
@@ -77,11 +55,13 @@ function AtalhosRapidos() {
   return (
     <section aria-label="Acesso rápido">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {ATALHOS.map(({ href, icon: Icon, title, desc }) => (
+        {ATALHOS.map(({ key, href, nome, descricao }) => {
+          const Icon = ICONE_DO_ATALHO[key];
+          return (
           <Link
-            key={href}
+            key={key}
             href={href}
-            title={desc}
+            title={descricao}
             className="group relative overflow-hidden rounded-lg border border-[#EF701B]/25 px-3.5 py-3 transition-all hover:-translate-y-0.5 hover:border-[#EF701B]/70 hover:shadow-lg hover:shadow-[#EF701B]/20"
             style={{ background: "linear-gradient(135deg, #12141c 0%, #0a0b11 100%)" }}
           >
@@ -103,8 +83,12 @@ function AtalhosRapidos() {
               >
                 <Icon className="h-4 w-4" />
               </span>
-              <span className="min-w-0 flex-1 text-[13px] font-medium leading-tight truncate" style={{ color: "#FDFFED" }}>
-                {title}
+              {/* Duas linhas, e não `truncate`: "Brand Intelligent Tracker
+                  (BIT)" não cabe numa linha num cartão de um quarto de largura,
+                  e cortar produziria "Brand Intellig…" — que não é nome de
+                  nada. O clamp mantém os quatro cartões da mesma altura. */}
+              <span className="min-w-0 flex-1 text-[13px] font-medium leading-tight line-clamp-2" style={{ color: "#FDFFED" }}>
+                {nome}
               </span>
               <ArrowUpRight
                 className="h-3.5 w-3.5 shrink-0 opacity-0 transition-all group-hover:opacity-100 group-hover:text-[#EF701B]"
@@ -112,7 +96,8 @@ function AtalhosRapidos() {
               />
             </div>
           </Link>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

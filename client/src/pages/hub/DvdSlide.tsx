@@ -2,57 +2,48 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *  SELVA TV — slide fixo institucional (protetor de tela estilo DVD)
  * ─────────────────────────────────────────────────────────────────────────────
- *  Logo SELVA Spaces ao centro (asset /selva-spaces.svg) e as BOLAS-LINK do
- *  Spaces original (Tracker, Relatórios, Contratos, Clipper) vagando pelo slide
- *  estilo DVD, batendo nas bordas. Cada bola tem ícone, label e link real.
+ *  Logo SELVA Spaces ao centro (asset /selva-spaces.svg) e as BOLAS-LINK dos
+ *  quatro atalhos do Spaces vagando pelo slide estilo DVD, batendo nas bordas.
+ *
+ *  Os destinos vêm de `atalhos.ts`, os MESMOS quatro dos cartões da Home — duas
+ *  listas separadas divergiriam, e o bug só apareceria quando alguém clicasse no
+ *  lugar menos usado. Aqui entram os nomes curtos: numa bola de 56px não cabe
+ *  mais que uma palavra.
  *
  *  · Movimento suave via requestAnimationFrame, limpo no unmount.
  *  · prefers-reduced-motion → estático (bolas continuam clicáveis).
  *  · Hover pausa e destaca a bola (facilita o clique).
- *  · Permissões: Contratos só admin; atalhos gerais para todos.
  *  · Não usa órbitas (isso é do /spaces).
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { memo, useEffect, useRef, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import { useAuth } from "@/_core/hooks/useAuth";
-import { canAccessAdmin } from "@shared/permissions";
-
-const CLIPPER_URL = "https://selva-clipper.up.railway.app/";
+import { ATALHOS, type Atalho } from "./atalhos";
 
 interface Shortcut {
   key: string;
   label: string;
   href: string;
-  internal: boolean;
-  adminOnly?: boolean;
   icon: ReactNode;
 }
 
-const SHORTCUTS: Shortcut[] = [
-  {
-    key: "tracker", label: "Brand Inteligent Tracker", href: "/tracker", internal: true,
-    icon: <svg viewBox="0 0 144 145" width="24" height="24"><path d="M143.5 0H113.8V144.1H143.5V0Z" fill="#EF701B" /><path d="M92.9 31.5H63.2V144.1H92.9V31.5Z" fill="#FDFFED" /><path d="M66.7 73.2L40.9 58.3L0 129.2L25.8 144.1L66.7 73.2Z" fill="#FDFFED" /></svg>,
-  },
-  {
-    key: "reports", label: "Relatórios", href: "/reports", internal: true,
-    icon: <svg viewBox="0 0 169 145" width="22" height="19"><path d="M168.8 42.2C168.8 53.3 164.5 63.4 157.5 71L144.1 84.4H144L84.2 24.5L96.8 12.4C104.4 4.3 115.5 0 126.6 0C149.9 0 168.8 18.9 168.8 42.2Z" fill="#EF701B" /><path d="M144.1 84.4L84.4 144.1L11.4 71C4.3 63.4 0 53.3 0 42.2C0 18.9 18.9 0 42.2 0C53.3 0 63.5 4.3 71 11.4L84.2 24.5L144.1 84.4Z" fill="#FDFFED" /></svg>,
-  },
-  {
-    key: "contracts", label: "Contratos", href: "/contracts", internal: true, adminOnly: true,
-    icon: <svg viewBox="0 0 177 145" width="26" height="21"><path d="M176.6 55.8C176.6 104.5 137.1 144.1 88.3 144.1C39.5 144.1 0 104.5 0 55.8H32.5C32.5 86.6 57.5 111.5 88.3 111.5C119.1 111.5 144.1 86.6 144.1 55.8H176.6Z" fill="#FDFFED" /><path d="M144.1 55.8C144.1 86.6 119.1 111.5 88.3 111.5C57.5 111.5 32.5 86.6 32.5 55.8H144.1Z" fill="#EF701B" /><path d="M144.1 55.8H32.5C32.5 25 57.5 0 88.3 0C119.1 0 144.1 25 144.1 55.8Z" fill="rgba(253,255,237,0.3)" /></svg>,
-  },
-  {
-    key: "clipper", label: "Clipper", href: CLIPPER_URL, internal: false,
-    icon: <svg viewBox="0 0 146 145" width="23" height="23"><path d="M120.2 37.9L38.8 119.3L1 81.4L12.2 70.2C19.6 77.6 29.8 82.1 41 82.1C63.7 82.1 82.1 63.7 82.1 41C82.1 29.8 77.5 19.6 70.2 12.2L82.4 0L120.2 37.9Z" fill="#FDFFED" /><path d="M145 62.6L63.6 144.1L38.8 119.3L120.2 37.9L145 62.6Z" fill="#EF701B" /></svg>,
-  },
-];
+/** As marcas geométricas da SELVA, uma por atalho. */
+const MARCA: Record<Atalho["key"], ReactNode> = {
+  tracker: <svg viewBox="0 0 144 145" width="24" height="24"><path d="M143.5 0H113.8V144.1H143.5V0Z" fill="#EF701B" /><path d="M92.9 31.5H63.2V144.1H92.9V31.5Z" fill="#FDFFED" /><path d="M66.7 73.2L40.9 58.3L0 129.2L25.8 144.1L66.7 73.2Z" fill="#FDFFED" /></svg>,
+  reports: <svg viewBox="0 0 169 145" width="22" height="19"><path d="M168.8 42.2C168.8 53.3 164.5 63.4 157.5 71L144.1 84.4H144L84.2 24.5L96.8 12.4C104.4 4.3 115.5 0 126.6 0C149.9 0 168.8 18.9 168.8 42.2Z" fill="#EF701B" /><path d="M144.1 84.4L84.4 144.1L11.4 71C4.3 63.4 0 53.3 0 42.2C0 18.9 18.9 0 42.2 0C53.3 0 63.5 4.3 71 11.4L84.2 24.5L144.1 84.4Z" fill="#FDFFED" /></svg>,
+  access: <svg viewBox="0 0 177 145" width="26" height="21"><path d="M176.6 55.8C176.6 104.5 137.1 144.1 88.3 144.1C39.5 144.1 0 104.5 0 55.8H32.5C32.5 86.6 57.5 111.5 88.3 111.5C119.1 111.5 144.1 86.6 144.1 55.8H176.6Z" fill="#FDFFED" /><path d="M144.1 55.8C144.1 86.6 119.1 111.5 88.3 111.5C57.5 111.5 32.5 86.6 32.5 55.8H144.1Z" fill="#EF701B" /><path d="M144.1 55.8H32.5C32.5 25 57.5 0 88.3 0C119.1 0 144.1 25 144.1 55.8Z" fill="rgba(253,255,237,0.3)" /></svg>,
+  settings: <svg viewBox="0 0 146 145" width="23" height="23"><path d="M120.2 37.9L38.8 119.3L1 81.4L12.2 70.2C19.6 77.6 29.8 82.1 41 82.1C63.7 82.1 82.1 63.7 82.1 41C82.1 29.8 77.5 19.6 70.2 12.2L82.4 0L120.2 37.9Z" fill="#FDFFED" /><path d="M145 62.6L63.6 144.1L38.8 119.3L120.2 37.9L145 62.6Z" fill="#EF701B" /></svg>,
+};
+
+const SHORTCUTS: Shortcut[] = ATALHOS.map((a) => ({
+  key: a.key, label: a.nomeCurto, href: a.href, icon: MARCA[a.key],
+}));
 
 export const DvdSlide = memo(function DvdSlide({ active = true }: { active?: boolean } = {}) {
-  const { user } = useAuth();
   const [, navigate] = useLocation();
-  const isAdmin = canAccessAdmin((user as { role?: string } | null)?.role);
-  const shortcuts = SHORTCUTS.filter((s) => !s.adminOnly || isAdmin);
+  // Os quatro são abertos a qualquer pessoa logada — não há mais o que filtrar
+  // por permissão aqui.
+  const shortcuts = SHORTCUTS;
 
   const rootRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
@@ -148,18 +139,16 @@ export const DvdSlide = memo(function DvdSlide({ active = true }: { active?: boo
         <img src="/selva-spaces.svg" alt="SELVA Spaces" style={{ width: "min(56%,460px)", height: "auto", opacity: 0.95 }} />
       </div>
 
-      {/* Bolas-link (DVD) */}
-      {shortcuts.map((s) =>
-        s.internal ? (
-          <a key={s.key} href={s.href} onClick={(e) => { e.preventDefault(); navigate(s.href); }} {...ballProps(s)}>
-            <Ball s={s} />
-          </a>
-        ) : (
-          <a key={s.key} href={s.href} target="_blank" rel="noreferrer" {...ballProps(s)}>
-            <Ball s={s} />
-          </a>
-        )
-      )}
+      {/* Bolas-link (DVD). Os quatro destinos são internos, então todos
+          navegam pelo roteador — o ramo de link externo saiu junto com o
+          Clipper. `href` continua real para o clique do meio e o "copiar
+          endereço" funcionarem. */}
+      {shortcuts.map((s) => (
+        <a key={s.key} href={s.href}
+          onClick={(e) => { e.preventDefault(); navigate(s.href); }} {...ballProps(s)}>
+          <Ball s={s} />
+        </a>
+      ))}
     </div>
   );
 });
