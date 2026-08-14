@@ -402,7 +402,7 @@ function ComporComunicado({ onClose }: { onClose: () => void }) {
   const [corpo, setCorpo] = useState("");
   const [publico, setPublico] = useState<"TODOS" | "ROLE" | "FUNCAO" | "PESSOAS">("TODOS");
   const [alvoFuncao, setAlvoFuncao] = useState<"collaborator" | "coordinator">("coordinator");
-  const [alvoRole, setAlvoRole] = useState<"user" | "admin" | "developer">("user");
+  const [alvoRole, setAlvoRole] = useState<"user" | "admin" | "developer" | "coordinator">("user");
   const [alvoUserIds, setAlvoUserIds] = useState<number[]>([]);
   const [fixado, setFixado] = useState(false);
 
@@ -455,7 +455,7 @@ function ComporComunicado({ onClose }: { onClose: () => void }) {
 
           {publico === "ROLE" && (
             <div className="flex gap-1.5 flex-wrap">
-              {([["user", "Colaborador"], ["admin", "Administrativo"], ["developer", "Desenvolvedor"]] as const).map(([v, lbl]) => (
+              {([["user", "Colaborador"], ["coordinator", "Coordenador"], ["admin", "Administrativo"], ["developer", "Desenvolvedor"]] as const).map(([v, lbl]) => (
                 <Chip key={v} on={alvoRole === v} onClick={() => setAlvoRole(v)}>{lbl}</Chip>
               ))}
             </div>

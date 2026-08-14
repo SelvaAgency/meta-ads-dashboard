@@ -1404,6 +1404,63 @@ async function main() {
       console.log("[ensure-schema] ok  · weekly_priorities.responsavelUserId adicionada");
     }
 
+    // ── Coordenador virou ROLE de verdade ─────────────────────────────────
+    //
+    // Acrescentar valor a um ENUM é aditivo: as linhas existentes mantêm o que
+    // já tinham. E é seguro em permissão porque TODA verificação da base é
+    // allowlist ("é admin?", "é admin ou dev?") — auditado, não há um só
+    // `role !== "user"`. O valor novo cai fora de tudo por construção.
+    const [roleCol] = await conn.query(
+      "SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'role'",
+    );
+    if (roleCol.length && !String(roleCol[0].COLUMN_TYPE).includes("coordinator")) {
+      await conn.query(
+        "ALTER TABLE `users` MODIFY COLUMN `role` ENUM('user','admin','developer','coordinator') NOT NULL DEFAULT 'user'",
+      );
+      console.log("[ensure-schema] ok  · users.role aceita coordinator");
+
+      // Promove SÓ quem já era coordenador explicitamente, e só quem é
+      // colaborador comum: um admin com operationalRole=coordinator seria
+      // REBAIXADO por esta linha, e perder o Financeiro em silêncio é o pior
+      // desfecho possível de uma migração de permissão. Roda uma vez, dentro
+      // do `if`, junto do ALTER que a habilitou.
+      const [promovidos] = await conn.query(
+        "UPDATE `users` SET `role` = 'coordinator' WHERE `role` = 'user' AND `operationalRole` = 'coordinator'",
+      );
+      console.log(`[ensure-schema] ok  · ${promovidos.affectedRows} coordenador(es) promovido(s) de colaborador`);
+    }
+
+    // ── Prioridades: um item pode ter vários responsáveis ─────────────────
+    //
+    // Tabela de relacionamento, e não uma lista de ids em JSON: com JSON, "quais
+    // prioridades são minhas?" vira varredura de string, e a integridade fica
+    // por conta de quem escreve. Aqui a chave única já impede o duplicado.
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`weekly_priority_responsaveis\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`prioridadeId\` INT NOT NULL,
+      \`userId\` INT NOT NULL,
+      \`ordem\` INT NOT NULL DEFAULT 0,
+      \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`uq_wpr_prioridade_user\` (\`prioridadeId\`, \`userId\`),
+      KEY \`idx_wpr_prioridade\` (\`prioridadeId\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · weekly_priority_responsaveis garantida");
+
+    // Traz o responsável único que já existia. `NOT EXISTS` deixa isto
+    // idempotente: roda a cada boot sem duplicar nem sobrescrever quem foi
+    // acrescentado depois pela tela.
+    const [migrados] = await conn.query(`
+      INSERT INTO \`weekly_priority_responsaveis\` (\`prioridadeId\`, \`userId\`)
+      SELECT wp.\`id\`, wp.\`responsavelUserId\` FROM \`weekly_priorities\` wp
+      LEFT JOIN \`weekly_priority_responsaveis\` r
+        ON r.\`prioridadeId\` = wp.\`id\` AND r.\`userId\` = wp.\`responsavelUserId\`
+      WHERE wp.\`responsavelUserId\` IS NOT NULL AND r.\`id\` IS NULL
+    `);
+    if (migrados.affectedRows > 0) {
+      console.log(`[ensure-schema] ok  · ${migrados.affectedRows} responsável(is) migrado(s) para a tabela de relação`);
+    }
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

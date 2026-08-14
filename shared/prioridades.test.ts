@@ -18,14 +18,15 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  agruparPorTipo, cortar, ordenarPorPrazo, type ItemPrioridade, type TipoPrioridade,
+  agruparPorTipo, cortar, distribuicaoPorGrupo, ordenarPorPrazo,
+  type ItemPrioridade, type TipoPrioridade,
 } from "./prioridades";
 
 let seq = 0;
 const item = (tipo: TipoPrioridade, over: Partial<ItemPrioridade> = {}): ItemPrioridade => ({
   id: ++seq, grupo: "cc", semana: "2026-08-10", tipo,
   titulo: `item ${seq}`, descricao: null, prazo: null, status: "PLANEJADO",
-  responsavelUserId: null, responsavelNome: null, responsavelAvatarUrl: null,
+  responsaveis: [], responsavelLegado: null,
   ...over,
 });
 
@@ -148,5 +149,63 @@ describe("a ordem é do prazo, e ninguém a arrasta", () => {
     const antes = lista.map((i) => i.id);
     ordenarPorPrazo(lista);
     expect(lista.map((i) => i.id)).toEqual(antes);
+  });
+});
+
+
+describe("o gráfico responde a distribuição da SEMANA", () => {
+  const GRUPOS = ["cc", "gtm1", "gtm2"];
+  const semana = [
+    ...Array.from({ length: 4 }, () => item("PRIORIDADE", { grupo: "cc" })),
+    ...Array.from({ length: 2 }, () => item("ENTREGA", { grupo: "gtm1" })),
+    item("ATENCAO", { grupo: "gtm2" }),
+  ];
+
+  it("conta os itens de cada grupo", () => {
+    const { fatias, total } = distribuicaoPorGrupo(semana, GRUPOS);
+    expect(fatias.map((f) => [f.grupo, f.total])).toEqual([["cc", 4], ["gtm1", 2], ["gtm2", 1]]);
+    expect(total).toBe(7);
+  });
+
+  /**
+   * Normalizar pelo MAIOR e não pelo total: com três times equilibrados, o
+   * total daria três barras de 33% — baixas, parecidas e ilegíveis. A leitura
+   * que se quer é comparativa.
+   */
+  it("a barra é proporcional ao maior grupo, não ao total", () => {
+    const { fatias } = distribuicaoPorGrupo(semana, GRUPOS);
+    expect(fatias.map((f) => f.proporcao)).toEqual([100, 50, 25]);
+  });
+
+  /** Grupo sem item continua na lista: some do gráfico seria perder a comparação. */
+  it("grupo vazio aparece com zero, e não desaparece", () => {
+    const { fatias } = distribuicaoPorGrupo([item("PRIORIDADE", { grupo: "cc" })], GRUPOS);
+    expect(fatias).toHaveLength(3);
+    expect(fatias[1]).toEqual({ grupo: "gtm1", total: 0, proporcao: 0 });
+  });
+
+  it("semana vazia não divide por zero", () => {
+    const { fatias, total } = distribuicaoPorGrupo([], GRUPOS);
+    expect(total).toBe(0);
+    expect(fatias.every((f) => f.proporcao === 0)).toBe(true);
+  });
+
+  /**
+   * O ponto do módulo: a distribuição é da semana, e quem filtra por um grupo
+   * continua vendo os três. Se ela recebesse a lista já filtrada, o gráfico
+   * viraria 100% do grupo selecionado — uma tautologia.
+   */
+  it("não é afetada pela aba: recebe a semana inteira", () => {
+    const soCC = semana.filter((i) => i.grupo === "cc");
+    expect(distribuicaoPorGrupo(semana, GRUPOS).fatias[0].total).toBe(4);
+    // Prova por contraste: filtrado, o gtm1 sumiria — e é isso que a tela evita
+    // ao passar `itens` e não `doFiltro`.
+    expect(distribuicaoPorGrupo(soCC, GRUPOS).fatias[1].total).toBe(0);
+  });
+
+  /** "todos" é filtro, não grupo — contá-lo somaria a semana de novo. */
+  it("a aba Todos não entra como quarto grupo", () => {
+    const { fatias } = distribuicaoPorGrupo(semana, GRUPOS);
+    expect(fatias.map((f) => f.grupo)).not.toContain("todos");
   });
 });

@@ -95,6 +95,7 @@ import {
   prioridadesDaSemana,
   colaboradoresParaResponsavel,
   criarPrioridade,
+  definirResponsaveis,
   atualizarPrioridade,
   excluirPrioridade,
   registrarTesteVinculo,
@@ -1185,7 +1186,7 @@ export const appRouter = router({
       .input(z.object({
         name: z.string().min(1),
         email: z.string().email(),
-        role: z.enum(["user", "admin", "developer"]),
+        role: z.enum(["user", "admin", "developer", "coordinator"]),
         jobTitle: z.string().optional(),
         birthdayDay: z.number().int().min(1).max(31).optional(),
         birthdayMonth: z.number().int().min(1).max(12).optional(),
@@ -1218,7 +1219,7 @@ export const appRouter = router({
         id: z.number().int(),
         name: z.string().min(1).optional(),
         email: z.string().email().optional(),
-        role: z.enum(["user", "admin", "developer"]).optional(),
+        role: z.enum(["user", "admin", "developer", "coordinator"]).optional(),
         // Responsabilidade operacional — ortogonal a `role`, não dá permissão.
         operationalRole: z.enum(["collaborator", "coordinator"]).optional(),
         jobTitle: z.string().nullable().optional(),
@@ -2510,7 +2511,7 @@ export const appRouter = router({
         titulo: z.string().min(1).max(180),
         corpo: z.string().min(1).max(20000),
         publico: z.enum(["TODOS", "ROLE", "FUNCAO", "PESSOAS"]).default("TODOS"),
-        alvoRole: z.enum(["user", "admin", "developer"]).nullable().optional(),
+        alvoRole: z.enum(["user", "admin", "developer", "coordinator"]).nullable().optional(),
         alvoFuncao: z.enum(["collaborator", "coordinator"]).nullable().optional(),
         alvoUserIds: z.array(z.number().int()).nullable().optional(),
         fixado: z.boolean().default(false),
@@ -4030,12 +4031,24 @@ export const appRouter = router({
         const semana = inicioDaSemana(input.semana);
         const r = await prioridadesDaSemana(semana);
         // A chave do avatar vira URL aqui — é o router que fala com o storage.
+        // Uma pessoa que aparece em cinco itens é resolvida UMA vez: assinar URL
+        // custa, e a mesma foto assinada cinco vezes é a mesma foto.
+        const cache = new Map<string, string | null>();
+        const urlDe = async (chave: string | null) => {
+          if (!chave) return null;
+          if (!cache.has(chave)) {
+            let u: string | null = null;
+            try { u = await getReadUrl(chave); } catch { /* storage off */ }
+            cache.set(chave, u);
+          }
+          return cache.get(chave) ?? null;
+        };
         const itens = await Promise.all(r.itens.map(async (it) => {
-          const chave = it.responsavelAvatarKey as string | null;
-          let responsavelAvatarUrl: string | null = null;
-          if (chave) { try { responsavelAvatarUrl = await getReadUrl(chave); } catch { /* storage off */ } }
-          const { responsavelAvatarKey: _fora, ...resto } = it;
-          return { ...resto, responsavelAvatarUrl };
+          const brutos = (it.responsaveis ?? []) as Array<{ id: number; nome: string; avatarKey: string | null }>;
+          const responsaveis = await Promise.all(brutos.map(async (p) => ({
+            id: p.id, nome: p.nome, avatarUrl: await urlDe(p.avatarKey),
+          })));
+          return { ...it, responsaveis };
         }));
         return { semana, ...r, itens };
       }),
@@ -4064,21 +4077,21 @@ export const appRouter = router({
         tipo: z.enum(TIPOS),
         titulo: z.string().trim().min(1).max(200),
         descricao: z.string().trim().max(2000).optional(),
-        responsavelUserId: z.number().int().nullable().optional(),
+        responsaveis: z.array(z.number().int()).max(12).default([]),
         prazo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         status: z.enum(STATUS).default("PLANEJADO"),
       }))
       .mutation(async ({ ctx, input }) => {
+        const { responsaveis, ...campos } = input;
         const id = await criarPrioridade({
-          ...input,
+          ...campos,
           semana: inicioDaSemana(input.semana),
           // Vazio vira NULL, e não string vazia: a tela decide "mostrar ou
           // não" por ausência, e `""` é presença de nada — apareceria como um
           // rótulo em branco.
           descricao: input.descricao || null,
-          responsavelUserId: input.responsavelUserId ?? null,
           prazo: input.prazo || null,
-        }, ctx.user.id);
+        }, responsaveis, ctx.user.id);
         return { id };
       }),
 
@@ -4089,21 +4102,25 @@ export const appRouter = router({
         tipo: z.enum(TIPOS).optional(),
         titulo: z.string().trim().min(1).max(200).optional(),
         descricao: z.string().trim().max(2000).nullable().optional(),
-        responsavelUserId: z.number().int().nullable().optional(),
+        responsaveis: z.array(z.number().int()).max(12).optional(),
         prazo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
         status: z.enum(STATUS).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const { id, ...patch } = input;
+        const { id, responsaveis, ...patch } = input;
         const limpo: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(patch)) {
           if (v === undefined) continue;
           limpo[k] = v === "" ? null : v;
         }
-        // Vincular pessoa apaga o texto livre antigo: manter os dois faria a
-        // leitura depender de qual vence, e um dia venceria o errado.
-        if (limpo.responsavelUserId != null) limpo.responsavel = null;
+        // Definir responsáveis apaga o texto livre de antes da migração: manter
+        // os dois faria a leitura depender de qual vence, e um dia venceria o
+        // errado.
+        if (responsaveis !== undefined) limpo.responsavel = null;
         await atualizarPrioridade(id, limpo, ctx.user.id);
+        // `undefined` é "não mexeu na lista"; `[]` é "tirou todo mundo". Tratar
+        // os dois igual faria salvar o título apagar os responsáveis.
+        if (responsaveis !== undefined) await definirResponsaveis(id, responsaveis);
         return { success: true } as const;
       }),
 

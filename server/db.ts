@@ -2873,7 +2873,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, socialSnapshots, socialMediaSnapshots, socialColetaExecucoes, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings, weeklyPriorities, type InsertWeeklyPriority } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, socialSnapshots, socialMediaSnapshots, socialColetaExecucoes, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings, weeklyPriorities, weeklyPriorityResponsaveis, type InsertWeeklyPriority } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 
@@ -6471,11 +6471,17 @@ export async function prioridadesDaSemana(semana: string): Promise<{
   // responsável obrigaria a abrir a lista de pessoas para o portal inteiro.
   // Resolvido no servidor, quem só visualiza recebe exatamente os nomes e as
   // fotos que já estão na tela — e nada além.
-  const ids = Array.from(new Set(
-    linhas.map((l) => l.responsavelUserId).filter((x): x is number => typeof x === "number"),
-  ));
+  // Os responsáveis de TODOS os itens numa consulta só — uma por item seria
+  // uma consulta por linha da tela.
+  const vinculos = linhas.length
+    ? await db.select().from(weeklyPriorityResponsaveis)
+        .where(inArray(weeklyPriorityResponsaveis.prioridadeId, linhas.map((l) => l.id)))
+        .orderBy(weeklyPriorityResponsaveis.ordem, weeklyPriorityResponsaveis.id)
+    : [];
+
   // A chave do avatar sai daqui; quem a transforma em URL é o router, que já
   // fala com o storage. `db.ts` não precisa conhecer o storage para isto.
+  const ids = Array.from(new Set(vinculos.map((v) => v.userId)));
   const pessoas = new Map<number, { nome: string | null; avatarKey: string | null }>();
   if (ids.length) {
     const us = await db.select({ id: users.id, name: users.name, avatarKey: users.avatarKey })
@@ -6483,16 +6489,24 @@ export async function prioridadesDaSemana(semana: string): Promise<{
     for (const u of us) pessoas.set(u.id, { nome: u.name ?? null, avatarKey: u.avatarKey ?? null });
   }
 
-  const itens = linhas.map((l) => {
-    const p = l.responsavelUserId !== null ? pessoas.get(l.responsavelUserId) : undefined;
-    return {
-      ...l,
-      // O texto livre antigo só aparece quando não há pessoa vinculada — assim
-      // item criado antes da mudança não perde o responsável.
-      responsavelNome: p?.nome ?? l.responsavel ?? null,
-      responsavelAvatarKey: p?.avatarKey ?? null,
-    };
-  });
+  const porPrioridade = new Map<number, Array<{ id: number; nome: string; avatarKey: string | null }>>();
+  for (const v of vinculos) {
+    const p = pessoas.get(v.userId);
+    // Pessoa apagada do sistema: o vínculo continua, mas não há nome para
+    // mostrar. Pular é melhor que desenhar um avatar sem dono.
+    if (!p) continue;
+    const lista = porPrioridade.get(v.prioridadeId) ?? [];
+    lista.push({ id: v.userId, nome: p.nome ?? "sem nome", avatarKey: p.avatarKey });
+    porPrioridade.set(v.prioridadeId, lista);
+  }
+
+  const itens = linhas.map((l) => ({
+    ...l,
+    responsaveis: porPrioridade.get(l.id) ?? [],
+    // O texto livre de antes da migração só aparece quando não há ninguém
+    // vinculado — assim item antigo não perde o responsável que tinha.
+    responsavelLegado: (porPrioridade.get(l.id)?.length ?? 0) === 0 ? l.responsavel ?? null : null,
+  }));
 
   // O mais recente da SEMANA, e não da tabela: navegar para uma semana antiga
   // e ver "atualizado agora" (por causa de uma edição em outra semana) faria o
@@ -6534,14 +6548,38 @@ export async function colaboradoresParaResponsavel(): Promise<Array<{
 }
 
 export async function criarPrioridade(
-  dados: InsertWeeklyPriority, userId: number,
+  dados: InsertWeeklyPriority, responsaveis: number[], userId: number,
 ): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
   const r = await db.insert(weeklyPriorities).values({
     ...dados, createdBy: userId, updatedBy: userId,
   });
-  return Number((r as unknown as { insertId?: number }).insertId ?? 0);
+  const id = Number((r as unknown as { insertId?: number }).insertId ?? 0);
+  if (id && responsaveis.length) await definirResponsaveis(id, responsaveis);
+  return id;
+}
+
+/**
+ * Substitui a lista inteira de responsáveis.
+ *
+ * Apaga e regrava em vez de calcular o diff: a lista tem dois ou três nomes, o
+ * diff custaria mais código do que economiza escrita, e a ORDEM importa (o
+ * primeiro é quem aparece na linha fechada) — reordenar por diff seria um
+ * segundo problema para resolver de graça.
+ */
+export async function definirResponsaveis(prioridadeId: number, userIds: number[]): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.delete(weeklyPriorityResponsaveis)
+    .where(eq(weeklyPriorityResponsaveis.prioridadeId, prioridadeId));
+  // Sem duplicados: a chave única recusaria a inserção inteira, e a tela pode
+  // mandar o mesmo id duas vezes se alguém clicar rápido.
+  const unicos = Array.from(new Set(userIds));
+  if (!unicos.length) return;
+  await db.insert(weeklyPriorityResponsaveis).values(
+    unicos.map((userId, i) => ({ prioridadeId, userId, ordem: i })),
+  );
 }
 
 export async function atualizarPrioridade(
@@ -6556,6 +6594,9 @@ export async function atualizarPrioridade(
 export async function excluirPrioridade(id: number): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("DB indisponível");
+  // Os vínculos primeiro: sem FK física, apagar só a prioridade deixaria linhas
+  // órfãs apontando para um id que será reaproveitado pelo AUTO_INCREMENT.
+  await db.delete(weeklyPriorityResponsaveis).where(eq(weeklyPriorityResponsaveis.prioridadeId, id));
   await db.delete(weeklyPriorities).where(eq(weeklyPriorities.id, id));
 }
 

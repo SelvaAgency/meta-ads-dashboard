@@ -30,12 +30,13 @@
  *  sendo o elemento mais forte da linha.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Target, Trash2, X, Check,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManagePriorities } from "@shared/permissions";
 import { toast } from "sonner";
@@ -46,7 +47,8 @@ import {
 } from "@shared/semana";
 import {
   ITENS_VISIVEIS, ROTULO_STATUS, STATUS, TIPOS, TITULO_TIPO, agruparPorTipo,
-  cortar, type ItemPrioridade, type StatusPrioridade, type TipoPrioridade,
+  cortar, distribuicaoPorGrupo, type ItemPrioridade, type Responsavel,
+  type StatusPrioridade, type TipoPrioridade,
 } from "@shared/prioridades";
 
 /**
@@ -84,14 +86,14 @@ interface Rascunho {
   tipo: TipoPrioridade;
   titulo: string;
   descricao: string;
-  responsavelUserId: number | null;
+  responsaveis: number[];
   prazo: string;
   status: StatusPrioridade;
   grupo: Grupo;
 }
 
 const vazio = (grupo: Grupo): Rascunho => ({
-  tipo: "PRIORIDADE", titulo: "", descricao: "", responsavelUserId: null,
+  tipo: "PRIORIDADE", titulo: "", descricao: "", responsaveis: [],
   prazo: "", status: "PLANEJADO", grupo,
 });
 
@@ -99,8 +101,7 @@ const primeiroNome = (n: string) => n.trim().split(/\s+/)[0] ?? n;
 
 export function PrioridadesCard() {
   const { user } = useAuth();
-  const u = user as { role?: string; operationalRole?: string } | null;
-  const podeEditar = canManagePriorities(u?.role, u?.operationalRole);
+  const podeEditar = canManagePriorities((user as { role?: string } | null)?.role);
 
   const hoje = hojeISO();
   const [semana, setSemana] = useState(() => inicioDaSemana(hoje));
@@ -145,6 +146,9 @@ export function PrioridadesCard() {
 
   const situacao = situacaoDaSemana(semana, hoje);
   const total = secoes.reduce((n, s) => n + s.itens.length, 0);
+  // Sempre sobre a semana INTEIRA, e não sobre `doFiltro`: filtrar por um grupo
+  // e o gráfico virar 100% daquele grupo transformaria a resposta em tautologia.
+  const distribuicao = useMemo(() => distribuicaoPorGrupo(itens, GRUPOS), [itens]);
 
   const irPara = (n: number) => {
     setSemana((s) => deslocarSemana(s, n));
@@ -157,7 +161,7 @@ export function PrioridadesCard() {
     if (!titulo) { toast.error("O título é obrigatório."); return; }
     const comum = {
       tipo: r.tipo, titulo, status: r.status,
-      responsavelUserId: r.responsavelUserId,
+      responsaveis: r.responsaveis,
       grupo: r.grupo,
     };
     if (r.id) {
@@ -231,6 +235,44 @@ export function PrioridadesCard() {
           </div>
         </div>
 
+        {/* ── Distribuição entre os grupos ──────────────────────────────────
+            Contexto, e não painel: três barras finas com o número ao lado. Fica
+            entre o período e as abas porque é o que amarra os dois — diz de onde
+            vêm os itens que as abas filtram. Some quando a semana está vazia:
+            três barras zeradas ocupam espaço para não informar nada. */}
+        {distribuicao.total > 0 && (
+          <div className="relative mt-4 flex flex-col gap-1.5">
+            {distribuicao.fatias.map((f, i) => {
+              const ativo = aba === f.grupo;
+              return (
+                <div key={f.grupo} className="flex items-center gap-2">
+                  <span className={`text-[10px] w-[92px] flex-shrink-0 truncate tracking-tight transition-colors ${
+                    ativo ? "text-foreground font-semibold" : "text-muted-foreground/70"
+                  }`}>
+                    {ROTULO_GRUPO[f.grupo as Grupo]}
+                  </span>
+                  <span className="flex-1 h-1.5 rounded-full bg-muted/60 overflow-hidden">
+                    {/* Um só matiz em três intensidades. Cor própria por grupo
+                        brigaria com as cores dos TIPOS, que são as que precisam
+                        ser vistas na lista. */}
+                    <span className="block h-full rounded-full transition-[width] duration-500 ease-out"
+                      style={{
+                        width: `${f.proporcao}%`,
+                        background: "#EF701B",
+                        opacity: ativo ? 1 : [0.9, 0.62, 0.38][i] ?? 0.4,
+                      }} />
+                  </span>
+                  <span className={`text-[10px] tabular-nums w-4 text-right flex-shrink-0 ${
+                    ativo ? "text-foreground font-semibold" : "text-muted-foreground/60"
+                  }`}>
+                    {f.total}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* ── Abas, integradas ao cabeçalho ─────────────────────────────────
             Elas fecham o bloco do topo: a linha inferior das abas é a divisa
             entre cabeçalho e conteúdo, e por isso não existe borda separando
@@ -292,7 +334,7 @@ export function PrioridadesCard() {
                     <Linha key={item.id} item={item} podeEditar={podeEditar} mostrarGrupo={aba === "todos"}
                       onEditar={() => setRascunho({
                         id: item.id, tipo: item.tipo, titulo: item.titulo,
-                        descricao: item.descricao ?? "", responsavelUserId: item.responsavelUserId,
+                        descricao: item.descricao ?? "", responsaveis: item.responsaveis.map((r) => r.id),
                         prazo: item.prazo ?? "", status: item.status, grupo: item.grupo as Grupo,
                       })}
                       onExcluir={() => {
@@ -401,6 +443,7 @@ function Linha({ item, podeEditar, mostrarGrupo, onEditar, onExcluir }: {
 }) {
   const concluido = item.status === "CONCLUIDO";
   const cor = CORES_TIPO[item.tipo];
+  const temResponsavel = item.responsaveis.length > 0 || !!item.responsavelLegado;
 
   return (
     <div className="group flex items-start gap-2.5">
@@ -431,18 +474,17 @@ function Linha({ item, podeEditar, mostrarGrupo, onEditar, onExcluir }: {
               <span className="tabular-nums">{rotuloDeDia(item.prazo)}</span>
             </>
           )}
-          {item.responsavelNome && (
+          {temResponsavel && (
             <>
               {(mostrarGrupo || item.prazo) && <span className="opacity-30">·</span>}
-              <span className="inline-flex items-center gap-1.5">
-                <Avatar nome={item.responsavelNome} url={item.responsavelAvatarUrl} />
-                {primeiroNome(item.responsavelNome)}
-              </span>
+              {item.responsaveis.length > 0
+                ? <Responsaveis lista={item.responsaveis} />
+                : <span>{primeiroNome(item.responsavelLegado!)}</span>}
             </>
           )}
           {item.status !== "PLANEJADO" && (
             <>
-              {(mostrarGrupo || item.prazo || item.responsavelNome) && <span className="opacity-30">·</span>}
+              {(mostrarGrupo || item.prazo || temResponsavel) && <span className="opacity-30">·</span>}
               <span className={TOM_STATUS[item.status]}>{ROTULO_STATUS[item.status]}</span>
             </>
           )}
@@ -467,6 +509,57 @@ function BotaoIcone({ titulo, onClick, children }: {
       className="p-1 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-accent/30 transition-colors">
       {children}
     </button>
+  );
+}
+
+/**
+ * "[foto] João +2", e a lista inteira ao tocar.
+ *
+ * O primeiro nome resolve a leitura rápida; o "+2" diz que há mais sem gastar a
+ * linha inteira com nomes. A lista completa abre em POPOVER e não em `title`
+ * nativo nem em hover puro de CSS: no celular não existe hover, e um dado que
+ * só aparece com mouse é um dado que metade das pessoas nunca vê.
+ *
+ * O popover do Radix já monta em portal, então ele atravessa o `overflow-hidden`
+ * do card — o mesmo motivo pelo qual o seletor de responsável usa o primitivo.
+ */
+function Responsaveis({ lista }: { lista: Responsavel[] }) {
+  const [p] = lista;
+  const extras = lista.length - 1;
+  const conteudo = (
+    <span className="inline-flex items-center gap-1.5">
+      <Avatar nome={p.nome} url={p.avatarUrl} />
+      <span>{primeiroNome(p.nome)}</span>
+      {extras > 0 && <span className="text-muted-foreground/70">+{extras}</span>}
+    </span>
+  );
+
+  // Com uma pessoa só não há o que revelar: o popover seria um alvo de clique
+  // que abre para repetir o que já está escrito ao lado.
+  if (extras <= 0) return conteudo;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" aria-label={`${lista.length} responsáveis`}
+          className="inline-flex items-center rounded-md hover:bg-accent/25 -mx-1 px-1 transition-colors">
+          {conteudo}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto min-w-[160px] p-1.5">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-1.5 pb-1">
+          Responsáveis
+        </p>
+        <div className="flex flex-col gap-0.5">
+          {lista.map((r) => (
+            <span key={r.id} className="flex items-center gap-2 text-xs px-1.5 py-1">
+              <Avatar nome={r.nome} url={r.avatarUrl} tamanho={20} />
+              <span className="truncate">{primeiroNome(r.nome)}</span>
+            </span>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -512,8 +605,8 @@ function Formulario({ rascunho, onChange, onSalvar, onCancelar, salvando }: {
         placeholder="Descrição (opcional)" maxLength={2000} className={`${campo} w-full`} />
 
       <div className="flex gap-2 flex-wrap">
-        <SeletorResponsavel valor={rascunho.responsavelUserId}
-          onChange={(v) => set("responsavelUserId", v)} />
+        <SeletorResponsaveis escolhidos={rascunho.responsaveis}
+          onChange={(v) => set("responsaveis", v)} />
         <input type="date" value={rascunho.prazo} onChange={(e) => set("prazo", e.target.value)}
           aria-label="Prazo (opcional)" className={`${campo} w-[140px]`} />
       </div>
@@ -534,72 +627,84 @@ function Formulario({ rascunho, onChange, onSalvar, onCancelar, salvando }: {
 }
 
 /**
- * O responsável, escolhido entre os colaboradores do Spaces.
+ * Os responsáveis, escolhidos entre os colaboradores do Spaces.
  *
- * Era texto livre, e virou seleção para a foto do perfil aparecer no item sem
- * duplicar cadastro de gente. Um `<select>` nativo não desenha imagem, então é
- * um dropdown próprio — mas só isso: o botão fechado mostra foto e primeiro
- * nome, que é exatamente o que o item mostra depois.
+ * ── Por que Popover e não uma div posicionada ──────────────────────────────
+ * O card tem `overflow-hidden` (é o que segura o brilho do cabeçalho e as
+ * bordas arredondadas), então qualquer lista absoluta era CORTADA por ele. A
+ * saída não é remover o clipping — isso vazaria o brilho e quadraria os cantos
+ * — e sim montar a lista fora do card. O Popover do Radix já faz isso em
+ * portal, é o primitivo que o projeto tem, e resolve de quebra o fechar-ao-
+ * clicar-fora e o Escape.
  *
- * "Sem responsável" é a primeira opção e não um X escondido: o campo é opcional,
- * e desfazer uma escolha precisa ser tão fácil quanto fazê-la.
+ * ── Chips, e não um campo de texto com vírgulas ────────────────────────────
+ * Cada escolhido vira um chip com "x". Quem lê a lista de responsáveis vê a
+ * mesma coisa que vai aparecer no item depois — e remover é um clique, no mesmo
+ * lugar onde a pessoa está olhando.
  */
-function SeletorResponsavel({ valor, onChange }: {
-  valor: number | null; onChange: (v: number | null) => void;
+function SeletorResponsaveis({ escolhidos, onChange }: {
+  escolhidos: number[]; onChange: (v: number[]) => void;
 }) {
   const [aberto, setAberto] = useState(false);
-  const caixa = useRef<HTMLDivElement>(null);
   const q = trpc.prioridades.colaboradores.useQuery(undefined, {
     staleTime: 5 * 60_000, refetchOnWindowFocus: false,
   });
   const pessoas = q.data ?? [];
-  const escolhido = pessoas.find((p) => p.id === valor) ?? null;
+  // Na ordem em que foram escolhidos: o primeiro é quem aparece na linha
+  // fechada, então a ordem é informação, não detalhe.
+  const selecionados = escolhidos
+    .map((id) => pessoas.find((p) => p.id === id))
+    .filter((p): p is NonNullable<typeof p> => !!p);
 
-  // Fecha ao clicar fora — sem isso o dropdown fica aberto por cima da lista e
-  // esconde justamente os itens que a pessoa está comparando.
-  useEffect(() => {
-    if (!aberto) return;
-    const fora = (e: MouseEvent) => {
-      if (caixa.current && !caixa.current.contains(e.target as Node)) setAberto(false);
-    };
-    document.addEventListener("mousedown", fora);
-    return () => document.removeEventListener("mousedown", fora);
-  }, [aberto]);
+  const alternar = (id: number) => {
+    onChange(escolhidos.includes(id) ? escolhidos.filter((x) => x !== id) : [...escolhidos, id]);
+  };
 
   return (
-    <div ref={caixa} className="relative flex-1 min-w-[150px]">
-      <button type="button" onClick={() => setAberto((v) => !v)}
-        className="w-full text-xs border border-border rounded-lg px-2.5 py-1.5 bg-background flex items-center gap-1.5 text-left">
-        {escolhido ? (
-          <>
-            <Avatar nome={escolhido.nome} url={escolhido.avatarUrl} />
-            <span className="truncate">{primeiroNome(escolhido.nome)}</span>
-          </>
-        ) : (
-          <span className="text-muted-foreground">Responsável (opcional)</span>
-        )}
-      </button>
-
-      {aberto && (
-        <div className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-lg border border-border bg-card shadow-lg py-1">
-          <button type="button" onClick={() => { onChange(null); setAberto(false); }}
-            className="w-full text-left text-xs px-2.5 py-1.5 text-muted-foreground hover:bg-accent/30 transition-colors">
-            Sem responsável
+    <div className="flex-1 min-w-[170px] flex items-center gap-1.5 flex-wrap">
+      {selecionados.map((p) => (
+        <span key={p.id}
+          className="inline-flex items-center gap-1 text-xs bg-muted/60 border border-border rounded-full pl-1 pr-1.5 py-0.5">
+          <Avatar nome={p.nome} url={p.avatarUrl} tamanho={16} />
+          <span className="truncate max-w-[80px]">{primeiroNome(p.nome)}</span>
+          <button type="button" onClick={() => alternar(p.id)}
+            aria-label={`Remover ${primeiroNome(p.nome)}`}
+            className="text-muted-foreground hover:text-foreground">
+            <X className="w-3 h-3" />
           </button>
-          {q.isLoading && (
-            <p className="text-xs px-2.5 py-1.5 text-muted-foreground">Carregando…</p>
+        </span>
+      ))}
+
+      <Popover open={aberto} onOpenChange={setAberto}>
+        <PopoverTrigger asChild>
+          <button type="button"
+            className="inline-flex items-center gap-1 text-xs border border-border rounded-lg px-2 py-1 bg-background text-muted-foreground hover:text-foreground transition-colors">
+            <Plus className="w-3 h-3" />
+            {selecionados.length === 0 ? "Responsável" : "Adicionar"}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-56 p-1 max-h-60 overflow-y-auto">
+          {q.isLoading && <p className="text-xs px-2 py-1.5 text-muted-foreground">Carregando…</p>}
+          {!q.isLoading && pessoas.length === 0 && (
+            <p className="text-xs px-2 py-1.5 text-muted-foreground">Nenhum colaborador ativo.</p>
           )}
-          {pessoas.map((p) => (
-            <button key={p.id} type="button" onClick={() => { onChange(p.id); setAberto(false); }}
-              className={`w-full text-left text-xs px-2.5 py-1.5 flex items-center gap-2 hover:bg-accent/30 transition-colors ${
-                p.id === valor ? "text-foreground font-medium" : "text-muted-foreground"
-              }`}>
-              <Avatar nome={p.nome} url={p.avatarUrl} tamanho={20} />
-              <span className="truncate">{primeiroNome(p.nome)}</span>
-            </button>
-          ))}
-        </div>
-      )}
+          {pessoas.map((p) => {
+            const marcado = escolhidos.includes(p.id);
+            return (
+              <button key={p.id} type="button" onClick={() => alternar(p.id)}
+                className={`w-full text-left text-xs px-2 py-1.5 rounded-md flex items-center gap-2 hover:bg-accent/30 transition-colors ${
+                  marcado ? "text-foreground font-medium" : "text-muted-foreground"
+                }`}>
+                <Avatar nome={p.nome} url={p.avatarUrl} tamanho={20} />
+                <span className="truncate flex-1">{primeiroNome(p.nome)}</span>
+                {/* O popover NÃO fecha ao escolher: quem vai marcar três pessoas
+                    teria que reabrir três vezes. O check diz o que já entrou. */}
+                {marcado && <Check className="w-3 h-3 flex-shrink-0" />}
+              </button>
+            );
+          })}
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

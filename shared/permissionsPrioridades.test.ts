@@ -20,6 +20,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canAccessAdmin, canManageContent, canManagePeople, canManagePriorities,
+  isRole, ROLE_LABELS, ROLES,
 } from "./permissions";
 
 describe("quem edita as prioridades da semana", () => {
@@ -28,21 +29,20 @@ describe("quem edita as prioridades da semana", () => {
     expect(canManagePriorities("developer")).toBe(true);
   });
 
-  /** A autorização parcial que a rodada pediu: escreve no quadro, e só. */
-  it("colaborador com responsabilidade de coordenador também edita", () => {
-    expect(canManagePriorities("user", "coordinator")).toBe(true);
+  /** O role novo, e a única permissão que ele tem além do uso geral. */
+  it("coordenador edita o quadro", () => {
+    expect(canManagePriorities("coordinator")).toBe(true);
   });
 
   it("colaborador comum só visualiza", () => {
     expect(canManagePriorities("user")).toBe(false);
-    expect(canManagePriorities("user", "collaborator")).toBe(false);
   });
 
   /** Sessão sem role não pode virar permissão por omissão. */
   it("valor desconhecido ou ausente não concede nada", () => {
     expect(canManagePriorities(undefined)).toBe(false);
-    expect(canManagePriorities(null, null)).toBe(false);
-    expect(canManagePriorities("coordinator")).toBe(false);
+    expect(canManagePriorities(null)).toBe(false);
+    expect(canManagePriorities("qualquer-coisa")).toBe(false);
   });
 });
 
@@ -53,27 +53,41 @@ describe("coordenador NÃO virou admin", () => {
    * coordenador ganhando botões, que se parece com a funcionalidade nova
    * funcionando.
    */
-  const coordenador = ["user", "coordinator"] as const;
-
-  it("não acessa o Administrativo", () => {
-    expect(canAccessAdmin(coordenador[0])).toBe(false);
+  it("não acessa o Administrativo (Financeiro, Contratos, Propostas)", () => {
+    expect(canAccessAdmin("coordinator")).toBe(false);
   });
 
-  it("não gerencia conteúdo (News, SelvaTV, conexões)", () => {
-    expect(canManageContent(coordenador[0])).toBe(false);
+  it("não gerencia conteúdo (News, SelvaTV, conexões, Panorama)", () => {
+    expect(canManageContent("coordinator")).toBe(false);
   });
 
   it("não gerencia colaboradores", () => {
-    expect(canManagePeople(coordenador[0])).toBe(false);
+    expect(canManagePeople("coordinator")).toBe(false);
   });
 
   /**
-   * As outras funções recebem só o `role` por assinatura, então nem teriam como
-   * ver o campo. Este teste existe para que, no dia em que alguém acrescentar o
-   * segundo parâmetro a uma delas, a mudança precise passar por aqui.
+   * A garantia que sustentou a mudança, escrita como teste: toda permissão do
+   * arquivo é ALLOWLIST. Um role novo cai fora de tudo por construção, e não
+   * porque alguém lembrou de excluí-lo caso a caso.
+   *
+   * Se algum dia aparecer a primeira negativa ("todo mundo menos colaborador"),
+   * este teste cai — e é aqui que se descobre, antes do acesso vazar.
    */
-  it("as demais funções ignoram operationalRole mesmo se ele for passado", () => {
-    const f = [canAccessAdmin, canManageContent, canManagePeople] as Array<(a: unknown, b?: unknown) => boolean>;
-    for (const fn of f) expect(fn("user", "coordinator")).toBe(false);
+  it("um role inventado não recebe permissão nenhuma", () => {
+    const permissoes = [canAccessAdmin, canManageContent, canManagePeople, canManagePriorities];
+    for (const fn of permissoes) expect(fn("role-que-nao-existe")).toBe(false);
+  });
+});
+
+describe("os quatro roles da interface", () => {
+  it("estão na ordem da hierarquia, e todos têm rótulo", () => {
+    expect(ROLES).toEqual(["admin", "developer", "coordinator", "user"]);
+    for (const r of ROLES) expect(ROLE_LABELS[r]).toBeTruthy();
+  });
+
+  it("isRole aceita os quatro e recusa o resto", () => {
+    for (const r of ROLES) expect(isRole(r)).toBe(true);
+    expect(isRole("coordenador")).toBe(false);
+    expect(isRole("")).toBe(false);
   });
 });

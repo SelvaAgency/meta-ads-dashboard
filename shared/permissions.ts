@@ -2,26 +2,41 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *  Selva Spaces — roles & permissões (fonte única, usada no client E no server)
  * ─────────────────────────────────────────────────────────────────────────────
- *  admin      (Administrativo) → tudo
- *  developer  (Desenvolvedor)  → uso geral + gerenciar News/SelvaTV
- *  user       (Colaborador)    → uso geral
+ *  admin        (Administrativo) → tudo
+ *  developer    (Desenvolvedor)  → uso geral + gerenciar News/SelvaTV
+ *  coordinator  (Coordenador)    → uso geral + gerenciar Prioridades da Semana
+ *  user         (Colaborador)    → uso geral
  *
  *  Toda decisão sensível é validada TAMBÉM no backend (adminProcedure etc.).
  *  O frontend usa isto só para esconder/mostrar UI.
+ *
+ *  ── Por que acrescentar um role aqui foi seguro ────────────────────────────
+ *  Porque TODA verificação deste arquivo (e do resto do sistema) é ALLOWLIST:
+ *  ela pergunta "é admin?" ou "é admin ou dev?", nunca "não é colaborador?".
+ *  Auditado em 14/08/2026 — não existe um só `role !== "user"` na base.
+ *
+ *  A consequência é a garantia que sustenta o coordenador: um valor novo cai
+ *  FORA de toda permissão existente por construção, e não por alguém ter
+ *  lembrado de excluí-lo caso a caso. Se algum dia aparecer a primeira negativa
+ *  ("todo mundo menos colaborador"), essa garantia acaba — e o próximo role
+ *  passa a exigir a revisão que este não exigiu.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-export type Role = "admin" | "developer" | "user";
+export type Role = "admin" | "developer" | "coordinator" | "user";
 
 export const ROLE_LABELS: Record<Role, string> = {
   admin: "Administrativo",
   developer: "Desenvolvedor",
+  coordinator: "Coordenador",
   user: "Colaborador",
 };
 
-export const ROLES: Role[] = ["admin", "developer", "user"];
+/** Na ordem da hierarquia — é a ordem que os seletores da interface mostram. */
+export const ROLES: Role[] = ["admin", "developer", "coordinator", "user"];
 
 export function isRole(value: unknown): value is Role {
-  return value === "admin" || value === "developer" || value === "user";
+  return value === "admin" || value === "developer"
+    || value === "coordinator" || value === "user";
 }
 
 function role(r: unknown): Role {
@@ -40,22 +55,16 @@ export function canManageContent(r: unknown): boolean {
 }
 
 /**
- * Editar as Prioridades da Semana na Home.
+ * Gerenciar as Prioridades da Semana: criar, editar, excluir, atribuir.
  *
- * ── Por que isto lê `operationalRole`, e é o único que lê ──────────────────
- * "Coordenador" já existia no sistema, mas como RESPONSABILIDADE (por quais
- * clientes a pessoa responde), não como permissão — o enum `role` tem três
- * valores e é consultado por quase tudo. Acrescentar um quarto valor obrigaria
- * a revisar cada verificação existente para decidir de que lado o coordenador
- * cai, e o custo de errar uma delas é um vazamento de acesso silencioso.
- *
- * Conceder por `operationalRole` mantém `role` intacto e dá exatamente a
- * autorização pedida: o coordenador escreve no quadro da semana e em nada mais.
- * Ele NÃO vira admin — nenhuma outra função deste arquivo o consulta.
+ * A ÚNICA permissão do sistema que o coordenador tem além do uso geral. Ela é
+ * uma lista de três valores escritos por extenso, e não `!== "user"`, justamente
+ * para o dia em que um quinto role aparecer: a forma negativa o incluiria aqui
+ * sem ninguém decidir isso.
  */
-export function canManagePriorities(r: unknown, operational?: unknown): boolean {
+export function canManagePriorities(r: unknown): boolean {
   const x = role(r);
-  return x === "admin" || x === "developer" || operational === "coordinator";
+  return x === "admin" || x === "developer" || x === "coordinator";
 }
 
 /** Gerenciar colaboradores (CRUD, reset de senha). Somente admin. */

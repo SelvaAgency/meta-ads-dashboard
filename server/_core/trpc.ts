@@ -55,14 +55,15 @@ export const adminProcedure = t.procedure.use(
 
 // Gestão de conteúdo operacional (News bar, SelvaTV): admin OU developer.
 /**
- * Editar as Prioridades da Semana — admin, dev OU coordenador.
+ * Gerenciar as Prioridades da Semana — admin, dev ou coordenador.
  *
- * O único portão do sistema que olha `operationalRole`. A regra em si vive em
- * `shared/canManagePriorities`, para a tela esconder o botão pelo MESMO critério
- * que o servidor usa para recusar: dois critérios escritos separados divergem, e
- * a divergência aparece como um botão que existe e não funciona.
+ * A regra vive em `shared/canManagePriorities`, para a tela esconder o botão
+ * pelo MESMO critério que o servidor usa para recusar: dois critérios escritos
+ * separados divergem, e a divergência aparece como um botão que existe e não
+ * funciona.
  *
- * Coordenador não vira admin: nenhuma outra procedure consulta este campo.
+ * Coordenador não vira admin: `adminProcedure` e `contentProcedure` continuam
+ * perguntando por valores explícitos, e nenhum deles é `coordinator`.
  */
 export const prioridadesProcedure = t.procedure.use(
   t.middleware(async ({ ctx, next }) => {
@@ -72,7 +73,7 @@ export const prioridadesProcedure = t.procedure.use(
     if (ctx.user.mustChangePassword) {
       throw new TRPCError({ code: "FORBIDDEN", message: PASSWORD_CHANGE_REQUIRED });
     }
-    if (!canManagePriorities(ctx.user.role, ctx.user.operationalRole)) {
+    if (!canManagePriorities(ctx.user.role)) {
       throw new TRPCError({
         code: "FORBIDDEN",
         message: "Só Administrativo, Desenvolvedor ou Coordenador podem editar as prioridades da semana.",

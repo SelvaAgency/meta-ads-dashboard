@@ -62,10 +62,16 @@ export interface ItemPrioridade {
   /** `AAAA-MM-DD` ou `null`. Nunca a string "sem prazo". */
   prazo: string | null;
   status: StatusPrioridade;
-  /** Quem responde, resolvido no servidor. `null` = sem responsável. */
-  responsavelUserId: number | null;
-  responsavelNome: string | null;
-  responsavelAvatarUrl: string | null;
+  /** Quem responde — vários, resolvidos no servidor. Vazio = sem responsável. */
+  responsaveis: Responsavel[];
+  /** Texto livre de antes da migração. Só vem preenchido se não há ninguém. */
+  responsavelLegado: string | null;
+}
+
+export interface Responsavel {
+  id: number;
+  nome: string;
+  avatarUrl: string | null;
 }
 
 /**
@@ -149,4 +155,47 @@ export function cortar(secoes: SecaoDeTipo[], limite: number): {
     visiveis.push({ tipo: s.tipo, itens });
   }
   return { visiveis, ocultos: total - limite };
+}
+
+
+/**
+ * Como as prioridades da semana se distribuem entre os grupos.
+ *
+ * ── O que ela NÃO faz, e é o ponto ─────────────────────────────────────────
+ * Não olha a aba selecionada. O gráfico responde "como a semana está
+ * distribuída", e essa pergunta não muda quando alguém filtra por um grupo —
+ * filtrar para ver a Casa de Criação e o gráfico virar 100% Casa de Criação
+ * transformaria a resposta em tautologia.
+ *
+ * `todos` também não entra: é filtro, não grupo, e contá-lo somaria a semana
+ * inteira de novo como se fosse um quarto time.
+ *
+ * A percentagem é do MAIOR grupo, e não do total: com barras proporcionais ao
+ * total, uma semana equilibrada entre três times daria três barras de 33% —
+ * baixas, parecidas e ilegíveis. Normalizada pelo maior, a leitura é
+ * comparativa, que é o que a pergunta pede.
+ */
+export interface FatiaDoGrupo {
+  grupo: string;
+  total: number;
+  /** 0–100, relativa ao maior grupo. `0` quando ninguém tem item. */
+  proporcao: number;
+}
+
+export function distribuicaoPorGrupo(
+  itens: ItemPrioridade[], grupos: readonly string[],
+): { fatias: FatiaDoGrupo[]; total: number } {
+  const conta = new Map<string, number>();
+  for (const i of itens) conta.set(i.grupo, (conta.get(i.grupo) ?? 0) + 1);
+
+  const totais = grupos.map((g) => conta.get(g) ?? 0);
+  const maior = Math.max(0, ...totais);
+  return {
+    fatias: grupos.map((grupo, i) => ({
+      grupo,
+      total: totais[i],
+      proporcao: maior > 0 ? Math.round((totais[i] / maior) * 100) : 0,
+    })),
+    total: totais.reduce((a, b) => a + b, 0),
+  };
 }

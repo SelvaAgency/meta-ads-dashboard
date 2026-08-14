@@ -22,18 +22,14 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   passwordHash: varchar("passwordHash", { length: 255 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  // Roles: admin (Administrativo) · developer (Desenvolvedor) · user (Colaborador)
+  // Roles: admin (Administrativo) · developer (Desenvolvedor) ·
+  //        coordinator (Coordenador) · user (Colaborador)
   // PERMISSÃO do sistema — o que a pessoa pode fazer. Não confundir com operationalRole.
-  role: mysqlEnum("role", ["user", "admin", "developer"]).default("user").notNull(),
+  role: mysqlEnum("role", ["user", "admin", "developer", "coordinator"]).default("user").notNull(),
   // RESPONSABILIDADE operacional — por quais clientes a pessoa responde. Ortogonal a
   // `role`: uma coordenadora normalmente é role=user + operationalRole=coordinator.
-  //
-  // Afeta destinatário de alerta e, desde 14/08/2026, concede UMA permissão e
-  // só uma: editar as Prioridades da Semana na Home (`canManagePriorities`).
-  // Foi por aqui e não por um quarto valor em `role` porque `role` é lido em
-  // quase toda verificação do sistema — acrescentar um valor obrigaria a
-  // revisar cada uma para decidir de que lado o coordenador cai, e errar uma
-  // delas é um vazamento de acesso silencioso. Coordenador NÃO é admin.
+  // Só afeta destinatário de alerta; não concede permissão nenhuma — quem
+  // autoriza é `role`, que ganhou o valor `coordinator` em 14/08/2026.
   operationalRole: mysqlEnum("operationalRole", ["collaborator", "coordinator"]).default("collaborator").notNull(),
   // Perfil de colaborador
   jobTitle: varchar("jobTitle", { length: 255 }),
@@ -1894,3 +1890,28 @@ export const weeklyPriorities = mysqlTable("weekly_priorities", {
 }));
 export type WeeklyPriority = typeof weeklyPriorities.$inferSelect;
 export type InsertWeeklyPriority = typeof weeklyPriorities.$inferInsert;
+
+/**
+ * Quem responde por uma prioridade — vários por item.
+ *
+ * Tabela de relação, e não uma lista de ids em JSON: com JSON, "quais
+ * prioridades são minhas?" vira varredura de string, e a integridade fica por
+ * conta de quem escreve. Aqui a chave única já impede o duplicado, e a
+ * migração trouxe o `responsavelUserId` que existia antes sem perder nada.
+ *
+ * `weekly_priorities.responsavelUserId` continua na tabela mas não é mais lido:
+ * ficou como registro do que foi migrado. Apagar coluna é irreversível, e o
+ * ganho seria só estético.
+ */
+export const weeklyPriorityResponsaveis = mysqlTable("weekly_priority_responsaveis", {
+  id: int("id").autoincrement().primaryKey(),
+  prioridadeId: int("prioridadeId").notNull(),
+  userId: int("userId").notNull(),
+  /** A ordem de escolha — o primeiro é quem aparece na linha fechada. */
+  ordem: int("ordem").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  uqPrioridadeUser: uniqueIndex("uq_wpr_prioridade_user").on(table.prioridadeId, table.userId),
+  idxPrioridade: index("idx_wpr_prioridade").on(table.prioridadeId),
+}));
+export type WeeklyPriorityResponsavel = typeof weeklyPriorityResponsaveis.$inferSelect;
