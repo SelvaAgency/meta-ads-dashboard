@@ -263,16 +263,30 @@ export interface PontoDeMovimento {
  * que o saldo é zero — muita cor para dizer "nada aconteceu". A linha sobre o
  * eixo do zero diz isso sozinha.
  */
-export function GraficoDeMovimento({ pontos, nota, altura = 176 }: {
+export function GraficoDeMovimento({ pontos, nota, altura = 176, largura = 760 }: {
   pontos: PontoDeMovimento[]; nota?: string | null; altura?: number;
+  /**
+   * A largura do viewBox — não do elemento, que é sempre 100%.
+   *
+   * O SVG escala uniformemente: um viewBox de 760 desenhado numa coluna de 380px
+   * reduz o texto de 9px para 4,5px. Numa coluna estreita a largura do viewBox
+   * tem de encolher junto, senão a compactação vira ilegibilidade.
+   */
+  largura?: number;
 }) {
   const medidos = pontos.filter((p) => p.entradas != null || p.saidas != null || p.saldo != null);
   const vazio = medidos.length < 2;
 
-  const W = 760, ml = 48, mr = 16, mt = 12, mb = 22;
-  const iw = W - ml - mr, ih = altura - mt - mb;
-
   const esc = escalaDoMovimento(pontos);
+  /**
+   * A margem esquerda vem do rótulo MAIS LARGO do eixo, e não de um 48 fixo.
+   * Uma conta com −1.240 saídas cortaria o rótulo; uma com −3 desperdiçaria
+   * metade da margem — e na versão compacta esse desperdício é a diferença
+   * entre o gráfico caber e não caber.
+   */
+  const digitos = Math.max(...esc.rotulos.map((r) => fmt(r).length));
+  const W = largura, ml = 12 + digitos * 5.6, mr = 16, mt = 12, mb = 22;
+  const iw = W - ml - mr, ih = altura - mt - mb;
   const yZero = mt + ih * esc.fracaoDoZero;
   /** Uma escala só para os três — é o que impede a leitura enganosa. */
   const px = (valor: number) => {

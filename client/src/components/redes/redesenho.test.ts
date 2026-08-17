@@ -91,6 +91,54 @@ describe("nenhuma métrica saiu da faixa geral", () => {
     expect(s).not.toMatch(/visitas\.total\s*\+\s*cliques\.total/);
   });
 
+  /**
+   * ───────────────────────────────────────────────────────────────────────────
+   *  A caixa executiva é UMA caixa
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Dados gerais e movimento da base eram duas seções empilhadas que ocupavam
+   *  a tela inteira antes da primeira publicação. O guarda impede que voltem a
+   *  se separar — e o jeito mais provável de isso acontecer é alguém envolver um
+   *  dos dois num `<Secao>` de novo, sem perceber que a caixa é a decisão.
+   */
+  it("dados gerais e movimento dividem uma caixa só", () => {
+    const s = pagina();
+    expect(s, "movimento da base virou seção própria de novo")
+      .not.toMatch(/<Secao\s+titulo="Movimento da base"/);
+    expect(s, "dados gerais virou seção própria de novo")
+      .not.toMatch(/<Secao\s+titulo="Dados gerais"/);
+    // Os dois títulos vivem no mesmo trecho, sem `</section>` entre eles: é
+    // isso que faz deles duas regiões de uma caixa em vez de duas caixas.
+    const a = s.indexOf(">Dados gerais<");
+    const b = s.indexOf(">Movimento da base<");
+    expect(a, "título 'Dados gerais' desapareceu").toBeGreaterThan(-1);
+    expect(b, "título 'Movimento da base' desapareceu").toBeGreaterThan(a);
+    const entre = s.slice(a, b);
+    expect(entre, "uma caixa fechou entre os dois").not.toContain("</section>");
+    expect(s.slice(b), "o gráfico saiu da região do movimento").toContain("<GraficoDeMovimento");
+  });
+
+  /**
+   * O SVG escala uniformemente, então um viewBox de 760 numa coluna de 376px
+   * reduz o rótulo do eixo de 9px para ~4,5px. Compactar sem passar `largura`
+   * seria trocar espaço por ilegibilidade — o oposto do que se pediu.
+   */
+  it("o movimento compacto encolhe o viewBox, não só a coluna", () => {
+    expect(pagina()).toMatch(/<GraficoDeMovimento[^>]*largura=\{\d+\}/);
+  });
+
+  /**
+   * Cliques no link é o menor número da faixa. Um cartão permanente lhe daria a
+   * mesma área do engajamento — a leitura profunda abre a partir do dado.
+   */
+  it("cliques no link abre painel, e não ganha cartão", () => {
+    const s = pagina();
+    expect(s).toContain("<PainelDeCliques");
+    expect(s).not.toMatch(/<CartaoGeral[^>]*rotulo="Cliques no link"/);
+    // A série do painel guarda `null` no dia sem medição: interpolar desenharia
+    // uma inclinação que ninguém mediu.
+    expect(s).toContain('cliques: mets(p, "website_clicks")');
+  });
+
   /** As ressalvas são o que separa "medido zero" de "não medido". */
   it("as ressalvas de disponibilidade sobreviveram", () => {
     const s = pagina();

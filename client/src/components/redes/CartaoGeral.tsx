@@ -84,7 +84,7 @@ export function CartaoGeral({
     /* O realce é do CARTÃO inteiro, não de um detalhe dele: o que o mouse marca
        é "estou lendo esta métrica". Fundo levíssimo e 160ms — passar o mouse
        pela faixa não pode virar uma sequência de piscadas. */
-    <div className="group flex flex-col px-4 py-4 min-w-0 transition-colors duration-150 hover:bg-foreground/[0.02]">
+    <div className="group flex flex-col flex-1 px-4 py-4 min-w-0 transition-colors duration-150 hover:bg-foreground/[0.02]">
       <div className="flex items-start justify-between gap-2 mb-3">
         <span className="w-8 h-8 rounded-[10px] grid place-items-center flex-shrink-0 transition-colors duration-150"
           style={{ background: `${cor}29`, color: cor }}>
@@ -156,13 +156,18 @@ export function CartaoGeral({
  * mas continuam sendo dois números. Somá-los criaria uma métrica que ninguém
  * mede — a agrupação é só visual, porque são duas ações sobre o mesmo objeto.
  */
-export function MetricaDoPerfil({ rotulo, valor, variacaoPct, anterior, ressalva }: {
+export function MetricaDoPerfil({ rotulo, valor, variacaoPct, anterior, ressalva, acao }: {
   rotulo: string; valor: string;
   variacaoPct?: number | null; anterior?: number | null; ressalva?: string | null;
+  /**
+   * O convite, quando a métrica abre algo. Sem ele, um número clicável é
+   * indistinguível de um número comum — e ninguém descobre o painel.
+   */
+  acao?: string | null;
 }) {
   const vazio = valor === "–";
   return (
-    <div className="min-w-0">
+    <div className="group/metrica min-w-0">
       <div className="flex items-baseline justify-between gap-1.5 mb-0.5">
         <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 truncate">
           {rotulo}
@@ -175,6 +180,12 @@ export function MetricaDoPerfil({ rotulo, valor, variacaoPct, anterior, ressalva
       </span>
       {ressalva && (
         <span className="block text-[10px] text-muted-foreground/60 leading-snug mt-1.5">{ressalva}</span>
+      )}
+      {acao && (
+        <span className="block text-[10px] mt-1.5 text-muted-foreground/60
+                         group-hover/metrica:text-foreground transition-colors duration-150">
+          {acao} →
+        </span>
       )}
     </div>
   );

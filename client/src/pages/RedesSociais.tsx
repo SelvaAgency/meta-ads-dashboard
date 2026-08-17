@@ -49,6 +49,7 @@ import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 import { COR, COR_INTERACAO, COR_TIPO } from "@shared/coresSociais";
 import { compararComAnterior, variacao } from "@shared/periodoAnterior";
 import { CartaoGeral, MetricaDoPerfil } from "@/components/redes/CartaoGeral";
+import { PainelDeCliques } from "@/components/redes/PainelDeCliques";
 import { RetencaoReels } from "@/components/redes/RetencaoReels";
 import {
   IdentidadeDaConta, Resultados, ResumoCurto, type ValorDoDia,
@@ -470,6 +471,15 @@ export default function RedesSociais() {
     porTipo: composicaoPorDia.get(p.dia) ?? {},
   }));
 
+  /**
+   * A série diária de cliques — só para o painel contextual.
+   *
+   * Segue o filtro, como todo bloco abaixo do cabeçalho. `null` no dia sem
+   * medição, e não 0: a mini-série quebra a linha ali em vez de interpolar uma
+   * inclinação que ninguém mediu.
+   */
+  const cliquesPorDia = serie.map((p) => ({ dia: p.dia, cliques: mets(p, "website_clicks") }));
+
   // O gráfico de movimento segue o FILTRO: ele é análise, não resumo.
   //
   // `saldo` é a variação MEDIDA do total, e é ela que a linha roxa desenha — não
@@ -579,123 +589,166 @@ export default function RedesSociais() {
               <PeriodFilter period={period} onChange={setPeriod} />
             </div>
 
-            {/* ══ DADOS GERAIS · três cartões semânticos ════════════════════
-                Ativações (o que a conta fez) · Engajamento (o que responderam)
-                · Perfil (o que fizeram COM a conta). Respostas aos stories
-                deixaram de ser cartão: elas são engajamento, e fora dali o
-                total de engajamento parecia menor do que é. */}
-            <Secao titulo="Dados gerais" dica="todo número mantém a composição visível">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 rounded-[20px] border border-border
-                              bg-card overflow-hidden divide-x divide-y lg:divide-y-0 divide-border
-                              shadow-[0_1px_2px_rgba(10,10,10,.04)]">
-                <CartaoGeral icone={Layers} cor={COR.ativacoes} rotulo="Ativações"
-                  explicacao="Tudo que a conta publicou no período — posts, stories e reels."
-                  valor={fmt(ativacoes.total)}
-                  variacaoPct={varAtivacoes.pct} anterior={varAtivacoes.anterior}
-                  parcelas={composicaoDeAtivacoes(ativacoes).map((x) => ({
-                    rotulo: x.rotulo, valor: x.total ?? 0,
-                    cor: x.rotulo === "posts" ? COR_TIPO.FEED
-                       : x.rotulo === "stories" ? COR_TIPO.STORY : COR_TIPO.REELS,
-                  }))}
-                  ressalva={ativacoes.publicacoesIndisponiveis
-                    ? "publicações indisponíveis nesta coleta"
-                    : ativacoes.diasSemMedicaoDeStories > 0
-                      ? `${ativacoes.diasSemMedicaoDeStories} dia(s) sem medição de stories`
-                      : null} />
+            {/* ══ CAIXA EXECUTIVA · dados gerais + movimento da base ════════
+                Os dois eram seções irmãs, empilhadas, e juntas ocupavam a tela
+                inteira antes da primeira publicação aparecer. Eles respondem a
+                mesma pergunta — "como está a conta neste período" — e separá-los
+                obrigava a rolar para completar uma leitura só.
 
-                <CartaoGeral icone={Heart} cor={COR.engajamento} rotulo="Engajamento"
-                  explicacao="Total de interações medido pela Meta. As parcelas abaixo dizem de que ele é feito."
-                  valor={fmt(composicao.totalApresentado)}
-                  detalhe={taxa != null ? `${taxa.toFixed(1)}% do alcance` : null}
-                  variacaoPct={varEngajamento.pct} anterior={varEngajamento.anterior}
-                  parcelas={composicao.partes.map((x) => ({
-                    rotulo: x.rotulo, valor: x.total, cor: COR_INTERACAO[x.chave] ?? COR.engajamento,
-                  }))}
-                  ressalva={composicao.ressalva} />
+                Uma caixa, duas regiões divididas por 1px: mesma gramática do
+                cabeçalho da conta logo acima, onde resumo, resultados e gráfico
+                também dividem uma borda em vez de virarem três cartões. */}
+            <section className="rounded-[20px] border border-border bg-card overflow-hidden
+                                shadow-[0_1px_2px_rgba(10,10,10,.04)]">
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,376px)]
+                              divide-y lg:divide-y-0 lg:divide-x divide-border">
 
-                {/* Visitas e cliques num card só: são duas ações sobre o
-                    PERFIL, e ficavam soltas entre métricas de conteúdo. Os dois
-                    números continuam separados — somá-los criaria uma métrica
-                    que ninguém mede. */}
-                <div className="group flex flex-col px-4 py-4 min-w-0 md:col-span-2
-                                transition-colors duration-150 hover:bg-foreground/[0.02]">
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <span className="w-8 h-8 rounded-[10px] grid place-items-center flex-shrink-0"
-                      style={{ background: `${COR.visitas}29`, color: COR.visitas }}>
-                      <Eye className="w-4 h-4" strokeWidth={2.2} />
+                {/* ── ESQUERDA · dados gerais ─────────────────────────────── */}
+                <div className="min-w-0 flex flex-col">
+                  <div className="flex items-baseline gap-2.5 flex-wrap px-[18px] pt-[18px]">
+                    <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Dados gerais</h2>
+                    <span className="text-[10.5px] text-muted-foreground/50">
+                      todo número mantém a composição visível
                     </span>
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-muted-foreground mb-2.5"
-                    title="Duas ações sobre o perfil. Os números NÃO se somam: uma visita e um clique são coisas diferentes.">
-                    Interações com o perfil
-                  </span>
-                  <div className="grid grid-cols-2 gap-4">
-                    <MetricaDoPerfil rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
-                      variacaoPct={varVisitas.pct} anterior={varVisitas.anterior}
-                      ressalva={rotuloVisitas.resumo} />
-                    <MetricaDoPerfil rotulo="Cliques no link" valor={fmt(cliques.total)}
-                      variacaoPct={varCliques.pct} anterior={varCliques.anterior} />
+                  {/* Bordas explícitas em vez de `divide-x`: o cartão do perfil
+                      ocupa as duas colunas, e o `divide-x` lhe daria uma borda
+                      esquerda na quina da caixa — um traço vertical sem nada do
+                      outro lado. */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 mt-2 flex-1">
+                    <CartaoGeral icone={Layers} cor={COR.ativacoes} rotulo="Ativações"
+                      explicacao="Tudo que a conta publicou no período — posts, stories e reels."
+                      valor={fmt(ativacoes.total)}
+                      variacaoPct={varAtivacoes.pct} anterior={varAtivacoes.anterior}
+                      parcelas={composicaoDeAtivacoes(ativacoes).map((x) => ({
+                        rotulo: x.rotulo, valor: x.total ?? 0,
+                        cor: x.rotulo === "posts" ? COR_TIPO.FEED
+                           : x.rotulo === "stories" ? COR_TIPO.STORY : COR_TIPO.REELS,
+                      }))}
+                      ressalva={ativacoes.publicacoesIndisponiveis
+                        ? "publicações indisponíveis nesta coleta"
+                        : ativacoes.diasSemMedicaoDeStories > 0
+                          ? `${ativacoes.diasSemMedicaoDeStories} dia(s) sem medição de stories`
+                          : null} />
+
+                    <div className="border-t sm:border-t-0 sm:border-l border-border flex">
+                    <CartaoGeral icone={Heart} cor={COR.engajamento} rotulo="Engajamento"
+                      explicacao="Total de interações medido pela Meta. As parcelas abaixo dizem de que ele é feito."
+                      valor={fmt(composicao.totalApresentado)}
+                      detalhe={taxa != null ? `${taxa.toFixed(1)}% do alcance` : null}
+                      variacaoPct={varEngajamento.pct} anterior={varEngajamento.anterior}
+                      parcelas={composicao.partes.map((x) => ({
+                        rotulo: x.rotulo, valor: x.total, cor: COR_INTERACAO[x.chave] ?? COR.engajamento,
+                      }))}
+                      ressalva={composicao.ressalva} />
+                    </div>
+
+                    {/* Visitas e cliques num cartão só: são duas ações sobre o
+                        PERFIL, e ficavam soltas entre métricas de conteúdo. Os
+                        dois números continuam separados — somá-los criaria uma
+                        métrica que ninguém mede. */}
+                    <div className="sm:col-span-2 border-t border-border flex flex-col px-4 py-4 min-w-0
+                                    transition-colors duration-150 hover:bg-foreground/[0.02]">
+                      <div className="flex items-center gap-2.5 mb-3">
+                        <span className="w-8 h-8 rounded-[10px] grid place-items-center flex-shrink-0"
+                          style={{ background: `${COR.visitas}29`, color: COR.visitas }}>
+                          <Eye className="w-4 h-4" strokeWidth={2.2} />
+                        </span>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground"
+                          title="Duas ações sobre o perfil. Os números NÃO se somam: uma visita e um clique são coisas diferentes.">
+                          Interações com o perfil
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-5">
+                        <MetricaDoPerfil rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
+                          variacaoPct={varVisitas.pct} anterior={varVisitas.anterior}
+                          ressalva={rotuloVisitas.resumo} />
+                        {/* Cliques abre o painel contextual em vez de ganhar um
+                            cartão próprio: é o menor número da faixa, e um
+                            cartão permanente daria a ele a área do engajamento. */}
+                        <PainelDeCliques dias={cliquesPorDia} total={cliques.total}
+                          variacaoPct={varCliques.pct} anterior={varCliques.anterior}
+                          motivoSemComparacao={comparabilidade.motivo}
+                          seguidores={seguidoresAgora}>
+                          <button type="button" className="text-left min-w-0 rounded-md
+                                             transition-colors duration-150 hover:bg-foreground/[0.04]
+                                             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                            <MetricaDoPerfil rotulo="Cliques no link" valor={fmt(cliques.total)}
+                              variacaoPct={varCliques.pct} anterior={varCliques.anterior}
+                              acao="ver evolução" />
+                          </button>
+                        </PainelDeCliques>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-              {!comparabilidade.comparavel && comparabilidade.motivo && (
-                <p className="text-[10px] text-amber-600 leading-snug mt-1">{comparabilidade.motivo}</p>
-              )}
-            </Secao>
 
-            {/* ══ MOVIMENTO DA BASE · 300px | 1fr ═══════════════════════════ */}
-            <Secao titulo="Movimento da base" dica="entrou, saiu e o saldo — não só a linha subindo">
-              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)] gap-4 items-stretch">
-                <div className="rounded-[20px] border border-border bg-card px-5 py-[18px] flex flex-col gap-4
-                                shadow-[0_1px_2px_rgba(10,10,10,.04)]">
-                  <div>
-                    <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
-                      Saldo atual
-                    </span>
-                    <span className="block text-[38px] font-bold tabular-nums leading-none tracking-tight mt-1">
-                      {fmt(movimento.saldoAtual)}
-                    </span>
+                {/* ── DIREITA · movimento da base, compacto ────────────────── */}
+                <div className="min-w-0 px-[18px] py-[18px] flex flex-col gap-3.5">
+                  <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                    <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Movimento da base</h2>
+                    <span className="text-[10.5px] text-muted-foreground/50">entrou, saiu, saldo</span>
+                  </div>
+
+                  {/* Saldo atual e as duas pontas na MESMA linha de leitura: o
+                      resumo inteiro tem de caber num relance, e é isso que o
+                      torna resumo em vez de seção. */}
+                  <div className="flex items-end justify-between gap-3 flex-wrap">
+                    <div>
+                      <span className="block text-[9.5px] font-bold uppercase tracking-[0.13em] text-muted-foreground/70">
+                        Saldo atual
+                      </span>
+                      <span className="block text-[30px] font-bold tabular-nums leading-none tracking-tight mt-1">
+                        {fmt(movimento.saldoAtual)}
+                      </span>
+                    </div>
                     {movimento.saldo != null && (
-                      <span className="block text-[11px] text-muted-foreground mt-1.5">
+                      <span className="text-[11px] text-muted-foreground pb-0.5">
                         <span className={movimento.saldo >= 0
-                          ? "text-emerald-600 dark:text-emerald-500 font-bold"
+                          ? "text-emerald-600 font-bold"
                           : "text-destructive font-bold"}>
                           {movimento.saldo > 0 ? "+" : ""}{fmt(movimento.saldo)}
                         </span> no período
                       </span>
                     )}
                   </div>
-                  <div className="grid grid-cols-2 gap-3.5 pt-3.5 border-t border-border">
+
+                  <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border">
                     <div>
-                      <span className="block text-[10px] font-bold uppercase tracking-[0.14em]"
+                      <span className="block text-[9.5px] font-bold uppercase tracking-[0.13em]"
                         style={{ color: COR.entrada }}>Entraram</span>
-                      <span className="block text-[23px] font-bold tabular-nums leading-none mt-1"
+                      <span className="block text-[20px] font-bold tabular-nums leading-none mt-1"
                         style={{ color: COR.entrada }}>
                         {movimento.entradas == null ? "–" : `+${fmt(movimento.entradas)}`}
                       </span>
                     </div>
                     <div>
-                      <span className="block text-[10px] font-bold uppercase tracking-[0.14em]"
+                      <span className="block text-[9.5px] font-bold uppercase tracking-[0.13em]"
                         style={{ color: COR.saida }}>Saíram</span>
-                      <span className="block text-[23px] font-bold tabular-nums leading-none mt-1"
+                      <span className="block text-[20px] font-bold tabular-nums leading-none mt-1"
                         style={{ color: COR.saida }}>
                         {movimento.saidas == null ? "–" : `−${fmt(movimento.saidas)}`}
                       </span>
                     </div>
                   </div>
-                  <p className="text-[10px] text-muted-foreground/60 leading-snug mt-auto">
+
+                  {/* A largura do viewBox acompanha a coluna. Manter 760 aqui
+                      encolheria os rótulos do eixo para ~4,5px — a compactação
+                      viraria ilegibilidade, que é o oposto do pedido. */}
+                  <GraficoDeMovimento pontos={pontosDeMovimento} altura={148} largura={352} />
+
+                  <p className="text-[9.5px] text-muted-foreground/60 leading-snug mt-auto">
                     {movimento.motivo ?? (
-                      <>Entradas vêm de <span className="font-mono text-[10px]">follower_count</span>. Saídas são
+                      <>Entradas vêm de <span className="font-mono text-[9.5px]">follower_count</span>. Saídas são
                       derivadas: entradas menos o saldo.</>
                     )}
                   </p>
                 </div>
-                <div className="rounded-[20px] border border-border bg-card px-5 py-[18px]
-                                shadow-[0_1px_2px_rgba(10,10,10,.04)]">
-                  <GraficoDeMovimento pontos={pontosDeMovimento} />
-                </div>
               </div>
-            </Secao>
+            </section>
+            {!comparabilidade.comparavel && comparabilidade.motivo && (
+              <p className="text-[10px] text-amber-600 leading-snug -mt-2">{comparabilidade.motivo}</p>
+            )}
 
             {/* ══ ATIVAÇÕES POR DIA · seção própria, largura cheia ══════════ */}
             <Secao titulo="Ativações por dia">
