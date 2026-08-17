@@ -29,7 +29,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock, PlayCircle, CalendarClock, ClipboardList, Layers, Megaphone } from "lucide-react";
+import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock, PlayCircle, CalendarClock, ClipboardList, Layers, Megaphone, Timer } from "lucide-react";
 import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
 import { resumirExecucao } from "@shared/resumoDaExecucao";
@@ -311,6 +311,18 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
    * que não é a pergunta — a pergunta é "o campo DISTINGUE?".
    */
   const sondarImpulsionado = trpc.social.sondarImpulsionado.useMutation({
+    onSuccess: (r) => setDiagnostico(r.texto),
+    onError: (e) => toast.error(e.message),
+  });
+
+  /**
+   * Sondagem de retenção de Reels.
+   *
+   * Só medição: ela não escreve nada e não muda a página Social. O relatório
+   * responde se dá para saber em que segundo as pessoas param de assistir — e
+   * enquanto a resposta não for "sim", nenhuma curva entra na tela.
+   */
+  const retencao = trpc.social.sondarRetencao.useMutation({
     onSuccess: (r) => setDiagnostico(r.texto),
     onError: (e) => toast.error(e.message),
   });
@@ -636,6 +648,14 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                       className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
                       {janela.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CalendarClock className="w-3 h-3" />}
                       Sondar janela
+                    </button>
+                  )}
+                  {v?.instagramUserId && (
+                    <button onClick={() => retencao.mutate({ accountId: c.id })} disabled={retencao.isPending}
+                      title="A API diz em que segundo as pessoas param de assistir ao Reel? (~25 chamadas)"
+                      className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
+                      {retencao.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Timer className="w-3 h-3" />}
+                      Sondar retenção
                     </button>
                   )}
                   {v?.instagramUserId && (

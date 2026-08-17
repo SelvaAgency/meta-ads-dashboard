@@ -4327,6 +4327,43 @@ export const appRouter = router({
       }),
 
     /**
+     * Sondagem: a API entrega retenção de Reels?
+     *
+     * A pergunta é "em que segundo as pessoas param de assistir". Enquanto ela
+     * não tiver resposta medida, a página Social segue mostrando o estado de
+     * dado futuro — e é de propósito. Uma curva alimentada por tempo MÉDIO
+     * desenharia uma queda que ninguém mediu, e alguém cortaria um formato que
+     * funcionava porque o gráfico "mostrou" abandono no terceiro segundo.
+     *
+     * Nada aqui escreve em snapshot nem toca o coletor. O custo é de ~25
+     * chamadas por execução, e roda na mão.
+     */
+    sondarRetencao: contentProcedure
+      .input(z.object({
+        accountId: z.number().int(),
+        limite: z.number().int().min(1).max(10).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const conta = fonteInstagramDaConta(input.accountId);
+        const agencia = fonteAgencia();
+        const vinculo = (await vinculosSociais()).find((v) => v.accountId === input.accountId);
+        const escolha = escolherFonte(await estadosDasFontes(input.accountId, conta, agencia));
+        if (!escolha.usada) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: `${escolha.titulo}. ${escolha.detalhe}` });
+        }
+        const fonte = escolha.usada === "oauth_conta" ? conta : agencia;
+        if (!fonte.sondarRetencao) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `A fonte "${escolha.usada}" ainda não implementa esta sondagem.`,
+          });
+        }
+        const r = await fonte.sondarRetencao(
+          { pageId: vinculo?.pageId, instagramUserId: vinculo?.instagramUserId }, input.limite);
+        return { ...r, texto: `fonte: ${escolha.usada}\n${r.texto}` };
+      }),
+
+    /**
      * ── LinkedIn · Fase 0 ────────────────────────────────────────────────
      *
      * Só medição. Nenhuma tabela de dados, nenhum coletor, nenhuma tela de

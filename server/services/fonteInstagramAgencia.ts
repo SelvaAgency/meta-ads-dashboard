@@ -27,6 +27,7 @@ import { coletarDeInstagram, listarMidiasAte, type ColetaSocial } from "./coleta
 import { sondarInstagramDireto as sondarDireto, type SondagemDireta } from "./sondagemInstagramDireto";
 import { sondarHorarios as sondarHrs, type SondagemDeHorarios } from "./sondagemHorarios";
 import { sondarJanela as sondarJan, type SondagemDeJanela } from "./sondagemJanela";
+import { sondarRetencao as sondarRet, type SondagemDeRetencao } from "./sondagemRetencao";
 import { sondarInsightsAninhados as sondarAnin, type SondagemAninhada } from "./sondagemAninhada";
 import { sondarImpulsionado as sondarImp, type SondagemImpulsionado } from "./sondagemImpulsionado";
 import {
@@ -142,6 +143,19 @@ export function fonteAgencia(obterToken: () => Promise<string | null> = tokenGua
       const igId = exigirInstagram(alvo);
       const { consultarGraph } = await import("./instagram");
       return sondarJan((c, p2) => consultarGraph(c, p2, t), igId, metrica);
+    },
+
+    /**
+     * A sondagem de retenção usa o transporte CRU: ela precisa registrar HTTP e
+     * o código da recusa como resultado, e `consultarGraph` transforma recusa em
+     * exceção — o que apagaria justamente o dado que a sondagem existe para
+     * colher. O token continua entrando por parâmetro e não é guardado.
+     */
+    async sondarRetencao(alvo: AlvoInstagram, limite?: number): Promise<SondagemDeRetencao> {
+      const t = await token();
+      const igId = exigirInstagram(alvo);
+      const { consultarGraphCru } = await import("./instagram");
+      return sondarRet((c, p2) => consultarGraphCru(c, p2, t), igId, limite);
     },
 
     async sondarHorarios(alvo: AlvoInstagram): Promise<SondagemDeHorarios> {

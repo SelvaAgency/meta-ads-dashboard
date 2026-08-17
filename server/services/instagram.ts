@@ -88,6 +88,61 @@ async function graph<T>(caminho: string, params: Record<string, string>, token: 
 export const consultarGraph = <T>(caminho: string, params: Record<string, string>, token: string): Promise<T> =>
   graph<T>(caminho, params, token);
 
+export interface RespostaCrua {
+  /** O HTTP de verdade. A Meta responde 400 com corpo de erro, não exceção. */
+  status: number;
+  corpo: unknown;
+  /** `null` quando a Meta não reclamou. A mensagem já vem sanitizada. */
+  erro: { mensagem: string; codigo: number | null; subcodigo: number | null } | null;
+}
+
+/**
+ * A chamada que NÃO estoura — devolve status, corpo e erro lado a lado.
+ *
+ * `consultarGraph` transforma erro da Meta em exceção, e isso é certo para
+ * quem só quer o dado. Mas uma sondagem precisa registrar o HTTP e o código da
+ * recusa como RESULTADO: "recusada com 400/100" é uma resposta tão útil quanto
+ * um valor, e uma exceção obriga cada chamador a reconstruir isso do texto.
+ *
+ * O token continua entrando por parâmetro e não é guardado, e a mensagem passa
+ * por `sanitizar` com o token como segredo — nem o valor nem um fragmento dele
+ * chegam ao relatório.
+ */
+export async function consultarGraphCru(
+  caminho: string, params: Record<string, string>, token: string,
+): Promise<RespostaCrua> {
+  const qs = new URLSearchParams({ ...params, access_token: token });
+  let resp: Response;
+  try {
+    resp = await fetch(`${GRAPH}/${caminho}?${qs}`, { signal: AbortSignal.timeout(20_000) });
+  } catch (e) {
+    // Falha de rede não tem HTTP. `0` diz isso sem inventar um status plausível.
+    return { status: 0, corpo: null, erro: { mensagem: sanitizar((e as Error).message ?? "falha de rede", token), codigo: null, subcodigo: null } };
+  }
+  const texto = await resp.text();
+  let dados: Record<string, unknown>;
+  try {
+    dados = JSON.parse(texto) as Record<string, unknown>;
+  } catch {
+    return {
+      status: resp.status, corpo: null,
+      erro: { mensagem: `resposta não é JSON (HTTP ${resp.status})`, codigo: null, subcodigo: null },
+    };
+  }
+  if (dados.error) {
+    const e = dados.error as { message?: string; code?: number; error_subcode?: number };
+    return {
+      status: resp.status, corpo: dados,
+      erro: {
+        mensagem: sanitizar(e.message ?? "erro sem mensagem", token),
+        codigo: e.code ?? null,
+        subcodigo: e.error_subcode ?? null,
+      },
+    };
+  }
+  return { status: resp.status, corpo: dados, erro: null };
+}
+
 // ─── Descoberta ──────────────────────────────────────────────────────────────
 
 export interface PaginaDescoberta {

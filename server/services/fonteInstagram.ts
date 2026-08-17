@@ -31,6 +31,7 @@ import type { Sondagem } from "./instagramSondagem";
 import type { ColetaSocial } from "./coletaSocial";
 import type { SondagemDireta } from "./sondagemInstagramDireto";
 import type { SondagemDeHorarios } from "./sondagemHorarios";
+import type { SondagemDeRetencao } from "./sondagemRetencao";
 import type { SondagemDeJanela } from "./sondagemJanela";
 import type { SondagemAninhada } from "./sondagemAninhada";
 import type { SondagemImpulsionado } from "./sondagemImpulsionado";
@@ -152,6 +153,15 @@ export interface FonteInstagram {
 
   /** Mede o que `online_followers` entrega — antes de prometer horários. */
   sondarHorarios?(alvo: AlvoInstagram): Promise<SondagemDeHorarios>;
+
+  /**
+   * Retenção de Reels: a API diz em que segundo as pessoas param de assistir?
+   *
+   * Só medição. Enquanto isto não responder, a página segue mostrando o estado
+   * de dado futuro — uma curva construída sobre média desenharia uma queda que
+   * ninguém mediu, e alguém cortaria um formato que funcionava.
+   */
+  sondarRetencao?(alvo: AlvoInstagram, limite?: number): Promise<SondagemDeRetencao>;
 
   /** As contas de Instagram do Portfólio, para o seletor de vínculo. */
   descobrirInstagramDireto?(): Promise<{
