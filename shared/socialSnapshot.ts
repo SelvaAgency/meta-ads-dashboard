@@ -211,7 +211,52 @@ const diaSeguinte = (dia: string): string => {
 
 // ─── Movimento da base: entradas, saídas e saldo ─────────────────────────────
 
+/**
+ * De onde cada número do movimento realmente vem.
+ *
+ * Auditado em 17/08/2026, e o resultado mudou o que a tela pode afirmar:
+ *
+ *   saldo atual   `followers_count` do perfil — DIRETO da Meta, estoque
+ *   saldo         último − primeiro `followers_count` — aritmética de estoques
+ *   saldo/dia     total(dia) − total(dia−1) — 24h exatas entre duas coletas
+ *   entradas      soma de `follower_count` — métrica DIRETA da Meta, mas FLUXO
+ *   saídas        entradas − saldo — DERIVADO
+ *
+ * ── A inconsistência de janela, que é o achado ─────────────────────────────
+ * `follower_count` é classificado como FLUXO em `janelaDaMetrica`, e fluxo na
+ * Graph API acumula de 00:00 até o instante da consulta. A coleta das 06:20 mede
+ * as primeiras ~6 horas de um dia de 24.
+ *
+ * O saldo diário, porém, é a diferença entre dois estoques de 06:20 — 24h
+ * exatas. Então `entradas − saldo` subtrai um delta de 24h de um fluxo de ~6h:
+ * as entradas saem sistematicamente subestimadas, as saídas caem em negativo e
+ * viram `null`. Quando não caem, o número está errado pela mesma razão.
+ *
+ * ── O que é medido e o que é inferido nessa afirmação ──────────────────────
+ * A janela parcial foi MEDIDA para `profile_views` (sondagem de 13/08). Para
+ * `follower_count` ela foi INFERIDA por pertencer à mesma família — nunca foi
+ * sondada separadamente. É por isso que a tela marca as saídas como derivadas
+ * sob premissa, em vez de escondê-las ou de apresentá-las como fato.
+ *
+ * ── A fonte direta que existe e ainda não serve ────────────────────────────
+ * `follows_and_unfollows` com `breakdown=follow_type` JÁ é coletada, crua. Ela
+ * seria a fonte direta de entradas e saídas — mas devolve FOLLOWER/NON_FOLLOWER,
+ * e a semântica nunca foi provada. `validarDirecaoDeSeguidores` existe para
+ * resolver isso por aritmética; enquanto não resolver, ela não é usada.
+ */
+export type ConfiancaDoMovimento = "medido" | "derivado_sob_premissa" | "indisponivel";
+
 export interface MovimentoDaBase {
+  /**
+   * Quanto se pode afirmar sobre entradas e saídas.
+   *
+   * `medido` só quando houver fonte direta provada. Hoje o melhor caso possível
+   * é `derivado_sob_premissa` — e a tela precisa dizer isso, porque um número
+   * sem ressalva é lido como medição.
+   */
+  confianca: ConfiancaDoMovimento;
+  /** A premissa que sustenta o número, para a tela e para o diagnóstico. */
+  premissa: string | null;
   /** Total atual — a última fotografia. */
   saldoAtual: number | null;
   /** Variação no período: última fotografia menos a primeira. */
@@ -264,11 +309,16 @@ export function movimentoDaBase(
   const s = saldoDeSeguidores(amostras);
   const medidos = novosPorDia.filter((n): n is number => typeof n === "number");
 
+  const PREMISSA = "As entradas vêm de `follower_count`, que a Meta escopa por dia "
+    + "e devolve acumulado até o horário da coleta; o saldo é a diferença entre dois "
+    + "estoques de coletas consecutivas. As duas janelas podem não coincidir, e as "
+    + "saídas derivadas herdam essa diferença.";
+
   if (s.fim == null) {
     return {
       saldoAtual: null, saldo: null, entradas: null, saidas: null,
       origem: "sem_dados", motivo: "Ainda não há coleta de seguidores no período.",
-      diasMedidos: 0,
+      diasMedidos: 0, confianca: "indisponivel", premissa: null,
     };
   }
 
@@ -279,6 +329,7 @@ export function movimentoDaBase(
   if (medidos.length === 0) {
     return {
       ...base, entradas: null, saidas: null, origem: "apenas_saldo",
+      confianca: "indisponivel", premissa: null,
       motivo: "Entradas e saídas dependem de `follower_count`, que não foi medido no período.",
     };
   }
@@ -287,6 +338,7 @@ export function movimentoDaBase(
   if (s.saldo == null) {
     return {
       ...base, entradas, saidas: null, origem: "apenas_saldo",
+      confianca: "indisponivel", premissa: PREMISSA,
       motivo: "As saídas precisam do saldo do período, e ele exige duas coletas.",
     };
   }
@@ -298,11 +350,19 @@ export function movimentoDaBase(
     // a leitura está errada.
     return {
       ...base, entradas, saidas: null, origem: "apenas_saldo",
-      motivo: "O saldo do período é maior que as entradas medidas — as saídas não podem ser derivadas com segurança.",
+      confianca: "indisponivel", premissa: PREMISSA,
+      // Sintoma esperado da diferença de janela: um fluxo de ~6h subtraído de um
+      // delta de 24h dá negativo com frequência.
+      motivo: "O saldo do período é maior que as entradas medidas — sinal de que as duas "
+        + "cobrem janelas diferentes. As saídas não podem ser derivadas com segurança.",
     };
   }
 
-  return { ...base, entradas, saidas, origem: "follower_count", motivo: null };
+  return {
+    ...base, entradas, saidas, origem: "follower_count",
+    confianca: "derivado_sob_premissa", premissa: PREMISSA,
+    motivo: null,
+  };
 }
 
 export interface DiaDoMovimento {

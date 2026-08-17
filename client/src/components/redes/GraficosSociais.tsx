@@ -20,6 +20,7 @@
  *  ligar por cima desenharia uma reta que ninguém mediu.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+import { useState } from "react";
 import { COR, COR_TIPO, ORDEM_TIPO } from "@shared/coresSociais";
 import { escalaDoMovimento, intervaloDeRotulos, pilhaDoDia } from "@shared/escalaDosGraficos";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
@@ -28,27 +29,86 @@ const fmt = (v: number) => Math.round(v).toLocaleString("pt-BR");
 const EIXO = "fill-[rgba(10,10,10,.42)] dark:fill-[rgba(255,255,255,.42)]";
 const GRADE = "stroke-[rgba(10,10,10,.07)] dark:stroke-[rgba(255,255,255,.09)]";
 
-/** A moldura comum: título miúdo, nota ao lado, e o vazio dito por extenso. */
-function Moldura({ titulo, nota, legenda, vazio, altura, children }: {
-  titulo: string; nota?: string | null; legenda?: React.ReactNode;
+/**
+ * A moldura comum.
+ *
+ * `leitura` é a caixa do dia sob o mouse, e ela substitui a LEGENDA em vez de
+ * aparecer flutuando: tooltip que segue o cursor tapa justamente a barra que se
+ * está tentando ler, e num gráfico de trinta dias a barra vizinha é o contexto.
+ * No lugar da legenda, a posição é fixa e o olho aprende onde procurar.
+ */
+function Moldura({ titulo, nota, legenda, leitura, vazio, altura, children }: {
+  titulo: string; nota?: string | null; legenda?: React.ReactNode; leitura?: React.ReactNode;
   vazio: boolean; altura: number; children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1.5 min-w-0">
-      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap min-h-[18px]">
         <div className="flex items-baseline gap-2 flex-wrap">
           <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
             {titulo}
           </span>
-          {nota && <span className="text-[10px] text-muted-foreground/50">{nota}</span>}
+          {nota && !leitura && <span className="text-[10px] text-muted-foreground/50">{nota}</span>}
         </div>
-        {legenda}
+        {leitura ?? legenda}
       </div>
       {vazio ? (
         <div style={{ height: altura }} className="flex items-center justify-center text-xs text-muted-foreground">
           Sem dados suficientes no período.
         </div>
       ) : children}
+    </div>
+  );
+}
+
+/**
+ * A leitura do dia sob o mouse.
+ *
+ * Entradas com `+`, saídas com `−`, saldo com o sinal que tiver. E o que é
+ * DERIVADO leva um til discreto: sem essa marca, os três números parecem ter a
+ * mesma procedência, e só um deles é medição direta.
+ */
+function LeituraDoDia({ p }: { p: PontoDeMovimento }) {
+  const val = (v: number | null, sinal: "+" | "−" | "auto") =>
+    v == null ? "–"
+      : sinal === "auto" ? `${v > 0 ? "+" : v < 0 ? "−" : ""}${fmt(Math.abs(v))}`
+      : `${sinal}${fmt(v)}`;
+  return (
+    <div className="flex items-center gap-3 flex-wrap text-[11px] tabular-nums">
+      <span className="font-bold">{p.dia.slice(8, 10)}/{p.dia.slice(5, 7)}</span>
+      <span style={{ color: COR.entrada }}>Entradas {val(p.entradas, "+")}</span>
+      <span style={{ color: COR.saida }}>
+        Saídas {p.saidas == null ? "não derivável" : val(p.saidas, "−")}
+        {p.saidas != null && <span className="opacity-50" title="valor derivado">˜</span>}
+      </span>
+      <span style={{ color: COR.seguidores }}>Saldo {val(p.saldo, "auto")}</span>
+    </div>
+  );
+}
+
+/**
+ * A leitura de um dia de ativações — total primeiro, composição depois.
+ *
+ * Só os tipos que o dia teve. Listar "0 reels" num dia sem reels transformaria
+ * a leitura numa tabela de ausências, e o que se quer saber é do que aquele dia
+ * foi feito.
+ */
+function LeituraDasAtivacoes({ dia, total, segmentos }: {
+  dia: string; total: number; segmentos: Array<{ tipo: TipoConteudo; valor: number }>;
+}) {
+  return (
+    <div className="flex items-center gap-3 flex-wrap text-[11px] tabular-nums">
+      <span className="font-bold">{dia.slice(8, 10)}/{dia.slice(5, 7)}</span>
+      <span className="font-bold">
+        {total} ativa{total === 1 ? "ção" : "ções"}
+      </span>
+      {segmentos.map((s) => (
+        <span key={s.tipo} className="inline-flex items-center gap-1.5" style={{ color: COR_TIPO[s.tipo] }}>
+          <i className="w-2 h-2 rounded-[3px] flex-shrink-0" style={{ background: COR_TIPO[s.tipo] }} />
+          {s.valor} {ROTULO_CONTEUDO[s.tipo].toLowerCase()}
+        </span>
+      ))}
+      {!segmentos.length && <span className="text-muted-foreground">nenhuma publicação</span>}
     </div>
   );
 }
@@ -212,8 +272,14 @@ export function GraficoDeMovimento({ pontos, nota, altura = 176 }: {
   };
   const y = (valor: number) => yZero - (valor >= 0 ? px(valor) : -px(valor));
 
-  const x = (i: number) => ml + (i / Math.max(1, pontos.length - 1)) * iw;
-  const bw = Math.min(14, Math.max(3, (iw / Math.max(1, pontos.length)) * 0.42));
+  /**
+   * Os pontos ocupam a largura inteira, e o passo é dela dividida pelo número de
+   * dias — não `i/(n−1)`, que encosta o primeiro e o último nas bordas e deixa
+   * as barras espremidas no miolo quando a série é curta.
+   */
+  const passoX = iw / Math.max(1, pontos.length);
+  const x = (i: number) => ml + (i + 0.5) * passoX;
+  const bw = Math.min(18, Math.max(4, passoX * 0.46));
 
   const linhaSaldo = (() => {
     const partes: string[] = [];
@@ -227,10 +293,20 @@ export function GraficoDeMovimento({ pontos, nota, altura = 176 }: {
   })();
 
   const passoRotulo = intervaloDeRotulos(pontos.length, iw);
+  /**
+   * O dia sob o mouse.
+   *
+   * Uma faixa invisível de largura do PASSO captura o hover, e não a barra: a
+   * barra tem 14px e o dia zerado não tem barra nenhuma — mirar nela deixaria
+   * metade do gráfico sem resposta, justamente os dias em que não houve
+   * movimento, que são os que geram dúvida.
+   */
+  const [ativo, setAtivo] = useState<number | null>(null);
 
   return (
     <Moldura titulo="Entradas × saídas × saldo" nota={nota} vazio={vazio} altura={altura}
-      legenda={<Legenda itens={[["Entradas", COR.entrada], ["Saídas", COR.saida], ["Saldo", COR.seguidores]]} />}>
+      legenda={<Legenda itens={[["Entradas", COR.entrada], ["Saídas", COR.saida], ["Saldo", COR.seguidores]]} />}
+      leitura={ativo != null ? <LeituraDoDia p={pontos[ativo]} /> : null}>
       <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img" aria-label="Movimento da base">
         {esc.rotulos.map((v, k) => {
           const yy = k === 0 ? mt : k === 1 ? yZero : mt + ih;
@@ -248,29 +324,49 @@ export function GraficoDeMovimento({ pontos, nota, altura = 176 }: {
           );
         })}
 
-        {pontos.map((p, i) => (
-          <g key={p.dia}>
-            {p.entradas != null && p.entradas > 0 && (
-              <rect x={x(i) - bw / 2} y={y(p.entradas)} width={bw} height={px(p.entradas)}
-                fill={COR.entrada} opacity={0.85} rx={1.5} />
-            )}
-            {/* Desenhada para BAIXO a partir do zero — o desequilíbrio entre as
-                duas fica visível sem ler número nenhum. */}
-            {p.saidas != null && p.saidas > 0 && (
-              <rect x={x(i) - bw / 2} y={yZero} width={bw} height={px(p.saidas)}
-                fill={COR.saida} opacity={0.85} rx={1.5} />
-            )}
-            <rect x={x(i) - bw / 2 - 3} y={mt} width={bw + 6} height={ih} fill="transparent" />
-            <title>{`${p.dia.slice(8, 10)}/${p.dia.slice(5, 7)}
-Entraram: ${p.entradas == null ? "não medido" : `+${fmt(p.entradas)}`}
-Saíram: ${p.saidas == null ? "não derivável" : `−${fmt(p.saidas)}`}
-Saldo: ${p.saldo == null ? "–" : `${p.saldo > 0 ? "+" : ""}${fmt(p.saldo)}`}`}</title>
-          </g>
-        ))}
+        {/* A faixa do dia ativo, atrás de tudo — guia o olho sem tapar a barra. */}
+        {ativo != null && (
+          <rect x={x(ativo) - passoX / 2} y={mt} width={passoX} height={ih}
+            className="fill-foreground/[0.045]" />
+        )}
+
+        {pontos.map((p, i) => {
+          const destacado = ativo === i;
+          return (
+            <g key={p.dia}>
+              {p.entradas != null && p.entradas > 0 && (
+                <rect x={x(i) - bw / 2} y={y(p.entradas)} width={bw} height={px(p.entradas)}
+                  fill={COR.entrada} opacity={ativo == null || destacado ? 0.9 : 0.35} rx={1.5}
+                  className="transition-opacity duration-150" />
+              )}
+              {/* Desenhada para BAIXO a partir do zero — o desequilíbrio entre as
+                  duas fica visível sem ler número nenhum. */}
+              {p.saidas != null && p.saidas > 0 && (
+                <rect x={x(i) - bw / 2} y={yZero} width={bw} height={px(p.saidas)}
+                  fill={COR.saida} opacity={ativo == null || destacado ? 0.9 : 0.35} rx={1.5}
+                  className="transition-opacity duration-150" />
+              )}
+              {/* O ponto do saldo só aparece no dia ativo: trinta pontos
+                  permanentes competiriam com as barras. */}
+              {destacado && p.saldo != null && (
+                <circle cx={x(i)} cy={y(p.saldo)} r={4} fill="var(--color-card)"
+                  stroke={COR.seguidores} strokeWidth={2.4} />
+              )}
+            </g>
+          );
+        })}
 
         {linhaSaldo.map((d, k) => (
           <path key={k} d={d} fill="none" stroke={COR.seguidores} strokeWidth={2.2}
-            strokeLinejoin="round" strokeLinecap="round" />
+            strokeLinejoin="round" strokeLinecap="round"
+            opacity={ativo == null ? 1 : 0.55} className="transition-opacity duration-150" />
+        ))}
+
+        {/* As faixas de captura vão por ÚLTIMO, para ficarem acima de tudo — e
+            cobrem o passo inteiro, então o dia sem barra também responde. */}
+        {pontos.map((p, i) => (
+          <rect key={`h${p.dia}`} x={x(i) - passoX / 2} y={mt} width={passoX} height={ih}
+            fill="transparent" onMouseEnter={() => setAtivo(i)} onMouseLeave={() => setAtivo(null)} />
         ))}
 
         {pontos.map((p, i) => (i % passoRotulo ? null : (
@@ -306,6 +402,14 @@ Saldo: ${p.saldo == null ? "–" : `${p.saldo > 0 ? "+" : ""}${fmt(p.saldo)}`}`}
 export function GraficoDeAtivacoes({ pontos, altura = 200 }: {
   pontos: PontoDaConta[]; altura?: number;
 }) {
+  const [ativo, setAtivo] = useState<number | null>(null);
+  /**
+   * A legenda lista EXATAMENTE os tipos que aparecem em alguma barra.
+   *
+   * Uma legenda fixa com os três prometeria uma cor que o gráfico não usa — e
+   * quem procura o tom de reels e não acha conclui que a leitura falhou, não
+   * que a conta não publicou reels.
+   */
   const presentes = ORDEM_TIPO.filter((t) => pontos.some((p) => (p.porTipo?.[t] ?? 0) > 0));
   const pilhas = pontos.map((p) => pilhaDoDia(p.porTipo ?? {}, ORDEM_TIPO));
   const max = Math.max(1, ...pilhas.map((x) => x.total));
@@ -323,8 +427,13 @@ export function GraficoDeAtivacoes({ pontos, altura = 200 }: {
   return (
     <Moldura titulo="Ativações por dia" nota="a altura é o total · as cores dizem de que ele é feito"
       vazio={vazio} altura={altura}
-      legenda={<Legenda itens={presentes.map((t) => [ROTULO_CONTEUDO[t], COR_TIPO[t]] as [string, string])} />}>
-      <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img" aria-label="Ativações por dia e tipo">
+      legenda={<Legenda itens={presentes.map((t) => [ROTULO_CONTEUDO[t], COR_TIPO[t]] as [string, string])} />}
+      leitura={ativo != null && pontos[ativo] ? (
+        <LeituraDasAtivacoes dia={pontos[ativo].dia} total={pilhas[ativo].total}
+          segmentos={pilhas[ativo].segmentos} />
+      ) : null}>
+      <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img" aria-label="Ativações por dia e tipo"
+        onMouseLeave={() => setAtivo(null)}>
         {[0, 1, 2, 3].map((g) => {
           const y = mt + (ih / 3) * g;
           return (
@@ -337,15 +446,20 @@ export function GraficoDeAtivacoes({ pontos, altura = 200 }: {
           );
         })}
 
+        {/* A faixa de destaque ATRÁS das barras: marca o dia sem cobri-lo. */}
+        {ativo != null && (
+          <rect x={x(ativo) - passo / 2} y={mt} width={passo} height={ih}
+            className="fill-foreground/[0.05]" />
+        )}
+
         {pontos.map((p, i) => {
           const { segmentos, total } = pilhas[i];
           const h = alturaDaBarra(total);
           const topoDaBarra = mt + ih - h;
-          const composicao = segmentos
-            .map((s) => `${ROTULO_CONTEUDO[s.tipo]}: ${s.valor}`).join("\n");
+          const apagado = ativo != null && ativo !== i;
 
           return (
-            <g key={p.dia}>
+            <g key={p.dia} style={{ opacity: apagado ? 0.32 : 1, transition: "opacity 140ms ease" }}>
               {/* As frações vêm de `pilhaDoDia` e somam exatamente 1 — somar
                   altura segmento a segmento deixaria fresta no topo, e a barra
                   pareceria menor que o valor dela. */}
@@ -368,13 +482,18 @@ export function GraficoDeAtivacoes({ pontos, altura = 200 }: {
                 </text>
               )}
 
-              <rect x={x(i) - passo / 2} y={mt} width={passo} height={ih} fill="transparent" />
-              <title>{`${p.dia.slice(8, 10)}/${p.dia.slice(5, 7)}
-
-Total: ${total} ativa${total === 1 ? "ção" : "ções"}${composicao ? `\n\n${composicao}` : ""}`}</title>
             </g>
           );
         })}
+
+        {/* As faixas de captura por ÚLTIMO, com a largura do passo inteiro:
+            assim um dia sem barra nenhuma continua respondendo ao mouse — e
+            "nenhuma publicação" é uma resposta, não silêncio. */}
+        {pontos.map((p, i) => (
+          <rect key={`c-${p.dia}`} x={x(i) - passo / 2} y={mt} width={passo} height={ih}
+            fill="transparent" style={{ cursor: "pointer" }}
+            onMouseEnter={() => setAtivo(i)} />
+        ))}
 
         {pontos.map((p, i) => (i % passoRotulo ? null : (
           <text key={p.dia} x={x(i)} y={altura - 6} textAnchor="middle" fontSize={9} className={EIXO}>

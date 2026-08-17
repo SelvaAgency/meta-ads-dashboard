@@ -48,7 +48,7 @@ import { composicaoDoEngajamento, taxaPorAlcance } from "@shared/engajamento";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 import { COR, COR_INTERACAO, COR_TIPO } from "@shared/coresSociais";
 import { compararComAnterior, variacao } from "@shared/periodoAnterior";
-import { CartaoGeral } from "@/components/redes/CartaoGeral";
+import { CartaoGeral, MetricaDoPerfil } from "@/components/redes/CartaoGeral";
 import { RetencaoReels } from "@/components/redes/RetencaoReels";
 import {
   IdentidadeDaConta, Resultados, ResumoCurto, type ValorDoDia,
@@ -61,7 +61,7 @@ import {
   type DesempenhoPorTipo, type PublicacaoEmLinha,
 } from "@/components/redes/PublicacoesEConteudo";
 import {
-  Loader2, Settings2, Users, Heart, Eye, MousePointerClick, Layers, MessageCircle,
+  Loader2, Settings2, Users, Heart, Eye, Layers,
 } from "lucide-react";
 
 const fmt = (n: number | null | undefined): string =>
@@ -268,14 +268,29 @@ export default function RedesSociais() {
   // A composição vem do PERFIL, mesmo escopo do total — somar as mídias cobriria
   // só as publicações do período, e a linha de apoio não fecharia o número que
   // está logo acima dela.
+  /**
+   * A composição do engajamento, agora com as respostas aos stories dentro.
+   *
+   * O total grande continua sendo `total_interactions`, MEDIDO pela Meta — e não
+   * a soma das parcelas. Se a Meta já contar as respostas ali dentro, somá-las
+   * ao total as contaria duas vezes; se não contar, o total ficaria abaixo da
+   * soma. Nenhum dos dois se sabe hoje.
+   *
+   * `composicaoDoEngajamento` já resolve isso sozinha: ela CONFERE se as
+   * parcelas fecham com o total e diz na tela quando não fecham. É a mesma
+   * máquina que existia — a resposta de stories só entrou como mais uma parcela.
+   */
   const composicao = composicaoDoEngajamento({
     likes: somarNoPeriodo("likes", serie).total,
     comments: somarNoPeriodo("comments", serie).total,
     shares: somarNoPeriodo("shares", serie).total,
     saves: somarNoPeriodo("saves", serie).total,
+    replies: respostas.total,
   }, interacoes.total);
   const alcance = somarNoPeriodo("reach", serie);
-  const taxa = taxaPorAlcance(interacoes.total, alcance.total);
+  // A taxa é do número que está logo acima dela no cartão. Calculá-la sobre
+  // outro total faria "389" e "16,8% do alcance" falarem de coisas diferentes.
+  const taxa = taxaPorAlcance(composicao.totalApresentado, alcance.total);
 
   const publicacoesIndisponiveis =
     !!d?.historico.statusDaConta?.slice(-1)[0]?.midiasIndisponiveis;
@@ -403,8 +418,24 @@ export default function RedesSociais() {
   const met2 = (k: string) => (d: { metricas: Record<string, number> }) =>
     typeof d.metricas?.[k] === "number" ? d.metricas[k] : null;
 
-  const varEngajamento = variacaoDe(met2("total_interactions"), interacoes.total);
-  const varRespostas   = variacaoDe(met2("replies"), respostas.total);
+  /**
+   * A variação compara os dois períodos na MESMA base.
+   *
+   * Quando está provado que as respostas ficaram de fora de
+   * `total_interactions`, o número exibido as inclui — e o período anterior
+   * precisa incluí-las também, senão o selo mede a mudança de critério em vez
+   * da mudança de engajamento. Se o dia anterior não mediu respostas, a leitura
+   * devolve `null` e a comparação se recusa: melhor sem selo do que com um selo
+   * que compara cinco parcelas contra quatro.
+   */
+  const lerEngajamento = composicao.respostasNoTotal === false
+    ? (dia: { metricas: Record<string, number> }) => {
+        const t = met2("total_interactions")(dia);
+        const r = met2("replies")(dia);
+        return t == null || r == null ? null : t + r;
+      }
+    : met2("total_interactions");
+  const varEngajamento = variacaoDe(lerEngajamento, composicao.totalApresentado);
   const varVisitas     = variacaoDe(met2("profile_views"), visitas.total);
   const varCliques     = variacaoDe(met2("website_clicks"), cliques.total);
   const varAtivacoes   = (() => {
@@ -472,6 +503,7 @@ export default function RedesSociais() {
           nome={cliente?.accountName ?? "Social"}
           username={organico?.perfil.username ?? null}
           rede="Instagram"
+          foto={(cliente as { pictureUrl?: string | null } | undefined)?.pictureUrl ?? null}
           saude={leituraDoVinculo ? {
             rotulo: leituraDoVinculo.nivel === "ok" ? "Conectado" : leituraDoVinculo.titulo,
             nivel: leituraDoVinculo.nivel === "erro" ? "erro"
@@ -547,12 +579,17 @@ export default function RedesSociais() {
               <PeriodFilter period={period} onChange={setPeriod} />
             </div>
 
-            {/* ══ DADOS GERAIS · faixa de 5 ═════════════════════════════════ */}
+            {/* ══ DADOS GERAIS · três cartões semânticos ════════════════════
+                Ativações (o que a conta fez) · Engajamento (o que responderam)
+                · Perfil (o que fizeram COM a conta). Respostas aos stories
+                deixaram de ser cartão: elas são engajamento, e fora dali o
+                total de engajamento parecia menor do que é. */}
             <Secao titulo="Dados gerais" dica="todo número mantém a composição visível">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 rounded-[20px] border border-border
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 rounded-[20px] border border-border
                               bg-card overflow-hidden divide-x divide-y lg:divide-y-0 divide-border
                               shadow-[0_1px_2px_rgba(10,10,10,.04)]">
                 <CartaoGeral icone={Layers} cor={COR.ativacoes} rotulo="Ativações"
+                  explicacao="Tudo que a conta publicou no período — posts, stories e reels."
                   valor={fmt(ativacoes.total)}
                   variacaoPct={varAtivacoes.pct} anterior={varAtivacoes.anterior}
                   parcelas={composicaoDeAtivacoes(ativacoes).map((x) => ({
@@ -567,7 +604,8 @@ export default function RedesSociais() {
                       : null} />
 
                 <CartaoGeral icone={Heart} cor={COR.engajamento} rotulo="Engajamento"
-                  valor={fmt(interacoes.total)}
+                  explicacao="Total de interações medido pela Meta. As parcelas abaixo dizem de que ele é feito."
+                  valor={fmt(composicao.totalApresentado)}
                   detalhe={taxa != null ? `${taxa.toFixed(1)}% do alcance` : null}
                   variacaoPct={varEngajamento.pct} anterior={varEngajamento.anterior}
                   parcelas={composicao.partes.map((x) => ({
@@ -575,19 +613,30 @@ export default function RedesSociais() {
                   }))}
                   ressalva={composicao.ressalva} />
 
-                <CartaoGeral icone={MessageCircle} cor={COR.engajamento} rotulo="Respostas aos Stories"
-                  valor={fmt(respostas.total)}
-                  variacaoPct={varRespostas.pct} anterior={varRespostas.anterior}
-                  ressalva={respostas.total == null ? "não medida nesta coleta" : null} />
-
-                <CartaoGeral icone={Eye} cor={COR.visitas} rotulo="Visitas ao perfil"
-                  valor={fmt(visitas.total)}
-                  variacaoPct={varVisitas.pct} anterior={varVisitas.anterior}
-                  ressalva={rotuloVisitas.resumo} />
-
-                <CartaoGeral icone={MousePointerClick} cor={COR.visitas} rotulo="Cliques no link"
-                  valor={fmt(cliques.total)}
-                  variacaoPct={varCliques.pct} anterior={varCliques.anterior} />
+                {/* Visitas e cliques num card só: são duas ações sobre o
+                    PERFIL, e ficavam soltas entre métricas de conteúdo. Os dois
+                    números continuam separados — somá-los criaria uma métrica
+                    que ninguém mede. */}
+                <div className="group flex flex-col px-4 py-4 min-w-0 md:col-span-2
+                                transition-colors duration-150 hover:bg-foreground/[0.02]">
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <span className="w-8 h-8 rounded-[10px] grid place-items-center flex-shrink-0"
+                      style={{ background: `${COR.visitas}29`, color: COR.visitas }}>
+                      <Eye className="w-4 h-4" strokeWidth={2.2} />
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-muted-foreground mb-2.5"
+                    title="Duas ações sobre o perfil. Os números NÃO se somam: uma visita e um clique são coisas diferentes.">
+                    Interações com o perfil
+                  </span>
+                  <div className="grid grid-cols-2 gap-4">
+                    <MetricaDoPerfil rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
+                      variacaoPct={varVisitas.pct} anterior={varVisitas.anterior}
+                      ressalva={rotuloVisitas.resumo} />
+                    <MetricaDoPerfil rotulo="Cliques no link" valor={fmt(cliques.total)}
+                      variacaoPct={varCliques.pct} anterior={varCliques.anterior} />
+                  </div>
+                </div>
               </div>
               {!comparabilidade.comparavel && comparabilidade.motivo && (
                 <p className="text-[10px] text-amber-600 leading-snug mt-1">{comparabilidade.motivo}</p>

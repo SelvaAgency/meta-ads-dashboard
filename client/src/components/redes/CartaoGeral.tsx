@@ -20,6 +20,7 @@
  *  verde por ter subido.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+import { useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 
@@ -58,7 +59,7 @@ function Selo({ pct, anterior, bom }: {
 }
 
 export function CartaoGeral({
-  icone: Icone, cor, rotulo, valor, detalhe, parcelas, ressalva,
+  icone: Icone, cor, rotulo, valor, detalhe, parcelas, ressalva, explicacao,
   variacaoPct, anterior, bom = "sobe",
 }: {
   icone: LucideIcon;
@@ -72,21 +73,28 @@ export function CartaoGeral({
   variacaoPct?: number | null;
   anterior?: number | null;
   bom?: "sobe" | "cai";
+  /** O que a métrica mede, no tooltip. Só o que a ressalva não já disser. */
+  explicacao?: string | null;
 }) {
+  const [realce, setRealce] = useState<string | null>(null);
   const vazio = valor === "–";
   const total = (parcelas ?? []).reduce((n, p) => n + p.valor, 0);
 
   return (
-    <div className="flex flex-col px-4 py-4 min-w-0">
+    /* O realce é do CARTÃO inteiro, não de um detalhe dele: o que o mouse marca
+       é "estou lendo esta métrica". Fundo levíssimo e 160ms — passar o mouse
+       pela faixa não pode virar uma sequência de piscadas. */
+    <div className="group flex flex-col px-4 py-4 min-w-0 transition-colors duration-150 hover:bg-foreground/[0.02]">
       <div className="flex items-start justify-between gap-2 mb-3">
-        <span className="w-8 h-8 rounded-[10px] grid place-items-center flex-shrink-0"
+        <span className="w-8 h-8 rounded-[10px] grid place-items-center flex-shrink-0 transition-colors duration-150"
           style={{ background: `${cor}29`, color: cor }}>
           <Icone className="w-4 h-4" strokeWidth={2.2} />
         </span>
         <Selo pct={variacaoPct ?? null} anterior={anterior ?? null} bom={bom} />
       </div>
 
-      <span className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground mb-1">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground mb-1"
+        title={explicacao ?? undefined}>
         {rotulo}
       </span>
       <span className={`text-[28px] font-bold tabular-nums leading-none tracking-tight ${
@@ -100,15 +108,31 @@ export function CartaoGeral({
           dizendo "100% de si mesma". */}
       {parcelas && parcelas.length > 1 && total > 0 && (
         <>
+          {/* Legenda e barra são a MESMA informação em dois lugares. O mouse
+              sobre uma delas apaga as outras parcelas, e aí não é preciso
+              adivinhar qual faixa é "salvamentos" — a correspondência aparece
+              em vez de ser deduzida por ordem. */}
           <span className="flex h-[7px] rounded-full overflow-hidden mt-3 bg-muted">
             {parcelas.filter((p) => p.valor > 0).map((p) => (
-              <span key={p.rotulo} style={{ flexGrow: p.valor, background: p.cor }}
+              <span key={p.rotulo}
+                style={{
+                  flexGrow: p.valor, background: p.cor,
+                  opacity: realce && realce !== p.rotulo ? 0.28 : 1,
+                  transition: "opacity 140ms ease",
+                }}
+                onMouseEnter={() => setRealce(p.rotulo)}
+                onMouseLeave={() => setRealce(null)}
                 title={`${p.rotulo}: ${p.valor.toLocaleString("pt-BR")} (${Math.round(p.valor / total * 100)}%)`} />
             ))}
           </span>
           <span className="flex flex-wrap gap-x-2.5 gap-y-1 mt-2">
             {parcelas.map((p) => (
-              <span key={p.rotulo} className="inline-flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
+              <span key={p.rotulo}
+                className={`inline-flex items-center gap-1.5 text-[10.5px] transition-colors duration-150 ${
+                  realce === p.rotulo ? "text-foreground font-semibold" : "text-muted-foreground"}`}
+                onMouseEnter={() => setRealce(p.rotulo)}
+                onMouseLeave={() => setRealce(null)}
+                title={`${Math.round(p.valor / total * 100)}% do total`}>
                 <i className="w-2 h-2 rounded-[3px] flex-shrink-0" style={{ background: p.cor }} />
                 {p.valor.toLocaleString("pt-BR")} {p.rotulo}
               </span>
@@ -119,6 +143,38 @@ export function CartaoGeral({
 
       {ressalva && (
         <span className="text-[10px] text-muted-foreground/60 leading-snug mt-2">{ressalva}</span>
+      )}
+    </div>
+  );
+}
+
+
+/**
+ * Uma métrica dentro de um card agrupado.
+ *
+ * Existe para "Interações com o perfil", onde visitas e cliques dividem um card
+ * mas continuam sendo dois números. Somá-los criaria uma métrica que ninguém
+ * mede — a agrupação é só visual, porque são duas ações sobre o mesmo objeto.
+ */
+export function MetricaDoPerfil({ rotulo, valor, variacaoPct, anterior, ressalva }: {
+  rotulo: string; valor: string;
+  variacaoPct?: number | null; anterior?: number | null; ressalva?: string | null;
+}) {
+  const vazio = valor === "–";
+  return (
+    <div className="min-w-0">
+      <div className="flex items-baseline justify-between gap-1.5 mb-0.5">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 truncate">
+          {rotulo}
+        </span>
+        <Selo pct={variacaoPct ?? null} anterior={anterior ?? null} bom="sobe" />
+      </div>
+      <span className={`block text-[22px] font-bold tabular-nums leading-none tracking-tight ${
+        vazio ? "text-muted-foreground/40" : "text-foreground"}`}>
+        {valor}
+      </span>
+      {ressalva && (
+        <span className="block text-[10px] text-muted-foreground/60 leading-snug mt-1.5">{ressalva}</span>
       )}
     </div>
   );

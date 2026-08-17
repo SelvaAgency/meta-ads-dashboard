@@ -19,6 +19,7 @@
  *  Por isso o estoque leva o rótulo "total" e mostra a variação separada.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { LeituraSocial } from "@shared/leituraSocial";
 
@@ -40,10 +41,22 @@ const valorDe = (v?: ValorDoDia) => {
 const iniciais = (nome: string) =>
   nome.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
 
-export function IdentidadeDaConta({ nome, username, rede, saude }: {
+export function IdentidadeDaConta({ nome, username, rede, saude, foto }: {
   nome: string; username: string | null; rede: string;
   saude?: { rotulo: string; nivel: "ok" | "atencao" | "erro" } | null;
+  /** A foto real do cliente. `null` cai nas iniciais — nada é fabricado. */
+  foto?: string | null;
 }) {
+  /**
+   * A URL da foto é ASSINADA e tem validade. Quando ela vence, o navegador
+   * desenha o ícone de imagem quebrada — que é pior do que nunca ter havido
+   * foto. O erro devolve a identidade às iniciais; o `useEffect` rearma a
+   * tentativa ao trocar de cliente, senão o primeiro erro condenaria todos os
+   * seguintes a aparecerem sem foto.
+   */
+  const [falhou, setFalhou] = useState(false);
+  useEffect(() => { setFalhou(false); }, [foto]);
+
   const tomSaude = saude?.nivel === "erro"
     ? "bg-destructive/12 text-destructive"
     : saude?.nivel === "atencao"
@@ -52,9 +65,16 @@ export function IdentidadeDaConta({ nome, username, rede, saude }: {
 
   return (
     <div className="flex items-center gap-3.5 flex-wrap">
-      <span className="w-[46px] h-[46px] rounded-[14px] bg-foreground text-background grid place-items-center
-                       font-bold text-[15px] flex-shrink-0 tracking-tight">
-        {iniciais(nome)}
+      {/* A foto ocupa EXATAMENTE o espaço das iniciais: 46px e o mesmo raio.
+          Trocar o tamanho quando há imagem faria o cabeçalho pular de altura ao
+          navegar entre clientes com e sem foto. */}
+      <span className="w-[46px] h-[46px] rounded-[14px] flex-shrink-0 overflow-hidden
+                       grid place-items-center bg-foreground text-background
+                       font-bold text-[15px] tracking-tight">
+        {foto && !falhou
+          ? <img src={foto} alt="" className="w-full h-full object-cover"
+              onError={() => setFalhou(true)} />
+          : iniciais(nome)}
       </span>
       <div className="flex-1 min-w-0">
         <h1 className="text-2xl font-bold tracking-[-0.02em] leading-none">{nome}</h1>

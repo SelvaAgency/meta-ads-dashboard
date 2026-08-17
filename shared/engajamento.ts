@@ -187,7 +187,12 @@ export function avisoDeExclusao(r: Ranking<PublicacaoRanqueavel>): string | null
 // ─── A composição do engajamento ─────────────────────────────────────────────
 
 export interface ParteDoEngajamento {
-  chave: "likes" | "comments" | "shares" | "saves";
+  /**
+   * `replies` entrou aqui, e não como métrica separada: resposta a story É
+   * engajamento — alguém reagiu ao conteúdo. Fora do card, ela aparecia como se
+   * fosse outra coisa, e o total de engajamento parecia menor do que é.
+   */
+  chave: "likes" | "comments" | "shares" | "saves" | "replies";
   rotulo: string;
   total: number;
 }
@@ -196,6 +201,22 @@ export interface ComposicaoDoEngajamento {
   partes: ParteDoEngajamento[];
   /** As quatro responderam? */
   completa: boolean;
+  /**
+   * O número grande do cartão — o total que a composição abaixo explica.
+   *
+   * Quase sempre é `total_interactions` puro. Só difere quando dá para PROVAR
+   * que a Meta não contou as respostas aos stories ali dentro (ver
+   * `respostasNoTotal`): nesse caso elas entram, porque a alternativa é uma
+   * lista de parcelas que soma mais que o número que ela deveria explicar.
+   */
+  totalApresentado: number | null;
+  /**
+   * A Meta já conta respostas a story em `total_interactions`?
+   *
+   * `true` provado · `false` provado · `null` não dá para saber (faltou parcela,
+   * faltou total, ou não houve resposta nenhuma no período).
+   */
+  respostasNoTotal: boolean | null;
   /**
    * As partes somam o total apresentado?
    *
@@ -212,6 +233,7 @@ const ROTULO_PARTE: Record<ParteDoEngajamento["chave"], string> = {
   comments: "comentários",
   shares: "compartilhamentos",
   saves: "salvamentos",
+  replies: "respostas aos stories",
 };
 
 /**
@@ -235,29 +257,79 @@ export function composicaoDoEngajamento(
   valores: Partial<Record<ParteDoEngajamento["chave"], number | null>>,
   total: number | null,
 ): ComposicaoDoEngajamento {
-  const chaves: Array<ParteDoEngajamento["chave"]> = ["likes", "comments", "shares", "saves"];
+  const chaves: Array<ParteDoEngajamento["chave"]> = ["likes", "comments", "shares", "saves", "replies"];
   const partes = chaves
     .filter((c) => typeof valores[c] === "number")
     .map((c) => ({ chave: c, rotulo: ROTULO_PARTE[c], total: valores[c] as number }));
 
-  const completa = partes.length === chaves.length;
+  /**
+   * "Completa" continua sendo as QUATRO originais.
+   *
+   * `replies` não entra na conta de completude porque não se sabe se a Meta a
+   * inclui em `total_interactions`. Exigi-la faria toda conta sem respostas
+   * aparecer como incompleta, e o aviso perderia o sentido.
+   */
+  const completa = ["likes", "comments", "shares", "saves"]
+    .every((c) => partes.some((p) => p.chave === c));
   if (!partes.length) {
-    return { partes: [], completa: false, fecha: null, ressalva: null };
+    return {
+      partes: [], completa: false, totalApresentado: total,
+      respostasNoTotal: null, fecha: null, ressalva: null,
+    };
   }
 
-  const soma = partes.reduce((n, p) => n + p.total, 0);
+  /**
+   * A conferência é feita sobre AS QUATRO, não sobre as cinco.
+   *
+   * Curtidas, comentários, compartilhamentos e salvamentos são parcelas
+   * conhecidas de `total_interactions`. Resposta a story não é: a Meta a devolve
+   * por outra métrica, e nunca documentou se a soma dela já está no total.
+   * Jogá-la na mesma conta faria a conferência acusar divergência toda vez que
+   * alguém respondesse um story — um alarme que diria mais sobre a nossa
+   * suposição do que sobre o dado.
+   */
+  const quatro = partes.filter((p) => p.chave !== "replies");
+  const soma = quatro.reduce((n, p) => n + p.total, 0);
+  const respostas = valores.replies;
   const fecha = total == null || !completa ? null : soma === total;
+
+  /**
+   * A pergunta se responde sozinha, e o período que tem resposta é quem responde.
+   *
+   * Se as quatro já batem com o total, sobrou a resposta de story de fora dele.
+   * Se batem só depois de somá-la, ela estava dentro. Sem resposta nenhuma no
+   * período, as duas hipóteses são indistinguíveis — e aí a saída é `null`, não
+   * um chute que fica gravado como fato na próxima leitura.
+   */
+  let respostasNoTotal: boolean | null = null;
+  if (completa && total != null && typeof respostas === "number" && respostas > 0) {
+    if (soma === total) respostasNoTotal = false;
+    else if (soma + respostas === total) respostasNoTotal = true;
+  }
+
+  // O total só cresce quando está PROVADO que as respostas ficaram de fora.
+  // Somá-las na dúvida inflaria o engajamento de toda conta com stories ativos.
+  const totalApresentado = respostasNoTotal === false && typeof respostas === "number"
+    ? total! + respostas
+    : total;
 
   let ressalva: string | null = null;
   if (!completa) {
-    const faltando = chaves.filter((c) => typeof valores[c] !== "number").map((c) => ROTULO_PARTE[c]);
+    const faltando = (["likes", "comments", "shares", "saves"] as const)
+      .filter((c) => typeof valores[c] !== "number").map((c) => ROTULO_PARTE[c]);
     ressalva = `sem ${faltando.join(" e ")} nesta coleta`;
-  } else if (fecha === false) {
+  } else if (respostasNoTotal === false) {
+    ressalva = "as respostas aos stories vêm de outra métrica e foram somadas ao total";
+  } else if (fecha === false && respostasNoTotal !== true) {
     // Divergência dita, e não escondida: a Meta pode contar no total algo que
     // não devolve como parcela, e apresentar a soma como se fosse o total
     // transformaria uma diferença conhecida num erro invisível.
     ressalva = `as parcelas somam ${soma.toLocaleString("pt-BR")}, e o total é outro`;
+  } else if (typeof respostas !== "number") {
+    // Quatro estados: aqui a distinção é entre "ninguém respondeu" e "não
+    // perguntamos". Sem esta linha, as duas viram a mesma tela silenciosa.
+    ressalva = "respostas aos stories não medidas nesta coleta";
   }
 
-  return { partes, completa, fecha, ressalva };
+  return { partes, completa, totalApresentado, respostasNoTotal, fecha, ressalva };
 }

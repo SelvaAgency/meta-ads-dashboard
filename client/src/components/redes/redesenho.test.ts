@@ -65,12 +65,30 @@ describe("a paleta é única", () => {
 });
 
 describe("nenhuma métrica saiu da faixa geral", () => {
-  /** As cinco que existiam antes do redesenho. */
+  /**
+   * As cinco de antes continuam na tela — três viraram cartão, duas viraram
+   * sub-métrica, e uma virou parcela. O que o guarda impede é o caso em que
+   * "reagrupar" foi na verdade sumir com o número.
+   */
   it("as cinco continuam sendo montadas", () => {
     const s = pagina();
-    for (const r of ["Ativações", "Engajamento", "Respostas aos Stories", "Visitas ao perfil", "Cliques no link"]) {
-      expect(s, `"${r}" saiu da faixa`).toContain(`rotulo="${r}"`);
+    for (const r of ["Ativações", "Engajamento", "Visitas ao perfil", "Cliques no link"]) {
+      expect(s, `"${r}" saiu da faixa`).toMatch(new RegExp(`rotulo="${r}"`));
     }
+    // Respostas aos stories: parcela do engajamento, não cartão.
+    expect(s, "respostas aos stories saíram do engajamento").toContain("replies: respostas.total");
+    expect(s, "respostas aos stories voltaram a ser cartão")
+      .not.toContain('rotulo="Respostas aos Stories"');
+  });
+
+  /** Visitas e cliques dividem cartão, mas nunca o número. */
+  it("interações com o perfil agrupa sem somar", () => {
+    const s = pagina();
+    expect(s).toContain("Interações com o perfil");
+    expect(s).toMatch(/MetricaDoPerfil[^>]*rotulo="Visitas ao perfil"[\s\S]*?valor=\{fmt\(visitas\.total\)\}/);
+    expect(s).toMatch(/MetricaDoPerfil[^>]*rotulo="Cliques no link"[\s\S]*?valor=\{fmt\(cliques\.total\)\}/);
+    // A soma das duas seria uma métrica que ninguém mede.
+    expect(s).not.toMatch(/visitas\.total\s*\+\s*cliques\.total/);
   });
 
   /** As ressalvas são o que separa "medido zero" de "não medido". */
@@ -78,8 +96,10 @@ describe("nenhuma métrica saiu da faixa geral", () => {
     const s = pagina();
     expect(s).toContain("publicações indisponíveis nesta coleta");
     expect(s).toContain("sem medição de stories");
-    expect(s).toContain("não medida nesta coleta");
     expect(s).toContain("rotuloVisitas.resumo");
+    // A ressalva das respostas mudou de lugar junto com a métrica: agora é a
+    // composição do engajamento que diz quando elas não foram medidas.
+    expect(s).toContain("composicao.ressalva");
   });
 
   /** Views entrou no card de publicação — o snapshot já tinha o campo. */
@@ -102,8 +122,10 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
     const s = grafico();
     expect(s).toContain("strokeWidth={2.2}");
     expect(s).toContain('strokeDasharray="3 4"');
-    expect(s).toMatch(/\* 0\.42/);
-    expect(s).toMatch(/\* 0\.62/);
+    // As larguras de barra saem do PASSO horizontal, e não de um número fixo:
+    // com 30 dias, uma largura fixa faria as barras se encavalarem.
+    expect(s).toMatch(/passoX \* 0\.46/);
+    expect(s).toMatch(/passo \* 0\.62/);
   });
 
   /**

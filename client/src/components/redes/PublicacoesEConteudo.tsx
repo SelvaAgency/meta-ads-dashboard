@@ -339,7 +339,8 @@ function CartaoDeTipo({ t, porTipo }: { t: DesempenhoPorTipo; porTipo: Desempenh
   const maxAlc = Math.max(1, ...porTipo.map((x) => x.alcanceMedio ?? 0));
   const rel = Math.round(((t.alcanceMedio ?? 0) / maxAlc) * 100);
   return (
-    <div className="rounded-xl border border-border bg-card p-4 border-l-[3px]"
+    <div className="rounded-xl border border-border bg-card p-4 border-l-[3px]
+                    transition-shadow duration-150 hover:shadow-[0_4px_16px_rgba(10,10,10,.07)]"
       style={{ borderLeftColor: COR_TIPO[t.tipo] }}>
       <div className="flex items-center gap-2">
         <i className="w-2 h-2 rounded-[3px] flex-shrink-0" style={{ background: COR_TIPO[t.tipo] }} />

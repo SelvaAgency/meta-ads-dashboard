@@ -24,9 +24,10 @@ import { composicaoDeAtivacoes, contarAtivacoes } from "./ativacoes";
 describe("a composição do engajamento", () => {
   it("as quatro parcelas, na ordem, quando todas respondem", () => {
     const c = composicaoDoEngajamento(
-      { likes: 312, comments: 24, shares: 18, saves: 35 }, 389);
+      { likes: 312, comments: 24, shares: 18, saves: 35, replies: 0 }, 389);
     expect(c.partes.map((p) => `${p.total} ${p.rotulo}`)).toEqual(
-      ["312 curtidas", "24 comentários", "18 compartilhamentos", "35 salvamentos"]);
+      ["312 curtidas", "24 comentários", "18 compartilhamentos", "35 salvamentos",
+       "0 respostas aos stories"]);
     expect(c.completa).toBe(true);
     expect(c.fecha).toBe(true);
     expect(c.ressalva).toBeNull();
@@ -34,8 +35,8 @@ describe("a composição do engajamento", () => {
 
   /** Zero MEDIDO aparece: a Meta contou e não houve compartilhamento. */
   it("zero medido entra na lista", () => {
-    const c = composicaoDoEngajamento({ likes: 10, comments: 0, shares: 0, saves: 0 }, 10);
-    expect(c.partes).toHaveLength(4);
+    const c = composicaoDoEngajamento({ likes: 10, comments: 0, shares: 0, saves: 0, replies: 0 }, 10);
+    expect(c.partes).toHaveLength(5);
     expect(c.fecha).toBe(true);
   });
 
@@ -55,20 +56,78 @@ describe("a composição do engajamento", () => {
    */
   it("divergência entre a soma e o total é dita", () => {
     const c = composicaoDoEngajamento(
-      { likes: 100, comments: 10, shares: 5, saves: 5 }, 200);
+      { likes: 100, comments: 10, shares: 5, saves: 5, replies: 0 }, 200);
     expect(c.fecha).toBe(false);
     expect(c.ressalva).toContain("120");
   });
 
   /** Sem o total não há o que conferir — e isso não é divergência. */
   it("sem total, a conferência fica indeterminada e não falsa", () => {
-    const c = composicaoDoEngajamento({ likes: 10, comments: 1, shares: 1, saves: 1 }, null);
+    const c = composicaoDoEngajamento({ likes: 10, comments: 1, shares: 1, saves: 1, replies: 0 }, null);
     expect(c.fecha).toBeNull();
     expect(c.ressalva).toBeNull();
+    expect(c.totalApresentado).toBeNull();
   });
 
   it("nenhuma parcela medida não produz linha nenhuma", () => {
     expect(composicaoDoEngajamento({}, 389).partes).toEqual([]);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Respostas a story: dentro do total da Meta, ou fora dele?
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A Meta nunca documentou se `total_interactions` inclui resposta a story, e a
+ *  resposta muda o número grande do cartão. Chutar para qualquer lado erra por
+ *  omissão ou por contagem dupla — então a composição DEDUZ, e só quando dá.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("as respostas aos stories e o total da Meta", () => {
+  const QUATRO = { likes: 300, comments: 20, shares: 10, saves: 5 }; // soma 335
+
+  it("quatro batem com o total ⇒ as respostas estão FORA, e entram", () => {
+    const c = composicaoDoEngajamento({ ...QUATRO, replies: 12 }, 335);
+    expect(c.respostasNoTotal).toBe(false);
+    expect(c.totalApresentado).toBe(347);
+    expect(c.ressalva).toContain("somadas ao total");
+  });
+
+  it("quatro + respostas batem com o total ⇒ já estavam DENTRO", () => {
+    const c = composicaoDoEngajamento({ ...QUATRO, replies: 12 }, 347);
+    expect(c.respostasNoTotal).toBe(true);
+    expect(c.totalApresentado).toBe(347);
+    // Somá-las de novo daria 359 — o mesmo engajamento contado duas vezes.
+    expect(c.ressalva).toBeNull();
+  });
+
+  it("nenhuma resposta no período ⇒ indeterminado, e o total não se mexe", () => {
+    const c = composicaoDoEngajamento({ ...QUATRO, replies: 0 }, 335);
+    expect(c.respostasNoTotal).toBeNull();
+    expect(c.totalApresentado).toBe(335);
+  });
+
+  it("nem uma hipótese nem outra fecha ⇒ divergência dita, total intocado", () => {
+    const c = composicaoDoEngajamento({ ...QUATRO, replies: 12 }, 500);
+    expect(c.respostasNoTotal).toBeNull();
+    expect(c.totalApresentado).toBe(500);
+    expect(c.ressalva).toContain("335");
+  });
+
+  /** Quatro estados: "ninguém respondeu" e "não perguntamos" não são a mesma tela. */
+  it("respostas não medidas é dito, e não vira zero", () => {
+    const c = composicaoDoEngajamento(QUATRO, 335);
+    expect(c.partes.some((p) => p.chave === "replies")).toBe(false);
+    expect(c.respostasNoTotal).toBeNull();
+    expect(c.ressalva).toContain("não medidas");
+  });
+
+  /** Sem as quatro não há de onde deduzir — e a dedução não é chutada. */
+  it("parcela faltando impede a dedução", () => {
+    const c = composicaoDoEngajamento({ likes: 300, comments: 20, saves: 5, replies: 12 }, 335);
+    expect(c.respostasNoTotal).toBeNull();
+    expect(c.totalApresentado).toBe(335);
+    expect(c.ressalva).toContain("compartilhamentos");
   });
 });
 
