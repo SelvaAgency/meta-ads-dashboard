@@ -53,7 +53,9 @@ import { RetencaoReels } from "@/components/redes/RetencaoReels";
 import {
   IdentidadeDaConta, Resultados, ResumoCurto, type ValorDoDia,
 } from "@/components/redes/CabecalhoDaConta";
-import { GraficoDaConta, GraficoDeMovimento } from "@/components/redes/GraficoDaConta";
+import {
+  GraficoDeAtivacoes, GraficoDeEvolucao, GraficoDeMovimento,
+} from "@/components/redes/GraficosSociais";
 import {
   PerformanceDeConteudo, UltimasPublicacoes,
   type DesempenhoPorTipo, type PublicacaoEmLinha,
@@ -64,6 +66,25 @@ import {
 
 const fmt = (n: number | null | undefined): string =>
   n == null ? "–" : n.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+
+/**
+ * O cabeçalho de seção do protótipo: título em caixa alta com tracking largo, e
+ * a dica ao lado em corpo miúdo — nunca embaixo. Embaixo, ela empurraria o
+ * conteúdo e ganharia peso de subtítulo.
+ */
+function Secao({ titulo, dica, children }: {
+  titulo: string; dica?: string; children: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-baseline gap-2.5 flex-wrap">
+        <h2 className="text-[13px] font-bold uppercase tracking-[0.1em]">{titulo}</h2>
+        {dica && <span className="text-[11px] text-muted-foreground/50">{dica}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
 
 /** Estado que pede AÇÃO, com o caminho — e sem cara de erro. */
 function PrecisaDeConfiguracao({ titulo, detalhe, podeConfigurar }: {
@@ -441,11 +462,17 @@ export default function RedesSociais() {
 
   return (
     <MetaDashboardLayout title="Social">
-      <div className="flex flex-col gap-6 p-4 md:p-6">
+      {/* Espaçamento do protótipo: 34px entre seções, 28/24 de respiro. */}
+      <div className="flex flex-col gap-[34px] px-6 pt-7 pb-24 max-w-[1320px] mx-auto">
         <IdentidadeDaConta
           nome={cliente?.accountName ?? "Social"}
           username={organico?.perfil.username ?? null}
           rede="Instagram"
+          saude={leituraDoVinculo ? {
+            rotulo: leituraDoVinculo.nivel === "ok" ? "Conectado" : leituraDoVinculo.titulo,
+            nivel: leituraDoVinculo.nivel === "erro" ? "erro"
+                 : leituraDoVinculo.nivel === "ok" ? "ok" : "atencao",
+          } : null}
         />
 
         {!selectedAccountId && (
@@ -487,52 +514,40 @@ export default function RedesSociais() {
               </div>
             )}
 
-            {/* ── ACCOUNT HEADER ───────────────────────────────────────────
-                Uma caixa, uma linha, três colunas — o molde da referência.
-                A largura é o que carrega a hierarquia: resumo estreito,
-                resultados no meio, gráfico com a maior área. Divisórias
-                verticais finas em vez de três cartões: cartão separado faria
-                deles blocos independentes, e a referência é UM bloco. */}
-            <section className="rounded-2xl border border-border bg-card overflow-hidden">
-              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1.6fr)]
-                              divide-y lg:divide-y-0 lg:divide-x divide-border/60">
-                <div className="p-5 min-w-0">
-                  <ResumoCurto leitura={leitura} />
-                </div>
-                <div className="p-5 min-w-0">
+            {/* ══ HEADER · uma caixa, 3 colunas, 0.92fr / 1fr / 1.55fr ══════
+                O gráfico é a coluna larga porque é a única que ganha com espaço:
+                resumo e resultados têm tamanho natural, e esticá-los só
+                afastaria as palavras. As divisórias são traços de 1px, não
+                cartões — cartão separado faria delas blocos independentes. */}
+            <section className="rounded-[20px] border border-border bg-card overflow-hidden
+                                shadow-[0_1px_2px_rgba(10,10,10,.04)]">
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1fr)_minmax(0,1.55fr)]
+                              divide-y lg:divide-y-0 lg:divide-x divide-border">
+                <div className="px-[22px] py-5"><ResumoCurto leitura={leitura} /></div>
+                <div className="px-[22px] py-5">
                   <Resultados ontem={ontem} hoje={doDia}
                     aviso="O dia corrente é parcial. Seguidores é o total da conta." />
                 </div>
-                <div className="p-5 min-w-0">
-                  <GraficoDaConta pontos={pontosDaConta} nota="últimos 30 dias" />
+                <div className="px-[22px] py-5">
+                  <GraficoDeEvolucao pontos={pontosDaConta} nota="últimos 30 dias" />
                 </div>
               </div>
             </section>
 
-            {/* ── O FILTRO COMEÇA AQUI ─────────────────────────────────────
-                Ele fica DEPOIS do cabeçalho porque não vale para ele: o
-                cabeçalho é resumo executivo e mostra sempre hoje × ontem. No
-                topo, o filtro pareceria governar a página inteira — e a
-                primeira coisa que ele não move é justamente a que está acima
-                dele. */}
-            <div className="flex items-center justify-between gap-3 flex-wrap border-t border-border/50 pt-5">
-              <p className="text-[11px] text-muted-foreground">
+            {/* O filtro fica DEPOIS do cabeçalho porque não vale para ele: o
+                cabeçalho é resumo executivo e mostra sempre hoje × ontem. */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-[11px] text-muted-foreground/60">
                 Os blocos abaixo seguem o período selecionado.
               </p>
               <PeriodFilter period={period} onChange={setPeriod} />
             </div>
 
-            {/* ── DADOS GERAIS ─────────────────────────────────────────────
-                Ativações no primeiro lugar da faixa e com a composição colada:
-                é o número que resume produção, e os outros a qualificam. */}
-            <section className="flex flex-col gap-3">
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Dados gerais</h2>
-              {/* Cinco cartões, numa linha só. Posts e Stories NÃO ganham cartão
-                  próprio: eles são a composição das ativações, e repetidos ao
-                  lado do total seriam o mesmo número contado duas vezes. A
-                  composição vive na barra de proporção dentro do card. */}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 rounded-xl border border-border bg-card
-                              divide-x divide-y lg:divide-y-0 divide-border/50">
+            {/* ══ DADOS GERAIS · faixa de 5 ═════════════════════════════════ */}
+            <Secao titulo="Dados gerais" dica="todo número mantém a composição visível">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 rounded-[20px] border border-border
+                              bg-card overflow-hidden divide-x divide-y lg:divide-y-0 divide-border
+                              shadow-[0_1px_2px_rgba(10,10,10,.04)]">
                 <CartaoGeral icone={Layers} cor={COR.ativacoes} rotulo="Ativações"
                   valor={fmt(ativacoes.total)}
                   variacaoPct={varAtivacoes.pct} anterior={varAtivacoes.anterior}
@@ -549,7 +564,7 @@ export default function RedesSociais() {
 
                 <CartaoGeral icone={Heart} cor={COR.engajamento} rotulo="Engajamento"
                   valor={fmt(interacoes.total)}
-                  detalhe={taxa != null ? `${taxa.toFixed(2)}% do alcance` : null}
+                  detalhe={taxa != null ? `${taxa.toFixed(1)}% do alcance` : null}
                   variacaoPct={varEngajamento.pct} anterior={varEngajamento.anterior}
                   parcelas={composicao.partes.map((x) => ({
                     rotulo: x.rotulo, valor: x.total, cor: COR_INTERACAO[x.chave] ?? COR.engajamento,
@@ -571,24 +586,86 @@ export default function RedesSociais() {
                   variacaoPct={varCliques.pct} anterior={varCliques.anterior} />
               </div>
               {!comparabilidade.comparavel && comparabilidade.motivo && (
-                <p className="text-[10px] text-amber-600 leading-snug">{comparabilidade.motivo}</p>
+                <p className="text-[10px] text-amber-600 leading-snug mt-1">{comparabilidade.motivo}</p>
               )}
-            </section>
+            </Secao>
 
-            {/* ── PUBLICAÇÕES E CONTEÚDO ───────────────────────────────── */}
+            {/* ══ MOVIMENTO DA BASE · 300px | 1fr ═══════════════════════════ */}
+            <Secao titulo="Movimento da base" dica="entrou, saiu e o saldo — não só a linha subindo">
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)] gap-4 items-stretch">
+                <div className="rounded-[20px] border border-border bg-card px-5 py-[18px] flex flex-col gap-4
+                                shadow-[0_1px_2px_rgba(10,10,10,.04)]">
+                  <div>
+                    <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
+                      Saldo atual
+                    </span>
+                    <span className="block text-[38px] font-bold tabular-nums leading-none tracking-tight mt-1">
+                      {fmt(movimento.saldoAtual)}
+                    </span>
+                    {movimento.saldo != null && (
+                      <span className="block text-[11px] text-muted-foreground mt-1.5">
+                        <span className={movimento.saldo >= 0
+                          ? "text-emerald-600 dark:text-emerald-500 font-bold"
+                          : "text-destructive font-bold"}>
+                          {movimento.saldo > 0 ? "+" : ""}{fmt(movimento.saldo)}
+                        </span> no período
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3.5 pt-3.5 border-t border-border">
+                    <div>
+                      <span className="block text-[10px] font-bold uppercase tracking-[0.14em]"
+                        style={{ color: COR.entrada }}>Entraram</span>
+                      <span className="block text-[23px] font-bold tabular-nums leading-none mt-1"
+                        style={{ color: COR.entrada }}>
+                        {movimento.entradas == null ? "–" : `+${fmt(movimento.entradas)}`}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] font-bold uppercase tracking-[0.14em]"
+                        style={{ color: COR.saida }}>Saíram</span>
+                      <span className="block text-[23px] font-bold tabular-nums leading-none mt-1"
+                        style={{ color: COR.saida }}>
+                        {movimento.saidas == null ? "–" : `−${fmt(movimento.saidas)}`}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/60 leading-snug mt-auto">
+                    {movimento.motivo ?? (
+                      <>Entradas vêm de <span className="font-mono text-[10px]">follower_count</span>. Saídas são
+                      derivadas: entradas menos o saldo.</>
+                    )}
+                  </p>
+                </div>
+                <div className="rounded-[20px] border border-border bg-card px-5 py-[18px]
+                                shadow-[0_1px_2px_rgba(10,10,10,.04)]">
+                  <GraficoDeMovimento pontos={pontosDeMovimento} />
+                </div>
+              </div>
+            </Secao>
+
+            {/* ══ ATIVAÇÕES POR DIA · seção própria, largura cheia ══════════ */}
+            <Secao titulo="Ativações por dia">
+              <div className="rounded-[20px] border border-border bg-card px-5 py-[18px]
+                              shadow-[0_1px_2px_rgba(10,10,10,.04)]">
+                <GraficoDeAtivacoes pontos={pontosDaConta} />
+              </div>
+            </Secao>
+
+            {/* ══ ÚLTIMAS PUBLICAÇÕES ══════════════════════════════════════ */}
             <UltimasPublicacoes
-              instagram={publicacoes.slice(0, 4)}
+              instagram={publicacoes.slice(0, 8)}
               temLinkedin={false}
               aviso={publicacoesIndisponiveis
                 ? "Não conseguimos ler as publicações nesta coleta."
                 : "Nenhuma publicação medida no período."}
             />
 
-            {/* A retenção fica ENTRE as publicações e a performance: ela é uma
-                pergunta sobre consumo de conteúdo, e é aqui que quem está
-                olhando conteúdo passa. */}
+            {/* ══ RETENÇÃO DOS REELS ═══════════════════════════════════════ */}
             <RetencaoReels reelsNoPeriodo={porTipo.find((t) => t.tipo === "REELS")?.publicacoes ?? 0} />
 
+            {/* ══ PERFORMANCE POR TIPO · 4 colunas ═════════════════════════ */}
+            {/* ══ MELHORES → PIORES · largura cheia ════════════════════════ */}
             <PerformanceDeConteudo
               melhores={melhores}
               piores={piores}
@@ -598,47 +675,6 @@ export default function RedesSociais() {
                 ? "O ranking precisa de alcance, que só o snapshot guarda — ele aparece depois da primeira coleta."
                 : null}
             />
-
-            {/* ── SEGUIDORES ────────────────────────────────────────────────
-                Por último de propósito: é a análise mais detalhada, e quem
-                chega aqui já viu o panorama, os números gerais e o conteúdo. */}
-            <section className="flex flex-col gap-3">
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Seguidores · movimento da base
-              </h2>
-              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-4 items-stretch">
-                <div className="grid grid-cols-3 rounded-xl border border-border bg-card divide-x divide-border/50">
-                  <Geral icon={Users} rotulo="Saldo atual" valor={fmt(movimento.saldoAtual)}
-                    detalhe={movimento.saldo != null
-                      ? `${movimento.saldo > 0 ? "+" : ""}${fmt(movimento.saldo)} no período` : null} />
-                  <Geral icon={Users} rotulo="Entraram"
-                    valor={movimento.entradas == null ? "–" : `+${fmt(movimento.entradas)}`}
-                    ressalva={movimento.entradas != null && movimento.diasMedidos < serie.length
-                      ? `${movimento.diasMedidos} de ${serie.length} dias medidos` : null} />
-                  <Geral icon={Users} rotulo="Saíram"
-                    valor={movimento.saidas == null ? "–" : `−${fmt(movimento.saidas)}`}
-                    ressalva={movimento.saidas == null ? "não derivável" : "derivado do saldo"} />
-                </div>
-                <div className="rounded-xl border border-border bg-card p-4">
-                  {/* As barras só entram quando a derivação fecha. Quando não
-                      fecha, o gráfico mostra o saldo sozinho — metade de um
-                      comparativo é melhor que um comparativo inventado. */}
-                  <GraficoDeMovimento pontos={pontosDeMovimento}
-                    temMovimento={movimento.origem === "follower_count"}
-                    nota={movimento.origem === "follower_count" ? null : "só o saldo — ver ressalva abaixo"} />
-                </div>
-              </div>
-              {movimento.motivo && (
-                <p className="text-[11px] text-muted-foreground leading-snug">{movimento.motivo}</p>
-              )}
-              {movimento.origem === "follower_count" && (
-                <p className="text-[10px] text-muted-foreground/60 leading-snug">
-                  Entradas vêm de <span className="font-mono">follower_count</span> — quem passou a seguir naquele dia,
-                  medido pela Meta. As saídas são derivadas: entradas menos o saldo do período. Nenhum dos dois usa a
-                  quebra por tipo de seguidor, cuja semântica segue em validação.
-                </p>
-              )}
-            </section>
 
             <p className="text-[10px] text-muted-foreground/70">
               Orgânico do Instagram. Números de campanha ficam em Mídia. Conexão, token e vínculo,

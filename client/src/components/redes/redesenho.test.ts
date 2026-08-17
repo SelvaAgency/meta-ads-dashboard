@@ -27,7 +27,9 @@ const semComentarios = (t: string) =>
 const fonte = (p: string) => semComentarios(readFileSync(new URL(p, import.meta.url), "utf-8"));
 
 const pagina = () => fonte("../../pages/RedesSociais.tsx");
-const grafico = () => fonte("./GraficoDaConta.tsx");
+/* Os três gráficos vivem num arquivo só desde a aplicação do protótipo —
+   `GraficoDaConta.tsx` foi substituído por `GraficosSociais.tsx`. */
+const grafico = () => fonte("./GraficosSociais.tsx");
 const retencao = () => fonte("./RetencaoReels.tsx");
 const conteudo = () => fonte("./PublicacoesEConteudo.tsx");
 
@@ -86,6 +88,32 @@ describe("nenhuma métrica saiu da faixa geral", () => {
     for (const r of ["alcance", "interações", "taxa", "views"]) {
       expect(s).toContain(`rotulo="${r}"`);
     }
+  });
+});
+
+describe("os gráficos reproduzem o protótipo, não o recharts", () => {
+  /**
+   * O protótipo desenha em SVG direto, e o código dele é a especificação:
+   * espessura 2.2, grade pontilhada 3-4, eixo do meio a 56%, barras a 42% e 62%
+   * do passo. Em recharts, cada um desses seria uma briga com o default — e o
+   * resultado ficaria "parecido".
+   */
+  it("as medidas do protótipo estão no código", () => {
+    const s = grafico();
+    expect(s).toContain("strokeWidth={2.2}");
+    expect(s).toContain('strokeDasharray="3 4"');
+    expect(s).toMatch(/ih \* 0\.56/);
+    expect(s).toMatch(/\* 0\.42/);
+    expect(s).toMatch(/\* 0\.62/);
+  });
+
+  /** Buraco de coleta CORTA a linha — ligar desenharia o que ninguém mediu. */
+  it("dia sem coleta quebra a linha em segmentos", () => {
+    expect(grafico()).toMatch(/atual\.length > 1/);
+  });
+
+  it("nenhum gráfico da Social usa recharts", () => {
+    expect(grafico()).not.toContain("recharts");
   });
 });
 
