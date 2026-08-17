@@ -46,6 +46,10 @@ import { composicaoDeAtivacoes, contarAtivacoes } from "@shared/ativacoes";
 import { lerUltimosDias, type DiaDaLeitura } from "@shared/leituraSocial";
 import { composicaoDoEngajamento, taxaPorAlcance } from "@shared/engajamento";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
+import { COR, COR_INTERACAO, COR_TIPO } from "@shared/coresSociais";
+import { compararComAnterior, variacao } from "@shared/periodoAnterior";
+import { CartaoGeral } from "@/components/redes/CartaoGeral";
+import { RetencaoReels } from "@/components/redes/RetencaoReels";
 import {
   IdentidadeDaConta, Resultados, ResumoCurto, type ValorDoDia,
 } from "@/components/redes/CabecalhoDaConta";
@@ -333,6 +337,7 @@ export default function RedesSociais() {
         legenda: m.legenda?.slice(0, 80) ?? null,
         alcance: m.reach,
         interacoes: inter,
+        views: m.views ?? null,
         // Mesma função pura da taxa geral, e não uma divisão local: sem
         // alcance não há divisor, e `taxaPorAlcance` já devolve `null` nesse
         // caso — inventar um divisor faria a taxa de um post sem medição
@@ -342,9 +347,52 @@ export default function RedesSociais() {
     })
     .sort((a, b) => (b.quando ?? "").localeCompare(a.quando ?? "")), [noPeriodo, thumbAoVivo]);
 
-  const melhores = useMemo(
-    () => publicacoes.filter((p) => p.taxa != null).sort((a, b) => b.taxa! - a.taxa!).slice(0, 3),
-    [publicacoes]);
+  /**
+   * As duas pontas do ranking.
+   *
+   * `piores` só existe quando há mais publicações que as duas pontas somadas —
+   * com quatro medidas, três melhores e três piores repetiriam duas delas nas
+   * duas listas, e a mesma publicação apareceria como melhor e como pior.
+   */
+  const { melhores, piores } = useMemo(() => {
+    const comTaxa = publicacoes.filter((p) => p.taxa != null)
+      .sort((a, b) => b.taxa! - a.taxa!);
+    const n = Math.min(3, Math.floor(comTaxa.length / 2));
+    return {
+      melhores: comTaxa.slice(0, Math.min(3, comTaxa.length)),
+      piores: comTaxa.length >= 4 ? comTaxa.slice(-n) : [],
+    };
+  }, [publicacoes]);
+
+  /**
+   * O selo de variação de cada card geral.
+   *
+   * A comparação vem de `janelaFixa` — as últimas 30 coletas, SEM filtro — que é
+   * a única fonte que alcança antes do período. Para 7 dias sobra folga; para 30
+   * não cabe, e aí a variação é `null` e o card não mostra selo. Nenhuma consulta
+   * nova: o dado já vem no painel.
+   */
+  const variacaoDe = (ler: (d: { dia: string; metricas: Record<string, number> }) => number | null,
+    atual: number | null) => {
+    const c = compararComAnterior(
+      janelaFixa.map((p) => ({ dia: p.dia, metricas: p.metricas })),
+      { inicio: dateRange.startDate, fim: dateRange.endDate }, ler);
+    return { pct: variacao(atual, c), anterior: c.anterior };
+  };
+  const met2 = (k: string) => (d: { metricas: Record<string, number> }) =>
+    typeof d.metricas?.[k] === "number" ? d.metricas[k] : null;
+
+  const varEngajamento = variacaoDe(met2("total_interactions"), interacoes.total);
+  const varRespostas   = variacaoDe(met2("replies"), respostas.total);
+  const varVisitas     = variacaoDe(met2("profile_views"), visitas.total);
+  const varCliques     = variacaoDe(met2("website_clicks"), cliques.total);
+  const varAtivacoes   = (() => {
+    const c = compararComAnterior(
+      janelaFixa.map((p) => ({ dia: p.dia, metricas: {} })),
+      { inicio: dateRange.startDate, fim: dateRange.endDate },
+      (d) => ativacoesRecentesPorDia.get(d.dia) ?? null);
+    return { pct: variacao(ativacoes.total, c), anterior: c.anterior };
+  })();
 
   const porTipo: DesempenhoPorTipo[] = useMemo(() => {
     const grupos = new Map<TipoConteudo, PublicacaoEmLinha[]>();
@@ -479,32 +527,48 @@ export default function RedesSociais() {
                 é o número que resume produção, e os outros a qualificam. */}
             <section className="flex flex-col gap-3">
               <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Dados gerais</h2>
-              {/* Cinco, numa linha só. Posts e Stories NÃO ganham cartão
+              {/* Cinco cartões, numa linha só. Posts e Stories NÃO ganham cartão
                   próprio: eles são a composição das ativações, e repetidos ao
-                  lado do total virariam o mesmo número contado duas vezes na
-                  mesma faixa. A composição vive embaixo do total, em corpo
-                  menor — presente, sem competir. */}
+                  lado do total seriam o mesmo número contado duas vezes. A
+                  composição vive na barra de proporção dentro do card. */}
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 rounded-xl border border-border bg-card
                               divide-x divide-y lg:divide-y-0 divide-border/50">
-                <Geral icon={Layers} rotulo="Ativações" valor={fmt(ativacoes.total)}
-                  partes={composicaoDeAtivacoes(ativacoes).map((p) => `${fmt(p.total)} ${p.rotulo}`)}
+                <CartaoGeral icone={Layers} cor={COR.ativacoes} rotulo="Ativações"
+                  valor={fmt(ativacoes.total)}
+                  variacaoPct={varAtivacoes.pct} anterior={varAtivacoes.anterior}
+                  parcelas={composicaoDeAtivacoes(ativacoes).map((x) => ({
+                    rotulo: x.rotulo, valor: x.total ?? 0,
+                    cor: x.rotulo === "posts" ? COR_TIPO.FEED
+                       : x.rotulo === "stories" ? COR_TIPO.STORY : COR_TIPO.REELS,
+                  }))}
                   ressalva={ativacoes.publicacoesIndisponiveis
                     ? "publicações indisponíveis nesta coleta"
                     : ativacoes.diasSemMedicaoDeStories > 0
                       ? `${ativacoes.diasSemMedicaoDeStories} dia(s) sem medição de stories`
                       : null} />
-                <Geral icon={Heart} rotulo="Engajamento" valor={fmt(interacoes.total)}
+
+                <CartaoGeral icone={Heart} cor={COR.engajamento} rotulo="Engajamento"
+                  valor={fmt(interacoes.total)}
                   detalhe={taxa != null ? `${taxa.toFixed(2)}% do alcance` : null}
-                  partes={composicao.partes.map((p) => `${fmt(p.total)} ${p.rotulo}`)}
+                  variacaoPct={varEngajamento.pct} anterior={varEngajamento.anterior}
+                  parcelas={composicao.partes.map((x) => ({
+                    rotulo: x.rotulo, valor: x.total, cor: COR_INTERACAO[x.chave] ?? COR.engajamento,
+                  }))}
                   ressalva={composicao.ressalva} />
-                {/* Respostas aos Stories é métrica de ENGAJAMENTO e fica na
-                    faixa geral, ao lado das outras — seção própria a
-                    transformaria num destaque que ela não é. */}
-                <Geral icon={MessageCircle} rotulo="Respostas aos Stories" valor={fmt(respostas.total)}
+
+                <CartaoGeral icone={MessageCircle} cor={COR.engajamento} rotulo="Respostas aos Stories"
+                  valor={fmt(respostas.total)}
+                  variacaoPct={varRespostas.pct} anterior={varRespostas.anterior}
                   ressalva={respostas.total == null ? "não medida nesta coleta" : null} />
-                <Geral icon={Eye} rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
+
+                <CartaoGeral icone={Eye} cor={COR.visitas} rotulo="Visitas ao perfil"
+                  valor={fmt(visitas.total)}
+                  variacaoPct={varVisitas.pct} anterior={varVisitas.anterior}
                   ressalva={rotuloVisitas.resumo} />
-                <Geral icon={MousePointerClick} rotulo="Cliques no link" valor={fmt(cliques.total)} />
+
+                <CartaoGeral icone={MousePointerClick} cor={COR.visitas} rotulo="Cliques no link"
+                  valor={fmt(cliques.total)}
+                  variacaoPct={varCliques.pct} anterior={varCliques.anterior} />
               </div>
               {!comparabilidade.comparavel && comparabilidade.motivo && (
                 <p className="text-[10px] text-amber-600 leading-snug">{comparabilidade.motivo}</p>
@@ -520,8 +584,14 @@ export default function RedesSociais() {
                 : "Nenhuma publicação medida no período."}
             />
 
+            {/* A retenção fica ENTRE as publicações e a performance: ela é uma
+                pergunta sobre consumo de conteúdo, e é aqui que quem está
+                olhando conteúdo passa. */}
+            <RetencaoReels reelsNoPeriodo={porTipo.find((t) => t.tipo === "REELS")?.publicacoes ?? 0} />
+
             <PerformanceDeConteudo
               melhores={melhores}
+              piores={piores}
               porTipo={porTipo}
               amostraPequena={publicacoes.length > 0 && publicacoes.length < 5}
               aviso={publicacoes.length === 0

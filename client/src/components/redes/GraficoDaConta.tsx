@@ -26,6 +26,7 @@ import {
   Tooltip, XAxis, YAxis,
 } from "recharts";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
+import { COR as CORES, COR_TIPO, ORDEM_TIPO } from "@shared/coresSociais";
 
 export interface PontoDaConta {
   dia: string;
@@ -48,31 +49,19 @@ export interface PontoDeSeguidores {
   saidas: number | null;
 }
 
-const COR = {
-  seguidores: "#8B5CF6",
-  visitas: "#0EA5E9",
-  entradas: "#10B981",
-  saidas: "#EF4444",
-};
-
 /**
- * A cor de cada tipo de conteúdo, nos tons quentes.
+ * As cores vêm de `shared/coresSociais`, e não de constantes locais.
  *
- * Frio para as LINHAS (seguidores, visitas) e quente para as BARRAS: a divisão
- * por temperatura separa as duas naturezas antes de qualquer legenda ser lida,
- * e sobra distinção interna suficiente entre os quatro tipos.
+ * Duas listas de cor para as mesmas métricas divergem na primeira mudança — e o
+ * sintoma é o pior possível: o roxo do gráfico deixa de ser o roxo do card, e a
+ * paleta funcional para de funcionar exatamente onde ela existe para ajudar.
  */
-const COR_TIPO: Record<TipoConteudo, string> = {
-  FEED: "#F59E0B",
-  REELS: "#EF701B",
-  CARROSSEL: "#FBBF24",
-  STORY: "#FCD34D",
-  ANUNCIO: "#A16207",
-  DESCONHECIDO: "#D6D3D1",
+const COR = {
+  seguidores: CORES.seguidores,
+  visitas: CORES.visitas,
+  entradas: CORES.entrada,
+  saidas: CORES.saida,
 };
-
-/** A ordem do empilhamento, de baixo para cima. */
-const ORDEM_TIPO: TipoConteudo[] = ["FEED", "CARROSSEL", "REELS", "STORY", "ANUNCIO", "DESCONHECIDO"];
 
 const diaCurto = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 const num = (v: unknown) => (typeof v === "number" ? v.toLocaleString("pt-BR") : "–");

@@ -27,6 +27,7 @@
 import { useState } from "react";
 import { ExternalLink, Image as ImageIcon, TrendingUp } from "lucide-react";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
+import { COR_TIPO } from "@shared/coresSociais";
 
 export interface PublicacaoEmLinha {
   id: string;
@@ -37,6 +38,8 @@ export interface PublicacaoEmLinha {
   legenda: string | null;
   alcance: number | null;
   interacoes: number | null;
+  /** Reproduções. Já vem no snapshot de mídia — nenhuma chamada nova. */
+  views: number | null;
   /** Já calculada. `null` quando falta alcance — não se inventa divisor. */
   taxa: number | null;
 }
@@ -99,7 +102,13 @@ export function UltimasPublicacoes({ instagram, temLinkedin, aviso }: {
         // Quatro por linha no desktop: a imagem é a informação, e uma fileira
         // de quatro cabe sem espremer. Duas no tablet, uma no celular.
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {instagram.map((p) => <CardDePublicacao key={p.id} p={p} />)}
+          {/* O melhor é por TAXA, e só quando há mais de um: com uma publicação
+              só, marcá-la de "melhor" não compara nada. */}
+          {instagram.map((p) => (
+            <CardDePublicacao key={p.id} p={p}
+              melhor={instagram.length > 1 && p.taxa != null
+                && p.taxa === Math.max(...instagram.map((x) => x.taxa ?? -1))} />
+          ))}
         </div>
       )}
     </section>
@@ -118,11 +127,15 @@ export function UltimasPublicacoes({ instagram, temLinkedin, aviso }: {
  * empurram os números para fora do campo de visão — e quem escaneia esta seção
  * está procurando desempenho, não texto.
  */
-function CardDePublicacao({ p }: { p: PublicacaoEmLinha }) {
+function CardDePublicacao({ p, melhor }: { p: PublicacaoEmLinha; melhor?: boolean }) {
   const quando = quandoTexto(p.quando);
   return (
     <a href={p.permalink ?? "#"} target="_blank" rel="noopener noreferrer"
-      className="group rounded-xl border border-border bg-card overflow-hidden hover:border-primary/40 hover:shadow-md transition-all">
+      /* O melhor do período ganha ARO, não tamanho: card maior quebraria a grade
+         de quatro e empurraria os outros três para baixo da dobra. */
+      className={`group rounded-xl border bg-card overflow-hidden transition-all
+        hover:-translate-y-0.5 hover:shadow-lg
+        ${melhor ? "border-accent shadow-[0_0_0_2px_rgba(232,122,176,.2)]" : "border-border hover:border-primary/50"}`}>
       <div className="aspect-square bg-muted relative overflow-hidden">
         {p.thumb ? (
           <img src={p.thumb} alt="" loading="lazy"
@@ -136,10 +149,16 @@ function CardDePublicacao({ p }: { p: PublicacaoEmLinha }) {
             <ImageIcon className="w-7 h-7 text-muted-foreground/25" />
           </div>
         )}
-        <span className="absolute top-2 left-2 text-[9px] font-semibold uppercase tracking-wider
-                         px-1.5 py-0.5 rounded bg-black/55 text-white backdrop-blur-sm">
+        <span className="absolute top-2 left-2 text-[9px] font-bold uppercase tracking-[0.08em]
+                         px-1.5 py-0.5 rounded bg-black/60 text-white backdrop-blur-sm">
           {ROTULO_CONTEUDO[p.tipo]}
         </span>
+        {melhor && (
+          <span className="absolute top-2 right-2 text-[9px] font-bold uppercase tracking-[0.06em]
+                           px-1.5 py-0.5 rounded bg-primary text-primary-foreground">
+            melhor
+          </span>
+        )}
       </div>
 
       <div className="p-3 flex flex-col gap-2">
@@ -152,6 +171,12 @@ function CardDePublicacao({ p }: { p: PublicacaoEmLinha }) {
           <Numero rotulo="alcance" valor={fmt(p.alcance)} />
           <Numero rotulo="interações" valor={fmt(p.interacoes)} />
           <Numero rotulo="taxa" valor={p.taxa == null ? "–" : `${p.taxa.toFixed(1)}%`} destaque />
+        </div>
+        {/* Views numa segunda linha, em corpo menor: ela informa consumo, e as
+            três de cima informam desempenho. Na mesma linha, quatro números de
+            peso igual não teriam hierarquia nenhuma. */}
+        <div className="grid grid-cols-3 gap-1">
+          <Numero rotulo="views" valor={fmt(p.views)} />
         </div>
       </div>
     </a>
@@ -222,13 +247,35 @@ export interface DesempenhoPorTipo {
  * uma média de duas publicações tem a mesma aparência de uma média de trinta, e
  * alguém muda a estratégia de conteúdo por causa de duas.
  */
-export function PerformanceDeConteudo({ melhores, porTipo, aviso, amostraPequena }: {
+/**
+ * O que funcionou e o que não funcionou.
+ *
+ * ── Duas pontas, e não a lista inteira ─────────────────────────────────────
+ * O ranking mostra três de cada extremo. A pergunta é qual formato funciona e
+ * qual não — e o meio da lista não responde nem uma nem outra. Com oito linhas,
+ * quem lê varre todas para descobrir que só as pontas importavam.
+ *
+ * A barra ao lado é ALCANCE relativo ao melhor do período, e não a taxa: a taxa
+ * já é o número à direita, e repeti-la em barra não acrescentaria eixo nenhum.
+ * Assim cada item traz duas dimensões — quanto engajou e quanta gente viu.
+ *
+ * ── Amostra pequena é dito, não escondido ──────────────────────────────────
+ * Dois reels e um carrossel não provam que reel funciona melhor. A contagem cola
+ * no nome do tipo, e o aviso aparece no cabeçalho: sem isso, a média de duas
+ * publicações tem a mesma aparência da média de trinta.
+ */
+export function PerformanceDeConteudo({ melhores, piores, porTipo, aviso, amostraPequena }: {
   melhores: PublicacaoEmLinha[];
+  piores: PublicacaoEmLinha[];
   porTipo: DesempenhoPorTipo[];
   aviso?: string | null;
   amostraPequena: boolean;
 }) {
-  if (!melhores.length && !porTipo.length) {
+  const temRanking = melhores.length > 0;
+  const maxAlcance = Math.max(
+    1, ...[...melhores, ...piores].map((p) => p.alcance ?? 0));
+
+  if (!temRanking && !porTipo.length) {
     return (
       <section className="flex flex-col gap-2">
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -241,7 +288,7 @@ export function PerformanceDeConteudo({ melhores, porTipo, aviso, amostraPequena
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="flex items-baseline gap-2 flex-wrap">
+      <div className="flex items-baseline gap-2.5 flex-wrap">
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
           Performance de conteúdo
         </h2>
@@ -250,58 +297,118 @@ export function PerformanceDeConteudo({ melhores, porTipo, aviso, amostraPequena
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="flex flex-col gap-2">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
-            Melhores publicações
-          </h3>
-          {melhores.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Sem alcance medido para ordenar.</p>
-          ) : (
-            <div className="rounded-xl border border-border bg-card divide-y divide-border/50">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {/* ── Ranking: melhores em cima, piores embaixo ── */}
+        <div className="rounded-xl border border-border bg-card p-3">
+          {temRanking ? (
+            <>
+              <Faixa titulo="Melhores" />
               {melhores.map((p, i) => (
-                <div key={p.id} className="flex items-center gap-2.5 px-3 py-2">
-                  <span className="w-4 text-xs font-bold tabular-nums text-muted-foreground/40">{i + 1}</span>
-                  <LinhaCompacta p={p} />
-                </div>
+                <LinhaDoRanking key={p.id} p={p} pos={i + 1} maxAlcance={maxAlcance} destaque />
               ))}
-            </div>
+              {piores.length > 0 && (
+                <>
+                  <Faixa titulo="Piores" />
+                  {piores.map((p, i) => (
+                    <LinhaDoRanking key={p.id} p={p} pos={melhores.length + piores.length - piores.length + i + 1}
+                      maxAlcance={maxAlcance} />
+                  ))}
+                </>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground p-2">Sem alcance medido para ordenar.</p>
           )}
         </div>
 
-        <div className="flex flex-col gap-2">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
-            Desempenho por tipo
-          </h3>
-          <div className="rounded-xl border border-border bg-card divide-y divide-border/50">
-            {porTipo.map((t) => (
-              <div key={t.tipo} className="flex items-center gap-3 px-3 py-2.5">
-                <TrendingUp className="w-3.5 h-3.5 text-muted-foreground/40 flex-shrink-0" />
-                <span className="text-sm text-foreground flex-1 min-w-0">
-                  {t.rotulo}
-                  {/* A contagem cola no nome: uma média de 2 e uma de 30 têm a
-                      mesma aparência sem ela. */}
-                  <span className="text-[11px] text-muted-foreground ml-1.5">
-                    {t.publicacoes} {t.publicacoes === 1 ? "publicação" : "publicações"}
-                  </span>
-                </span>
-                <span className="text-xs tabular-nums text-right flex-shrink-0">
-                  <span className="block text-foreground font-medium">{fmt(t.alcanceMedio)}</span>
-                  <span className="block text-[9px] uppercase tracking-wider text-muted-foreground/50">alcance médio</span>
-                </span>
-                <span className="text-xs tabular-nums text-right flex-shrink-0 w-14">
-                  <span className="block text-foreground font-medium">
-                    {t.taxaMedia == null ? "–" : `${t.taxaMedia.toFixed(1)}%`}
-                  </span>
-                  <span className="block text-[9px] uppercase tracking-wider text-muted-foreground/50">taxa</span>
-                </span>
-              </div>
-            ))}
-          </div>
+        {/* ── Desempenho por tipo ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 content-start">
+          {porTipo.map((t) => <CartaoDeTipo key={t.tipo} t={t} porTipo={porTipo} />)}
         </div>
       </div>
 
       {aviso && <p className="text-[10px] text-muted-foreground/70">{aviso}</p>}
     </section>
+  );
+}
+
+function Faixa({ titulo }: { titulo: string }) {
+  return (
+    <div className="flex items-center gap-2.5 px-2 pt-2 pb-1">
+      <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground/70">{titulo}</span>
+      <span className="flex-1 h-px bg-border" />
+    </div>
+  );
+}
+
+function LinhaDoRanking({ p, pos, maxAlcance, destaque }: {
+  p: PublicacaoEmLinha; pos: number; maxAlcance: number; destaque?: boolean;
+}) {
+  const quando = quandoTexto(p.quando);
+  const largura = Math.round(((p.alcance ?? 0) / maxAlcance) * 100);
+  return (
+    <a href={p.permalink ?? "#"} target="_blank" rel="noopener noreferrer"
+      className="grid grid-cols-[16px_36px_minmax(0,1fr)_auto] sm:grid-cols-[16px_36px_minmax(0,1fr)_90px_46px]
+                 gap-2.5 items-center px-2 py-2 rounded-lg hover:bg-accent/20 transition-colors">
+      <span className="text-[11px] font-bold tabular-nums text-muted-foreground/50 text-center">{pos}</span>
+      <span className="w-9 h-9 rounded-md bg-muted overflow-hidden flex-shrink-0 flex items-center justify-center">
+        {p.thumb
+          ? <img src={p.thumb} alt="" loading="lazy" className="w-full h-full object-cover" />
+          : <ImageIcon className="w-3.5 h-3.5 text-muted-foreground/40" />}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-xs font-semibold truncate">{ROTULO_CONTEUDO[p.tipo]}</span>
+        <span className="block text-[10px] text-muted-foreground tabular-nums">
+          {quando ?? "sem data"} · {fmt(p.interacoes)} inter.
+        </span>
+      </span>
+      {/* A barra é ALCANCE relativo — a taxa já é o número da direita. */}
+      <span className="hidden sm:block h-1.5 rounded-full bg-muted overflow-hidden"
+        title={`Alcance ${fmt(p.alcance)} — ${largura}% do melhor do período`}>
+        <span className="block h-full rounded-full" style={{ width: `${largura}%`, background: COR_TIPO[p.tipo] }} />
+      </span>
+      <span className={`text-xs font-bold tabular-nums text-right ${destaque ? "text-accent" : "text-muted-foreground"}`}>
+        {p.taxa == null ? "–" : `${p.taxa.toFixed(1)}%`}
+      </span>
+    </a>
+  );
+}
+
+function CartaoDeTipo({ t, porTipo }: { t: DesempenhoPorTipo; porTipo: DesempenhoPorTipo[] }) {
+  const maxAlc = Math.max(1, ...porTipo.map((x) => x.alcanceMedio ?? 0));
+  const rel = Math.round(((t.alcanceMedio ?? 0) / maxAlc) * 100);
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 border-l-[3px]"
+      style={{ borderLeftColor: COR_TIPO[t.tipo] }}>
+      <div className="flex items-center gap-2">
+        <i className="w-2 h-2 rounded-[3px] flex-shrink-0" style={{ background: COR_TIPO[t.tipo] }} />
+        <span className="text-[11px] font-bold uppercase tracking-[0.08em]">{t.rotulo}</span>
+      </div>
+      <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+        {t.publicacoes} {t.publicacoes === 1 ? "publicação" : "publicações"}
+        {t.publicacoes < 3 ? " · amostra pequena" : ""}
+      </p>
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        <span>
+          <b className="block text-base font-bold tabular-nums">{fmt(t.alcanceMedio)}</b>
+          <s className="block no-underline text-[9px] uppercase tracking-wider text-muted-foreground/60">alcance médio</s>
+        </span>
+        <span>
+          <b className="block text-base font-bold tabular-nums">
+            {t.taxaMedia == null ? "–" : `${t.taxaMedia.toFixed(1)}%`}
+          </b>
+          <s className="block no-underline text-[9px] uppercase tracking-wider text-muted-foreground/60">taxa média</s>
+        </span>
+      </div>
+      <div className="mt-3">
+        <span className="block h-1 rounded-full bg-muted overflow-hidden"
+          title="Alcance médio relativo ao melhor formato do período">
+          <span className="block h-full rounded-full" style={{ width: `${rel}%`, background: COR_TIPO[t.tipo] }} />
+        </span>
+        <p className="text-[9px] uppercase tracking-wider text-muted-foreground/50 mt-1">
+          {rel}% do melhor formato
+        </p>
+      </div>
+    </div>
   );
 }
