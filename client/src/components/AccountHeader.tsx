@@ -232,7 +232,14 @@ export function AccountHeader({
   );
 
   const refreshStatus = trpc.accounts.refreshStatus.useMutation({
-    onSuccess: () => { utils.accounts.list.invalidate(); toast.success("Status IA atualizado"); },
+    onSuccess: () => {
+      utils.accounts.list.invalidate();
+      // Sem isto, o aviso de "desatualizada" ficaria no ar depois de a análise
+      // ter sido refeita — e um aviso que sobrevive ao conserto ensina a
+      // ignorá-lo.
+      utils.context.analiseVigente.invalidate();
+      toast.success("Status IA atualizado");
+    },
     onError:   () => toast.error("Erro ao atualizar status IA"),
   });
 
@@ -277,6 +284,18 @@ export function AccountHeader({
   const [ctxRules, setCtxRules] = useState("");
   const [ctxLearnings, setCtxLearnings] = useState("");
   const [ctxSaving, setCtxSaving] = useState(false);
+
+  /**
+   * A análise no ar já viu o contexto vigente?
+   *
+   * Derivado no servidor. Existem três telas que salvam contexto e duas não
+   * sabiam que havia análise para invalidar — com um sinal empurrado por quem
+   * salva, essas duas continuariam exibindo a leitura velha.
+   */
+  const { data: vigencia } = trpc.context.analiseVigente.useQuery(
+    { accountId: selectedAccountId! },
+    { enabled: !!selectedAccountId, staleTime: 15_000 }
+  );
 
   const { data: accountCtx } = trpc.context.getAccount.useQuery(
     { accountId: selectedAccountId! },
@@ -515,6 +534,26 @@ export function AccountHeader({
               </div>
             );
           })()}
+
+          {/* A leitura anterior fica visível, e não escondida: apagá-la deixaria
+              o cartão vazio e ninguém saberia o que mudou. O que muda é o rótulo
+              — ela deixa de valer como conclusão até ser refeita. */}
+          {vigencia?.desatualizada && (
+            <div className="mb-2 flex items-start gap-1.5 rounded-lg border px-2.5 py-2 text-[11px] leading-snug"
+              style={{ borderColor: "rgba(239,159,39,0.35)", background: "rgba(239,159,39,0.08)", color: "#B45309" }}>
+              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+              <span className="flex-1">
+                <strong>Análise desatualizada.</strong> O contexto mudou depois desta leitura — ela ainda não
+                considera o que a equipe informou.
+              </span>
+              <button
+                onClick={() => selectedAccountId && refreshStatus.mutate({ accountId: selectedAccountId })}
+                disabled={refreshStatus.isPending}
+                className="flex-shrink-0 font-semibold underline hover:no-underline disabled:opacity-60">
+                {refreshStatus.isPending ? "Atualizando…" : "Atualizar"}
+              </button>
+            </div>
+          )}
 
           <p ref={summaryRef} className="text-[12px] leading-normal text-foreground/70 overflow-hidden"
             style={{ maxHeight: expanded ? "none" : CLAMP_HEIGHT, transition: "max-height 0.2s ease" }}>

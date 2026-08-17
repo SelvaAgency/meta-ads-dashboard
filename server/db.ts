@@ -750,7 +750,10 @@ export async function updateAccountAiStatus(id: number, color: "green" | "yellow
   if (!db) return;
   await db
     .update(metaAdAccounts)
-    .set({ aiStatusColor: color, aiStatusSummary: summary.slice(0, 500) })
+    // O carimbo entra JUNTO da análise: gravado depois, num segundo update,
+    // uma falha entre os dois deixaria a leitura sem data e ela nunca mais
+    // apareceria como desatualizada.
+    .set({ aiStatusColor: color, aiStatusSummary: summary.slice(0, 500), aiStatusAt: new Date() })
     .where(eq(metaAdAccounts.id, id));
 }
 

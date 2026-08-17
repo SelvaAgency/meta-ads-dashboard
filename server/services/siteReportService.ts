@@ -23,6 +23,7 @@ import {
   getAccountMetricsSummary, serieClaritySnapshots, getClientContext,
   listClientNotes, getClaritySettings,
 } from "../db";
+import { blocoDeContextoParaIA } from "@shared/contextoDaAnalise";
 
 export type FontesDisponiveis = {
   midia: boolean;
@@ -145,7 +146,10 @@ export async function gerarSiteReport(accountId: number, nomeConta: string, inic
   const { montarContextoDaConta } = await import("./contextoConta");
   const { texto: ctxContaAgencia } = await montarContextoDaConta({ accountId, userId, incluirSite: false, incluirNotas: false });
   const prompt = montarPrompt(nomeConta, inicio, fim, midia, clarity, ctx, notas, cfg?.domain ?? null, fontes)
-    + (ctxContaAgencia ? `\n\n════ CONTEXTO DA CONTA E DA AGÊNCIA ════\n${ctxContaAgencia}` : "");
+    // O plano técnico recebe EXATAMENTE o mesmo bloco do Panorama: era aqui que
+    // a divergência aparecia — um dizia "não houve conversões reais" e o outro
+    // tratava a compra de teste como resultado.
+    + blocoDeContextoParaIA(ctxContaAgencia).bloco;
   let ia: Partial<SiteReport> = {};
   try {
     const resp = await invokeLLM({

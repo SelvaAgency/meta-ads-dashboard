@@ -697,6 +697,15 @@ export const metaAdAccounts = mysqlTable("meta_ad_accounts", {
   lastSyncAt: timestamp("lastSyncAt"),
   aiStatusSummary: text("aiStatusSummary"),
   aiStatusColor: mysqlEnum("aiStatusColor", ["green", "yellow", "red"]),
+  /**
+   * Quando a leitura de IA foi gerada.
+   *
+   * Existe para responder "esta análise já viu o contexto atual?". Sem ela, o
+   * Panorama continuava exibindo a leitura anterior depois de alguém salvar
+   * contexto — errada por um motivo invisível, e a única forma de perceber era
+   * reparar que o texto não mudou. Comparada com `account_context.updatedAt`.
+   */
+  aiStatusAt: timestamp("aiStatusAt"),
   accountNote: text("accountNote"),
   goalTypeOverride: varchar("goalTypeOverride", { length: 64 }),
   /**

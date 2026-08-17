@@ -6,6 +6,7 @@ import { execSync } from "node:child_process";
 import { COOKIE_NAME } from "@shared/const";
 import { getPageIdsForAdAccount } from "@shared/pageMapping";
 import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
+import { analiseDesatualizada } from "@shared/contextoDaAnalise";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, contentProcedure, prioridadesProcedure, router } from "./_core/trpc";
@@ -557,6 +558,33 @@ const contextRouter = router({
     .input(z.object({ accountId: z.number() }))
     .query(async ({ input }) => {
       return await getAccountContext(input.accountId);
+    }),
+
+  /**
+   * A análise guardada já viu o contexto vigente?
+   *
+   * DERIVADO, e não empurrado: `account_context.updatedAt` sobe a cada save, e a
+   * comparação com `aiStatusAt` responde sozinha. Isso importa porque existem
+   * três telas que salvam contexto, e duas delas não sabiam que havia uma
+   * análise para invalidar — com um sinal empurrado, essas duas continuariam
+   * exibindo a leitura velha.
+   */
+  analiseVigente: protectedProcedure
+    .input(z.object({ accountId: z.number() }))
+    .query(async ({ input }) => {
+      const [ctx, conta] = await Promise.all([
+        getAccountContext(input.accountId),
+        getMetaAdAccountById(input.accountId),
+      ]);
+      const analiseEm = conta?.aiStatusAt ?? null;
+      const contextoEm = ctx?.updatedAt ?? null;
+      return {
+        analiseEm,
+        contextoEm,
+        desatualizada: analiseDesatualizada(analiseEm, contextoEm),
+        temContexto: !!(ctx?.quickContext?.trim() || ctx?.clientProfile?.trim()
+          || ctx?.operationalRules?.trim() || ctx?.focusMoment?.trim()),
+      };
     }),
 
   upsertAccount: protectedProcedure

@@ -1488,6 +1488,16 @@ async function main() {
       console.log("[ensure-schema] ok  · social_media_snapshots.thumbnailUrl adicionada");
     }
 
+    // Quando a leitura de IA foi gerada — comparada com account_context.updatedAt
+    // para saber se a análise já viu o contexto vigente.
+    const [aiAtCol] = await conn.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'meta_ad_accounts' AND column_name = 'aiStatusAt'",
+    );
+    if (aiAtCol.length === 0) {
+      await conn.query("ALTER TABLE `meta_ad_accounts` ADD COLUMN `aiStatusAt` TIMESTAMP NULL");
+      console.log("[ensure-schema] ok  · meta_ad_accounts.aiStatusAt adicionada");
+    }
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

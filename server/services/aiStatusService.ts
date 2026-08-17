@@ -18,6 +18,7 @@ import {
   updateAccountAiStatus,
   appendAccountLearning,
 } from "../db";
+import { blocoDeContextoParaIA } from "@shared/contextoDaAnalise";
 
 const AGENCY_TZ = "America/Sao_Paulo";
 function toIsoLocal(d: Date): string {
@@ -66,10 +67,12 @@ export async function refreshAccountAiStatus(
 
   const { montarContextoDaConta } = await import("./contextoConta");
   const { texto: ctxTexto } = await montarContextoDaConta({ accountId, userId }).catch(() => ({ texto: "" }));
-  const adhoc = opts.adhocContexto?.trim() ? `Contexto informado agora sobre estes 7 dias: ${opts.adhocContexto.trim()}` : "";
-  const blocoCtx = (ctxTexto || adhoc)
-    ? `\n\nCONTEXTO (considere ao avaliar e ao escrever o resumo — pode explicar variações que os números não mostram):\n${ctxTexto}${adhoc ? `\n${adhoc}` : ""}`
-    : "";
+  // O enquadramento vem de `shared/contextoDaAnalise`, o MESMO das outras
+  // análises. Aqui a embalagem dizia "pode explicar variações que os números
+  // não mostram" — descrição de comentário de cor. Diante de "essa compra foi
+  // teste, desconsidere", o modelo mencionava o teste e seguia contando a
+  // conversão, porque foi isso que o prompt pediu.
+  const { bloco: blocoCtx } = blocoDeContextoParaIA(ctxTexto, opts.adhocContexto);
 
   const dados = roasApplies
     ? { ...totals, roas: roas.toFixed(2), cpa: cpa.toFixed(2), ctr: ctr.toFixed(2) }

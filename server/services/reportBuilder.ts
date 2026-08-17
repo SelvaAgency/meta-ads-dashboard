@@ -34,6 +34,7 @@ import {
   type Periodo,
   type FontesUsadas,
 } from "./clientIntelligence";
+import { blocoDeContextoParaIA } from "@shared/contextoDaAnalise";
 
 /** Uma caixa da leitura estratégica: manchete curta + uma ou duas frases. */
 export type Destaque = { resumo: string; detalhe: string };
@@ -126,7 +127,9 @@ export async function gerarRelatorioModular(
   // aprendizados da conta e o conhecimento da agência.
   const { montarContextoDaConta } = await import("./contextoConta");
   const { texto: ctxContaAgencia } = await montarContextoDaConta({ accountId, userId, incluirSite: false, incluirNotas: false });
-  const blocoContaAgencia = ctxContaAgencia ? `\n\n════ CONTEXTO DA CONTA E DA AGÊNCIA ════\n${ctxContaAgencia}` : "";
+  // Mesmo bloco das outras análises: relatório que contradiz o Panorama sobre o
+  // mesmo dado é o sintoma de cada um instruir o modelo do seu jeito.
+  const { bloco: blocoContaAgencia } = blocoDeContextoParaIA(ctxContaAgencia);
 
   // Cards de site: só os blocos que existem viram dados. Ausente não vira card
   // vazio — a seção simplesmente some, e a ausência fica registrada em `fontes`.
