@@ -164,6 +164,24 @@ const CAMPOS_MIDIA =
 export const METRICAS_MIDIA = ["reach", "views", "likes", "saved", "shares", "comments", "total_interactions"];
 
 /**
+ * As duas métricas que SÓ existem em Reel — e por isso não entram acima.
+ *
+ * A sondagem de 17/08/2026 mostrou a Meta recusando métrica por tipo de mídia
+ * com "does not support the X metric for this media product type". Se estas
+ * duas entrassem em `METRICAS_MIDIA`, o pedido aninhado passaria a incluir uma
+ * métrica inválida para todo post de feed — e a Meta recusa a chamada INTEIRA.
+ * A cascata salvaria as publicações, mas ao custo de 1 → 1+N chamadas em toda
+ * conta que publica algo que não seja Reel. Trocaríamos a otimização 186→6 por
+ * duas métricas.
+ *
+ * Então elas vão numa chamada própria, só nos Reels: +1 chamada por Reel.
+ */
+export const METRICAS_REEL = ["reels_skip_rate", "ig_reels_avg_watch_time"];
+
+/** Os dois valores de `media_product_type` que a Meta usa para Reel. */
+const PRODUTOS_DE_REEL = new Set(["REELS", "CLIPS"]);
+
+/**
  * A listagem com os insights ANINHADOS — o caminho que derruba 175 chamadas
  * para zero extras.
  *
@@ -213,6 +231,15 @@ export interface MidiaColetada {
   saves: number | null;
   shares: number | null;
   totalInteractions: number | null;
+  /**
+   * `reels_skip_rate` — percentual 0–100, MEDIDO pela Meta.
+   *
+   * Nunca calculado a partir de views, tempo médio ou qualquer outra coisa: a
+   * sondagem mostrou que não existe denominador conhecido para derivá-la.
+   */
+  skipRate: number | null;
+  /** `ig_reels_avg_watch_time`, em MILISSEGUNDOS, como a Meta devolve. */
+  avgWatchTimeMs: number | null;
   recusadas: Record<string, string>;
 }
 
@@ -458,8 +485,55 @@ export async function coletarDeInstagram(
       saves: valores.saved ?? null,
       shares: valores.shares ?? null,
       totalInteractions: valores.total_interactions ?? null,
+      // Preenchidas logo abaixo, e só nos Reels. Começam `null` porque `null`
+      // sem recusa é "não perguntamos" — que é a verdade para um post de feed.
+      skipRate: null,
+      avgWatchTimeMs: null,
       recusadas: recusasDaMidia,
     });
+  }
+
+  // ── Retenção: uma chamada por Reel, e só por Reel ──────────────────────────
+  //
+  // Fora do caminho aninhado de propósito — ver `METRICAS_REEL`. As duas vão
+  // juntas porque a Meta aceita várias métricas numa chamada; se ela recusar o
+  // par por causa de uma, a segunda tentativa pede uma a uma e descobre QUAL —
+  // a mesma cascata das métricas de mídia, pelo mesmo motivo: uma métrica ruim
+  // não pode custar a outra.
+  for (const midia of r.midias) {
+    if (!midia.produto || !PRODUTOS_DE_REEL.has(midia.produto)) continue;
+
+    const aplicar = (valores: Record<string, number>, recusas: Record<string, string>) => {
+      // `?? null` e não `|| null`: `reels_skip_rate` = 0 é MEDIDO — ninguém
+      // abandonou o Reel — e `||` o transformaria em ausência.
+      midia.skipRate = valores.reels_skip_rate ?? null;
+      midia.avgWatchTimeMs = valores.ig_reels_avg_watch_time ?? null;
+      midia.recusadas = { ...midia.recusadas, ...recusas };
+    };
+
+    try {
+      const resp = await consultar<{ data?: Array<Record<string, unknown>> }>(
+        `${midia.mediaId}/insights`, { metric: METRICAS_REEL.join(",") });
+      const lido = lerLoteDeInsights(resp.data ?? [], METRICAS_REEL, "não veio na resposta do lote de Reel");
+      aplicar(lido.valores, lido.recusadas);
+    } catch {
+      const valores: Record<string, number> = {};
+      const recusas: Record<string, string> = {};
+      for (const metrica of METRICAS_REEL) {
+        try {
+          const resp = await consultar<{ data?: Array<Record<string, unknown>> }>(
+            `${midia.mediaId}/insights`, { metric: metrica });
+          const item = resp.data?.[0];
+          const v = (item?.values as Array<{ value?: unknown }> | undefined)?.[0]?.value
+            ?? (item?.total_value as { value?: unknown } | undefined)?.value;
+          if (typeof v === "number") valores[metrica] = v;
+          else recusas[metrica] = "respondeu sem valor";
+        } catch (e) {
+          recusas[metrica] = erroDe(e);
+        }
+      }
+      aplicar(valores, recusas);
+    }
   }
 
   // ── Veredito da coleta ────────────────────────────────────────────────────

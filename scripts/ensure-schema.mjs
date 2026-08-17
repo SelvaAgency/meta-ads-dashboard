@@ -1488,6 +1488,21 @@ async function main() {
       console.log("[ensure-schema] ok  · social_media_snapshots.thumbnailUrl adicionada");
     }
 
+    // Retenção de Reels. As duas colunas nascem NULL em toda linha existente, e
+    // é o certo: nenhuma coleta anterior perguntou por elas, e `null` sem recusa
+    // é exatamente "não perguntamos". Preenchê-las com 0 diria que ninguém
+    // abandonou nenhum Reel do histórico inteiro.
+    for (const [coluna, tipo] of [["skipRate", "DECIMAL(5,2)"], ["avgWatchTimeMs", "INT"]]) {
+      const [existe] = await conn.query(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'social_media_snapshots' AND column_name = ?",
+        [coluna],
+      );
+      if (existe.length === 0) {
+        await conn.query(`ALTER TABLE \`social_media_snapshots\` ADD COLUMN \`${coluna}\` ${tipo} NULL`);
+        console.log(`[ensure-schema] ok  · social_media_snapshots.${coluna} adicionada`);
+      }
+    }
+
     // Quando a leitura de IA foi gerada — comparada com account_context.updatedAt
     // para saber se a análise já viu o contexto vigente.
     const [aiAtCol] = await conn.query(

@@ -1407,6 +1407,24 @@ export const socialMediaSnapshots = mysqlTable("social_media_snapshots", {
   shares: int("shares"),
   totalInteractions: int("totalInteractions"),
 
+  /**
+   * `reels_skip_rate` — percentual 0–100, MEDIDO pela Meta. Só Reels o têm.
+   *
+   * `decimal` e não `int`: a Meta devolve 57.6, e truncar para 57 apagaria a
+   * diferença entre dois Reels que a tela ordena lado a lado. `null` aqui é
+   * ausência de verdade — nunca zero de conveniência, porque 0% MEDIDO
+   * significa que ninguém abandonou.
+   */
+  skipRate: decimal("skipRate", { precision: 5, scale: 2 }),
+  /**
+   * `ig_reels_avg_watch_time` em MILISSEGUNDOS, como a API entrega.
+   *
+   * O nome carrega a unidade porque a conversão para segundos acontece na
+   * leitura, e uma coluna chamada `avgWatchTime` acabaria dividida por 1000
+   * duas vezes por alguém de boa-fé.
+   */
+  avgWatchTimeMs: int("avgWatchTimeMs"),
+
   recusadasJson: json("recusadasJson"),
   coletadoEm: timestamp("coletadoEm").defaultNow().notNull(),
 }, (table) => ({

@@ -2309,6 +2309,7 @@ export async function salvarMidiasDoSnapshot(accountId: number, dia: string, mid
   permalink: string | null; legenda: string | null;
   likes: number | null; comentarios: number | null; reach: number | null; views: number | null;
   saves: number | null; shares: number | null; totalInteractions: number | null;
+  skipRate?: number | null; avgWatchTimeMs?: number | null;
   recusadas: Record<string, string>;
 }>) {
   const db = await getDb();
@@ -2320,6 +2321,10 @@ export async function salvarMidiasDoSnapshot(accountId: number, dia: string, mid
       permalink: m.permalink, legenda: m.legenda,
       likes: m.likes, comentarios: m.comentarios, reach: m.reach, views: m.views,
       saves: m.saves, shares: m.shares, totalInteractions: m.totalInteractions,
+      // `decimal` viaja como string no driver. `?? null` e não `|| null`:
+      // `skipRate` = 0 é medição — ninguém abandonou — e `||` a apagaria.
+      skipRate: m.skipRate == null ? null : String(m.skipRate),
+      avgWatchTimeMs: m.avgWatchTimeMs ?? null,
       recusadasJson: m.recusadas,
     };
     const existente = await db.select({ id: socialMediaSnapshots.id }).from(socialMediaSnapshots)
@@ -2360,7 +2365,16 @@ export async function midiasDoPeriodo(accountId: number, inicio: string, fim: st
     .orderBy(socialMediaSnapshots.dia);
   const porMidia = new Map<string, (typeof linhas)[number]>();
   for (const l of linhas) porMidia.set(l.mediaId, l); // ordenado por dia: fica a última
-  return Array.from(porMidia.values());
+  /**
+   * `skipRate` volta do MySQL como string, porque é `decimal`. A conversão fica
+   * aqui, num lugar só: espalhada pelos componentes, uma delas acabaria
+   * comparando "57.60" com 57.6 e ordenando o ranking como texto — onde "9,0"
+   * vem depois de "65,3".
+   */
+  return Array.from(porMidia.values()).map((l) => ({
+    ...l,
+    skipRate: l.skipRate == null ? null : Number(l.skipRate),
+  }));
 }
 
 export async function registrarExecucaoDeColeta(a: {

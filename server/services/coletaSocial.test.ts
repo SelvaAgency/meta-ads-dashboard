@@ -30,6 +30,8 @@ const VALORES: Record<string, number> = {
   reach: 287, profile_views: 30, website_clicks: 0, profile_links_taps: 0,
   total_interactions: 13, views: 487,
   saved: 0, shares: 1, likes: 6, comments: 0,
+  // Os valores reais da sondagem de 17/08/2026: taxa decimal e tempo em ms.
+  reels_skip_rate: 57.6, ig_reels_avg_watch_time: 7601,
 };
 
 const MIDIA_PADRAO = {
@@ -292,7 +294,7 @@ describe("o caminho aninhado, e a cascata que protege contra ele", () => {
    * A conta que motivou a mudança: eram 186 chamadas por cliente, e a Meta
    * respondia com código de volume nas últimas contas da fila.
    */
-  it("a coleta inteira cabe em 8 chamadas, com quantas publicações forem", async () => {
+  it("a coleta inteira cabe em 8 chamadas + 1 por Reel", async () => {
     const cAninhado = api({ midias: tresMidias });
     const r3 = await coletarDeInstagram(cAninhado, "123");
 
@@ -303,14 +305,38 @@ describe("o caminho aninhado, e a cascata que protege contra ele", () => {
     // produção, e uma recusa dentro do lote principal derrubaria as seis que já
     // funcionam — 1 chamada viraria 10, em toda conta, todo dia. Em lote
     // próprio, a recusa custa aquele lote e nada mais.
-    expect(r3.chamadas).toBe(8);
+    //
+    // +1 pela retenção do único Reel da amostra. Ela NÃO cabe no aninhado: a
+    // Meta recusa métrica por tipo de mídia ("does not support the X metric for
+    // this media product type"), e uma métrica de Reel no pedido de todas as
+    // mídias derrubaria a listagem inteira em qualquer conta que publique feed.
+    // A cascata salvaria as publicações, mas a 1 chamada viraria 1+N.
+    expect(r3.chamadas).toBe(9);
     expect(r3.caminhoDasMidias).toBe("aninhado");
     expect(r3.midias).toHaveLength(3);
-    // O número NÃO cresce com a quantidade de publicações — era isso que
-    // custava 175 chamadas antes. São 5 de insights: o lote de 6,
-    // `follower_count`, `replies`, o lote de engajamento e
-    // `follows_and_unfollows`.
-    expect(caminhosDe(cAninhado).filter(([p]) => p.includes("/insights"))).toHaveLength(5);
+    // O número não cresce com a quantidade de PUBLICAÇÕES — cresce só com a de
+    // Reels, e um a um. São 5 de insights de conta + 1 do Reel.
+    expect(caminhosDe(cAninhado).filter(([p]) => p.includes("/insights"))).toHaveLength(6);
+  });
+
+  /**
+   * O custo da retenção é proporcional aos REELS, e a nada mais.
+   *
+   * Se um dia ela vazar para o pedido aninhado ou para o laço de todas as
+   * mídias, é aqui que aparece: dez posts de feed continuam custando zero.
+   */
+  it("post que não é Reel não custa chamada de retenção", async () => {
+    const soFeed = Array.from({ length: 10 }, (_, i) => ({ ...MIDIA_PADRAO, id: String(i) }));
+    const c = api({ midias: soFeed });
+    const r = await coletarDeInstagram(c, "123");
+    expect(r.chamadas).toBe(8);
+    expect(caminhosDe(c).filter(([p]) => p.includes("reels_skip_rate"))).toHaveLength(0);
+    for (const m of r.midias) {
+      expect(m.skipRate).toBeNull();
+      expect(m.avgWatchTimeMs).toBeNull();
+      // `null` SEM recusa: não perguntamos, e não "a Meta negou".
+      expect(m.recusadas.reels_skip_rate).toBeUndefined();
+    }
   });
 
   it("nenhuma métrica se perde no aninhamento", async () => {
@@ -337,8 +363,9 @@ describe("o caminho aninhado, e a cascata que protege contra ele", () => {
     expect(r.midias[0].reach).toBe(287);
     expect(r.caminhoDasMidias).toBe("lote");
     expect(r.recusadas.midias_aninhadas).toBeTruthy();
-    // A listagem foi refeita sem insights, e cada mídia pediu seu lote.
-    expect(r.chamadas).toBe(12);
+    // A listagem foi refeita sem insights, e cada mídia pediu seu lote — mais
+    // a chamada de retenção do único Reel da amostra.
+    expect(r.chamadas).toBe(13);
   });
 
   /** Degrau 3: o desenho antigo, agora só quando os dois de cima falham. */
@@ -367,5 +394,87 @@ describe("o dia da coleta", () => {
   it("usa o fuso de São Paulo, e não UTC", () => {
     expect(diaDeHoje(new Date("2026-08-31T23:30:00-03:00"))).toBe("2026-08-31");
     expect(diaDeHoje(new Date("2026-09-01T02:30:00Z"))).toBe("2026-08-31");
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Retenção de Reels — coletada fora do aninhado, e só em Reel
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A sondagem devolveu PARCIAL: `reels_skip_rate` e `ig_reels_avg_watch_time`
+ *  existem, curva por segundo não. Estes testes guardam as duas decisões que a
+ *  coleta tomou por causa disso — a chamada separada, e os quatro estados.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("as duas métricas de retenção", () => {
+  const reel = { ...MIDIA_PADRAO, id: "r1", media_type: "VIDEO", media_product_type: "REELS" };
+
+  it("Reel recebe taxa e tempo, com o decimal intacto", async () => {
+    const r = await coletarDeInstagram(api({ midias: [reel] }), "123");
+    expect(r.midias[0].skipRate).toBe(57.6);
+    expect(r.midias[0].avgWatchTimeMs).toBe(7601);
+  });
+
+  /**
+   * As de Reel NÃO podem entrar no pedido aninhado: a Meta recusa métrica por
+   * tipo de mídia, e a recusa derruba a chamada inteira — a listagem de todas
+   * as publicações junto.
+   */
+  it("nenhuma métrica de Reel viaja no pedido aninhado", async () => {
+    const c = api({ midias: [reel] });
+    await coletarDeInstagram(c, "123");
+    const listagem = caminhosDe(c).find(([p, params]) =>
+      p.includes("/media") && (params.fields ?? "").includes("insights.metric("));
+    expect(listagem?.[1].fields).not.toContain("reels_skip_rate");
+    expect(listagem?.[1].fields).not.toContain("ig_reels_avg_watch_time");
+  });
+
+  it("as duas vão juntas numa chamada só", async () => {
+    const c = api({ midias: [reel] });
+    await coletarDeInstagram(c, "123");
+    const daRetencao = caminhosDe(c).filter(([, params]) =>
+      (params.metric ?? "").includes("reels_skip_rate"));
+    expect(daRetencao).toHaveLength(1);
+    expect(daRetencao[0][1].metric).toBe("reels_skip_rate,ig_reels_avg_watch_time");
+  });
+
+  /** Lote recusado: cada uma por si, para descobrir QUAL caiu. */
+  it("lote recusado cai para uma a uma, e a que sobrevive fica", async () => {
+    const c = api({ midias: [reel], loteRecusado: true, metricasRecusadas: ["ig_reels_avg_watch_time"] });
+    const r = await coletarDeInstagram(c, "123");
+    expect(r.midias[0].skipRate).toBe(57.6);
+    expect(r.midias[0].avgWatchTimeMs).toBeNull();
+    expect(r.midias[0].recusadas.ig_reels_avg_watch_time).toContain("indisponível");
+  });
+
+  /**
+   * Zero MEDIDO é dado — ninguém abandonou. É o caso em que um `||` distraído
+   * transformaria medição em ausência.
+   */
+  it("skip_rate = 0 sobrevive como zero, e não vira null", async () => {
+    const c = api({ midias: [reel] });
+    const original = VALORES.reels_skip_rate;
+    VALORES.reels_skip_rate = 0;
+    try {
+      const r = await coletarDeInstagram(c, "123");
+      expect(r.midias[0].skipRate).toBe(0);
+      expect(r.midias[0].recusadas.reels_skip_rate).toBeUndefined();
+    } finally {
+      VALORES.reels_skip_rate = original;
+    }
+  });
+
+  it("recusada pela Meta entra em recusadas, e não some", async () => {
+    const r = await coletarDeInstagram(
+      api({ midias: [reel], metricasRecusadas: ["reels_skip_rate", "ig_reels_avg_watch_time"] }), "123");
+    expect(r.midias[0].skipRate).toBeNull();
+    expect(r.midias[0].recusadas.reels_skip_rate).toBeTruthy();
+  });
+
+  /** CLIPS é o outro nome que a Meta usa para Reel. */
+  it("CLIPS também é Reel", async () => {
+    const r = await coletarDeInstagram(
+      api({ midias: [{ ...reel, media_product_type: "CLIPS" }] }), "123");
+    expect(r.midias[0].skipRate).toBe(57.6);
   });
 });

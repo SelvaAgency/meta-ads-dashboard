@@ -768,7 +768,21 @@ export default function RedesSociais() {
             />
 
             {/* ══ RETENÇÃO DOS REELS ═══════════════════════════════════════ */}
-            <RetencaoReels reelsNoPeriodo={porTipo.find((t) => t.tipo === "REELS")?.publicacoes ?? 0} />
+            {/* Só Reels: as duas métricas de retenção não existem para outro
+                formato, e passar um post de feed aqui o mostraria eternamente
+                "não medido" por uma pergunta que nunca lhe foi feita. */}
+            <RetencaoReels houveColeta={serie.length > 0} reels={midiasSalvas
+              .filter((m) => m.produto === "REELS" || m.produto === "CLIPS")
+              .map((m) => ({
+                mediaId: m.mediaId,
+                publicadoEm: m.publicadoEm,
+                thumbnailUrl: m.thumbnailUrl ?? null,
+                permalink: m.permalink,
+                skipRate: m.skipRate ?? null,
+                avgWatchTimeMs: m.avgWatchTimeMs ?? null,
+                views: m.views,
+                recusadas: (m.recusadasJson ?? {}) as Record<string, string>,
+              }))} />
 
             {/* ══ PERFORMANCE POR TIPO · 4 colunas ═════════════════════════ */}
             {/* ══ MELHORES → PIORES · largura cheia ════════════════════════ */}

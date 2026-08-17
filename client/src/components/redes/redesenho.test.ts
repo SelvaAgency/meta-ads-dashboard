@@ -32,6 +32,8 @@ const pagina = () => fonte("../../pages/RedesSociais.tsx");
 const grafico = () => fonte("./GraficosSociais.tsx");
 const retencao = () => fonte("./RetencaoReels.tsx");
 const conteudo = () => fonte("./PublicacoesEConteudo.tsx");
+/** O núcleo puro da retenção — as proibições valem lá também. */
+const leia = (p: string) => fonte(p);
 
 describe("a paleta é única", () => {
   /** Cada família tem UM matiz, e ele mora num lugar só. */
@@ -222,23 +224,58 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
   });
 });
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A retenção passou a ter dado — e as proibições continuam
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O guarda antigo exigia a frase "dado ainda não disponível", porque era isso
+ *  que a tela dizia. A sondagem de 17/08/2026 devolveu PARCIAL e a decisão
+ *  mudou; a INTENÇÃO não. Ela sempre foi: nenhuma curva inventada, nenhuma
+ *  precisão fabricada.
+ *
+ *  Agora ela tem duas metades. A curva continua proibida — a Meta enumerou os
+ *  breakdowns válidos e nenhum é temporal. E entrou uma proibição nova, que a
+ *  execução real tornou concreta: nada pode ser derivado de `total_views`.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
 describe("a retenção de Reels não ganha curva", () => {
-  /**
-   * O componente existe para registrar a pergunta sem resposta. Se alguém
-   * desenhar uma linha ali, ela será lida como medição.
-   */
-  it("nenhum path, polyline ou dado de série no componente", () => {
+  /** Uma linha ali seria lida como medição por segundo. */
+  it("nenhuma curva desenhada no componente", () => {
     const s = retencao();
     expect(s).not.toMatch(/<(path|polyline|Line|Area)\b/);
-    expect(s).not.toMatch(/\[\s*100\s*,/);
+    // Barra tem largura em %; curva tem série de pontos.
+    expect(s).not.toMatch(/\bd=\{/);
   });
 
-  it("diz na tela que o dado não existe, e qual sondagem falta", () => {
-    const s = retencao();
-    expect(s).toContain("Dado ainda não disponível");
-    expect(s).toContain("ig_reels_avg_watch_time");
-    // E que a sondagem daria média, NÃO a curva.
-    expect(s).toMatch(/não<\/strong>\s*\{?"?\s*para/);
+  /**
+   * A proibição que a execução real tornou concreta: `tempo total ÷ views` deu
+   * 7.957 espectadores implícitos contra 54.977 medidos. Nenhuma métrica de
+   * views é o denominador do tempo médio, e dividir uma pela outra produziria
+   * um número com cara de taxa e sem significado.
+   */
+  it("nenhuma métrica é derivada de views", () => {
+    for (const s of [retencao(), leia("../../../../shared/retencaoDeReels.ts")]) {
+      expect(s).not.toMatch(/\/\s*(m\.)?views\b/);
+      expect(s).not.toMatch(/\bviews\s*\*/);
+      expect(s).not.toMatch(/avgWatchTime\w*\s*\/\s*\w*[Vv]iews/);
+      expect(s).not.toMatch(/skipRate\s*[*/]/);
+    }
+  });
+
+  /** A nota que impede a leitura de que o Spaces sabe onde as pessoas saem. */
+  it("a nota sobre não estimar curva está na tela", () => {
+    expect(leia("../../../../shared/retencaoDeReels.ts"))
+      .toContain("não estima uma curva de retenção por segundo");
+    expect(retencao()).toContain("NOTA_DA_RETENCAO");
+  });
+
+  /** O ranking sai da taxa, e de nada mais. */
+  it("o ranking ordena exclusivamente por skipRate", () => {
+    const s = leia("../../../../shared/retencaoDeReels.ts");
+    const corpo = s.slice(s.indexOf("export function rankingDeAbandono"));
+    expect(corpo).toContain("skipRate as number");
+    expect(corpo).not.toContain("avgWatchTimeMs");
+    expect(corpo).not.toContain("views");
   });
 });
 
