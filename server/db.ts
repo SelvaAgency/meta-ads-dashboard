@@ -6652,6 +6652,31 @@ export async function salvarContextoDeAchado(a: {
   });
 }
 
+/**
+ * Os contextos de ponto de todas as contas, agrupados.
+ *
+ * Uma consulta, e não uma por conta: o Panorama lista o portfólio inteiro, e
+ * uma consulta por cliente ali seria uma por linha da tabela.
+ */
+export async function contextosDeAchadoDeTodasAsContas(): Promise<
+  Map<number, Array<{ chave: string; texto: string }>>
+> {
+  const db = await getDb();
+  const fora = new Map<number, Array<{ chave: string; texto: string }>>();
+  if (!db) return fora;
+  const linhas = await db.select({
+    accountId: accountFindingContext.accountId,
+    chave: accountFindingContext.chave,
+    texto: accountFindingContext.texto,
+  }).from(accountFindingContext);
+  for (const l of linhas) {
+    const atual = fora.get(l.accountId) ?? [];
+    atual.push({ chave: l.chave, texto: l.texto });
+    fora.set(l.accountId, atual);
+  }
+  return fora;
+}
+
 /** O instante da explicação mais recente — alimenta o aviso de desatualizada. */
 export async function contextoDeAchadoMaisRecente(accountId: number): Promise<Date | null> {
   const linhas = await contextosDeAchado(accountId);

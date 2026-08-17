@@ -185,6 +185,13 @@ export function vendasDe(c: ClientePanorama): Vendas | null {
 export type Achado = {
   chave: string;
   severidade: "critico" | "atencao" | "info";
+  /**
+   * `aberto` = problema real e ainda relevante.
+   * `contextualizado` = existe nos dados, mas a equipe explicou e ele não conta
+   * como problema. "Resolvido" não é um valor aqui: quando o problema sai dos
+   * dados, a regra para de emitir o achado e ele simplesmente não existe mais.
+   */
+  status?: "aberto" | "contextualizado";
   texto: string;
   /** Aba da seção Site para investigar (deep-link /site?account=…&aba=…). */
   aba?: string;
@@ -314,10 +321,49 @@ const temAlgumDado = (c: ClientePanorama): boolean =>
  * O nível é o pior achado — e os motivos são os textos dos achados, do pior
  * para o mais leve. "Sem dados" é neutro: nada conectado não é problema.
  */
-export function avaliarCliente(c: ClientePanorama): Avaliacao {
-  const achados = achadosDe(c);
-  const criticos = achados.filter((x) => x.severidade === "critico");
-  const atencoes = achados.filter((x) => x.severidade === "atencao");
+/**
+ * Avalia um cliente, aplicando o contexto que a equipe deu a cada achado.
+ *
+ * ── Por que o contexto entra AQUI e não depois ──────────────────────────────
+ * Tudo desce desta função: os contadores do Panorama, a lista "Atenção
+ * primeiro", a saúde do portfólio, o adendo do cabeçalho e o jornalzinho.
+ * Aplicar o contexto depois — na redação da IA — deixava os NÚMEROS intactos:
+ * o alerta explicado continuava inflando "Achados abertos" e mantendo o cliente
+ * em "Precisam atenção", enquanto o texto ao lado dizia que estava resolvido.
+ *
+ * Era a inconsistência exata do pedido. Entrando aqui, a explicação vale em toda
+ * tela de uma vez, sem cada consumidor precisar saber que contexto existe.
+ *
+ * ── O dado não muda; a CLASSIFICAÇÃO muda ──────────────────────────────────
+ * 28,7% continua 28,7%, e o achado continua na lista com o texto original. Ele
+ * ganha `status: "contextualizado"` e para de contar como problema aberto — é
+ * disso que "DADO ≠ INTERPRETAÇÃO" é feito na camada de regra. Remover o
+ * contexto devolve o achado ao estado aberto, porque nada foi apagado.
+ *
+ * ── Só o contexto de PONTO muda status, e isso é deliberado ─────────────────
+ * O contexto da conta é texto livre e não nomeia achado nenhum — decidir por ele
+ * quais chaves silenciar exigiria uma chamada de modelo, e aí os contadores do
+ * portfólio passariam a depender de IA: não determinísticos, não cacheáveis, não
+ * testáveis. O contexto da conta continua governando a INTERPRETAÇÃO (a prosa da
+ * análise); o do ponto governa a CLASSIFICAÇÃO.
+ */
+export function avaliarCliente(
+  c: ClientePanorama,
+  contextosDePonto: Array<{ chave: string; texto: string }> = [],
+): Avaliacao {
+  const explicados = new Set(
+    contextosDePonto.filter((x) => x.texto?.trim()).map((x) => x.chave),
+  );
+  const achados = achadosDe(c).map((a) => ({
+    ...a,
+    status: explicados.has(a.chave) ? ("contextualizado" as const) : ("aberto" as const),
+  }));
+
+  // O nível do cliente olha só o que continua ABERTO. Sem isso, um cliente com
+  // um único alerta já explicado seguiria em "Precisam atenção" para sempre.
+  const abertos = achados.filter((x) => x.status === "aberto");
+  const criticos = abertos.filter((x) => x.severidade === "critico");
+  const atencoes = abertos.filter((x) => x.severidade === "atencao");
   if (criticos.length) return { nivel: "critico", motivos: [...criticos, ...atencoes].map((x) => x.texto), achados };
   if (atencoes.length) return { nivel: "atencao", motivos: atencoes.map((x) => x.texto), achados };
   if (temAlgumDado(c)) return { nivel: "ok", motivos: [], achados };
@@ -427,7 +473,10 @@ export function resumoPortfolio(
   clientes: ClientePanorama[],
 ): ResumoPortfolio {
   const conta = (n: Nivel) => avaliacoes.filter((a) => a.nivel === n).length;
-  const achados = avaliacoes.flatMap((a) => a.achados);
+  // Só os ABERTOS entram na contagem. Um achado contextualizado continua na
+  // lista (o fato foi observado), mas deixou de ser problema a resolver — e
+  // contá-lo faria "Achados abertos" nunca baixar depois de uma explicação.
+  const achados = avaliacoes.flatMap((a) => a.achados).filter((x) => x.status !== "contextualizado");
   return {
     totalClientes: avaliacoes.length,
     precisamAtencao: conta("critico") + conta("atencao"),

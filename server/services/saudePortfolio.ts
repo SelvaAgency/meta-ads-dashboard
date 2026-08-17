@@ -31,14 +31,16 @@ export async function saudeDoPortfolio(): Promise<SaudeConta[]> {
     montarClientesPanorama(),
   ]);
 
-  const panoramaPorConta = new Map(clientes.map((c) => [c.accountId, avaliarCliente(c)]));
-
-  // Os contextos de ponto de TODAS as contas, numa consulta por conta. Sem isso
-  // seria uma consulta por conta dentro do map, e o portfólio inteiro pagaria.
-  const contextosPorConta = new Map<number, Awaited<ReturnType<typeof contextosDeAchado>>>();
+  // Os contextos entram na AVALIAÇÃO, e não só na escolha do adendo: sem isso o
+  // nível do cliente continuaria "atenção" por causa de um alerta já explicado.
+  const contextosPorConta = new Map<number, Array<{ chave: string; texto: string }>>();
   await Promise.all(contas.map(async (c) => {
-    contextosPorConta.set(c.id, await contextosDeAchado(c.id).catch(() => []));
+    const linhas = await contextosDeAchado(c.id).catch(() => []);
+    contextosPorConta.set(c.id, linhas.map((x) => ({ chave: x.chave, texto: x.texto })));
   }));
+
+  const panoramaPorConta = new Map(clientes.map((c) =>
+    [c.accountId, avaliarCliente(c, contextosPorConta.get(c.accountId) ?? [])]));
 
   return contas.map((c) => {
     // Nível = RESULTADOS (cor da IA). Achados técnicos não rebaixam; alertas
@@ -54,8 +56,7 @@ export async function saudeDoPortfolio(): Promise<SaudeConta[]> {
     // `find(critico) ?? find(atencao)`, que ignorava o que a equipe já resolveu
     // e mantinha a mesma frase no topo todo dia.
     const achados = panoramaPorConta.get(c.id)?.achados ?? [];
-    const ordenados = aplicarContextoAosAchados(
-      achados, (contextosPorConta.get(c.id) ?? []).map((x) => ({ chave: x.chave, texto: x.texto })));
+    const ordenados = aplicarContextoAosAchados(achados, contextosPorConta.get(c.id) ?? []);
     const lider = achadoQueLidera(ordenados);
     const adendo: AdendoSaude | null = lider
       ? { severidade: lider.achado.severidade as "critico" | "atencao", texto: lider.achado.texto }

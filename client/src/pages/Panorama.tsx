@@ -96,7 +96,12 @@ export default function Panorama() {
 
   const clientes = (q.data ?? []) as ClientePanorama[];
   const linhas = ordenarClientes(
-    clientes.map((c) => ({ cliente: c, nome: c.nome, ...avaliarCliente(c) })),
+    // Os contextos vêm junto do cliente: é assim que o alerta explicado deixa
+    // de contar em "Achados abertos" e o cliente sai de "Precisam atenção".
+    clientes.map((c) => ({
+      cliente: c, nome: c.nome,
+      ...avaliarCliente(c, (c as { contextosDePonto?: Array<{ chave: string; texto: string }> }).contextosDePonto ?? []),
+    })),
   );
   const comAtencao = linhas.filter((l) => l.nivel === "critico" || l.nivel === "atencao");
   const resumo = resumoPortfolio(linhas.map((l) => ({ nivel: l.nivel, achados: l.achados })), clientes);

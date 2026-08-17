@@ -153,6 +153,7 @@ import {
   upsertAccountThresholds,
   getAccountContext,
   contextosDeAchado,
+  contextosDeAchadoDeTodasAsContas,
   salvarContextoDeAchado,
   contextoDeAchadoMaisRecente,
   upsertAccountContext,
@@ -6669,6 +6670,16 @@ export const appRouter = router({
         lojasParaPanorama(),
         vndaContaComoLojaReal(), // VNDA só vira "loja real" após validar o mapa
       ]);
+
+      /**
+       * Os contextos de ponto de TODAS as contas, numa consulta só.
+       *
+       * Vão para o cliente junto dos dados porque é `avaliarCliente` que aplica
+       * o status, e ela roda na TELA. Sem eles, o Panorama continuaria contando
+       * como aberto o alerta que a equipe já explicou — a inconsistência exata
+       * que motivou esta rodada.
+       */
+      const contextosPorConta = await contextosDeAchadoDeTodasAsContas().catch(() => new Map());
       const fontesPorConta = new Map(fontes.map((f) => [f.accountId, f.fontes]));
       const lojaPorConta = new Map(lojas.map((l) => [l.accountId, l]));
       const snap = (accountId: number, provider: string, estrategia?: string) => {
@@ -6688,10 +6699,14 @@ export const appRouter = router({
         return s ? { dia: s.dia, metricsJson: s.metricsJson, provider: s.provider } : null;
       };
       return contas.map((c) => {
+        const contextosDoPonto = contextosPorConta.get(c.id) ?? [];
         const loja7 = lojaSnap(c.id, "7d"), loja30 = lojaSnap(c.id, "30d");
         return {
           accountId: c.id,
           nome: c.accountName ?? `Conta ${c.id}`,
+          // As explicações que a equipe deu aos alertas deste cliente. `avaliarCliente`
+          // usa isso para marcar o status — e é o status que os contadores leem.
+          contextosDePonto: contextosDoPonto,
           fontes: fontesPorConta.get(c.id) ?? [],
           loja: lojaPorConta.get(c.id) ?? null,
           plataformaLoja: loja30?.provider ?? loja7?.provider ?? null,

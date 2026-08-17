@@ -28,6 +28,7 @@ import {
 import {
   getAllActiveMetaAdAccountsForListing, snapshotsParaPanorama, lojasParaPanorama,
   getAppSetting, setAppSetting, vndaContaComoLojaReal,
+  contextosDeAchadoDeTodasAsContas,
 } from "../db";
 import { fontesDeTodasAsContas } from "./fontesDoCliente";
 import { logger } from "../logger";
@@ -95,8 +96,26 @@ const brl = (v: number): string =>
 const fmtDia = (dia?: string): string => { const p = (dia ?? "").split("-"); return p[2] && p[1] ? `${p[2]}/${p[1]}` : (dia ?? "—"); };
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
-export function montarSecoesExecutivas(clientes: ClientePanorama[], dia: string, ciclos: Ciclos = {}): SecoesExecutivas {
-  const avaliacoes = clientes.map((c) => ({ cliente: c, ...avaliarCliente(c) }));
+/**
+ * `contextos` chega por PARÂMETRO e não por consulta aqui dentro.
+ *
+ * A função é síncrona e pura de propósito — é ela que os testes do jornalzinho
+ * exercitam sem banco. Buscar os contextos internamente a tornaria async e
+ * arrastaria a assinatura de todos os chamadores por uma dependência de I/O que
+ * quem chama já tem à mão.
+ *
+ * Sem contexto, o comportamento é o de antes: todo achado conta como aberto.
+ */
+export function montarSecoesExecutivas(
+  clientes: ClientePanorama[], dia: string, ciclos: Ciclos = {},
+  contextos: Map<number, Array<{ chave: string; texto: string }>> = new Map(),
+): SecoesExecutivas {
+  // O jornalzinho conta os mesmos achados do Panorama, então precisa do mesmo
+  // contexto — senão o e-mail da manhã relata como problema o que a tela já
+  // mostra resolvido.
+  const avaliacoes = clientes.map((c) => ({
+    cliente: c, ...avaliarCliente(c, contextos.get(c.accountId) ?? []),
+  }));
   const resumo = resumoPortfolio(avaliacoes.map((a) => ({ nivel: a.nivel, achados: a.achados })), clientes);
 
   // Receita real de LOJAS (Woo + VNDA — mesma métrica; NUNCA GA4/Meta/Google).
@@ -226,11 +245,14 @@ export async function getJornalExecutivo(dia: string, contas: number[] | null = 
   // contadores de destaque (`totalClientes`, `criticos`…) somando clientes que
   // a pessoa não pode ver — um número certo sobre um portfólio errado.
   const clientes = contas === null ? todos : todos.filter((c) => contas.includes(c.accountId));
-  const [lojas, ga4] = await Promise.all([
+  const [lojas, ga4, ctxPorConta] = await Promise.all([
     getAppSetting<Ciclos["lojas"]>("woo:ultimoCiclo"),
     getAppSetting<Ciclos["ga4"]>("ga4:ultimoCiclo"),
+    // O e-mail da manhã não pode relatar como problema o que a tela já mostra
+    // resolvido — mesmo contexto, mesma contagem.
+    contextosDeAchadoDeTodasAsContas().catch(() => new Map()),
   ]);
-  const secoes = montarSecoesExecutivas(clientes, dia, { lojas, ga4 });
+  const secoes = montarSecoesExecutivas(clientes, dia, { lojas, ga4 }, ctxPorConta);
   return { dia, secoes, html: renderExecutivoHtml(secoes), texto: renderExecutivoTexto(secoes), geradoEm: new Date().toISOString() };
 }
 
