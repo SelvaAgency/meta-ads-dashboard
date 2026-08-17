@@ -74,6 +74,23 @@ export async function refreshAccountAiStatus(
   // conversão, porque foi isso que o prompt pediu.
   const { bloco: blocoCtx } = blocoDeContextoParaIA(ctxTexto, opts.adhocContexto);
 
+  /**
+   * Os contextos de PONTO vêm depois do da conta, e a ordem é a prioridade: o
+   * último a ser lido é o que prevalece quando os dois falam do mesmo fato. O
+   * do ponto foi escrito olhando aquele alerta, então ele ganha.
+   */
+  const { montarContextoDosPontos } = await import("./contextoConta");
+  const { montarClientesPanorama } = await import("./jornalExecutivo");
+  const { avaliarCliente } = await import("../../shared/panoramaLogic");
+  const blocoPontos = await (async () => {
+    try {
+      const clientes = await montarClientesPanorama();
+      const meu = clientes.find((c) => c.accountId === accountId);
+      if (!meu) return "";
+      return await montarContextoDosPontos(accountId, avaliarCliente(meu).achados);
+    } catch { return ""; }
+  })();
+
   const dados = roasApplies
     ? { ...totals, roas: roas.toFixed(2), cpa: cpa.toFixed(2), ctr: ctr.toFixed(2) }
     : { spend: totals.spend, conversions: totals.conversions, clicks: totals.clicks, impressions: totals.impressions, cpa: cpa.toFixed(2), ctr: ctr.toFixed(2) };
@@ -87,7 +104,7 @@ Classifique SEMPRE em relação às metas desta conta (quando houver no contexto
 
 Seja CONSERVADOR com o vermelho: uma conta acima da média NUNCA é vermelha. Na dúvida entre dois níveis, escolha o mais brando. A maioria das contas saudáveis deve ser green.
 
-Objetivo da conta: ${goalType}${!roasApplies ? ` — IMPORTANTE: esta conta é de ${goalType}, NÃO de e-commerce. NUNCA mencione ROAS, valor de conversão ou rastreamento de receita como problema. Avalie APENAS: volume de resultados (mensagens/cliques/alcance), custo por resultado e CTR.` : ""}${blocoCtx}
+Objetivo da conta: ${goalType}${!roasApplies ? ` — IMPORTANTE: esta conta é de ${goalType}, NÃO de e-commerce. NUNCA mencione ROAS, valor de conversão ou rastreamento de receita como problema. Avalie APENAS: volume de resultados (mensagens/cliques/alcance), custo por resultado e CTR.` : ""}${blocoCtx}${blocoPontos}
 
 Dados:
 ${JSON.stringify(dados)}`;

@@ -12,7 +12,10 @@
  *  vazio desde o início e não influenciava as análises. A tabela segue no banco,
  *  dormente, caso um dia queiramos reintroduzir o nível-agência de propósito.
  */
-import { getAccountContext, listClientNotes, getAccountThresholds } from "../db";
+import {
+  getAccountContext, listClientNotes, getAccountThresholds, contextosDeAchado,
+} from "../db";
+import { aplicarContextoAosAchados, blocoDosContextosDePonto } from "../../shared/contextoDoAchado";
 
 export type MontarContextoOpts = {
   accountId: number;
@@ -31,6 +34,28 @@ export type MontarContextoOpts = {
 };
 
 export type ContextoMontado = { texto: string; temContexto: boolean };
+
+/**
+ * O bloco dos contextos de PONTO, para juntar ao prompt.
+ *
+ * Separado de `montarContextoDaConta` porque depende dos achados ATUAIS, e quem
+ * os tem é a análise, não o builder. Um contexto guardado para alerta que já
+ * saiu da lista descreve situação que não existe mais.
+ *
+ * Vive aqui, e não em cada análise, pelo mesmo motivo que o bloco da conta:
+ * quatro embalagens eram quatro análises.
+ */
+export async function montarContextoDosPontos(
+  accountId: number,
+  achados: Array<{ chave: string; severidade: "critico" | "atencao" | "info"; texto: string }>,
+): Promise<string> {
+  if (!achados.length) return "";
+  const linhas = await contextosDeAchado(accountId).catch(() => []);
+  if (!linhas.length) return "";
+  const ordenados = aplicarContextoAosAchados(
+    achados, linhas.map((l) => ({ chave: l.chave, texto: l.texto })));
+  return blocoDosContextosDePonto(ordenados);
+}
 
 /** Monta o bloco de contexto único da conta. Campos ausentes são omitidos. */
 export async function montarContextoDaConta(opts: MontarContextoOpts): Promise<ContextoMontado> {

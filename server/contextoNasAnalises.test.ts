@@ -88,3 +88,43 @@ describe("o contexto é por CONTA, e não pode vazar", () => {
     }
   });
 });
+
+
+describe("o contexto de PONTO chega à análise", () => {
+  /**
+   * O item que o pedido chama de "não criar uma nova camada de texto sem
+   * função". Um campo que salva e não é consumido pela IA é pior que campo
+   * nenhum: ele promete influência e não entrega, e ninguém descobre porque a
+   * análise continua plausível.
+   */
+  it("o Panorama monta o bloco dos pontos e o injeta no prompt", () => {
+    const s = fonte("./services/aiStatusService.ts");
+    expect(s).toContain("montarContextoDosPontos");
+    // Montar e não usar seria o mesmo que não montar.
+    expect(s).toContain("${blocoPontos}");
+  });
+
+  it("o builder de contexto expõe a montagem dos pontos", () => {
+    const s = fonte("./services/contextoConta.ts");
+    expect(s).toContain("export async function montarContextoDosPontos");
+    expect(s).toContain("blocoDosContextosDePonto");
+  });
+
+  /**
+   * A escolha do ponto que lidera precisa passar pela regra de contexto. Era
+   * `find(critico) ?? find(atencao)`, que ignorava o que a equipe já explicou e
+   * mantinha a mesma frase no topo todo dia.
+   */
+  it("o adendo técnico respeita quem já foi explicado", () => {
+    const s = fonte("./services/saudePortfolio.ts");
+    expect(s).toContain("aplicarContextoAosAchados");
+    expect(s).toContain("achadoQueLidera");
+    expect(s).not.toMatch(/find\(\(a\) => a\.severidade === "critico"\)/);
+  });
+
+  /** Contexto de ponto é por conta, como o da conta. */
+  it("a leitura dos contextos de ponto passa um accountId", () => {
+    const s = fonte("./services/contextoConta.ts");
+    expect(s).toMatch(/contextosDeAchado\(accountId\)/);
+  });
+});

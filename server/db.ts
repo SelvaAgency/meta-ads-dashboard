@@ -2856,7 +2856,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, socialSnapshots, socialMediaSnapshots, socialColetaExecucoes, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings, weeklyPriorities, weeklyPriorityResponsaveis, type InsertWeeklyPriority } from "../drizzle/schema";
+import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, socialSnapshots, socialMediaSnapshots, socialColetaExecucoes, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings, weeklyPriorities, weeklyPriorityResponsaveis, accountFindingContext, type InsertWeeklyPriority } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 
@@ -6612,4 +6612,50 @@ export async function prioridadePorId(id: number) {
   if (!db) return null;
   const r = await db.select().from(weeklyPriorities).where(eq(weeklyPriorities.id, id)).limit(1);
   return r[0] ?? null;
+}
+
+
+// ─── Contexto de ponto técnico ───────────────────────────────────────────────
+
+/** Todos os contextos de ponto de uma conta. Sempre por conta — nunca global. */
+export async function contextosDeAchado(accountId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(accountFindingContext)
+    .where(eq(accountFindingContext.accountId, accountId));
+}
+
+/**
+ * Grava (ou substitui) o contexto de um ponto.
+ *
+ * Texto vazio APAGA a linha em vez de guardar string vazia: "sem contexto" e
+ * "contexto vazio" precisam ser o mesmo estado, senão o alerta apareceria como
+ * contextualizado sem ter explicação nenhuma.
+ */
+export async function salvarContextoDeAchado(a: {
+  accountId: number; chave: string; texto: string; alertaNaEpoca?: string | null; userId: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const texto = a.texto.trim();
+  if (!texto) {
+    await db.delete(accountFindingContext).where(and(
+      eq(accountFindingContext.accountId, a.accountId),
+      eq(accountFindingContext.chave, a.chave)));
+    return;
+  }
+  await db.insert(accountFindingContext).values({
+    accountId: a.accountId, chave: a.chave, texto,
+    alertaNaEpoca: a.alertaNaEpoca?.slice(0, 500) ?? null, createdBy: a.userId,
+  }).onDuplicateKeyUpdate({
+    set: { texto, alertaNaEpoca: a.alertaNaEpoca?.slice(0, 500) ?? null },
+  });
+}
+
+/** O instante da explicação mais recente — alimenta o aviso de desatualizada. */
+export async function contextoDeAchadoMaisRecente(accountId: number): Promise<Date | null> {
+  const linhas = await contextosDeAchado(accountId);
+  let maior: Date | null = null;
+  for (const l of linhas) if (!maior || l.updatedAt > maior) maior = l.updatedAt;
+  return maior;
 }

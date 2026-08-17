@@ -152,6 +152,9 @@ import {
   getAccountThresholds,
   upsertAccountThresholds,
   getAccountContext,
+  contextosDeAchado,
+  salvarContextoDeAchado,
+  contextoDeAchadoMaisRecente,
   upsertAccountContext,
   createAiSuggestion,
   getAgencyContext,
@@ -560,6 +563,37 @@ const contextRouter = router({
       return await getAccountContext(input.accountId);
     }),
 
+  /** Os contextos de ponto desta conta. Sempre por conta — nunca global. */
+  contextosDePonto: protectedProcedure
+    .input(z.object({ accountId: z.number() }))
+    .query(async ({ input }) => {
+      const linhas = await contextosDeAchado(input.accountId);
+      return linhas.map((l) => ({ chave: l.chave, texto: l.texto, atualizadoEm: l.updatedAt }));
+    }),
+
+  /**
+   * Explica UM ponto técnico.
+   *
+   * Texto vazio APAGA a explicação: "sem contexto" e "contexto vazio" têm que
+   * ser o mesmo estado, senão o alerta ficaria marcado como contextualizado sem
+   * ter explicação nenhuma.
+   *
+   * Não recalcula a análise aqui de propósito — a desatualização é DERIVADA da
+   * comparação de instantes, e é ela que faz a tela pedir a reavaliação. Refazer
+   * junto do save deixaria o usuário esperando a IA para confirmar que digitou.
+   */
+  salvarContextoDePonto: protectedProcedure
+    .input(z.object({
+      accountId: z.number(),
+      chave: z.string().min(1).max(60),
+      texto: z.string().max(2000),
+      alertaNaEpoca: z.string().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await salvarContextoDeAchado({ ...input, userId: ctx.user.id });
+      return { success: true } as const;
+    }),
+
   /**
    * A análise guardada já viu o contexto vigente?
    *
@@ -572,12 +606,18 @@ const contextRouter = router({
   analiseVigente: protectedProcedure
     .input(z.object({ accountId: z.number() }))
     .query(async ({ input }) => {
-      const [ctx, conta] = await Promise.all([
+      const [ctx, conta, pontoEm] = await Promise.all([
         getAccountContext(input.accountId),
         getMetaAdAccountById(input.accountId),
+        contextoDeAchadoMaisRecente(input.accountId),
       ]);
       const analiseEm = conta?.aiStatusAt ?? null;
-      const contextoEm = ctx?.updatedAt ?? null;
+      // O mais recente dos DOIS níveis: explicar um ponto também envelhece a
+      // análise, e comparar só com o contexto da conta deixaria a leitura velha
+      // no ar justamente no caso que motivou o contexto de ponto.
+      const contextoEm = [ctx?.updatedAt ?? null, pontoEm]
+        .filter((d): d is Date => !!d)
+        .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
       return {
         analiseEm,
         contextoEm,

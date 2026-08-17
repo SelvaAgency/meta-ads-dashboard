@@ -1924,3 +1924,32 @@ export const weeklyPriorityResponsaveis = mysqlTable("weekly_priority_responsave
   idxPrioridade: index("idx_wpr_prioridade").on(table.prioridadeId),
 }));
 export type WeeklyPriorityResponsavel = typeof weeklyPriorityResponsaveis.$inferSelect;
+
+/**
+ * Contexto de UM ponto técnico — mais específico que o da conta.
+ *
+ * Tabela própria, e não uma coluna em `account_context`, porque a natureza é
+ * outra: o contexto da conta é durável ("o cliente é B2B") e o do ponto é sobre
+ * um alerta ("aquele pedido foi teste"). Guardados juntos, o segundo viraria
+ * regra permanente e todo pedido futuro passaria a ser suspeito de ser teste.
+ *
+ * A chave é `achado.chave` — o slug estável (`purchase_sem_valor`), nunca o
+ * texto do alerta, que carrega números que mudam todo dia. Ancorado no texto, o
+ * contexto se desprenderia amanhã, em silêncio.
+ */
+export const accountFindingContext = mysqlTable("account_finding_context", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull(),
+  /** `achado.chave` de shared/panoramaLogic. */
+  chave: varchar("chave", { length: 60 }).notNull(),
+  texto: text("texto").notNull(),
+  /** O texto do alerta no momento em que foi explicado — para auditoria. */
+  alertaNaEpoca: varchar("alertaNaEpoca", { length: 500 }),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqContaChave: uniqueIndex("uq_afc_conta_chave").on(table.accountId, table.chave),
+  idxConta: index("idx_afc_conta").on(table.accountId),
+}));
+export type AccountFindingContext = typeof accountFindingContext.$inferSelect;

@@ -357,6 +357,26 @@ export function AccountHeader({
   const saudeConta = (saudeData ?? []).find((s) => s.accountId === selectedAccountId);
   const nivelSaude = saudeConta?.nivel ?? "sem_dados";
   const adendoSaude = saudeConta?.adendo ?? null;
+  const adendoChave = (saudeConta as { adendoChave?: string | null } | undefined)?.adendoChave ?? null;
+  const adendoContexto = (saudeConta as { adendoContexto?: string | null } | undefined)?.adendoContexto ?? null;
+
+  // ─── Contextualizar UM ponto técnico ──────────────────────────────────────
+  const [pontoAberto, setPontoAberto] = useState(false);
+  const [pontoTexto, setPontoTexto] = useState("");
+  useEffect(() => { setPontoTexto(adendoContexto ?? ""); }, [adendoContexto]);
+
+  const salvarPonto = trpc.context.salvarContextoDePonto.useMutation({
+    onSuccess: () => {
+      setPontoAberto(false);
+      // Invalida a VIGÊNCIA, não a análise: quem decide refazer é a pessoa, pelo
+      // aviso. Refazer junto do save a deixaria esperando a IA só para confirmar
+      // que digitou.
+      utils.context.analiseVigente.invalidate();
+      utils.accounts.list.invalidate();
+      toast.success("Contexto do ponto salvo");
+    },
+    onError: () => toast.error("Erro ao salvar o contexto do ponto"),
+  });
   const saudeCfg = SAUDE_CFG[nivelSaude];
 
   const accountName: string = (activeAccount as any).displayName ?? activeAccount.accountName ?? activeAccount.accountId;
@@ -560,10 +580,72 @@ export function AccountHeader({
             {aiSummary}
           </p>
           {adendoSaude && (
-            <div className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug"
-              style={{ color: adendoSaude.severidade === "critico" ? "#E24B4A" : "#EF9F27" }}>
-              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-px" />
-              <span><strong>Ponto técnico:</strong> {adendoSaude.texto} — não muda o resultado, mas pode estar limitando.</span>
+            <div className="mt-2 flex flex-col gap-1">
+              <div className="flex items-start gap-1.5 text-[11px] leading-snug"
+                style={{ color: adendoContexto ? "rgba(120,113,108,0.95)" : adendoSaude.severidade === "critico" ? "#E24B4A" : "#EF9F27" }}>
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+                <span className="flex-1">
+                  <strong>Ponto técnico:</strong> {adendoSaude.texto}
+                  {!adendoContexto && " — não muda o resultado, mas pode estar limitando."}
+                </span>
+              </div>
+
+              {/* Discreto de propósito: é um link de texto, não um botão. Um
+                  segundo botão aqui competiria com o próprio alerta, que é o
+                  que precisa ser lido primeiro. */}
+              {adendoChave && !pontoAberto && (
+                <button onClick={() => setPontoAberto(true)}
+                  className="self-start text-[10px] font-medium underline hover:no-underline transition-colors"
+                  style={{ color: adendoContexto ? "#15803D" : "rgba(120,113,108,0.9)" }}>
+                  {adendoContexto ? "✓ Contextualizado — ver ou editar" : "Contextualizar"}
+                </button>
+              )}
+
+              {adendoChave && pontoAberto && (
+                <div className="mt-1 flex flex-col gap-1.5 rounded-lg border border-border/70 bg-muted/20 p-2.5">
+                  <p className="text-[10px] text-muted-foreground leading-snug">
+                    O que a IA precisa saber sobre <em>este</em> alerta. Ela vai reavaliar se ele
+                    continua sendo problema.
+                  </p>
+                  <textarea
+                    value={pontoTexto}
+                    onChange={(e) => setPontoTexto(e.target.value)}
+                    rows={3}
+                    maxLength={2000}
+                    autoFocus
+                    placeholder="Ex.: essa compra foi um teste interno da equipe; o cupom foi criado por nós e não é venda real."
+                    className="text-[11px] border border-border rounded-lg px-2 py-1.5 bg-background resize-y"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => selectedAccountId && salvarPonto.mutate({
+                        accountId: selectedAccountId, chave: adendoChave,
+                        texto: pontoTexto, alertaNaEpoca: adendoSaude.texto,
+                      })}
+                      disabled={salvarPonto.isPending}
+                      className="text-[11px] font-semibold px-2.5 py-1 rounded-lg text-white disabled:opacity-60"
+                      style={{ background: "#E85BA8" }}>
+                      {salvarPonto.isPending ? "Salvando…" : "Salvar"}
+                    </button>
+                    <button onClick={() => { setPontoAberto(false); setPontoTexto(adendoContexto ?? ""); }}
+                      className="text-[11px] text-muted-foreground hover:text-foreground">
+                      Cancelar
+                    </button>
+                    {/* Apagar é salvar vazio — "sem contexto" e "contexto vazio"
+                        precisam ser o mesmo estado. */}
+                    {adendoContexto && (
+                      <button
+                        onClick={() => selectedAccountId && salvarPonto.mutate({
+                          accountId: selectedAccountId, chave: adendoChave, texto: "",
+                        })}
+                        disabled={salvarPonto.isPending}
+                        className="ml-auto text-[11px] text-muted-foreground hover:text-destructive">
+                        Remover
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {summaryOverflows && (

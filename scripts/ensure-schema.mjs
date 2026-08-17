@@ -1498,6 +1498,23 @@ async function main() {
       console.log("[ensure-schema] ok  · meta_ad_accounts.aiStatusAt adicionada");
     }
 
+    // Contexto de um ponto técnico específico. Chave = achado.chave (slug
+    // estável), nunca o texto do alerta — que muda de "1 pedido" para "2".
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`account_finding_context\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`accountId\` INT NOT NULL,
+      \`chave\` VARCHAR(60) NOT NULL,
+      \`texto\` TEXT NOT NULL,
+      \`alertaNaEpoca\` VARCHAR(500) NULL,
+      \`createdBy\` INT NULL,
+      \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`uq_afc_conta_chave\` (\`accountId\`, \`chave\`),
+      KEY \`idx_afc_conta\` (\`accountId\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · account_finding_context garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();
