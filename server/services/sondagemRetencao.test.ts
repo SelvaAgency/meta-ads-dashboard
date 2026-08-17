@@ -23,6 +23,20 @@ const MENSAGEM_REAL =
   + "comments, follows, likes, reach, saved, shares, total_interactions, views, "
   + "ig_reels_avg_watch_time, ig_reels_video_view_total_time, clips_replays_count";
 
+/**
+ * O vocabulário que a conta REAL devolveu em 17/08/2026.
+ *
+ * Fica aqui porque é a prova do furo: `reels_skip_rate` está nele, é uma taxa
+ * de abandono — a métrica mais perto da pergunta que existe nesta conta — e a
+ * primeira versão da sondagem não a mediu, porque ela não estava na lista de
+ * nomes que nós imaginamos.
+ */
+const VOCABULARIO_REAL =
+  "(#100) metric[0] must be one of the following values: total_interactions, "
+  + "profile_visits, profile_activity, ig_reels_video_view_total_time, "
+  + "ig_reels_avg_watch_time, reels_skip_rate, facebook_views, crossposted_views, "
+  + "total_views, total_likes, total_comments, link_clicks";
+
 /** Uma API de mentira que responde pelo caminho e pelos params. */
 function apiFalsa(regras: {
   midias?: Array<{ id: string; media_product_type: string }>;
@@ -30,10 +44,16 @@ function apiFalsa(regras: {
   duracao?: Record<string, unknown>;
   insights?: Record<string, unknown>;
   recorteResponde?: boolean;
+  campos?: string[];
 }): { consultar: ConsultarCru; chamadas: () => number } {
   let n = 0;
   const consultar: ConsultarCru = async (caminho, params) => {
     n += 1;
+    if (params.metadata === "1") {
+      return regras.campos
+        ? { status: 200, corpo: { metadata: { fields: regras.campos.map((name) => ({ name })) } }, erro: null }
+        : { status: 400, corpo: null, erro: { mensagem: "metadata não suportado", codigo: 100, subcodigo: null } };
+    }
     if (caminho.endsWith("/media")) {
       return { status: 200, corpo: { data: regras.midias ?? [] }, erro: null };
     }
@@ -280,7 +300,7 @@ describe("a sondagem inteira, contra APIs de mentira", () => {
       insights: { ig_reels_avg_watch_time: 8200, ig_reels_video_view_total_time: 412_000, views: 1240, reach: 980 },
     });
     await sondarRetencao(consultar, "17841400000000000");
-    expect(chamadas()).toBeLessThanOrEqual(30);
+    expect(chamadas()).toBeLessThanOrEqual(45);
   });
 
   /**
@@ -300,5 +320,129 @@ describe("a sondagem inteira, contra APIs de mentira", () => {
     expect(naoPerguntadas.some((l) => l.item === "video_retention_graph")).toBe(true);
     expect(naoPerguntadas[0].detalhe).toContain("fora do vocabulário");
     expect(r.texto).toContain("── NÃO PERGUNTADAS ──");
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A regressão do furo real
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Colher o vocabulário serve para descobrir o que NÃO imaginamos. A primeira
+ *  versão cruzava o vocabulário contra a nossa própria lista e media a
+ *  interseção — o que transforma a colheita em confirmação do que já
+ *  suspeitávamos. Estes testes existem para que ela nunca volte a fazer isso.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("o vocabulário colhido é MEDIDO, não só listado", () => {
+  it("mede reels_skip_rate, que nunca estivera na nossa lista", async () => {
+    const { consultar } = apiFalsa({
+      midias: CINCO_REELS,
+      vocabulario: VOCABULARIO_REAL,
+      insights: {
+        ig_reels_avg_watch_time: 7601,
+        ig_reels_video_view_total_time: 60_481_306,
+        reels_skip_rate: 62.4,
+        total_views: 7957,
+        total_interactions: 631,
+      },
+    });
+    const r = await sondarRetencao(consultar, "17841400000000000");
+    const skip = r.linhas.filter((l) => l.item === "reels_skip_rate");
+    expect(skip.length, "reels_skip_rate não foi medida").toBeGreaterThan(0);
+    expect(skip[0].estado).toBe("ACEITA_COM_DADO");
+    expect(r.texto).toContain("reels_skip_rate");
+  });
+
+  /** Nome com cara de retenção vai em todos os Reels: uniformidade importa. */
+  it("nome que cheira a abandono é medido em TODOS os Reels", async () => {
+    const { consultar } = apiFalsa({
+      midias: CINCO_REELS,
+      vocabulario: VOCABULARIO_REAL,
+      insights: { reels_skip_rate: 62.4, ig_reels_avg_watch_time: 7601 },
+    });
+    const r = await sondarRetencao(consultar, "17841400000000000");
+    expect(r.linhas.filter((l) => l.item === "reels_skip_rate")).toHaveLength(5);
+    // Um nome sem relação com tempo não precisa dos cinco.
+    expect(r.linhas.filter((l) => l.item === "total_likes")).toHaveLength(1);
+  });
+
+  it("nome listado pela Meta e recusado na prática aparece como recusado", async () => {
+    const { consultar } = apiFalsa({
+      midias: CINCO_REELS,
+      vocabulario: VOCABULARIO_REAL,
+      insights: { ig_reels_avg_watch_time: 7601 },
+    });
+    const r = await sondarRetencao(consultar, "17841400000000000");
+    const l = r.linhas.find((x) => x.item === "link_clicks");
+    expect(l?.estado).toBe("RECUSADA");
+    expect(l?.detalhe).toContain("listada no vocabulário mas recusada");
+  });
+});
+
+describe("os campos do nó saem de metadata=1", () => {
+  it("sem campo de duração na lista, a ausência é sobre a API", async () => {
+    const { consultar } = apiFalsa({
+      midias: CINCO_REELS, vocabulario: VOCABULARIO_REAL,
+      insights: { ig_reels_avg_watch_time: 7601 },
+      campos: ["id", "caption", "media_type", "permalink", "thumbnail_url", "like_count"],
+    });
+    const r = await sondarRetencao(consultar, "17841400000000000");
+    expect(r.camposDaMidia).toContain("permalink");
+    expect(r.texto).toContain("Nenhum campo de duração na lista da própria API");
+    expect(r.temDuracao).toBe(false);
+  });
+
+  it("campo com cara de duração na lista é apontado para teste", async () => {
+    const { consultar } = apiFalsa({
+      midias: CINCO_REELS, vocabulario: VOCABULARIO_REAL,
+      insights: { ig_reels_avg_watch_time: 7601 },
+      campos: ["id", "clip_duration_secs"],
+    });
+    const r = await sondarRetencao(consultar, "17841400000000000");
+    expect(r.texto).toContain("Candidatos a duração NESTA lista: clip_duration_secs");
+  });
+
+  /** Sem a lista, a conclusão sobre duração é mais fraca — e isso é dito. */
+  it("metadata recusado enfraquece a conclusão, e o texto admite", async () => {
+    const { consultar } = apiFalsa({
+      midias: CINCO_REELS, vocabulario: VOCABULARIO_REAL,
+      insights: { ig_reels_avg_watch_time: 7601 },
+    });
+    const r = await sondarRetencao(consultar, "17841400000000000");
+    expect(r.camposDaMidia).toEqual([]);
+    expect(r.texto).toContain("vale só para os nomes testados");
+  });
+});
+
+describe("a conferência entre as duas métricas de tempo", () => {
+  /**
+   * `total ÷ médio` devolve o divisor que a Meta usou. Se ele bater com uma
+   * métrica de views, as duas cobrem a mesma população e a divisão é legítima.
+   */
+  it("bate com total_views ⇒ a divisão é legítima", async () => {
+    const { consultar } = apiFalsa({
+      midias: CINCO_REELS, vocabulario: VOCABULARIO_REAL,
+      insights: {
+        ig_reels_avg_watch_time: 7601,
+        ig_reels_video_view_total_time: 60_481_306,
+        total_views: 7957,
+      },
+    });
+    const r = await sondarRetencao(consultar, "17841400000000000");
+    expect(r.texto).toContain("espectadores implícitos");
+    expect(r.texto).toContain("a divisão é legítima");
+  });
+
+  it("não bate ⇒ o relatório acusa populações diferentes", async () => {
+    const { consultar } = apiFalsa({
+      midias: CINCO_REELS, vocabulario: VOCABULARIO_REAL,
+      insights: {
+        ig_reels_avg_watch_time: 7601,
+        ig_reels_video_view_total_time: 60_481_306,
+        total_views: 20_000,
+      },
+    });
+    const r = await sondarRetencao(consultar, "17841400000000000");
+    expect(r.texto).toContain("populações diferentes");
   });
 });

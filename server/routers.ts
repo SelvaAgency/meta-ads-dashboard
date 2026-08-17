@@ -4335,7 +4335,7 @@ export const appRouter = router({
      * desenharia uma queda que ninguém mediu, e alguém cortaria um formato que
      * funcionava porque o gráfico "mostrou" abandono no terceiro segundo.
      *
-     * Nada aqui escreve em snapshot nem toca o coletor. O custo é de ~25
+     * Nada aqui escreve em snapshot nem toca o coletor. O custo é de ~40
      * chamadas por execução, e roda na mão.
      */
     sondarRetencao: contentProcedure

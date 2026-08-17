@@ -652,7 +652,7 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                   )}
                   {v?.instagramUserId && (
                     <button onClick={() => retencao.mutate({ accountId: c.id })} disabled={retencao.isPending}
-                      title="A API diz em que segundo as pessoas param de assistir ao Reel? (~25 chamadas)"
+                      title="A API diz em que segundo as pessoas param de assistir ao Reel? (~40 chamadas)"
                       className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
                       {retencao.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Timer className="w-3 h-3" />}
                       Sondar retenção

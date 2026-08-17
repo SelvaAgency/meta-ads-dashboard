@@ -20,6 +20,24 @@
  *  como fora do vocabulário — sem gastar uma chamada para ouvir a mesma recusa
  *  cinco vezes.
  *
+ *  ── E medimos o vocabulário INTEIRO, não só a nossa lista ──────────────────
+ *  A primeira versão desta sondagem cruzava o vocabulário colhido contra os
+ *  nomes que nós tínhamos imaginado, e media a interseção. O efeito foi o
+ *  oposto do objetivo: a Meta respondeu `reels_skip_rate` — literalmente uma
+ *  taxa de abandono, a métrica mais perto da pergunta que existe nesta conta —
+ *  e a sondagem não a mediu, porque ela não estava na nossa lista.
+ *
+ *  Colher o vocabulário serve para descobrir o que NÃO imaginamos. Filtrar o
+ *  vocabulário pela nossa imaginação desfaz exatamente isso. Todo nome que a
+ *  Meta listou e que ainda não medimos é medido.
+ *
+ *  ── Os campos também têm vocabulário: `metadata=1` ─────────────────────────
+ *  Três nomes de duração recusados provam que aqueles três não existem, e não
+ *  que a duração não existe. `?metadata=1` faz a Graph API listar os campos do
+ *  próprio nó — é o equivalente, do lado dos campos, da recusa que enumera
+ *  métricas. Só com essa lista "a API não entrega duração" deixa de ser uma
+ *  conclusão sobre os nossos chutes e passa a ser uma sobre a API.
+ *
  *  ── Duração é pré-requisito, e por isso é um grupo próprio ─────────────────
  *  `ig_reels_avg_watch_time` devolve tempo, não porcentagem. "Assistiram 8
  *  segundos" só vira retenção se soubermos que o Reel tem 20 — sem a duração,
@@ -104,7 +122,7 @@ const CAMPOS_DE_DURACAO = ["video_duration", "duration", "media_duration", "thum
 const RECORTES_CANDIDATOS = ["video_view_percentage", "video_view_time", "retention"];
 
 export interface LinhaDaSondagem {
-  grupo: "vocabulario" | "duracao" | "metrica" | "recorte";
+  grupo: "vocabulario" | "campos" | "duracao" | "metrica" | "recorte";
   /** O Reel medido, quando a linha é por Reel. */
   reel: string | null;
   item: string;
@@ -130,6 +148,8 @@ export interface SondagemDeRetencao {
   reels: ReelSondado[];
   /** As métricas que a própria Meta listou como válidas para Reels. */
   vocabulario: string[];
+  /** Os campos que a própria Meta listou para o nó da mídia (`metadata=1`). */
+  camposDaMidia: string[];
   linhas: LinhaDaSondagem[];
   veredito: Veredito;
   temCurva: boolean;
@@ -194,9 +214,11 @@ function extrairValor(corpo: unknown): { achou: boolean; valor: unknown } {
  * Sonda a retenção de Reels de uma conta.
  *
  * `limite` é 5 por padrão porque o pedido foi explícito em não começar com um
- * lote gigante. O custo real fica em torno de 25 chamadas: 1 listagem, 1 de
- * vocabulário, 4 de duração, 2 métricas × N Reels, e o resto das métricas
- * medido só no primeiro Reel — sem repetir em cinco a recusa que já ouvimos.
+ * lote gigante. O custo fica em torno de 40 chamadas: 1 listagem, 1 de
+ * vocabulário, 1 de campos, 4 de duração, 2 métricas × N Reels, o vocabulário
+ * colhido medido (todos os Reels só para os nomes que cheiram a retenção) e 3
+ * recortes. O resto vai só no primeiro Reel — repetir em cinco a recusa que já
+ * ouvimos não acrescenta resposta.
  */
 export async function sondarRetencao(
   consultar: ConsultarCru, base: string, limite = 5,
@@ -253,7 +275,37 @@ export async function sondarRetencao(
     }
   }
 
-  // ── 2. A DURAÇÃO, que é o denominador da retenção ──────────────────────────
+  // ── 2. OS CAMPOS DO NÓ, pela própria API ──────────────────────────────────
+  //
+  // Sem esta lista, "a API não entrega duração" é uma frase sobre os nomes que
+  // nós chutamos. Com ela, é uma frase sobre a API.
+  let camposDaMidia: string[] = [];
+  {
+    const r = await consultar(reels[0].id, { metadata: "1" });
+    if (r.erro) {
+      reg({
+        grupo: "campos", reel: reels[0].id, item: "(campos do nó · metadata=1)",
+        estado: "RECUSADA", http: r.status,
+        detalhe: `Meta (${r.erro.codigo ?? "?"}): ${r.erro.mensagem}`,
+        formato: null, valor: null,
+      });
+    } else {
+      const meta = (r.corpo as { metadata?: { fields?: Array<{ name?: string }> } })?.metadata;
+      camposDaMidia = (meta?.fields ?? []).map((f) => String(f.name)).filter(Boolean);
+      reg({
+        grupo: "campos", reel: reels[0].id, item: "(campos do nó · metadata=1)",
+        estado: camposDaMidia.length ? "ACEITA_COM_DADO" : "ACEITA_SEM_DADO",
+        http: r.status,
+        detalhe: camposDaMidia.length
+          ? `a API listou ${camposDaMidia.length} campo(s) do nó`
+          : "metadata aceito mas não trouxe a lista de campos",
+        formato: "lista de nomes",
+        valor: camposDaMidia.join(", ") || null,
+      });
+    }
+  }
+
+  // ── 3. A DURAÇÃO, que é o denominador da retenção ──────────────────────────
   for (const campo of CAMPOS_DE_DURACAO) {
     const r = await consultar(reels[0].id, { fields: campo });
     if (r.erro) {
@@ -276,7 +328,7 @@ export async function sondarRetencao(
     if (typeof v === "number" && campo !== "thumbnail_url") reels[0].duracaoSegundos = v;
   }
 
-  // ── 3. AS MÉTRICAS, uma a uma ─────────────────────────────────────────────
+  // ── 4. AS MÉTRICAS, uma a uma ─────────────────────────────────────────────
   //
   // Os dois nomes do pedido vão em TODOS os Reels: a pergunta "funciona em
   // alguns e falha em outros?" só se responde medindo mais de um. As outras
@@ -322,7 +374,48 @@ export async function sondarRetencao(
     }
   }
 
-  // ── 4. OS RECORTES, que dariam a curva ────────────────────────────────────
+  // ── 4b. O QUE A META LISTOU E NÓS NÃO IMAGINÁVAMOS ────────────────────────
+  //
+  // Este bloco é a razão de colher o vocabulário. Sem ele, a sondagem só
+  // confirma o que já suspeitávamos — e foi assim que `reels_skip_rate` passou
+  // batido na primeira execução: a Meta a listou, e nós não a medimos porque
+  // ela não estava na nossa lista.
+  //
+  // Os nomes que cheiram a retenção vão em TODOS os Reels: se uma taxa de
+  // abandono existir, "funciona em alguns e falha em outros" é a diferença
+  // entre implementar e não implementar.
+  const jaMedido = new Set(CANDIDATAS.map((c) => c.nome));
+  const inesperados = vocabulario.filter((n) => !jaMedido.has(n));
+  for (const nome of inesperados) {
+    const pareceRetencao = /skip|retention|watch|view_time|complete|drop/.test(nome);
+    for (const reel of pareceRetencao ? reels : reels.slice(0, 1)) {
+      const r = await consultar(`${reel.id}/insights`, { metric: nome });
+      if (r.erro) {
+        reg({
+          grupo: "metrica", reel: reel.id, item: nome, estado: "RECUSADA", http: r.status,
+          detalhe: `listada no vocabulário mas recusada · Meta (${r.erro.codigo ?? "?"}): ${r.erro.mensagem}`,
+          formato: null, valor: null,
+        });
+        continue;
+      }
+      const { achou, valor } = extrairValor(r.corpo);
+      reg({
+        grupo: "metrica", reel: reel.id, item: nome,
+        estado: !achou || valor === undefined || valor === null ? "ACEITA_SEM_DADO" : "ACEITA_COM_DADO",
+        http: r.status,
+        detalhe: achou
+          ? "vinda do vocabulário da Meta — nome que não estava na nossa lista"
+          : "métrica aceita, mas a resposta não trouxe série",
+        formato: achou ? formatoDe(valor) : null,
+        valor: achou ? valorDe(valor) : null,
+      });
+      const estados = disponivelPorMetrica.get(nome) ?? [];
+      estados.push(linhas[linhas.length - 1].estado);
+      disponivelPorMetrica.set(nome, estados);
+    }
+  }
+
+  // ── 5. OS RECORTES, que dariam a curva ────────────────────────────────────
   //
   // Testados sobre a métrica de tempo médio que tenha respondido — pedir
   // recorte de uma métrica recusada mediria a recusa da métrica, não a do
@@ -362,7 +455,7 @@ export async function sondarRetencao(
     }
   }
 
-  return montar(linhas, reels, vocabulario, null);
+  return montar(linhas, reels, vocabulario, null, camposDaMidia);
 }
 
 // ─── O relatório ─────────────────────────────────────────────────────────────
@@ -414,6 +507,7 @@ export function vereditoDe(linhas: LinhaDaSondagem[]): {
 
 function montar(
   linhas: LinhaDaSondagem[], reels: ReelSondado[], vocabulario: string[], bloqueio: string | null,
+  camposDaMidia: string[] = [],
 ): SondagemDeRetencao {
   const v = vereditoDe(linhas);
   const out: string[] = [];
@@ -425,7 +519,7 @@ function montar(
   if (bloqueio) {
     out.push(bloqueio);
     return {
-      ok: false, reels, vocabulario, linhas, texto: out.join("\n"),
+      ok: false, reels, vocabulario, camposDaMidia, linhas, texto: out.join("\n"),
       veredito: "NAO", temCurva: false, temTempoMedio: false, temTempoTotal: false, temDuracao: false,
     };
   }
@@ -514,6 +608,23 @@ function montar(
   }
 
   // ── Duração ───────────────────────────────────────────────────────────────
+  out.push("── CAMPOS QUE A API LISTOU PARA O NÓ ──");
+  for (const l of linhas.filter((x) => x.grupo === "campos")) {
+    out.push(`${SELO[l.estado]} HTTP ${l.http ?? "—"} · ${l.detalhe}`);
+  }
+  if (camposDaMidia.length) {
+    const comCaraDeDuracao = camposDaMidia.filter((c) => /dur|length|segundo|time/i.test(c));
+    out.push(`  ${camposDaMidia.join(", ")}`);
+    out.push("");
+    out.push(comCaraDeDuracao.length
+      ? `  Candidatos a duração NESTA lista: ${comCaraDeDuracao.join(", ")} — testar.`
+      : "  Nenhum campo de duração na lista da própria API. A ausência deixa de ser"
+        + " sobre os nomes que chutamos e passa a ser sobre a API.");
+  } else {
+    out.push("  Sem a lista de campos, 'não existe duração' vale só para os nomes testados.");
+  }
+  out.push("");
+
   out.push("── DURAÇÃO DO REEL (o denominador) ──");
   const daDuracao = linhas.filter((l) => l.grupo === "duracao");
   for (const l of daDuracao) {
@@ -533,6 +644,40 @@ function montar(
   if (!doRecorte.length) out.push("Nenhum recorte testado.");
   for (const l of doRecorte) out.push(`${SELO[l.estado]} ${l.item} · HTTP ${l.http ?? "—"} · ${l.detalhe}`);
   out.push("");
+
+  // ── A conferência que valida (ou invalida) a estimativa ───────────────────
+  //
+  // `tempo total ÷ tempo médio` devolve o número de espectadores que a Meta usou
+  // como divisor. Se ele bater com uma métrica de views medida, as duas cobrem a
+  // MESMA população e a divisão é legítima. Se não bater, qualquer média
+  // derivada delas mistura conjuntos diferentes — e é melhor descobrir isso aqui
+  // do que depois de a métrica estar na tela.
+  const paresDeTempo = reels.map((reel) => {
+    const medio = linhas.find((l) => l.reel === reel.id && l.item === "ig_reels_avg_watch_time"
+      && l.estado === "ACEITA_COM_DADO");
+    const total = linhas.find((l) => l.reel === reel.id && l.item === "ig_reels_video_view_total_time"
+      && l.estado === "ACEITA_COM_DADO");
+    const views = linhas.find((l) => l.reel === reel.id && /views/.test(l.item)
+      && l.estado === "ACEITA_COM_DADO");
+    const m = Number(medio?.valor), t = Number(total?.valor);
+    if (!Number.isFinite(m) || !Number.isFinite(t) || m <= 0) return null;
+    return { reel: reel.id, implicito: Math.round(t / m), medido: views ? Number(views.valor) : null, nomeViews: views?.item ?? null };
+  }).filter((x): x is NonNullable<typeof x> => x !== null);
+
+  if (paresDeTempo.length) {
+    out.push("── CONFERÊNCIA: AS DUAS MÉTRICAS DE TEMPO FALAM DA MESMA GENTE? ──");
+    out.push("tempo total ÷ tempo médio = quantos espectadores a Meta usou como divisor.");
+    out.push("");
+    for (const p of paresDeTempo) {
+      const veredito = p.medido == null
+        ? "sem métrica de views medida para conferir"
+        : Math.abs(p.implicito - p.medido) <= Math.max(2, p.medido * 0.02)
+          ? `BATE com ${p.nomeViews} (${p.medido}) — a divisão é legítima`
+          : `NÃO BATE com ${p.nomeViews} (${p.medido}) — as duas cobrem populações diferentes`;
+      out.push(`  ${p.reel}: ${p.implicito} espectadores implícitos · ${veredito}`);
+    }
+    out.push("");
+  }
 
   // ── O que conseguimos medir ───────────────────────────────────────────────
   out.push("── O QUE CONSEGUIMOS MEDIR ──");
@@ -611,7 +756,7 @@ function montar(
   }
 
   return {
-    ok: true, reels, vocabulario, linhas, texto: out.join("\n"),
+    ok: true, reels, vocabulario, camposDaMidia, linhas, texto: out.join("\n"),
     veredito: v.veredito, temCurva: v.temCurva, temTempoMedio: v.temTempoMedio,
     temTempoTotal: v.temTempoTotal, temDuracao: v.temDuracao,
   };
