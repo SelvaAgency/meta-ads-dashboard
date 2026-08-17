@@ -440,9 +440,13 @@ export default function RedesSociais() {
   }));
 
   // O gráfico de movimento segue o FILTRO: ele é análise, não resumo.
+  //
+  // `saldo` é a variação MEDIDA do total, e é ela que a linha roxa desenha — não
+  // o estoque de seguidores. Plotar o estoque foi o erro que fazia +2 entradas e
+  // −2 saídas parecerem crescimento.
   const pontosDeMovimento = movimentoPorDia(serie.map((p) => ({
     dia: p.dia, total: p.seguidores, novos: mets(p, "follower_count"),
-  })));
+  }))).map((m) => ({ dia: m.dia, entradas: m.entradas, saidas: m.saidas, saldo: m.saldo }));
 
   const leituraDoVinculo = organico
     ? lerVinculo({

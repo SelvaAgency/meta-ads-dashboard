@@ -102,9 +102,44 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
     const s = grafico();
     expect(s).toContain("strokeWidth={2.2}");
     expect(s).toContain('strokeDasharray="3 4"');
-    expect(s).toMatch(/ih \* 0\.56/);
     expect(s).toMatch(/\* 0\.42/);
     expect(s).toMatch(/\* 0\.62/);
+  });
+
+  /**
+   * O eixo do movimento deixou de ser fixo a 56% da altura.
+   *
+   * Aquele número era do protótipo, e o protótipo tinha dados fictícios em que
+   * ele funcionava. Com dados reais, um dia de +2 e −2 precisa do zero no MEIO,
+   * e um período sem nenhuma saída precisa do zero na base — senão metade do
+   * painel fica reservada para um lado vazio e as barras que existem aparecem
+   * pela metade da altura.
+   */
+  it("o zero do movimento vem do DADO, não de uma fração fixa", () => {
+    const s = grafico();
+    expect(s).toContain("escalaDoMovimento");
+    expect(s).toContain("fracaoDoZero");
+    expect(s, "voltou a fixar o eixo a 56%").not.toMatch(/ih \* 0\.56/);
+  });
+
+  /**
+   * A linha roxa desenha o SALDO — a variação medida. Plotar o estoque de
+   * seguidores foi o erro que fazia +2 entradas e −2 saídas parecerem
+   * crescimento, com a legenda dizendo "Saldo" o tempo todo.
+   */
+  it("a linha de saldo não plota o estoque de seguidores", () => {
+    const s = grafico();
+    expect(s).toContain("p.saldo");
+    expect(s, "voltou a plotar o total").not.toMatch(/yS\(p\.total\)/);
+    // E a área preenchida saiu: ela era ruído justamente no saldo zero.
+    expect(s).not.toContain("grSaldo");
+  });
+
+  /** A pilha vem da função pura — somar altura a altura deixa fresta no topo. */
+  it("as ativações empilham por frações que somam 1", () => {
+    const s = grafico();
+    expect(s).toContain("pilhaDoDia");
+    expect(s).toMatch(/s\.ate - s\.de/);
   });
 
   /** Buraco de coleta CORTA a linha — ligar desenharia o que ninguém mediu. */

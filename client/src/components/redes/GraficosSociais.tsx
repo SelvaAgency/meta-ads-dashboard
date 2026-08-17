@@ -21,6 +21,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { COR, COR_TIPO, ORDEM_TIPO } from "@shared/coresSociais";
+import { escalaDoMovimento, intervaloDeRotulos, pilhaDoDia } from "@shared/escalaDosGraficos";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 
 const fmt = (v: number) => Math.round(v).toLocaleString("pt-BR");
@@ -167,84 +168,112 @@ ativações: ${ativ[i]}`}</title>
 
 export interface PontoDeMovimento {
   dia: string;
-  total: number | null;
+  /** Novos seguidores medidos. */
   entradas: number | null;
+  /** Derivadas. `null` quando a conta do dia não fecha. */
   saidas: number | null;
+  /** A variação MEDIDA do total — o saldo do dia. */
+  saldo: number | null;
 }
 
+/**
+ * Movimento da base: entradas acima do zero, saídas abaixo, saldo cruzando.
+ *
+ * ── Um eixo, um zero — e o motivo é um bug real ────────────────────────────
+ * Antes a linha chamada "Saldo" plotava o ESTOQUE de seguidores num eixo
+ * próprio, auto escalado. Com entradas +2, saídas −2 e saldo 0, a tela mostrava
+ * barra verde subindo e uma faixa roxa larga atrás — e quem olhava lia
+ * crescimento onde a aritmética dizia zero.
+ *
+ * Agora os três dividem a mesma escala e o mesmo zero. A saída é desenhada como
+ * número NEGATIVO, não como barra positiva apontando para baixo: a distinção
+ * importa no eixo, onde o rótulo de baixo aparece com sinal.
+ *
+ * ── Sem área preenchida ────────────────────────────────────────────────────
+ * A faixa roxa não acrescentava informação e virava ruído justamente no caso em
+ * que o saldo é zero — muita cor para dizer "nada aconteceu". A linha sobre o
+ * eixo do zero diz isso sozinha.
+ */
 export function GraficoDeMovimento({ pontos, nota, altura = 176 }: {
   pontos: PontoDeMovimento[]; nota?: string | null; altura?: number;
 }) {
-  const comTotal = pontos.map((p) => p.total).filter((v): v is number => v != null);
-  const vazio = comTotal.length < 2;
+  const medidos = pontos.filter((p) => p.entradas != null || p.saidas != null || p.saldo != null);
+  const vazio = medidos.length < 2;
 
-  const W = 760, ml = 44, mr = 36, mt = 12, mb = 22;
+  const W = 760, ml = 48, mr = 16, mt = 12, mb = 22;
   const iw = W - ml - mr, ih = altura - mt - mb;
-  /* O eixo do meio a 56% deixa mais espaço acima: entradas costumam ser maiores
-     que saídas, e centralizar cortaria o topo das barras verdes. */
-  const meio = mt + ih * 0.56;
 
-  const ent = pontos.map((p) => p.entradas ?? 0);
-  const sai = pontos.map((p) => p.saidas ?? 0);
-  const movMax = Math.max(1, ...ent, ...sai) * 1.25;
-  const sMin = comTotal.length ? Math.min(...comTotal) - 40 : 0;
-  const sMax = comTotal.length ? Math.max(...comTotal) + 40 : 1;
+  const esc = escalaDoMovimento(pontos);
+  const yZero = mt + ih * esc.fracaoDoZero;
+  /** Uma escala só para os três — é o que impede a leitura enganosa. */
+  const px = (valor: number) => {
+    const amplitude = esc.acima + esc.abaixo;
+    return amplitude > 0 ? (Math.abs(valor) / amplitude) * ih : 0;
+  };
+  const y = (valor: number) => yZero - (valor >= 0 ? px(valor) : -px(valor));
 
   const x = (i: number) => ml + (i / Math.max(1, pontos.length - 1)) * iw;
-  const hMov = (v: number) => (v / movMax) * (ih * 0.42);
-  const yS = (v: number) => mt + ih - ((v - sMin) / Math.max(1, sMax - sMin)) * ih;
-  const bw = Math.max(3, (iw / pontos.length) * 0.42);
+  const bw = Math.min(14, Math.max(3, (iw / Math.max(1, pontos.length)) * 0.42));
 
-  const linhaTotal = pontos
-    .map((p, i) => (p.total == null ? null : `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${yS(p.total).toFixed(1)}`))
-    .filter(Boolean).join(" ").replace(/^L/, "M");
+  const linhaSaldo = (() => {
+    const partes: string[] = [];
+    let atual: string[] = [];
+    pontos.forEach((p, i) => {
+      if (p.saldo == null) { if (atual.length > 1) partes.push(atual.join(" ")); atual = []; return; }
+      atual.push(`${atual.length ? "L" : "M"}${x(i).toFixed(1)},${y(p.saldo).toFixed(1)}`);
+    });
+    if (atual.length > 1) partes.push(atual.join(" "));
+    return partes;
+  })();
+
+  const passoRotulo = intervaloDeRotulos(pontos.length, iw);
 
   return (
     <Moldura titulo="Entradas × saídas × saldo" nota={nota} vazio={vazio} altura={altura}
       legenda={<Legenda itens={[["Entradas", COR.entrada], ["Saídas", COR.saida], ["Saldo", COR.seguidores]]} />}>
       <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img" aria-label="Movimento da base">
-        <defs>
-          <linearGradient id="grSaldo" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor={COR.seguidores} stopOpacity="0.14" />
-            <stop offset="1" stopColor={COR.seguidores} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-
-        {/* Área do saldo atrás, para as barras não competirem com ela. */}
-        {linhaTotal && (
-          <path d={`${linhaTotal} L${W - mr},${mt + ih} L${ml},${mt + ih} Z`} fill="url(#grSaldo)" />
-        )}
-        <line x1={ml} x2={W - mr} y1={meio} y2={meio} className="stroke-[rgba(10,10,10,.16)] dark:stroke-[rgba(255,255,255,.18)]" />
+        {esc.rotulos.map((v, k) => {
+          const yy = k === 0 ? mt : k === 1 ? yZero : mt + ih;
+          return (
+            <g key={k}>
+              <line x1={ml} x2={W - mr} y1={yy} y2={yy}
+                className={k === 1 ? "stroke-[rgba(10,10,10,.22)] dark:stroke-[rgba(255,255,255,.24)]" : GRADE}
+                strokeDasharray={k === 1 ? undefined : "3 4"} />
+              {/* O zero leva rótulo próprio: é a referência que dá sentido aos
+                  outros dois, e o de baixo sai COM SINAL. */}
+              <text x={ml - 7} y={yy + 4} textAnchor="end" fontSize={9} className={EIXO}>
+                {v > 0 ? `+${fmt(v)}` : v < 0 ? `−${fmt(Math.abs(v))}` : "0"}
+              </text>
+            </g>
+          );
+        })}
 
         {pontos.map((p, i) => (
           <g key={p.dia}>
-            {p.entradas != null && (
-              <rect x={x(i) - bw / 2} y={meio - hMov(p.entradas)} width={bw} height={hMov(p.entradas)}
-                fill={COR.entrada} opacity={0.82} rx={1} />
+            {p.entradas != null && p.entradas > 0 && (
+              <rect x={x(i) - bw / 2} y={y(p.entradas)} width={bw} height={px(p.entradas)}
+                fill={COR.entrada} opacity={0.85} rx={1.5} />
             )}
-            {/* Saída desenhada para BAIXO — o desequilíbrio fica visível sem ler
-                número nenhum. Buraco quando não é derivável. */}
-            {p.saidas != null && (
-              <rect x={x(i) - bw / 2} y={meio} width={bw} height={hMov(p.saidas)}
-                fill={COR.saida} opacity={0.82} rx={1} />
+            {/* Desenhada para BAIXO a partir do zero — o desequilíbrio entre as
+                duas fica visível sem ler número nenhum. */}
+            {p.saidas != null && p.saidas > 0 && (
+              <rect x={x(i) - bw / 2} y={yZero} width={bw} height={px(p.saidas)}
+                fill={COR.saida} opacity={0.85} rx={1.5} />
             )}
+            <rect x={x(i) - bw / 2 - 3} y={mt} width={bw + 6} height={ih} fill="transparent" />
             <title>{`${p.dia.slice(8, 10)}/${p.dia.slice(5, 7)}
-entraram: ${p.entradas == null ? "–" : fmt(p.entradas)}
-saíram: ${p.saidas == null ? "não derivável" : fmt(p.saidas)}
-total: ${p.total == null ? "–" : fmt(p.total)}`}</title>
+Entraram: ${p.entradas == null ? "não medido" : `+${fmt(p.entradas)}`}
+Saíram: ${p.saidas == null ? "não derivável" : `−${fmt(p.saidas)}`}
+Saldo: ${p.saldo == null ? "–" : `${p.saldo > 0 ? "+" : ""}${fmt(p.saldo)}`}`}</title>
           </g>
         ))}
 
-        {linhaTotal && (
-          <path d={linhaTotal} fill="none" stroke={COR.seguidores} strokeWidth={2.2} strokeLinejoin="round" />
-        )}
-
-        {[sMax, (sMax + sMin) / 2, sMin].map((v, k) => (
-          <text key={k} x={ml - 7} y={mt + (ih / 2) * k + 4} textAnchor="end" fontSize={9} className={EIXO}>
-            {fmt(v)}
-          </text>
+        {linhaSaldo.map((d, k) => (
+          <path key={k} d={d} fill="none" stroke={COR.seguidores} strokeWidth={2.2}
+            strokeLinejoin="round" strokeLinecap="round" />
         ))}
-        {pontos.map((p, i) => (i % 6 ? null : (
+
+        {pontos.map((p, i) => (i % passoRotulo ? null : (
           <text key={p.dia} x={x(i)} y={altura - 6} textAnchor="middle" fontSize={9} className={EIXO}>
             {p.dia.slice(8, 10)}/{p.dia.slice(5, 7)}
           </text>
@@ -254,22 +283,42 @@ total: ${p.total == null ? "–" : fmt(p.total)}`}</title>
   );
 }
 
-// ─── 3. Ativações por dia: barras empilhadas, seção própria ──────────────────
+// ─── 3. Ativações por dia: barras empilhadas, com o total no topo ───────────
 
-export function GraficoDeAtivacoes({ pontos, altura = 182 }: {
+/**
+ * Cada barra é o TOTAL do dia; as cores dizem de que ele é feito.
+ *
+ * ── O total impresso no topo ───────────────────────────────────────────────
+ * Sem ele, a altura é a única pista da quantidade — e altura se lê por
+ * comparação, não por valor. O número no topo responde "quantas?" sem exigir
+ * hover nem régua mental contra o eixo.
+ *
+ * ── Dia zerado continua no eixo ────────────────────────────────────────────
+ * Ele não desenha barra, mas ocupa a mesma posição e pode receber rótulo de
+ * data. Sumir da série faria os dias vizinhos parecerem consecutivos, e uma
+ * semana sem publicação viraria uma semana sem existir.
+ *
+ * ── Largura com teto ───────────────────────────────────────────────────────
+ * Com sete dias, 62% do passo produz barras enormes e afastadas — o gráfico
+ * parece concentrado no meio. O teto de 26px mantém a proporção legível em
+ * qualquer tamanho de série.
+ */
+export function GraficoDeAtivacoes({ pontos, altura = 200 }: {
   pontos: PontoDaConta[]; altura?: number;
 }) {
   const presentes = ORDEM_TIPO.filter((t) => pontos.some((p) => (p.porTipo?.[t] ?? 0) > 0));
-  const totais = pontos.map((p) => ORDEM_TIPO.reduce((n, t) => n + (p.porTipo?.[t] ?? 0), 0));
-  const max = Math.max(1, ...totais);
+  const pilhas = pontos.map((p) => pilhaDoDia(p.porTipo ?? {}, ORDEM_TIPO));
+  const max = Math.max(1, ...pilhas.map((x) => x.total));
   const vazio = !presentes.length;
 
-  const W = 760, ml = 30, mr = 12, mt = 12, mb = 22;
+  const W = 760, ml = 30, mr = 14, mt = 20, mb = 22;
   const iw = W - ml - mr, ih = altura - mt - mb;
   const passo = iw / Math.max(1, pontos.length);
-  const bw = passo * 0.62;
+  const bw = Math.min(26, Math.max(4, passo * 0.62));
   const x = (i: number) => ml + (i + 0.5) * passo;
-  const alturaDe = (v: number) => (v / max) * ih;
+  /** A escala vem do MAIOR total do período — nada de teto arbitrário. */
+  const alturaDaBarra = (total: number) => (total / max) * ih;
+  const passoRotulo = intervaloDeRotulos(pontos.length, iw);
 
   return (
     <Moldura titulo="Ativações por dia" nota="a altura é o total · as cores dizem de que ele é feito"
@@ -289,28 +338,45 @@ export function GraficoDeAtivacoes({ pontos, altura = 182 }: {
         })}
 
         {pontos.map((p, i) => {
-          let base = mt + ih;
-          const doTopo = [...presentes].reverse().find((t) => (p.porTipo?.[t] ?? 0) > 0);
+          const { segmentos, total } = pilhas[i];
+          const h = alturaDaBarra(total);
+          const topoDaBarra = mt + ih - h;
+          const composicao = segmentos
+            .map((s) => `${ROTULO_CONTEUDO[s.tipo]}: ${s.valor}`).join("\n");
+
           return (
             <g key={p.dia}>
-              {presentes.map((t) => {
-                const v = p.porTipo?.[t] ?? 0;
-                if (!v) return null;
-                const h = alturaDe(v);
-                base -= h;
-                /* Só o topo da pilha arredonda — os de baixo retos, para as
-                   faixas se encostarem sem folga entre elas. */
-                return <rect key={t} x={x(i) - bw / 2} y={base} width={bw} height={h}
-                  fill={COR_TIPO[t]} opacity={0.9} rx={t === doTopo ? 2.5 : 0} />;
-              })}
+              {/* As frações vêm de `pilhaDoDia` e somam exatamente 1 — somar
+                  altura segmento a segmento deixaria fresta no topo, e a barra
+                  pareceria menor que o valor dela. */}
+              {segmentos.map((s) => (
+                <rect key={s.tipo}
+                  x={x(i) - bw / 2}
+                  y={mt + ih - h * s.ate}
+                  width={bw}
+                  height={h * (s.ate - s.de)}
+                  fill={COR_TIPO[s.tipo]}
+                  rx={s.topo ? 3 : 0} />
+              ))}
+
+              {/* O total, acima da barra. Some quando o dia é zero: um "0"
+                  flutuando no eixo é ruído, e a ausência de barra já diz. */}
+              {total > 0 && (
+                <text x={x(i)} y={topoDaBarra - 6} textAnchor="middle" fontSize={9.5}
+                  className="fill-foreground" fontWeight={700}>
+                  {total}
+                </text>
+              )}
+
               <rect x={x(i) - passo / 2} y={mt} width={passo} height={ih} fill="transparent" />
-              <title>{`${p.dia.slice(8, 10)}/${p.dia.slice(5, 7)} · ${totais[i]} ativaç${totais[i] === 1 ? "ão" : "ões"}
-${presentes.filter((t) => p.porTipo?.[t]).map((t) => `${p.porTipo![t]} ${ROTULO_CONTEUDO[t].toLowerCase()}`).join(" · ") || "nenhuma"}`}</title>
+              <title>{`${p.dia.slice(8, 10)}/${p.dia.slice(5, 7)}
+
+Total: ${total} ativa${total === 1 ? "ção" : "ções"}${composicao ? `\n\n${composicao}` : ""}`}</title>
             </g>
           );
         })}
 
-        {pontos.map((p, i) => (i % 5 ? null : (
+        {pontos.map((p, i) => (i % passoRotulo ? null : (
           <text key={p.dia} x={x(i)} y={altura - 6} textAnchor="middle" fontSize={9} className={EIXO}>
             {p.dia.slice(8, 10)}/{p.dia.slice(5, 7)}
           </text>

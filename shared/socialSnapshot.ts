@@ -311,6 +311,14 @@ export interface DiaDoMovimento {
   entradas: number | null;
   /** DERIVADA por dia. `null` quando a conta daquele dia não fecha. */
   saidas: number | null;
+  /**
+   * O SALDO do dia — a variação MEDIDA do total, e não `entradas − saídas`.
+   *
+   * A distinção importa: as saídas já são derivadas dessa identidade, então
+   * recalcular a partir delas seria circular. E no dia em que a saída não for
+   * derivável, a subtração daria um número onde deveria haver buraco.
+   */
+  saldo: number | null;
 }
 
 /**
@@ -342,10 +350,14 @@ export function movimentoPorDia(
     if (a.total != null) anterior = a.total;
 
     if (a.novos == null || variacao == null) {
-      return { dia: a.dia, total: a.total, entradas: a.novos, saidas: null };
+      return { dia: a.dia, total: a.total, entradas: a.novos, saidas: null, saldo: variacao };
     }
     const saidas = a.novos - variacao;
     // Dia impossível: a base cresceu mais do que entrou. Vira buraco, não barra.
-    return { dia: a.dia, total: a.total, entradas: a.novos, saidas: saidas < 0 ? null : saidas };
+    return {
+      dia: a.dia, total: a.total, entradas: a.novos,
+      saidas: saidas < 0 ? null : saidas,
+      saldo: variacao,
+    };
   });
 }
