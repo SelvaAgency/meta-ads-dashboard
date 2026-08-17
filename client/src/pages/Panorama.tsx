@@ -13,6 +13,8 @@ import {
 import {
   StatTile, BarraSaude, ChipStatus, DeltaTrafego, Funil, RankingProdutos, DistribuicaoStatus,
 } from "./panorama/Visuais";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 /**
  * Panorama de Sites — visão CROSS-CLIENT de gestão (admin/dev). Dois níveis:
@@ -105,6 +107,19 @@ export default function Panorama() {
   );
   const comAtencao = linhas.filter((l) => l.nivel === "critico" || l.nivel === "atencao");
   const resumo = resumoPortfolio(linhas.map((l) => ({ nivel: l.nivel, achados: l.achados })), clientes);
+
+  /**
+   * A explicação que a equipe deu a um achado.
+   *
+   * Vem no payload de `panorama.sites`, por cliente — nunca numa lista global de
+   * chaves: `purchase_sem_valor` explicado num cliente silenciaria o mesmo
+   * alerta em toda conta que tivesse pedido sem valor.
+   */
+  const contextoDe = (accountId: number, chave: string): string | null => {
+    const c = clientes.find((x) => x.accountId === accountId) as
+      { contextosDePonto?: Array<{ chave: string; texto: string }> } | undefined;
+    return c?.contextosDePonto?.find((x) => x.chave === chave)?.texto ?? null;
+  };
   const lojas = linhas.filter((l) => temEcommerce(l.cliente));
 
   return (
@@ -191,7 +206,12 @@ export default function Panorama() {
                 <tbody>
                   {linhas.map((l) => {
                     const c = l.cliente;
-                    const visiveis = l.achados.filter((a: Achado) => a.severidade !== "info");
+                    // Contextualizado sai da lista de PROBLEMAS: ele não é
+                    // problema aberto, e mantê-lo aqui faria a coluna contradizer
+                    // os contadores do topo, que já não o contam.
+                    const visiveis = l.achados.filter(
+                      (a: Achado) => a.severidade !== "info" && a.status !== "contextualizado");
+                    const explicados = l.achados.filter((a: Achado) => a.status === "contextualizado");
                     return (
                       <tr key={c.accountId} className="border-b border-border/50 last:border-0">
                         <td className="px-5 py-2.5 align-top">
@@ -208,18 +228,22 @@ export default function Panorama() {
                         <CelulaTd c={celulaFunil(c)} />
                         <CelulaTd c={celulaVendas(c)} />
                         <td className="px-3 py-2.5 align-top">
-                          {visiveis.length === 0
+                          {visiveis.length === 0 && explicados.length === 0
                             ? <span className="text-xs text-muted-foreground/50">—</span>
                             : (
                               <div className="flex flex-col gap-1 max-w-[260px]">
                                 {visiveis.map((a: Achado) => (
-                                  <div key={a.chave} className="text-[11px]">
-                                    <ChipStatus tom={a.severidade === "critico" ? "critico" : "atencao"} titulo={a.texto}>
-                                      {a.aba
-                                        ? <LinkSite accountId={c.accountId} aba={a.aba}>{a.texto}</LinkSite>
-                                        : a.texto}
-                                    </ChipStatus>
-                                  </div>
+                                  <AchadoComContexto key={a.chave} achado={a} accountId={c.accountId}
+                                    contexto={contextoDe(c.accountId, a.chave)} />
+                                ))}
+                                {/* Os explicados ficam abaixo, em cinza e sem
+                                    chip de alerta: o FATO continua consultável
+                                    (é o pedido de não apagar histórico), mas
+                                    ele não disputa atenção com o que está
+                                    aberto. */}
+                                {explicados.map((a: Achado) => (
+                                  <AchadoComContexto key={a.chave} achado={a} accountId={c.accountId}
+                                    contexto={contextoDe(c.accountId, a.chave)} explicado />
                                 ))}
                               </div>
                             )}
@@ -284,5 +308,107 @@ export default function Panorama() {
         )}
       </div>
     </MetaDashboardLayout>
+  );
+}
+
+/**
+ * Um achado com a ação de explicá-lo.
+ *
+ * ── Por que a ação mora aqui e não no cabeçalho da conta ───────────────────
+ * O cabeçalho é conclusão; aqui é problema + contexto + ação. Lá o alerta
+ * repetia, em linguagem de aviso, o que a frase do resumo já tinha concluído —
+ * e ainda expunha "Contextualizado", que é vocabulário interno do sistema.
+ *
+ * Nesta coluna a explicação tem função: ela fica ao lado do alerta que
+ * qualifica, e quem está varrendo o portfólio pode responder ali mesmo.
+ *
+ * ── Explicado não é alerta ─────────────────────────────────────────────────
+ * Com `explicado`, o achado perde o chip de severidade e vira texto cinza. O
+ * FATO continua consultável — o pedido é explícito de não apagar histórico —
+ * mas para de disputar atenção com o que está aberto. E a palavra
+ * "contextualizado" não aparece: para quem lê, o que importa é que aquilo
+ * deixou de ser problema.
+ */
+function AchadoComContexto({ achado, accountId, contexto, explicado }: {
+  achado: Achado; accountId: number; contexto: string | null; explicado?: boolean;
+}) {
+  const utils = trpc.useUtils();
+  const [aberto, setAberto] = useState(false);
+  const [texto, setTexto] = useState(contexto ?? "");
+  useEffect(() => { setTexto(contexto ?? ""); }, [contexto]);
+
+  const salvar = trpc.context.salvarContextoDePonto.useMutation({
+    onSuccess: () => {
+      setAberto(false);
+      // O Panorama inteiro recarrega: o status do achado muda os contadores do
+      // topo e a posição do cliente na lista, não só esta linha.
+      utils.panorama.sites.invalidate();
+      utils.context.analiseVigente.invalidate();
+      toast.success("Contexto salvo");
+    },
+    onError: () => toast.error("Erro ao salvar o contexto"),
+  });
+
+  return (
+    <div className="text-[11px] flex flex-col gap-0.5">
+      {explicado ? (
+        <span className="text-muted-foreground/60 leading-snug">
+          {achado.aba
+            ? <LinkSite accountId={accountId} aba={achado.aba}>{achado.texto}</LinkSite>
+            : achado.texto}
+        </span>
+      ) : (
+        <ChipStatus tom={achado.severidade === "critico" ? "critico" : "atencao"} titulo={achado.texto}>
+          {achado.aba
+            ? <LinkSite accountId={accountId} aba={achado.aba}>{achado.texto}</LinkSite>
+            : achado.texto}
+        </ChipStatus>
+      )}
+
+      {/* Link de texto, não botão: numa coluna com vários achados, um botão por
+          linha viraria uma parede de botões. */}
+      {!aberto && (
+        <button onClick={() => setAberto(true)}
+          className="self-start text-[10px] underline hover:no-underline text-muted-foreground/70 hover:text-foreground transition-colors">
+          {contexto ? "Ver contexto" : "Contextualizar"}
+        </button>
+      )}
+
+      {aberto && (
+        <div className="flex flex-col gap-1.5 rounded-lg border border-border/70 bg-muted/20 p-2 mt-0.5">
+          <p className="text-[10px] text-muted-foreground leading-snug">
+            O que a inteligência precisa saber sobre <em>este</em> ponto. Ela vai reavaliar se
+            ele continua sendo problema.
+          </p>
+          <textarea value={texto} onChange={(e) => setTexto(e.target.value)}
+            rows={3} maxLength={2000} autoFocus
+            placeholder="Ex.: essa compra foi um teste interno da equipe; o cupom foi criado por nós e não é venda real."
+            className="text-[11px] border border-border rounded-lg px-2 py-1.5 bg-background resize-y" />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => salvar.mutate({
+                accountId, chave: achado.chave, texto, alertaNaEpoca: achado.texto,
+              })}
+              disabled={salvar.isPending}
+              className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-primary text-primary-foreground disabled:opacity-60">
+              {salvar.isPending ? "Salvando…" : "Salvar"}
+            </button>
+            <button onClick={() => { setAberto(false); setTexto(contexto ?? ""); }}
+              className="text-[10px] text-muted-foreground hover:text-foreground">
+              Cancelar
+            </button>
+            {/* Apagar é salvar vazio — devolve o achado ao estado aberto. */}
+            {contexto && (
+              <button
+                onClick={() => salvar.mutate({ accountId, chave: achado.chave, texto: "" })}
+                disabled={salvar.isPending}
+                className="ml-auto text-[10px] text-muted-foreground hover:text-destructive">
+                Remover
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
