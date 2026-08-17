@@ -443,6 +443,42 @@ describe("a conferência entre as duas métricas de tempo", () => {
       },
     });
     const r = await sondarRetencao(consultar, "17841400000000000");
-    expect(r.texto).toContain("populações diferentes");
+    expect(r.texto).toContain("NENHUMA bate");
+    expect(r.texto).toContain("sem população");
+  });
+
+  /**
+   * A regressão do caso real: `facebook_views` = 12 era o primeiro nome com
+   * "views" na lista, e o relatório conferiu 7.957 espectadores implícitos
+   * contra ele. A conclusão saiu certa por acidente — e um relatório que acusa
+   * divergência apontando o número errado destrói a confiança nele mesmo.
+   */
+  it("confere contra TODAS as métricas de views, não a primeira que casar", async () => {
+    const { consultar } = apiFalsa({
+      midias: CINCO_REELS, vocabulario: VOCABULARIO_REAL,
+      insights: {
+        ig_reels_avg_watch_time: 7601,
+        ig_reels_video_view_total_time: 60_481_306,
+        facebook_views: 12,
+        crossposted_views: 10_266,
+        total_views: 54_977,
+      },
+    });
+    const r = await sondarRetencao(consultar, "17841400000000000");
+    for (const nome of ["facebook_views", "crossposted_views", "total_views"]) {
+      expect(r.texto, nome).toContain(nome);
+    }
+    // E as três aparecem na conferência com a razão, não só na lista de métricas.
+    expect(r.texto).toMatch(/total_views = 54\.977 · razão/);
+  });
+
+  /** Views são candidatas a denominador: sem medi-las em todos, a conferência fica cega. */
+  it("métricas de views são medidas em todos os Reels", async () => {
+    const { consultar } = apiFalsa({
+      midias: CINCO_REELS, vocabulario: VOCABULARIO_REAL,
+      insights: { ig_reels_avg_watch_time: 7601, total_views: 54_977 },
+    });
+    const r = await sondarRetencao(consultar, "17841400000000000");
+    expect(r.linhas.filter((l) => l.item === "total_views")).toHaveLength(5);
   });
 });

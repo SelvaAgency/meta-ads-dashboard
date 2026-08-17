@@ -292,13 +292,16 @@ export async function sondarRetencao(
     } else {
       const meta = (r.corpo as { metadata?: { fields?: Array<{ name?: string }> } })?.metadata;
       camposDaMidia = (meta?.fields ?? []).map((f) => String(f.name)).filter(Boolean);
+      // Quando não vem a lista, o que VEIO é a única pista de por quê. Sem isso,
+      // "aceito mas vazio" é um beco sem saída no relatório seguinte.
+      const chaves = Object.keys((r.corpo as object) ?? {});
       reg({
         grupo: "campos", reel: reels[0].id, item: "(campos do nó · metadata=1)",
         estado: camposDaMidia.length ? "ACEITA_COM_DADO" : "ACEITA_SEM_DADO",
         http: r.status,
         detalhe: camposDaMidia.length
           ? `a API listou ${camposDaMidia.length} campo(s) do nó`
-          : "metadata aceito mas não trouxe a lista de campos",
+          : `metadata aceito mas sem lista de campos · a resposta trouxe [${chaves.join(", ") || "nada"}]`,
         formato: "lista de nomes",
         valor: camposDaMidia.join(", ") || null,
       });
@@ -387,7 +390,13 @@ export async function sondarRetencao(
   const jaMedido = new Set(CANDIDATAS.map((c) => c.nome));
   const inesperados = vocabulario.filter((n) => !jaMedido.has(n));
   for (const nome of inesperados) {
-    const pareceRetencao = /skip|retention|watch|view_time|complete|drop/.test(nome);
+    /**
+     * `views` entrou nesta peneira junto com as de retenção, e não por
+     * simetria: elas são as candidatas a DENOMINADOR do tempo médio. Medi-las
+     * em um Reel só deixou três quartos da conferência sem resposta na segunda
+     * execução — e a conferência é o que decide se a média pode ir para a tela.
+     */
+    const pareceRetencao = /skip|retention|watch|view_time|complete|drop|views/.test(nome);
     for (const reel of pareceRetencao ? reels : reels.slice(0, 1)) {
       const r = await consultar(`${reel.id}/insights`, { metric: nome });
       if (r.erro) {
@@ -657,11 +666,25 @@ function montar(
       && l.estado === "ACEITA_COM_DADO");
     const total = linhas.find((l) => l.reel === reel.id && l.item === "ig_reels_video_view_total_time"
       && l.estado === "ACEITA_COM_DADO");
-    const views = linhas.find((l) => l.reel === reel.id && /views/.test(l.item)
-      && l.estado === "ACEITA_COM_DADO");
+    /**
+     * TODAS as métricas de views, e não a primeira que casar com a regex.
+     *
+     * A segunda execução real conferiu 7.957 espectadores implícitos contra
+     * `facebook_views` = 12 — o primeiro nome com "views" na lista — e concluiu
+     * "não bate". A conclusão estava certa por acidente: 12 é uma contagem de
+     * crosspost no Facebook, denominador nenhum. Um relatório que acusa
+     * divergência apontando o número errado destrói a confiança nele mesmo.
+     *
+     * A pergunta certa é QUAL população bate, se alguma. Então todas entram, e
+     * o relatório mostra cada uma.
+     */
+    const views = linhas.filter((l) => l.reel === reel.id && /views/.test(l.item)
+      && l.estado === "ACEITA_COM_DADO")
+      .map((l) => ({ nome: l.item, valor: Number(l.valor) }))
+      .filter((v) => Number.isFinite(v.valor) && v.valor > 0);
     const m = Number(medio?.valor), t = Number(total?.valor);
     if (!Number.isFinite(m) || !Number.isFinite(t) || m <= 0) return null;
-    return { reel: reel.id, implicito: Math.round(t / m), medido: views ? Number(views.valor) : null, nomeViews: views?.item ?? null };
+    return { reel: reel.id, implicito: Math.round(t / m), views };
   }).filter((x): x is NonNullable<typeof x> => x !== null);
 
   if (paresDeTempo.length) {
@@ -669,12 +692,22 @@ function montar(
     out.push("tempo total ÷ tempo médio = quantos espectadores a Meta usou como divisor.");
     out.push("");
     for (const p of paresDeTempo) {
-      const veredito = p.medido == null
-        ? "sem métrica de views medida para conferir"
-        : Math.abs(p.implicito - p.medido) <= Math.max(2, p.medido * 0.02)
-          ? `BATE com ${p.nomeViews} (${p.medido}) — a divisão é legítima`
-          : `NÃO BATE com ${p.nomeViews} (${p.medido}) — as duas cobrem populações diferentes`;
-      out.push(`  ${p.reel}: ${p.implicito} espectadores implícitos · ${veredito}`);
+      out.push(`  ${p.reel}: ${p.implicito.toLocaleString("pt-BR")} espectadores implícitos`);
+      if (!p.views.length) {
+        out.push("    sem métrica de views medida para conferir");
+        continue;
+      }
+      const bate = p.views.find((v) => Math.abs(p.implicito - v.valor) <= Math.max(2, v.valor * 0.02));
+      for (const v of p.views) {
+        const razao = p.implicito / v.valor;
+        out.push(`    ${v.nome} = ${v.valor.toLocaleString("pt-BR")} · razão ${razao.toFixed(2)}×`);
+      }
+      out.push(bate
+        ? `    ⇒ BATE com ${bate.nome} — as duas cobrem a mesma população, a divisão é legítima`
+        : "    ⇒ NENHUMA bate. O denominador de ig_reels_avg_watch_time NÃO é nenhuma"
+          + " das métricas de views que a API entrega — 'tempo médio' fica sem população"
+          + " conhecida, e mostrá-lo ao lado de um total de views convidaria a uma"
+          + " multiplicação que não fecha.");
     }
     out.push("");
   }
