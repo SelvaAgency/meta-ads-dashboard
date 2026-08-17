@@ -26,7 +26,16 @@ import { escalaDoMovimento, intervaloDeRotulos, pilhaDoDia } from "@shared/escal
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 
 const fmt = (v: number) => Math.round(v).toLocaleString("pt-BR");
-const EIXO = "fill-[rgba(10,10,10,.42)] dark:fill-[rgba(255,255,255,.42)]";
+/**
+ * O tom dos eixos é o MESMO texto secundário do resto da Social.
+ *
+ * Antes era preto a 42% de opacidade — que sobre o cartão claro vira um cinza
+ * perto de #949494, e as datas sumiam. A opacidade parecia hierarquia e era só
+ * apagamento: um rótulo de eixo que só aparece sob o mouse não é secundário,
+ * é ilegível. O token resolve os dois temas de uma vez, e mantém a hierarquia
+ * pelo tamanho (9px) em vez de pelo contraste.
+ */
+const EIXO = "fill-muted-foreground";
 const GRADE = "stroke-[rgba(10,10,10,.07)] dark:stroke-[rgba(255,255,255,.09)]";
 
 /**
