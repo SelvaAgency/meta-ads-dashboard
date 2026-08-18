@@ -57,7 +57,7 @@ import {
   IdentidadeDaConta, Resultados, ResumoCurto, type ValorDoDia,
 } from "@/components/redes/CabecalhoDaConta";
 import {
-  GraficoDaEvolucaoDaBase, GraficoDeAtivacoes, GraficoDeEvolucao, GraficoDeVariacaoDiaria,
+  GraficoDaEvolucaoDaBase, GraficoDeAtivacoes, GraficoDeEvolucao,
 } from "@/components/redes/GraficosSociais";
 import {
   PerformanceDeConteudo, UltimasPublicacoes,
@@ -888,15 +888,16 @@ export default function RedesSociais() {
                     )}
                   </div>
 
-                  {/* Dois gráficos, duas perguntas. O de cima responde QUANDO
-                      a base cresceu ou caiu; o de baixo, COMO ela chegou ao
-                      tamanho de hoje. Separados de propósito: fluxo e estoque no
-                      mesmo eixo foi o que derrubou a versão anterior deste
-                      bloco. A largura do viewBox acompanha a coluna — manter 760
-                      aqui reduziria os rótulos a ~4,5px. */}
-                  <div className="pt-3 border-t border-border flex flex-col gap-3.5">
-                    <GraficoDeVariacaoDiaria movimento={variacaoDiaria} altura={132} largura={352} />
-                    <GraficoDaEvolucaoDaBase movimento={variacaoDiaria} altura={104} largura={352} />
+                  {/* Um gráfico só, e ele fica com a altura dos dois.
+                      A curva já mostra onde a base subiu e onde caiu; as barras
+                      de variação diária respondiam a mesma pergunta exigindo que
+                      o olho somasse. Os extremos que elas davam de relance estão
+                      logo abaixo, como números com data.
+
+                      A largura do viewBox acompanha a coluna — manter 760 aqui
+                      reduziria os rótulos do eixo a ~4,5px. */}
+                  <div className="pt-3 border-t border-border">
+                    <GraficoDaEvolucaoDaBase movimento={variacaoDiaria} altura={188} largura={352} />
                   </div>
 
                   {/* Os destaques: pequenos, e por isso mesmo os que erram
@@ -943,8 +944,9 @@ export default function RedesSociais() {
                     )}
                     {variacaoDiaria.diasComBuraco > 0 && (
                       <p className="text-[9.5px] text-muted-foreground/60 leading-snug">
-                        {variacaoDiaria.diasComBuraco} barra(s) cobrem mais de um dia — houve dia sem
-                        coleta, e a variação daquele intervalo aparece junta.
+                        {variacaoDiaria.diasComBuraco} trecho(s) da curva aparecem tracejados — houve
+                        dia sem coleta, e ali a linha liga dois pontos reais por um caminho que
+                        ninguém mediu.
                       </p>
                     )}
                   </div>

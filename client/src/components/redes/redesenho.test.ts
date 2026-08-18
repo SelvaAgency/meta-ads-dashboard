@@ -118,7 +118,7 @@ describe("nenhuma métrica saiu da faixa geral", () => {
     expect(b, "título 'Movimento da base' desapareceu").toBeGreaterThan(a);
     const entre = s.slice(a, b);
     expect(entre, "uma caixa fechou entre os dois").not.toContain("</section>");
-    expect(s.slice(b), "o gráfico saiu da região do movimento").toContain("<GraficoDeVariacaoDiaria");
+    expect(s.slice(b), "o gráfico saiu da região do movimento").toContain("<GraficoDaEvolucaoDaBase");
   });
 
   /**
@@ -127,7 +127,7 @@ describe("nenhuma métrica saiu da faixa geral", () => {
    * seria trocar espaço por ilegibilidade — o oposto do que se pediu.
    */
   it("o movimento compacto encolhe o viewBox, não só a coluna", () => {
-    expect(pagina()).toMatch(/<GraficoDeVariacaoDiaria[^>]*largura=\{\d+\}/);
+    expect(pagina()).toMatch(/<GraficoDaEvolucaoDaBase[^>]*largura=\{\d+\}/);
   });
 
   /**
@@ -184,24 +184,21 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
     expect(s).toContain("strokeWidth={2.6}");
     // As larguras de barra saem do PASSO horizontal, e não de um número fixo:
     // com 30 dias, uma largura fixa faria as barras se encavalarem.
-    expect(s).toMatch(/passoX \* 0\.5/);
     expect(s).toMatch(/passo \* 0\.62/);
   });
 
   /**
-   * O eixo do movimento deixou de ser fixo a 56% da altura.
-   *
-   * Aquele número era do protótipo, e o protótipo tinha dados fictícios em que
-   * ele funcionava. Com dados reais, um dia de +2 e −2 precisa do zero no MEIO,
-   * e um período sem nenhuma saída precisa do zero na base — senão metade do
-   * painel fica reservada para um lado vazio e as barras que existem aparecem
-   * pela metade da altura.
+   * O eixo em torno do zero saiu junto com as barras divergentes, em 18/08/2026.
+   * O que sobrou é a evolução da base, cujo eixo enquadra o INTERVALO medido —
+   * e é ali que a armadilha equivalente mora: ancorar no zero desenharia uma
+   * reta horizontal, porque 20 de variação somem dentro de 9.400 seguidores.
    */
-  it("o zero do movimento vem do DADO, não de uma fração fixa", () => {
+  it("o eixo da evolução enquadra o intervalo, e não o zero", () => {
     const s = grafico();
-    expect(s).toContain("escalaDaVariacao");
-    expect(s).toContain("fracaoDoZero");
-    expect(s, "voltou a fixar o eixo a 56%").not.toMatch(/ih \* 0\.56/);
+    const corpo = s.slice(s.indexOf("export function GraficoDaEvolucaoDaBase"));
+    expect(corpo).toContain("const min = Math.min(...totais)");
+    expect(corpo).toContain("const max = Math.max(...totais)");
+    expect(corpo, "o eixo voltou a ser ancorado no zero").not.toMatch(/piso\s*=\s*0\b/);
   });
 
   /**
@@ -222,35 +219,39 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
    *  não falta: está no número grande SALDO ATUAL, logo ao lado.
    * ───────────────────────────────────────────────────────────────────────────
    */
-  it("o movimento diário desenha UMA série, e nenhuma linha", () => {
-    const s = grafico();
-    // A fatia termina no gráfico SEGUINTE, que é a evolução da base — e aquele
-    // tem linha e área de propósito. São dois gráficos justamente para que o
-    // estoque não volte a atravessar as barras do fluxo.
-    const corpo = s.slice(s.indexOf("export function GraficoDeVariacaoDiaria"),
-      s.indexOf("export function GraficoDaEvolucaoDaBase"));
-    expect(corpo, "voltou a desenhar uma linha").not.toContain("<path");
-    expect(corpo, "voltou a desenhar pontos de série").not.toContain("<circle");
-    // Verde e vermelho são os DOIS SENTIDOS de uma série só, não duas séries.
-    expect(corpo).toContain("COR.entrada");
-    expect(corpo).toContain("COR.saida");
+  /**
+   * O bloco tem UM gráfico, e ele lê o total.
+   *
+   * As barras de variação diária saíram: a curva já mostra onde a base subiu e
+   * onde caiu, e os extremos que elas davam de relance viraram números no
+   * rodapé. Se um segundo gráfico voltar, volta a mistura de fluxo e estoque que
+   * derrubou duas versões seguidas deste card.
+   */
+  it("a evolução da base é o único gráfico do bloco", () => {
+    const s = pagina();
+    const bloco = s.slice(s.indexOf(">Movimento da base<"),
+      s.indexOf("</section>", s.indexOf(">Movimento da base<")));
+    expect(bloco).toContain("<GraficoDaEvolucaoDaBase");
+    expect(bloco, "as barras de variação diária voltaram").not.toContain("<GraficoDeVariacaoDiaria");
+    expect(bloco, "voltou a haver dois gráficos").not.toMatch(/<Grafico\w+[\s\S]*<Grafico\w+/);
+  });
+
+  it("a curva lê o total, e não a variação", () => {
+    const corpo = grafico().slice(grafico().indexOf("export function GraficoDaEvolucaoDaBase"));
+    expect(corpo).toContain("d.total");
+    expect(corpo, "a curva voltou a desenhar variação").not.toContain("d.variacao");
   });
 
   /**
-   * Os dois gráficos do bloco existem porque as perguntas são diferentes:
-   * QUANDO a base se moveu, e COMO ela chegou ao tamanho de hoje. Fundi-los
-   * num eixo só é exatamente o que derrubou a versão anterior.
+   * Nada do que as barras mostravam se perdeu: os dois extremos e a média
+   * continuam na tela, agora como números com data.
    */
-  it("evolução da base é gráfico SEPARADO, e lê o total", () => {
-    const s = grafico();
-    const corpo = s.slice(s.indexOf("export function GraficoDaEvolucaoDaBase"));
-    expect(corpo).toContain("d.total");
-    // Ele não desenha variação: quem faz isso é o de cima.
-    expect(corpo, "a evolução voltou a desenhar variação").not.toContain("d.variacao");
-    // E a página monta os dois a partir da MESMA série.
-    const pg = pagina();
-    expect(pg).toContain("<GraficoDeVariacaoDiaria movimento={variacaoDiaria}");
-    expect(pg).toContain("<GraficoDaEvolucaoDaBase movimento={variacaoDiaria}");
+  it("os extremos que as barras davam continuam no rodapé", () => {
+    const s = pagina();
+    expect(s).toContain("Maior alta");
+    expect(s).toContain("Maior queda");
+    expect(s).toContain("Média diária");
+    expect(s).toContain("destaquesDoMovimento(");
   });
 
   /**
@@ -289,15 +290,6 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
    * A linha morreu, mas a armadilha não: qualquer série deste bloco que leia o
    * total em vez da variação repete o mesmo engano numa forma nova.
    */
-  it("nenhuma série do movimento plota o estoque", () => {
-    const s = grafico();
-    const corpo = s.slice(s.indexOf("export function GraficoDeVariacaoDiaria"),
-      s.indexOf("export function GraficoDaEvolucaoDaBase"));
-    // A barra sai de `d.variacao`, e o total só aparece no texto do hover.
-    expect(corpo).toContain("d.variacao");
-    expect(corpo, "a altura da barra voltou a sair do total").not.toMatch(/px\(d\.total\)/);
-    expect(corpo, "o eixo voltou a escalar pelo total").not.toMatch(/esc[^;]*total/);
-  });
 
   /** A pilha vem da função pura — somar altura a altura deixa fresta no topo. */
   it("as ativações empilham por frações que somam 1", () => {
@@ -447,7 +439,7 @@ describe("a Social tem duas abas, e nada se perdeu entre elas", () => {
     const s = pagina();
     const home = s.slice(s.indexOf('aba === "home" && ('), s.indexOf('aba === "conteudo" && ('));
     expect(home).toContain("Dados gerais");
-    expect(home).toContain("<GraficoDeVariacaoDiaria");
+    expect(home).toContain("<GraficoDaEvolucaoDaBase");
     expect(home).toContain("<UltimasPublicacoes");
     // Análise de conteúdo NÃO mora na Home.
     expect(home).not.toContain("<RetencaoReels");

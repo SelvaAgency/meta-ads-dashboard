@@ -131,31 +131,16 @@ export function movimentoDiario(amostras: AmostraDoTotal[]): MovimentoDiario {
   };
 }
 
-/** A escala simétrica de uma série que cruza o zero. */
-export interface EscalaDaVariacao {
-  /** Maior alta. Nunca menor que 1, para não dividir por zero. */
-  acima: number;
-  /** Maior queda, como número POSITIVO. */
-  abaixo: number;
-  /** Onde o zero cai, de 0 (topo) a 1 (base). */
-  fracaoDoZero: number;
-}
-
-/**
- * Onde fica o zero, dado o que a série tem de cada lado.
+/*
+ * ── O que morava aqui ──────────────────────────────────────────────────────
+ * `escalaDaVariacao` e `EscalaDaVariacao`: a escala simétrica em torno do zero,
+ * que servia às barras divergentes do movimento diário. O gráfico saiu em
+ * 18/08/2026 e nada mais desenha em torno do zero neste bloco.
  *
- * Não é simétrica por decreto: uma conta que só cresce teria metade do painel
- * reservada para um lado vazio, e as barras que existem sairiam pela metade da
- * altura. O zero encosta na base quando não há queda nenhuma, e no topo quando
- * não há alta.
+ * `movimentoDiario` continua inteiro: ele alimenta a evolução da base (os
+ * totais e os vãos sem coleta), os destaques do rodapé e a conferência `fecha`,
+ * que prova que a soma das variações é a variação do período mostrada no topo.
  */
-export function escalaDaVariacao(dias: DiaDeVariacao[]): EscalaDaVariacao {
-  const vs = dias.map((d) => d.variacao).filter((v): v is number => v != null);
-  const acima = Math.max(1, ...vs.filter((v) => v > 0));
-  const abaixo = Math.max(0, ...vs.filter((v) => v < 0).map((v) => -v));
-  const amplitude = acima + abaixo;
-  return { acima, abaixo, fracaoDoZero: amplitude > 0 ? acima / amplitude : 1 };
-}
 
 // ─── Os destaques do rodapé ──────────────────────────────────────────────────
 

@@ -11,9 +11,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it } from "vitest";
-import {
-  destaquesDoMovimento, escalaDaVariacao, movimentoDiario, type AmostraDoTotal,
-} from "./movimentoDiario";
+import { destaquesDoMovimento, movimentoDiario, type AmostraDoTotal } from "./movimentoDiario";
 
 const d = (dia: string, total: number | null): AmostraDoTotal => ({ dia, total });
 
@@ -117,42 +115,17 @@ describe("a conferência que liga o gráfico ao número grande", () => {
   });
 });
 
-describe("o zero fica onde a série manda", () => {
-  it("com altas e quedas, o zero divide na proporção real", () => {
-    const e = escalaDaVariacao(movimentoDiario(SEMANA).dias);
-    expect(e.acima).toBe(11);
-    expect(e.abaixo).toBe(3);
-    expect(e.fracaoDoZero).toBeCloseTo(11 / 14, 5);
-  });
-
-  /** Só crescimento: o zero encosta na base e as barras usam a altura inteira. */
-  it("sem quedas, o zero vai para a base", () => {
-    const e = escalaDaVariacao(movimentoDiario([
-      d("2026-08-12", 100), d("2026-08-13", 110),
-    ]).dias);
-    expect(e.abaixo).toBe(0);
-    expect(e.fracaoDoZero).toBe(1);
-  });
-
-  it("só quedas: o zero vai para o topo", () => {
-    const e = escalaDaVariacao(movimentoDiario([
-      d("2026-08-12", 100), d("2026-08-13", 90),
-    ]).dias);
-    expect(e.acima).toBe(1);
-    expect(e.abaixo).toBe(10);
-    expect(e.fracaoDoZero).toBeCloseTo(1 / 11, 5);
-  });
-
-  /** Série toda parada não pode dividir por zero. */
-  it("tudo zerado dá gráfico plano, sem NaN", () => {
-    const e = escalaDaVariacao(movimentoDiario([
-      d("2026-08-12", 100), d("2026-08-13", 100),
-    ]).dias);
-    expect(e.acima).toBe(1);
-    expect(e.abaixo).toBe(0);
-    expect(Number.isFinite(e.fracaoDoZero)).toBe(true);
-  });
-});
+/*
+ * ── O que morava aqui ──────────────────────────────────────────────────────
+ * Os quatro cenários de `escalaDaVariacao` — o zero no meio, na base, no topo e
+ * a série toda parada. Ela desenhava as barras divergentes do movimento diário,
+ * removidas em 18/08/2026: a curva da evolução da base responde a mesma
+ * pergunta sem exigir que o olho some barras, e os extremos viraram números no
+ * rodapé do card.
+ *
+ * O eixo que sobrou é o da evolução, e ele enquadra o INTERVALO medido em vez
+ * do zero — a armadilha equivalente está guardada em `redesenho.test.ts`.
+ */
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────

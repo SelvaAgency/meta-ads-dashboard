@@ -23,7 +23,7 @@
 import { useState } from "react";
 import { COR, COR_TIPO, ORDEM_TIPO } from "@shared/coresSociais";
 import { intervaloDeRotulos, pilhaDoDia } from "@shared/escalaDosGraficos";
-import { escalaDaVariacao, type DiaDeVariacao, type MovimentoDiario } from "@shared/movimentoDiario";
+import type { MovimentoDiario } from "@shared/movimentoDiario";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 
 const fmt = (v: number) => Math.round(v).toLocaleString("pt-BR");
@@ -293,156 +293,20 @@ export interface PontoDeMovimento {
  * que o saldo é zero — muita cor para dizer "nada aconteceu". A linha sobre o
  * eixo do zero diz isso sozinha.
  */
-/**
- * A leitura de um dia — vai para o lugar da legenda no hover.
+/*
+ * ── O que morava aqui ──────────────────────────────────────────────────────
+ * `GraficoDeVariacaoDiaria` e a leitura dele. Ele desenhava a variação líquida
+ * por dia em barras divergentes, e foi removido em 18/08/2026: a evolução da
+ * base, logo abaixo, responde a mesma pergunta de forma mais direta — a curva
+ * já mostra onde subiu e onde caiu, sem exigir que o olho some barras.
  *
- * O dia que cobre mais de um dia leva a ressalva junto: "+30 em 3 dias" é
- * verdade, "+30 no dia 15" não é. A distinção some se a barra for igual às
- * outras e o texto não disser nada.
+ * Os extremos que as barras entregavam de relance continuam na tela, agora como
+ * números: MAIOR ALTA e MAIOR QUEDA no rodapé do card, com data. Nada do que se
+ * lia ali se perdeu; o que saiu foi a segunda forma de ler a mesma coisa.
+ *
+ * `escalaDaVariacao` saiu junto, de `shared/movimentoDiario.ts` — era a escala
+ * simétrica em torno do zero, e nada mais desenha em torno do zero.
  */
-function LeituraDaVariacao({ d }: { d: DiaDeVariacao }) {
-  const v = d.variacao;
-  const cor = v == null ? undefined : v > 0 ? COR.entrada : v < 0 ? COR.saida : undefined;
-  return (
-    <div className="flex items-center gap-2.5 flex-wrap text-[11px] tabular-nums">
-      <span className="font-bold">{d.dia.slice(8, 10)}/{d.dia.slice(5, 7)}</span>
-      <span style={{ color: cor }} className={cor ? "font-bold" : "text-muted-foreground"}>
-        {v == null ? "primeira medição do período"
-          : `${v > 0 ? "+" : v < 0 ? "−" : ""}${fmt(Math.abs(v))} seguidor${Math.abs(v) === 1 ? "" : "es"}`}
-      </span>
-      {d.diasCobertos > 1 && (
-        <span className="text-amber-700">acumulado de {d.diasCobertos} dias sem coleta no meio</span>
-      )}
-      <span className="text-muted-foreground/60">total {fmt(d.total)}</span>
-    </div>
-  );
-}
-
-/**
- * ─────────────────────────────────────────────────────────────────────────────
- *  Movimento diário — a variação líquida, e nada além dela
- * ─────────────────────────────────────────────────────────────────────────────
- *  Este gráfico substituiu o de entradas × saídas × saldo. O diagnóstico de
- *  18/08/2026 refutou a hipótese de que FOLLOWER/NON_FOLLOWER fossem os dois
- *  fluxos, e `follower_count` sozinho não os separa — a saída que saía dele era
- *  `entradas − saldo`, subtração sem fonte que provasse representar saídas.
- *
- *  Sobrou o que realmente se mede: quanto a base variou de um dia para o outro.
- *  Uma série só, cruzando o zero. Verde acima, vermelho abaixo.
- *
- *  ── Barra de altura mínima para o zero ─────────────────────────────────────
- *  Um dia de variação zero é MEDIÇÃO — a base não se moveu. Sem barra nenhuma
- *  ele fica idêntico a um dia sem coleta, que é o oposto. Um traço de 2px na
- *  linha do zero diz "medimos, e deu zero".
- * ─────────────────────────────────────────────────────────────────────────────
- */
-export function GraficoDeVariacaoDiaria({ movimento, nota, altura = 176, largura = 760 }: {
-  movimento: MovimentoDiario;
-  nota?: string | null;
-  altura?: number;
-  /**
-   * A largura do viewBox — não do elemento, que é sempre 100%.
-   *
-   * O SVG escala uniformemente: um viewBox de 760 numa coluna de 380px reduz o
-   * texto de 9px para 4,5px. Numa coluna estreita ele tem de encolher junto.
-   */
-  largura?: number;
-}) {
-  const [ativo, setAtivo] = useState<number | null>(null);
-  const dias = movimento.dias;
-  const vazio = dias.filter((d) => d.variacao != null).length < 1;
-
-  const esc = escalaDaVariacao(dias);
-  /** A margem esquerda vem do rótulo mais largo, e não de um número fixo. */
-  const digitos = Math.max(fmt(esc.acima).length, fmt(esc.abaixo).length) + 1;
-  const W = largura, ml = 12 + digitos * 5.6, mr = 16, mt = 12, mb = 22;
-  const iw = W - ml - mr, ih = altura - mt - mb;
-  const yZero = mt + ih * esc.fracaoDoZero;
-
-  const px = (v: number) => {
-    const amplitude = esc.acima + esc.abaixo;
-    return amplitude > 0 ? (Math.abs(v) / amplitude) * ih : 0;
-  };
-
-  const passoX = iw / Math.max(1, dias.length);
-  const x = (i: number) => ml + (i + 0.5) * passoX;
-  const bw = Math.min(20, Math.max(4, passoX * 0.5));
-  const passoRotulo = intervaloDeRotulos(dias.length, iw);
-
-  /** Os três rótulos do eixo: maior alta, zero, maior queda. */
-  const rotulos: Array<[number, number]> = [
-    [esc.acima, mt],
-    [0, yZero],
-    [-esc.abaixo, mt + ih],
-  ];
-
-  return (
-    <Moldura titulo="Movimento diário" nota={nota ?? "variação líquida de seguidores por dia"}
-      vazio={vazio} altura={altura}
-      legenda={<Legenda itens={[["Ganhou", COR.entrada], ["Perdeu", COR.saida]]} />}
-      leitura={ativo != null && dias[ativo] ? <LeituraDaVariacao d={dias[ativo]} /> : null}>
-      <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img"
-        aria-label="Variação líquida de seguidores por dia"
-        onMouseLeave={() => setAtivo(null)}>
-        {rotulos.map(([v, yy], k) => (
-          <g key={k}>
-            <line x1={ml} x2={W - mr} y1={yy} y2={yy}
-              className={k === 1 ? "stroke-[rgba(10,10,10,.22)] dark:stroke-[rgba(255,255,255,.24)]" : GRADE}
-              strokeDasharray={k === 1 ? undefined : "3 4"} />
-            <text x={ml - 7} y={yy + 4} textAnchor="end" fontSize={9} className={EIXO}>
-              {v > 0 ? `+${fmt(v)}` : v < 0 ? `−${fmt(Math.abs(v))}` : "0"}
-            </text>
-          </g>
-        ))}
-
-        {/* A faixa do dia ativo, atrás das barras — guia sem tapar. */}
-        {ativo != null && (
-          <rect x={x(ativo) - passoX / 2} y={mt} width={passoX} height={ih}
-            className="fill-foreground/[0.045]" />
-        )}
-
-        {dias.map((d, i) => {
-          if (d.variacao == null) return null;
-          const destacado = ativo === i;
-          const v = d.variacao;
-          const alt = Math.max(2, px(v));
-          return (
-            <rect key={d.dia}
-              x={x(i) - bw / 2}
-              y={v >= 0 ? yZero - alt : yZero}
-              width={bw} height={alt}
-              fill={v > 0 ? COR.entrada : v < 0 ? COR.saida : "rgba(10,10,10,.32)"}
-              opacity={ativo == null || destacado ? 0.92 : 0.32}
-              rx={1.5} className="transition-opacity duration-150" />
-          );
-        })}
-
-        {/* Barra que cobre mais de um dia leva um traço no topo: ela é verdade
-            como variação e mentira como "variação daquele dia". */}
-        {dias.map((d, i) => (d.variacao == null || d.diasCobertos <= 1 ? null : (
-          <line key={`b${d.dia}`} x1={x(i) - bw / 2} x2={x(i) + bw / 2}
-            y1={d.variacao >= 0 ? yZero - Math.max(2, px(d.variacao)) - 2.5 : yZero + Math.max(2, px(d.variacao)) + 2.5}
-            y2={d.variacao >= 0 ? yZero - Math.max(2, px(d.variacao)) - 2.5 : yZero + Math.max(2, px(d.variacao)) + 2.5}
-            stroke="rgb(180,83,9)" strokeWidth={1.6} strokeDasharray="2 2" />
-        )))}
-
-        {/* As faixas de captura por ÚLTIMO e com o passo inteiro: o dia de
-            variação zero também responde ao mouse. */}
-        {dias.map((d, i) => (
-          <rect key={`h${d.dia}`} x={x(i) - passoX / 2} y={mt} width={passoX} height={ih}
-            fill="transparent" style={{ cursor: "pointer" }}
-            onMouseEnter={() => setAtivo(i)} />
-        ))}
-
-        {dias.map((d, i) => (i % passoRotulo ? null : (
-          <text key={d.dia} x={x(i)} y={altura - 6} textAnchor="middle" fontSize={9} className={EIXO}>
-            {d.dia.slice(8, 10)}/{d.dia.slice(5, 7)}
-          </text>
-        )))}
-      </svg>
-    </Moldura>
-  );
-}
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
