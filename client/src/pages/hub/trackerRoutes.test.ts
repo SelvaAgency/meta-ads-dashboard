@@ -10,10 +10,63 @@
  *     nenhum, que é o pior tipo de quebra.
  */
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
-  destinoDeConexoes, ehRotaInterna, pediuConexoes, rotaInternaSegura, urlDoShellPara,
-  urlEmbutidaPara,
+  ROTAS_INTERNAS, destinoDeConexoes, ehRotaInterna, pediuConexoes, rotaInternaSegura,
+  urlDoShellPara, urlEmbutidaPara,
 } from "./trackerRoutes";
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A allowlist e o App.tsx precisam contar a mesma história
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Este teste nasceu de um bug real: `/rascunho` foi registrada em `App.tsx`
+ *  dentro de `<Interna>` e esquecida aqui. O efeito é a pior forma de quebra —
+ *  SILENCIOSA. `Interna` manda para o shell, o shell chama `rotaInternaSegura`,
+ *  não encontra a rota, devolve `null`, e quem digitou o endereço cai no Tracker
+ *  genérico. Nenhum erro no console, nenhuma tela de "não encontrado": só a
+ *  página errada, como se fosse o comportamento normal.
+ *
+ *  A duplicação entre os dois arquivos é proposital — a allowlist existe para
+ *  impedir que `?rota=` vire `src` de iframe apontando para fora do domínio, e
+ *  derivá-la automaticamente das rotas do App a esvaziaria. Então elas ficam
+ *  separadas, e é este teste que as mantém em acordo.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("toda rota interna do App está na allowlist", () => {
+  const app = readFileSync(new URL("../../App.tsx", import.meta.url), "utf-8");
+
+  /** As rotas que renderizam dentro de `<Interna>` — as cruas do Tracker. */
+  const internasDoApp = Array.from(
+    app.matchAll(/<Route\s+path="([^"]+)"[^>]*?component=\{\(\)\s*=>\s*<Interna>/g),
+  ).map((m) => m[1]);
+
+  it("o App tem rotas internas, senão o teste não está lendo nada", () => {
+    expect(internasDoApp.length).toBeGreaterThan(3);
+  });
+
+  it("nenhuma rota interna ficou de fora da allowlist", () => {
+    for (const rota of internasDoApp) {
+      expect(ehRotaInterna(rota), `${rota} está em App.tsx e não na allowlist — cai no Tracker genérico, calada`)
+        .toBe(true);
+    }
+  });
+
+  /** O caso que motivou tudo. */
+  it("/rascunho é interna", () => {
+    expect(ehRotaInterna("/rascunho")).toBe(true);
+    expect(rotaInternaSegura("/rascunho")).toBe("/rascunho");
+    expect(urlDoShellPara("/rascunho", "")).toBe("/tracker?rota=%2Frascunho");
+  });
+
+  /** A allowlist continua fechada: acesso não se resolve abrindo ela. */
+  it("a allowlist não virou passe livre", () => {
+    expect(rotaInternaSegura("https://exemplo.com")).toBeNull();
+    expect(rotaInternaSegura("//exemplo.com")).toBeNull();
+    expect(rotaInternaSegura("/rascunho-falso")).toBeNull();
+    expect(ROTAS_INTERNAS.length).toBeLessThan(30);
+  });
+});
 
 /**
  * O callback do OAuth do Google volta para /tracker?rota=… . Se a rota não

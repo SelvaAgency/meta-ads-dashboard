@@ -97,7 +97,23 @@ export default function Rascunho() {
                     passou a abrir direto nos Dados Gerais. Continua montado e renderizando com
                     dado real, então o dia em que ele quebrar por outra mudança se descobre aqui."
             retiradoEm="18/08/2026">
-            <CabecalhoExecutivoSocial dados={q.data} cliente={cliente} />
+            {/* Sem Instagram vinculado a peça não renderiza vazia: um cabeçalho
+                com quatro traços e um gráfico em branco pareceria a peça
+                QUEBRADA, quando o que falta é a conexão do cliente. A bancada
+                existe para revelar defeito real — confundir os dois a torna
+                inútil. */}
+            {q.data.organico
+              ? <CabecalhoExecutivoSocial dados={q.data} cliente={cliente} />
+              : (
+                <div className="rounded-[20px] border border-dashed border-border bg-card px-5 py-6">
+                  <p className="text-sm font-medium">Este cliente não tem Instagram vinculado.</p>
+                  <p className="text-xs text-muted-foreground mt-1 max-w-[70ch] leading-snug">
+                    A peça lê as mesmas consultas da produção, então ela precisa de uma conta
+                    conectada para renderizar. Escolha outro cliente no menu — ou conecte este em
+                    Configurações → Conexões → Social.
+                  </p>
+                </div>
+              )}
           </Peca>
         )}
       </div>

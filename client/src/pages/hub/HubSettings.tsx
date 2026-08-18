@@ -26,6 +26,7 @@ import {
   PencilRuler,
 } from "lucide-react";
 import { Link } from "wouter";
+import { urlDoShellPara } from "./trackerRoutes";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
@@ -571,6 +572,29 @@ export default function HubSettings() {
           <JornalzinhoPrefsSection />
           <IntegrationsSection />
 
+          {/* ── Rascunho ────────────────────────────────────────────────────
+              Fora do bloco de Conteúdo de propósito: aquele é admin/dev, e a
+              bancada é de quem trabalha nas telas — colaborador e coordenador
+              inclusive. O que a exigência pedia era manter o Rascunho fora da
+              NAVEGAÇÃO principal, não escondê-lo de quem usa o produto.
+
+              O destino passa pelo shell (`/tracker?rota=/rascunho`) em vez de
+              `/rascunho` direto: as duas chegam ao mesmo lugar, mas a direta
+              pisca uma tela vazia antes do redirecionamento. */}
+          <Link href={urlDoShellPara("/rascunho", "")}
+            className="rounded-xl border border-dashed border-border bg-card px-4 py-3
+                       flex items-center gap-3 hover:border-accent transition-colors duration-150">
+            <span className="w-8 h-8 rounded-lg bg-muted grid place-items-center flex-shrink-0">
+              <PencilRuler className="w-4 h-4 text-muted-foreground" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold">Rascunho</span>
+              <span className="block text-xs text-muted-foreground">
+                Peças fora de produção, montadas com dado real. Não aparece para cliente.
+              </span>
+            </span>
+          </Link>
+
           {canContent && (
             <>
               <div className="flex items-center gap-2 pt-2">
@@ -580,24 +604,6 @@ export default function HubSettings() {
               <NewsAdminSection />
               <SelvaTVAdminSection storageConfigured={storage.data?.configured ?? false} />
 
-              {/* O único acesso visível ao Rascunho.
-                  A rota é aberta a todos os papéis — quem trabalha nas telas
-                  precisa alcançá-la —, mas fora da navegação principal, que era
-                  a exigência. Aqui e não no menu: é uma bancada de trabalho, não
-                  uma seção do produto. */}
-              <Link href="/rascunho"
-                className="rounded-xl border border-dashed border-border bg-card px-4 py-3
-                           flex items-center gap-3 hover:border-accent transition-colors duration-150">
-                <span className="w-8 h-8 rounded-lg bg-muted grid place-items-center flex-shrink-0">
-                  <PencilRuler className="w-4 h-4 text-muted-foreground" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold">Rascunho</span>
-                  <span className="block text-xs text-muted-foreground">
-                    Peças fora de produção, montadas com dado real. Não aparece para cliente.
-                  </span>
-                </span>
-              </Link>
             </>
           )}
         </div>

@@ -34,6 +34,19 @@ export const ROTAS_INTERNAS = [
   "/admin",
   "/social-networks",
   "/experiments",
+  /**
+   * A bancada de peças fora de produção.
+   *
+   * Precisa estar AQUI, e não só registrada em `App.tsx`: uma rota crua que não
+   * consta desta lista redireciona para o shell, e o shell a recusa em
+   * `rotaInternaSegura` — quem digita /rascunho cai no Tracker genérico, sem
+   * erro nenhum na tela. Foi exatamente o que aconteceu.
+   *
+   * A allowlist não é sobre permissão de usuário: ela impede que `?rota=` vire
+   * `src` de iframe apontando para fora do domínio. Tirar a lista para resolver
+   * acesso trocaria um caminho quebrado por um buraco de segurança.
+   */
+  "/rascunho",
   // Configurações do Tracker — é onde o hub de Conexões mora. Precisa estar na
   // allowlist porque as rotas aposentadas (/google-ads, /ga4, /lojas) mandam
   // para cá pelo shell: /tracker?rota=/settings&painel=conexoes.
