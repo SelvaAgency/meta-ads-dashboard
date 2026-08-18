@@ -444,6 +444,137 @@ export function GraficoDeVariacaoDiaria({ movimento, nota, altura = 176, largura
   );
 }
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Evolução da base — o TAMANHO, e não o movimento
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Mesma fonte do gráfico de cima, pergunta diferente. O movimento diário
+ *  responde QUANDO a base cresceu ou caiu; este responde COMO ela chegou ao
+ *  tamanho de hoje. Um mostra o fluxo, o outro o estoque — e é por isso que são
+ *  dois gráficos e não duas séries no mesmo eixo: foi exatamente essa mistura
+ *  que derrubou a versão anterior deste bloco.
+ *
+ *  ── O eixo NÃO começa em zero, e isso é decisão ────────────────────────────
+ *  Com 9.400 seguidores e variação de 20, um eixo ancorado no zero desenharia
+ *  uma reta perfeitamente horizontal: a variação some dentro da escala do
+ *  total. O eixo aqui enquadra o intervalo medido com uma folga, e os dois
+ *  rótulos dizem os extremos — a leitura é a FORMA da curva, e os números
+ *  exatos estão no hover e no saldo atual logo acima.
+ *
+ *  ── Buraco de coleta vira traço, e não reta cheia ──────────────────────────
+ *  Entre duas medições distantes a linha existe, mas tracejada: ela liga dois
+ *  pontos reais por um caminho que ninguém mediu, e uma reta contínua ali
+ *  afirmaria um crescimento uniforme que pode não ter sido.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export function GraficoDaEvolucaoDaBase({ movimento, altura = 104, largura = 760 }: {
+  movimento: MovimentoDiario; altura?: number; largura?: number;
+}) {
+  const [ativo, setAtivo] = useState<number | null>(null);
+  const dias = movimento.dias;
+  const vazio = dias.length < 2;
+
+  const totais = dias.map((d) => d.total);
+  const min = Math.min(...totais);
+  const max = Math.max(...totais);
+  /** Folga de 8% da amplitude — a curva não encosta nas bordas da moldura. */
+  const folga = Math.max(1, (max - min) * 0.08);
+  const piso = min - folga, teto = max + folga;
+
+  const digitos = Math.max(fmt(teto).length, fmt(piso).length);
+  const W = largura, ml = 10 + digitos * 5.6, mr = 12, mt = 10, mb = 18;
+  const iw = W - ml - mr, ih = altura - mt - mb;
+
+  const x = (i: number) => ml + (dias.length < 2 ? iw / 2 : (i / (dias.length - 1)) * iw);
+  const y = (v: number) => mt + ih - ((v - piso) / Math.max(1, teto - piso)) * ih;
+
+  /** Os segmentos, separados entre medidos-consecutivos e vãos sem coleta. */
+  const segmentos = dias.slice(1).map((d, k) => ({
+    de: k, para: k + 1, temBuraco: d.diasCobertos > 1,
+  }));
+
+  const area = dias.length >= 2
+    ? `M${x(0).toFixed(1)},${(mt + ih).toFixed(1)} `
+      + dias.map((d, i) => `L${x(i).toFixed(1)},${y(d.total).toFixed(1)}`).join(" ")
+      + ` L${x(dias.length - 1).toFixed(1)},${(mt + ih).toFixed(1)} Z`
+    : "";
+
+  const passoRotulo = intervaloDeRotulos(dias.length, iw);
+
+  return (
+    <Moldura titulo="Evolução da base" nota="total de seguidores, snapshot a snapshot"
+      vazio={vazio} altura={altura}
+      leitura={ativo != null && dias[ativo] ? (
+        <span className="flex items-center gap-2.5 text-[11px] tabular-nums">
+          <span className="font-bold">
+            {dias[ativo].dia.slice(8, 10)}/{dias[ativo].dia.slice(5, 7)}
+          </span>
+          <span style={{ color: COR.seguidores }} className="font-bold">
+            {fmt(dias[ativo].total)} seguidores
+          </span>
+        </span>
+      ) : null}>
+      <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img"
+        aria-label="Evolução do total de seguidores"
+        onMouseLeave={() => setAtivo(null)}>
+        <defs>
+          <linearGradient id="grad-base" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={COR.seguidores} stopOpacity={0.22} />
+            <stop offset="100%" stopColor={COR.seguidores} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+
+        {[teto, piso].map((v, k) => (
+          <g key={k}>
+            <line x1={ml} x2={W - mr} y1={k === 0 ? mt : mt + ih} y2={k === 0 ? mt : mt + ih}
+              className={GRADE} strokeDasharray="3 4" />
+            <text x={ml - 6} y={(k === 0 ? mt : mt + ih) + 3.5} textAnchor="end" fontSize={9} className={EIXO}>
+              {fmt(v)}
+            </text>
+          </g>
+        ))}
+
+        {area && <path d={area} fill="url(#grad-base)" />}
+
+        {/* A linha em segmentos: o vão sem coleta sai tracejado, porque ele liga
+            dois pontos reais por um caminho que ninguém mediu. */}
+        {segmentos.map((sg) => (
+          <line key={sg.para}
+            x1={x(sg.de)} y1={y(dias[sg.de].total)}
+            x2={x(sg.para)} y2={y(dias[sg.para].total)}
+            stroke={COR.seguidores} strokeWidth={2.2} strokeLinecap="round"
+            strokeDasharray={sg.temBuraco ? "3 3" : undefined}
+            opacity={sg.temBuraco ? 0.55 : 1} />
+        ))}
+
+        {ativo != null && dias[ativo] && (
+          <>
+            <line x1={x(ativo)} x2={x(ativo)} y1={mt} y2={mt + ih}
+              className="stroke-[rgba(10,10,10,.16)]" strokeWidth={1} />
+            <circle cx={x(ativo)} cy={y(dias[ativo].total)} r={3.6}
+              fill={COR.seguidores} stroke="white" strokeWidth={1.5} />
+          </>
+        )}
+
+        {/* Captura por último, cobrindo a faixa inteira de cada ponto. */}
+        {dias.map((d, i) => (
+          <rect key={`h${d.dia}`}
+            x={x(i) - (iw / Math.max(1, dias.length - 1)) / 2} y={mt}
+            width={iw / Math.max(1, dias.length - 1)} height={ih}
+            fill="transparent" style={{ cursor: "pointer" }}
+            onMouseEnter={() => setAtivo(i)} />
+        ))}
+
+        {dias.map((d, i) => (i % passoRotulo ? null : (
+          <text key={d.dia} x={x(i)} y={altura - 5} textAnchor="middle" fontSize={9} className={EIXO}>
+            {d.dia.slice(8, 10)}/{d.dia.slice(5, 7)}
+          </text>
+        )))}
+      </svg>
+    </Moldura>
+  );
+}
+
 // ─── 3. Ativações por dia: barras empilhadas, com o total no topo ───────────
 
 /**

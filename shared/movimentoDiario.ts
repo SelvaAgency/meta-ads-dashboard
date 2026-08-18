@@ -156,3 +156,78 @@ export function escalaDaVariacao(dias: DiaDeVariacao[]): EscalaDaVariacao {
   const amplitude = acima + abaixo;
   return { acima, abaixo, fracaoDoZero: amplitude > 0 ? acima / amplitude : 1 };
 }
+
+// ─── Os destaques do rodapé ──────────────────────────────────────────────────
+
+export interface DestaqueDoDia {
+  dia: string;
+  variacao: number;
+}
+
+export interface DestaquesDoMovimento {
+  /** Maior variação positiva de UM dia. `null` quando não há. */
+  maiorAlta: DestaqueDoDia | null;
+  /** Maior variação negativa de UM dia. `null` quando não há. */
+  maiorQueda: DestaqueDoDia | null;
+  /**
+   * Variação líquida média por dia decorrido. `null` quando a amostra é curta
+   * demais para a média dizer algo.
+   */
+  mediaDiaria: number | null;
+  /** Dias decorridos entre a primeira e a última medição — o denominador. */
+  diasDecorridos: number | null;
+}
+
+/**
+ * Medições necessárias para a média diária significar alguma coisa.
+ *
+ * Com duas, a "média" é a única variação que existe, vestida de média — e um
+ * número assim convida a extrapolar de uma amostra de um.
+ */
+export const MEDICOES_MINIMAS_PARA_MEDIA = 3;
+
+/**
+ * Os três destaques, todos derivados das MESMAS variações que o gráfico desenha.
+ *
+ * ── Extremos só de barras de um dia ────────────────────────────────────────
+ * Uma barra que cobre três dias sem coleta pode ser a maior do gráfico e não
+ * ser a maior alta de um dia. "MAIOR ALTA +30 em 15/08" seria falso — foram
+ * 30 em três dias, e o rótulo promete um. Barras com buraco ficam de fora dos
+ * extremos; elas continuam no gráfico, marcadas.
+ *
+ * ── A média divide por DIAS, não por barras ────────────────────────────────
+ * Com um buraco, o número de barras é menor que o de dias decorridos. Dividir
+ * pelas barras inflaria a média — cada barra passaria a valer um dia, inclusive
+ * a que vale três. O denominador certo é o tempo, e a variação do período já
+ * cobre os dias não medidos por telescopagem.
+ */
+export function destaquesDoMovimento(m: MovimentoDiario): DestaquesDoMovimento {
+  const deUmDia = m.dias.filter(
+    (d): d is DiaDeVariacao & { variacao: number } => d.variacao != null && d.diasCobertos === 1);
+
+  const altas = deUmDia.filter((d) => d.variacao > 0);
+  const quedas = deUmDia.filter((d) => d.variacao < 0);
+
+  const extremo = (xs: typeof deUmDia, melhor: (a: number, b: number) => boolean) =>
+    xs.length
+      ? xs.reduce((r, d) => (melhor(d.variacao, r.variacao) ? d : r))
+      : null;
+
+  const maiorAlta = extremo(altas, (a, b) => a > b);
+  const maiorQueda = extremo(quedas, (a, b) => a < b);
+
+  const diasDecorridos = m.primeiroMedido && m.ultimoMedido
+    ? diasEntre(m.primeiroMedido, m.ultimoMedido)
+    : null;
+
+  const podeMediar = m.diasMedidos >= MEDICOES_MINIMAS_PARA_MEDIA
+    && m.variacaoDoPeriodo != null
+    && diasDecorridos != null && diasDecorridos > 0;
+
+  return {
+    maiorAlta: maiorAlta && { dia: maiorAlta.dia, variacao: maiorAlta.variacao },
+    maiorQueda: maiorQueda && { dia: maiorQueda.dia, variacao: maiorQueda.variacao },
+    mediaDiaria: podeMediar ? (m.variacaoDoPeriodo as number) / (diasDecorridos as number) : null,
+    diasDecorridos,
+  };
+}

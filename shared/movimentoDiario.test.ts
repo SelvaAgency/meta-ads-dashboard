@@ -11,7 +11,9 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it } from "vitest";
-import { escalaDaVariacao, movimentoDiario, type AmostraDoTotal } from "./movimentoDiario";
+import {
+  destaquesDoMovimento, escalaDaVariacao, movimentoDiario, type AmostraDoTotal,
+} from "./movimentoDiario";
 
 const d = (dia: string, total: number | null): AmostraDoTotal => ({ dia, total });
 
@@ -149,5 +151,103 @@ describe("o zero fica onde a série manda", () => {
     expect(e.acima).toBe(1);
     expect(e.abaixo).toBe(0);
     expect(Number.isFinite(e.fracaoDoZero)).toBe(true);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Os destaques do rodapé
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Eles são pequenos e secundários, e é justamente por isso que erram fácil:
+ *  ninguém confere um número de 11px. Os dois riscos são um extremo que na
+ *  verdade cobre três dias, e uma média dividida pelo número de barras.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("os destaques saem das mesmas variações do gráfico", () => {
+  it("maior alta e maior queda, com a data de cada uma", () => {
+    const d = destaquesDoMovimento(movimentoDiario(SEMANA));
+    expect(d.maiorAlta).toEqual({ dia: "2026-08-13", variacao: 11 });
+    expect(d.maiorQueda).toEqual({ dia: "2026-08-17", variacao: -3 });
+  });
+
+  /**
+   * Uma barra de +30 que cobre três dias pode ser a maior do gráfico e não ser
+   * a maior alta de UM dia. O rótulo promete um dia.
+   */
+  it("barra com buraco não vira maior alta", () => {
+    const m = movimentoDiario([
+      d("2026-08-12", 1000),
+      d("2026-08-13", null),
+      d("2026-08-14", null),
+      d("2026-08-15", 1030), // +30 em 3 dias
+      d("2026-08-16", 1034), // +4 em 1 dia
+    ]);
+    const x = destaquesDoMovimento(m);
+    expect(x.maiorAlta).toEqual({ dia: "2026-08-16", variacao: 4 });
+  });
+
+  it("período sem queda nenhuma não inventa uma", () => {
+    const x = destaquesDoMovimento(movimentoDiario([
+      d("2026-08-12", 100), d("2026-08-13", 110), d("2026-08-14", 115),
+    ]));
+    expect(x.maiorQueda).toBeNull();
+    expect(x.maiorAlta).toEqual({ dia: "2026-08-13", variacao: 10 });
+  });
+
+  /** Dia parado não é alta nem queda — zero não entra em extremo nenhum. */
+  it("variação zero não vira maior alta nem maior queda", () => {
+    const x = destaquesDoMovimento(movimentoDiario([
+      d("2026-08-12", 100), d("2026-08-13", 100), d("2026-08-14", 100),
+    ]));
+    expect(x.maiorAlta).toBeNull();
+    expect(x.maiorQueda).toBeNull();
+  });
+});
+
+describe("a média diária divide pelo tempo, não pelas barras", () => {
+  it("média é a variação do período sobre os dias decorridos", () => {
+    const x = destaquesDoMovimento(movimentoDiario(SEMANA));
+    expect(x.diasDecorridos).toBe(6);           // 12 → 18
+    expect(x.mediaDiaria).toBeCloseTo(21 / 6, 5);
+  });
+
+  /**
+   * O erro que este teste impede: com um buraco, há 2 barras e 4 dias
+   * decorridos. Dividir por 2 daria 16/dia; o certo é 8.
+   */
+  it("buraco de coleta não infla a média", () => {
+    const m = movimentoDiario([
+      d("2026-08-12", 1000),
+      d("2026-08-13", null),
+      d("2026-08-14", null),
+      d("2026-08-15", 1030),
+      d("2026-08-16", 1032),
+    ]);
+    const x = destaquesDoMovimento(m);
+    expect(m.dias.filter((y) => y.variacao != null)).toHaveLength(2);
+    expect(x.diasDecorridos).toBe(4);
+    expect(x.mediaDiaria).toBeCloseTo(32 / 4, 5); // 8, e não 16
+  });
+
+  /** Com duas medições a "média" é a única variação vestida de média. */
+  it("amostra curta demais não produz média", () => {
+    const x = destaquesDoMovimento(movimentoDiario([
+      d("2026-08-12", 1000), d("2026-08-13", 1011),
+    ]));
+    expect(x.mediaDiaria).toBeNull();
+    // Mas o extremo daquele único dia continua sendo verdade.
+    expect(x.maiorAlta).toEqual({ dia: "2026-08-13", variacao: 11 });
+  });
+
+  it("média negativa aparece com sinal, e não vira zero", () => {
+    const x = destaquesDoMovimento(movimentoDiario([
+      d("2026-08-12", 1000), d("2026-08-13", 990), d("2026-08-14", 970),
+    ]));
+    expect(x.mediaDiaria).toBeCloseTo(-15, 5);
+  });
+
+  it("série vazia não quebra nem inventa destaque", () => {
+    const x = destaquesDoMovimento(movimentoDiario([]));
+    expect(x).toMatchObject({ maiorAlta: null, maiorQueda: null, mediaDiaria: null });
   });
 });

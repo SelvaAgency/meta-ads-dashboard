@@ -40,7 +40,7 @@ import { trpc } from "@/lib/trpc";
 import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
 import { lerVinculo, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { movimentoDaBase, somarNoPeriodo } from "@shared/socialSnapshot";
-import { movimentoDiario } from "@shared/movimentoDiario";
+import { destaquesDoMovimento, movimentoDiario } from "@shared/movimentoDiario";
 import { textoDeCobertura } from "@shared/periodosSociais";
 import { coletasSaoComparaveis, rotuloDeFluxo } from "@shared/janelaDaMetrica";
 import { composicaoDeAtivacoes, contarAtivacoes } from "@shared/ativacoes";
@@ -57,7 +57,7 @@ import {
   IdentidadeDaConta, Resultados, ResumoCurto, type ValorDoDia,
 } from "@/components/redes/CabecalhoDaConta";
 import {
-  GraficoDeAtivacoes, GraficoDeEvolucao, GraficoDeVariacaoDiaria,
+  GraficoDaEvolucaoDaBase, GraficoDeAtivacoes, GraficoDeEvolucao, GraficoDeVariacaoDiaria,
 } from "@/components/redes/GraficosSociais";
 import {
   PerformanceDeConteudo, UltimasPublicacoes,
@@ -86,6 +86,34 @@ function Secao({ titulo, dica, children }: {
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * Um destaque do rodapé do movimento — pequeno e secundário, de propósito.
+ *
+ * Sem ícone e sem selo: são três números de apoio embaixo de dois gráficos, e
+ * qualquer enfeite aqui os faria competir com o que eles apoiam. A cor é a
+ * única coisa que carrega significado, e só quando há sinal — um "–" cinza não
+ * finge ser resultado.
+ */
+function Destaque({ rotulo, valor, nota, cor }: {
+  rotulo: string; valor: string; nota: string; cor?: string;
+}) {
+  const vazio = valor === "–";
+  return (
+    <div className="min-w-0">
+      <span className="block text-[9px] font-bold uppercase tracking-[0.1em] text-muted-foreground/70 truncate">
+        {rotulo}
+      </span>
+      <span className="block text-[15px] font-bold tabular-nums leading-none mt-1"
+        style={vazio || !cor ? undefined : { color: cor }}>
+        {vazio ? <span className="text-muted-foreground/40">–</span> : valor}
+      </span>
+      <span className="block text-[9px] text-muted-foreground/60 mt-0.5 truncate" title={nota}>
+        {nota}
+      </span>
+    </div>
   );
 }
 
@@ -564,6 +592,8 @@ export default function RedesSociais() {
     () => movimentoDiario(serie.map((p) => ({ dia: p.dia, total: p.seguidores }))),
     [serie],
   );
+  /** Os três destaques do rodapé — as MESMAS variações que o gráfico desenha. */
+  const destaques = useMemo(() => destaquesDoMovimento(variacaoDiaria), [variacaoDiaria]);
 
   const leituraDoVinculo = organico
     ? lerVinculo({
@@ -858,21 +888,53 @@ export default function RedesSociais() {
                     )}
                   </div>
 
-                  <div className="pt-3 border-t border-border">
-                    {/* A largura do viewBox acompanha a coluna. Manter 760 aqui
-                        encolheria os rótulos do eixo para ~4,5px. */}
-                    <GraficoDeVariacaoDiaria movimento={variacaoDiaria} altura={148} largura={352} />
+                  {/* Dois gráficos, duas perguntas. O de cima responde QUANDO
+                      a base cresceu ou caiu; o de baixo, COMO ela chegou ao
+                      tamanho de hoje. Separados de propósito: fluxo e estoque no
+                      mesmo eixo foi o que derrubou a versão anterior deste
+                      bloco. A largura do viewBox acompanha a coluna — manter 760
+                      aqui reduziria os rótulos a ~4,5px. */}
+                  <div className="pt-3 border-t border-border flex flex-col gap-3.5">
+                    <GraficoDeVariacaoDiaria movimento={variacaoDiaria} altura={132} largura={352} />
+                    <GraficoDaEvolucaoDaBase movimento={variacaoDiaria} altura={104} largura={352} />
                   </div>
 
-                  <div className="mt-auto flex flex-col gap-1">
+                  {/* Os destaques: pequenos, e por isso mesmo os que erram
+                      fácil — ninguém confere um número de 11px. Extremos só de
+                      dias inteiros, e a média dividida por dias decorridos e não
+                      por barras. Ver `destaquesDoMovimento`. */}
+                  <div className="grid grid-cols-3 gap-2 pt-3 border-t border-border">
+                    <Destaque rotulo="Maior alta" cor={COR.entrada}
+                      valor={destaques.maiorAlta ? `+${fmt(destaques.maiorAlta.variacao)}` : "–"}
+                      nota={destaques.maiorAlta
+                        ? `${destaques.maiorAlta.dia.slice(8, 10)}/${destaques.maiorAlta.dia.slice(5, 7)}`
+                        : "sem alta no período"} />
+                    <Destaque rotulo="Maior queda" cor={COR.saida}
+                      valor={destaques.maiorQueda ? `−${fmt(Math.abs(destaques.maiorQueda.variacao))}` : "–"}
+                      nota={destaques.maiorQueda
+                        ? `${destaques.maiorQueda.dia.slice(8, 10)}/${destaques.maiorQueda.dia.slice(5, 7)}`
+                        : "sem queda no período"} />
+                    <Destaque rotulo="Média diária"
+                      cor={destaques.mediaDiaria == null ? undefined
+                        : destaques.mediaDiaria > 0 ? COR.entrada
+                        : destaques.mediaDiaria < 0 ? COR.saida : undefined}
+                      valor={destaques.mediaDiaria == null
+                        ? "–"
+                        : `${destaques.mediaDiaria > 0 ? "+" : destaques.mediaDiaria < 0 ? "−" : ""}${
+                            Math.abs(destaques.mediaDiaria).toFixed(1).replace(".", ",")}`}
+                      nota={destaques.mediaDiaria == null
+                        ? "amostra curta demais"
+                        : `em ${destaques.diasDecorridos} dia(s)`} />
+                  </div>
+
+                  <div className="mt-auto flex flex-col gap-1 pt-3">
                     <p className="text-[9.5px] text-muted-foreground/60 leading-snug">
                       Calculado entre snapshots de{" "}
                       <span className="font-mono text-[9.5px]">followers_count</span>.
                     </p>
-                    {/* A conferência que liga o gráfico ao número grande. Ela só
-                        aparece quando NÃO fecha — se fechasse sempre em silêncio,
-                        ninguém saberia que existe checagem; falhando calada,
-                        ninguém saberia que o gráfico parou de somar o total. */}
+                    {/* A conferência que liga o gráfico ao número grande. Só
+                        aparece quando NÃO fecha: falhando calada, ninguém
+                        saberia que o gráfico parou de somar o total. */}
                     {variacaoDiaria.fecha === false && (
                       <p className="text-[9.5px] text-amber-600 leading-snug">
                         As barras somam {fmt(variacaoDiaria.soma)} e a variação do período é{" "}

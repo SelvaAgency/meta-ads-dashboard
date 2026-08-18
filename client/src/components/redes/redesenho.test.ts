@@ -224,13 +224,33 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
    */
   it("o movimento diário desenha UMA série, e nenhuma linha", () => {
     const s = grafico();
+    // A fatia termina no gráfico SEGUINTE, que é a evolução da base — e aquele
+    // tem linha e área de propósito. São dois gráficos justamente para que o
+    // estoque não volte a atravessar as barras do fluxo.
     const corpo = s.slice(s.indexOf("export function GraficoDeVariacaoDiaria"),
-      s.indexOf("export function GraficoDeAtivacoes"));
+      s.indexOf("export function GraficoDaEvolucaoDaBase"));
     expect(corpo, "voltou a desenhar uma linha").not.toContain("<path");
     expect(corpo, "voltou a desenhar pontos de série").not.toContain("<circle");
     // Verde e vermelho são os DOIS SENTIDOS de uma série só, não duas séries.
     expect(corpo).toContain("COR.entrada");
     expect(corpo).toContain("COR.saida");
+  });
+
+  /**
+   * Os dois gráficos do bloco existem porque as perguntas são diferentes:
+   * QUANDO a base se moveu, e COMO ela chegou ao tamanho de hoje. Fundi-los
+   * num eixo só é exatamente o que derrubou a versão anterior.
+   */
+  it("evolução da base é gráfico SEPARADO, e lê o total", () => {
+    const s = grafico();
+    const corpo = s.slice(s.indexOf("export function GraficoDaEvolucaoDaBase"));
+    expect(corpo).toContain("d.total");
+    // Ele não desenha variação: quem faz isso é o de cima.
+    expect(corpo, "a evolução voltou a desenhar variação").not.toContain("d.variacao");
+    // E a página monta os dois a partir da MESMA série.
+    const pg = pagina();
+    expect(pg).toContain("<GraficoDeVariacaoDiaria movimento={variacaoDiaria}");
+    expect(pg).toContain("<GraficoDaEvolucaoDaBase movimento={variacaoDiaria}");
   });
 
   /**
@@ -272,7 +292,7 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
   it("nenhuma série do movimento plota o estoque", () => {
     const s = grafico();
     const corpo = s.slice(s.indexOf("export function GraficoDeVariacaoDiaria"),
-      s.indexOf("export function GraficoDeAtivacoes"));
+      s.indexOf("export function GraficoDaEvolucaoDaBase"));
     // A barra sai de `d.variacao`, e o total só aparece no texto do hover.
     expect(corpo).toContain("d.variacao");
     expect(corpo, "a altura da barra voltou a sair do total").not.toMatch(/px\(d\.total\)/);
