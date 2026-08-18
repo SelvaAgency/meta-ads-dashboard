@@ -1,7 +1,14 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  O painel contextual de uma métrica — "como isso evoluiu no período?"
+ *  O painel contextual de uma métrica — o que o cartão NÃO cabe
  * ─────────────────────────────────────────────────────────────────────────────
+ *  Ele já foi "a evolução". Deixou de ser em 18/08/2026, quando a mini-linha
+ *  passou a viver dentro do próprio cartão, sempre visível. Um painel que
+ *  ampliasse o mesmo gráfico cobraria um clique para não acrescentar nada.
+ *
+ *  O que sobrou aqui é o que não cabe no cartão: a comparação com o período
+ *  anterior, a proporção da base, a composição e a procedência do número. É
+ *  detalhamento complementar, e não uma segunda versão do que já está na tela.
  *  Nasceu para cliques no link, onde um cartão permanente seria desproporcional:
  *  é o número menor da faixa e ocuparia a mesma área que engajamento. A pergunta
  *  "está subindo?" é legítima e não cabe num número só.
@@ -40,67 +47,14 @@ export interface DiaDaMetrica {
   valor: number | null;
 }
 
-/**
- * A mini-série: linha só, sem eixo nem grade.
- *
- * O painel responde "está subindo ou caindo", e para isso a forma basta. Eixos
- * numa caixa de 260px roubariam metade da largura para repetir números que
- * estão escritos logo acima em tamanho legível.
- *
- * A linha QUEBRA no dia sem medição. Ligar os dois lados desenharia uma
- * inclinação que ninguém mediu, e a interpolação é exatamente o que um dia sem
- * coleta não autoriza.
+/*
+ * ── O que morava aqui ──────────────────────────────────────────────────────
+ * `MiniSerie`. Ela desenhava a evolução DO PERÍODO dentro do painel, e foi
+ * substituída pela `MiniTendencia` do cartão — que é sempre visível e usa o
+ * histórico máximo, não o recorte. Duas linhas da mesma métrica, uma atrás de
+ * um clique e cada uma com um recorte diferente, seriam duas respostas para a
+ * mesma pergunta.
  */
-export function MiniSerie({ dias, cor, altura = 46 }: {
-  dias: DiaDaMetrica[]; cor: string; altura?: number;
-}) {
-  const medidos = dias.filter((d) => d.valor != null);
-  if (medidos.length < 2) {
-    return (
-      <p className="text-[10.5px] text-muted-foreground/70 py-2">
-        A evolução aparece a partir de dois dias medidos.
-      </p>
-    );
-  }
-
-  const W = 260, mt = 4, mb = 4;
-  const ih = altura - mt - mb;
-  const max = Math.max(1, ...medidos.map((d) => d.valor as number));
-  const passo = W / Math.max(1, dias.length);
-  const x = (i: number) => (i + 0.5) * passo;
-  const y = (v: number) => mt + ih - (v / max) * ih;
-
-  const partes: string[] = [];
-  let atual: string[] = [];
-  dias.forEach((d, i) => {
-    if (d.valor == null) {
-      if (atual.length > 1) partes.push(atual.join(" "));
-      atual = [];
-      return;
-    }
-    atual.push(`${atual.length ? "L" : "M"}${x(i).toFixed(1)},${y(d.valor).toFixed(1)}`);
-  });
-  if (atual.length > 1) partes.push(atual.join(" "));
-
-  const ultimo = dias.reduce((achado, d, i) => (d.valor != null ? i : achado), -1);
-
-  return (
-    <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img"
-      aria-label="Evolução da métrica no período">
-      <line x1={0} x2={W} y1={mt + ih} y2={mt + ih}
-        className="stroke-border" strokeWidth={1} />
-      {partes.map((d, i) => (
-        <path key={i} d={d} fill="none" stroke={cor} strokeWidth={1.8}
-          strokeLinecap="round" strokeLinejoin="round" />
-      ))}
-      {/* O último dia medido ganha ponto: é o valor que a pessoa quer conferir
-          contra o total, e num traço fino de 260px a ponta se perde. */}
-      {ultimo >= 0 && (
-        <circle cx={x(ultimo)} cy={y(dias[ultimo].valor as number)} r={2.6} fill={cor} />
-      )}
-    </svg>
-  );
-}
 
 export function PainelDaMetrica({
   rotulo, cor, dias, total, formato = "numero", variacaoPct, anterior,
@@ -129,6 +83,8 @@ export function PainelDaMetrica({
   children: React.ReactNode;
 }) {
   const porSeguidores = seguidores === undefined ? null : taxaPorSeguidores(total, seguidores);
+  // `dias` ficou só pela CONTAGEM: quantos dias do período têm medição é
+  // ressalva do número grande, e não sobrevive no cartão.
   const medidos = dias.filter((d) => d.valor != null).length;
   const grande = total == null ? "–"
     : formato === "percentual" ? `${total.toFixed(1).replace(".", ",")}%`
@@ -149,10 +105,6 @@ export function PainelDaMetrica({
           style={{ color: cor }}>
           {grande}
         </span>
-
-        <div className="mt-3">
-          <MiniSerie dias={dias} cor={cor} />
-        </div>
 
         {extra && <div className="mt-3">{extra}</div>}
 

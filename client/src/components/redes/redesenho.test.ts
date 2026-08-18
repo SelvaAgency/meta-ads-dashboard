@@ -136,16 +136,55 @@ describe("nenhuma métrica saiu da faixa geral", () => {
    * uma delas, e quatro painéis diferentes com a mesma forma seriam quatro
    * lugares para a decisão de quebrar a linha num dia sem coleta escorregar.
    */
-  it("toda métrica da faixa abre painel de evolução", () => {
+  it("toda métrica da faixa abre detalhamento complementar", () => {
     const s = pagina();
     for (const r of ["Ativações", "Engajamento", "Visitas ao perfil", "Cliques no link"]) {
       expect(s, r).toMatch(new RegExp(`<PainelDaMetrica[^>]*rotulo="${r}"`));
     }
     // Cliques continua sem cartão próprio: é o menor número da faixa.
     expect(s).not.toMatch(/<CartaoGeral[^>]*rotulo="Cliques no link"/);
-    // A série do painel guarda `null` no dia sem medição: interpolar desenharia
-    // uma inclinação que ninguém mediu.
-    expect(s).toContain('valor: mets(p, k)');
+  });
+
+  /**
+   * ───────────────────────────────────────────────────────────────────────────
+   *  A separação que o cartão passou a fazer
+   * ───────────────────────────────────────────────────────────────────────────
+   *    o NÚMERO responde "quanto tivemos neste período"   → segue o filtro
+   *    a LINHA  responde "como isso vem evoluindo"        → ignora o filtro
+   *
+   *  Com "Hoje" selecionado, uma linha de um ponto não é tendência: é o mesmo
+   *  número, desenhado. O jeito de isso regredir é alguém "corrigir" a linha
+   *  para respeitar o filtro, achando que era inconsistência.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  it("a mini-linha lê o histórico, e o número lê o filtro", () => {
+    const s = pagina();
+    // `janelaFixa` são as últimas 30 coletas, SEM filtro; `serie` segue o filtro.
+    expect(s).toMatch(/const historicoDe[\s\S]{0,200}janelaFixa\.map/);
+    expect(s, "a linha voltou a seguir o filtro").not.toMatch(/const historicoDe[\s\S]{0,200}serie\.map/);
+    for (const m of ["ativacoesHistorico", "engajamentoPorDia", "visitasPorDia", "cliquesPorDia"]) {
+      expect(s, m).toMatch(new RegExp(`<MiniTendencia dias=\\{${m}\\}`));
+    }
+  });
+
+  /**
+   * O painel deixou de ampliar o mesmo gráfico. Se a linha voltar para dentro
+   * dele, o clique passa a cobrar por não acrescentar nada — e as duas linhas
+   * teriam recortes diferentes da mesma métrica.
+   */
+  it("o painel não repete a linha que já está no cartão", () => {
+    const s = fonte("./PainelDaMetrica.tsx");
+    expect(s, "a mini-série voltou ao painel").not.toContain("<MiniSerie");
+    // O que sobrou é o que o cartão não cabe.
+    expect(s).toContain("Período anterior");
+    expect(s).toContain("procedencia");
+  });
+
+  /** A série do engajamento é o TOTAL, igual ao número grande do cartão. */
+  it("a linha do engajamento segue o número, e não a taxa", () => {
+    const s = pagina();
+    expect(s).toContain('const engajamentoPorDia = historicoDe("total_interactions")');
+    expect(s).not.toMatch(/<MiniTendencia dias=\{taxa/);
   });
 
   /** As ressalvas são o que separa "medido zero" de "não medido". */

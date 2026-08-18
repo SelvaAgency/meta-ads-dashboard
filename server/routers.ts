@@ -2511,11 +2511,37 @@ export const appRouter = router({
       }),
 
     // ─── AI Status Summary ────────────────────────────────────────────────────
+    /**
+     * Refaz a análise de IA da conta.
+     *
+     * O `catch` NÃO engole a falha: ele a traduz. Antes, qualquer erro subia
+     * como 500 genérico e o cliente o descartava num toast fixo — a causa real
+     * (chave ausente, modelo fora do ar, conta sem métrica) morria antes de
+     * chegar em quem podia agir. Aqui cada uma vira uma frase que diz o que
+     * fazer, e a mensagem passa por `sanitizar` porque texto de erro de API é
+     * como credencial vaza para tela.
+     */
     refreshStatus: protectedProcedure
       .input(z.object({ accountId: z.number(), contexto: z.string().max(2000).optional() }))
       .mutation(async ({ ctx, input }) => {
         await getVerifiedAccount(input.accountId, ctx.user.id);
-        return refreshAccountAiStatus(input.accountId, ctx.user.id, { adhocContexto: input.contexto });
+        try {
+          return await refreshAccountAiStatus(input.accountId, ctx.user.id, { adhocContexto: input.contexto });
+        } catch (e) {
+          const cru = (e as Error)?.message ?? "";
+          const { sanitizar } = await import("./services/instagram");
+          if (/ANTHROPIC_API_KEY/i.test(cru)) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "A IA não está configurada neste ambiente (falta ANTHROPIC_API_KEY).",
+            });
+          }
+          console.error(`[refreshStatus] conta ${input.accountId} falhou:`, e);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Não foi possível refazer a análise: ${sanitizar(cru).slice(0, 220)}`,
+          });
+        }
       }),
 
     /** Reanalisa o status da IA de TODAS as contas ativas (admin). Sequencial e

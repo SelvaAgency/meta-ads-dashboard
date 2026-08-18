@@ -50,8 +50,8 @@ import { etiquetarDesempenho } from "@shared/desempenhoDaPublicacao";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 import { COR, COR_INTERACAO, COR_TIPO, ORDEM_TIPO } from "@shared/coresSociais";
 import { compararComAnterior, variacao } from "@shared/periodoAnterior";
-import { CartaoGeral, MetricaDoPerfil } from "@/components/redes/CartaoGeral";
-import { PainelDaMetrica, MiniSerie, type DiaDaMetrica } from "@/components/redes/PainelDaMetrica";
+import { CartaoGeral, MetricaDoPerfil, MiniTendencia } from "@/components/redes/CartaoGeral";
+import { PainelDaMetrica, type DiaDaMetrica } from "@/components/redes/PainelDaMetrica";
 import { ABAS_SOCIAIS, ROTULO_ABA_SOCIAL, abaDaUrl, type AbaSocial } from "./social/abasSociais";
 import { RetencaoReels } from "@/components/redes/RetencaoReels";
 import {
@@ -584,17 +584,32 @@ export default function RedesSociais() {
    * inclinação que ninguém mediu.
    */
   /**
-   * A série diária de uma métrica de perfil — o insumo dos painéis contextuais.
+   * ─────────────────────────────────────────────────────────────────────────
+   *  As mini-séries dos cartões — HISTÓRICO MÁXIMO, e não o período do filtro
+   * ─────────────────────────────────────────────────────────────────────────
+   *  Esta é a separação que o cartão passa a fazer, e ela é conceitual antes de
+   *  ser visual:
    *
-   * Segue o filtro, como todo bloco desta aba. `null` no dia sem medição, e não
-   * 0: a mini-série quebra a linha ali em vez de interpolar uma inclinação que
-   * ninguém mediu.
+   *    o NÚMERO responde "quanto tivemos neste período"   → segue o filtro
+   *    a LINHA  responde "como isso vem evoluindo"        → ignora o filtro
+   *
+   *  Com "Hoje" selecionado, uma linha de um ponto não é tendência — é a mesma
+   *  informação do número, desenhada. A linha só serve se olhar mais longe que
+   *  o recorte, e é por isso que ela lê `janelaFixa` (as últimas 30 coletas,
+   *  sem filtro) enquanto o número lê `serie`.
+   *
+   *  `null` no dia sem medição, e não 0: a linha QUEBRA ali em vez de
+   *  interpolar uma inclinação que ninguém mediu.
+   * ─────────────────────────────────────────────────────────────────────────
    */
-  const serieDiaria = (k: string): DiaDaMetrica[] =>
-    serie.map((p) => ({ dia: p.dia, valor: mets(p, k) }));
-  const cliquesPorDia = serieDiaria("website_clicks");
-  const visitasPorDia = serieDiaria("profile_views");
-  const engajamentoPorDia = serieDiaria("total_interactions");
+  const historicoDe = (k: string): DiaDaMetrica[] =>
+    janelaFixa.map((p) => ({
+      dia: p.dia,
+      valor: typeof p.metricas?.[k] === "number" ? p.metricas[k] : null,
+    }));
+  const cliquesPorDia = historicoDe("website_clicks");
+  const visitasPorDia = historicoDe("profile_views");
+  const engajamentoPorDia = historicoDe("total_interactions");
 
   /**
    * A variação líquida por dia — a ÚNICA série do gráfico.
@@ -613,6 +628,20 @@ export default function RedesSociais() {
     () => movimentoDiario(serie.map((p) => ({ dia: p.dia, total: p.seguidores }))),
     [serie],
   );
+  /**
+   * As ativações do HISTÓRICO, para a mini-linha do cartão.
+   *
+   * `ativacoesRecentesPorDia` já cobre a janela fixa e agrupa por dia de
+   * PUBLICAÇÃO — a mesma correção que impediu toda conta de exibir 25
+   * publicações diárias. Um dia sem coleta fica `null`, e não zero: a conta
+   * pode não ter publicado, mas também podemos não ter medido, e a linha não
+   * decide isso sozinha.
+   */
+  const ativacoesHistorico: DiaDaMetrica[] = janelaFixa.map((p) => ({
+    dia: p.dia,
+    valor: ativacoesRecentesPorDia.has(p.dia) ? ativacoesRecentesPorDia.get(p.dia) ?? 0 : 0,
+  }));
+
   /** Os três destaques do rodapé — as MESMAS variações que o gráfico desenha. */
   const destaques = useMemo(() => destaquesDoMovimento(variacaoDiaria), [variacaoDiaria]);
 
@@ -778,10 +807,15 @@ export default function RedesSociais() {
                                      focus-visible:outline-none focus-visible:ring-2
                                      focus-visible:ring-ring focus-visible:ring-offset-[-2px]">
                     <CartaoGeral icone={Layers} cor={COR.ativacoes} rotulo="Ativações"
-                      clicavel acao="ver evolução"
+                      clicavel acao="o que compõe"
                       explicacao="Tudo que a conta publicou no período — posts, stories e reels."
                       valor={fmt(ativacoes.total)}
+                      /* Duas visualizações, dois recortes, e é de propósito:
+                         a barra é a composição do PERÍODO selecionado, a linha é
+                         a evolução do HISTÓRICO. Elas não competem porque
+                         respondem perguntas diferentes. */
                       grafico={<GraficoDeAtivacoes pontos={pontosDeAtivacao} altura={78} compacto />}
+                      evolucao={<MiniTendencia dias={ativacoesHistorico} cor={COR.ativacoes} />}
                       variacaoPct={varAtivacoes.pct} anterior={varAtivacoes.anterior}
                       parcelas={composicaoDeAtivacoes(ativacoes).map((x) => ({
                         rotulo: x.rotulo, valor: x.total ?? 0,
@@ -807,7 +841,7 @@ export default function RedesSociais() {
                                      focus-visible:outline-none focus-visible:ring-2
                                      focus-visible:ring-ring focus-visible:ring-offset-[-2px]">
                     <CartaoGeral icone={Heart} cor={COR.engajamento} rotulo="Engajamento"
-                      clicavel acao="ver evolução"
+                      clicavel acao="o que compõe"
                       explicacao="Total de interações medido pela Meta. As parcelas abaixo dizem de que ele é feito."
                       valor={fmt(composicao.totalApresentado)}
                       detalhe={taxa != null ? `${taxa.toFixed(1)}% do alcance` : null}
@@ -815,6 +849,11 @@ export default function RedesSociais() {
                       parcelas={composicao.partes.map((x) => ({
                         rotulo: x.rotulo, valor: x.total, cor: COR_INTERACAO[x.chave] ?? COR.engajamento,
                       }))}
+                      /* A série é o TOTAL de interações, e não a taxa: o número
+                         grande do cartão é o total, e uma linha de percentual
+                         subiria enquanto o total caísse — duas leituras opostas
+                         no mesmo cartão. */
+                      evolucao={<MiniTendencia dias={engajamentoPorDia} cor={COR.engajamento} />}
                       ressalva={composicao.ressalva} />
                       </button>
                     </PainelDaMetrica>
@@ -848,7 +887,8 @@ export default function RedesSociais() {
                                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                             <MetricaDoPerfil rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
                               variacaoPct={varVisitas.pct} anterior={varVisitas.anterior}
-                              ressalva={rotuloVisitas.resumo} acao="ver evolução" />
+                              evolucao={<MiniTendencia dias={visitasPorDia} cor={COR.visitas} />}
+                              ressalva={rotuloVisitas.resumo} acao="o que compõe" />
                           </button>
                         </PainelDaMetrica>
                         {/* Cliques abre o painel contextual em vez de ganhar um
@@ -865,7 +905,8 @@ export default function RedesSociais() {
                                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                             <MetricaDoPerfil rotulo="Cliques no link" valor={fmt(cliques.total)}
                               variacaoPct={varCliques.pct} anterior={varCliques.anterior}
-                              acao="ver evolução" />
+                              evolucao={<MiniTendencia dias={cliquesPorDia} cor={COR.visitas} />}
+                              acao="o que compõe" />
                           </button>
                         </PainelDaMetrica>
                       </div>

@@ -231,16 +231,36 @@ export function AccountHeader({
     (s: any) => s.status === "applied" && s.monitorUntil && (daysLeft(s.monitorUntil) ?? 0) > 0
   );
 
+  /**
+   * O erro da atualização fica GUARDADO, não só num toast.
+   *
+   * `onError: () => toast.error("Erro ao atualizar status IA")` descartava a
+   * mensagem do servidor — que é justamente a que distingue "IA não
+   * configurada" de "o modelo recusou". Sem ela, ninguém consegue investigar:
+   * o toast some em três segundos e a única pista vai junto. Quarta vez que
+   * este mesmo padrão aparece no sistema (teste de loja, sync de loja, sync da
+   * conta, aqui).
+   *
+   * Em caso de falha nada é invalidado: o aviso de "desatualizada" CONTINUA no
+   * ar, porque a análise continua velha. Limpá-lo aqui marcaria como atualizado
+   * algo que não foi.
+   */
+  const [erroAnalise, setErroAnalise] = useState<string | null>(null);
+
   const refreshStatus = trpc.accounts.refreshStatus.useMutation({
     onSuccess: () => {
+      setErroAnalise(null);
       utils.accounts.list.invalidate();
       // Sem isto, o aviso de "desatualizada" ficaria no ar depois de a análise
       // ter sido refeita — e um aviso que sobrevive ao conserto ensina a
       // ignorá-lo.
       utils.context.analiseVigente.invalidate();
-      toast.success("Status IA atualizado");
+      toast.success("Análise atualizada com o contexto mais recente");
     },
-    onError:   () => toast.error("Erro ao atualizar status IA"),
+    onError: (e) => {
+      setErroAnalise(e.message);
+      toast.error(e.message);
+    },
   });
 
   /**
@@ -546,11 +566,21 @@ export function AccountHeader({
                 considera o que a equipe informou.
               </span>
               <button
-                onClick={() => selectedAccountId && refreshStatus.mutate({ accountId: selectedAccountId })}
+                onClick={() => { setErroAnalise(null); if (selectedAccountId) refreshStatus.mutate({ accountId: selectedAccountId }); }}
                 disabled={refreshStatus.isPending}
                 className="flex-shrink-0 font-semibold underline hover:no-underline disabled:opacity-60">
                 {refreshStatus.isPending ? "Atualizando…" : "Atualizar"}
               </button>
+            </div>
+          )}
+
+          {/* O erro fica NA TELA, junto do aviso que continua valendo. Um toast
+              sozinho some antes de alguém copiar a mensagem — e é ela que diz
+              se falta chave, se o modelo recusou ou se a conta não tem dado. */}
+          {erroAnalise && (
+            <div className="mb-2 rounded-lg border border-destructive/30 bg-destructive/5 px-2.5 py-2
+                            text-[11px] leading-snug text-destructive">
+              <strong>Não foi possível atualizar.</strong> {erroAnalise}
             </div>
           )}
 

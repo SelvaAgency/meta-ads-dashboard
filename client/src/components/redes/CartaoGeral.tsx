@@ -60,7 +60,7 @@ function Selo({ pct, anterior, bom }: {
 
 export function CartaoGeral({
   icone: Icone, cor, rotulo, valor, detalhe, parcelas, ressalva, explicacao,
-  variacaoPct, anterior, bom = "sobe", grafico, clicavel, acao,
+  variacaoPct, anterior, bom = "sobe", grafico, evolucao, clicavel, acao,
 }: {
   icone: LucideIcon;
   /** O matiz da família — o mesmo do gráfico e da legenda desta métrica. */
@@ -84,6 +84,17 @@ export function CartaoGeral({
    * barra diz de quê.
    */
   grafico?: React.ReactNode;
+  /**
+   * A mini-linha de tendência — sempre visível, e sempre do histórico máximo.
+   *
+   * Ela NÃO segue o filtro de período, e isso é a decisão inteira: com "Hoje"
+   * selecionado, uma linha de um ponto repetiria o número em forma de desenho.
+   * Tendência só existe olhando mais longe que o recorte.
+   *
+   * Fica DEPOIS da composição e antes da ressalva: é leitura de apoio, e subiria
+   * acima do número se dividisse espaço com ele.
+   */
+  evolucao?: React.ReactNode;
   /**
    * `true` quando o cartão abre um painel. Muda só a afordância — o cursor e o
    * convite —, nunca o conteúdo: um cartão que parece clicável e não é ensina a
@@ -171,6 +182,8 @@ export function CartaoGeral({
         </>
       )}
 
+      {evolucao && <div className="mt-2.5">{evolucao}</div>}
+
       {ressalva && (
         <span className="text-[10px] text-muted-foreground/60 leading-snug mt-2">{ressalva}</span>
       )}
@@ -195,9 +208,13 @@ export function CartaoGeral({
  * mas continuam sendo dois números. Somá-los criaria uma métrica que ninguém
  * mede — a agrupação é só visual, porque são duas ações sobre o mesmo objeto.
  */
-export function MetricaDoPerfil({ rotulo, valor, variacaoPct, anterior, ressalva, acao }: {
+export function MetricaDoPerfil({
+  rotulo, valor, variacaoPct, anterior, ressalva, acao, evolucao,
+}: {
   rotulo: string; valor: string;
   variacaoPct?: number | null; anterior?: number | null; ressalva?: string | null;
+  /** A mini-linha de tendência — histórico máximo, nunca o período do filtro. */
+  evolucao?: React.ReactNode;
   /**
    * O convite, quando a métrica abre algo. Sem ele, um número clicável é
    * indistinguível de um número comum — e ninguém descobre o painel.
@@ -217,6 +234,7 @@ export function MetricaDoPerfil({ rotulo, valor, variacaoPct, anterior, ressalva
         vazio ? "text-muted-foreground/40" : "text-foreground"}`}>
         {valor}
       </span>
+      {evolucao && <div className="mt-2">{evolucao}</div>}
       {ressalva && (
         <span className="block text-[10px] text-muted-foreground/60 leading-snug mt-1.5">{ressalva}</span>
       )}
@@ -226,6 +244,92 @@ export function MetricaDoPerfil({ rotulo, valor, variacaoPct, anterior, ressalva
           {acao} →
         </span>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A mini-linha de tendência do cartão
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Discreta de propósito: sem eixo, sem grade, sem rótulo de valor. Ela responde
+ *  "está subindo ou caindo", e qualquer número desenhado aqui competiria com o
+ *  que está logo acima — que é o número de verdade, do período selecionado.
+ *
+ *  ── O rótulo diz que ela ignora o filtro ───────────────────────────────────
+ *  Sem isso, quem trocasse o período para "Hoje" veria o número mudar e a linha
+ *  não, e concluiria que a tela travou. "N dias" ao lado resolve em duas
+ *  palavras o que um parágrafo explicaria.
+ *
+ *  ── A linha QUEBRA no dia sem medição ──────────────────────────────────────
+ *  Ligar os dois lados desenharia uma inclinação que ninguém mediu, e a
+ *  interpolação é exatamente o que um dia sem coleta não autoriza.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export function MiniTendencia({ dias, cor, altura = 30 }: {
+  dias: Array<{ dia: string; valor: number | null }>;
+  cor: string;
+  altura?: number;
+}) {
+  const [ativo, setAtivo] = useState<number | null>(null);
+  const medidos = dias.filter((d) => d.valor != null);
+  if (medidos.length < 2) return null;
+
+  const W = 200, mt = 3, mb = 3;
+  const ih = altura - mt - mb;
+  const valores = medidos.map((d) => d.valor as number);
+  const max = Math.max(...valores);
+  const min = Math.min(...valores);
+  const amplitude = Math.max(1, max - min);
+
+  const passo = W / Math.max(1, dias.length - 1);
+  const x = (i: number) => i * passo;
+  const y = (v: number) => mt + ih - ((v - min) / amplitude) * ih;
+
+  const partes: string[] = [];
+  let atual: string[] = [];
+  dias.forEach((d, i) => {
+    if (d.valor == null) {
+      if (atual.length > 1) partes.push(atual.join(" "));
+      atual = [];
+      return;
+    }
+    atual.push(`${atual.length ? "L" : "M"}${x(i).toFixed(1)},${y(d.valor).toFixed(1)}`);
+  });
+  if (atual.length > 1) partes.push(atual.join(" "));
+
+  const emFoco = ativo != null ? dias[ativo] : null;
+
+  return (
+    <div className="flex flex-col gap-0.5" onMouseLeave={() => setAtivo(null)}>
+      <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} preserveAspectRatio="none"
+        role="img" aria-label="Tendência no histórico disponível">
+        {partes.map((d, i) => (
+          <path key={i} d={d} fill="none" stroke={cor} strokeWidth={1.6}
+            vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"
+            opacity={ativo == null ? 0.9 : 0.45} />
+        ))}
+        {emFoco?.valor != null && ativo != null && (
+          <circle cx={x(ativo)} cy={y(emFoco.valor)} r={2.6} fill={cor}
+            vectorEffect="non-scaling-stroke" />
+        )}
+        {/* Captura por último, uma faixa por ponto — inclusive os não medidos,
+            que respondem "sem coleta" em vez de silêncio. */}
+        {dias.map((d, i) => (
+          <rect key={d.dia} x={x(i) - passo / 2} y={0} width={passo} height={altura}
+            fill="transparent" style={{ cursor: "pointer" }}
+            onMouseEnter={() => setAtivo(i)} />
+        ))}
+      </svg>
+      {/* Altura fixa: aparecer e sumir mexeria na altura do cartão a cada
+          movimento do mouse, e os vizinhos pulariam junto. */}
+      <span className="block text-[9px] text-muted-foreground/60 tabular-nums min-h-[12px] truncate">
+        {emFoco
+          ? `${emFoco.dia.slice(8, 10)}/${emFoco.dia.slice(5, 7)} · ${
+              emFoco.valor == null ? "sem coleta" : emFoco.valor.toLocaleString("pt-BR")}`
+          : `evolução · ${medidos.length} dias de histórico`}
+      </span>
     </div>
   );
 }
