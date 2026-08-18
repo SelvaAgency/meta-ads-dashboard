@@ -310,131 +310,242 @@ export interface PontoDeMovimento {
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Evolução da base — o TAMANHO, e não o movimento
+ *  A curva histórica — um desenho só, dois tamanhos
  * ─────────────────────────────────────────────────────────────────────────────
- *  Mesma fonte do gráfico de cima, pergunta diferente. O movimento diário
- *  responde QUANDO a base cresceu ou caiu; este responde COMO ela chegou ao
- *  tamanho de hoje. Um mostra o fluxo, o outro o estoque — e é por isso que são
- *  dois gráficos e não duas séries no mesmo eixo: foi exatamente essa mistura
- *  que derrubou a versão anterior deste bloco.
+ *  Ela nasceu dentro da Evolução da Base e virou peça própria quando os cartões
+ *  de Dados Gerais precisaram da mesma leitura em miniatura. A alternativa era
+ *  um sparkline separado, e foi o que existiu por uma rodada: linha fina, sem
+ *  eixo, sem área. Ele parecia decoração — e decoração ninguém lê como dado.
+ *
+ *  Extrair em vez de imitar é o que garante que continuem iguais. Duas
+ *  implementações da mesma curva divergem no primeiro ajuste que alguém faz só
+ *  numa delas.
  *
  *  ── O eixo NÃO começa em zero, e isso é decisão ────────────────────────────
- *  Com 9.400 seguidores e variação de 20, um eixo ancorado no zero desenharia
- *  uma reta perfeitamente horizontal: a variação some dentro da escala do
- *  total. O eixo aqui enquadra o intervalo medido com uma folga, e os dois
- *  rótulos dizem os extremos — a leitura é a FORMA da curva, e os números
- *  exatos estão no hover e no saldo atual logo acima.
+ *  Com 9.400 seguidores e variação de 20, um eixo ancorado no zero desenha uma
+ *  reta horizontal: a variação some dentro da escala do total. O eixo enquadra
+ *  o intervalo medido com folga, e os dois rótulos dizem os extremos — a
+ *  leitura é a FORMA da curva, e o valor exato está no hover.
  *
  *  ── Buraco de coleta vira traço, e não reta cheia ──────────────────────────
  *  Entre duas medições distantes a linha existe, mas tracejada: ela liga dois
  *  pontos reais por um caminho que ninguém mediu, e uma reta contínua ali
  *  afirmaria um crescimento uniforme que pode não ter sido.
+ *
+ *  ── Pontos só quando cabem ─────────────────────────────────────────────────
+ *  Trinta bolinhas numa curva de 60px viram uma trama que esconde a própria
+ *  linha. Acima do teto eles só aparecem no dia sob o mouse.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-export function GraficoDaEvolucaoDaBase({ movimento, altura = 104, largura = 760 }: {
-  movimento: MovimentoDiario; altura?: number; largura?: number;
-}) {
-  const [ativo, setAtivo] = useState<number | null>(null);
-  const dias = movimento.dias;
-  const vazio = dias.length < 2;
+export interface PontoHistorico {
+  dia: string;
+  valor: number;
+  /** `true` quando o segmento que CHEGA aqui pula dias sem medição. */
+  vao?: boolean;
+}
 
-  const totais = dias.map((d) => d.total);
+/** Acima disto, ponto permanente vira trama. */
+const MAX_PONTOS_VISIVEIS = 14;
+
+export function CurvaHistorica({
+  pontos, cor, altura, largura, ativo, aoEntrar, miuda = false, id,
+}: {
+  pontos: PontoHistorico[];
+  cor: string;
+  altura: number;
+  largura: number;
+  ativo: number | null;
+  aoEntrar: (i: number | null) => void;
+  /** Versão de cartão: tipografia e margens menores, mesma gramática. */
+  miuda?: boolean;
+  /** Sufixo do gradiente — dois `<linearGradient>` com o mesmo id colidiriam. */
+  id: string;
+}) {
+  const totais = pontos.map((d) => d.valor);
   const min = Math.min(...totais);
   const max = Math.max(...totais);
   /** Folga de 8% da amplitude — a curva não encosta nas bordas da moldura. */
   const folga = Math.max(1, (max - min) * 0.08);
   const piso = min - folga, teto = max + folga;
 
+  const corpo = miuda ? 8 : 9;
   const digitos = Math.max(fmt(teto).length, fmt(piso).length);
-  const W = largura, ml = 10 + digitos * 5.6, mr = 12, mt = 10, mb = 18;
+  const W = largura;
+  const ml = (miuda ? 6 : 10) + digitos * (miuda ? 4.6 : 5.6);
+  const mr = miuda ? 6 : 12;
+  const mt = miuda ? 7 : 10;
+  const mb = miuda ? 13 : 18;
   const iw = W - ml - mr, ih = altura - mt - mb;
 
-  const x = (i: number) => ml + (dias.length < 2 ? iw / 2 : (i / (dias.length - 1)) * iw);
+  const x = (i: number) => ml + (pontos.length < 2 ? iw / 2 : (i / (pontos.length - 1)) * iw);
   const y = (v: number) => mt + ih - ((v - piso) / Math.max(1, teto - piso)) * ih;
 
-  /** Os segmentos, separados entre medidos-consecutivos e vãos sem coleta. */
-  const segmentos = dias.slice(1).map((d, k) => ({
-    de: k, para: k + 1, temBuraco: d.diasCobertos > 1,
-  }));
-
-  const area = dias.length >= 2
+  const area = pontos.length >= 2
     ? `M${x(0).toFixed(1)},${(mt + ih).toFixed(1)} `
-      + dias.map((d, i) => `L${x(i).toFixed(1)},${y(d.total).toFixed(1)}`).join(" ")
-      + ` L${x(dias.length - 1).toFixed(1)},${(mt + ih).toFixed(1)} Z`
+      + pontos.map((d, i) => `L${x(i).toFixed(1)},${y(d.valor).toFixed(1)}`).join(" ")
+      + ` L${x(pontos.length - 1).toFixed(1)},${(mt + ih).toFixed(1)} Z`
     : "";
 
-  const passoRotulo = intervaloDeRotulos(dias.length, iw);
+  const passoRotulo = intervaloDeRotulos(pontos.length, iw, miuda ? 30 : 34);
+  const mostrarPontos = pontos.length <= MAX_PONTOS_VISIVEIS;
+  const faixa = iw / Math.max(1, pontos.length - 1);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img"
+      aria-label="Evolução no histórico disponível"
+      onMouseLeave={() => aoEntrar(null)}>
+      <defs>
+        <linearGradient id={`curva-${id}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={cor} stopOpacity={0.22} />
+          <stop offset="100%" stopColor={cor} stopOpacity={0.02} />
+        </linearGradient>
+      </defs>
+
+      {[teto, piso].map((v, k) => {
+        const yy = k === 0 ? mt : mt + ih;
+        return (
+          <g key={k}>
+            <line x1={ml} x2={W - mr} y1={yy} y2={yy} className={GRADE} strokeDasharray="3 4" />
+            <text x={ml - (miuda ? 4 : 6)} y={yy + 3.5} textAnchor="end" fontSize={corpo} className={EIXO}>
+              {fmt(v)}
+            </text>
+          </g>
+        );
+      })}
+
+      {area && <path d={area} fill={`url(#curva-${id})`} />}
+
+      {/* A linha em segmentos: o vão sem coleta sai tracejado. */}
+      {pontos.slice(1).map((d, k) => (
+        <line key={d.dia}
+          x1={x(k)} y1={y(pontos[k].valor)} x2={x(k + 1)} y2={y(d.valor)}
+          stroke={cor} strokeWidth={2.2} strokeLinecap="round"
+          strokeDasharray={d.vao ? "3 3" : undefined}
+          opacity={d.vao ? 0.55 : 1} />
+      ))}
+
+      {mostrarPontos && pontos.map((d, i) => (
+        <circle key={`p${d.dia}`} cx={x(i)} cy={y(d.valor)} r={miuda ? 1.9 : 2.4}
+          fill={cor} opacity={ativo == null || ativo === i ? 1 : 0.4} />
+      ))}
+
+      {ativo != null && pontos[ativo] && (
+        <>
+          <line x1={x(ativo)} x2={x(ativo)} y1={mt} y2={mt + ih}
+            className="stroke-[rgba(10,10,10,.16)]" strokeWidth={1} />
+          <circle cx={x(ativo)} cy={y(pontos[ativo].valor)} r={miuda ? 3 : 3.6}
+            fill={cor} stroke="white" strokeWidth={1.5} />
+        </>
+      )}
+
+      {/* Captura por último, cobrindo a faixa inteira de cada ponto. */}
+      {pontos.map((d, i) => (
+        <rect key={`h${d.dia}`} x={x(i) - faixa / 2} y={0} width={faixa} height={altura}
+          fill="transparent" style={{ cursor: "pointer" }}
+          onMouseEnter={() => aoEntrar(i)} />
+      ))}
+
+      {pontos.map((d, i) => (i % passoRotulo ? null : (
+        <text key={`r${d.dia}`} x={x(i)} y={altura - (miuda ? 3 : 5)} textAnchor="middle"
+          fontSize={corpo} className={EIXO}>
+          {d.dia.slice(8, 10)}/{d.dia.slice(5, 7)}
+        </text>
+      )))}
+    </svg>
+  );
+}
+
+/**
+ * A evolução dentro de um cartão de Dados Gerais.
+ *
+ * Mesma `CurvaHistorica` da Evolução da Base, em corpo menor: área suave, eixo
+ * com os extremos, datas discretas e pontos nos snapshots. É isso que faz o
+ * cartão dizer "isto é um gráfico histórico" em vez de "isto é um enfeite".
+ *
+ * ── Ela NÃO segue o filtro de período ──────────────────────────────────────
+ * O número acima responde "quanto tivemos neste período"; a curva responde
+ * "como isso vem evoluindo". Com "Hoje" selecionado, uma curva de um ponto
+ * seria o mesmo número, desenhado. O rótulo abaixo diz isso em duas palavras —
+ * sem ele, trocar o período faria a curva parecer travada.
+ *
+ * ── Dia sem medição não vira ponto ─────────────────────────────────────────
+ * Ele sai da série e o segmento que o atravessa fica tracejado. Um ponto em
+ * zero afirmaria que a métrica deu zero naquele dia, e o que houve foi não
+ * termos medido.
+ */
+export function MiniEvolucao({ dias, cor, altura = 72, id }: {
+  dias: Array<{ dia: string; valor: number | null }>;
+  cor: string;
+  altura?: number;
+  /** Único por cartão: dois gradientes com o mesmo id colidiriam. */
+  id: string;
+}) {
+  const [ativo, setAtivo] = useState<number | null>(null);
+
+  /**
+   * Só os dias medidos, com o vão marcado.
+   *
+   * `vao` sai da distância no ÍNDICE da série original: se entre dois medidos
+   * sobrou um não medido, o segmento entre eles atravessa um dia que ninguém
+   * viu — e é tracejado por isso.
+   */
+  const pontos: PontoHistorico[] = [];
+  let anterior = -1;
+  dias.forEach((d, i) => {
+    if (d.valor == null) return;
+    pontos.push({ dia: d.dia, valor: d.valor, vao: anterior >= 0 && i - anterior > 1 });
+    anterior = i;
+  });
+
+  if (pontos.length < 2) return null;
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <CurvaHistorica id={id} pontos={pontos} cor={cor} altura={altura} largura={260}
+        ativo={ativo} aoEntrar={setAtivo} miuda />
+      {/* Altura fixa: aparecer e sumir mexeria na altura do cartão a cada
+          movimento do mouse, e os vizinhos pulariam junto. */}
+      <span className="block text-[9px] text-muted-foreground/60 tabular-nums min-h-[12px] truncate">
+        {ativo != null && pontos[ativo]
+          ? `${pontos[ativo].dia.slice(8, 10)}/${pontos[ativo].dia.slice(5, 7)} · ${
+              pontos[ativo].valor.toLocaleString("pt-BR")}`
+          : `evolução · ${pontos.length} dias de histórico`}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Evolução da base — o TAMANHO, e não o movimento.
+ *
+ * Mesma fonte do movimento da base, pergunta diferente: como a conta chegou ao
+ * tamanho de hoje. O desenho é `CurvaHistorica`, o mesmo dos cartões de Dados
+ * Gerais — a diferença entre os dois é o tamanho e a moldura, nunca a gramática.
+ */
+export function GraficoDaEvolucaoDaBase({ movimento, altura = 104, largura = 760 }: {
+  movimento: MovimentoDiario; altura?: number; largura?: number;
+}) {
+  const [ativo, setAtivo] = useState<number | null>(null);
+  const pontos: PontoHistorico[] = movimento.dias.map((d) => ({
+    dia: d.dia, valor: d.total, vao: d.diasCobertos > 1,
+  }));
+  const vazio = pontos.length < 2;
 
   return (
     <Moldura titulo="Evolução da base" nota="total de seguidores, snapshot a snapshot"
       vazio={vazio} altura={altura}
-      leitura={ativo != null && dias[ativo] ? (
+      leitura={ativo != null && pontos[ativo] ? (
         <span className="flex items-center gap-2.5 text-[11px] tabular-nums">
           <span className="font-bold">
-            {dias[ativo].dia.slice(8, 10)}/{dias[ativo].dia.slice(5, 7)}
+            {pontos[ativo].dia.slice(8, 10)}/{pontos[ativo].dia.slice(5, 7)}
           </span>
           <span style={{ color: COR.seguidores }} className="font-bold">
-            {fmt(dias[ativo].total)} seguidores
+            {fmt(pontos[ativo].valor)} seguidores
           </span>
         </span>
       ) : null}>
-      <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img"
-        aria-label="Evolução do total de seguidores"
-        onMouseLeave={() => setAtivo(null)}>
-        <defs>
-          <linearGradient id="grad-base" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={COR.seguidores} stopOpacity={0.22} />
-            <stop offset="100%" stopColor={COR.seguidores} stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-
-        {[teto, piso].map((v, k) => (
-          <g key={k}>
-            <line x1={ml} x2={W - mr} y1={k === 0 ? mt : mt + ih} y2={k === 0 ? mt : mt + ih}
-              className={GRADE} strokeDasharray="3 4" />
-            <text x={ml - 6} y={(k === 0 ? mt : mt + ih) + 3.5} textAnchor="end" fontSize={9} className={EIXO}>
-              {fmt(v)}
-            </text>
-          </g>
-        ))}
-
-        {area && <path d={area} fill="url(#grad-base)" />}
-
-        {/* A linha em segmentos: o vão sem coleta sai tracejado, porque ele liga
-            dois pontos reais por um caminho que ninguém mediu. */}
-        {segmentos.map((sg) => (
-          <line key={sg.para}
-            x1={x(sg.de)} y1={y(dias[sg.de].total)}
-            x2={x(sg.para)} y2={y(dias[sg.para].total)}
-            stroke={COR.seguidores} strokeWidth={2.2} strokeLinecap="round"
-            strokeDasharray={sg.temBuraco ? "3 3" : undefined}
-            opacity={sg.temBuraco ? 0.55 : 1} />
-        ))}
-
-        {ativo != null && dias[ativo] && (
-          <>
-            <line x1={x(ativo)} x2={x(ativo)} y1={mt} y2={mt + ih}
-              className="stroke-[rgba(10,10,10,.16)]" strokeWidth={1} />
-            <circle cx={x(ativo)} cy={y(dias[ativo].total)} r={3.6}
-              fill={COR.seguidores} stroke="white" strokeWidth={1.5} />
-          </>
-        )}
-
-        {/* Captura por último, cobrindo a faixa inteira de cada ponto. */}
-        {dias.map((d, i) => (
-          <rect key={`h${d.dia}`}
-            x={x(i) - (iw / Math.max(1, dias.length - 1)) / 2} y={mt}
-            width={iw / Math.max(1, dias.length - 1)} height={ih}
-            fill="transparent" style={{ cursor: "pointer" }}
-            onMouseEnter={() => setAtivo(i)} />
-        ))}
-
-        {dias.map((d, i) => (i % passoRotulo ? null : (
-          <text key={d.dia} x={x(i)} y={altura - 5} textAnchor="middle" fontSize={9} className={EIXO}>
-            {d.dia.slice(8, 10)}/{d.dia.slice(5, 7)}
-          </text>
-        )))}
-      </svg>
+      <CurvaHistorica id="base" pontos={pontos} cor={COR.seguidores}
+        altura={altura} largura={largura} ativo={ativo} aoEntrar={setAtivo} />
     </Moldura>
   );
 }

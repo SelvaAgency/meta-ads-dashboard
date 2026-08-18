@@ -248,88 +248,11 @@ export function MetricaDoPerfil({
   );
 }
 
-
-/**
- * ─────────────────────────────────────────────────────────────────────────────
- *  A mini-linha de tendência do cartão
- * ─────────────────────────────────────────────────────────────────────────────
- *  Discreta de propósito: sem eixo, sem grade, sem rótulo de valor. Ela responde
- *  "está subindo ou caindo", e qualquer número desenhado aqui competiria com o
- *  que está logo acima — que é o número de verdade, do período selecionado.
- *
- *  ── O rótulo diz que ela ignora o filtro ───────────────────────────────────
- *  Sem isso, quem trocasse o período para "Hoje" veria o número mudar e a linha
- *  não, e concluiria que a tela travou. "N dias" ao lado resolve em duas
- *  palavras o que um parágrafo explicaria.
- *
- *  ── A linha QUEBRA no dia sem medição ──────────────────────────────────────
- *  Ligar os dois lados desenharia uma inclinação que ninguém mediu, e a
- *  interpolação é exatamente o que um dia sem coleta não autoriza.
- * ─────────────────────────────────────────────────────────────────────────────
+/*
+ * ── O que morava aqui ──────────────────────────────────────────────────────
+ * `MiniTendencia`: uma linha fina, sem eixo e sem área. Ela parecia decoração,
+ * e decoração ninguém lê como dado. Foi substituída por `MiniEvolucao`, em
+ * `GraficosSociais.tsx`, que é a MESMA `CurvaHistorica` da Evolução da Base —
+ * só menor. Imitar o gráfico grande criaria dois desenhos que divergem no
+ * primeiro ajuste feito só num deles; reusá-lo garante que continuem iguais.
  */
-export function MiniTendencia({ dias, cor, altura = 30 }: {
-  dias: Array<{ dia: string; valor: number | null }>;
-  cor: string;
-  altura?: number;
-}) {
-  const [ativo, setAtivo] = useState<number | null>(null);
-  const medidos = dias.filter((d) => d.valor != null);
-  if (medidos.length < 2) return null;
-
-  const W = 200, mt = 3, mb = 3;
-  const ih = altura - mt - mb;
-  const valores = medidos.map((d) => d.valor as number);
-  const max = Math.max(...valores);
-  const min = Math.min(...valores);
-  const amplitude = Math.max(1, max - min);
-
-  const passo = W / Math.max(1, dias.length - 1);
-  const x = (i: number) => i * passo;
-  const y = (v: number) => mt + ih - ((v - min) / amplitude) * ih;
-
-  const partes: string[] = [];
-  let atual: string[] = [];
-  dias.forEach((d, i) => {
-    if (d.valor == null) {
-      if (atual.length > 1) partes.push(atual.join(" "));
-      atual = [];
-      return;
-    }
-    atual.push(`${atual.length ? "L" : "M"}${x(i).toFixed(1)},${y(d.valor).toFixed(1)}`);
-  });
-  if (atual.length > 1) partes.push(atual.join(" "));
-
-  const emFoco = ativo != null ? dias[ativo] : null;
-
-  return (
-    <div className="flex flex-col gap-0.5" onMouseLeave={() => setAtivo(null)}>
-      <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} preserveAspectRatio="none"
-        role="img" aria-label="Tendência no histórico disponível">
-        {partes.map((d, i) => (
-          <path key={i} d={d} fill="none" stroke={cor} strokeWidth={1.6}
-            vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"
-            opacity={ativo == null ? 0.9 : 0.45} />
-        ))}
-        {emFoco?.valor != null && ativo != null && (
-          <circle cx={x(ativo)} cy={y(emFoco.valor)} r={2.6} fill={cor}
-            vectorEffect="non-scaling-stroke" />
-        )}
-        {/* Captura por último, uma faixa por ponto — inclusive os não medidos,
-            que respondem "sem coleta" em vez de silêncio. */}
-        {dias.map((d, i) => (
-          <rect key={d.dia} x={x(i) - passo / 2} y={0} width={passo} height={altura}
-            fill="transparent" style={{ cursor: "pointer" }}
-            onMouseEnter={() => setAtivo(i)} />
-        ))}
-      </svg>
-      {/* Altura fixa: aparecer e sumir mexeria na altura do cartão a cada
-          movimento do mouse, e os vizinhos pulariam junto. */}
-      <span className="block text-[9px] text-muted-foreground/60 tabular-nums min-h-[12px] truncate">
-        {emFoco
-          ? `${emFoco.dia.slice(8, 10)}/${emFoco.dia.slice(5, 7)} · ${
-              emFoco.valor == null ? "sem coleta" : emFoco.valor.toLocaleString("pt-BR")}`
-          : `evolução · ${medidos.length} dias de histórico`}
-      </span>
-    </div>
-  );
-}

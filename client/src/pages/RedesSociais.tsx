@@ -50,7 +50,7 @@ import { etiquetarDesempenho } from "@shared/desempenhoDaPublicacao";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 import { COR, COR_INTERACAO, COR_TIPO, ORDEM_TIPO } from "@shared/coresSociais";
 import { compararComAnterior, variacao } from "@shared/periodoAnterior";
-import { CartaoGeral, MetricaDoPerfil, MiniTendencia } from "@/components/redes/CartaoGeral";
+import { CartaoGeral, MetricaDoPerfil } from "@/components/redes/CartaoGeral";
 import { PainelDaMetrica, type DiaDaMetrica } from "@/components/redes/PainelDaMetrica";
 import { ABAS_SOCIAIS, ROTULO_ABA_SOCIAL, abaDaUrl, type AbaSocial } from "./social/abasSociais";
 import { RetencaoReels } from "@/components/redes/RetencaoReels";
@@ -58,7 +58,7 @@ import {
   IdentidadeDaConta, Resultados, ResumoCurto, type ValorDoDia,
 } from "@/components/redes/CabecalhoDaConta";
 import {
-  GraficoDaEvolucaoDaBase, GraficoDeAtivacoes, GraficoDeEvolucao,
+  GraficoDaEvolucaoDaBase, GraficoDeAtivacoes, GraficoDeEvolucao, MiniEvolucao,
 } from "@/components/redes/GraficosSociais";
 import {
   PerformanceDeConteudo, UltimasPublicacoes,
@@ -815,7 +815,7 @@ export default function RedesSociais() {
                          a evolução do HISTÓRICO. Elas não competem porque
                          respondem perguntas diferentes. */
                       grafico={<GraficoDeAtivacoes pontos={pontosDeAtivacao} altura={78} compacto />}
-                      evolucao={<MiniTendencia dias={ativacoesHistorico} cor={COR.ativacoes} />}
+                      evolucao={<MiniEvolucao id="ativacoes" dias={ativacoesHistorico} cor={COR.ativacoes} />}
                       variacaoPct={varAtivacoes.pct} anterior={varAtivacoes.anterior}
                       parcelas={composicaoDeAtivacoes(ativacoes).map((x) => ({
                         rotulo: x.rotulo, valor: x.total ?? 0,
@@ -853,7 +853,7 @@ export default function RedesSociais() {
                          grande do cartão é o total, e uma linha de percentual
                          subiria enquanto o total caísse — duas leituras opostas
                          no mesmo cartão. */
-                      evolucao={<MiniTendencia dias={engajamentoPorDia} cor={COR.engajamento} />}
+                      evolucao={<MiniEvolucao id="engajamento" dias={engajamentoPorDia} cor={COR.engajamento} />}
                       ressalva={composicao.ressalva} />
                       </button>
                     </PainelDaMetrica>
@@ -887,7 +887,7 @@ export default function RedesSociais() {
                                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                             <MetricaDoPerfil rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
                               variacaoPct={varVisitas.pct} anterior={varVisitas.anterior}
-                              evolucao={<MiniTendencia dias={visitasPorDia} cor={COR.visitas} />}
+                              evolucao={<MiniEvolucao id="visitas" dias={visitasPorDia} cor={COR.visitas} altura={62} />}
                               ressalva={rotuloVisitas.resumo} acao="o que compõe" />
                           </button>
                         </PainelDaMetrica>
@@ -905,7 +905,7 @@ export default function RedesSociais() {
                                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                             <MetricaDoPerfil rotulo="Cliques no link" valor={fmt(cliques.total)}
                               variacaoPct={varCliques.pct} anterior={varCliques.anterior}
-                              evolucao={<MiniTendencia dias={cliquesPorDia} cor={COR.visitas} />}
+                              evolucao={<MiniEvolucao id="cliques" dias={cliquesPorDia} cor={COR.engajamento} altura={62} />}
                               acao="o que compõe" />
                           </button>
                         </PainelDaMetrica>

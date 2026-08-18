@@ -163,7 +163,7 @@ describe("nenhuma métrica saiu da faixa geral", () => {
     expect(s).toMatch(/const historicoDe[\s\S]{0,200}janelaFixa\.map/);
     expect(s, "a linha voltou a seguir o filtro").not.toMatch(/const historicoDe[\s\S]{0,200}serie\.map/);
     for (const m of ["ativacoesHistorico", "engajamentoPorDia", "visitasPorDia", "cliquesPorDia"]) {
-      expect(s, m).toMatch(new RegExp(`<MiniTendencia dias=\\{${m}\\}`));
+      expect(s, m).toMatch(new RegExp(`<MiniEvolucao[^>]*dias=\\{${m}\\}`));
     }
   });
 
@@ -184,7 +184,7 @@ describe("nenhuma métrica saiu da faixa geral", () => {
   it("a linha do engajamento segue o número, e não a taxa", () => {
     const s = pagina();
     expect(s).toContain('const engajamentoPorDia = historicoDe("total_interactions")');
-    expect(s).not.toMatch(/<MiniTendencia dias=\{taxa/);
+    expect(s).not.toMatch(/<MiniEvolucao[^>]*dias=\{taxa/);
   });
 
   /** As ressalvas são o que separa "medido zero" de "não medido". */
@@ -255,10 +255,45 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
    */
   it("o eixo da evolução enquadra o intervalo, e não o zero", () => {
     const s = grafico();
-    const corpo = s.slice(s.indexOf("export function GraficoDaEvolucaoDaBase"));
+    const corpo = s.slice(s.indexOf("export function CurvaHistorica"),
+      s.indexOf("export function MiniEvolucao"));
     expect(corpo).toContain("const min = Math.min(...totais)");
     expect(corpo).toContain("const max = Math.max(...totais)");
     expect(corpo, "o eixo voltou a ser ancorado no zero").not.toMatch(/piso\s*=\s*0\b/);
+  });
+
+  /**
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Um desenho só, dois tamanhos
+   * ───────────────────────────────────────────────────────────────────────────
+   *  O mini gráfico do cartão e a Evolução da Base são a MESMA `CurvaHistorica`.
+   *  Duas implementações da mesma curva divergem no primeiro ajuste que alguém
+   *  faz só numa delas — e foi exatamente assim que o sparkline decorativo
+   *  apareceu.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  it("cartão e evolução da base desenham a mesma curva", () => {
+    const s = grafico();
+    for (const dono of ["MiniEvolucao", "GraficoDaEvolucaoDaBase"]) {
+      const de = s.indexOf(`export function ${dono}`);
+      const proximo = s.indexOf("export function ", de + 20);
+      expect(s.slice(de, proximo === -1 ? undefined : proximo), dono).toContain("<CurvaHistorica");
+    }
+    // E a linguagem que faz dela um gráfico, e não um enfeite.
+    const curva = s.slice(s.indexOf("export function CurvaHistorica"),
+      s.indexOf("export function MiniEvolucao"));
+    expect(curva, "a área suave sumiu").toContain("linearGradient");
+    expect(curva, "o eixo de datas sumiu").toContain("intervaloDeRotulos(");
+    expect(curva, "a linha voltou a ser fina").toContain("strokeWidth={2.2}");
+    expect(curva, "o vão sem coleta deixou de ser tracejado").toContain('strokeDasharray={d.vao ? "3 3"');
+  });
+
+  /** Dois gradientes com o mesmo id colidiriam entre cartões. */
+  it("cada curva recebe um id próprio", () => {
+    const pg = pagina();
+    const ids = Array.from(pg.matchAll(/<MiniEvolucao id="([^"]+)"/g)).map((m) => m[1]);
+    expect(ids.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(ids).size, "dois cartões compartilham o id do gradiente").toBe(ids.length);
   });
 
   /**
