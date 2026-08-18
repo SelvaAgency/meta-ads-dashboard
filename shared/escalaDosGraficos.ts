@@ -26,65 +26,17 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-export interface DiaDoMovimento {
-  dia: string;
-  /** Novos seguidores medidos. `null` = não medido. */
-  entradas: number | null;
-  /** Derivadas. `null` = a conta não fechou naquele dia. */
-  saidas: number | null;
-  /** Variação medida do total — o SALDO do dia. `null` sem dia anterior. */
-  saldo: number | null;
-}
-
-export interface EscalaSimetrica {
-  /** Maior valor acima do zero. Nunca menor que 1, para não dividir por zero. */
-  acima: number;
-  /** Maior magnitude abaixo do zero, como número POSITIVO. */
-  abaixo: number;
-  /** Onde o zero cai, de 0 (topo) a 1 (base). */
-  fracaoDoZero: number;
-  /** Os três rótulos do eixo, do topo para a base — negativo com sinal. */
-  rotulos: [number, number, number];
-}
-
-/**
- * A escala do movimento: um zero só, para os DOIS fluxos.
+/*
+ * ── O que morava aqui ──────────────────────────────────────────────────────
+ * `DiaDoMovimento` e `escalaDoMovimento` sustentavam o gráfico de entradas ×
+ * saídas × saldo. Ele foi substituído em 18/08/2026 pelo movimento diário, que
+ * desenha UMA série — a variação líquida —, depois que o diagnóstico refutou a
+ * hipótese de que FOLLOWER/NON_FOLLOWER fossem os dois fluxos.
  *
- * ── O saldo saiu daqui, e essa é a mudança ─────────────────────────────────
- * Ele participava da escala porque era desenhado como terceira série. Mas saldo
- * é ESTOQUE acumulado, e entradas e saídas são FLUXO diário — pô-los no mesmo
- * eixo dizia ao olho que os três são comparáveis, quando não são. Um saldo de
- * −40 num período de dias com 3 entradas esmagava as barras contra a linha do
- * zero: a escala inteira passava a servir uma série que ninguém precisava ler
- * ali, porque o número grande "SALDO ATUAL" já a mostra.
- *
- * O saldo do dia continua existindo em `DiaDoMovimento` — ele aparece no hover,
- * como informação derivada. O que ele não faz mais é MEDIR o eixo.
- *
- * ── Quando um lado está vazio, o zero encosta na borda ─────────────────────
- * Reservar metade do painel para um lado que não tem nada achataria as barras
- * que existem pela metade.
- *
- * O piso de 1 evita divisão por zero num dia todo zerado, e o resultado é um
- * gráfico plano na linha do zero, que é exatamente o que aquele dia foi.
+ * A escala da série nova mora em `shared/movimentoDiario.ts`, junto do cálculo
+ * que ela desenha. Manter as duas aqui deixaria uma função sem chamador com
+ * testes passando — que é pior que apagar, porque parece mantida.
  */
-export function escalaDoMovimento(dias: DiaDoMovimento[]): EscalaSimetrica {
-  const positivos = dias.map((d) => d.entradas ?? 0);
-  const negativos = dias.map((d) => d.saidas ?? 0);
-
-  const acima = Math.max(1, ...positivos);
-  const abaixo = Math.max(0, ...negativos);
-  const amplitude = acima + abaixo;
-
-  return {
-    acima,
-    abaixo,
-    fracaoDoZero: amplitude > 0 ? acima / amplitude : 1,
-    // O rótulo do meio é sempre o ZERO: é a referência que dá sentido aos
-    // outros dois, e escondê-lo faria a barra vermelha parecer só "mais baixa".
-    rotulos: [acima, 0, -abaixo],
-  };
-}
 
 // ─── Ativações empilhadas ────────────────────────────────────────────────────
 

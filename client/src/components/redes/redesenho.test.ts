@@ -118,7 +118,7 @@ describe("nenhuma métrica saiu da faixa geral", () => {
     expect(b, "título 'Movimento da base' desapareceu").toBeGreaterThan(a);
     const entre = s.slice(a, b);
     expect(entre, "uma caixa fechou entre os dois").not.toContain("</section>");
-    expect(s.slice(b), "o gráfico saiu da região do movimento").toContain("<GraficoDeMovimento");
+    expect(s.slice(b), "o gráfico saiu da região do movimento").toContain("<GraficoDeVariacaoDiaria");
   });
 
   /**
@@ -127,7 +127,7 @@ describe("nenhuma métrica saiu da faixa geral", () => {
    * seria trocar espaço por ilegibilidade — o oposto do que se pediu.
    */
   it("o movimento compacto encolhe o viewBox, não só a coluna", () => {
-    expect(pagina()).toMatch(/<GraficoDeMovimento[^>]*largura=\{\d+\}/);
+    expect(pagina()).toMatch(/<GraficoDeVariacaoDiaria[^>]*largura=\{\d+\}/);
   });
 
   /**
@@ -184,7 +184,7 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
     expect(s).toContain("strokeWidth={2.6}");
     // As larguras de barra saem do PASSO horizontal, e não de um número fixo:
     // com 30 dias, uma largura fixa faria as barras se encavalarem.
-    expect(s).toMatch(/passoX \* 0\.46/);
+    expect(s).toMatch(/passoX \* 0\.5/);
     expect(s).toMatch(/passo \* 0\.62/);
   });
 
@@ -199,7 +199,7 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
    */
   it("o zero do movimento vem do DADO, não de uma fração fixa", () => {
     const s = grafico();
-    expect(s).toContain("escalaDoMovimento");
+    expect(s).toContain("escalaDaVariacao");
     expect(s).toContain("fracaoDoZero");
     expect(s, "voltou a fixar o eixo a 56%").not.toMatch(/ih \* 0\.56/);
   });
@@ -222,33 +222,61 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
    *  não falta: está no número grande SALDO ATUAL, logo ao lado.
    * ───────────────────────────────────────────────────────────────────────────
    */
-  it("o movimento diário não tem terceira série", () => {
+  it("o movimento diário desenha UMA série, e nenhuma linha", () => {
     const s = grafico();
-    const corpo = s.slice(s.indexOf("export function GraficoDeMovimento"),
+    const corpo = s.slice(s.indexOf("export function GraficoDeVariacaoDiaria"),
       s.indexOf("export function GraficoDeAtivacoes"));
-    expect(corpo, "a linha de saldo voltou").not.toContain("<path");
-    expect(corpo, "o ponto de saldo voltou").not.toContain("<circle");
-    // As duas séries que sobraram são fluxo, e só elas.
+    expect(corpo, "voltou a desenhar uma linha").not.toContain("<path");
+    expect(corpo, "voltou a desenhar pontos de série").not.toContain("<circle");
+    // Verde e vermelho são os DOIS SENTIDOS de uma série só, não duas séries.
     expect(corpo).toContain("COR.entrada");
     expect(corpo).toContain("COR.saida");
-    expect(corpo, "o saldo voltou a ser desenhado").not.toMatch(/y\(p\.saldo\)/);
   });
 
-  /** O saldo do dia continua no hover — derivado, e marcado como tal. */
-  it("o saldo do dia sobrevive no hover, e não no eixo", () => {
-    const s = grafico();
-    const leitura = s.slice(s.indexOf("function LeituraDoDia"), s.indexOf("export function Legenda"));
-    expect(leitura).toContain("Saldo");
-    // O til discreto marca o que é derivado — saídas, não entradas.
-    expect(leitura).toContain("˜");
+  /**
+   * A regra que o diagnóstico de 18/08/2026 impôs: entradas e saídas não têm
+   * fonte, então não aparecem. Se voltarem, voltam como número medido — e
+   * ninguém confere de onde saiu.
+   */
+  it("entradas e saídas não voltam para o bloco", () => {
+    const s = pagina();
+    const bloco = s.slice(s.indexOf(">Movimento da base<"), s.indexOf("</section>", s.indexOf(">Movimento da base<")));
+    expect(bloco, "ENTRARAM voltou").not.toContain("Entraram");
+    expect(bloco, "SAÍRAM voltou").not.toContain("Saíram");
+    expect(bloco).not.toContain("movimento.entradas");
+    expect(bloco).not.toContain("movimento.saidas");
+    // O que fica é o que se mede.
+    expect(bloco).toContain("movimento.saldoAtual");
+    expect(bloco).toContain("movimento.saldo");
+    expect(bloco).toContain("followers_count");
   });
 
-  it("a linha de saldo não plota o estoque de seguidores", () => {
+  /** Nenhuma derivação de breakdown alimenta o gráfico. */
+  it("o gráfico não toca follows_and_unfollows nem o breakdown", () => {
+    const s = pagina();
+    const serie = s.slice(s.indexOf("const variacaoDiaria"), s.indexOf("const leituraDoVinculo"));
+    expect(serie).toContain("total: p.seguidores");
+    for (const proibido of ["follows_and_unfollows", "FOLLOWER", "NON_FOLLOWER", "follower_count"]) {
+      expect(serie, proibido).not.toContain(proibido);
+    }
+  });
+
+  /**
+   * O erro original: a série chamada "Saldo" plotava `p.total` — o ESTOQUE de
+   * seguidores, 9.464 — num eixo próprio auto-escalado, enquanto a legenda
+   * dizia saldo. Duas grandezas sob um rótulo só.
+   *
+   * A linha morreu, mas a armadilha não: qualquer série deste bloco que leia o
+   * total em vez da variação repete o mesmo engano numa forma nova.
+   */
+  it("nenhuma série do movimento plota o estoque", () => {
     const s = grafico();
-    expect(s).toContain("p.saldo");
-    expect(s, "voltou a plotar o total").not.toMatch(/yS\(p\.total\)/);
-    // E a área preenchida saiu: ela era ruído justamente no saldo zero.
-    expect(s).not.toContain("grSaldo");
+    const corpo = s.slice(s.indexOf("export function GraficoDeVariacaoDiaria"),
+      s.indexOf("export function GraficoDeAtivacoes"));
+    // A barra sai de `d.variacao`, e o total só aparece no texto do hover.
+    expect(corpo).toContain("d.variacao");
+    expect(corpo, "a altura da barra voltou a sair do total").not.toMatch(/px\(d\.total\)/);
+    expect(corpo, "o eixo voltou a escalar pelo total").not.toMatch(/esc[^;]*total/);
   });
 
   /** A pilha vem da função pura — somar altura a altura deixa fresta no topo. */
@@ -399,7 +427,7 @@ describe("a Social tem duas abas, e nada se perdeu entre elas", () => {
     const s = pagina();
     const home = s.slice(s.indexOf('aba === "home" && ('), s.indexOf('aba === "conteudo" && ('));
     expect(home).toContain("Dados gerais");
-    expect(home).toContain("<GraficoDeMovimento");
+    expect(home).toContain("<GraficoDeVariacaoDiaria");
     expect(home).toContain("<UltimasPublicacoes");
     // Análise de conteúdo NÃO mora na Home.
     expect(home).not.toContain("<RetencaoReels");

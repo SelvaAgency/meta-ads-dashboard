@@ -39,7 +39,8 @@ import { canManageContent } from "@shared/permissions";
 import { trpc } from "@/lib/trpc";
 import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
 import { lerVinculo, type StatusInsight, type TipoConta } from "@shared/instagram";
-import { movimentoDaBase, movimentoPorDia, somarNoPeriodo } from "@shared/socialSnapshot";
+import { movimentoDaBase, somarNoPeriodo } from "@shared/socialSnapshot";
+import { movimentoDiario } from "@shared/movimentoDiario";
 import { textoDeCobertura } from "@shared/periodosSociais";
 import { coletasSaoComparaveis, rotuloDeFluxo } from "@shared/janelaDaMetrica";
 import { composicaoDeAtivacoes, contarAtivacoes } from "@shared/ativacoes";
@@ -56,7 +57,7 @@ import {
   IdentidadeDaConta, Resultados, ResumoCurto, type ValorDoDia,
 } from "@/components/redes/CabecalhoDaConta";
 import {
-  GraficoDeAtivacoes, GraficoDeEvolucao, GraficoDeMovimento,
+  GraficoDeAtivacoes, GraficoDeEvolucao, GraficoDeVariacaoDiaria,
 } from "@/components/redes/GraficosSociais";
 import {
   PerformanceDeConteudo, UltimasPublicacoes,
@@ -546,14 +547,23 @@ export default function RedesSociais() {
   const visitasPorDia = serieDiaria("profile_views");
   const engajamentoPorDia = serieDiaria("total_interactions");
 
-  // O gráfico de movimento segue o FILTRO: ele é análise, não resumo.
-  //
-  // `saldo` é a variação MEDIDA do total, e é ela que a linha roxa desenha — não
-  // o estoque de seguidores. Plotar o estoque foi o erro que fazia +2 entradas e
-  // −2 saídas parecerem crescimento.
-  const pontosDeMovimento = movimentoPorDia(serie.map((p) => ({
-    dia: p.dia, total: p.seguidores, novos: mets(p, "follower_count"),
-  }))).map((m) => ({ dia: m.dia, entradas: m.entradas, saidas: m.saidas, saldo: m.saldo }));
+  /**
+   * A variação líquida por dia — a ÚNICA série do gráfico.
+   *
+   * Fonte exclusiva: `followers_count`, a fotografia do total. Nada de
+   * `follower_count`, nada de `follows_and_unfollows`, nada de FOLLOWER ou
+   * NON_FOLLOWER — o diagnóstico de 18/08/2026 refutou a hipótese de que aquele
+   * breakdown descreva entradas e saídas, e a saída derivada de `follower_count`
+   * nunca teve fonte independente que a sustentasse.
+   *
+   * `movimentoDiario` também confere que a soma das barras é a variação do
+   * período mostrada no número grande ao lado. As duas coisas telescopam, e
+   * `fecha` prova que nenhuma medição foi pulada entre uma conta e outra.
+   */
+  const variacaoDiaria = useMemo(
+    () => movimentoDiario(serie.map((p) => ({ dia: p.dia, total: p.seguidores }))),
+    [serie],
+  );
 
   const leituraDoVinculo = organico
     ? lerVinculo({
@@ -812,16 +822,22 @@ export default function RedesSociais() {
                   </div>
                 </div>
 
-                {/* ── DIREITA · movimento da base, compacto ────────────────── */}
+                {/* ── DIREITA · movimento da base ───────────────────────────
+                    ENTRARAM e SAÍRAM saíram daqui. O diagnóstico de 18/08/2026
+                    refutou a hipótese de que FOLLOWER/NON_FOLLOWER fossem os
+                    dois fluxos, e a saída que restava (`follower_count − saldo`)
+                    nunca teve fonte independente que provasse ser saída. Dois
+                    números grandes sem fonte, com cor e sinal, seriam lidos como
+                    medição — e ninguém confere.
+
+                    Ficou o que se mede de verdade: o total, a variação do
+                    período e a variação de cada dia. */}
                 <div className="min-w-0 px-[18px] py-[18px] flex flex-col gap-3.5">
                   <div className="flex items-baseline justify-between gap-2 flex-wrap">
                     <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Movimento da base</h2>
-                    <span className="text-[10.5px] text-muted-foreground/50">entrou, saiu, saldo</span>
+                    <span className="text-[10.5px] text-muted-foreground/50">total e variação</span>
                   </div>
 
-                  {/* Saldo atual e as duas pontas na MESMA linha de leitura: o
-                      resumo inteiro tem de caber num relance, e é isso que o
-                      torna resumo em vez de seção. */}
                   <div className="flex items-end justify-between gap-3 flex-wrap">
                     <div>
                       <span className="block text-[9.5px] font-bold uppercase tracking-[0.13em] text-muted-foreground/70">
@@ -842,36 +858,34 @@ export default function RedesSociais() {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border">
-                    <div>
-                      <span className="block text-[9.5px] font-bold uppercase tracking-[0.13em]"
-                        style={{ color: COR.entrada }}>Entraram</span>
-                      <span className="block text-[20px] font-bold tabular-nums leading-none mt-1"
-                        style={{ color: COR.entrada }}>
-                        {movimento.entradas == null ? "–" : `+${fmt(movimento.entradas)}`}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="block text-[9.5px] font-bold uppercase tracking-[0.13em]"
-                        style={{ color: COR.saida }}>Saíram</span>
-                      <span className="block text-[20px] font-bold tabular-nums leading-none mt-1"
-                        style={{ color: COR.saida }}>
-                        {movimento.saidas == null ? "–" : `−${fmt(movimento.saidas)}`}
-                      </span>
-                    </div>
+                  <div className="pt-3 border-t border-border">
+                    {/* A largura do viewBox acompanha a coluna. Manter 760 aqui
+                        encolheria os rótulos do eixo para ~4,5px. */}
+                    <GraficoDeVariacaoDiaria movimento={variacaoDiaria} altura={148} largura={352} />
                   </div>
 
-                  {/* A largura do viewBox acompanha a coluna. Manter 760 aqui
-                      encolheria os rótulos do eixo para ~4,5px — a compactação
-                      viraria ilegibilidade, que é o oposto do pedido. */}
-                  <GraficoDeMovimento pontos={pontosDeMovimento} altura={148} largura={352} />
-
-                  <p className="text-[9.5px] text-muted-foreground/60 leading-snug mt-auto">
-                    {movimento.motivo ?? (
-                      <>Entradas vêm de <span className="font-mono text-[9.5px]">follower_count</span>. Saídas são
-                      derivadas: entradas menos o saldo.</>
+                  <div className="mt-auto flex flex-col gap-1">
+                    <p className="text-[9.5px] text-muted-foreground/60 leading-snug">
+                      Calculado entre snapshots de{" "}
+                      <span className="font-mono text-[9.5px]">followers_count</span>.
+                    </p>
+                    {/* A conferência que liga o gráfico ao número grande. Ela só
+                        aparece quando NÃO fecha — se fechasse sempre em silêncio,
+                        ninguém saberia que existe checagem; falhando calada,
+                        ninguém saberia que o gráfico parou de somar o total. */}
+                    {variacaoDiaria.fecha === false && (
+                      <p className="text-[9.5px] text-amber-600 leading-snug">
+                        As barras somam {fmt(variacaoDiaria.soma)} e a variação do período é{" "}
+                        {fmt(variacaoDiaria.variacaoDoPeriodo)} — alguma medição ficou de fora.
+                      </p>
                     )}
-                  </p>
+                    {variacaoDiaria.diasComBuraco > 0 && (
+                      <p className="text-[9.5px] text-muted-foreground/60 leading-snug">
+                        {variacaoDiaria.diasComBuraco} barra(s) cobrem mais de um dia — houve dia sem
+                        coleta, e a variação daquele intervalo aparece junta.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             </section>

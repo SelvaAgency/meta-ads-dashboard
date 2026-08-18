@@ -14,97 +14,20 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  escalaDoMovimento, intervaloDeRotulos, pilhaDoDia, type DiaDoMovimento,
+  intervaloDeRotulos, pilhaDoDia,
 } from "./escalaDosGraficos";
 
-const dia = (entradas: number | null, saidas: number | null, saldo: number | null): DiaDoMovimento =>
-  ({ dia: "2026-08-14", entradas, saidas, saldo });
-
-describe("movimento da base — os quatro cenários", () => {
-  /**
-   * O caso que motivou tudo. Com um eixo só, a barra verde e a vermelha têm a
-   * MESMA altura em sentidos opostos, e a linha de saldo cai em cima do zero.
-   * Não existe geometria em que isso pareça crescimento.
-   */
-  it("+2 entradas / −2 saídas / saldo 0 → simétrico, zero no meio", () => {
-    const e = escalaDoMovimento([dia(2, 2, 0)]);
-    expect(e.acima).toBe(2);
-    expect(e.abaixo).toBe(2);
-    expect(e.fracaoDoZero).toBe(0.5);
-    // A altura da barra verde e da vermelha sai da MESMA escala.
-    expect(e.acima).toBe(e.abaixo);
-  });
-
-  it("+5 entradas / −1 saída / saldo +4 → mais espaço acima", () => {
-    const e = escalaDoMovimento([dia(5, 1, 4)]);
-    expect(e.acima).toBe(5);
-    expect(e.abaixo).toBe(1);
-    // 5 de 6 da altura fica acima do zero.
-    expect(e.fracaoDoZero).toBeCloseTo(5 / 6, 5);
-  });
-
-  it("+1 entrada / −5 saídas / saldo −4 → o negativo cabe inteiro", () => {
-    const e = escalaDoMovimento([dia(1, 5, -4)]);
-    expect(e.acima).toBe(1);
-    // O saldo −4 e a saída 5 disputam o lado de baixo; vence o maior.
-    expect(e.abaixo).toBe(5);
-    expect(e.rotulos[2]).toBe(-5);
-  });
-
-  it("0 / 0 / 0 → plano na linha do zero, sem dividir por zero", () => {
-    const e = escalaDoMovimento([dia(0, 0, 0)]);
-    expect(e.acima).toBe(1);
-    expect(e.abaixo).toBe(0);
-    expect(Number.isFinite(e.fracaoDoZero)).toBe(true);
-    expect(e.fracaoDoZero).toBe(1);
-  });
-});
-
-describe("o eixo do movimento não engana", () => {
-  /** Sem nada abaixo, o zero desce e o positivo usa a altura inteira. */
-  it("sem saídas, o zero vai para a base", () => {
-    expect(escalaDoMovimento([dia(10, 0, 10)]).fracaoDoZero).toBe(1);
-  });
-
-  /** O rótulo do meio é a referência que dá sentido aos outros dois. */
-  it("o rótulo do meio é sempre ZERO, e o de baixo é negativo", () => {
-    const e = escalaDoMovimento([dia(3, 7, -4)]);
-    expect(e.rotulos[1]).toBe(0);
-    expect(e.rotulos[2]).toBeLessThan(0);
-  });
-
-  /** Dia sem medição não puxa a escala para nada. */
-  it("null não vira zero nem infla o eixo", () => {
-    const e = escalaDoMovimento([dia(null, null, null), dia(4, 2, 2)]);
-    expect(e.acima).toBe(4);
-    expect(e.abaixo).toBe(2);
-  });
-
-  /**
-   * ───────────────────────────────────────────────────────────────────────────
-   *  O saldo NÃO mede o eixo — e este teste é o oposto do que ele afirmava
-   * ───────────────────────────────────────────────────────────────────────────
-   *  Antes o saldo participava da escala, porque era desenhado como terceira
-   *  série. A regra virou: entradas e saídas são fluxo diário, saldo é estoque
-   *  acumulado, e pô-los no mesmo eixo dizia ao olho que os três são
-   *  comparáveis. O saldo saiu do desenho e saiu da escala junto.
-   *
-   *  O jeito de isso regredir é alguém "consertar" a escala achando que ela
-   *  está cortando o saldo. Não está: ela não desenha o saldo.
-   * ───────────────────────────────────────────────────────────────────────────
-   */
-  it("saldo enorme não infla o eixo dos fluxos", () => {
-    const e = escalaDoMovimento([dia(1, 2, -900)]);
-    expect(e.abaixo, "o saldo voltou a medir o eixo").toBe(2);
-    expect(e.acima).toBe(1);
-  });
-
-  it("a escala é a mesma com qualquer saldo", () => {
-    const a = escalaDoMovimento([dia(4, 2, 2)]);
-    const b = escalaDoMovimento([dia(4, 2, -500)]);
-    expect(a).toEqual(b);
-  });
-});
+/*
+ * ── Os quatro cenários do movimento saíram daqui ───────────────────────────
+ * Eles exercitavam `escalaDoMovimento`, que sustentava o gráfico de entradas ×
+ * saídas × saldo. Esse gráfico foi substituído em 18/08/2026 pelo movimento
+ * diário — uma série só, a variação líquida — depois que o diagnóstico refutou a
+ * hipótese de que FOLLOWER/NON_FOLLOWER fossem os dois fluxos.
+ *
+ * Os cenários equivalentes da série nova (zero no meio, só alta, só queda, tudo
+ * parado) vivem em `shared/movimentoDiario.test.ts`, ao lado da função que eles
+ * testam.
+ */
 
 describe("ativações — os quatro cenários", () => {
   const ORDEM = ["STORY", "FEED", "REELS"] as const;

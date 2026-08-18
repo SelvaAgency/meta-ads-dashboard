@@ -152,25 +152,40 @@ describe("as decisões vêm das funções puras, não de ternários locais", () 
     expect(s).not.toMatch(/seguidores\s*-\s*\w*seguidores/);
   });
 
-  /** A trava do pedido: nada de "novos" e "saídas" sem prova aritmética. */
   /**
-   * Entradas e saídas deixaram de depender do breakdown não provado: elas vêm
-   * de `follower_count` e de uma identidade aritmética, e `movimentoDaBase`
-   * devolve `null` quando a conta não fecha. O guarda agora é sobre isso — a
-   * tela não pode inventar os números que a função se recusou a dar.
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Entradas e saídas NÃO aparecem — e este guarda virou do avesso
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Ele exigia que a tela mostrasse `movimento.entradas` e `movimento.saidas`
+   *  quando a função os devolvesse. O diagnóstico de 18/08/2026 refutou a
+   *  hipótese de que FOLLOWER/NON_FOLLOWER fossem os dois fluxos, e a saída que
+   *  restava — `follower_count − saldo` — nunca teve fonte independente que
+   *  provasse representar saídas reais.
+   *
+   *  Então a exigência inverteu: os dois não podem voltar. A intenção é a mesma
+   *  de sempre — número sem fonte não vai para a tela do cliente —, só que agora
+   *  ela custa dois números a menos em vez de dois a mais.
+   * ───────────────────────────────────────────────────────────────────────────
    */
-  it("entradas e saídas só aparecem quando movimentoDaBase as devolve", () => {
+  it("entradas e saídas não são publicadas", () => {
     const s = semC(pagina());
-    expect(s).toContain("movimento.entradas");
-    expect(s).toContain("movimento.saidas");
-    // A proibição original continua, e agora escrita pelo que ela realmente
-    // protege: o BREAKDOWN não provado não pode virar entrada nem saída. A
-    // derivação nova não passa nem perto dele.
+    expect(s, "ENTRARAM voltou à tela").not.toContain("movimento.entradas");
+    expect(s, "SAÍRAM voltou à tela").not.toContain("movimento.saidas");
+    // O breakdown não provado continua fora de tudo.
     expect(s).not.toContain("breakdownCru");
     expect(s).not.toContain("FOLLOWER");
     expect(s).not.toContain("deixaram de seguir");
     // Nenhuma aritmética de entradas/saídas escrita na tela.
     expect(s).not.toMatch(/entradas\s*[-+]\s*\w/);
+  });
+
+  /** O que sobrou é o que se mede: estoque e a variação entre dois estoques. */
+  it("o movimento publica saldo e variação, os dois de followers_count", () => {
+    const s = semC(pagina());
+    expect(s).toContain("movimento.saldoAtual");
+    expect(s).toContain("movimento.saldo");
+    expect(s).toContain("movimentoDiario(");
+    expect(s).toContain("total: p.seguidores");
   });
 
   it("o período honesto vem de textoDeCobertura", () => {
