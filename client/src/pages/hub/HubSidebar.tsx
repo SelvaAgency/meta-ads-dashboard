@@ -130,10 +130,11 @@ const NAV_GROUPS: NavGroup[] = [
       /**
        * A bancada de peças fora de produção.
        *
-       * Mora no grupo restrito porque não é seção do produto — mas com
-       * `livre`, pelo mesmo motivo do Financeiro: a regra de acesso da página
-       * é de TODOS os papéis, e um cadeado aqui contradiria a rota. O grupo diz
-       * "isto não é para o cliente"; o `livre` diz "e você pode entrar".
+       * Mora no grupo restrito e SEM `livre`: a página é de admin e dev, então
+       * o cadeado que o grupo dá aos outros papéis está certo aqui. O Financeiro
+       * é `livre` porque todo colaborador precisa lançar reembolso; a bancada é
+       * o oposto — ela mostra peças meio prontas, e quem não participa da
+       * decisão de produto não tem como saber que aquilo não vale.
        *
        * `kind: "app"` porque `/rascunho` é rota CRUA do Tracker — ela renderiza
        * dentro do shell. O `href` aponta para a rota crua, e não para
@@ -142,7 +143,7 @@ const NAV_GROUPS: NavGroup[] = [
        * shell abreviaria um salto e quebraria o destaque do item ativo, que
        * compara `location === href`.
        */
-      { label: "Rascunho", icon: PencilRuler, kind: "app", href: "/rascunho", livre: true },
+      { label: "Rascunho", icon: PencilRuler, kind: "app", href: "/rascunho" },
     ],
   },
 ];

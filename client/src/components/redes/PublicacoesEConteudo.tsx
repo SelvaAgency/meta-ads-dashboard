@@ -27,7 +27,38 @@
 import { useState } from "react";
 import { ExternalLink, Image as ImageIcon, TrendingUp } from "lucide-react";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
-import { COR_TIPO } from "@shared/coresSociais";
+import { COR_INTERACAO, COR_TIPO } from "@shared/coresSociais";
+import { composicaoDoEngajamento } from "@shared/engajamento";
+import type { EtiquetaDeDesempenho, NivelDeDesempenho } from "@shared/desempenhoDaPublicacao";
+
+/**
+ * Rótulos curtos para o cartão.
+ *
+ * "compartilhamentos" tem 17 caracteres e quebraria a linha da composição num
+ * cartão de ~200px. O nome completo continua vindo de `composicaoDoEngajamento`
+ * — aqui só se encurta o que a largura não comporta.
+ */
+const ROTULO_CURTO: Partial<Record<string, string>> = {
+  likes: "curtidas",
+  comments: "coment.",
+  shares: "compart.",
+  saves: "salvos",
+  replies: "respostas",
+};
+
+/**
+ * O tom de cada nível.
+ *
+ * Verde e vermelho só nos extremos: se todo nível tivesse cor, a grade viraria
+ * um semáforo e "na média" — que é a maioria — competiria com o conteúdo.
+ */
+const TOM_ETIQUETA: Record<NivelDeDesempenho, string> = {
+  muito_acima: "bg-emerald-600/85 text-white",
+  acima: "bg-emerald-600/70 text-white",
+  na_media: "bg-black/55 text-white",
+  abaixo: "bg-amber-600/80 text-white",
+  muito_abaixo: "bg-destructive/85 text-white",
+};
 
 export interface PublicacaoEmLinha {
   id: string;
@@ -37,7 +68,17 @@ export interface PublicacaoEmLinha {
   permalink: string | null;
   legenda: string | null;
   alcance: number | null;
+  /** O bruto medido pela Meta. Vai para o hover da taxa, não para a grade. */
   interacoes: number | null;
+  /**
+   * De que o engajamento é feito. Cada parcela vem do snapshot da mídia, e a
+   * ausente fica FORA da lista — nunca vira zero, que afirmaria "ninguém
+   * salvou" onde houve "não medimos".
+   */
+  curtidas: number | null;
+  comentarios: number | null;
+  compartilhamentos: number | null;
+  salvamentos: number | null;
   /** Reproduções. Já vem no snapshot de mídia — nenhuma chamada nova. */
   views: number | null;
   /** Já calculada. `null` quando falta alcance — não se inventa divisor. */
@@ -90,10 +131,16 @@ export interface DesempenhoPorTipo {
  * Aba visível e vazia diria "não publicaram nada no LinkedIn", que é afirmação
  * sobre o cliente. A verdade é "não temos conexão" — afirmação sobre nós.
  */
-export function UltimasPublicacoes({ instagram, temLinkedin, aviso }: {
+export function UltimasPublicacoes({ instagram, temLinkedin, aviso, etiquetas }: {
   instagram: PublicacaoEmLinha[];
   temLinkedin: boolean;
   aviso?: string | null;
+  /**
+   * As etiquetas, por id. Vazio quando a amostra não sustenta classificação —
+   * e aí o aro de "melhor" antigo volta a ser o único destaque, que é uma
+   * afirmação bem mais fraca e cabe numa amostra pequena.
+   */
+  etiquetas?: Map<string, EtiquetaDeDesempenho>;
 }) {
   const [aba, setAba] = useState<"instagram" | "linkedin">("instagram");
   const melhorTaxa = instagram.length > 1
@@ -133,7 +180,7 @@ export function UltimasPublicacoes({ instagram, temLinkedin, aviso }: {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {instagram.map((p) => (
-            <CardDePublicacao key={p.id} p={p}
+            <CardDePublicacao key={p.id} p={p} etiqueta={etiquetas?.get(p.id)}
               melhor={melhorTaxa != null && p.taxa != null && p.taxa === melhorTaxa} />
           ))}
         </div>
@@ -142,10 +189,24 @@ export function UltimasPublicacoes({ instagram, temLinkedin, aviso }: {
   );
 }
 
-function CardDePublicacao({ p, melhor }: { p: PublicacaoEmLinha; melhor?: boolean }) {
+function CardDePublicacao({ p, melhor, etiqueta }: {
+  p: PublicacaoEmLinha; melhor?: boolean; etiqueta?: EtiquetaDeDesempenho;
+}) {
   const quando = quandoTexto(p.quando);
   const [falhou, setFalhou] = useState(false);
   const temImagem = !!p.thumb && !falhou;
+
+  /**
+   * As parcelas medidas, na ordem em que se lê engajamento.
+   *
+   * `composicaoDoEngajamento` já resolve a regra: parcela ausente sai da lista
+   * em vez de virar zero. Reusá-la aqui evita uma segunda implementação da
+   * mesma decisão — e é a decisão, não a lista, que precisa ser única.
+   */
+  const partes = composicaoDoEngajamento({
+    likes: p.curtidas, comments: p.comentarios,
+    shares: p.compartilhamentos, saves: p.salvamentos,
+  }, p.interacoes).partes;
 
   return (
     <a href={p.permalink ?? "#"} target="_blank" rel="noopener noreferrer"
@@ -173,7 +234,21 @@ function CardDePublicacao({ p, melhor }: { p: PublicacaoEmLinha; melhor?: boolea
                          px-[7px] py-[3px] rounded-md bg-black/60 text-white backdrop-blur-[4px]">
           {ROTULO_CONTEUDO[p.tipo]}
         </span>
-        {melhor && (
+        {/* A etiqueta de desempenho fica sobre a imagem, na quina oposta ao
+            tipo. Ela só existe com amostra suficiente — ver
+            `etiquetarDesempenho` —, e o `title` carrega o porquê: sem ele o
+            rótulo é um veredito sem argumento. */}
+        {etiqueta && (etiqueta.extremo || etiqueta.nivel === "muito_acima"
+          || etiqueta.nivel === "muito_abaixo") && (
+          <span title={etiqueta.motivo}
+            className={`absolute top-2.5 right-2.5 text-[9px] font-bold uppercase tracking-[0.06em]
+                        px-[7px] py-[3px] rounded-md backdrop-blur-[4px] ${TOM_ETIQUETA[etiqueta.nivel]}`}>
+            {etiqueta.extremo === "melhor" ? "melhor do período"
+              : etiqueta.extremo === "pior" ? "pior do período"
+              : etiqueta.rotulo}
+          </span>
+        )}
+        {melhor && !etiqueta && (
           <span className="absolute top-2.5 right-2.5 text-[9px] font-bold uppercase tracking-[0.06em]
                            px-[7px] py-[3px] rounded-md bg-primary text-primary-foreground">
             melhor
@@ -189,26 +264,44 @@ function CardDePublicacao({ p, melhor }: { p: PublicacaoEmLinha; melhor?: boolea
         )}
         <div className="grid grid-cols-3 gap-1.5 mt-2.5">
           <Numero rotulo="alcance" valor={fmt(p.alcance)} />
-          <Numero rotulo="interações" valor={fmt(p.interacoes)} />
-          <Numero rotulo="taxa" valor={p.taxa == null ? "–" : `${p.taxa.toFixed(1)}%`} destaque />
+          <Numero rotulo="views" valor={fmt(p.views)} />
+          {/* O bruto das interações sai da grade e vira o hover da taxa: ele é o
+              numerador dela, e os dois no mesmo lugar dizem de onde o percentual
+              veio sem gastar uma coluna. */}
+          <Numero rotulo="taxa" destaque
+            valor={p.taxa == null ? "–" : `${p.taxa.toFixed(1)}%`}
+            dica={p.interacoes == null
+              ? "taxa sobre o alcance"
+              : `${fmt(p.interacoes)} interações no total, sobre o alcance`} />
         </div>
-        {/* Views em segunda linha e corpo menor: ela informa CONSUMO, e as três
-            de cima informam desempenho. Quatro números de peso igual não teriam
-            hierarquia nenhuma. */}
-        <div className="grid grid-cols-3 gap-1.5 mt-1.5">
-          <Numero rotulo="views" valor={fmt(p.views)} miudo />
-        </div>
+
+        {/* A composição, no lugar do total: "312 curtidas · 24 comentários" diz
+            o que "389 interações" escondia — e é ela que separa um post que
+            gerou conversa de um que só levou curtida. */}
+        {partes.length > 0 && (
+          <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-2">
+            {partes.map((x) => (
+              <span key={x.chave} className="inline-flex items-center gap-1 text-[10.5px] tabular-nums
+                                             text-muted-foreground">
+                <i className="w-[5px] h-[5px] rounded-full flex-shrink-0"
+                  style={{ background: COR_INTERACAO[x.chave] ?? "currentColor" }} />
+                {fmt(x.total)}
+                <span className="text-muted-foreground/60">{ROTULO_CURTO[x.chave] ?? x.rotulo}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </a>
   );
 }
 
-function Numero({ rotulo, valor, destaque, miudo }: {
-  rotulo: string; valor: string; destaque?: boolean; miudo?: boolean;
+function Numero({ rotulo, valor, destaque, miudo, dica }: {
+  rotulo: string; valor: string; destaque?: boolean; miudo?: boolean; dica?: string;
 }) {
   const vazio = valor === "–";
   return (
-    <span className="flex flex-col leading-tight min-w-0" title={rotulo}>
+    <span className="flex flex-col leading-tight min-w-0" title={dica ?? rotulo}>
       <span className={`tabular-nums truncate ${miudo ? "text-[12px] text-muted-foreground" : "text-sm font-bold"} ${
         destaque && !vazio ? "text-accent" : vazio ? "text-muted-foreground/40" : ""}`}>
         {valor}

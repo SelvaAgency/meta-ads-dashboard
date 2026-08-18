@@ -46,6 +46,7 @@ import { coletasSaoComparaveis, rotuloDeFluxo } from "@shared/janelaDaMetrica";
 import { composicaoDeAtivacoes, contarAtivacoes } from "@shared/ativacoes";
 import { lerUltimosDias, type DiaDaLeitura } from "@shared/leituraSocial";
 import { composicaoDoEngajamento, taxaPorAlcance } from "@shared/engajamento";
+import { etiquetarDesempenho } from "@shared/desempenhoDaPublicacao";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 import { COR, COR_INTERACAO, COR_TIPO, ORDEM_TIPO } from "@shared/coresSociais";
 import { compararComAnterior, variacao } from "@shared/periodoAnterior";
@@ -458,6 +459,12 @@ export default function RedesSociais() {
         legenda: m.legenda?.slice(0, 80) ?? null,
         alcance: m.reach,
         interacoes: inter,
+        // As parcelas vêm do snapshot como estão: `null` continua sendo "não
+        // medido", e o cartão omite a parcela em vez de escrever zero.
+        curtidas: m.likes,
+        comentarios: m.comentarios,
+        compartilhamentos: m.shares,
+        salvamentos: m.saves,
         views: m.views ?? null,
         // Mesma função pura da taxa geral, e não uma divisão local: sem
         // alcance não há divisor, e `taxaPorAlcance` já devolve `null` nesse
@@ -467,6 +474,20 @@ export default function RedesSociais() {
       };
     })
     .sort((a, b) => (b.quando ?? "").localeCompare(a.quando ?? "")), [noPeriodo, thumbAoVivo]);
+
+  /**
+   * As etiquetas de desempenho.
+   *
+   * Calculadas sobre TODAS as publicações do período, e não sobre as oito que a
+   * grade mostra: a mediana da conta é a régua, e medi-la só nas exibidas faria
+   * a régua mudar com a rolagem.
+   */
+  const etiquetas = useMemo(
+    () => etiquetarDesempenho(publicacoes.map((x) => ({
+      id: x.id, taxa: x.taxa, alcance: x.alcance,
+    }))),
+    [publicacoes],
+  );
 
   /**
    * As duas pontas do ranking.
@@ -966,6 +987,7 @@ export default function RedesSociais() {
             {/* ══ PUBLICAÇÕES DO PERÍODO ════════════════════════════════════ */}
             <UltimasPublicacoes
               instagram={publicacoes.slice(0, 8)}
+              etiquetas={etiquetas}
               temLinkedin={false}
               aviso={publicacoesIndisponiveis
                 ? "Não conseguimos ler as publicações nesta coleta."

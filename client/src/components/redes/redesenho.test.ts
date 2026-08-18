@@ -159,12 +159,33 @@ describe("nenhuma métrica saiu da faixa geral", () => {
     expect(s).toContain("composicao.ressalva");
   });
 
-  /** Views entrou no card de publicação — o snapshot já tinha o campo. */
-  it("a publicação mostra views além de alcance, interações e taxa", () => {
+  /**
+   * O total de interações saiu da grade e virou composição.
+   *
+   * "389 interações" escondia o que separa um post que gerou conversa de um que
+   * só levou curtida. O bruto não sumiu: virou o hover da taxa, que é onde ele
+   * explica de onde o percentual veio — a taxa é ele dividido pelo alcance.
+   */
+  it("a publicação mostra a composição, e o bruto no hover da taxa", () => {
     const s = conteudo();
-    for (const r of ["alcance", "interações", "taxa", "views"]) {
+    for (const r of ["alcance", "taxa", "views"]) {
       expect(s).toContain(`rotulo="${r}"`);
     }
+    expect(s, "o total voltou a ocupar uma coluna").not.toContain('rotulo="interações"');
+    expect(s).toContain("composicaoDoEngajamento(");
+    expect(s).toContain("interações no total");
+  });
+
+  /**
+   * Parcela ausente não vira zero — a regra vem de `composicaoDoEngajamento`, e
+   * o cartão a reusa em vez de reimplementar. Duas implementações da mesma
+   * decisão é como uma delas escorrega para `?? 0`.
+   */
+  it("as parcelas do engajamento vêm da função pura, e não de um mapa local", () => {
+    const s = conteudo();
+    expect(s).not.toMatch(/curtidas\s*\?\?\s*0/);
+    expect(s).not.toMatch(/salvamentos\s*\?\?\s*0/);
+    expect(s).toContain("partes.map");
   });
 });
 
@@ -504,6 +525,28 @@ describe("o cabeçalho executivo continua montado no Rascunho", () => {
     const s = rascunho();
     expect(s).toContain("m.publicadoEm");
     expect(s).not.toMatch(/porDia\.set\(m\.dia/);
+  });
+
+  /**
+   * O bloqueio é da ROTA, e não da navegação.
+   *
+   * Sumir o link esconderia a porta sem trancá-la, e `/rascunho` é adivinhável.
+   * A allowlist é escrita por extenso (`canManageContent` = admin ou dev) — a
+   * forma negativa `role !== "user"` incluiria sozinha qualquer papel novo.
+   */
+  it("a bancada é restrita a admin e dev, na própria rota", () => {
+    const s = fonte("../../pages/Rascunho.tsx");
+    expect(s).toContain("canManageContent(");
+    expect(s).toContain("<SemAcessoTracker");
+    expect(s, "a checagem virou forma negativa").not.toMatch(/role\s*!==\s*"user"/);
+  });
+
+  /** E o item da sidebar não pode ser `livre`: livre fura o cadeado do grupo. */
+  it("o item da sidebar respeita o cadeado do grupo restrito", () => {
+    const s = fonte("../../pages/hub/HubSidebar.tsx");
+    expect(s).toMatch(/label: "Rascunho"[^}]*href: "\/rascunho"/);
+    expect(s, "o Rascunho voltou a ser livre no grupo restrito")
+      .not.toMatch(/label: "Rascunho"[^}]*livre: true/);
   });
 
   /** A peça lê dado real: um rascunho com número fictício não ensina nada. */

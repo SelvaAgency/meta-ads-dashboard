@@ -13,11 +13,13 @@
  *  causa de outra mudança, alguém descobre aqui — não no retorno à produção.
  *
  *  ── Quem entra ────────────────────────────────────────────────────────────
- *  Todos os quatro papéis do Spaces: colaborador, coordenador, admin e dev. O
- *  que a página NÃO tem é entrada na navegação principal — ela se alcança pelo
- *  endereço, e por um atalho discreto em Configurações para admin e dev. Não
- *  inventei um quinto nível de permissão para isso: a exigência era não POLUIR a
- *  navegação, não esconder o conteúdo de quem trabalha aqui.
+ *  Só admin e dev. A bancada mostra peças fora de produção, meio prontas e
+ *  possivelmente erradas — e quem não participa da decisão de produto não tem
+ *  como saber que aquilo não vale. Um cliente perguntando sobre um número que
+ *  um colaborador viu no Rascunho é um problema que a página não precisa criar.
+ *
+ *  O bloqueio é de VERDADE e mora aqui, na rota. Sumir o link da navegação
+ *  esconderia a porta sem trancá-la, e o endereço é adivinhável.
  *
  *  ── O que ela não é ───────────────────────────────────────────────────────
  *  Não é ambiente de teste de DADO. Tudo o que aparece aqui lê as mesmas
@@ -29,6 +31,7 @@ import { useMemo } from "react";
 import { Loader2, PencilRuler } from "lucide-react";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { canManageContent } from "@shared/permissions";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
 import { usePeriodFilter } from "@/components/PeriodFilter";
@@ -50,8 +53,16 @@ export default function Rascunho() {
     [accounts, selectedAccountId],
   );
 
-  if (!user) {
-    return <SemAcessoTracker title="Rascunho" message="Entre com sua conta para ver a bancada." />;
+  /**
+   * `canManageContent` é admin ou developer — a mesma allowlist da News bar e da
+   * SelvaTV. Escrita por extenso, e não `role !== "user"`: a forma negativa
+   * incluiria sozinha qualquer papel novo, sem ninguém decidir isso.
+   */
+  if (!canManageContent((user as { role?: string } | null)?.role)) {
+    return (
+      <SemAcessoTracker title="Rascunho"
+        message="A bancada de peças fora de produção é restrita a administradores e desenvolvedores." />
+    );
   }
 
   return (
