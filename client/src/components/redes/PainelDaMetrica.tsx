@@ -104,7 +104,7 @@ export function MiniSerie({ dias, cor, altura = 46 }: {
 
 export function PainelDaMetrica({
   rotulo, cor, dias, total, formato = "numero", variacaoPct, anterior,
-  motivoSemComparacao, seguidores, procedencia, extra, children,
+  seguidores, procedencia, extra, children,
 }: {
   rotulo: string;
   /** O matiz da família — o mesmo do cartão que abriu o painel. */
@@ -114,8 +114,6 @@ export function PainelDaMetrica({
   formato?: "numero" | "percentual";
   variacaoPct: number | null;
   anterior: number | null;
-  /** Por que a comparação foi recusada, quando foi. */
-  motivoSemComparacao?: string | null;
   /**
    * A base, para a proporção. `undefined` NÃO mostra o bloco.
    *
@@ -164,13 +162,24 @@ export function PainelDaMetrica({
             <dt className="text-[9.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
               Período anterior
             </dt>
-            {/* A comparação é recusada, e não aproximada: o motivo vem de
-                `compararComAnterior`, que se nega a comparar janelas de
-                tamanhos diferentes — um buraco de coleta leria como queda. */}
+            {/*
+                Este slot diz UMA coisa: se há período anterior para comparar.
+
+                Ele recebia o aviso de horários de coleta desencontrados, que é
+                outro assunto — e o resultado era a mesma explicação longa
+                repetida nos quatro painéis, ocupando o lugar de um número. Pior:
+                mentia por omissão, porque "coletas em horários diferentes" NÃO
+                é a razão de `anterior` ser nulo. As duas coisas se confundiam
+                num slot só.
+
+                O aviso de horários continua na página, uma vez, abaixo da faixa
+                de dados gerais — que é onde ele vale para todas as métricas de
+                uma vez, em vez de quatro vezes.
+            */}
             <dd className="text-[13px] font-bold tabular-nums mt-0.5">
               {anterior == null ? (
                 <span className="text-muted-foreground/50 font-normal text-[11px]">
-                  {motivoSemComparacao ?? "sem período anterior medido"}
+                  sem período anterior medido
                 </span>
               ) : (
                 <>

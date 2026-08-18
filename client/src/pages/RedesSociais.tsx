@@ -703,7 +703,6 @@ export default function RedesSociais() {
                       }))}
                       total={ativacoes.total}
                       variacaoPct={varAtivacoes.pct} anterior={varAtivacoes.anterior}
-                      motivoSemComparacao={comparabilidade.motivo}
                       procedencia={<>Posts e reels vêm da listagem de mídias, por
                         <span className="font-mono"> publicadoEm</span>. Stories vêm da contagem
                         diária — a coleta vê o que está no ar.</>}
@@ -740,7 +739,6 @@ export default function RedesSociais() {
                     <PainelDaMetrica rotulo="Engajamento" cor={COR.engajamento}
                       dias={engajamentoPorDia} total={composicao.totalApresentado}
                       variacaoPct={varEngajamento.pct} anterior={varEngajamento.anterior}
-                      motivoSemComparacao={comparabilidade.motivo}
                       procedencia={<>Total medido por
                         <span className="font-mono"> total_interactions</span>. A composição vem do
                         perfil, mesmo escopo do total.</>}>
@@ -781,7 +779,6 @@ export default function RedesSociais() {
                         <PainelDaMetrica rotulo="Visitas ao perfil" cor={COR.visitas}
                           dias={visitasPorDia} total={visitas.total}
                           variacaoPct={varVisitas.pct} anterior={varVisitas.anterior}
-                          motivoSemComparacao={comparabilidade.motivo}
                           seguidores={seguidoresAgora}
                           procedencia={<>Medidas por <span className="font-mono">profile_views</span>.
                             {rotuloVisitas.resumo ? ` ${rotuloVisitas.resumo}.` : ""}</>}>
@@ -799,7 +796,6 @@ export default function RedesSociais() {
                         <PainelDaMetrica rotulo="Cliques no link" cor={COR.visitas}
                           dias={cliquesPorDia} total={cliques.total}
                           variacaoPct={varCliques.pct} anterior={varCliques.anterior}
-                          motivoSemComparacao={comparabilidade.motivo}
                           seguidores={seguidoresAgora}
                           procedencia={<>Cliques no link da bio, medidos por
                             <span className="font-mono"> website_clicks</span>. Não inclui links de story.</>}>
