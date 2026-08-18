@@ -357,17 +357,14 @@ export function GraficoDeMovimento({ pontos, nota, altura = 176, largura = 760 }
   const passoX = iw / Math.max(1, pontos.length);
   const x = (i: number) => ml + (i + 0.5) * passoX;
   const bw = Math.min(18, Math.max(4, passoX * 0.46));
-
-  const linhaSaldo = (() => {
-    const partes: string[] = [];
-    let atual: string[] = [];
-    pontos.forEach((p, i) => {
-      if (p.saldo == null) { if (atual.length > 1) partes.push(atual.join(" ")); atual = []; return; }
-      atual.push(`${atual.length ? "L" : "M"}${x(i).toFixed(1)},${y(p.saldo).toFixed(1)}`);
-    });
-    if (atual.length > 1) partes.push(atual.join(" "));
-    return partes;
-  })();
+  /**
+   * A folga entre a barra e a linha do zero.
+   *
+   * Sem ela as duas barras de um mesmo dia se encostam e viram um retângulo
+   * bicolor — e o eixo, que é a referência inteira do gráfico, some por baixo
+   * delas justamente nos dias de mais movimento.
+   */
+  const folga = 1;
 
   const passoRotulo = intervaloDeRotulos(pontos.length, iw);
   /**
@@ -381,8 +378,8 @@ export function GraficoDeMovimento({ pontos, nota, altura = 176, largura = 760 }
   const [ativo, setAtivo] = useState<number | null>(null);
 
   return (
-    <Moldura titulo="Entradas × saídas × saldo" nota={nota} vazio={vazio} altura={altura}
-      legenda={<Legenda itens={[["Entradas", COR.entrada], ["Saídas", COR.saida], ["Saldo", COR.seguidores]]} />}
+    <Moldura titulo="Movimento diário" nota={nota} vazio={vazio} altura={altura}
+      legenda={<Legenda itens={[["Entradas", COR.entrada], ["Saídas ˜", COR.saida]]} />}
       leitura={ativo != null ? <LeituraDoDia p={pontos[ativo]} /> : null}>
       <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img" aria-label="Movimento da base">
         {esc.rotulos.map((v, k) => {
@@ -411,33 +408,25 @@ export function GraficoDeMovimento({ pontos, nota, altura = 176, largura = 760 }
           const destacado = ativo === i;
           return (
             <g key={p.dia}>
+              {/* Acima do zero, medida. Cresce para cima a partir do eixo. */}
               {p.entradas != null && p.entradas > 0 && (
-                <rect x={x(i) - bw / 2} y={y(p.entradas)} width={bw} height={px(p.entradas)}
-                  fill={COR.entrada} opacity={ativo == null || destacado ? 0.9 : 0.35} rx={1.5}
+                <rect x={x(i) - bw / 2} y={y(p.entradas)} width={bw}
+                  height={Math.max(1, px(p.entradas) - folga)}
+                  fill={COR.entrada} opacity={ativo == null || destacado ? 0.92 : 0.32} rx={1.5}
                   className="transition-opacity duration-150" />
               )}
-              {/* Desenhada para BAIXO a partir do zero — o desequilíbrio entre as
-                  duas fica visível sem ler número nenhum. */}
+              {/* Abaixo do zero, DERIVADA. Cresce para baixo a partir do eixo, e
+                  o desequilíbrio entre as duas fica visível sem ler número
+                  nenhum — que é a pergunta do bloco: em que dia a base perdeu. */}
               {p.saidas != null && p.saidas > 0 && (
-                <rect x={x(i) - bw / 2} y={yZero} width={bw} height={px(p.saidas)}
-                  fill={COR.saida} opacity={ativo == null || destacado ? 0.9 : 0.35} rx={1.5}
+                <rect x={x(i) - bw / 2} y={yZero + folga} width={bw}
+                  height={Math.max(1, px(p.saidas) - folga)}
+                  fill={COR.saida} opacity={ativo == null || destacado ? 0.92 : 0.32} rx={1.5}
                   className="transition-opacity duration-150" />
-              )}
-              {/* O ponto do saldo só aparece no dia ativo: trinta pontos
-                  permanentes competiriam com as barras. */}
-              {destacado && p.saldo != null && (
-                <circle cx={x(i)} cy={y(p.saldo)} r={4} fill="var(--color-card)"
-                  stroke={COR.seguidores} strokeWidth={2.4} />
               )}
             </g>
           );
         })}
-
-        {linhaSaldo.map((d, k) => (
-          <path key={k} d={d} fill="none" stroke={COR.seguidores} strokeWidth={2.2}
-            strokeLinejoin="round" strokeLinecap="round"
-            opacity={ativo == null ? 1 : 0.55} className="transition-opacity duration-150" />
-        ))}
 
         {/* As faixas de captura vão por ÚLTIMO, para ficarem acima de tudo — e
             cobrem o passo inteiro, então o dia sem barra também responde. */}

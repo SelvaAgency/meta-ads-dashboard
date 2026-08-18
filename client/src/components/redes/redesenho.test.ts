@@ -177,8 +177,11 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
    */
   it("as medidas do protótipo estão no código", () => {
     const s = grafico();
-    expect(s).toContain("strokeWidth={2.2}");
     expect(s).toContain('strokeDasharray="3 4"');
+    // A espessura 2,2 do protótipo sobrevivia só na linha de saldo do
+    // movimento, que foi removida. A da evolução foi a 2,6 de propósito — numa
+    // coluna estreita as duas séries se cruzam muito.
+    expect(s).toContain("strokeWidth={2.6}");
     // As larguras de barra saem do PASSO horizontal, e não de um número fixo:
     // com 30 dias, uma largura fixa faria as barras se encavalarem.
     expect(s).toMatch(/passoX \* 0\.46/);
@@ -206,6 +209,40 @@ describe("os gráficos reproduzem o protótipo, não o recharts", () => {
    * seguidores foi o erro que fazia +2 entradas e −2 saídas parecerem
    * crescimento, com a legenda dizendo "Saldo" o tempo todo.
    */
+  /**
+   * ───────────────────────────────────────────────────────────────────────────
+   *  O movimento não desenha saldo — nem como linha, nem como ponto
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Entradas e saídas são FLUXO diário; saldo é ESTOQUE acumulado. Os três no
+   *  mesmo eixo diziam ao olho que são comparáveis. O saldo do dia continua
+   *  existindo no hover, como informação derivada — o que ele não faz mais é
+   *  ocupar o eixo.
+   *
+   *  O jeito de isso voltar é alguém achar que "falta o saldo no gráfico". Ele
+   *  não falta: está no número grande SALDO ATUAL, logo ao lado.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  it("o movimento diário não tem terceira série", () => {
+    const s = grafico();
+    const corpo = s.slice(s.indexOf("export function GraficoDeMovimento"),
+      s.indexOf("export function GraficoDeAtivacoes"));
+    expect(corpo, "a linha de saldo voltou").not.toContain("<path");
+    expect(corpo, "o ponto de saldo voltou").not.toContain("<circle");
+    // As duas séries que sobraram são fluxo, e só elas.
+    expect(corpo).toContain("COR.entrada");
+    expect(corpo).toContain("COR.saida");
+    expect(corpo, "o saldo voltou a ser desenhado").not.toMatch(/y\(p\.saldo\)/);
+  });
+
+  /** O saldo do dia continua no hover — derivado, e marcado como tal. */
+  it("o saldo do dia sobrevive no hover, e não no eixo", () => {
+    const s = grafico();
+    const leitura = s.slice(s.indexOf("function LeituraDoDia"), s.indexOf("export function Legenda"));
+    expect(leitura).toContain("Saldo");
+    // O til discreto marca o que é derivado — saídas, não entradas.
+    expect(leitura).toContain("˜");
+  });
+
   it("a linha de saldo não plota o estoque de seguidores", () => {
     const s = grafico();
     expect(s).toContain("p.saldo");

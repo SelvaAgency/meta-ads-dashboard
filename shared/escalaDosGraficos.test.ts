@@ -80,9 +80,29 @@ describe("o eixo do movimento não engana", () => {
     expect(e.abaixo).toBe(2);
   });
 
-  /** O saldo negativo pode ser MAIOR que as saídas medidas — e cabe. */
-  it("saldo negativo maior que a saída ainda cabe no eixo", () => {
-    expect(escalaDoMovimento([dia(1, 2, -9)]).abaixo).toBe(9);
+  /**
+   * ───────────────────────────────────────────────────────────────────────────
+   *  O saldo NÃO mede o eixo — e este teste é o oposto do que ele afirmava
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Antes o saldo participava da escala, porque era desenhado como terceira
+   *  série. A regra virou: entradas e saídas são fluxo diário, saldo é estoque
+   *  acumulado, e pô-los no mesmo eixo dizia ao olho que os três são
+   *  comparáveis. O saldo saiu do desenho e saiu da escala junto.
+   *
+   *  O jeito de isso regredir é alguém "consertar" a escala achando que ela
+   *  está cortando o saldo. Não está: ela não desenha o saldo.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  it("saldo enorme não infla o eixo dos fluxos", () => {
+    const e = escalaDoMovimento([dia(1, 2, -900)]);
+    expect(e.abaixo, "o saldo voltou a medir o eixo").toBe(2);
+    expect(e.acima).toBe(1);
+  });
+
+  it("a escala é a mesma com qualquer saldo", () => {
+    const a = escalaDoMovimento([dia(4, 2, 2)]);
+    const b = escalaDoMovimento([dia(4, 2, -500)]);
+    expect(a).toEqual(b);
   });
 });
 

@@ -48,18 +48,29 @@ export interface EscalaSimetrica {
 }
 
 /**
- * A escala do movimento: um zero só, para os três.
+ * A escala do movimento: um zero só, para os DOIS fluxos.
  *
- * Quando não há nada abaixo do zero, ele desce para a base e o gráfico usa a
- * altura inteira para o positivo — reservar metade do painel para um lado vazio
- * achataria as barras que existem pela metade.
+ * ── O saldo saiu daqui, e essa é a mudança ─────────────────────────────────
+ * Ele participava da escala porque era desenhado como terceira série. Mas saldo
+ * é ESTOQUE acumulado, e entradas e saídas são FLUXO diário — pô-los no mesmo
+ * eixo dizia ao olho que os três são comparáveis, quando não são. Um saldo de
+ * −40 num período de dias com 3 entradas esmagava as barras contra a linha do
+ * zero: a escala inteira passava a servir uma série que ninguém precisava ler
+ * ali, porque o número grande "SALDO ATUAL" já a mostra.
+ *
+ * O saldo do dia continua existindo em `DiaDoMovimento` — ele aparece no hover,
+ * como informação derivada. O que ele não faz mais é MEDIR o eixo.
+ *
+ * ── Quando um lado está vazio, o zero encosta na borda ─────────────────────
+ * Reservar metade do painel para um lado que não tem nada achataria as barras
+ * que existem pela metade.
  *
  * O piso de 1 evita divisão por zero num dia todo zerado, e o resultado é um
  * gráfico plano na linha do zero, que é exatamente o que aquele dia foi.
  */
 export function escalaDoMovimento(dias: DiaDoMovimento[]): EscalaSimetrica {
-  const positivos = dias.flatMap((d) => [d.entradas ?? 0, Math.max(0, d.saldo ?? 0)]);
-  const negativos = dias.flatMap((d) => [d.saidas ?? 0, Math.max(0, -(d.saldo ?? 0))]);
+  const positivos = dias.map((d) => d.entradas ?? 0);
+  const negativos = dias.map((d) => d.saidas ?? 0);
 
   const acima = Math.max(1, ...positivos);
   const abaixo = Math.max(0, ...negativos);

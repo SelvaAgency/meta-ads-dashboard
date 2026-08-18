@@ -40,6 +40,7 @@ import {
   ScrollText,
   ExternalLink,
   Users,
+  PencilRuler,
   type LucideIcon,
 } from "lucide-react";
 import { SelvaLogo } from "@/components/SelvaLogo";
@@ -126,6 +127,22 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Contratos", icon: FileSignature, kind: "app", href: "/contracts" },
       { label: "Propostas", icon: ScrollText, kind: "placeholder" },
       { label: "Colaboradores", icon: Users, kind: "internal", href: "/people" },
+      /**
+       * A bancada de peças fora de produção.
+       *
+       * Mora no grupo restrito porque não é seção do produto — mas com
+       * `livre`, pelo mesmo motivo do Financeiro: a regra de acesso da página
+       * é de TODOS os papéis, e um cadeado aqui contradiria a rota. O grupo diz
+       * "isto não é para o cliente"; o `livre` diz "e você pode entrar".
+       *
+       * `kind: "app"` porque `/rascunho` é rota CRUA do Tracker — ela renderiza
+       * dentro do shell. O `href` aponta para a rota crua, e não para
+       * `/tracker?rota=…`: quem chega no topo é redirecionado por `Interna`, que
+       * é o mesmo caminho de todo deep-link de alerta. Apontar direto para o
+       * shell abreviaria um salto e quebraria o destaque do item ativo, que
+       * compara `location === href`.
+       */
+      { label: "Rascunho", icon: PencilRuler, kind: "app", href: "/rascunho", livre: true },
     ],
   },
 ];
