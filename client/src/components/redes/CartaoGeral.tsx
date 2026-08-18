@@ -60,7 +60,7 @@ function Selo({ pct, anterior, bom }: {
 
 export function CartaoGeral({
   icone: Icone, cor, rotulo, valor, detalhe, parcelas, ressalva, explicacao,
-  variacaoPct, anterior, bom = "sobe",
+  variacaoPct, anterior, bom = "sobe", grafico, clicavel, acao,
 }: {
   icone: LucideIcon;
   /** O matiz da família — o mesmo do gráfico e da legenda desta métrica. */
@@ -75,6 +75,23 @@ export function CartaoGeral({
   bom?: "sobe" | "cai";
   /** O que a métrica mede, no tooltip. Só o que a ressalva não já disser. */
   explicacao?: string | null;
+  /**
+   * O mini-gráfico dentro do cartão.
+   *
+   * Existe porque "Ativações por dia" era uma seção de largura cheia para
+   * responder uma pergunta que pertence a este cartão. Aqui ele fica abaixo do
+   * número e acima da composição: o número diz quanto, o gráfico diz quando, a
+   * barra diz de quê.
+   */
+  grafico?: React.ReactNode;
+  /**
+   * `true` quando o cartão abre um painel. Muda só a afordância — o cursor e o
+   * convite —, nunca o conteúdo: um cartão que parece clicável e não é ensina a
+   * não clicar em mais nada.
+   */
+  clicavel?: boolean;
+  /** O convite, quando há painel. */
+  acao?: string | null;
 }) {
   const [realce, setRealce] = useState<string | null>(null);
   const vazio = valor === "–";
@@ -84,7 +101,9 @@ export function CartaoGeral({
     /* O realce é do CARTÃO inteiro, não de um detalhe dele: o que o mouse marca
        é "estou lendo esta métrica". Fundo levíssimo e 160ms — passar o mouse
        pela faixa não pode virar uma sequência de piscadas. */
-    <div className="group flex flex-col flex-1 px-4 py-4 min-w-0 transition-colors duration-150 hover:bg-foreground/[0.02]">
+    <div className={`group flex flex-col flex-1 px-4 py-4 min-w-0 text-left w-full
+                     transition-colors duration-150 hover:bg-foreground/[0.02] ${
+      clicavel ? "cursor-pointer" : ""}`}>
       <div className="flex items-start justify-between gap-2 mb-3">
         <span className="w-8 h-8 rounded-[10px] grid place-items-center flex-shrink-0 transition-colors duration-150"
           style={{ background: `${cor}29`, color: cor }}>
@@ -102,6 +121,11 @@ export function CartaoGeral({
         {valor}
       </span>
       {detalhe && <span className="text-[11px] text-muted-foreground mt-1.5">{detalhe}</span>}
+
+      {/* O mini-gráfico logo abaixo do número: mesma métrica, mesma pergunta em
+          duas dimensões. Antes da barra de composição, porque tempo vem antes
+          de "de que é feito". */}
+      {grafico && <div className="mt-3 -mx-1">{grafico}</div>}
 
       {/* A barra de proporção: cada faixa cresce pelo próprio valor. Só aparece
           quando há mais de uma parcela — com uma só, ela seria uma barra cheia
@@ -143,6 +167,15 @@ export function CartaoGeral({
 
       {ressalva && (
         <span className="text-[10px] text-muted-foreground/60 leading-snug mt-2">{ressalva}</span>
+      )}
+
+      {/* O convite fica no fim e é discreto: ele diz que há mais, sem competir
+          com o número que é o assunto do cartão. */}
+      {acao && (
+        <span className="block text-[10px] mt-auto pt-2 text-muted-foreground/55
+                         group-hover:text-foreground transition-colors duration-150">
+          {acao} →
+        </span>
       )}
     </div>
   );

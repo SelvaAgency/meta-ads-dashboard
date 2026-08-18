@@ -33,6 +33,7 @@ const grafico = () => fonte("./GraficosSociais.tsx");
 const retencao = () => fonte("./RetencaoReels.tsx");
 const conteudo = () => fonte("./PublicacoesEConteudo.tsx");
 const cabecalho = () => fonte("./CabecalhoDaConta.tsx");
+const rascunho = () => fonte("../../pages/rascunho/CabecalhoExecutivoSocial.tsx");
 /** O núcleo puro da retenção — as proibições valem lá também. */
 const leia = (p: string) => fonte(p);
 
@@ -130,16 +131,21 @@ describe("nenhuma métrica saiu da faixa geral", () => {
   });
 
   /**
-   * Cliques no link é o menor número da faixa. Um cartão permanente lhe daria a
-   * mesma área do engajamento — a leitura profunda abre a partir do dado.
+   * O painel contextual, que nasceu em Cliques no link, passou a valer para
+   * TODA métrica da faixa: "como isso evoluiu?" é a mesma pergunta em qualquer
+   * uma delas, e quatro painéis diferentes com a mesma forma seriam quatro
+   * lugares para a decisão de quebrar a linha num dia sem coleta escorregar.
    */
-  it("cliques no link abre painel, e não ganha cartão", () => {
+  it("toda métrica da faixa abre painel de evolução", () => {
     const s = pagina();
-    expect(s).toContain("<PainelDeCliques");
+    for (const r of ["Ativações", "Engajamento", "Visitas ao perfil", "Cliques no link"]) {
+      expect(s, r).toMatch(new RegExp(`<PainelDaMetrica[^>]*rotulo="${r}"`));
+    }
+    // Cliques continua sem cartão próprio: é o menor número da faixa.
     expect(s).not.toMatch(/<CartaoGeral[^>]*rotulo="Cliques no link"/);
     // A série do painel guarda `null` no dia sem medição: interpolar desenharia
     // uma inclinação que ninguém mediu.
-    expect(s).toContain('cliques: mets(p, "website_clicks")');
+    expect(s).toContain('valor: mets(p, k)');
   });
 
   /** As ressalvas são o que separa "medido zero" de "não medido". */
@@ -342,6 +348,95 @@ describe("a retenção de Reels não ganha curva", () => {
  *  ponto, direção no número) e a altura fixa.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  As duas abas, e o que cada uma responde
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A Social empilhava numa rolagem só duas perguntas diferentes. A separação é
+ *  de NAVEGAÇÃO, nunca de informação — e o jeito de ela virar perda é alguém
+ *  "limpar" a Home e um bloco não reaparecer do outro lado.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("a Social tem duas abas, e nada se perdeu entre elas", () => {
+  it("a Home responde 'o que aconteceu' — dados gerais e publicações", () => {
+    const s = pagina();
+    const home = s.slice(s.indexOf('aba === "home" && ('), s.indexOf('aba === "conteudo" && ('));
+    expect(home).toContain("Dados gerais");
+    expect(home).toContain("<GraficoDeMovimento");
+    expect(home).toContain("<UltimasPublicacoes");
+    // Análise de conteúdo NÃO mora na Home.
+    expect(home).not.toContain("<RetencaoReels");
+    expect(home).not.toContain("<PerformanceDeConteudo");
+  });
+
+  it("Conteúdo responde 'qual conteúdo explica' — e recebe os três blocos", () => {
+    const s = pagina();
+    const conteudo = s.slice(s.indexOf('aba === "conteudo" && ('));
+    expect(conteudo).toContain("<RetencaoReels");
+    expect(conteudo).toContain("<PerformanceDeConteudo");
+  });
+
+  /** Uma aba só é destino de link se o nome dela sobreviver na URL. */
+  it("a aba nasce da URL, e desconhecido não dá tela vazia", () => {
+    expect(pagina()).toContain("abaDaUrl(");
+  });
+
+  /**
+   * "Ativações por dia" era uma seção de largura cheia para responder uma
+   * pergunta que pertence ao cartão de Ativações. Se ela voltar como seção, a
+   * página volta a crescer — e o cartão passa a ter um irmão redundante.
+   */
+  it("ativações por dia vive DENTRO do cartão, e não como seção", () => {
+    const s = pagina();
+    expect(s).not.toMatch(/<Secao\s+titulo="Ativações por dia"/);
+    expect(s, "o mini-gráfico saiu do cartão").toMatch(/grafico=\{<GraficoDeAtivacoes[^>]*compacto/);
+  });
+
+  /** O nome mudou porque o antigo mentia de leve — ver o comentário no arquivo. */
+  it("a seção se chama Publicações do período", () => {
+    expect(conteudo()).toContain(">Publicações do período<");
+    expect(conteudo()).not.toMatch(/>Últimas publicações</);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O Rascunho preserva a peça MONTADA, e não comentada
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A diferença entre preservado e arquivado: este é exercitado a cada visita. Se
+ *  o cabeçalho executivo quebrar por outra mudança, alguém descobre no Rascunho
+ *  — não no dia em que ele voltar à produção.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("o cabeçalho executivo continua montado no Rascunho", () => {
+  it("as três colunas e as proporções sobreviveram", () => {
+    const s = rascunho();
+    expect(s).toContain("<ResumoCurto");
+    expect(s).toContain("<Resultados");
+    expect(s).toContain("<GraficoDeEvolucao");
+    expect(s).toContain("0.92fr");
+    expect(s).toContain("1.55fr");
+  });
+
+  /**
+   * O erro que a duplicação da fiação poderia reintroduzir: agrupar por `dia`
+   * (o da COLETA) em vez de `publicadoEm` fazia toda conta exibir 25
+   * publicações diárias — plausível, estável e errado.
+   */
+  it("ativações continuam por dia de PUBLICAÇÃO", () => {
+    const s = rascunho();
+    expect(s).toContain("m.publicadoEm");
+    expect(s).not.toMatch(/porDia\.set\(m\.dia/);
+  });
+
+  /** A peça lê dado real: um rascunho com número fictício não ensina nada. */
+  it("nenhum número fabricado na bancada", () => {
+    const s = fonte("../../pages/Rascunho.tsx");
+    expect(s).toContain("trpc.social.painel.useQuery");
+    expect(s).not.toMatch(/mock|fake|exemplo|lorem/i);
+  });
+});
+
 describe("o cabeçalho fala a língua do dashboard", () => {
   /**
    * A frase curta é o ponto do redesenho. Se o título voltar a enumerar as

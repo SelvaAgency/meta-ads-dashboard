@@ -476,8 +476,20 @@ export function GraficoDeMovimento({ pontos, nota, altura = 176, largura = 760 }
  * parece concentrado no meio. O teto de 26px mantém a proporção legível em
  * qualquer tamanho de série.
  */
-export function GraficoDeAtivacoes({ pontos, altura = 200 }: {
+export function GraficoDeAtivacoes({ pontos, altura = 200, compacto = false }: {
   pontos: PontoDaConta[]; altura?: number;
+  /**
+   * A versão que mora DENTRO do cartão de Ativações.
+   *
+   * Sem moldura, sem título, sem legenda, sem grade: o cartão já diz o nome da
+   * métrica, o total e a composição logo acima. Repetir tudo isso em 78px
+   * sobraria rótulo e faltaria barra.
+   *
+   * O `viewBox` encolhe junto. Um de 760 numa coluna de ~300px reduziria os
+   * rótulos de data a 3,5px — o mesmo erro que o gráfico de movimento cometeu
+   * uma vez, e que só apareceu quando ele foi compactado.
+   */
+  compacto?: boolean;
 }) {
   const [ativo, setAtivo] = useState<number | null>(null);
   /**
@@ -492,7 +504,9 @@ export function GraficoDeAtivacoes({ pontos, altura = 200 }: {
   const max = Math.max(1, ...pilhas.map((x) => x.total));
   const vazio = !presentes.length;
 
-  const W = 760, ml = 30, mr = 14, mt = 20, mb = 22;
+  const W = compacto ? 300 : 760;
+  const ml = compacto ? 4 : 30, mr = compacto ? 4 : 14;
+  const mt = compacto ? 12 : 20, mb = compacto ? 14 : 22;
   const iw = W - ml - mr, ih = altura - mt - mb;
   const passo = iw / Math.max(1, pontos.length);
   const bw = Math.min(26, Math.max(4, passo * 0.62));
@@ -501,17 +515,12 @@ export function GraficoDeAtivacoes({ pontos, altura = 200 }: {
   const alturaDaBarra = (total: number) => (total / max) * ih;
   const passoRotulo = intervaloDeRotulos(pontos.length, iw);
 
-  return (
-    <Moldura titulo="Ativações por dia" nota="a altura é o total · as cores dizem de que ele é feito"
-      vazio={vazio} altura={altura}
-      legenda={<Legenda itens={presentes.map((t) => [ROTULO_CONTEUDO[t], COR_TIPO[t]] as [string, string])} />}
-      leitura={ativo != null && pontos[ativo] ? (
-        <LeituraDasAtivacoes dia={pontos[ativo].dia} total={pilhas[ativo].total}
-          segmentos={pilhas[ativo].segmentos} />
-      ) : null}>
+  const svgDasBarras = (
       <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img" aria-label="Ativações por dia e tipo"
         onMouseLeave={() => setAtivo(null)}>
-        {[0, 1, 2, 3].map((g) => {
+        {/* Grade fora do compacto: três pontilhados atrás de barras de 50px
+            viram textura, não referência. */}
+        {(compacto ? [] : [0, 1, 2, 3]).map((g) => {
           const y = mt + (ih / 3) * g;
           return (
             <g key={g}>
@@ -552,8 +561,9 @@ export function GraficoDeAtivacoes({ pontos, altura = 200 }: {
 
               {/* O total, acima da barra. Some quando o dia é zero: um "0"
                   flutuando no eixo é ruído, e a ausência de barra já diz. */}
-              {total > 0 && (
-                <text x={x(i)} y={topoDaBarra - 6} textAnchor="middle" fontSize={9.5}
+              {total > 0 && (!compacto || ativo === i) && (
+                <text x={x(i)} y={topoDaBarra - (compacto ? 4 : 6)} textAnchor="middle"
+                  fontSize={compacto ? 8.5 : 9.5}
                   className="fill-foreground" fontWeight={700}>
                   {total}
                 </text>
@@ -573,11 +583,48 @@ export function GraficoDeAtivacoes({ pontos, altura = 200 }: {
         ))}
 
         {pontos.map((p, i) => (i % passoRotulo ? null : (
-          <text key={p.dia} x={x(i)} y={altura - 6} textAnchor="middle" fontSize={9} className={EIXO}>
+          <text key={p.dia} x={x(i)} y={altura - (compacto ? 3 : 6)} textAnchor="middle"
+            fontSize={compacto ? 8 : 9} className={EIXO}>
             {p.dia.slice(8, 10)}/{p.dia.slice(5, 7)}
           </text>
         )))}
       </svg>
+  );
+
+  /**
+   * Compacto: sem a moldura, e a leitura do dia numa linha própria e discreta —
+   * ali não existe legenda para ela substituir. A linha tem altura mínima fixa,
+   * senão aparecer e sumir mexeria na altura do cartão a cada movimento do
+   * mouse, e o cartão vizinho pularia junto.
+   */
+  if (compacto) {
+    return (
+      <div className="flex flex-col gap-0.5">
+        {vazio
+          ? <p className="text-[10px] text-muted-foreground/60 py-4 text-center">
+              Nenhuma ativação medida no período.
+            </p>
+          : svgDasBarras}
+        <span className="text-[9.5px] text-muted-foreground/70 tabular-nums min-h-[13px] px-1 truncate">
+          {ativo != null && pontos[ativo] && pilhas[ativo].total > 0
+            ? `${pontos[ativo].dia.slice(8, 10)}/${pontos[ativo].dia.slice(5, 7)} · ${
+                pilhas[ativo].segmentos
+                  .map((g) => `${g.valor} ${ROTULO_CONTEUDO[g.tipo].toLowerCase()}`).join(" · ")}`
+            : ""}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <Moldura titulo="Ativações por dia" nota="a altura é o total · as cores dizem de que ele é feito"
+      vazio={vazio} altura={altura}
+      legenda={<Legenda itens={presentes.map((t) => [ROTULO_CONTEUDO[t], COR_TIPO[t]] as [string, string])} />}
+      leitura={ativo != null && pontos[ativo] ? (
+        <LeituraDasAtivacoes dia={pontos[ativo].dia} total={pilhas[ativo].total}
+          segmentos={pilhas[ativo].segmentos} />
+      ) : null}>
+      {svgDasBarras}
     </Moldura>
   );
 }

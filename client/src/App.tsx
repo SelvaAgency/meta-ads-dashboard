@@ -2,6 +2,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import RedesSociais from "@/pages/RedesSociais";
+import Rascunho from "@/pages/Rascunho";
 import { Route, Switch, useRoute } from "wouter";
 import Settings from "./pages/Settings";
 import { useEffect } from "react";
@@ -173,6 +174,19 @@ function Router() {
       */}
       <Route path="/social-networks" component={() => <Interna><RedesSociais /></Interna>} />
       <Route path="/redes-sociais" component={() => <RedirectTo to="/social-networks" />} />
+      {/*
+        `/rascunho` — a bancada de peças fora de produção.
+
+        Aberta a todos os papéis, e de propósito: quem trabalha nas telas precisa
+        alcançá-la, e o pedido era não POLUIR a navegação, não esconder o
+        conteúdo. Por isso ela existe como ROTA e não como item de menu — o
+        atalho fica em Configurações, para admin e dev.
+
+        Nada aqui é ambiente de teste de dado: as peças leem as mesmas consultas
+        da produção. Um rascunho alimentado por número fictício não ensina nada
+        sobre como a peça se comporta.
+      */}
+      <Route path="/rascunho" component={() => <Interna><Rascunho /></Interna>} />
       <Route path="/experiments" component={() => <Interna><Experiments /></Interna>} />
       <Route path="/experiments/:id" component={() => <Interna><ExperimentDetail /></Interna>} />
 

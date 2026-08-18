@@ -46,10 +46,11 @@ import { composicaoDeAtivacoes, contarAtivacoes } from "@shared/ativacoes";
 import { lerUltimosDias, type DiaDaLeitura } from "@shared/leituraSocial";
 import { composicaoDoEngajamento, taxaPorAlcance } from "@shared/engajamento";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
-import { COR, COR_INTERACAO, COR_TIPO } from "@shared/coresSociais";
+import { COR, COR_INTERACAO, COR_TIPO, ORDEM_TIPO } from "@shared/coresSociais";
 import { compararComAnterior, variacao } from "@shared/periodoAnterior";
 import { CartaoGeral, MetricaDoPerfil } from "@/components/redes/CartaoGeral";
-import { PainelDeCliques } from "@/components/redes/PainelDeCliques";
+import { PainelDaMetrica, MiniSerie, type DiaDaMetrica } from "@/components/redes/PainelDaMetrica";
+import { ABAS_SOCIAIS, ROTULO_ABA_SOCIAL, abaDaUrl, type AbaSocial } from "./social/abasSociais";
 import { RetencaoReels } from "@/components/redes/RetencaoReels";
 import {
   IdentidadeDaConta, Resultados, ResumoCurto, type ValorDoDia,
@@ -62,7 +63,7 @@ import {
   type DesempenhoPorTipo, type PublicacaoEmLinha,
 } from "@/components/redes/PublicacoesEConteudo";
 import {
-  Loader2, Settings2, Users, Heart, Eye, Layers,
+  Loader2, Settings2, Users, Heart, Eye, Layers, LayoutDashboard, Clapperboard,
 } from "lucide-react";
 
 const fmt = (n: number | null | undefined): string =>
@@ -148,6 +149,16 @@ export default function RedesSociais() {
   const podeDiagnosticar = canManageContent(user?.role);
   const { selectedAccountId, accounts } = useSelectedAccount();
   const { period, setPeriod, dateRange } = usePeriodFilter();
+  /**
+   * A aba nasce da URL para que um link possa apontar para ela.
+   *
+   * `abaDaUrl` traduz sinônimo e desconhecido, e nunca devolve tela vazia — a
+   * mesma disciplina de `abasSite.ts`, e pelo mesmo motivo: alertas e
+   * relatórios gravam destino em texto no banco.
+   */
+  const [aba, setAba] = useState<AbaSocial>(
+    () => abaDaUrl(new URLSearchParams(window.location.search).get("aba")),
+  );
 
   const q = trpc.social.painel.useQuery(
     { accountId: selectedAccountId!, startDate: dateRange.startDate, endDate: dateRange.endDate },
@@ -307,6 +318,46 @@ export default function RedesSociais() {
     { inicio: dateRange.startDate, fim: dateRange.endDate },
     { publicacoesIndisponiveis },
   ), [midiasSalvas, serie, dateRange, publicacoesIndisponiveis]);
+
+  /**
+   * A composição diária DENTRO do período do filtro — o mini-gráfico do cartão.
+   *
+   * Precisa sair dos MESMOS insumos que `contarAtivacoes` usa, senão as barras
+   * não somariam o número grande logo acima delas. Duas contagens da mesma
+   * coisa na mesma caixa é o tipo de divergência que ninguém confere de cabeça
+   * e todo mundo percebe.
+   *
+   * A seção "Ativações por dia" que existia antes desenhava a janela FIXA de 30
+   * dias enquanto o cartão mostrava o período filtrado. Eram dois números certos
+   * sobre janelas diferentes, lado a lado — e agora que os dois dividem um
+   * cartão, isso teria virado erro visível.
+   */
+  const ativacoesNoPeriodo = useMemo(() => {
+    const porDia = new Map<string, Partial<Record<TipoConteudo, number>>>();
+    const somar = (dia: string, tipo: TipoConteudo, n: number) => {
+      if (n <= 0) return;
+      const atual = porDia.get(dia) ?? {};
+      atual[tipo] = (atual[tipo] ?? 0) + n;
+      porDia.set(dia, atual);
+    };
+    for (const m of midiasSalvas) {
+      const publicado = (m.publicadoEm ?? "").slice(0, 10);
+      // O mesmo recorte de `contarAtivacoes`: `publicadoEm` dentro da janela, e
+      // STORY fora daqui porque tem contagem própria na série diária.
+      if (!publicado || m.produto === "STORY") continue;
+      if (publicado < dateRange.startDate || publicado > dateRange.endDate) continue;
+      somar(publicado, (m.tipo ?? "DESCONHECIDO") as TipoConteudo, 1);
+    }
+    for (const p of serie) {
+      if (typeof p.storiesVistos === "number") somar(p.dia, "STORY", p.storiesVistos);
+    }
+    return porDia;
+  }, [midiasSalvas, serie, dateRange]);
+
+  const pontosDeAtivacao = useMemo(() => serie.map((p) => ({
+    dia: p.dia, seguidores: null, visitas: null,
+    porTipo: ativacoesNoPeriodo.get(p.dia) ?? {},
+  })), [serie, ativacoesNoPeriodo]);
 
   // ── Ontem × hoje ────────────────────────────────────────────────────────
   // As duas ÚLTIMAS COLETAS, sempre — o filtro de período não alcança aqui.
@@ -482,7 +533,18 @@ export default function RedesSociais() {
    * medição, e não 0: a mini-série quebra a linha ali em vez de interpolar uma
    * inclinação que ninguém mediu.
    */
-  const cliquesPorDia = serie.map((p) => ({ dia: p.dia, cliques: mets(p, "website_clicks") }));
+  /**
+   * A série diária de uma métrica de perfil — o insumo dos painéis contextuais.
+   *
+   * Segue o filtro, como todo bloco desta aba. `null` no dia sem medição, e não
+   * 0: a mini-série quebra a linha ali em vez de interpolar uma inclinação que
+   * ninguém mediu.
+   */
+  const serieDiaria = (k: string): DiaDaMetrica[] =>
+    serie.map((p) => ({ dia: p.dia, valor: mets(p, k) }));
+  const cliquesPorDia = serieDiaria("website_clicks");
+  const visitasPorDia = serieDiaria("profile_views");
+  const engajamentoPorDia = serieDiaria("total_interactions");
 
   // O gráfico de movimento segue o FILTRO: ele é análise, não resumo.
   //
@@ -564,35 +626,43 @@ export default function RedesSociais() {
               </div>
             )}
 
-            {/* ══ HEADER · uma caixa, 3 colunas, 0.92fr / 1fr / 1.55fr ══════
-                O gráfico é a coluna larga porque é a única que ganha com espaço:
-                resumo e resultados têm tamanho natural, e esticá-los só
-                afastaria as palavras. As divisórias são traços de 1px, não
-                cartões — cartão separado faria delas blocos independentes. */}
-            <section className="rounded-[20px] border border-border bg-card overflow-hidden
-                                shadow-[0_1px_2px_rgba(10,10,10,.04)]">
-              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1fr)_minmax(0,1.55fr)]
-                              divide-y lg:divide-y-0 lg:divide-x divide-border">
-                <div className="px-[22px] py-5"><ResumoCurto leitura={leitura} /></div>
-                <div className="px-[22px] py-5">
-                  <Resultados ontem={ontem} hoje={doDia}
-                    aviso="O dia corrente é parcial. Seguidores é o total da conta." />
-                </div>
-                <div className="px-[22px] py-5">
-                  <GraficoDeEvolucao pontos={pontosDaConta} nota="últimos 30 dias" />
-                </div>
-              </div>
-            </section>
+            {/* ══ ABAS ══════════════════════════════════════════════════════
+                O cabeçalho executivo de três colunas (resumo · resultados ·
+                evolução) saiu daqui para /rascunho por decisão de produto — não
+                foi apagado, e continua montável a partir dos mesmos
+                componentes. A IDENTIDADE já vive no topo da página, fora deste
+                bloco, porque ela não pertence a aba nenhuma.
 
-            {/* O filtro fica DEPOIS do cabeçalho porque não vale para ele: o
-                cabeçalho é resumo executivo e mostra sempre hoje × ontem. */}
+                As abas separam duas perguntas que a rolagem única misturava:
+                "o que aconteceu" e "qual conteúdo explica isso". */}
+            <div className="flex gap-1 border-b border-border">
+              {ABAS_SOCIAIS.map((a) => (
+                <button key={a} type="button" onClick={() => setAba(a)}
+                  aria-current={aba === a ? "page" : undefined}
+                  className={`px-4 py-2 text-sm transition-colors duration-150 border-b-2 -mb-px
+                              flex items-center gap-1.5 ${
+                    aba === a ? "border-accent text-accent font-medium"
+                              : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+                  {a === "home" ? <LayoutDashboard className="w-3.5 h-3.5" />
+                                : <Clapperboard className="w-3.5 h-3.5" />}
+                  {ROTULO_ABA_SOCIAL[a]}
+                </button>
+              ))}
+            </div>
+
+            {/* O filtro vale para as duas abas: com o cabeçalho executivo fora
+                da página, não sobrou nada aqui que ignore o período. */}
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <p className="text-[11px] text-muted-foreground/60">
-                Os blocos abaixo seguem o período selecionado.
+                {aba === "home"
+                  ? "Dados gerais e publicações seguem o período selecionado."
+                  : "As análises de conteúdo seguem o período selecionado."}
               </p>
               <PeriodFilter period={period} onChange={setPeriod} />
             </div>
 
+            {aba === "home" && (
+            <>
             {/* ══ CAIXA EXECUTIVA · dados gerais + movimento da base ════════
                 Os dois eram seções irmãs, empilhadas, e juntas ocupavam a tela
                 inteira antes da primeira publicação aparecer. Eles respondem a
@@ -620,9 +690,29 @@ export default function RedesSociais() {
                       esquerda na quina da caixa — um traço vertical sem nada do
                       outro lado. */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 mt-2 flex-1">
+                    {/* A antiga seção "Ativações por dia" tinha largura cheia
+                        para responder uma pergunta que pertence a este cartão.
+                        Ela virou o mini-gráfico aqui dentro, e o painel abre a
+                        versão grande — com composição e hover — sem ocupar a
+                        página quando ninguém pergunta. */}
+                    <PainelDaMetrica rotulo="Ativações" cor={COR.ativacoes}
+                      dias={serie.map((p) => ({
+                        dia: p.dia,
+                        valor: ORDEM_TIPO.reduce(
+                          (n, t) => n + (ativacoesNoPeriodo.get(p.dia)?.[t] ?? 0), 0),
+                      }))}
+                      total={ativacoes.total}
+                      variacaoPct={varAtivacoes.pct} anterior={varAtivacoes.anterior}
+                      motivoSemComparacao={comparabilidade.motivo}
+                      procedencia={<>Posts e reels vêm da listagem de mídias, por
+                        <span className="font-mono"> publicadoEm</span>. Stories vêm da contagem
+                        diária — a coleta vê o que está no ar.</>}
+                      extra={<GraficoDeAtivacoes pontos={pontosDeAtivacao} altura={132} />}>
                     <CartaoGeral icone={Layers} cor={COR.ativacoes} rotulo="Ativações"
+                      clicavel acao="ver evolução"
                       explicacao="Tudo que a conta publicou no período — posts, stories e reels."
                       valor={fmt(ativacoes.total)}
+                      grafico={<GraficoDeAtivacoes pontos={pontosDeAtivacao} altura={78} compacto />}
                       variacaoPct={varAtivacoes.pct} anterior={varAtivacoes.anterior}
                       parcelas={composicaoDeAtivacoes(ativacoes).map((x) => ({
                         rotulo: x.rotulo, valor: x.total ?? 0,
@@ -634,9 +724,18 @@ export default function RedesSociais() {
                         : ativacoes.diasSemMedicaoDeStories > 0
                           ? `${ativacoes.diasSemMedicaoDeStories} dia(s) sem medição de stories`
                           : null} />
+                    </PainelDaMetrica>
 
                     <div className="border-t sm:border-t-0 sm:border-l border-border flex">
+                    <PainelDaMetrica rotulo="Engajamento" cor={COR.engajamento}
+                      dias={engajamentoPorDia} total={composicao.totalApresentado}
+                      variacaoPct={varEngajamento.pct} anterior={varEngajamento.anterior}
+                      motivoSemComparacao={comparabilidade.motivo}
+                      procedencia={<>Total medido por
+                        <span className="font-mono"> total_interactions</span>. A composição vem do
+                        perfil, mesmo escopo do total.</>}>
                     <CartaoGeral icone={Heart} cor={COR.engajamento} rotulo="Engajamento"
+                      clicavel acao="ver evolução"
                       explicacao="Total de interações medido pela Meta. As parcelas abaixo dizem de que ele é feito."
                       valor={fmt(composicao.totalApresentado)}
                       detalhe={taxa != null ? `${taxa.toFixed(1)}% do alcance` : null}
@@ -645,6 +744,7 @@ export default function RedesSociais() {
                         rotulo: x.rotulo, valor: x.total, cor: COR_INTERACAO[x.chave] ?? COR.engajamento,
                       }))}
                       ressalva={composicao.ressalva} />
+                    </PainelDaMetrica>
                     </div>
 
                     {/* Visitas e cliques num cartão só: são duas ações sobre o
@@ -664,16 +764,31 @@ export default function RedesSociais() {
                         </span>
                       </div>
                       <div className="grid grid-cols-2 gap-5">
-                        <MetricaDoPerfil rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
+                        <PainelDaMetrica rotulo="Visitas ao perfil" cor={COR.visitas}
+                          dias={visitasPorDia} total={visitas.total}
                           variacaoPct={varVisitas.pct} anterior={varVisitas.anterior}
-                          ressalva={rotuloVisitas.resumo} />
+                          motivoSemComparacao={comparabilidade.motivo}
+                          seguidores={seguidoresAgora}
+                          procedencia={<>Medidas por <span className="font-mono">profile_views</span>.
+                            {rotuloVisitas.resumo ? ` ${rotuloVisitas.resumo}.` : ""}</>}>
+                          <button type="button" className="text-left min-w-0 rounded-md
+                                             transition-colors duration-150 hover:bg-foreground/[0.04]
+                                             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                            <MetricaDoPerfil rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
+                              variacaoPct={varVisitas.pct} anterior={varVisitas.anterior}
+                              ressalva={rotuloVisitas.resumo} acao="ver evolução" />
+                          </button>
+                        </PainelDaMetrica>
                         {/* Cliques abre o painel contextual em vez de ganhar um
                             cartão próprio: é o menor número da faixa, e um
                             cartão permanente daria a ele a área do engajamento. */}
-                        <PainelDeCliques dias={cliquesPorDia} total={cliques.total}
+                        <PainelDaMetrica rotulo="Cliques no link" cor={COR.visitas}
+                          dias={cliquesPorDia} total={cliques.total}
                           variacaoPct={varCliques.pct} anterior={varCliques.anterior}
                           motivoSemComparacao={comparabilidade.motivo}
-                          seguidores={seguidoresAgora}>
+                          seguidores={seguidoresAgora}
+                          procedencia={<>Cliques no link da bio, medidos por
+                            <span className="font-mono"> website_clicks</span>. Não inclui links de story.</>}>
                           <button type="button" className="text-left min-w-0 rounded-md
                                              transition-colors duration-150 hover:bg-foreground/[0.04]
                                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -681,7 +796,7 @@ export default function RedesSociais() {
                               variacaoPct={varCliques.pct} anterior={varCliques.anterior}
                               acao="ver evolução" />
                           </button>
-                        </PainelDeCliques>
+                        </PainelDaMetrica>
                       </div>
                     </div>
                   </div>
@@ -754,15 +869,13 @@ export default function RedesSociais() {
               <p className="text-[10px] text-amber-600 leading-snug -mt-2">{comparabilidade.motivo}</p>
             )}
 
-            {/* ══ ATIVAÇÕES POR DIA · seção própria, largura cheia ══════════ */}
-            <Secao titulo="Ativações por dia">
-              <div className="rounded-[20px] border border-border bg-card px-5 py-[18px]
-                              shadow-[0_1px_2px_rgba(10,10,10,.04)]">
-                <GraficoDeAtivacoes pontos={pontosDaConta} />
-              </div>
-            </Secao>
+            {/* A seção "Ativações por dia" de largura cheia saiu daqui: ela
+                ocupava a tela inteira para responder uma pergunta que pertence
+                ao cartão de Ativações. O gráfico virou mini-gráfico dentro dele,
+                e a versão grande abre no painel do cartão — mesmo dado, mesma
+                interatividade, sem a seção. */}
 
-            {/* ══ ÚLTIMAS PUBLICAÇÕES ══════════════════════════════════════ */}
+            {/* ══ PUBLICAÇÕES DO PERÍODO ════════════════════════════════════ */}
             <UltimasPublicacoes
               instagram={publicacoes.slice(0, 8)}
               temLinkedin={false}
@@ -770,7 +883,11 @@ export default function RedesSociais() {
                 ? "Não conseguimos ler as publicações nesta coleta."
                 : "Nenhuma publicação medida no período."}
             />
+            </>
+            )}
 
+            {aba === "conteudo" && (
+            <>
             {/* ══ RETENÇÃO DOS REELS ═══════════════════════════════════════ */}
             {/* Só Reels: as duas métricas de retenção não existem para outro
                 formato, e passar um post de feed aqui o mostraria eternamente
@@ -799,6 +916,8 @@ export default function RedesSociais() {
                 ? "O ranking precisa de alcance, que só o snapshot guarda — ele aparece depois da primeira coleta."
                 : null}
             />
+            </>
+            )}
 
             <p className="text-[10px] text-muted-foreground/70">
               Orgânico do Instagram. Números de campanha ficam em Mídia. Conexão, token e vínculo,

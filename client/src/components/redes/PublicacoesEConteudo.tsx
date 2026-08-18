@@ -68,7 +68,13 @@ export interface DesempenhoPorTipo {
   taxaMedia: number | null;
 }
 
-// ─── Últimas publicações ─────────────────────────────────────────────────────
+// ─── Publicações do período ──────────────────────────────────────────────────
+//
+// O nome era "Últimas publicações", e ele mentia de leve: a lista NÃO é das
+// últimas — é das publicações do período selecionado no filtro. Com 30 dias
+// escolhidos, "últimas" sugeria as mais recentes de todas, e o recorte real
+// nunca foi esse. O componente continua `UltimasPublicacoes` no código porque
+// renomear o símbolo tocaria seis arquivos para não mudar comportamento nenhum.
 
 /**
  * ── A imagem é a informação ────────────────────────────────────────────────
@@ -98,7 +104,7 @@ export function UltimasPublicacoes({ instagram, temLinkedin, aviso }: {
     <section className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3 flex-wrap">
         <div className="flex items-baseline gap-2.5 flex-wrap">
-          <h2 className="text-[13px] font-bold uppercase tracking-[0.1em]">Últimas publicações</h2>
+          <h2 className="text-[13px] font-bold uppercase tracking-[0.1em]">Publicações do período</h2>
           <span className="text-[11px] text-muted-foreground/50">
             a imagem é a informação · o melhor do período vem marcado
           </span>
