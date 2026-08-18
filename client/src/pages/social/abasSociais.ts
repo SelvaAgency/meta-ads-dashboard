@@ -23,8 +23,17 @@ export type AbaSocial = "home" | "conteudo";
 
 export const ABAS_SOCIAIS: AbaSocial[] = ["home", "conteudo"];
 
+/**
+ * O rótulo é "Resumo", e a CHAVE continua `home`.
+ *
+ * Trocar a chave junto renomearia o `?aba=home` que já pode estar gravado num
+ * link — e `abaDaUrl` traduz nome desconhecido para `home` de qualquer jeito,
+ * então nada quebraria de imediato. O que quebraria em silêncio é o contrário:
+ * um `?aba=resumo` de amanhã caindo no sinônimo em vez de na chave própria.
+ * `resumo` já está mapeado logo abaixo, e continua chegando aqui.
+ */
 export const ROTULO_ABA_SOCIAL: Record<AbaSocial, string> = {
-  home: "Home / Resumo",
+  home: "Resumo",
   conteudo: "Conteúdo",
 };
 
