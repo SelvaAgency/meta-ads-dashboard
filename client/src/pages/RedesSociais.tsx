@@ -708,6 +708,15 @@ export default function RedesSociais() {
                         <span className="font-mono"> publicadoEm</span>. Stories vêm da contagem
                         diária — a coleta vê o que está no ar.</>}
                       extra={<GraficoDeAtivacoes pontos={pontosDeAtivacao} altura={132} />}>
+                      {/* O gatilho tem de ser um elemento DOM: `PopoverTrigger
+                          asChild` precisa colar ref e onClick em algo real, e
+                          `CartaoGeral` é componente comum — sem este botão o
+                          clique simplesmente não chegava. O botão ocupa o cartão
+                          inteiro (`w-full h-full`), então a área clicável é o
+                          cartão, e não só o texto "ver evolução". */}
+                      <button type="button" className="flex w-full h-full text-left rounded-[10px]
+                                     focus-visible:outline-none focus-visible:ring-2
+                                     focus-visible:ring-ring focus-visible:ring-offset-[-2px]">
                     <CartaoGeral icone={Layers} cor={COR.ativacoes} rotulo="Ativações"
                       clicavel acao="ver evolução"
                       explicacao="Tudo que a conta publicou no período — posts, stories e reels."
@@ -724,6 +733,7 @@ export default function RedesSociais() {
                         : ativacoes.diasSemMedicaoDeStories > 0
                           ? `${ativacoes.diasSemMedicaoDeStories} dia(s) sem medição de stories`
                           : null} />
+                      </button>
                     </PainelDaMetrica>
 
                     <div className="border-t sm:border-t-0 sm:border-l border-border flex">
@@ -734,6 +744,9 @@ export default function RedesSociais() {
                       procedencia={<>Total medido por
                         <span className="font-mono"> total_interactions</span>. A composição vem do
                         perfil, mesmo escopo do total.</>}>
+                      <button type="button" className="flex w-full h-full text-left rounded-[10px]
+                                     focus-visible:outline-none focus-visible:ring-2
+                                     focus-visible:ring-ring focus-visible:ring-offset-[-2px]">
                     <CartaoGeral icone={Heart} cor={COR.engajamento} rotulo="Engajamento"
                       clicavel acao="ver evolução"
                       explicacao="Total de interações medido pela Meta. As parcelas abaixo dizem de que ele é feito."
@@ -744,6 +757,7 @@ export default function RedesSociais() {
                         rotulo: x.rotulo, valor: x.total, cor: COR_INTERACAO[x.chave] ?? COR.engajamento,
                       }))}
                       ressalva={composicao.ressalva} />
+                      </button>
                     </PainelDaMetrica>
                     </div>
 
@@ -771,7 +785,7 @@ export default function RedesSociais() {
                           seguidores={seguidoresAgora}
                           procedencia={<>Medidas por <span className="font-mono">profile_views</span>.
                             {rotuloVisitas.resumo ? ` ${rotuloVisitas.resumo}.` : ""}</>}>
-                          <button type="button" className="text-left min-w-0 rounded-md
+                          <button type="button" className="text-left min-w-0 w-full rounded-md p-1 -m-1
                                              transition-colors duration-150 hover:bg-foreground/[0.04]
                                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                             <MetricaDoPerfil rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
@@ -789,7 +803,7 @@ export default function RedesSociais() {
                           seguidores={seguidoresAgora}
                           procedencia={<>Cliques no link da bio, medidos por
                             <span className="font-mono"> website_clicks</span>. Não inclui links de story.</>}>
-                          <button type="button" className="text-left min-w-0 rounded-md
+                          <button type="button" className="text-left min-w-0 w-full rounded-md p-1 -m-1
                                              transition-colors duration-150 hover:bg-foreground/[0.04]
                                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                             <MetricaDoPerfil rotulo="Cliques no link" valor={fmt(cliques.total)}

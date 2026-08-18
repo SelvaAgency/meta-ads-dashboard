@@ -374,6 +374,7 @@ import { estadosDasFontes, fonteInstagramDaConta } from "./services/resolucaoDeF
 import { oauthConfigurado } from "./services/instagramOAuth";
 import { escolherFonte, type EstadoDaFonte } from "@shared/fontesSociais";
 import { validarDirecaoDeSeguidores } from "@shared/socialSnapshot";
+import { diagnosticarFluxos } from "@shared/diagnosticoDeFluxos";
 import { faltaParaLer, opcoesDeVinculo, viaDoVinculo } from "@shared/vinculoInstagram";
 
 /**
@@ -4324,6 +4325,32 @@ export const appRouter = router({
         const r = await fonte.sondarImpulsionado(
           { pageId: vinculo?.pageId, instagramUserId: vinculo?.instagramUserId }, input.mediaId);
         return { ...r, texto: `fonte: ${escolha.usada}\n${r.texto}` };
+      }),
+
+    /**
+     * Diagnóstico: dá para separar quem ENTROU de quem SAIU?
+     *
+     * NÃO é sondagem — não faz chamada nenhuma à Meta. Lê os snapshots que a
+     * coleta já guardou e responde com aritmética. A resposta está no banco
+     * desde a primeira coleta com breakdown; o que faltava era perguntar.
+     *
+     * O veredito decide se `follows_and_unfollows` pode virar fonte de entradas
+     * e saídas, ou se a dimensão FOLLOWER/NON_FOLLOWER é segmentação de
+     * audiência — caso em que nenhuma fonte separa os fluxos e só o saldo é
+     * publicável.
+     */
+    diagnosticarFluxos: contentProcedure
+      .input(z.object({ accountId: z.number().int() }))
+      .query(async ({ input }) => {
+        const linhas = await snapshotsSociais(input.accountId);
+        return diagnosticarFluxos(linhas.map((l) => ({
+          dia: l.dia,
+          total: l.followersCount,
+          ...lerFollowType(l.followTypeBreakdownRaw),
+          followerCount: typeof (l.metricasJson as Record<string, number> | null)?.follower_count === "number"
+            ? (l.metricasJson as Record<string, number>).follower_count
+            : null,
+        })));
       }),
 
     /**

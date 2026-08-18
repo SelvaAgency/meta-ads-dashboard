@@ -29,7 +29,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canManageContent } from "@shared/permissions";
 import { toast } from "sonner";
-import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock, PlayCircle, CalendarClock, ClipboardList, Layers, Megaphone, Timer } from "lucide-react";
+import { Instagram, Loader2, Key, Link2, Stethoscope, LogIn, Unplug, Link2Off, Microscope, DatabaseZap, Search, Clock, PlayCircle, CalendarClock, ClipboardList, Layers, Megaphone, Timer, GitCompare } from "lucide-react";
 import { lerVinculo, ROTULO_TIPO, selecaoPendente, type FonteNome, type StatusInsight, type TipoConta } from "@shared/instagram";
 import { escolherFonte, ROTULO_FONTE } from "@shared/fontesSociais";
 import { resumirExecucao } from "@shared/resumoDaExecucao";
@@ -88,6 +88,8 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
   const utils = trpc.useUtils();
   const [token, setToken] = useState("");
   const [diagnostico, setDiagnostico] = useState<string | null>(null);
+  /** De qual conta o diagnóstico de fluxos vai ler — a query precisa saber antes. */
+  const [contaDoDiagnostico, setContaDoDiagnostico] = useState<number | null>(null);
   const [paginas, setPaginas] = useState<null | PaginasDoPortfolio>(null);
   const [escolha, setEscolha] = useState<Record<number, string>>({});
 
@@ -326,6 +328,17 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
     onSuccess: (r) => setDiagnostico(r.texto),
     onError: (e) => toast.error(e.message),
   });
+
+  /**
+   * Diagnóstico de fluxos — quem entrou e quem saiu.
+   *
+   * `useQuery` com `enabled: false` e `refetch` no clique: é LEITURA de
+   * snapshot, não mutação. Nenhuma chamada à Meta acontece aqui.
+   */
+  const fluxos = trpc.social.diagnosticarFluxos.useQuery(
+    { accountId: contaDoDiagnostico ?? 0 },
+    { enabled: false, retry: false },
+  );
 
   const desconectar = trpc.social.desconectarConta.useMutation({
     onSuccess: () => { utils.social.fontes.invalidate(); toast.success("Login da conta desconectado."); },
@@ -648,6 +661,21 @@ function PainelInstagram({ clientes }: { clientes: { id: number; accountName: st
                       className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
                       {janela.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CalendarClock className="w-3 h-3" />}
                       Sondar janela
+                    </button>
+                  )}
+                  {v?.instagramUserId && (
+                    <button
+                      onClick={async () => {
+                        setContaDoDiagnostico(c.id);
+                        const r = await fluxos.refetch();
+                        if (r.data) setDiagnostico(r.data.texto);
+                        else if (r.error) toast.error(r.error.message);
+                      }}
+                      disabled={fluxos.isFetching}
+                      title="Dá para separar entradas de saídas? Lê os snapshots — sem chamada à Meta"
+                      className="text-[11px] px-2 py-1 rounded border border-border flex items-center gap-1 text-muted-foreground">
+                      {fluxos.isFetching ? <Loader2 className="w-3 h-3 animate-spin" /> : <GitCompare className="w-3 h-3" />}
+                      Entradas × saídas
                     </button>
                   )}
                   {v?.instagramUserId && (

@@ -101,9 +101,15 @@ export function CartaoGeral({
     /* O realce é do CARTÃO inteiro, não de um detalhe dele: o que o mouse marca
        é "estou lendo esta métrica". Fundo levíssimo e 160ms — passar o mouse
        pela faixa não pode virar uma sequência de piscadas. */
+    /* O cartão clicável reage MAIS que o comum: 4% contra 2%. A diferença
+       precisa ser perceptível, senão o realce vira só "o mouse está aqui" e não
+       "isto abre". O convite de rodapé sozinho não bastava — ele fica no fim do
+       cartão, e ninguém mira ali antes de decidir clicar. */
     <div className={`group flex flex-col flex-1 px-4 py-4 min-w-0 text-left w-full
-                     transition-colors duration-150 hover:bg-foreground/[0.02] ${
-      clicavel ? "cursor-pointer" : ""}`}>
+                     transition-colors duration-150 ${
+      clicavel
+        ? "cursor-pointer hover:bg-foreground/[0.04]"
+        : "hover:bg-foreground/[0.02]"}`}>
       <div className="flex items-start justify-between gap-2 mb-3">
         <span className="w-8 h-8 rounded-[10px] grid place-items-center flex-shrink-0 transition-colors duration-150"
           style={{ background: `${cor}29`, color: cor }}>
