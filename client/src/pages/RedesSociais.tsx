@@ -318,14 +318,18 @@ export default function RedesSociais() {
     p: (typeof janelaFixa)[number] | undefined, anterior: number | null,
   ): ValorDoDia[] => [
     // O total já soma stories: `composicaoPorDia` os inclui como um tipo.
-    { rotulo: "Ativações", natureza: "fluxo",
+    // `cor` é o matiz da FAMÍLIA — o mesmo da linha no gráfico ao lado e do
+    // cartão lá embaixo. Uma métrica com duas cores em duas alturas da mesma
+    // página parece duas medições diferentes.
+    { rotulo: "Ativações", natureza: "fluxo", cor: COR.ativacoes,
       valor: p ? ativacoesRecentesPorDia.get(p.dia) ?? 0 : null },
     // Taxa, e não contagem: um dia com 3 posts e outro com 1 têm volumes
     // incomparáveis de interação. A taxa sobre alcance compara os dois.
-    { rotulo: "Engajamento", natureza: "fluxo", formato: "percentual",
+    { rotulo: "Engajamento", natureza: "fluxo", formato: "percentual", cor: COR.engajamento,
       valor: taxaPorAlcance(met(p, "total_interactions"), met(p, "reach")) },
-    { rotulo: "Visitas ao perfil", natureza: "fluxo", valor: met(p, "profile_views") },
-    { rotulo: "Seguidores", natureza: "estoque", valor: p?.seguidores ?? null,
+    { rotulo: "Visitas ao perfil", natureza: "fluxo", cor: COR.visitas,
+      valor: met(p, "profile_views") },
+    { rotulo: "Seguidores", natureza: "estoque", cor: COR.seguidores, valor: p?.seguidores ?? null,
       variacao: p?.seguidores != null && anterior != null ? p.seguidores - anterior : null },
   ];
   const ontem = linhaDoDia(ultimos.length === 2 ? ultimos[0] : undefined, janelaFixa.slice(-3)[0]?.seguidores ?? null);

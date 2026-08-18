@@ -14,7 +14,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it } from "vitest";
-import { DIAS_MINIMOS_PARA_LER, lerUltimosDias, type DiaDaLeitura } from "./leituraSocial";
+import { DIAS_MINIMOS_PARA_LER, lerUltimosDias, resumoExecutivo, type DiaDaLeitura } from "./leituraSocial";
 
 const dia = (d: string, over: Partial<DiaDaLeitura> = {}): DiaDaLeitura => ({
   dia: d, seguidores: null, visitas: null, interacoes: null, ativacoes: null, ...over,
@@ -128,5 +128,101 @@ describe("o texto agrupa por direção", () => {
     ]);
     expect(r.texto).toContain("3 dias");
     expect(r.diasMedidos).toBe(3);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O veredito do cabeçalho
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Ele é a primeira frase que alguém lê na página, e por isso o risco não é
+ *  errar o número: é acertar o número e errar o TOM. Um "alta" sobre três
+ *  quedas e uma alta faria a tela mentir com dados corretos.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("o resumo executivo do cabeçalho", () => {
+  const leitura = (achados: Array<[string, "subiu" | "caiu" | "estavel", number]>) => ({
+    texto: "…", motivo: null, dadosInsuficientes: false, diasMedidos: 7,
+    achados: achados.map(([metrica, direcao, delta]) => ({
+      metrica, direcao, delta, percentual: null,
+    })),
+  });
+
+  it("tudo subindo ⇒ positivo", () => {
+    const r = resumoExecutivo(leitura([
+      ["seguidores", "subiu", 120], ["visitas ao perfil", "subiu", 30],
+    ]));
+    expect(r.tom).toBe("positivo");
+    expect(r.titulo).toBe("Alta em 2 de 2 métricas");
+    expect(r.detalhe).toContain("+120");
+  });
+
+  it("tudo caindo ⇒ negativo", () => {
+    const r = resumoExecutivo(leitura([
+      ["ativações", "caiu", -2], ["visitas ao perfil", "caiu", -40],
+    ]));
+    expect(r.tom).toBe("negativo");
+    expect(r.titulo).toBe("Queda em 2 de 2 métricas");
+  });
+
+  /**
+   * O caso que protege o tom: uma alta entre três quedas NÃO é semana positiva,
+   * e três quedas com uma alta NÃO é negativa. Decidir que seguidores pesam mais
+   * seria embutir regra de negócio num rótulo de cor.
+   */
+  it("uma alta e três quedas ⇒ misto, e não negativo", () => {
+    const r = resumoExecutivo(leitura([
+      ["seguidores", "subiu", 5], ["ativações", "caiu", -1],
+      ["interações", "caiu", -10], ["visitas ao perfil", "caiu", -20],
+    ]));
+    expect(r.tom).toBe("misto");
+    expect(r.titulo).toBe("1 em alta, 3 em queda");
+  });
+
+  it("nada se movendo ⇒ estável", () => {
+    const r = resumoExecutivo(leitura([
+      ["seguidores", "estavel", 0], ["visitas ao perfil", "estavel", 0],
+    ]));
+    expect(r.tom).toBe("estavel");
+    expect(r.titulo).toBe("Estabilidade nas 2 métricas");
+  });
+
+  /** Sem achado, o motivo do módulo vira o título — e não um "0%" qualquer. */
+  it("sem achados, o tom é sem_dado e o motivo aparece", () => {
+    const r = resumoExecutivo({
+      texto: null, motivo: "Ainda não há coleta neste período.",
+      dadosInsuficientes: true, diasMedidos: 0, achados: [],
+    });
+    expect(r.tom).toBe("sem_dado");
+    expect(r.titulo).toContain("Ainda não há coleta");
+    expect(r.detalhe).toBeNull();
+  });
+
+  /** Saldo zero não gera detalhe: "estável" duas vezes na mesma caixa. */
+  it("seguidores parados não geram linha de detalhe", () => {
+    expect(resumoExecutivo(leitura([["seguidores", "estavel", 0]])).detalhe).toBeNull();
+  });
+
+  /**
+   * Seguidores caindo enquanto o resto sobe: o tom é misto E o detalhe mostra a
+   * perda. É o caso em que só o título esconderia a única perda irreversível.
+   */
+  it("saldo negativo aparece com sinal, mesmo em semana mista", () => {
+    const r = resumoExecutivo(leitura([
+      ["seguidores", "caiu", -37], ["visitas ao perfil", "subiu", 100],
+    ]));
+    expect(r.tom).toBe("misto");
+    expect(r.detalhe).toContain("−37");
+  });
+
+  it("o título nunca vira a enumeração da tabela", () => {
+    const r = resumoExecutivo(leitura([
+      ["seguidores", "caiu", -1], ["ativações", "caiu", -2],
+      ["interações", "caiu", -3], ["visitas ao perfil", "caiu", -4],
+    ]));
+    for (const nome of ["ativações", "interações", "visitas"]) {
+      expect(r.titulo, nome).not.toContain(nome);
+    }
+    expect(r.titulo.length).toBeLessThan(40);
   });
 });

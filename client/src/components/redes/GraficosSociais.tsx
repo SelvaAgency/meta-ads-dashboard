@@ -144,9 +144,32 @@ export interface PontoDaConta {
   porTipo: Partial<Record<TipoConteudo, number>>;
 }
 
+/**
+ * A leitura de um dia da evolução — vai para o lugar da legenda no hover.
+ *
+ * Mesmo mecanismo dos outros dois gráficos: um balão flutuante mexeria na
+ * altura do cabeçalho, e a exigência é que ele não cresça. Aqui a leitura
+ * SUBSTITUI a legenda, então a altura é a mesma com e sem mouse.
+ */
+function LeituraDaEvolucao({ p, ativacoes }: { p: PontoDaConta; ativacoes: number }) {
+  return (
+    <div className="flex items-center gap-3 flex-wrap text-[11px] tabular-nums">
+      <span className="font-bold">{p.dia.slice(8, 10)}/{p.dia.slice(5, 7)}</span>
+      <span style={{ color: COR.seguidores }}>
+        Seguidores {p.seguidores == null ? "–" : fmt(p.seguidores)}
+      </span>
+      <span style={{ color: COR.visitas }}>
+        Visitas {p.visitas == null ? "–" : fmt(p.visitas)}
+      </span>
+      <span style={{ color: COR.ativacoes }}>Ativações {ativacoes}</span>
+    </div>
+  );
+}
+
 export function GraficoDeEvolucao({ pontos, nota, altura = 168 }: {
   pontos: PontoDaConta[]; nota?: string | null; altura?: number;
 }) {
+  const [ativo, setAtivo] = useState<number | null>(null);
   const temDado = pontos.some((p) => p.seguidores != null || p.visitas != null);
   const vazio = !temDado || pontos.length < 2;
 
@@ -166,6 +189,8 @@ export function GraficoDeEvolucao({ pontos, nota, altura = 168 }: {
   const yS = (v: number) => mt + ih - ((v - sMin) / Math.max(1, sMax - sMin)) * ih;
   const yF = (v: number) => mt + ih - (v / fMax) * ih;
   const bw = Math.max(3, (iw / pontos.length) * 0.5);
+  /** A faixa de captura: o passo inteiro, para nenhum dia ficar sem resposta. */
+  const passoX = iw / Math.max(1, pontos.length - 1);
 
   /** Segmentos contínuos — buraco de coleta CORTA a linha. */
   const caminhos = (vals: Array<number | null>, fy: (v: number) => number) => {
@@ -181,12 +206,22 @@ export function GraficoDeEvolucao({ pontos, nota, altura = 168 }: {
 
   return (
     <Moldura titulo="Evolução" nota={nota} vazio={vazio} altura={altura}
-      legenda={<Legenda itens={[["Seguidores", COR.seguidores], ["Visitas", COR.visitas], ["Ativações", COR.ativacoes]]} />}>
-      <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img" aria-label="Evolução da conta">
+      legenda={<Legenda itens={[["Seguidores", COR.seguidores], ["Visitas", COR.visitas], ["Ativações", COR.ativacoes]]} />}
+      leitura={ativo != null && pontos[ativo]
+        ? <LeituraDaEvolucao p={pontos[ativo]} ativacoes={ativ[ativo]} />
+        : null}>
+      <svg viewBox={`0 0 ${W} ${altura}`} width="100%" height={altura} role="img" aria-label="Evolução da conta"
+        onMouseLeave={() => setAtivo(null)}>
         {[0, 1, 2, 3].map((g) => (
           <line key={g} x1={ml} x2={W - mr} y1={mt + (ih / 3) * g} y2={mt + (ih / 3) * g}
             className={GRADE} strokeDasharray="3 4" />
         ))}
+
+        {/* A faixa do dia sob o mouse, ATRÁS das séries: marca sem cobrir. */}
+        {ativo != null && (
+          <rect x={x(ativo) - passoX / 2} y={mt} width={passoX} height={ih}
+            className="fill-foreground/[0.045]" />
+        )}
 
         {/* Barras de ativação, empilhadas — story na base, reels no topo. */}
         {pontos.map((p, i) => {
@@ -201,12 +236,32 @@ export function GraficoDeEvolucao({ pontos, nota, altura = 168 }: {
           });
         })}
 
+        {/* 2,6 e não 2,2: numa coluna de cabeçalho as duas linhas se cruzam
+            muito, e meio ponto de espessura é a diferença entre distinguir as
+            séries de relance e ter de procurar a legenda. */}
         {caminhos(vis, yF).map((d, k) => (
-          <path key={`v${k}`} d={d} fill="none" stroke={COR.visitas} strokeWidth={2.2} strokeLinejoin="round" />
+          <path key={`v${k}`} d={d} fill="none" stroke={COR.visitas} strokeWidth={2.6}
+            strokeLinejoin="round" strokeLinecap="round" />
         ))}
         {caminhos(seg, yS).map((d, k) => (
-          <path key={`s${k}`} d={d} fill="none" stroke={COR.seguidores} strokeWidth={2.2} strokeLinejoin="round" />
+          <path key={`s${k}`} d={d} fill="none" stroke={COR.seguidores} strokeWidth={2.6}
+            strokeLinejoin="round" strokeLinecap="round" />
         ))}
+
+        {/* Os pontos existem SÓ no dia sob o mouse. Trinta pontos permanentes
+            em duas séries viram uma trama que esconde a própria linha. */}
+        {ativo != null && (
+          <>
+            {pontos[ativo].seguidores != null && (
+              <circle cx={x(ativo)} cy={yS(pontos[ativo].seguidores as number)} r={3.4}
+                fill={COR.seguidores} stroke="white" strokeWidth={1.4} />
+            )}
+            {pontos[ativo].visitas != null && (
+              <circle cx={x(ativo)} cy={yF(pontos[ativo].visitas as number)} r={3.4}
+                fill={COR.visitas} stroke="white" strokeWidth={1.4} />
+            )}
+          </>
+        )}
 
         {[sMax, (sMax + sMin) / 2, sMin].map((v, k) => (
           <text key={k} x={ml - 7} y={mt + (ih / 2) * k + 4} textAnchor="end" fontSize={9} className={EIXO}>
@@ -219,14 +274,13 @@ export function GraficoDeEvolucao({ pontos, nota, altura = 168 }: {
           </text>
         )))}
 
+        {/* As faixas de captura por ÚLTIMO e com a largura do passo inteiro:
+            assim um dia sem barra e sem ponto continua respondendo ao mouse — e
+            "não medido" é uma resposta, não silêncio. */}
         {pontos.map((p, i) => (
-          <g key={`t${i}`}>
-            <rect x={x(i) - bw / 2 - 2} y={mt} width={bw + 4} height={ih} fill="transparent" />
-            <title>{`${p.dia.slice(8, 10)}/${p.dia.slice(5, 7)}
-seguidores: ${p.seguidores == null ? "–" : fmt(p.seguidores)}
-visitas: ${p.visitas == null ? "–" : fmt(p.visitas)}
-ativações: ${ativ[i]}`}</title>
-          </g>
+          <rect key={`c-${p.dia}`} x={x(i) - passoX / 2} y={mt} width={passoX} height={ih}
+            fill="transparent" style={{ cursor: "pointer" }}
+            onMouseEnter={() => setAtivo(i)} />
         ))}
       </svg>
     </Moldura>

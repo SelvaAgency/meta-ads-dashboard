@@ -181,3 +181,73 @@ function montarTexto(achados: Achado[], dias: number): string {
   const frase = partes.join("; ");
   return `Nos últimos ${dias} dias com coleta, ${frase}.${detalhe}`;
 }
+
+// ─── O resumo executivo do cabeçalho ─────────────────────────────────────────
+
+export type TomDoResumo = "positivo" | "negativo" | "misto" | "estavel" | "sem_dado";
+
+export interface ResumoExecutivo {
+  tom: TomDoResumo;
+  /** A frase curta. Uma linha, sempre — a enumeração vive nos indicadores. */
+  titulo: string;
+  /** O número que mais importa, quando há um. `null` quando não há. */
+  detalhe: string | null;
+}
+
+/**
+ * A leitura de um relance, para o cabeçalho.
+ *
+ * ── Por que existe, se `texto` já existe ───────────────────────────────────
+ * `montarTexto` escreve a enumeração inteira: "ativações, interações e visitas
+ * caíram; seguidores ficaram estáveis". Num cabeçalho que precisa ser lido em
+ * dois segundos, isso é a tabela por extenso — e a tabela está ao lado.
+ *
+ * Então o cabeçalho passa a mostrar o VEREDITO aqui, e a enumeração como
+ * indicadores coloridos ao lado, um por métrica. Os `achados` já carregam
+ * direção e delta; nada novo é calculado, e nada é inventado. `texto` continua
+ * existindo porque é a camada de fatos que um dia alimenta o prompt da IA — ver
+ * o cabeçalho deste arquivo.
+ *
+ * ── O tom sai da CONTAGEM, não da importância ──────────────────────────────
+ * Três quedas e uma alta é "misto", e não "negativo". Decidir que seguidores
+ * pesam mais que visitas seria uma regra de negócio embutida num rótulo de
+ * cor — e ela mudaria de cliente para cliente sem ninguém saber.
+ */
+export function resumoExecutivo(leitura: LeituraSocial): ResumoExecutivo {
+  if (!leitura.achados.length) {
+    return {
+      tom: "sem_dado",
+      titulo: leitura.motivo ?? "Sem leitura para este período.",
+      detalhe: null,
+    };
+  }
+
+  const subiu = leitura.achados.filter((a) => a.direcao === "subiu").length;
+  const caiu = leitura.achados.filter((a) => a.direcao === "caiu").length;
+  const total = leitura.achados.length;
+
+  const tom: TomDoResumo = subiu && caiu ? "misto"
+    : subiu ? "positivo"
+    : caiu ? "negativo"
+    : "estavel";
+
+  const titulo = tom === "positivo" ? `Alta em ${subiu} de ${total} métricas`
+    : tom === "negativo" ? `Queda em ${caiu} de ${total} métricas`
+    : tom === "misto" ? `${subiu} em alta, ${caiu} em queda`
+    : `Estabilidade nas ${total} métricas`;
+
+  /**
+   * O saldo de seguidores é o detalhe, e não a taxa de nada.
+   *
+   * É o único número do cabeçalho que representa patrimônio: visitas e
+   * ativações voltam a zero amanhã, e seguidor perdido continua perdido. Quando
+   * ele não se move, não há detalhe — repetir "estável" logo abaixo de
+   * "estabilidade" ocuparia uma linha para não dizer nada.
+   */
+  const seguidores = leitura.achados.find((a) => a.metrica === "seguidores");
+  const detalhe = seguidores && seguidores.delta !== 0
+    ? `Saldo de seguidores ${seguidores.delta > 0 ? "+" : "−"}${Math.abs(seguidores.delta).toLocaleString("pt-BR")} em ${leitura.diasMedidos} dias medidos`
+    : null;
+
+  return { tom, titulo, detalhe };
+}

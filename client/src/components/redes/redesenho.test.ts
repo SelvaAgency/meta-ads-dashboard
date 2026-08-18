@@ -32,6 +32,7 @@ const pagina = () => fonte("../../pages/RedesSociais.tsx");
 const grafico = () => fonte("./GraficosSociais.tsx");
 const retencao = () => fonte("./RetencaoReels.tsx");
 const conteudo = () => fonte("./PublicacoesEConteudo.tsx");
+const cabecalho = () => fonte("./CabecalhoDaConta.tsx");
 /** O núcleo puro da retenção — as proibições valem lá também. */
 const leia = (p: string) => fonte(p);
 
@@ -329,6 +330,74 @@ describe("a retenção de Reels não ganha curva", () => {
     expect(corpo).toContain("skipRate as number");
     expect(corpo).not.toContain("avgWatchTimeMs");
     expect(corpo).not.toContain("views");
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O cabeçalho pertence ao mesmo dashboard que está abaixo dele
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Ele era editorial e monocromático enquanto o resto da página era painel. A
+ *  correção tem duas partes que somem fácil: a semântica de cor (família no
+ *  ponto, direção no número) e a altura fixa.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("o cabeçalho fala a língua do dashboard", () => {
+  /**
+   * A frase curta é o ponto do redesenho. Se o título voltar a enumerar as
+   * métricas, a caixa volta a ser a tabela escrita por extenso — com a tabela
+   * de verdade na coluna ao lado.
+   */
+  it("o resumo mostra veredito e indicadores, não a enumeração", () => {
+    const s = cabecalho();
+    expect(s).toContain("resumoExecutivo");
+    expect(s).toContain("r.titulo");
+    // Os indicadores por achado, um por métrica.
+    expect(s).toContain("leitura.achados.map");
+    // E o texto longo do módulo NÃO é mais renderizado aqui.
+    expect(s, "a frase enumerada voltou ao cabeçalho").not.toContain("leitura.texto");
+  });
+
+  /**
+   * Duas semânticas de cor, dois lugares. O ponto carrega a família; o número
+   * carrega a direção. Se a família pintasse o número, o leitor teria de
+   * perguntar se roxo é bom.
+   */
+  it("família colore o ponto e direção colore o número", () => {
+    const s = cabecalho();
+    for (const familia of ["COR.seguidores", "COR.visitas", "COR.ativacoes", "COR.engajamento"]) {
+      expect(s, familia).toContain(familia);
+    }
+    expect(s).toContain("TOM_DIRECAO");
+    // As quatro linhas recebem a cor da família pela página.
+    const pg = pagina();
+    for (const familia of ["cor: COR.ativacoes", "cor: COR.engajamento", "cor: COR.visitas", "cor: COR.seguidores"]) {
+      expect(pg, familia).toContain(familia);
+    }
+  });
+
+  /** Sem os dois lados medidos, não há seta: ela afirmaria movimento. */
+  it("a variação ontem×hoje se recusa quando falta um lado", () => {
+    const s = cabecalho();
+    const corpo = s.slice(s.indexOf("function direcaoEntre"));
+    expect(corpo).toMatch(/valor == null[\s\S]*?return null/);
+    // Zero é estabilidade MEDIDA, e não ausência.
+    expect(corpo).toContain('return "estavel"');
+  });
+
+  /**
+   * O gráfico do cabeçalho não pode ganhar balão flutuante: a exigência é que a
+   * altura do cabeçalho não cresça, e a leitura por isso SUBSTITUI a legenda —
+   * o mesmo mecanismo dos outros dois gráficos.
+   */
+  it("o hover da evolução escreve na legenda, e não num balão", () => {
+    const s = grafico();
+    expect(s).toContain("LeituraDaEvolucao");
+    const corpo = s.slice(s.indexOf("export function GraficoDeEvolucao"));
+    expect(corpo).toContain("leitura={ativo != null");
+    expect(corpo).toContain("onMouseEnter={() => setAtivo(i)}");
+    // Nenhum posicionamento absoluto — é isso que mexeria no fluxo.
+    expect(corpo).not.toContain("absolute");
   });
 });
 
