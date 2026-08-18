@@ -269,6 +269,59 @@ describe("a retenção de Reels não ganha curva", () => {
     expect(retencao()).toContain("NOTA_DA_RETENCAO");
   });
 
+  /**
+   * ───────────────────────────────────────────────────────────────────────────
+   *  A seção não pode voltar a crescer sem teto
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Uma conta com 30 Reels empurrava o resto da Social para fora da tela. O
+   *  colapso e a rolagem interna são as duas peças que resolvem isso, e as duas
+   *  somem fácil numa refatoração: quem tira o `max-h` para "mostrar tudo"
+   *  devolve o problema inteiro, e a tela continua parecendo certa em contas
+   *  pequenas — que é onde ela vai ser testada.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  it("a seção é colapsável e lembra a escolha", () => {
+    const s = retencao();
+    expect(s).toContain("localStorage.getItem");
+    expect(s).toContain("localStorage.setItem");
+    expect(s).toContain("aria-expanded");
+    // Fechada por padrão: o resumo responde sozinho, e abrir é aprofundamento.
+    expect(s).toMatch(/getItem\(CHAVE\) === "1"/);
+    expect(s).toMatch(/return false;/);
+  });
+
+  it("a lista de Reels tem altura teto e rolagem própria", () => {
+    const s = retencao();
+    expect(s, "sem max-h a altura volta a crescer com o número de Reels")
+      .toMatch(/max-h-\[\d+px\][^"]*overflow-y-auto/);
+    // E a rolagem é só vertical: horizontal na página era proibição explícita.
+    expect(s).toContain("overflow-x-hidden");
+  });
+
+  /**
+   * O resumo recolhido precisa RESPONDER. Um título com seta transformaria o
+   * clique em pedágio para saber se a retenção está boa.
+   */
+  it("o estado recolhido já traz os números e as duas pontas", () => {
+    const s = retencao();
+    for (const r of ["Reels analisados", "Abandono médio", "Tempo médio", "Visualizações"]) {
+      expect(s, r).toContain(r);
+    }
+    expect(s).toContain("Menor abandono");
+    expect(s).toContain("Maior abandono");
+    expect(s).toContain("resumo.menorTaxa");
+    expect(s).toContain("resumo.maiorTaxa");
+  });
+
+  /** Ausência dita, e nunca zero — a exigência sobreviveu à compactação. */
+  it("ausência continua explícita depois do redesenho", () => {
+    const s = retencao();
+    expect(s).toContain("indisponível nesta coleta");
+    expect(s).not.toMatch(/skipRate\s*\|\|\s*0/);
+    expect(s).not.toMatch(/avgWatchTimeMs\s*\|\|\s*0/);
+    expect(s).not.toMatch(/views\s*\?\?\s*0/);
+  });
+
   /** O ranking sai da taxa, e de nada mais. */
   it("o ranking ordena exclusivamente por skipRate", () => {
     const s = leia("../../../../shared/retencaoDeReels.ts");

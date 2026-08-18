@@ -1,164 +1,221 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Retenção dos Reels — o que a sondagem autorizou
+ *  Retenção dos Reels — painel de performance, não lista de cards
  * ─────────────────────────────────────────────────────────────────────────────
- *  Este arquivo passou o mês inteiro dizendo "dado ainda não disponível". A
- *  sondagem de 17/08/2026 respondeu PARCIAL, e o que ela autorizou é exatamente
- *  o que está aqui — nem um número a mais.
+ *  A versão anterior tinha razão nos números e errava na forma: cada Reel virava
+ *  um cartão, e uma conta com 30 Reels empurrava o resto da Social para fora da
+ *  tela. Densidade aqui não é estética — é o que permite COMPARAR. Trinta
+ *  cartões espaçados respondem "como foi cada Reel"; trinta linhas respondem
+ *  "como os Reels estão indo", que é a pergunta.
  *
- *  ── O eixo é a TAXA DE ABANDONO, e ele é único ─────────────────────────────
- *  `reels_skip_rate` vem medida e já em percentual. O tempo médio aparece no
- *  cartão e no hover, nunca no mesmo eixo: os dois não compartilham unidade, e
- *  uma barra que misturasse "57,6" com "7,60" desenharia uma comparação que não
- *  existe.
+ *  ── Recolhida por padrão, e o recolhido já responde ────────────────────────
+ *  O estado fechado não é um título com uma seta: ele traz os quatro números e
+ *  as duas pontas. Quem só quer saber se a retenção está boa nunca precisa
+ *  abrir. Um resumo que não responde nada transforma o clique em pedágio.
  *
- *  ── O que esta tela NUNCA faz ──────────────────────────────────────────────
- *  Nenhum número sai de `total_views`. A sondagem mediu: `tempo total ÷ tempo
- *  médio` dá 7.957 espectadores implícitos, e `total_views` marcava 54.977. O
- *  denominador do tempo médio não é nenhuma métrica de views que a API entrega.
- *  Por isso views aparece como contagem isolada, e as três grandezas nunca se
- *  encontram numa divisão.
+ *  ── Altura teto e rolagem própria ──────────────────────────────────────────
+ *  Mesmo aberta, a lista rola dentro de si. Sem isso, "expandir" seria devolver
+ *  o problema que o colapso resolveu.
  *
- *  Também não há curva por segundo, e a nota de rodapé diz isso onde a pergunta
- *  nasce — a Meta enumerou os breakdowns válidos (`follow_type`, `surface_type`,
- *  `action_type`, `story_navigation_action_type`) e nenhum é temporal.
+ *  ── A leitura fica no cabeçalho, e não flutuando ───────────────────────────
+ *  O hover escreve numa linha de altura fixa acima da lista. Um balão dentro de
+ *  um contêiner com `overflow` seria recortado pela borda, e um balão fora do
+ *  fluxo mexeria na altura — os dois quebram a exigência de página estável.
  *
- *  ── Ausência é dita, e nunca vira zero ─────────────────────────────────────
- *  Um Reel sem taxa fica fora do ranking com o motivo à mostra. Entrando como
- *  0%, ele lideraria "menor abandono" — o Reel que ninguém mediu virando o
- *  melhor da conta.
+ *  ── O que continua proibido ────────────────────────────────────────────────
+ *  Nenhum número sai de `total_views`; nenhuma curva por segundo; ausência
+ *  nunca vira zero. Ver `shared/retencaoDeReels.ts` — a lógica não mudou nesta
+ *  rodada, só a forma.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useState } from "react";
-import { Clapperboard, Eye, Gauge, Timer } from "lucide-react";
+import { ChevronDown, Clapperboard } from "lucide-react";
 import {
   NOTA_DA_RETENCAO, formatarSegundos, formatarTaxa, rankingDeAbandono,
   resumoDaRetencao, type ReelMedido,
 } from "@shared/retencaoDeReels";
 import { COR, COR_TIPO } from "@shared/coresSociais";
 
+const CHAVE = "spaces_social_retencao_aberta";
+
+/** Recolhida por padrão: o resumo responde, e o detalhe é aprofundamento. */
+function lerAberta(): boolean {
+  try {
+    return localStorage.getItem(CHAVE) === "1";
+  } catch {
+    return false;
+  }
+}
+
 const fmt = (v: number | null) => (v == null ? "–" : v.toLocaleString("pt-BR"));
+
+/** Milhares abreviados: a faixa de indicadores não comporta "54.977". */
+const compacto = (v: number | null) => {
+  if (v == null) return "–";
+  if (v < 10_000) return v.toLocaleString("pt-BR");
+  const mil = v / 1000;
+  return `${mil.toFixed(mil < 100 ? 1 : 0).replace(".", ",")} mil`;
+};
 
 const dataCurta = (iso: string | null) =>
   iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "sem data";
 
-/** A miniatura, com as iniciais do formato quando a URL assinada já expirou. */
 function Miniatura({ url, tamanho }: { url: string | null; tamanho: number }) {
   const [falhou, setFalhou] = useState(false);
   return (
-    <span className="rounded-[10px] overflow-hidden flex-shrink-0 grid place-items-center bg-muted"
+    <span className="rounded-md overflow-hidden flex-shrink-0 grid place-items-center bg-muted"
       style={{ width: tamanho, height: tamanho }}>
       {url && !falhou
         ? <img src={url} alt="" className="w-full h-full object-cover" onError={() => setFalhou(true)} />
-        : <Clapperboard className="w-4 h-4 text-muted-foreground/50" />}
+        : <Clapperboard className="w-3.5 h-3.5 text-muted-foreground/50" />}
     </span>
   );
 }
 
-function CartaoDaRetencao({ icone: Icone, cor, rotulo, valor, detalhe }: {
-  icone: typeof Gauge; cor: string; rotulo: string; valor: string; detalhe: string | null;
+/**
+ * Um indicador da faixa: rótulo pequeno em cima, número grande colado embaixo.
+ *
+ * Sem o quadrado de ícone dos cartões da faixa de dados gerais — aqui são
+ * quatro números numa tira, e quatro ícones roubariam a altura que a
+ * compactação foi buscar.
+ */
+function Indicador({ rotulo, valor, cor, nota }: {
+  rotulo: string; valor: string; cor?: string; nota?: string | null;
 }) {
   const vazio = valor === "–";
   return (
-    <div className="flex flex-col px-4 py-4 min-w-0 transition-colors duration-150 hover:bg-foreground/[0.02]">
-      <span className="w-8 h-8 rounded-[10px] grid place-items-center flex-shrink-0 mb-3"
-        style={{ background: `${cor}29`, color: cor }}>
-        <Icone className="w-4 h-4" strokeWidth={2.2} />
-      </span>
-      <span className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground mb-1">
+    <div className="px-3.5 py-2.5 min-w-0">
+      <span className="block text-[9.5px] font-bold uppercase tracking-[0.11em] text-muted-foreground/80 truncate">
         {rotulo}
       </span>
-      <span className={`text-[28px] font-bold tabular-nums leading-none tracking-tight ${
-        vazio ? "text-muted-foreground/40" : "text-foreground"}`}>
+      <span className={`block text-[19px] font-bold tabular-nums leading-none tracking-tight mt-1 ${
+        vazio ? "text-muted-foreground/40" : ""}`}
+        style={vazio || !cor ? undefined : { color: cor }}>
         {valor}
       </span>
-      {detalhe && <span className="text-[10.5px] text-muted-foreground mt-1.5 leading-snug">{detalhe}</span>}
+      {nota && (
+        <span className="block text-[9.5px] text-muted-foreground/60 leading-snug mt-1 truncate" title={nota}>
+          {nota}
+        </span>
+      )}
     </div>
   );
 }
 
 /**
- * O gráfico: uma barra por Reel, comprimento = taxa de abandono.
+ * Uma linha do ranking.
  *
- * A escala vai a 100 e não ao maior valor da amostra. Com quatro Reels entre
- * 52% e 65%, uma escala relativa faria o de 52% virar uma barra curtíssima e o
- * de 65% encostar na borda — a diferença de 13 pontos pareceria abissal. A
- * taxa é percentual: o eixo dela é 0–100, e a comparação fica na proporção real.
+ * Desktop: thumb · data · barra · taxa · tempo · views, tudo numa faixa de
+ * 34px. Mobile: a mesma informação empilha em duas linhas dentro da própria
+ * célula, e nada some — o pedido era compactar, não esconder.
+ *
+ * A barra usa escala 0–100 e não a maior taxa da amostra: com quatro Reels
+ * entre 52% e 65%, escala relativa faria 13 pontos parecerem um abismo.
  */
-function BarrasDeAbandono({ reels, ativo, aoEntrar }: {
-  reels: ReelMedido[]; ativo: string | null; aoEntrar: (id: string | null) => void;
+function LinhaDoReel({ r, ativo, aoEntrar }: {
+  r: ReelMedido; ativo: boolean; aoEntrar: (id: string | null) => void;
 }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      {reels.map((r) => {
-        const pct = r.skipRate as number;
-        const destacado = ativo === r.mediaId;
-        return (
-          <div key={r.mediaId}
-            className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg px-1.5 py-1
-                       cursor-default transition-colors duration-150 hover:bg-foreground/[0.03]"
-            onMouseEnter={() => aoEntrar(r.mediaId)} onMouseLeave={() => aoEntrar(null)}>
-            <Miniatura url={r.thumbnailUrl} tamanho={26} />
-            <span className="h-[13px] rounded-full bg-muted overflow-hidden">
-              <span className="block h-full rounded-full transition-[width,opacity] duration-200"
-                style={{
-                  width: `${Math.max(1, Math.min(100, pct))}%`,
-                  background: COR_TIPO.REELS,
-                  opacity: ativo && !destacado ? 0.4 : 1,
-                }} />
-            </span>
-            <span className={`text-[11.5px] font-bold tabular-nums w-[52px] text-right transition-colors ${
-              destacado ? "text-foreground" : "text-muted-foreground"}`}>
-              {formatarTaxa(pct)}
-            </span>
-          </div>
-        );
-      })}
+  const pct = r.skipRate as number;
+  const conteudo = (
+    <>
+      <Miniatura url={r.thumbnailUrl} tamanho={26} />
+      <span className="text-[10.5px] text-muted-foreground tabular-nums w-[38px] flex-shrink-0">
+        {dataCurta(r.publicadoEm)}
+      </span>
+      {/* A barra some no mobile: com pouca largura ela vira um traço que não
+          compara nada, e a porcentagem ao lado já diz o mesmo. */}
+      <span className="hidden sm:block h-[9px] rounded-full bg-muted overflow-hidden min-w-0">
+        <span className="block h-full rounded-full transition-opacity duration-150"
+          style={{
+            width: `${Math.max(1, Math.min(100, pct))}%`,
+            background: COR_TIPO.REELS,
+            opacity: ativo ? 1 : 0.85,
+          }} />
+      </span>
+      <span className="text-[12px] font-bold tabular-nums w-[52px] text-right flex-shrink-0"
+        style={{ color: COR_TIPO.REELS }}>
+        {formatarTaxa(pct)}
+      </span>
+      {/* Tempo e views em colunas próprias, alinhadas à direita: o olho desce a
+          coluna comparando, que é o que uma tabela faz melhor que um cartão. */}
+      <span className="hidden md:block text-[11px] tabular-nums text-muted-foreground w-[54px] text-right flex-shrink-0"
+        title={r.avgWatchTimeMs == null ? "tempo médio indisponível nesta coleta" : undefined}>
+        {formatarSegundos(r.avgWatchTimeMs)}
+      </span>
+      <span className="hidden lg:block text-[11px] tabular-nums text-muted-foreground w-[68px] text-right flex-shrink-0"
+        title={r.views == null ? "visualizações indisponíveis nesta coleta" : undefined}>
+        {fmt(r.views)}
+      </span>
+    </>
+  );
+
+  const classe = "grid grid-cols-[auto_auto_minmax(0,1fr)_auto] md:grid-cols-[auto_auto_minmax(0,1fr)_auto_auto]"
+    + " lg:grid-cols-[auto_auto_minmax(0,1fr)_auto_auto_auto] items-center gap-2.5 px-2 py-[7px] rounded-md"
+    + ` transition-colors duration-150 ${ativo ? "bg-foreground/[0.045]" : "hover:bg-foreground/[0.03]"}`;
+
+  return r.permalink ? (
+    <a href={r.permalink} target="_blank" rel="noopener noreferrer" className={classe}
+      onMouseEnter={() => aoEntrar(r.mediaId)} onMouseLeave={() => aoEntrar(null)}>
+      {conteudo}
+    </a>
+  ) : (
+    <div className={classe} onMouseEnter={() => aoEntrar(r.mediaId)} onMouseLeave={() => aoEntrar(null)}>
+      {conteudo}
     </div>
   );
 }
 
-/** A leitura de um Reel — substitui a legenda quando o mouse entra numa barra. */
-function LeituraDoReel({ r }: { r: ReelMedido }) {
+/**
+ * A leitura do Reel sob o mouse — altura fixa, sempre montada.
+ *
+ * Mesmo sem nada em foco a linha existe, com a legenda das colunas. É isso que
+ * mantém a página imóvel: aparecer e sumir mudaria a altura a cada movimento
+ * do mouse.
+ */
+function LeituraDoReel({ r }: { r: ReelMedido | null }) {
+  if (!r) {
+    return (
+      <span className="text-[10px] text-muted-foreground/50">
+        escala 0–100% · passe o mouse para o detalhe
+      </span>
+    );
+  }
   return (
-    <div className="flex items-center gap-3 flex-wrap text-[11px] tabular-nums">
+    <span className="flex items-center gap-2.5 flex-wrap text-[10.5px] tabular-nums">
       <span className="font-bold">{dataCurta(r.publicadoEm)}</span>
       <span style={{ color: COR_TIPO.REELS }}>Abandono {formatarTaxa(r.skipRate)}</span>
-      <span style={{ color: COR.engajamento }}>Tempo médio {formatarSegundos(r.avgWatchTimeMs)}</span>
-      <span style={{ color: COR.visitas }}>Views {fmt(r.views)}</span>
-    </div>
-  );
-}
-
-function LinhaDoRanking({ r }: { r: ReelMedido }) {
-  return (
-    <a href={r.permalink ?? undefined} target="_blank" rel="noopener noreferrer"
-      className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2 rounded-lg
-                 transition-colors duration-150 hover:bg-accent/20">
-      <Miniatura url={r.thumbnailUrl} tamanho={38} />
-      <span className="min-w-0">
-        <span className="block text-[12px] font-bold tabular-nums leading-none">
-          {formatarTaxa(r.skipRate)} <span className="font-normal text-muted-foreground">de abandono</span>
-        </span>
-        <span className="block text-[10.5px] text-muted-foreground mt-1">
-          {dataCurta(r.publicadoEm)} · {formatarSegundos(r.avgWatchTimeMs)} médios · {fmt(r.views)} views
-        </span>
+      <span style={{ color: COR.engajamento }}>
+        Tempo {r.avgWatchTimeMs == null ? "indisponível" : formatarSegundos(r.avgWatchTimeMs)}
       </span>
-    </a>
+      <span style={{ color: COR.visitas }}>
+        Views {r.views == null ? "indisponíveis" : fmt(r.views)}
+      </span>
+    </span>
   );
 }
 
 export function RetencaoReels({ reels, houveColeta = true }: {
-  /** Só Reels. Publicações de outro formato não têm estas métricas. */
   reels: ReelMedido[];
   houveColeta?: boolean;
 }) {
+  const [aberta, setAberta] = useState(lerAberta);
   const [ativo, setAtivo] = useState<string | null>(null);
+  /** A mesma lista, lida dos dois lados — sem duplicar bloco nem rolagem. */
+  const [ordem, setOrdem] = useState<"maior" | "menor">("maior");
+
   const resumo = resumoDaRetencao(reels);
   const ranking = rankingDeAbandono(reels);
+  const lista = ordem === "maior" ? ranking.ordenados : [...ranking.ordenados].reverse();
   const emFoco = ranking.ordenados.find((r) => r.mediaId === ativo) ?? null;
-
   const vazio = !ranking.ordenados.length;
+
+  const alternar = () => {
+    setAberta((v) => {
+      const novo = !v;
+      try { localStorage.setItem(CHAVE, novo ? "1" : "0"); } catch { /* modo privado */ }
+      return novo;
+    });
+  };
 
   return (
     <section className="flex flex-col gap-3">
@@ -170,90 +227,121 @@ export function RetencaoReels({ reels, houveColeta = true }: {
         {resumo.amostraPequena && (
           <span className="text-[10px] font-bold uppercase tracking-[0.04em] px-2 py-0.5 rounded-full
                            bg-amber-500/14 text-amber-700">
-            amostra pequena · {resumo.total} reel(s)
+            amostra pequena
           </span>
         )}
       </div>
 
       <div className="rounded-[20px] border border-border bg-card overflow-hidden
                       shadow-[0_1px_2px_rgba(10,10,10,.04)]">
-        {/* ── Os três números, cada um sozinho na sua unidade ───────────── */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border">
-          <CartaoDaRetencao icone={Gauge} cor={COR_TIPO.REELS} rotulo="Taxa de abandono"
-            valor={formatarTaxa(resumo.taxaMedia)}
-            /* "Média de N Reels", e não "taxa da conta": ponderá-la por views
-               daria a taxa da conta usando o denominador que a sondagem
-               proibiu. A frase é o que mantém o número honesto. */
-            detalhe={resumo.reelsComTaxa
-              ? `média de ${resumo.reelsComTaxa} reel(s) medido(s)`
-              : houveColeta ? "não medida nesta coleta" : "sem coleta no período"} />
-
-          <CartaoDaRetencao icone={Timer} cor={COR.engajamento} rotulo="Tempo médio assistido"
-            valor={formatarSegundos(resumo.tempoMedioMs)}
-            detalhe={resumo.reelsComTempo
-              ? `média de ${resumo.reelsComTempo} reel(s) · em segundos`
-              : houveColeta ? "não medido nesta coleta" : "sem coleta no período"} />
-
-          <CartaoDaRetencao icone={Eye} cor={COR.visitas} rotulo="Visualizações"
-            valor={fmt(resumo.views)}
-            detalhe={resumo.reelsComViews
+        {/* ── A faixa de indicadores · sempre visível ───────────────────── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-border">
+          <Indicador rotulo="Reels analisados" valor={String(resumo.total)}
+            nota={resumo.reelsComTaxa < resumo.total
+              ? `${resumo.reelsComTaxa} com taxa medida`
+              : null} />
+          <Indicador rotulo="Abandono médio" valor={formatarTaxa(resumo.taxaMedia)} cor={COR_TIPO.REELS}
+            /* "Média de N Reels", nunca "taxa da conta": ponderá-la por views
+               usaria o denominador que a sondagem proibiu. */
+            nota={resumo.reelsComTaxa
+              ? `média de ${resumo.reelsComTaxa} reel(s)`
+              : houveColeta ? "indisponível nesta coleta" : "sem coleta no período"} />
+          <Indicador rotulo="Tempo médio" valor={formatarSegundos(resumo.tempoMedioMs)} cor={COR.engajamento}
+            nota={resumo.reelsComTempo
+              ? `média de ${resumo.reelsComTempo} reel(s)`
+              : houveColeta ? "indisponível nesta coleta" : "sem coleta no período"} />
+          <Indicador rotulo="Visualizações" valor={compacto(resumo.views)} cor={COR.visitas}
+            nota={resumo.reelsComViews
               ? `soma de ${resumo.reelsComViews} reel(s)`
-              : "não medidas nesta coleta"} />
+              : "indisponíveis nesta coleta"} />
         </div>
 
-        {vazio ? (
-          <p className="px-5 py-6 text-center text-xs text-muted-foreground border-t border-border">
-            {resumo.total === 0
-              ? "Nenhum Reel no período."
-              : `Os ${resumo.total} Reel(s) do período estão sem taxa de abandono medida.`}
-          </p>
-        ) : (
-          <>
-            {/* ── O gráfico: um eixo só, a taxa ─────────────────────────── */}
-            <div className="border-t border-border px-5 py-[18px] flex flex-col gap-2.5">
-              <div className="flex items-baseline justify-between gap-3 flex-wrap min-h-[18px]">
-                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/70">
-                  Abandono por Reel
+        {/* ── As duas pontas + o gatilho ────────────────────────────────── */}
+        <div className="border-t border-border flex items-center justify-between gap-3 flex-wrap
+                        px-3.5 py-2">
+          <span className="flex items-center gap-3 flex-wrap text-[11px] tabular-nums">
+            {resumo.menorTaxa != null ? (
+              <>
+                <span className="text-muted-foreground">
+                  Menor abandono <b className="text-foreground">{formatarTaxa(resumo.menorTaxa)}</b>
                 </span>
-                {emFoco
-                  ? <LeituraDoReel r={emFoco} />
-                  : <span className="text-[10px] text-muted-foreground/50">
-                      escala 0–100% · passe o mouse para o detalhe
-                    </span>}
-              </div>
-              <BarrasDeAbandono reels={ranking.ordenados} ativo={ativo} aoEntrar={setAtivo} />
+                <span className="text-muted-foreground/30">·</span>
+                <span className="text-muted-foreground">
+                  Maior abandono <b className="text-foreground">{formatarTaxa(resumo.maiorTaxa)}</b>
+                </span>
+              </>
+            ) : (
+              <span className="text-muted-foreground/60 text-[10.5px]">
+                {resumo.total === 0 ? "Nenhum Reel no período." : "Nenhuma taxa medida no período."}
+              </span>
+            )}
+          </span>
+
+          {!vazio && (
+            <button type="button" onClick={alternar} aria-expanded={aberta}
+              className="text-[11px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-md
+                         text-muted-foreground hover:text-foreground hover:bg-foreground/[0.04]
+                         transition-colors duration-150">
+              {aberta ? "Ocultar detalhes" : "Ver detalhes"}
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                aberta ? "rotate-180" : ""}`} />
+            </button>
+          )}
+        </div>
+
+        {/* ── O detalhamento ────────────────────────────────────────────── */}
+        {aberta && !vazio && (
+          <div className="border-t border-border px-3.5 py-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3 flex-wrap min-h-[20px]">
+              {/* Uma lista só, lida dos dois lados: dois blocos separados
+                  duplicariam os Reels do meio e a rolagem. */}
+              <span className="inline-flex rounded-md border border-border overflow-hidden">
+                {(["maior", "menor"] as const).map((o) => (
+                  <button key={o} type="button" onClick={() => setOrdem(o)}
+                    className={`text-[10px] font-bold uppercase tracking-[0.06em] px-2.5 py-1
+                                transition-colors duration-150 ${
+                      ordem === o ? "bg-foreground text-background"
+                                  : "text-muted-foreground hover:bg-foreground/[0.04]"}`}>
+                    {o === "maior" ? "Maior abandono" : "Menor abandono"}
+                  </button>
+                ))}
+              </span>
+              <LeituraDoReel r={emFoco} />
             </div>
 
-            {/* ── Maior e menor abandono ────────────────────────────────── */}
-            <div className="border-t border-border grid grid-cols-1 md:grid-cols-2
-                            divide-y md:divide-y-0 md:divide-x divide-border">
-              <div className="px-4 py-4">
-                <span className="block text-[10px] font-bold uppercase tracking-[0.13em]
-                                 text-muted-foreground mb-2">
-                  Maior abandono
-                </span>
-                <div className="flex flex-col">
-                  {ranking.maiorAbandono.map((r) => <LinhaDoRanking key={r.mediaId} r={r} />)}
-                </div>
-              </div>
-              <div className="px-4 py-4">
-                <span className="block text-[10px] font-bold uppercase tracking-[0.13em]
-                                 text-muted-foreground mb-2">
-                  Menor abandono
-                </span>
-                <div className="flex flex-col">
-                  {ranking.menorAbandono.map((r) => <LinhaDoRanking key={r.mediaId} r={r} />)}
-                </div>
-              </div>
+            {/* Colunas nomeadas uma vez, no topo — e não repetidas em cada
+                linha, que é o que engorda cartão. */}
+            <div className="hidden md:grid grid-cols-[auto_auto_minmax(0,1fr)_auto_auto]
+                            lg:grid-cols-[auto_auto_minmax(0,1fr)_auto_auto_auto] items-center gap-2.5 px-2
+                            text-[9px] font-bold uppercase tracking-[0.1em] text-muted-foreground/60">
+              <span className="w-[26px]" />
+              <span className="w-[38px]">Data</span>
+              <span />
+              <span className="w-[52px] text-right">Abandono</span>
+              <span className="w-[54px] text-right">Tempo</span>
+              <span className="hidden lg:block w-[68px] text-right">Views</span>
             </div>
-          </>
+
+            {/* A rolagem própria: expandir não pode devolver o problema que o
+                colapso resolveu. ~9 linhas antes de rolar. */}
+            <div className="max-h-[320px] overflow-y-auto overflow-x-hidden -mx-1 px-1
+                            flex flex-col gap-px">
+              {lista.map((r) => (
+                <LinhaDoReel key={r.mediaId} r={r} ativo={ativo === r.mediaId} aoEntrar={setAtivo} />
+              ))}
+            </div>
+
+            {ranking.semTaxa.length > 0 && (
+              <p className="text-[10px] text-muted-foreground/70 leading-snug pt-1">
+                {ranking.semTaxa.length} reel(s) fora do ranking — {ranking.semTaxa[0].motivo}.
+              </p>
+            )}
+          </div>
         )}
 
-        {/* Os que ficaram de fora, com o motivo: recusa e silêncio não são a
-            mesma coisa, e sumir com eles esconderia a diferença. */}
-        {ranking.semTaxa.length > 0 && (
-          <p className="border-t border-border px-5 py-3 text-[10.5px] text-muted-foreground/70 leading-snug">
-            {ranking.semTaxa.length} reel(s) fora do ranking — {ranking.semTaxa[0].motivo}.
+        {vazio && ranking.semTaxa.length > 0 && (
+          <p className="border-t border-border px-3.5 py-2.5 text-[10.5px] text-muted-foreground/70">
+            {ranking.semTaxa.length} reel(s) sem taxa de abandono — {ranking.semTaxa[0].motivo}.
           </p>
         )}
       </div>

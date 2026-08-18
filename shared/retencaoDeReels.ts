@@ -89,6 +89,16 @@ export interface ResumoDaRetencao {
   /** SOMA das visualizações medidas. Contagem, e não taxa. */
   views: number | null;
   reelsComViews: number;
+  /**
+   * As duas pontas das taxas MEDIDAS — o resumo recolhido vive delas.
+   *
+   * "Menor" e "maior" abandono, e não "melhor" e "pior" Reel: chamar de melhor
+   * o de menor abandono seria um veredito sobre o conteúdo, e a taxa sozinha
+   * não sustenta isso. Um Reel de 8 segundos e um de 60 não competem pela mesma
+   * régua, e a API não entrega duração para normalizar.
+   */
+  menorTaxa: number | null;
+  maiorTaxa: number | null;
   /** Total de Reels no período, medidos ou não. */
   total: number;
   /** Abaixo disto, ranking é anedota. */
@@ -109,6 +119,8 @@ export function resumoDaRetencao(reels: ReelMedido[]): ResumoDaRetencao {
   return {
     taxaMedia: media(taxas),
     reelsComTaxa: taxas.length,
+    menorTaxa: taxas.length ? Math.min(...taxas) : null,
+    maiorTaxa: taxas.length ? Math.max(...taxas) : null,
     tempoMedioMs: media(tempos),
     reelsComTempo: tempos.length,
     // Soma, e não média: visualização é contagem. E `null` sem nenhuma medida —

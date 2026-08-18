@@ -96,6 +96,35 @@ describe("os sete cenários do pedido", () => {
   });
 });
 
+describe("as duas pontas do resumo recolhido", () => {
+  it("menor e maior taxa saem das medidas, e batem com o ranking", () => {
+    const s = resumoDaRetencao(REAIS);
+    const r = rankingDeAbandono(REAIS);
+    expect(s.menorTaxa).toBe(52.9);
+    expect(s.maiorTaxa).toBe(65.3);
+    expect(s.maiorTaxa).toBe(r.ordenados[0].skipRate);
+    expect(s.menorTaxa).toBe(r.ordenados[r.ordenados.length - 1].skipRate);
+  });
+
+  /** Reel sem taxa não pode virar a ponta de baixo entrando como 0%. */
+  it("Reel sem taxa não vira o menor abandono", () => {
+    const s = resumoDaRetencao([...REAIS, reel({ mediaId: "x" })]);
+    expect(s.menorTaxa).toBe(52.9);
+  });
+
+  it("zero MEDIDO é a ponta de baixo, e aparece", () => {
+    const s = resumoDaRetencao([...REAIS, reel({ mediaId: "x", skipRate: 0 })]);
+    expect(s.menorTaxa).toBe(0);
+    expect(formatarTaxa(s.menorTaxa)).toBe("0,0%");
+  });
+
+  it("sem nenhuma taxa medida, as duas pontas são nulas", () => {
+    expect(resumoDaRetencao([reel({ mediaId: "x" })])).toMatchObject({
+      menorTaxa: null, maiorTaxa: null,
+    });
+  });
+});
+
 describe("nada é derivado de total_views", () => {
   /**
    * O teste central. `total_views` muda em 10× e NENHUM número da retenção se
@@ -108,6 +137,8 @@ describe("nada é derivado de total_views", () => {
     const b = resumoDaRetencao(gordos);
     expect(a.taxaMedia).toBe(b.taxaMedia);
     expect(a.tempoMedioMs).toBe(b.tempoMedioMs);
+    expect(a.menorTaxa).toBe(b.menorTaxa);
+    expect(a.maiorTaxa).toBe(b.maiorTaxa);
     // E o que MUDA é só a contagem, que é o que views é.
     expect(a.views).not.toBe(b.views);
   });
