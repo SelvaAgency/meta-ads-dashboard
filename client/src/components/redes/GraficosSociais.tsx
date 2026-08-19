@@ -512,12 +512,25 @@ export function CurvaHistorica({
  * zero afirmaria que a métrica deu zero naquele dia, e o que houve foi não
  * termos medido.
  */
-export function MiniEvolucao({ dias, cor, altura = 72, id }: {
+export function MiniEvolucao({ dias, cor, altura = 72, id, unidade }: {
   dias: Array<{ dia: string; valor: number | null }>;
   cor: string;
   altura?: number;
   /** Único por cartão: dois gradientes com o mesmo id colidiriam. */
   id: string;
+  /**
+   * O nome do que está sendo contado — "cliques", "visitas", "ativações".
+   *
+   * Sem ele a leitura era `13/08 · 37`, e 37 do quê ficava por conta de quem
+   * lembrasse em qual cartão o mouse estava. Vem por parâmetro, e não de um
+   * `switch` por `id`: a unidade é do dado, e quem passa a série é quem sabe
+   * o que ela conta.
+   *
+   * Minúsculo, como no gráfico da Evolução da Base — a mesma gramática que
+   * escreve "1.284 seguidores". Um caixa-alta a 9,5px pesaria mais que o
+   * número, que é o assunto.
+   */
+  unidade?: string;
 }) {
   const [ativo, setAtivo] = useState<number | null>(null);
 
@@ -553,7 +566,7 @@ export function MiniEvolucao({ dias, cor, altura = 72, id }: {
       <span className="block min-h-[13px] truncate">
         {ativo != null && pontos[ativo] ? (
           <LeituraDoPonto miuda dia={pontos[ativo].dia} valores={[
-            { valor: pontos[ativo].valor.toLocaleString("pt-BR"), cor },
+            { valor: pontos[ativo].valor.toLocaleString("pt-BR"), rotulo: unidade, cor },
           ]} />
         ) : (
           <span className="text-[9px] text-muted-foreground/60 tabular-nums">

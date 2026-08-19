@@ -24,8 +24,10 @@
  *  formato que funcionava.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useState } from "react";
-import { ExternalLink, Image as ImageIcon, TrendingUp } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ChevronLeft, ChevronRight, ExternalLink, Image as ImageIcon, TrendingUp,
+} from "lucide-react";
 import { ROTULO_CONTEUDO, type TipoConteudo } from "@shared/tipoDeMidia";
 import { COR_INTERACAO, COR_TIPO } from "@shared/coresSociais";
 import { composicaoDoEngajamento } from "@shared/engajamento";
@@ -374,55 +376,146 @@ export function MelhoresEPiores({ melhores, piores, aviso, amostraPequena }: {
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Performance por posicionamento
+ *  Performance por posicionamento — colada em Ativações, e em carrossel
  * ─────────────────────────────────────────────────────────────────────────────
  *  O nome era "Performance por tipo", e "tipo" não diz de que tipo se fala —
  *  tipo de conteúdo, de campanha, de conta. "Posicionamento" é a palavra que a
- *  agência usa para o mesmo conceito, e alinhar o vocabulário da tela ao de quem
- *  a lê custa uma string e economiza uma explicação em toda reunião.
+ *  agência usa, e alinhar o vocabulário da tela ao de quem a lê custa uma
+ *  string e economiza uma explicação em toda reunião.
  *
- *  ── Quatro cartões, e não um gráfico ───────────────────────────────────────
- *  A pergunta é "qual formato funciona melhor", e ela se responde comparando
- *  duas grandezas por formato — alcance médio e taxa média. Um gráfico único
- *  com as duas exigiria dois eixos para quatro categorias, que é mais desenho
- *  do que leitura. Quatro cartões colocam os números lado a lado, que é como se
- *  compara.
+ *  ── Por que ela mora dentro da coluna de Ativações ─────────────────────────
+ *  As duas respondem a mesma pergunta em dois passos: "o que publicamos" e
+ *  "qual formato funcionou". Como seção de largura cheia, a segunda ficava a uma
+ *  rolagem da primeira, e comparar "publiquei 14 stories" com "stories rendem
+ *  menos" exigia memória em vez de olhar. Juntas, é uma leitura só.
+ *
+ *  ── Carrossel, e não grade ─────────────────────────────────────────────────
+ *  Em meia largura, quatro cartões numa grade viram quatro linhas empilhadas —
+ *  e comparar formatos empilhados é o mesmo que não comparar. O carrossel
+ *  mantém os cartões lado a lado, na altura de um só.
+ *
+ *  As setas aparecem apenas quando há o que rolar. Seta desabilitada permanente
+ *  ensina que a seção tem mais conteúdo escondido quando não tem, e uma conta
+ *  com dois posicionamentos não pode parecer incompleta.
+ *
+ *  ── Rolagem nativa por baixo ───────────────────────────────────────────────
+ *  As setas empurram `scrollLeft`; elas não são o único jeito de navegar. Um
+ *  carrossel que só anda por botão perde o gesto no celular e o trackpad no
+ *  desktop — os dois modos pelos quais quase todo mundo tenta primeiro.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 export function PerformancePorPosicionamento({ porTipo }: { porTipo: DesempenhoPorTipo[] }) {
+  const trilho = useRef<HTMLDivElement>(null);
+  const [nav, setNav] = useState({ transborda: false, pagina: 0, paginas: 1 });
+
+  const medir = useCallback(() => {
+    const el = trilho.current;
+    if (!el) return;
+    const largura = Math.max(1, el.clientWidth);
+    // Tolerância de 4px: sub-pixel de borda e arredondamento fariam um trilho
+    // que cabe inteiro se declarar transbordando, e as setas apareceriam para
+    // rolar nada.
+    setNav({
+      transborda: el.scrollWidth > el.clientWidth + 4,
+      pagina: Math.round(el.scrollLeft / largura),
+      paginas: Math.max(1, Math.ceil(el.scrollWidth / largura)),
+    });
+  }, []);
+
+  useEffect(() => {
+    const el = trilho.current;
+    if (!el) return;
+    medir();
+    // A largura da coluna muda com a janela E com o layout ao redor — só o
+    // observer pega o segundo caso.
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    el.addEventListener("scroll", medir, { passive: true });
+    return () => { ro.disconnect(); el.removeEventListener("scroll", medir); };
+  }, [medir, porTipo.length]);
+
+  const irPara = (pagina: number) => {
+    const el = trilho.current;
+    if (!el) return;
+    el.scrollTo({ left: pagina * el.clientWidth, behavior: "smooth" });
+  };
+
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex flex-col min-w-0 px-5 py-[18px] border-t border-border">
       <div className="flex items-baseline gap-2.5 flex-wrap">
-        <h2 className="text-[13px] font-bold uppercase tracking-[0.1em]">
+        <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">
           Performance por posicionamento
         </h2>
-        <span className="text-[11px] text-muted-foreground/50">
-          qual formato está funcionando · a amostra vem colada no nome
+        <span className="text-[10.5px] text-muted-foreground/50">
+          qual formato está funcionando
         </span>
       </div>
 
       {/*
        * Sem posicionamento medido a seção FICA, e diz por quê.
        *
-       * Sumir seria pior: uma conta que só publica stories veria a página mudar
+       * Sumir seria pior: uma conta que só publica stories veria a coluna mudar
        * de forma sem explicação, e "a seção não existe" e "não há dado" viram a
        * mesma coisa na tela. Stories não entram aqui porque a comparação é de
        * alcance e taxa por publicação, e a contagem diária de stories não tem
        * nem uma nem outra.
        */}
-      {!porTipo.length && (
-        <div className="rounded-[20px] border border-dashed border-border bg-card px-5 py-6">
-          <p className="text-[12px] font-medium">Nenhuma publicação de feed, carrossel ou reels no período.</p>
-          <p className="text-[11px] text-muted-foreground leading-snug mt-1 max-w-[70ch]">
-            A comparação entre posicionamentos precisa de alcance e taxa por publicação. Stories
-            têm contagem diária, mas não têm nenhuma das duas — por isso não entram nesta grade.
-          </p>
-        </div>
+      {!porTipo.length ? (
+        <p className="text-[11px] text-muted-foreground leading-snug mt-2 max-w-[62ch]">
+          Nenhuma publicação de feed, carrossel ou reels no período. A comparação precisa de alcance
+          e taxa por publicação, e stories não têm nem uma nem outra.
+        </p>
+      ) : (
+        <>
+          <div ref={trilho}
+            className="flex gap-3 mt-3 overflow-x-auto snap-x snap-mandatory
+                       [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {porTipo.map((t) => (
+              /* Base fixa e sem encolher: é o que mantém os cartões do mesmo
+                 tamanho e faz o trilho transbordar em vez de espremer. */
+              <div key={t.tipo} className="snap-start shrink-0 basis-[188px]">
+                <CartaoDeTipo t={t} porTipo={porTipo} />
+              </div>
+            ))}
+          </div>
+
+          {/* Setas e bolinhas só quando há o que rolar. */}
+          {nav.transborda && (
+            <div className="flex items-center justify-center gap-3 mt-2.5">
+              <Seta lado="anterior" ativa={nav.pagina > 0} aoClicar={() => irPara(nav.pagina - 1)} />
+              <span className="flex items-center gap-1.5">
+                {Array.from({ length: nav.paginas }, (_, i) => (
+                  <button key={i} type="button" onClick={() => irPara(i)}
+                    aria-label={`Página ${i + 1}`}
+                    className={`w-1.5 h-1.5 rounded-full transition-colors duration-150 ${
+                      i === nav.pagina ? "bg-foreground/70" : "bg-foreground/20 hover:bg-foreground/40"}`} />
+                ))}
+              </span>
+              <Seta lado="proximo" ativa={nav.pagina < nav.paginas - 1}
+                aoClicar={() => irPara(nav.pagina + 1)} />
+            </div>
+          )}
+        </>
       )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        {porTipo.map((t) => <CartaoDeTipo key={t.tipo} t={t} porTipo={porTipo} />)}
-      </div>
     </section>
+  );
+}
+
+/** Seta do carrossel — desabilitada na ponta, e não escondida: sumir mexeria na
+ *  largura do bloco de navegação a cada rolagem, e as bolinhas dançariam. */
+function Seta({ lado, ativa, aoClicar }: {
+  lado: "anterior" | "proximo"; ativa: boolean; aoClicar: () => void;
+}) {
+  const Icone = lado === "anterior" ? ChevronLeft : ChevronRight;
+  return (
+    <button type="button" onClick={aoClicar} disabled={!ativa}
+      aria-label={lado === "anterior" ? "Anteriores" : "Próximos"}
+      className={`w-6 h-6 rounded-full grid place-items-center flex-shrink-0
+                  transition-colors duration-150 ${
+        ativa ? "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06]"
+              : "text-muted-foreground/25 cursor-default"}`}>
+      <Icone className="w-3.5 h-3.5" strokeWidth={2.4} />
+    </button>
   );
 }
 

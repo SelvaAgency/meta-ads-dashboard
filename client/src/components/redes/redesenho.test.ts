@@ -584,13 +584,47 @@ describe("a Social tem duas abas, e nada se perdeu entre elas", () => {
     expect(ordem).toEqual([...ordem].sort((a, b) => a - b));
   });
 
-  /** Ativações e o ranking dividem a MESMA faixa — meia largura cada. */
-  it("Ativações e Melhores → piores abrem a aba na mesma faixa", () => {
+  /**
+   * Os três blocos de abertura dividem UMA caixa: duas colunas, e a esquerda
+   * com dois andares.
+   *
+   * Posicionamento já foi seção de largura cheia abaixo da faixa, e aí ficava a
+   * uma rolagem de Ativações — comparar "publiquei 14 stories" com "stories
+   * rendem menos" exigia memória em vez de olhar.
+   */
+  it("Ativações, Posicionamento e o ranking abrem a aba na mesma faixa", () => {
     const conteudo = abaConteudo();
-    const faixa = conteudo.slice(0, conteudo.indexOf("<PerformancePorPosicionamento"));
-    expect(faixa).toContain("<AtivacoesDoPeriodo");
-    expect(faixa).toContain("<MelhoresEPiores");
+    const faixa = conteudo.slice(0, conteudo.indexOf("<RetencaoReels"));
+    for (const bloco of ["<AtivacoesDoPeriodo", "<PerformancePorPosicionamento", "<MelhoresEPiores"]) {
+      expect(faixa, bloco).toContain(bloco);
+    }
     expect(faixa).toContain("lg:grid-cols-2");
+  });
+
+  it("Ativações e Posicionamento dividem a coluna da esquerda", () => {
+    const conteudo = abaConteudo();
+    const esquerda = conteudo.slice(
+      conteudo.indexOf("<AtivacoesDoPeriodo"), conteudo.indexOf("<MelhoresEPiores"));
+    // Posicionamento vem DEPOIS de Ativações e ANTES do ranking: é isso que o
+    // põe dentro da mesma coluna, e não numa terceira.
+    expect(esquerda).toContain("<PerformancePorPosicionamento");
+  });
+
+  /** Uma apresentação só — a seção de largura cheia não pode ter sobrado. */
+  it("Performance por posicionamento aparece uma única vez", () => {
+    expect(abaConteudo().match(/<PerformancePorPosicionamento/g)?.length).toBe(1);
+  });
+
+  /**
+   * A coluna precisa poder ROLAR o carrossel por dentro.
+   *
+   * Sem `min-w-0`, um trilho largo estica o item de grid em vez de rolar, e a
+   * caixa inteira ganha barra horizontal — o sintoma clássico de flex/grid.
+   */
+  it("a coluna da esquerda não estica com o trilho do carrossel", () => {
+    const conteudo = abaConteudo();
+    const antes = conteudo.slice(0, conteudo.indexOf("<AtivacoesDoPeriodo"));
+    expect(antes.slice(-260)).toContain("min-w-0");
   });
 
   /**
@@ -1078,5 +1112,96 @@ describe("o painel de hover complementa o cartão, sem duplicá-lo", () => {
     for (const parte of ["Período anterior", "Da base", "dia(s) medido(s)", "{procedencia}"]) {
       expect(painel, parte).toContain(parte);
     }
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O número do hover diz DE QUÊ ele é
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A leitura era `13/08 · 37`, e 37 do quê ficava por conta de quem lembrasse
+ *  em qual cartão o mouse estava. Quatro mini-gráficos com a mesma forma, e o
+ *  único jeito de distinguir era a posição na tela.
+ *
+ *  A unidade vem por PARÂMETRO, e não de um `switch` por `id`: ela é do dado, e
+ *  quem passa a série é quem sabe o que ela conta. Um mapa dentro do componente
+ *  precisaria ganhar uma entrada toda vez que um cartão novo aparecesse — e o
+ *  esquecimento seria mudo, voltando ao número solto.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("cada mini-gráfico de evolução nomeia a própria unidade", () => {
+  const graficos = () => fonte("./GraficosSociais.tsx");
+
+  it("a unidade é parâmetro, e chega à leitura como rótulo", () => {
+    const s = graficos();
+    const mini = s.slice(s.indexOf("export function MiniEvolucao("));
+    expect(mini).toContain("unidade");
+    expect(mini).toContain("rotulo: unidade");
+    // Nenhum mapa por id dentro do componente.
+    expect(mini).not.toMatch(/id === "(ativacoes|visitas|cliques|engajamento)"/);
+  });
+
+  it("os quatro cartões do Resumo passam a unidade certa", () => {
+    const s = pagina();
+    for (const [id, unidade] of [
+      ["ativacoes", "ativações"], ["engajamento", "engajamentos"],
+      ["visitas", "visitas"], ["cliques", "cliques"],
+    ]) {
+      const m = s.match(new RegExp(`<MiniEvolucao id="${id}"[^>]*>`));
+      expect(m, `MiniEvolucao id="${id}" não encontrado`).toBeTruthy();
+      expect(m![0], id).toContain(`unidade="${unidade}"`);
+    }
+  });
+
+  it("nenhum mini-gráfico ficou sem unidade", () => {
+    const s = pagina();
+    for (const tag of s.match(/<MiniEvolucao[^>]*>/g) ?? []) {
+      expect(tag, tag).toContain("unidade=");
+    }
+  });
+
+  /** Mesma gramática do gráfico grande: valor e unidade na cor da série. */
+  it("a unidade herda a cor do valor, e não um cinza próprio", () => {
+    const s = graficos();
+    const leitura = s.slice(s.indexOf("export function LeituraDoPonto("));
+    // Rótulo e número saem do MESMO <span>, então não há como um receber cor e
+    // o outro não.
+    expect(leitura).toContain("{v.valor}{v.rotulo ?");
+  });
+});
+
+/**
+ * O carrossel só oferece navegação quando há o que navegar.
+ *
+ * Seta permanente ensina que a seção esconde conteúdo quando não esconde, e uma
+ * conta com dois posicionamentos passaria a parecer incompleta.
+ */
+describe("o carrossel de posicionamentos", () => {
+  const secao = () => fonte("./PublicacoesEConteudo.tsx");
+
+  it("as setas e as bolinhas dependem de transbordar", () => {
+    const s = secao();
+    expect(s).toContain("nav.transborda && (");
+    expect(s).toContain("scrollWidth > el.clientWidth + 4");
+  });
+
+  it("a rolagem nativa continua funcionando por gesto e trackpad", () => {
+    // Um carrossel que só anda por botão perde os dois modos pelos quais quase
+    // todo mundo tenta primeiro.
+    const s = secao();
+    expect(s).toContain("overflow-x-auto");
+    expect(s).toContain("snap-x");
+  });
+
+  it("os cartões não encolhem — é o trilho que rola", () => {
+    expect(secao()).toContain("shrink-0 basis-[");
+  });
+
+  it("nenhum posicionamento é cortado da lista", () => {
+    // O carrossel muda a forma, não o conteúdo: sem slice, sem top-N.
+    const s = secao();
+    const trilho = s.slice(s.indexOf("<div ref={trilho}"), s.indexOf("nav.transborda && ("));
+    expect(trilho).toContain("porTipo.map((t) =>");
+    expect(trilho).not.toContain(".slice(");
   });
 });

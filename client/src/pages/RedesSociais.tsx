@@ -859,7 +859,7 @@ export default function RedesSociais() {
                          a evolução do HISTÓRICO. Elas não competem porque
                          respondem perguntas diferentes. */
                       grafico={<GraficoDeAtivacoes pontos={pontosDeAtivacao} altura={78} compacto />}
-                      evolucao={<MiniEvolucao id="ativacoes" dias={ativacoesHistorico} cor={COR.ativacoes} />}
+                      evolucao={<MiniEvolucao id="ativacoes" dias={ativacoesHistorico} cor={COR.ativacoes} unidade="ativações" />}
                       variacaoPct={varAtivacoes.pct} anterior={varAtivacoes.anterior}
                       parcelas={composicaoDeAtivacoes(ativacoes).map((x) => ({
                         rotulo: x.rotulo, valor: x.total ?? 0,
@@ -895,7 +895,7 @@ export default function RedesSociais() {
                          grande do cartão é o total, e uma linha de percentual
                          subiria enquanto o total caísse — duas leituras opostas
                          no mesmo cartão. */
-                      evolucao={<MiniEvolucao id="engajamento" dias={engajamentoPorDia} cor={COR.engajamento} />}
+                      evolucao={<MiniEvolucao id="engajamento" dias={engajamentoPorDia} cor={COR.engajamento} unidade="engajamentos" />}
                       ressalva={composicao.ressalva} />
                     </div>
 
@@ -918,7 +918,7 @@ export default function RedesSociais() {
                       <div className="grid grid-cols-2 gap-5">
                         <MetricaDoPerfil rotulo="Visitas ao perfil" valor={fmt(visitas.total)}
                           variacaoPct={varVisitas.pct} anterior={varVisitas.anterior}
-                          evolucao={<MiniEvolucao id="visitas" dias={visitasPorDia} cor={COR.visitas} altura={62} />}
+                          evolucao={<MiniEvolucao id="visitas" dias={visitasPorDia} cor={COR.visitas} altura={62} unidade="visitas" />}
                           ressalva={rotuloVisitas.resumo}
                           envolverSelo={(selo) => (
                             <PainelDaMetrica rotulo="Visitas ao perfil" cor={COR.visitas}
@@ -935,7 +935,7 @@ export default function RedesSociais() {
                             do engajamento. O detalhamento vem pelo selo. */}
                         <MetricaDoPerfil rotulo="Cliques no link" valor={fmt(cliques.total)}
                           variacaoPct={varCliques.pct} anterior={varCliques.anterior}
-                          evolucao={<MiniEvolucao id="cliques" dias={cliquesPorDia} cor={COR.engajamento} altura={62} />}
+                          evolucao={<MiniEvolucao id="cliques" dias={cliquesPorDia} cor={COR.engajamento} altura={62} unidade="cliques" />}
                           envolverSelo={(selo) => (
                             <PainelDaMetrica rotulo="Cliques no link" cor={COR.visitas}
                               dias={cliquesPorDia} total={cliques.total}
@@ -1076,21 +1076,33 @@ export default function RedesSociais() {
 
             {aba === "conteudo" && (
             <>
-            {/* ══ 1 · ATIVAÇÕES | MELHORES → PIORES ════════════════════════
-                As duas perguntas de abertura da aba, lado a lado: "quanto e o
-                que publicamos" e "o que funcionou". Empilhadas, eram duas
-                rolagens para uma leitura só.
+            {/* ══ 1 · A ÁREA DE ANÁLISE DE CONTEÚDO ════════════════════════
+                Uma caixa, duas colunas, e a esquerda com dois andares:
 
-                Uma caixa dividida por 1px, e não dois cartões — mesma gramática
+                  esquerda   ATIVAÇÕES          o que publicamos
+                             POSICIONAMENTO     qual formato funcionou
+                  direita    MELHORES → PIORES  o que funcionou, publicação a publicação
+
+                Os três respondem a mesma pergunta em passos, e cada um estava a
+                uma rolagem do outro. Comparar "publiquei 14 stories" com
+                "stories rendem menos" exigia memória em vez de olhar.
+
+                Uma caixa dividida por 1px, e não três cartões — mesma gramática
                 da caixa executiva do Resumo. */}
             <section className="rounded-[20px] border border-border bg-card overflow-hidden
                                 shadow-[0_1px_2px_rgba(10,10,10,.04)]">
               <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x
                               divide-border">
-                <AtivacoesDoPeriodo
-                  composicao={composicaoDoPeriodo}
-                  rotuloDoPeriodo={rotuloDoPeriodo}
-                  diasSemStories={ativacoes.diasSemMedicaoDeStories} />
+                {/* `min-w-0` obrigatório: sem ele o trilho do carrossel estica a
+                    coluna em vez de rolar dentro dela, e a caixa inteira ganha
+                    barra horizontal. */}
+                <div className="flex flex-col min-w-0">
+                  <AtivacoesDoPeriodo
+                    composicao={composicaoDoPeriodo}
+                    rotuloDoPeriodo={rotuloDoPeriodo}
+                    diasSemStories={ativacoes.diasSemMedicaoDeStories} />
+                  <PerformancePorPosicionamento porTipo={porTipo} />
+                </div>
                 <MelhoresEPiores
                   melhores={melhores}
                   piores={piores}
@@ -1101,10 +1113,7 @@ export default function RedesSociais() {
               </div>
             </section>
 
-            {/* ══ 2 · PERFORMANCE POR POSICIONAMENTO ═══════════════════════ */}
-            <PerformancePorPosicionamento porTipo={porTipo} />
-
-            {/* ══ 3 · RETENÇÃO DOS REELS ══════════════════════════════════
+            {/* ══ 2 · RETENÇÃO DOS REELS ══════════════════════════════════
                 Depois da performance, e não antes: ela responde uma pergunta
                 mais estreita — como os Reels seguram audiência — e abrir a aba
                 por ela colocava o detalhe de um formato acima do panorama de
@@ -1124,7 +1133,7 @@ export default function RedesSociais() {
               recusadas: (m.recusadasJson ?? {}) as Record<string, string>,
             }))} />
 
-            {/* ══ 4 · DETALHAMENTO DOS REELS ══════════════════════════════ */}
+            {/* ══ 3 · DETALHAMENTO DOS REELS ══════════════════════════════ */}
             <DetalhamentoDeReels reels={reelsDoPeriodo.map((m) => ({
               mediaId: m.mediaId,
               publicadoEm: m.publicadoEm,
