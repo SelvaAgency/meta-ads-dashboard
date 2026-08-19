@@ -151,8 +151,13 @@ const NAV_GROUPS: NavGroup[] = [
        * de produção, alcançável pela rota e pelo atalho em Configurações. Uma
        * ferramenta do produto e uma bancada de experimentos não dividem lugar na
        * navegação — misturá-las faz a segunda parecer parte da primeira.
+       *
+       * `internal` e não `app`: `app` é o rótulo de quem abre dentro do iframe
+       * do Tracker, e esta página renderiza direto no portal, como
+       * Colaboradores. Os dois navegam igual — o rótulo é o que diz ao próximo
+       * leitor onde a página mora de verdade.
        */
-      { label: "Consumo de IA", icon: Sparkles, kind: "app", href: "/consumo-ia", liberadoPara: canManageContent },
+      { label: "Consumo de IA", icon: Sparkles, kind: "internal", href: "/consumo-ia", liberadoPara: canManageContent },
     ],
   },
 ];

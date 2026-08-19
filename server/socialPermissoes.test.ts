@@ -267,21 +267,37 @@ describe("ferramentas internas: admin e dev, e ninguém mais", () => {
     expect(fonte("../client/src/pages/hub/HubSettings.tsx")).toContain("/rascunho");
   });
 
-  /** Página, procedure e rota interna pela mesma allowlist. */
-  it("o consumo de IA é contentProcedure e página própria", () => {
+  /**
+   * Servidor, rota e página pelo MESMO predicado.
+   *
+   * ── A recusa mudou de lugar em 19/08/2026 ────────────────────────────────
+   * A página tinha uma tela de "sem acesso" própria, e ela existia porque a
+   * rota era interna do Tracker — sem guarda no roteador. Agora `/consumo-ia` é
+   * rota de primeiro nível guardada por `AdminOuDevOnly`, e uma segunda recusa
+   * dentro da página seria inalcançável e com outra aparência.
+   *
+   * O que NÃO pode mudar é o predicado: `canManageContent` nos três lugares. É
+   * a única coisa que impede a guarda de rota e a do servidor divergirem.
+   */
+  it("o consumo de IA é contentProcedure, com o mesmo predicado na rota", () => {
     const rotas = fonte("./routers.ts");
     const de = rotas.indexOf("consumoIA:");
     const bloco = rotas.slice(de, rotas.indexOf("refreshAllStatus:", de));
     expect(bloco).toContain("contentProcedure");
     expect(bloco, "voltou a ser só-admin").not.toContain("adminProcedure");
 
+    // A guarda de rota, que é onde a recusa mora agora.
+    const app = fonte("../client/src/App.tsx");
+    const rota = app.slice(app.indexOf('<Route path="/consumo-ia"'));
+    expect(rota.slice(0, 200)).toContain("<AdminOuDevOnly>");
+    expect(fonte("../client/src/pages/hub/AdminOnly.tsx"))
+      .toMatch(/AdminOuDevOnly[\s\S]{0,220}canManageContent/);
+
+    // A página continua desligando a query pelo mesmo critério: renderizada
+    // fora da rota guardada, ela não dispara uma chamada que o servidor recusa.
     const pagina = fonte("../client/src/pages/ConsumoIA.tsx");
     expect(pagina).toContain("canManageContent(");
-    expect(pagina).toContain("<SemAcessoTracker");
-
-    // A rota crua precisa estar na allowlist do shell, senão cai no Tracker
-    // genérico sem erro nenhum — a quebra silenciosa de sempre.
-    expect(fonte("../client/src/pages/hub/trackerRoutes.ts")).toContain('"/consumo-ia"');
+    expect(pagina).toContain("enabled: pode");
   });
 
   /** A página Administrativo não carrega mais o painel — ele tem casa própria. */

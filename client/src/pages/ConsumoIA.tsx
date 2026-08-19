@@ -50,11 +50,10 @@ import {
   AlertTriangle, ArrowDownUp, Check, DollarSign, Gauge, Info, Lightbulb, Loader2,
   RefreshCw, Sparkles, TrendingUp, Zap,
 } from "lucide-react";
-import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { HubShell } from "@/pages/hub/HubShell";
 import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { SemAcessoTracker } from "@/components/SemAcessoTracker";
 import { canManageContent } from "@shared/permissions";
 import {
   NOME_SEM_CLIENTE, alertasDeConsumo, analisarClientes, analisarOrigens,
@@ -229,17 +228,35 @@ export default function ConsumoIA() {
     [dados],
   );
 
-  if (!pode) {
-    return (
-      <SemAcessoTracker title="Consumo de IA"
-        message="O painel de consumo é restrito a administradores e desenvolvedores." />
-    );
-  }
+  /*
+   * ── A recusa de acesso mora na ROTA, e num lugar só ────────────────────────
+   * `AdminOuDevOnly` em `App.tsx` usa `canManageContent` — a mesma função que
+   * `pode` usa aqui e que a `contentProcedure` usa no servidor. Uma segunda
+   * tela de recusa aqui dentro seria inalcançável e, pior, teria outra
+   * aparência: quem caísse nela veria uma mensagem diferente para o mesmo
+   * bloqueio.
+   *
+   * `pode` continua existindo porque ele desliga a QUERY. Sem isso, um render
+   * fora da rota guardada dispararia uma chamada que o servidor recusaria — um
+   * 403 no console para dizer o que já se sabia.
+   */
 
   const vazio = !q.isLoading && totais.chamadas === 0;
 
   return (
-    <MetaDashboardLayout title="Consumo de IA">
+    /*
+     * ── HubShell, e não o layout do Tracker ────────────────────────────────
+     * Esta é uma página do Selva Spaces, e não uma análise de cliente: ela fala
+     * do gasto do PRÓPRIO Spaces e não tem conta ativa nenhuma. Mora ao lado de
+     * Colaboradores e Contratos, que usam esta mesma casca — e é isso que lhe
+     * dá URL própria, `/consumo-ia`, em vez de viajar dentro do iframe do
+     * Tracker como `/tracker?rota=/consumo-ia`.
+     *
+     * O `MetaDashboardLayout` que morava aqui traz seletor de cliente e a
+     * navegação do Tracker: cromo de um produto que esta página não usa.
+     */
+    <HubShell>
+      <main className="flex-1 overflow-auto">
       <div className="flex flex-col gap-[30px] px-6 pt-7 pb-24 max-w-[1320px] mx-auto">
         <header className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-start gap-3.5 min-w-0">
@@ -306,7 +323,8 @@ export default function ConsumoIA() {
           </>
         )}
       </div>
-    </MetaDashboardLayout>
+      </main>
+    </HubShell>
   );
 }
 

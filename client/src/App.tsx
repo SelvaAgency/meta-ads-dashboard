@@ -124,6 +124,22 @@ function Router() {
           financeiro) é barrada na procedure, não aqui. Leitura pura: não envia
           nem consome dedup. */}
       <Route path="/jornalzinho" component={() => <AdminOuDevOnly><JornalzinhoPreview /></AdminOuDevOnly>} />
+      {/*
+        `/consumo-ia` — rota de PRIMEIRO NÍVEL, ao lado de Colaboradores.
+
+        ── Por que ela não é `Interna` ──────────────────────────────────────
+        `Interna` é para página do Tracker: no topo ela redireciona para
+        `/tracker?rota=…` e só renderiza dentro do iframe. Consumo de IA nasceu
+        assim e herdou a URL `/tracker?rota=%2Fconsumo-ia`, mas ela não é
+        análise de cliente — não tem conta ativa, não usa seletor de cliente, e
+        fala do gasto do próprio Spaces. É irmã de Colaboradores, Contratos e
+        Financeiro, que renderizam direto no portal.
+
+        A permissão é a mesma de antes: `AdminOuDevOnly` usa `canManageContent`,
+        que é o que a `contentProcedure` exige no servidor. A guarda de rota
+        troca de lugar; ela não afrouxa.
+      */}
+      <Route path="/consumo-ia" component={() => <AdminOuDevOnly><ConsumoIA /></AdminOuDevOnly>} />
       <Route path="/change-password" component={ChangePassword} />
       <Route path="/trello/callback" component={TrelloCallback} />
 
@@ -188,14 +204,6 @@ function Router() {
         sobre como a peça se comporta.
       */}
       <Route path="/rascunho" component={() => <Interna><Rascunho /></Interna>} />
-      {/*
-        `/consumo-ia` — a gestão de gasto do próprio Spaces.
-
-        Interna como as outras do Tracker, e por isso também na allowlist de
-        `trackerRoutes`. Diferente do Rascunho, ela APARECE na navegação: é
-        ferramenta do produto, e não bancada de peças fora de produção.
-      */}
-      <Route path="/consumo-ia" component={() => <Interna><ConsumoIA /></Interna>} />
       <Route path="/experiments" component={() => <Interna><Experiments /></Interna>} />
       <Route path="/experiments/:id" component={() => <Interna><ExperimentDetail /></Interna>} />
 

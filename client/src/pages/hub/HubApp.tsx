@@ -15,17 +15,32 @@
  *  cliente lá dentro. O iframe é outro documento: a URL é o único canal.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+import { useEffect } from "react";
 import { useLocation, useSearchParams } from "wouter";
 import { HubShell } from "./HubShell";
 import { HubIntegratedApp } from "./HubIntegratedApp";
 import { integratedAppByRoute } from "./integratedAppsConfig";
 import { getClientBySlug } from "@/config/clientConfig";
-import { rotaInternaSegura, urlEmbutidaPara } from "./trackerRoutes";
+import { destinoDeInternaAposentada, rotaInternaSegura, urlEmbutidaPara } from "./trackerRoutes";
 
 export default function HubApp() {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const [searchParams] = useSearchParams();
   const app = integratedAppByRoute(location);
+
+  /**
+   * Favoritos de quando a rota ainda era interna.
+   *
+   * `/tracker?rota=/consumo-ia` era a URL da página até ela virar `/consumo-ia`.
+   * Sem este desvio, o link antigo não daria erro — daria o Tracker genérico, a
+   * página errada com ar de acerto. `replace` para o histórico não guardar a
+   * URL morta e o "voltar" não cair nela.
+   */
+  const aposentada = destinoDeInternaAposentada(searchParams.get("rota"));
+  useEffect(() => {
+    if (aposentada) navigate(aposentada, { replace: true });
+  }, [aposentada, navigate]);
+  if (aposentada) return null;
 
   // Guarda defensiva — rota registrada mas sem app correspondente na config.
   if (!app) {

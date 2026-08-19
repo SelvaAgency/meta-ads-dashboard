@@ -12,7 +12,8 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  ROTAS_INTERNAS, destinoDeConexoes, ehRotaInterna, pediuConexoes, rotaInternaSegura,
+  ROTAS_INTERNAS, destinoDeConexoes, destinoDeInternaAposentada, ehRotaInterna,
+  pediuConexoes, rotaInternaSegura,
   urlDoShellPara, urlEmbutidaPara,
 } from "./trackerRoutes";
 
@@ -238,4 +239,107 @@ describe("fronteira Spaces × Tracker", () => {
       expect(ehRotaInterna(rota)).toBe(false);
     },
   );
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  `/consumo-ia` é rota de primeiro nível, e precisa continuar sendo
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Ela nasceu interna e herdou a URL `/tracker?rota=%2Fconsumo-ia`. Não é
+ *  página do Tracker: não tem conta ativa, não usa seletor de cliente e fala do
+ *  gasto do próprio Spaces — é irmã de Colaboradores e Contratos.
+ *
+ *  A regressão tem duas portas, e as duas são silenciosas:
+ *    1. alguém repõe `/consumo-ia` na allowlist  → o redirect volta
+ *    2. alguém reveste a rota com `<Interna>`     → idem
+ *  Nenhuma das duas dá erro na tela: dá o Tracker genérico.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("Consumo de IA tem URL própria", () => {
+  const app = () => readFileSync(new URL("../../App.tsx", import.meta.url), "utf-8");
+
+  it("não está na allowlist — é ela que dispara o redirect para o shell", () => {
+    expect(ehRotaInterna("/consumo-ia")).toBe(false);
+    expect(rotaInternaSegura("/consumo-ia")).toBeNull();
+  });
+
+  it("a rota existe em App.tsx e NÃO está dentro de <Interna>", () => {
+    const s = app();
+    expect(s).toContain('<Route path="/consumo-ia"');
+    expect(s).not.toMatch(/<Route\s+path="\/consumo-ia"[^>]*?component=\{\(\)\s*=>\s*<Interna>/);
+  });
+
+  /** A guarda mudou de lugar; ela não pode ter afrouxado. */
+  it("continua restrita a admin e developer", () => {
+    const s = app();
+    const rota = s.slice(s.indexOf('<Route path="/consumo-ia"'));
+    expect(rota.slice(0, 200)).toContain("<AdminOuDevOnly>");
+  });
+
+  it("a sidebar aponta para a rota real, sem query", () => {
+    const sidebar = readFileSync(new URL("./HubSidebar.tsx", import.meta.url), "utf-8");
+    expect(sidebar).toContain('href: "/consumo-ia"');
+    expect(sidebar).not.toContain("rota=%2Fconsumo-ia");
+    expect(sidebar).not.toContain("rota=/consumo-ia");
+  });
+
+  it("a página usa a casca do Spaces, e não a do Tracker", () => {
+    // `MetaDashboardLayout` traz seletor de cliente e navegação do Tracker —
+    // cromo de um produto que esta página não usa. É ele que a obrigava a
+    // viver dentro do iframe.
+    const pagina = readFileSync(new URL("../ConsumoIA.tsx", import.meta.url), "utf-8");
+    expect(pagina).toContain("<HubShell>");
+    // A TAG, e não a palavra: o comentário que registra a troca cita o nome do
+    // layout antigo, e ele deve continuar podendo citar.
+    expect(pagina).not.toContain("<MetaDashboardLayout");
+    expect(pagina).not.toContain('from "@/components/MetaDashboardLayout"');
+  });
+
+  describe("o link antigo não morre calado", () => {
+    it("/tracker?rota=/consumo-ia manda para /consumo-ia", () => {
+      const busca = "?rota=%2Fconsumo-ia";
+      const rota = new URLSearchParams(busca).get("rota");
+      // A allowlist recusa — é isso que levaria ao Tracker genérico.
+      expect(rotaInternaSegura(rota)).toBeNull();
+      // E é isto que impede a página errada com ar de acerto.
+      expect(destinoDeInternaAposentada(rota)).toBe("/consumo-ia");
+    });
+
+    it("query embutida no próprio parâmetro não engana o mapa", () => {
+      expect(destinoDeInternaAposentada("/consumo-ia?x=1")).toBe("/consumo-ia");
+    });
+
+    it("rota viva ou ausente não é desviada", () => {
+      expect(destinoDeInternaAposentada("/site")).toBeNull();
+      expect(destinoDeInternaAposentada(null)).toBeNull();
+      expect(destinoDeInternaAposentada("")).toBeNull();
+    });
+
+    /** O desvio não pode virar porta para fora do domínio. */
+    it("só devolve caminho do próprio mapa", () => {
+      for (const bruta of ["https://exemplo.com", "//exemplo.com", "/consumo-ia-falso"]) {
+        expect(destinoDeInternaAposentada(bruta), bruta).toBeNull();
+      }
+    });
+  });
+});
+
+/**
+ * As outras rotas de primeiro nível não podem ter sido arrastadas junto.
+ *
+ * Tirar uma rota da allowlist é uma linha, e apagar a vizinha errada também.
+ */
+describe("o padrão das demais rotas continua de pé", () => {
+  it("as páginas do Tracker seguem internas", () => {
+    for (const rota of ["/site", "/campaigns", "/social-networks", "/dashboard", "/admin", "/rascunho"]) {
+      expect(ehRotaInterna(rota), rota).toBe(true);
+      expect(rotaInternaSegura(rota), rota).toBe(rota);
+    }
+  });
+
+  it("as páginas do portal nunca foram internas, e continuam fora", () => {
+    for (const rota of ["/people", "/contracts", "/finance", "/notificacoes", "/jornalzinho", "/access"]) {
+      expect(ehRotaInterna(rota), rota).toBe(false);
+    }
+  });
 });

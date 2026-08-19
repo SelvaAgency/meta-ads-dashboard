@@ -47,8 +47,18 @@ export const ROTAS_INTERNAS = [
    * acesso trocaria um caminho quebrado por um buraco de segurança.
    */
   "/rascunho",
-  /** Consumo de IA — página de Administrador, admin e dev. */
-  "/consumo-ia",
+  /*
+   * ── O que saiu daqui ──────────────────────────────────────────────────────
+   * `/consumo-ia`. Ela era interna, e por isso a barra de endereço mostrava
+   * `/tracker?rota=%2Fconsumo-ia`: estar nesta lista é justamente o que faz
+   * `Interna` redirecionar para o shell em vez de deixar a rota abrir sozinha.
+   *
+   * Ela virou rota de primeiro nível (ver `App.tsx`) porque não é página do
+   * Tracker: não tem conta ativa, não usa o seletor de cliente e fala do gasto
+   * do próprio Spaces. Deixá-la aqui manteria o redirect vivo e desfaria a
+   * correção em silêncio — a rota existiria em `App.tsx` e nunca seria
+   * alcançada no topo.
+   */
   // Configurações do Tracker — é onde o hub de Conexões mora. Precisa estar na
   // allowlist porque as rotas aposentadas (/google-ads, /ga4, /lojas) mandam
   // para cá pelo shell: /tracker?rota=/settings&painel=conexoes.
@@ -101,6 +111,36 @@ export function urlEmbutidaPara(rota: string, busca: string): string {
   p.delete("rota");
   const qs = p.toString();
   return qs ? `${rota}?${qs}` : rota;
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Rotas que DEIXARAM de ser internas — e para onde o link antigo deve ir
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Sair da allowlist resolve a URL nova e abandona a antiga: `?rota=` deixa de
+ *  ser reconhecido, `rotaInternaSegura` devolve `null`, e o shell abre o Tracker
+ *  genérico. Sem erro, sem 404 — a página errada com ar de acerto, que é
+ *  exatamente o modo de falha que a allowlist já causou uma vez com `/rascunho`.
+ *
+ *  Um favorito de ontem tem de continuar chegando ao mesmo lugar. Este mapa é
+ *  quem garante isso, e some quando ninguém mais tiver o link velho.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export const INTERNAS_APOSENTADAS: Record<string, string> = {
+  "/consumo-ia": "/consumo-ia",
+};
+
+/**
+ * Para onde mandar um `/tracker?rota=X` cuja rota virou de primeiro nível.
+ *
+ * `null` quando não é o caso — que é o normal, e deixa o shell seguir seu curso.
+ * A query é descartada: `rota` é instrução do shell, e nenhuma das rotas
+ * aposentadas até aqui lê parâmetro nenhum.
+ */
+export function destinoDeInternaAposentada(bruta: string | null | undefined): string | null {
+  if (!bruta) return null;
+  const [caminho] = bruta.split("?");
+  return INTERNAS_APOSENTADAS[caminho] ?? null;
 }
 
 /** Onde o hub de Conexões mora de verdade: um painel de Configurações. */
