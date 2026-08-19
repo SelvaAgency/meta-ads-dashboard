@@ -2552,7 +2552,7 @@ export const appRouter = router({
      * cliente. É o suficiente para responder "o que está gastando" sem abrir
      * nada de ninguém.
      */
-    consumoIA: adminProcedure
+    consumoIA: contentProcedure
       .input(z.object({ dias: z.number().int().min(1).max(90).default(14) }).optional())
       .query(({ input }) => consumoDeIA(input?.dias ?? 14)),
 

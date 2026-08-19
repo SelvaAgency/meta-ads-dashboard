@@ -2,7 +2,7 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
-import { canManagePriorities } from "@shared/permissions";
+import { canManageContent, canManagePriorities } from "@shared/permissions";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -83,6 +83,18 @@ export const prioridadesProcedure = t.procedure.use(
   }),
 );
 
+/**
+ * Conteúdo operacional e ferramentas internas: admin OU developer.
+ *
+ * A regra vem de `canManageContent`, e não escrita à mão aqui — pelo mesmo
+ * motivo de `prioridadesProcedure` logo acima: a tela esconde o botão pelo
+ * MESMO critério que o servidor usa para recusar. Dois critérios escritos
+ * separados divergem, e a divergência aparece como um botão que existe e não
+ * funciona.
+ *
+ * Estava duplicado (`role !== "admin" && role !== "developer"`). O comportamento
+ * era idêntico — o risco é o dia em que um dos dois mudar sozinho.
+ */
 export const contentProcedure = t.procedure.use(
   t.middleware(async ({ ctx, next }) => {
     if (!ctx.user) {
@@ -91,7 +103,7 @@ export const contentProcedure = t.procedure.use(
     if (ctx.user.mustChangePassword) {
       throw new TRPCError({ code: "FORBIDDEN", message: PASSWORD_CHANGE_REQUIRED });
     }
-    if (ctx.user.role !== "admin" && ctx.user.role !== "developer") {
+    if (!canManageContent(ctx.user.role)) {
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
     return next({ ctx: { ...ctx, user: ctx.user } });

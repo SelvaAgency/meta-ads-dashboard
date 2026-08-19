@@ -117,15 +117,21 @@ describe("contentProcedure é exatamente admin + developer", () => {
    * A guarda do servidor e o predicado da tela decidem a MESMA coisa em
    * processos diferentes. Se um passar a aceitar `user` e o outro não, a
    * divergência aparece como tela vazia ou como dado exposto — nunca como erro.
+   *
+   * Este teste exigia a forma ESCRITA À MÃO (`role !== "admin" && role !==
+   * "developer"`). A regra não mudou; a duplicação foi removida — a middleware
+   * passou a chamar `canManageContent`, que é o mesmo predicado que a tela usa.
+   * Agora o teste exige exatamente isso: não pode voltar a existir uma segunda
+   * cópia da regra, porque é a segunda cópia que diverge.
    */
-  it("a middleware do servidor recusa quem não for admin nem developer", () => {
+  it("a middleware do servidor usa o MESMO predicado da tela", () => {
     const trpc = readFileSync(new URL("./_core/trpc.ts", import.meta.url), "utf-8")
       .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
     const ini = trpc.indexOf("export const contentProcedure");
     const bloco = trpc.slice(ini, ini + 700);
-    expect(bloco).toContain('ctx.user.role !== "admin"');
-    expect(bloco).toContain('ctx.user.role !== "developer"');
+    expect(bloco).toContain("canManageContent(ctx.user.role)");
     expect(bloco).toContain("FORBIDDEN");
+    expect(bloco, "a regra voltou a ser escrita à mão").not.toContain('ctx.user.role !== "developer"');
   });
 
   it("o predicado da tela concorda com ela", () => {
@@ -197,5 +203,78 @@ describe("a tela não oferece o que o servidor recusaria", () => {
       .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
     expect(settings).toContain("canManageContent");
     expect(settings).toContain("SemAcessoTracker");
+  });
+});
+
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  As duas ferramentas internas: admin e dev, nunca colaborador
+ * ─────────────────────────────────────────────────────────────────────────────
+ *              Rascunho   Consumo IA
+ *    Admin        ✅          ✅
+ *    Dev          ✅          ✅
+ *    Colaborador  ❌          ❌
+ *
+ *  A regra precisa valer nos DOIS lados. Um guard só no cliente é decoração —
+ *  a rota é adivinhável. Um guard só no servidor deixa link e item de menu
+ *  levando a "sem acesso", o que ensina a ignorar links.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("ferramentas internas: admin e dev, e ninguém mais", () => {
+  const fonte = (p: string) =>
+    readFileSync(new URL(p, import.meta.url), "utf-8")
+      .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+      .replace(/\/\/[^\n]*/g, "");
+
+  it("a tabela de permissões é o que `canManageContent` diz", () => {
+    expect(canManageContent("admin")).toBe(true);
+    expect(canManageContent("developer")).toBe(true);
+    expect(canManageContent("coordinator")).toBe(false);
+    expect(canManageContent("user")).toBe(false);
+  });
+
+  /** Rascunho: a rota bloqueia de verdade, e pelo mesmo predicado. */
+  it("a página Rascunho usa canManageContent", () => {
+    const s = fonte("../client/src/pages/Rascunho.tsx");
+    expect(s).toContain("canManageContent(");
+    expect(s).toContain("<SemAcessoTracker");
+    expect(s, "a checagem virou forma negativa").not.toMatch(/role\s*!==\s*"user"/);
+  });
+
+  /**
+   * O item da sidebar mora num grupo só-admin. Sem permissão própria, o dev
+   * levaria cadeado numa página que ele PODE abrir; com `livre`, o colaborador
+   * veria um link clicável que a rota recusa. Por isso ele carrega a MESMA
+   * função da rota.
+   */
+  it("o item da sidebar carrega o mesmo predicado da rota", () => {
+    const s = fonte("../client/src/pages/hub/HubSidebar.tsx");
+    expect(s).toMatch(/label: "Rascunho"[^}]*liberadoPara: canManageContent/);
+    expect(s, "o Rascunho virou livre e abriu para o colaborador")
+      .not.toMatch(/label: "Rascunho"[^}]*livre: true/);
+    // E o render respeita a permissão do item dentro do grupo bloqueado.
+    expect(s).toContain("item.livre || item.liberadoPara?.(papel)");
+  });
+
+  /** Consumo de IA: procedure e tela pela mesma allowlist. */
+  it("o consumo de IA é contentProcedure, e o painel mora onde o dev alcança", () => {
+    const rotas = fonte("./routers.ts");
+    const bloco = rotas.slice(rotas.indexOf("consumoIA:"), rotas.indexOf("consumoIA:") + 200);
+    expect(bloco).toContain("contentProcedure");
+    expect(bloco, "voltou a ser só-admin").not.toContain("adminProcedure");
+
+    // O painel saiu da página Administrativo (só-admin) para Configurações,
+    // dentro do bloco que já é admin+dev.
+    expect(fonte("../client/src/pages/Admin.tsx"), "o painel voltou para a página só-admin")
+      .not.toContain("ConsumoDeIA");
+    expect(fonte("../client/src/pages/hub/HubSettings.tsx")).toContain("<ConsumoDeIA />");
+  });
+
+  /** A página Administrativo continua só-admin — nada ali foi afrouxado. */
+  it("a permissão da página Administrativo não mudou", () => {
+    const s = fonte("../client/src/pages/Admin.tsx");
+    expect(s).toContain("canAccessAdmin(");
+    expect(s).not.toContain("canManageContent(");
   });
 });

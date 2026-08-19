@@ -26,6 +26,7 @@ import {
   PencilRuler,
 } from "lucide-react";
 import { Link } from "wouter";
+import { ConsumoDeIA } from "@/components/ConsumoDeIA";
 import { urlDoShellPara } from "./trackerRoutes";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -580,6 +581,11 @@ export default function HubSettings() {
               </div>
               <NewsAdminSection />
               <SelvaTVAdminSection storageConfigured={storage.data?.configured ?? false} />
+
+              {/* Consumo de IA: mesma allowlist que a procedure (`contentProcedure`
+                  = admin ou dev). Mostrar o painel para quem o servidor recusa
+                  seria um bloco que carrega vazio e parece quebrado. */}
+              <ConsumoDeIA />
 
             </>
           )}

@@ -45,7 +45,7 @@ import {
 } from "lucide-react";
 import { SelvaLogo } from "@/components/SelvaLogo";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { canAccessAdmin } from "@shared/permissions";
+import { canAccessAdmin, canManageContent } from "@shared/permissions";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import { trpc } from "@/lib/trpc";
 import { urlDoShellPara } from "./trackerRoutes";
@@ -77,6 +77,18 @@ type NavItem = {
    * o colaborador não teria como pedir reembolso nenhum.
    */
   livre?: boolean;
+  /**
+   * A permissão do ITEM, quando ela não é a do grupo.
+   *
+   * `livre` abre para todo mundo; isto abre para quem a função disser. Existe
+   * porque o Rascunho é de admin E dev, e o grupo Administrativo é só de admin:
+   * sem isto, ou o dev levava cadeado numa página que ele pode abrir, ou o item
+   * virava `livre` e aparecia clicável para o colaborador, que a rota recusa.
+   *
+   * A função é a MESMA que a rota usa. Dois critérios escritos separados
+   * divergem, e a divergência aparece como um link que existe e não funciona.
+   */
+  liberadoPara?: (role: unknown) => boolean;
 } & (
   | { kind: "internal"; href: string }
   | { kind: "external"; href: string }
@@ -130,11 +142,10 @@ const NAV_GROUPS: NavGroup[] = [
       /**
        * A bancada de peças fora de produção.
        *
-       * Mora no grupo restrito e SEM `livre`: a página é de admin e dev, então
-       * o cadeado que o grupo dá aos outros papéis está certo aqui. O Financeiro
-       * é `livre` porque todo colaborador precisa lançar reembolso; a bancada é
-       * o oposto — ela mostra peças meio prontas, e quem não participa da
-       * decisão de produto não tem como saber que aquilo não vale.
+       * Mora no grupo restrito com `liberadoPara`, e não com `livre`: a página é
+       * de admin E dev, e o grupo é só de admin. `livre` abriria para o
+       * colaborador também — que a rota recusa, e um link que leva a "sem
+       * acesso" ensina a ignorar links. A função é a MESMA que a rota usa.
        *
        * `kind: "app"` porque `/rascunho` é rota CRUA do Tracker — ela renderiza
        * dentro do shell. O `href` aponta para a rota crua, e não para
@@ -143,7 +154,7 @@ const NAV_GROUPS: NavGroup[] = [
        * shell abreviaria um salto e quebraria o destaque do item ativo, que
        * compara `location === href`.
        */
-      { label: "Rascunho", icon: PencilRuler, kind: "app", href: "/rascunho" },
+      { label: "Rascunho", icon: PencilRuler, kind: "app", href: "/rascunho", liberadoPara: canManageContent },
     ],
   },
 ];
@@ -343,7 +354,8 @@ function lerRecolhida(): boolean {
 export function HubSidebar({ mobile }: { mobile?: MenuMobileControles }) {
   const [location] = useLocation();
   const { user } = useAuth();
-  const isAdmin = canAccessAdmin((user as { role?: string } | null)?.role);
+  const papel = (user as { role?: string } | null)?.role;
+  const isAdmin = canAccessAdmin(papel);
   // Administrativo não some mais para não-admin: aparece com cadeado. Saber que
   // a área existe (e que não é para você) é diferente de achar que ela não existe.
   const groups = NAV_GROUPS;
@@ -494,7 +506,7 @@ export function HubSidebar({ mobile }: { mobile?: MenuMobileControles }) {
                 aria-disabled="true"
               >
                 {group.items.map((item) => (
-                  item.livre
+                  item.livre || item.liberadoPara?.(papel)
                     ? <NavRow key={item.label} item={item} open={open} active={isActive(item)} />
                     : <LinhaBloqueada key={item.label} item={item} open={open} />
                 ))}
