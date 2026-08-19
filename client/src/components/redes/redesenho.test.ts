@@ -1037,3 +1037,46 @@ describe("sem comparação não pode parecer estabilidade", () => {
     expect(s).toContain('bom === "sobe"');
   });
 });
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O painel não repete o que o cartão já mostra
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Ele existe para o que NÃO cabe no cartão: período anterior, proporção da
+ *  base, procedência. Um gráfico que o usuário está olhando enquanto passa o
+ *  mouse não é isso — é a mesma resposta duas vezes, e a segunda cobrando um
+ *  gesto.
+ *
+ *  A regressão é fácil e silenciosa: basta alguém achar que "o painel está
+ *  vazio demais" e repor ali o gráfico grande.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("o painel de hover complementa o cartão, sem duplicá-lo", () => {
+  it("nenhum gráfico de ativações vive dentro do painel", () => {
+    const s = pagina();
+    // Até o FECHAMENTO do painel, e não até o próximo painel: o gráfico do
+    // cartão fica entre os dois, e um corte largo o pegaria junto.
+    const abre = s.indexOf('<PainelDaMetrica rotulo="Ativações"');
+    const painelAtivacoes = s.slice(abre, s.indexOf("</PainelDaMetrica>", abre));
+    expect(painelAtivacoes).not.toContain("<GraficoDeAtivacoes");
+  });
+
+  it("o slot genérico que hospedava o gráfico deixou de existir", () => {
+    // Sem `extra`, não há onde repor um gráfico redundante sem passar por aqui.
+    const painel = fonte("./PainelDaMetrica.tsx");
+    expect(painel).not.toContain("extra?:");
+    expect(painel).not.toContain("{extra}");
+  });
+
+  it("o gráfico continua no cartão, que é onde ele responde", () => {
+    // Removê-lo do painel não pode ter levado o do cartão junto.
+    expect(pagina()).toMatch(/grafico=\{<GraficoDeAtivacoes[^>]*compacto/);
+  });
+
+  it("o painel mantém o que ele sozinho responde", () => {
+    const painel = fonte("./PainelDaMetrica.tsx");
+    for (const parte of ["Período anterior", "Da base", "dia(s) medido(s)", "{procedencia}"]) {
+      expect(painel, parte).toContain(parte);
+    }
+  });
+});

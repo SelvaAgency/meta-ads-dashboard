@@ -848,8 +848,7 @@ export default function RedesSociais() {
                           variacaoPct={varAtivacoes.pct} anterior={varAtivacoes.anterior}
                           procedencia={<>Posts e reels vêm da listagem de mídias, por
                             <span className="font-mono"> publicadoEm</span>. Stories vêm da contagem
-                            diária — a coleta vê o que está no ar.</>}
-                          extra={<GraficoDeAtivacoes pontos={pontosDeAtivacao} altura={132} />}>
+                            diária — a coleta vê o que está no ar.</>}>
                           {selo}
                         </PainelDaMetrica>
                       )}

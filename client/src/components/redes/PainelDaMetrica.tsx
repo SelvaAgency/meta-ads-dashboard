@@ -7,8 +7,8 @@
  *  ampliasse o mesmo gráfico cobraria um clique para não acrescentar nada.
  *
  *  O que sobrou aqui é o que não cabe no cartão: a comparação com o período
- *  anterior, a proporção da base, a composição e a procedência do número. É
- *  detalhamento complementar, e não uma segunda versão do que já está na tela.
+ *  anterior, a proporção da base e a procedência do número. É detalhamento
+ *  complementar, e não uma segunda versão do que já está na tela.
  *  Nasceu para cliques no link, onde um cartão permanente seria desproporcional:
  *  é o número menor da faixa e ocuparia a mesma área que engajamento. A pergunta
  *  "está subindo?" é legítima e não cabe num número só.
@@ -49,6 +49,18 @@ export interface DiaDaMetrica {
 
 /*
  * ── O que morava aqui ──────────────────────────────────────────────────────
+ * O slot `extra`, e dentro dele o gráfico "Ativações por dia" em tamanho
+ * grande. Ele reproduzia, atrás de um hover, o mesmo gráfico que o cartão de
+ * Ativações já mostra aberto — com título e legenda próprios, ocupando metade
+ * da altura do painel para não dizer nada novo.
+ *
+ * O painel existe para o que NÃO cabe no cartão. Um gráfico que o usuário está
+ * olhando enquanto passa o mouse não é isso: é a mesma resposta, duas vezes, e
+ * a segunda cobrando um gesto.
+ *
+ * O slot inteiro saiu junto porque ele era o único motivo de existir — deixá-lo
+ * vazio seria um convite a repor ali o próximo gráfico redundante.
+ *
  * `MiniSerie`. Ela desenhava a evolução DO PERÍODO dentro do painel, e foi
  * substituída pela `MiniTendencia` do cartão — que é sempre visível e usa o
  * histórico máximo, não o recorte. Duas linhas da mesma métrica, uma atrás de
@@ -58,7 +70,7 @@ export interface DiaDaMetrica {
 
 export function PainelDaMetrica({
   rotulo, cor, dias, total, formato = "numero", variacaoPct, anterior,
-  seguidores, procedencia, extra, children,
+  seguidores, procedencia, children,
 }: {
   rotulo: string;
   /** O matiz da família — o mesmo do cartão que abriu o painel. */
@@ -77,8 +89,6 @@ export function PainelDaMetrica({
   seguidores?: number | null;
   /** De onde o número vem, em uma linha. Some quando não há o que explicar. */
   procedencia?: React.ReactNode;
-  /** Composição, ressalva — o que for específico daquela métrica. */
-  extra?: React.ReactNode;
   /**
    * O gatilho — o SELO DE VARIAÇÃO do cartão, e não o cartão inteiro.
    *
@@ -127,8 +137,6 @@ export function PainelDaMetrica({
           style={{ color: cor }}>
           {grande}
         </span>
-
-        {extra && <div className="mt-3">{extra}</div>}
 
         <dl className={`grid gap-x-3 gap-y-2.5 mt-3 pt-3 border-t border-border ${
           porSeguidores == null && seguidores === undefined ? "grid-cols-1" : "grid-cols-2"}`}>
