@@ -1,4 +1,5 @@
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
+import { comGatilho } from "./contextoDeGatilho";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
@@ -15,6 +16,38 @@ const PASSWORD_CHANGE_REQUIRED = "PASSWORD_CHANGE_REQUIRED";
 
 // Requer usuário autenticado, mas NÃO bloqueia quem precisa trocar senha.
 // Use apenas para auth.changePassword (me/logout são publicProcedure).
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Toda chamada autenticada declara um gatilho MANUAL, com quem a fez
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O `path` do tRPC já é o nome exato da ação — `accounts.refreshStatus`,
+ *  `accounts.refreshAllStatus`. Usá-lo como `triggerSource` dá a rotina de
+ *  graça, e sem uma tabela paralela que alguém precisaria manter.
+ *
+ *  Declarar aqui e não em cada procedure é o ponto inteiro: a auditoria achou
+ *  nove `invokeLLM` que nem `origem` declaravam. Um lugar só significa que uma
+ *  procedure nova nasce rastreada sem ninguém lembrar de nada.
+ *
+ *  Isso NÃO grava nada por si: `ai_geracoes` só ganha linha quando há chamada ao
+ *  modelo. Uma consulta de tela declara o gatilho e não deixa rastro nenhum.
+ *
+ *  Uma rotina interna que se declare mais fundo — o ciclo de sync, por exemplo —
+ *  sobrescreve este gatilho, e deve mesmo: ela sabe o próprio nome, e o clique
+ *  que a iniciou continua no ator.
+ */
+const comAtorDaSessao = t.middleware(async ({ ctx, next, path }) => {
+  const u = ctx.user;
+  if (!u) return next();
+  return comGatilho(
+    {
+      tipo: "manual",
+      origem: path,
+      ator: { tipo: "user", id: u.id, nome: u.name, papel: u.role },
+    },
+    () => next(),
+  );
+});
+
 export const authedProcedure = t.procedure.use(
   t.middleware(async ({ ctx, next }) => {
     if (!ctx.user) {
@@ -22,7 +55,7 @@ export const authedProcedure = t.procedure.use(
     }
     return next({ ctx: { ...ctx, user: ctx.user } });
   }),
-);
+).use(comAtorDaSessao);
 
 // Autenticado E com senha em dia. Enquanto mustChangePassword = true, o usuário
 // fica travado no fluxo de troca de senha e não acessa nada protegido.
@@ -36,7 +69,7 @@ export const protectedProcedure = t.procedure.use(
     }
     return next({ ctx: { ...ctx, user: ctx.user } });
   }),
-);
+).use(comAtorDaSessao);
 
 export const adminProcedure = t.procedure.use(
   t.middleware(async ({ ctx, next }) => {
@@ -51,7 +84,7 @@ export const adminProcedure = t.procedure.use(
     }
     return next({ ctx: { ...ctx, user: ctx.user } });
   }),
-);
+).use(comAtorDaSessao);
 
 // Gestão de conteúdo operacional (News bar, SelvaTV): admin OU developer.
 /**
@@ -81,7 +114,7 @@ export const prioridadesProcedure = t.procedure.use(
     }
     return next({ ctx: { ...ctx, user: ctx.user } });
   }),
-);
+).use(comAtorDaSessao);
 
 /**
  * Conteúdo operacional e ferramentas internas: admin OU developer.
@@ -108,4 +141,4 @@ export const contentProcedure = t.procedure.use(
     }
     return next({ ctx: { ...ctx, user: ctx.user } });
   }),
-);
+).use(comAtorDaSessao);

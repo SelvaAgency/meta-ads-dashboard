@@ -1,4 +1,5 @@
 import { ENV } from "./env";
+import { gatilhoParaRegistro } from "./contextoDeGatilho";
 
 // ─── Public types (unchanged interface — callers are not affected) ─────────────
 
@@ -353,6 +354,18 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   const inicio = Date.now();
   const origem = params.origem ?? "outra";
   /**
+   * O gatilho é lido AQUI, e não recebido por parâmetro.
+   *
+   * Este é o ponto por onde toda chamada ao modelo passa — o mesmo que já conta
+   * tokens. Quem iniciou o fluxo declarou o gatilho no contexto assíncrono; ler
+   * aqui dispensa enfiar um argumento novo em cada um dos caminhos que chegam
+   * até aqui, e faz o esquecimento virar `unknown` visível em vez de silêncio.
+   *
+   * Lido antes do `await`: depois da resposta o contexto assíncrono ainda vale,
+   * mas capturá-lo agora deixa isso explícito em vez de dependente do detalhe.
+   */
+  const gatilho = gatilhoParaRegistro();
+  /**
    * Sem `await`: a resposta do modelo não espera a contabilidade, e uma falha
    * de escrita não pode derrubar a geração que ela só deveria contar.
    */
@@ -370,6 +383,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
         modelo: uso?.modelo ?? params.model ?? null,
         tokensEntrada: uso?.entrada ?? null,
         tokensSaida: uso?.saida ?? null,
+        gatilho,
       }))
       .catch(() => {});
   };

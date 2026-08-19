@@ -1,4 +1,7 @@
 import { logger } from "./logger";
+import { frasesDoCiclo } from "@shared/frescorDaAnalise";
+import { ROTINAS } from "@shared/gatilhoDaIA";
+import { comGatilho, type Ator } from "./_core/contextoDeGatilho";
 import { runDailyDigestJob } from "./services/dailyDigestService";
 import { runObservacoesAutomaticas } from "./services/observacoesService";
 import { consolidarLearnings } from "./services/consolidacaoService";
@@ -121,7 +124,11 @@ const objectiveToGoalFallback: Record<string, string> = {
   OUTCOME_APP_PROMOTION: "APP_INSTALLS",
 };
 
-export async function syncAccount(account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number }, opts: { isManual?: boolean } = {}) {
+/** O que aconteceu com a análise de IA desta conta neste sync. */
+export type DesfechoDaAnalise = "gerada" | "reusada" | "falhou" | "nao_tentada";
+
+export async function syncAccount(account: { id: number; accountId: string; accessToken: string; accountName: string | null; userId: number }, opts: { isManual?: boolean } = {}): Promise<{ analise: DesfechoDaAnalise }> {
+  let analise: DesfechoDaAnalise = "nao_tentada";
   const { startDate, endDate } = getDateRange(SYNC_DAYS);
   const label = account.accountName ?? account.accountId;
   logger.info(`[AutoSync] Syncing account "${label}" (${account.accountId}) — ${startDate} to ${endDate}`);
@@ -137,7 +144,9 @@ export async function syncAccount(account: { id: number; accountId: string; acce
         message: `O token de acesso da conta "${label}" expirou ou foi invalidado. Reconecte a conta em Gerenciar Contas para restaurar a sincronização automática.`,
         referencia: `${account.id}:token`,
       });
-      return;
+      // Token morto: nem sync nem análise. `nao_tentada` é o desfecho honesto —
+      // contá-la como falha de análise culparia a IA por um problema de acesso.
+      return { analise };
     }
 
     // 1. Fetch campaigns + adsets to get optimization_goal
@@ -267,11 +276,23 @@ export async function syncAccount(account: { id: number; accountId: string; acce
     // Prompt/lógica na fonte única refreshAccountAiStatus (usada aqui e na
     // reanálise manual/em massa) — não duplicar.
     try {
-      const { color } = await refreshAccountAiStatus(account.id, account.userId);
-      logger.info(`[AutoSync] ✓ AI status refreshed for "${label}": ${color}`);
-      // Throttle AI calls — 2s gap between accounts to avoid Claude rate limit (429)
-      await new Promise((r) => setTimeout(r, 2000));
+      /**
+       * SEM `forcar`. Sincronizar dados e regerar a análise são duas coisas, e
+       * confundi-las é o que fazia cada sync custar uma chamada ao modelo.
+       *
+       * Quem decide é `refreshAccountAiStatus`, pelo guarda de frescor: análise
+       * fresca e contexto inalterado devolvem a leitura guardada. O botão
+       * "Atualizar análise" continua forçando — ele é outro gesto.
+       */
+      const r = await refreshAccountAiStatus(account.id, account.userId);
+      analise = r.reusada ? "reusada" : "gerada";
+      logger.info(`[AutoSync] AI status "${label}": ${r.color} (${analise}${
+        r.motivo ? `, ${r.motivo}` : ""})`);
+      // O intervalo só vale quando houve chamada — esperar 2s depois de ler o
+      // banco é atrasar o ciclo para respeitar um rate limit que ninguém tocou.
+      if (!r.reusada) await new Promise((res) => setTimeout(res, 2000));
     } catch (aiErr) {
+      analise = "falhou";
       console.warn(`[AutoSync] AI status refresh failed for "${label}":`, aiErr);
     }
   } catch (err: any) {
@@ -310,14 +331,55 @@ export async function syncAccount(account: { id: number; accountId: string; acce
       } catch (_) { /* ignore alert creation errors */ }
     }
   }
+  return { analise };
 }
 
-export async function syncAllAccounts() {
-  return runAutoSync();
+/**
+ * Disparo manual do ciclo completo — hoje só o endpoint `/api/sync-now`.
+ *
+ * `motivo` viaja para o log poder dizer QUEM pediu. "Rodou às 14h" sem isso não
+ * distingue o cron de um clique, que é a pergunta que a auditoria de consumo
+ * não conseguia responder.
+ */
+export async function syncAllAccounts(motivo: MotivoDoCiclo = "manual", ator?: Ator | null) {
+  const r = motivo === "cron" ? ROTINAS.cronDiario : ROTINAS.syncManual;
+  return comGatilho(
+    { tipo: r.tipo, origem: r.origem, rotulo: r.rotulo, ator: ator ?? { tipo: "system" } },
+    () => runAutoSync(motivo),
+  );
 }
 
-async function runAutoSync() {
-  logger.info("[AutoSync] Starting daily auto-sync for all accounts...");
+export type MotivoDoCiclo = "cron" | "manual";
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Trava de execução única
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Mesmo padrão de `rodandoWoo`, e pelo mesmo motivo: um ciclo leva minutos —
+ *  13 contas com 15s de intervalo, mais a chamada de modelo de cada uma. Dois
+ *  ciclos sobrepostos sincronizariam as mesmas contas em paralelo e dobrariam
+ *  as chamadas de IA, com as duas metades disputando o rate limit.
+ *
+ *  A trava protege a EXECUÇÃO, e não o botão: `/api/sync-now` e o cron das
+ *  06:00 batem os dois aqui, e é aqui que a segunda tentativa é recusada.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+let cicloEmAndamento: MotivoDoCiclo | null = null;
+
+/** Só para teste — o estado é de módulo e não deve vazar em produção. */
+export function cicloDeSyncEmAndamento(): MotivoDoCiclo | null {
+  return cicloEmAndamento;
+}
+
+async function runAutoSync(motivo: MotivoDoCiclo = "cron") {
+  if (cicloEmAndamento) {
+    logger.warn(`[AutoSync] ciclo (${motivo}) IGNORADO — já existe um em andamento `
+      + `(${cicloEmAndamento}). Nenhuma conta tocada, nenhuma chamada de IA.`);
+    return { ignorado: true as const, motivo, contas: 0, geradas: 0, reusadas: 0, falhas: 0 };
+  }
+  cicloEmAndamento = motivo;
+  const comecou = Date.now();
+  logger.info(`[AutoSync] ciclo iniciado — motivo=${motivo} em ${new Date().toISOString()}`);
 
   // Financeiro v4: gera (idempotente) as linhas recorrentes pendentes do mês
   // corrente. No-op se já geradas. Nunca gera mês passado. Falha aqui não
@@ -332,17 +394,37 @@ async function runAutoSync() {
   }
 
   const accounts = await getAllActiveMetaAdAccounts();
-  if (accounts.length === 0) {
-    logger.info("[AutoSync] No accounts found, skipping.");
-    return;
+  const resumo = { contas: 0, geradas: 0, reusadas: 0, falhas: 0 };
+  try {
+    if (accounts.length === 0) {
+      logger.info("[AutoSync] No accounts found, skipping.");
+      return { ignorado: false as const, motivo, ...resumo };
+    }
+    // Sync accounts sequentially to avoid rate limits
+    for (const account of accounts) {
+      resumo.contas++;
+      /**
+       * O resultado da análise volta CONTADO, e não só sincronizado.
+       *
+       * "13 contas processadas" não distingue treze chamadas ao modelo de treze
+       * reaproveitamentos — e essa é exatamente a diferença que a auditoria de
+       * consumo precisa enxergar depois do deploy.
+       */
+      const r = await syncAccount(account);
+      if (r?.analise === "gerada") resumo.geradas++;
+      else if (r?.analise === "reusada") resumo.reusadas++;
+      else if (r?.analise === "falhou") resumo.falhas++;
+      // Small delay between accounts to respect Meta API rate limits
+      await new Promise((r) => setTimeout(r, 15000));
+    }
+    logger.info(`[AutoSync] ciclo concluído — motivo=${motivo} · `
+      + `${frasesDoCiclo(resumo)} · ${Math.round((Date.now() - comecou) / 1000)}s`);
+    return { ignorado: false as const, motivo, ...resumo };
+  } finally {
+    // `finally`: uma exceção no meio do laço deixaria a trava presa e nenhum
+    // ciclo rodaria mais até o próximo restart — o remédio pior que a doença.
+    cicloEmAndamento = null;
   }
-  // Sync accounts sequentially to avoid rate limits
-  for (const account of accounts) {
-    await syncAccount(account);
-    // Small delay between accounts to respect Meta API rate limits
-    await new Promise((r) => setTimeout(r, 15000));
-  }
-  logger.info(`[AutoSync] Daily sync complete — ${accounts.length} account(s) processed.`);
 }
 
 /**
@@ -689,7 +771,21 @@ function scheduleReportForAccount(
   const existing = scheduledReportJobs.get(jobKey);
   if (existing) existing.stop();
 
-  const job = cron.schedule(cronExpr, async () => {
+  /*
+   * ── Um cron POR relatório, e ele chega ao modelo ──────────────────────────
+   * `generateAgencyReport` lá dentro é uma chamada de IA. Este agendamento é
+   * criado em tempo de execução, um por relatório cadastrado, então ele não
+   * aparece na lista de crons do `startAutoSync` — foi o caminho que quase
+   * escapou da auditoria.
+   *
+   * `comGatilho` DENTRO do callback, e não em volta de `cron.schedule`: o que
+   * precisa carregar o gatilho é a execução do job, e não o instante em que ele
+   * é registrado.
+   */
+  const job = cron.schedule(cronExpr, () => comGatilho({
+    tipo: "scheduled", origem: "scheduledReport", rotulo: "Relatório agendado",
+    ator: { tipo: "system" },
+  }, async () => {
     logger.info(`[ScheduledReports] Running scheduled report for account "${account.accountName ?? account.accountId}"`);
     try {
       const { startDate, endDate } = getDateRange(30);
@@ -731,7 +827,7 @@ function scheduleReportForAccount(
     } catch (err) {
       console.error(`[ScheduledReports] Error generating report for ${account.accountId}:`, err);
     }
-  });
+  }));
 
   scheduledReportJobs.set(jobKey, job);
 }
@@ -1087,11 +1183,34 @@ Seja objetivo. Não invente dados. Se a comparação é inconclusiva (ex.: sem b
  */
 const TZ = { timezone: "America/Sao_Paulo" } as const;
 
+/**
+ * Embrulha um job de cron com o gatilho `scheduled`.
+ *
+ * Todo cron que possa alcançar o modelo precisa se nomear, senão a chamada é
+ * gravada como `unknown` e vira um caminho oculto no painel de consumo — que é
+ * exatamente o que esta frente existe para eliminar.
+ *
+ * Embrulhar mesmo os que HOJE não chamam IA é de propósito: o dia em que um
+ * deles passar a chamar, ele já nasce rastreado. O contrário — lembrar de
+ * declarar depois — é o esquecimento que a auditoria encontrou nove vezes.
+ */
+const agendado = (nome: string, rotulo: string, fn: () => unknown) => () =>
+  comGatilho(
+    { tipo: "scheduled", origem: nome, rotulo, ator: { tipo: "system" } },
+    () => fn(),
+  );
+
 export async function startAutoSync() {
   logger.info("[AutoSync] Initializing auto-sync service...");
 
   // Daily sync at 09:00 UTC (06:00 Brasília)
-  cron.schedule("0 0 6 * * *", runAutoSync, TZ);
+  // Embrulhado: `cron.schedule` passa o próprio contexto como argumento, e ele
+  // viraria o `motivo` do ciclo. O motivo aqui é sempre "cron".
+  cron.schedule("0 0 6 * * *", () => comGatilho(
+    { tipo: ROTINAS.cronDiario.tipo, origem: ROTINAS.cronDiario.origem,
+      rotulo: ROTINAS.cronDiario.rotulo, ator: { tipo: "system" } },
+    () => runAutoSync("cron"),
+  ), TZ);
 
   /**
    * DESATIVADO (política de e-mail, 22/07/2026): o relatório diário antigo por
@@ -1107,7 +1226,7 @@ export async function startAutoSync() {
    */
 
   // Daily technical alerts check at 08:55 UTC (05:55 BRT) — runs 5min before the main sync
-  cron.schedule("0 55 5 * * *", runAnomalyDetection, TZ);
+  cron.schedule("0 55 5 * * *", agendado("runAnomalyDetection", "Detecção de anomalias", runAnomalyDetection), TZ);
 
   // Snapshot do Clarity (06:40 BRT). Cedo de propósito: a API só devolve os
   // últimos 1–3 dias, então o dia não capturado se perde para sempre.
@@ -1157,17 +1276,18 @@ export async function startAutoSync() {
 
   // Geração híbrida de recomendações (07:45 BRT) — depois do ciclo noturno, com
   // as cores da IA já frescas. Só contas Atenção/Crítico sem sugestão recente.
-  cron.schedule("0 45 7 * * *", runGeracaoRecomendacoes, TZ);
+  cron.schedule("0 45 7 * * *", agendado("runGeracaoRecomendacoes", "Geração automática de recomendações", runGeracaoRecomendacoes), TZ);
 
   // Anomalias de mídia (09:20 UTC) — depois do sync das 09:00.
 
   // Notificações do dia. Roda de minuto em minuto e o próprio job decide se é a
   // hora — porque o horário mora no banco (o admin muda em Configurações) e um
   // cron fixo não conseguiria acompanhar sem reiniciar o processo.
-  cron.schedule("0 * * * * *", runNotificacoesSeForHora, TZ);
+  cron.schedule("0 * * * * *", agendado("runNotificacoesSeForHora", "Notificações do dia", runNotificacoesSeForHora), TZ);
 
   // Polling fallback for scheduled reports (every 5 minutes)
-  cron.schedule("0 */5 * * * *", runScheduledReports); // a cada 5 min — fuso é irrelevante
+  cron.schedule("0 */5 * * * *",
+    agendado("runScheduledReports", "Relatórios agendados", runScheduledReports)); // a cada 5 min — fuso é irrelevante
 
   /**
    * Monitoramento de domínio — DUAS passadas por dia, no fuso da agência.
@@ -1199,12 +1319,28 @@ export async function startAutoSync() {
   cron.schedule("0 0 15 * * *", () => varrerSites("tarde"), TZ);
 
   // Daily experiment checkpoint snapshots at 09:10 UTC
-  cron.schedule("0 10 6 * * *", runExperimentCheckpoints, TZ);
+  cron.schedule("0 10 6 * * *", agendado("runExperimentCheckpoints", "Checkpoints de experimentos", runExperimentCheckpoints), TZ);
 
   // Daily action outcome closures at 09:15 UTC (06:15 BRT)
-  cron.schedule("0 15 6 * * *", runActionOutcomeClosures, TZ);
+  cron.schedule("0 15 6 * * *", agendado("runActionOutcomeClosures", "Fechamento de ações", runActionOutcomeClosures), TZ);
 
-  // Run initial sync after a short delay to let the server warm up
+  /**
+   * ─────────────────────────────────────────────────────────────────────────
+   *  A limpeza de boot — e o que SAIU dela
+   * ─────────────────────────────────────────────────────────────────────────
+   *  Aqui rodava `runAutoSync()` a cada subida do processo. Ele foi escrito
+   *  para um servidor que reiniciava raramente; com deploy contínuo virou o
+   *  maior consumidor de IA do produto.
+   *
+   *  Auditoria de 19/08/2026: cada boot sincronizava TODAS as contas ativas, e
+   *  cada `syncAccount` termina numa chamada ao modelo. Foram 11 deploys num
+   *  dia — 11 ciclos completos, contra 1 previsto. As chamadas apareciam no
+   *  Consumo de IA em rajadas de três minutos, indistinguíveis de uso real.
+   *
+   *  A rodada diária é do cron das 06:00, e só dele. O que sobrou aqui é
+   *  limpeza barata e a reconstrução dos jobs em memória, que precisa mesmo
+   *  acontecer no boot porque nada a persiste.
+   */
   setTimeout(async () => {
     // Purge duplicate alerts from backlog on startup
     try {
@@ -1224,7 +1360,14 @@ export async function startAutoSync() {
       console.error("[AutoSync] Error expiring old alerts:", err);
     }
 
-    await runAutoSync();
+    /*
+     * `runAnomalyDetection` e `rebuildScheduledReportJobs` FICAM.
+     *
+     * Nenhum dos dois chama modelo — conferido: a detecção de anomalias lê
+     * métricas e cria alertas, e a reconstrução recria agendamentos que vivem
+     * em memória e se perdem no restart. O que saiu daqui foi só o que gerava
+     * chamada de IA, que é o escopo desta rodada.
+     */
     await runAnomalyDetection();
     await rebuildScheduledReportJobs();
   }, 15000);

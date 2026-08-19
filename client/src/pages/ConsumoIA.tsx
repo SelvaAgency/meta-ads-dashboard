@@ -61,6 +61,10 @@ import {
   type AlertaDeConsumo, type TipoDeAlerta,
 } from "@shared/consumoDeIA";
 import {
+  ROTULO_DO_TIPO, TIPOS_DE_GATILHO, alertasDeGatilho, consumoPorGatilho,
+  textoDoAtor, textoDoGatilho, type TipoDeGatilho,
+} from "@shared/gatilhoDaIA";
+import {
   alertasComparativos, compararFontes, custoPorMilhao, estatisticasDeChamada,
   oportunidadesDeOtimizacao,
   razaoEntradaSaida, saudeDoConsumo,
@@ -197,6 +201,28 @@ export default function ConsumoIA() {
     () => compararFontes(totais.tokensTotais, anthTotais?.total ?? null),
     [totais, anthTotais]);
 
+  /** Por que a IA foi chamada — a leitura que `origem` não dá. */
+  const porGatilho = useMemo(
+    () => consumoPorGatilho((d?.porGatilho ?? []).map((g) => ({
+      tipo: String(g.tipo), chamadas: n(g.chamadas),
+      tokensEntrada: n(g.tokensEntrada), tokensSaida: n(g.tokensSaida), falhas: n(g.falhas),
+    }))), [d]);
+
+  const rotinas = useMemo(() => (d?.porRotina ?? []).map((r) => ({
+    fonte: String(r.fonte), rotulo: r.rotulo ?? null, tipo: String(r.tipo),
+    chamadas: n(r.chamadas), tokens: n(r.tokensEntrada) + n(r.tokensSaida),
+  })), [d]);
+
+  const alertasDoGatilho = useMemo(() => alertasDeGatilho({
+    chamadas: (d?.recentes ?? []).map((l) => ({
+      origem: l.origem, accountId: l.accountId ?? null, nomeDaConta: l.nome ?? null,
+      triggerType: (l as { triggerType?: string | null }).triggerType ?? null,
+      actorName: (l as { actorName?: string | null }).actorName ?? null,
+      criadoEm: l.criadoEm,
+    })),
+    porGatilho,
+  }), [d, porGatilho]);
+
   /**
    * Os alertas comparativos entram DEPOIS dos próprios.
    *
@@ -299,6 +325,8 @@ export default function ConsumoIA() {
             <Kpis totais={totais} custo={anthTotais} />
             <Custo dados={anth} totais={anthTotais} tokensSpaces={totais.tokensTotais} />
             <ConsumoNoTempo dias={dados.porDia} suficiente={historico.suficienteParaTendencia} />
+            <PorQueAIAFoiChamada porGatilho={porGatilho} rotinas={rotinas}
+              alertas={alertasDoGatilho} />
             <PorOrigem origens={origens} foco={origemFoco} aoFocar={setOrigemFoco} />
 
             {/* ══ CAMADA 2 · INVESTIGAÇÃO ═════════════════════════════════ */}
@@ -982,6 +1010,120 @@ function PorOrigem({ origens, foco, aoFocar }: {
   );
 }
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Por que a IA está sendo chamada
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O bloco que a auditoria de 19/08/2026 provou faltar. A página sabia QUANTO
+ *  se gastava e em QUÊ; não sabia POR QUE — sete caminhos diferentes chegavam à
+ *  mesma origem, e "8 análises às 17h54" não distinguia o cron de um clique de
+ *  um deploy.
+ *
+ *  ── Duas leituras, e a segunda é a acionável ───────────────────────────────
+ *  Por tipo responde "rotina ou gente". Por rotina responde "qual delas", que é
+ *  o que se corta ou se põe em cache. Uma rotina com poucas chamadas pode ser a
+ *  mais cara, e é por isso que tokens/chamada fica ao lado do total.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+function PorQueAIAFoiChamada({ porGatilho, rotinas, alertas }: {
+  porGatilho: ReturnType<typeof consumoPorGatilho>;
+  rotinas: Array<{ fonte: string; rotulo: string | null; tipo: string; chamadas: number; tokens: number }>;
+  alertas: ReturnType<typeof alertasDeGatilho>;
+}) {
+  if (!porGatilho.length) return null;
+  const maiorRotina = Math.max(1, ...rotinas.map((r) => r.tokens));
+
+  return (
+    <section className="rounded-[20px] border border-border bg-card overflow-hidden
+                        shadow-[0_1px_2px_rgba(10,10,10,.04)]">
+      <div className="flex items-baseline gap-2.5 flex-wrap px-5 pt-[18px]">
+        <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">
+          Por que a IA está sendo chamada
+        </h2>
+        <Selo tipo="medido" />
+        <span className="text-[10.5px] text-muted-foreground/50">
+          gatilho é quem pediu; origem é o que a chamada faz
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-border mt-3">
+        {porGatilho.map((g) => (
+          <div key={g.tipo} className="px-4 py-3.5 min-w-0">
+            <span className={`inline-flex text-[9px] font-bold uppercase tracking-[0.1em]
+                              px-1.5 py-[3px] rounded-[5px] ${TOM_DO_GATILHO[g.tipo]}`}>
+              {g.rotulo}
+            </span>
+            <span className="block text-[22px] font-bold tabular-nums leading-none mt-2">
+              {fmt(g.chamadas)}
+            </span>
+            <span className="block text-[10px] text-muted-foreground mt-1">
+              {g.chamadas === 1 ? "chamada" : "chamadas"} · {compacto(g.tokens)} tokens
+            </span>
+            <span className="block text-[10px] text-muted-foreground/70 mt-0.5 tabular-nums">
+              {g.fatia == null ? "–" : `${Math.round(g.fatia * 100)}% do consumo`}
+              {g.tokensPorChamada != null && ` · ${fmt(Math.round(g.tokensPorChamada))}/chamada`}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {rotinas.length > 0 && (
+        <div className="px-5 py-[18px] border-t border-border">
+          <div className="flex items-baseline gap-2.5 flex-wrap">
+            <h3 className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+              Quais rotinas mais consomem
+            </h3>
+            <span className="text-[10px] text-muted-foreground/50">
+              poucas chamadas caras pesam tanto quanto muitas baratas
+            </span>
+          </div>
+          <div className="flex flex-col gap-2 mt-2.5">
+            {rotinas.map((r) => (
+              <div key={r.fonte}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-[12px] font-medium truncate">
+                    {/* O rótulo amigável quando existe; o nome cru quando não —
+                        e nunca um nome inventado para uma rotina não nomeada. */}
+                    {r.rotulo ?? r.fonte}
+                  </span>
+                  <span className="text-[11px] tabular-nums text-muted-foreground flex-shrink-0">
+                    {fmt(r.chamadas)} · {compacto(r.tokens)} tokens
+                    {r.chamadas > 0 && ` · ${fmt(Math.round(r.tokens / r.chamadas))}/chamada`}
+                  </span>
+                </div>
+                <span className="block h-[6px] rounded-full bg-muted overflow-hidden mt-1.5">
+                  <span className="block h-full rounded-full"
+                    style={{
+                      width: `${(r.tokens / maiorRotina) * 100}%`,
+                      background: r.tipo === "manual" ? "#7C5CE0"
+                        : r.tipo === "scheduled" ? "#2A9FD6"
+                        : r.tipo === "system" ? "#E0A030" : "#8C8C8C",
+                    }} />
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {alertas.length > 0 && (
+        <div className="px-5 py-3.5 border-t border-border flex flex-col gap-2">
+          {alertas.map((a) => (
+            <div key={a.chave} className="flex items-start gap-2.5">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 mt-[2px] flex-shrink-0"
+                strokeWidth={2.4} />
+              <p className="text-[11.5px] leading-snug">
+                <b className="font-semibold">{a.titulo}.</b>{" "}
+                <span className="text-muted-foreground">{a.detalhe}</span>
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** A camada de investigação: corpo menor, e por isso o título é menor também. */
 function Bloco({ titulo, nota, children, acao }: {
   titulo: string; nota?: string | null; children: React.ReactNode; acao?: React.ReactNode;
@@ -1446,6 +1588,14 @@ type LinhaCrua = {
   id: number; origem: string; accountId: number | null; nome: string | null;
   modelo: string | null; tokensEntrada: number | null; tokensSaida: number | null;
   duracaoMs: number | null; ok: boolean; criadoEm: string | Date;
+  /**
+   * O gatilho — quem PEDIU a chamada.
+   *
+   * Opcionais porque as linhas anteriores à instrumentação não os têm, e é o
+   * `null` delas que a tela lê como "Não rastreado".
+   */
+  triggerType?: string | null; triggerSource?: string | null; triggerLabel?: string | null;
+  actorType?: string | null; actorId?: number | null; actorName?: string | null;
 };
 
 const quandoTexto = (v: string | Date) => {
@@ -1481,27 +1631,73 @@ function MaioresChamadas({ linhas }: { linhas: LinhaCrua[] }) {
 }
 
 /**
- * O detalhamento, para investigar.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Detalhamento — o log de causalidade, e não só de consumo
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A tabela respondia "quanto custou". Passou a responder "por que aconteceu":
+ *  GATILHO diz se foi rotina ou pessoa, QUEM diz qual pessoa.
  *
- * Metadados apenas — a tabela não guarda prompt nem resposta, então não há o
- * que expor aqui nem por engano. O teto de 300 linhas vem do servidor: isto é
- * ferramenta de investigação, não exportação do banco.
+ *  ── "Não rastreado" não é "automático" ─────────────────────────────────────
+ *  As linhas gravadas antes da instrumentação não sabem o que as disparou.
+ *  Exibi-las como automáticas transformaria ausência em afirmação, no lugar
+ *  exato onde alguém decide qual rotina cortar.
+ *
+ *  ── Nada de conteúdo, aqui e em lugar nenhum ───────────────────────────────
+ *  Prompt, resposta e dado de cliente não são gravados — a tabela não tem o que
+ *  expor nem por engano. O que há é quem pediu, quando, para qual conta e
+ *  quanto custou.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
+const TOM_DO_GATILHO: Record<TipoDeGatilho, string> = {
+  scheduled: "bg-sky-500/12 text-sky-700",
+  manual: "bg-violet-500/12 text-violet-700",
+  system: "bg-amber-500/12 text-amber-700",
+  unknown: "bg-muted text-muted-foreground/70",
+};
+
+function SeloDoGatilho({ l }: { l: LinhaCrua }) {
+  const tipo = ((l.triggerType ?? "unknown") as TipoDeGatilho);
+  const valido = (TIPOS_DE_GATILHO as string[]).includes(tipo) ? tipo : "unknown";
+  return (
+    <span className={`inline-flex items-center text-[9.5px] font-bold px-1.5 py-[3px]
+                      rounded-[5px] truncate max-w-full ${TOM_DO_GATILHO[valido]}`}
+      title={l.triggerSource ? `rotina: ${l.triggerSource}` : "sem rotina registrada"}>
+      {textoDoGatilho({
+        tipo: valido, rotulo: l.triggerLabel ?? null, atorNome: l.actorName ?? null,
+      })}
+    </span>
+  );
+}
+
 function Detalhamento({ linhas, foco, aoFocar }: {
   linhas: LinhaCrua[]; foco: string | null; aoFocar: (o: string | null) => void;
 }) {
   const [ordem, setOrdem] = useState<"recentes" | "maiores">("recentes");
   const [soFalhas, setSoFalhas] = useState(false);
+  const [gatilho, setGatilho] = useState<TipoDeGatilho | "todos">("todos");
+  const [pessoa, setPessoa] = useState<string>("todos");
+
+  /** As pessoas que aparecem NO PERÍODO — a lista não é fixa nem inventada. */
+  const pessoas = useMemo(() => Array.from(new Set(
+    linhas.filter((l) => l.actorType === "user" && l.actorName).map((l) => l.actorName as string),
+  )).sort((a, b) => a.localeCompare(b)), [linhas]);
 
   const filtradas = linhas
     .filter((l) => (foco ? l.origem === foco : true))
     .filter((l) => (soFalhas ? !l.ok : true))
+    .filter((l) => (gatilho === "todos" ? true : (l.triggerType ?? "unknown") === gatilho))
+    .filter((l) => (pessoa === "todos" ? true : l.actorName === pessoa))
     .slice()
     .sort((a, b) => ordem === "maiores"
       ? (n(b.tokensEntrada) + n(b.tokensSaida)) - (n(a.tokensEntrada) + n(a.tokensSaida))
       : new Date(b.criadoEm).getTime() - new Date(a.criadoEm).getTime());
 
   if (!linhas.length) return null;
+
+  const chip = (ativo: boolean) =>
+    `text-[10px] px-2 py-1 rounded-md border transition-colors duration-150 ${
+      ativo ? "bg-foreground text-background border-foreground"
+            : "border-border text-muted-foreground hover:text-foreground"}`;
 
   return (
     <Bloco titulo="Detalhamento" nota={`${filtradas.length} de ${linhas.length} chamadas`}
@@ -1529,19 +1725,53 @@ function Detalhamento({ linhas, foco, aoFocar }: {
           </span>
         </div>
       }>
+
+      {/* Os filtros de causalidade, numa linha própria: eles respondem outra
+          pergunta que a ordenação, e misturá-los na mesma barra faria a barra
+          transbordar em telas médias. */}
+      <div className="flex items-center gap-1.5 flex-wrap -mt-1">
+        <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-muted-foreground/55 mr-0.5">
+          Gatilho
+        </span>
+        <button type="button" onClick={() => setGatilho("todos")} className={chip(gatilho === "todos")}>
+          todos
+        </button>
+        {TIPOS_DE_GATILHO.map((t) => (
+          <button key={t} type="button" onClick={() => setGatilho(t)} className={chip(gatilho === t)}>
+            {ROTULO_DO_TIPO[t]}
+          </button>
+        ))}
+        {pessoas.length > 0 && (
+          <>
+            <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-muted-foreground/55 ml-2 mr-0.5">
+              Pessoa
+            </span>
+            <button type="button" onClick={() => setPessoa("todos")} className={chip(pessoa === "todos")}>
+              todas
+            </button>
+            {pessoas.map((nome) => (
+              <button key={nome} type="button" onClick={() => setPessoa(nome)} className={chip(pessoa === nome)}>
+                {nome}
+              </button>
+            ))}
+          </>
+        )}
+      </div>
+
       <div className="overflow-x-auto -mx-1 px-1">
-        <div className="min-w-[640px]">
-          <div className="grid grid-cols-[80px_minmax(0,1.1fr)_minmax(0,1fr)_86px_62px_62px_56px_58px]
+        <div className="min-w-[860px]">
+          <div className="grid grid-cols-[80px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_74px_78px_58px_58px]
                           gap-2 px-2 pb-1.5 text-[9px] font-bold uppercase tracking-[0.09em]
                           text-muted-foreground/60 border-b border-border">
-            <span>Quando</span><span>Origem</span><span>Cliente</span><span>Modelo</span>
+            <span>Quando</span><span>Origem</span><span>Cliente</span><span>Gatilho</span>
+            <span>Quem</span>
             <span className="text-right">Entrada</span><span className="text-right">Saída</span>
-            <span className="text-right">Duração</span><span className="text-right">Resultado</span>
+            <span className="text-right">Resultado</span>
           </div>
           <div className="max-h-[420px] overflow-y-auto flex flex-col">
             {filtradas.map((l) => (
               <div key={l.id}
-                className="grid grid-cols-[80px_minmax(0,1.1fr)_minmax(0,1fr)_86px_62px_62px_56px_58px]
+                className="grid grid-cols-[80px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_74px_78px_58px_58px]
                            gap-2 px-2 py-[7px] text-[11px] items-center rounded-md
                            hover:bg-foreground/[0.03] transition-colors duration-150">
                 <span className="tabular-nums text-muted-foreground">{quandoTexto(l.criadoEm)}</span>
@@ -1549,23 +1779,32 @@ function Detalhamento({ linhas, foco, aoFocar }: {
                 <span className={`truncate ${l.accountId == null ? "text-muted-foreground/60 italic" : ""}`}>
                   {l.nome ?? (l.accountId == null ? "Global" : `Conta ${l.accountId}`)}
                 </span>
-                <span className="truncate text-muted-foreground/70 font-mono text-[10px]">
-                  {l.modelo ?? "–"}
+                <span className="min-w-0"><SeloDoGatilho l={l} /></span>
+                <span className="truncate text-muted-foreground text-[10.5px]"
+                  title={l.modelo ?? undefined}>
+                  {textoDoAtor({
+                    tipo: (l.triggerType ?? "unknown") as TipoDeGatilho,
+                    atorTipo: (l.actorType as "user" | "system" | null) ?? null,
+                    atorNome: l.actorName ?? null, atorId: l.actorId ?? null,
+                  })}
                 </span>
                 <span className="tabular-nums text-right">{compacto(l.tokensEntrada)}</span>
                 <span className="tabular-nums text-right">{compacto(l.tokensSaida)}</span>
-                <span className="tabular-nums text-right text-muted-foreground">
-                  {l.duracaoMs == null ? "–" : `${(n(l.duracaoMs) / 1000).toFixed(1).replace(".", ",")}s`}
-                </span>
                 <span className={`text-right text-[10px] font-semibold ${
                   l.ok ? "text-emerald-600" : "text-destructive"}`}>
                   {l.ok ? "ok" : "falhou"}
                 </span>
               </div>
             ))}
+            {!filtradas.length && (
+              <p className="text-[11.5px] text-muted-foreground py-6 text-center">
+                Nenhuma chamada com esses filtros no período.
+              </p>
+            )}
           </div>
         </div>
       </div>
     </Bloco>
   );
 }
+

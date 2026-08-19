@@ -6713,9 +6713,22 @@ export async function registrarGeracaoIA(r: {
   origem: string; ok: boolean; ms: number;
   accountId?: number | null; modelo?: string | null;
   tokensEntrada?: number | null; tokensSaida?: number | null;
+  /**
+   * Quem PEDIU a chamada. Ver `shared/gatilhoDaIA`.
+   *
+   * Nada aqui é conteúdo: nem prompt, nem resposta, nem dado de cliente. É
+   * causalidade — o suficiente para responder "por que essa chamada
+   * aconteceu?" sem abrir nada de ninguém.
+   */
+  gatilho?: {
+    tipo?: string | null; origemDoGatilho?: string | null; rotulo?: string | null;
+    atorTipo?: string | null; atorId?: number | null;
+    atorNome?: string | null; atorPapel?: string | null;
+  } | null;
 }) {
   const db = await getDb();
   if (!db) return;
+  const g = r.gatilho ?? null;
   await db.insert(aiGeracoes).values({
     origem: r.origem.slice(0, 32),
     accountId: r.accountId ?? null,
@@ -6724,6 +6737,15 @@ export async function registrarGeracaoIA(r: {
     duracaoMs: Math.round(r.ms),
     tokensEntrada: r.tokensEntrada ?? null,
     tokensSaida: r.tokensSaida ?? null,
+    // `null` quando ninguém declarou — a tela mostra "Não rastreado" e o
+    // relatório de auditoria usa isso para achar caminho não nomeado.
+    triggerType: g?.tipo?.slice(0, 16) ?? null,
+    triggerSource: g?.origemDoGatilho?.slice(0, 64) ?? null,
+    triggerLabel: g?.rotulo?.slice(0, 96) ?? null,
+    actorType: g?.atorTipo?.slice(0, 8) ?? null,
+    actorId: g?.atorId ?? null,
+    actorName: g?.atorNome?.slice(0, 120) ?? null,
+    actorRole: g?.atorPapel?.slice(0, 24) ?? null,
   });
 }
 
@@ -6743,6 +6765,9 @@ export async function consumoDeIA(inicio: string, fim: string) {
   const vazio = {
     porOrigem: [], porDia: [], porCliente: [], porModelo: [],
     maiores: [], recentes: [], tokensPorChamada: [] as number[],
+    porGatilho: [] as Array<{ tipo: string; chamadas: number; tokensEntrada: number; tokensSaida: number; falhas: number }>,
+    porRotina: [] as Array<{ fonte: string; rotulo: string | null; tipo: string; chamadas: number; tokensEntrada: number; tokensSaida: number }>,
+    porPessoa: [] as Array<{ atorId: number | null; nome: string | null; chamadas: number; tokensEntrada: number; tokensSaida: number }>,
     historico: [] as Array<{ dia: string; entrada: number; saida: number; chamadas: number }>,
     medindoDesde: null as string | null,
   };
@@ -6752,7 +6777,7 @@ export async function consumoDeIA(inicio: string, fim: string) {
   const ate = new Date(`${fim}T23:59:59.999Z`);
   const noPeriodo = and(gte(aiGeracoes.criadoEm, de), lte(aiGeracoes.criadoEm, ate));
 
-  const [porOrigem, porDia, porCliente, porModelo, maiores, recentes, primeira, porChamada, historico] = await Promise.all([
+  const [porOrigem, porDia, porCliente, porModelo, maiores, recentes, primeira, porChamada, historico, porGatilho, porRotina, porPessoa] = await Promise.all([
     db.select({
       origem: aiGeracoes.origem,
       chamadas: sql<number>`COUNT(*)`,
@@ -6810,6 +6835,11 @@ export async function consumoDeIA(inicio: string, fim: string) {
       nome: metaAdAccounts.accountName, modelo: aiGeracoes.modelo,
       tokensEntrada: aiGeracoes.tokensEntrada, tokensSaida: aiGeracoes.tokensSaida,
       duracaoMs: aiGeracoes.duracaoMs, ok: aiGeracoes.ok, criadoEm: aiGeracoes.criadoEm,
+      // O gatilho — quem pediu. `null` nas linhas anteriores à instrumentação,
+      // e a tela mostra "Não rastreado" em vez de chutar.
+      triggerType: aiGeracoes.triggerType, triggerSource: aiGeracoes.triggerSource,
+      triggerLabel: aiGeracoes.triggerLabel, actorType: aiGeracoes.actorType,
+      actorId: aiGeracoes.actorId, actorName: aiGeracoes.actorName,
     }).from(aiGeracoes)
       .leftJoin(metaAdAccounts, eq(aiGeracoes.accountId, metaAdAccounts.id))
       .where(noPeriodo)
@@ -6852,11 +6882,55 @@ export async function consumoDeIA(inicio: string, fim: string) {
       .groupBy(sql`DATE(${aiGeracoes.criadoEm})`)
       .orderBy(sql`DATE(${aiGeracoes.criadoEm})`)
       .limit(400),
+
+    /**
+     * Por GATILHO — automático, manual, sistema, não rastreado.
+     *
+     * A pergunta que a origem não responde: o custo vem das rotinas ou das
+     * pessoas? `COALESCE` para 'unknown' porque as linhas anteriores à
+     * instrumentação têm `null`, e elas precisam aparecer como uma categoria
+     * própria em vez de sumir da soma.
+     */
+    db.select({
+      tipo: sql<string>`COALESCE(${aiGeracoes.triggerType}, 'unknown')`,
+      chamadas: sql<number>`COUNT(*)`,
+      tokensEntrada: sql<number>`COALESCE(SUM(${aiGeracoes.tokensEntrada}), 0)`,
+      tokensSaida: sql<number>`COALESCE(SUM(${aiGeracoes.tokensSaida}), 0)`,
+      falhas: sql<number>`SUM(CASE WHEN ${aiGeracoes.ok} = 0 THEN 1 ELSE 0 END)`,
+    }).from(aiGeracoes).where(noPeriodo)
+      .groupBy(sql`COALESCE(${aiGeracoes.triggerType}, 'unknown')`),
+
+    /** Por ROTINA — o ranking de quem mais consome, com o rótulo amigável. */
+    db.select({
+      fonte: sql<string>`COALESCE(${aiGeracoes.triggerSource}, 'não identificada')`,
+      rotulo: sql<string>`MAX(${aiGeracoes.triggerLabel})`,
+      tipo: sql<string>`MAX(COALESCE(${aiGeracoes.triggerType}, 'unknown'))`,
+      chamadas: sql<number>`COUNT(*)`,
+      tokensEntrada: sql<number>`COALESCE(SUM(${aiGeracoes.tokensEntrada}), 0)`,
+      tokensSaida: sql<number>`COALESCE(SUM(${aiGeracoes.tokensSaida}), 0)`,
+    }).from(aiGeracoes).where(noPeriodo)
+      .groupBy(sql`COALESCE(${aiGeracoes.triggerSource}, 'não identificada')`)
+      .orderBy(desc(sql`COALESCE(SUM(${aiGeracoes.tokensEntrada}),0) + COALESCE(SUM(${aiGeracoes.tokensSaida}),0)`))
+      .limit(30),
+
+    /** Por PESSOA — só quem disparou de fato; sistema não entra. */
+    db.select({
+      atorId: aiGeracoes.actorId,
+      nome: sql<string>`MAX(${aiGeracoes.actorName})`,
+      chamadas: sql<number>`COUNT(*)`,
+      tokensEntrada: sql<number>`COALESCE(SUM(${aiGeracoes.tokensEntrada}), 0)`,
+      tokensSaida: sql<number>`COALESCE(SUM(${aiGeracoes.tokensSaida}), 0)`,
+    }).from(aiGeracoes)
+      .where(and(noPeriodo, eq(aiGeracoes.actorType, "user")))
+      .groupBy(aiGeracoes.actorId)
+      .orderBy(desc(sql`COUNT(*)`))
+      .limit(30),
   ]);
 
   return {
     porOrigem, porDia, porCliente, porModelo, maiores, recentes,
     tokensPorChamada: porChamada.map((x) => Number(x.tokens ?? 0)),
+    porGatilho, porRotina, porPessoa,
     historico: historico.map((h) => ({
       dia: String(h.dia), entrada: Number(h.entrada ?? 0),
       saida: Number(h.saida ?? 0), chamadas: Number(h.chamadas ?? 0),

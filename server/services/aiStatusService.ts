@@ -19,6 +19,8 @@ import {
   appendAccountLearning,
 } from "../db";
 import { blocoDeContextoParaIA } from "@shared/contextoDaAnalise";
+import { decidirGeracaoDaAnalise, type MotivoDaDecisao } from "@shared/frescorDaAnalise";
+import { logger } from "../logger";
 
 const AGENCY_TZ = "America/Sao_Paulo";
 function toIsoLocal(d: Date): string {
@@ -33,7 +35,37 @@ function ultimos7(): { startDate: string; endDate: string } {
 
 const ROAS_GOALS = new Set(["SALES", "VALUE"]);
 
-export type StatusIA = { color: "green" | "yellow" | "red"; summary: string };
+export type StatusIA = {
+  color: "green" | "yellow" | "red";
+  summary: string;
+  /**
+   * `true` quando a leitura veio do banco em vez do modelo.
+   *
+   * Sobe até quem chamou porque é ele que conta o ciclo: sem isso, "13 contas
+   * processadas" não distingue treze análises de treze reaproveitamentos.
+   */
+  reusada?: boolean;
+  motivo?: MotivoDaDecisao;
+};
+
+/**
+ * O contexto mais recente da conta — o dos DOIS níveis.
+ *
+ * Mesma regra que a tela usa para dizer "análise desatualizada": explicar um
+ * ponto também envelhece a leitura, e comparar só com o contexto da conta
+ * deixaria a análise velha no ar justamente no caso que motivou o contexto de
+ * ponto. Duas consultas leves, e nenhuma delas lê o conteúdo — só a data.
+ */
+async function contextoMaisRecente(accountId: number): Promise<Date | null> {
+  const { getAccountContext, contextoDeAchadoMaisRecente } = await import("../db");
+  const [ctx, pontoEm] = await Promise.all([
+    getAccountContext(accountId).catch(() => null),
+    contextoDeAchadoMaisRecente(accountId).catch(() => null),
+  ]);
+  return [ctx?.updatedAt ?? null, pontoEm]
+    .filter((d): d is Date => !!d)
+    .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+}
 
 /**
  * Recalcula o status da IA (cor + resumo) de UMA conta e grava. Usado tanto pelo
@@ -43,9 +75,50 @@ export type StatusIA = { color: "green" | "yellow" | "red"; summary: string };
 export async function refreshAccountAiStatus(
   accountId: number,
   userId: number,
-  opts: { adhocContexto?: string } = {},
+  opts: { adhocContexto?: string; forcar?: boolean } = {},
 ): Promise<StatusIA> {
   const accountData = await getMetaAdAccountById(accountId);
+
+  /**
+   * ── O guarda de frescor ──────────────────────────────────────────────────
+   * Antes de qualquer coisa cara. A auditoria de 19/08/2026 mediu sete caminhos
+   * chegando aqui, e nenhum perguntava se a leitura anterior ainda servia: duas
+   * chamadas com trinta segundos de diferença produziam a mesma análise,
+   * cobrada duas vezes.
+   *
+   * A regra mora em `shared/frescorDaAnalise` e é pura — testável nos dois
+   * lados de cada limiar, sem relógio nem banco. Aqui só se colhe o que ela
+   * precisa: quando a análise foi feita e quando o contexto mudou pela última
+   * vez.
+   *
+   * `forcar` é o botão Atualizar. Ele ignora tudo: pedido explícito de gente
+   * não se discute com uma janela.
+   *
+   * `adhocContexto` também força — ele é um contexto que só existe nesta
+   * chamada e não está gravado em lugar nenhum, então nenhuma análise anterior
+   * pode tê-lo visto.
+   */
+  const decisao = decidirGeracaoDaAnalise({
+    analiseEm: (accountData as { aiStatusAt?: Date | null })?.aiStatusAt ?? null,
+    contextoEm: await contextoMaisRecente(accountId),
+    forcar: opts.forcar || !!opts.adhocContexto?.trim(),
+    agora: new Date(),
+  });
+
+  if (!decisao.gerar) {
+    const cor = (accountData as { aiStatusColor?: StatusIA["color"] | null })?.aiStatusColor;
+    const resumo = (accountData as { aiStatusSummary?: string | null })?.aiStatusSummary;
+    // Só reusa o que EXISTE. Sem cor ou resumo gravados não há o que devolver,
+    // e o guarda cede — a alternativa seria uma tela em branco defendida por
+    // uma economia.
+    if (cor && resumo) {
+      logger.info(`[StatusIA] conta ${accountId}: reusada (${decisao.motivo}, `
+        + `${Math.round(decisao.idadeMinutos ?? 0)}min) — nenhuma chamada ao modelo`);
+      return { color: cor, summary: resumo, reusada: true, motivo: decisao.motivo };
+    }
+  }
+
+  logger.info(`[StatusIA] conta ${accountId}: gerando (${decisao.motivo})`);
   const goalType = (accountData as { goalTypeOverride?: string | null })?.goalTypeOverride ?? "DEFAULT";
   const roasApplies = ROAS_GOALS.has(goalType);
 

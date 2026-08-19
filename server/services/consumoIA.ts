@@ -20,6 +20,8 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
+import type { Gatilho } from "@shared/gatilhoDaIA";
+
 /** De onde a chamada partiu. Nome curto e estável — vira agrupador no admin. */
 export type OrigemDaGeracao =
   | "status_ia"          // saúde da conta (cron diário + botão Atualizar)
@@ -52,6 +54,14 @@ export interface RegistroDeGeracao {
   ms: number;
   tokensEntrada?: number | null;
   tokensSaida?: number | null;
+  /**
+   * Quem PEDIU a chamada — cron, pessoa, boot.
+   *
+   * `origem` responde "o que essa chamada faz"; o gatilho responde "por que ela
+   * aconteceu". Sete caminhos gravavam a MESMA origem (`status_ia`), e o log não
+   * distinguia o disparo diário de um clique. Nada aqui é conteúdo.
+   */
+  gatilho?: Gatilho | null;
 }
 
 /**

@@ -2527,7 +2527,11 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         await getVerifiedAccount(input.accountId, ctx.user.id);
         try {
-          return await refreshAccountAiStatus(input.accountId, ctx.user.id, { adhocContexto: input.contexto });
+          // `forcar`: é o botão Atualizar. O guarda de frescor existe para
+          // suprimir a repetição automática, não para recusar um pedido.
+          return await refreshAccountAiStatus(input.accountId, ctx.user.id, {
+            adhocContexto: input.contexto, forcar: true,
+          });
         } catch (e) {
           const cru = (e as Error)?.message ?? "";
           const { sanitizar } = await import("./services/instagram");
@@ -2612,7 +2616,7 @@ export const appRouter = router({
       let ok = 0;
       for (const c of contas) {
         try {
-          await refreshAccountAiStatus(c.id, (c as any).userId ?? ctx.user.id);
+          await refreshAccountAiStatus(c.id, (c as any).userId ?? ctx.user.id, { forcar: true });
           ok++;
         } catch (e) {
           console.warn(`[refreshAllStatus] falhou para conta ${c.id}:`, e);

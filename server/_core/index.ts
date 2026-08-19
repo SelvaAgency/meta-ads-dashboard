@@ -11,6 +11,7 @@ import { registerSocialOAuthRoutes } from "../socialOAuthRoutes";
 import { registerUploadRoutes } from "../uploadsRoutes";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { sdk } from "./sdk";
 import { serveStatic, setupVite } from "./vite";
 import { startAutoSync } from "../autoSync";
 
@@ -110,10 +111,40 @@ async function startServer() {
     }
   });
 
-  // Force sync all accounts immediately (fire-and-forget)
+  /**
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Sync sob demanda — da equipe, e não do mundo
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Este endpoint estava PÚBLICO: um POST anônimo sincronizava todas as contas
+   *  e, na versão antiga, gerava uma chamada ao modelo para cada uma. Custo e
+   *  superfície de ataque na mesma linha.
+   *
+   *  ── Autenticado, e não restrito ────────────────────────────────────────────
+   *  Qualquer pessoa logada continua podendo disparar. Sincronizar dados antes
+   *  de uma reunião é uso legítimo e frequente, e trancar isso em admin/dev
+   *  resolveria o custo tirando a ferramenta de quem trabalha com ela.
+   *
+   *  A contenção de custo mora em outro lugar: `refreshAccountAiStatus` decide
+   *  sozinho se a análise precisa ser regerada. Sincronizar deixou de significar
+   *  chamar a IA — que é a separação inteira desta frente.
+   *
+   *  ── Autenticação existente, e não uma paralela ────────────────────────────
+   *  `sdk.authenticateRequest` é o mesmo caminho que o contexto do tRPC usa.
+   *  Um segundo mecanismo aqui divergiria do primeiro no dia em que a sessão
+   *  mudasse, e divergiria em silêncio.
+   */
   app.post("/api/sync-now", async (req, res) => {
+    const user = await sdk.authenticateRequest(req).catch(() => null);
+    if (!user) {
+      return res.status(401).json({ ok: false, error: "Autenticação necessária." });
+    }
     const { syncAllAccounts } = await import("../autoSync");
-    syncAllAccounts().catch(console.error);
+    // Fire-and-forget de propósito: o ciclo leva minutos e a resposta não pode
+    // esperar por ele. Quem disparou vai para o log e para o registro de cada
+    // geração de IA — é assim que "quem pediu isso?" passa a ter resposta.
+    syncAllAccounts("manual", {
+      tipo: "user", id: user.id, nome: user.name, papel: user.role,
+    }).catch(console.error);
     res.json({ ok: true, message: "Sync iniciado" });
   });
 

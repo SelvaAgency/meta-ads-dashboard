@@ -2000,9 +2000,38 @@ export const aiGeracoes = mysqlTable("ai_geracoes", {
   duracaoMs: int("duracaoMs"),
   tokensEntrada: int("tokensEntrada"),
   tokensSaida: int("tokensSaida"),
+
+  /*
+   * ── O gatilho: quem PEDIU esta chamada ────────────────────────────────────
+   * `origem` diz o que a chamada faz; isto diz por que ela aconteceu. Sete
+   * caminhos diferentes gravavam `origem: "status_ia"`, e o log não distinguia
+   * o cron de um clique de um deploy.
+   *
+   * Nenhum destes campos toca conteúdo: não há prompt, resposta ou dado de
+   * cliente aqui — só causalidade.
+   */
+
+  /** `scheduled` · `manual` · `system` · `unknown`. Ver shared/gatilhoDaIA. */
+  triggerType: varchar("triggerType", { length: 16 }),
+  /** A rotina exata: `runAutoSync`, `refreshAllStatus`, `syncAccount`. */
+  triggerSource: varchar("triggerSource", { length: 64 }),
+  /** O nome amigável, para a tela não precisar de um mapa próprio. */
+  triggerLabel: varchar("triggerLabel", { length: 96 }),
+  actorType: varchar("actorType", { length: 8 }),
+  actorId: int("actorId"),
+  /**
+   * O nome de quem disparou, guardado apesar de resolvível pelo id.
+   *
+   * Colaborador desativado ou renomeado deixaria o histórico com "usuário 7", e
+   * o log de causalidade perderia justamente a resposta que existe para dar.
+   */
+  actorName: varchar("actorName", { length: 120 }),
+  actorRole: varchar("actorRole", { length: 24 }),
+
   criadoEm: timestamp("criadoEm").defaultNow().notNull(),
 }, (table) => ({
   idxQuando: index("idx_ai_geracoes_quando").on(table.criadoEm),
   idxOrigem: index("idx_ai_geracoes_origem").on(table.origem, table.criadoEm),
   idxConta: index("idx_ai_geracoes_conta").on(table.accountId, table.criadoEm),
+  idxGatilho: index("idx_ai_geracoes_gatilho").on(table.triggerType, table.criadoEm),
 }));
