@@ -669,17 +669,44 @@ function EntradaVersusSaida({ totais, dias }: {
  * escapam da instrumentação.
  */
 function SpacesVersusApi({ periodo }: { periodo: string }) {
+  const [relatorio, setRelatorio] = useState<string | null>(null);
+  const sondar = trpc.accounts.sondarAnthropic.useMutation({
+    onSuccess: (r) => setRelatorio(r.texto),
+    onError: (e) => setRelatorio(`Falhou: ${e.message}`),
+  });
+
   return (
-    <Bloco titulo="Spaces × Claude API" nota={`período ${periodo}`}>
-      <div className="rounded-[14px] border border-dashed border-border px-4 py-4">
-        <p className="text-[12.5px] font-medium">Dados da Claude API ainda não conectados.</p>
-        <p className="text-[11px] text-muted-foreground leading-snug mt-1.5 max-w-[60ch]">
-          Quando a Admin API da Anthropic estiver ligada, esta comparação mostra chamadas, entrada,
-          saída e total dos dois lados — e a diferença entre eles. É ela que revela chamada não
-          contabilizada, uso fora do Spaces ou duplicação; por isso a coluna da direita fica vazia
-          em vez de repetir a da esquerda.
-        </p>
-      </div>
+    <Bloco titulo="Spaces × Claude API" nota={`período ${periodo}`}
+      acao={
+        <button type="button" onClick={() => sondar.mutate()} disabled={sondar.isPending}
+          className="text-[10px] px-2.5 py-1 rounded-md border border-border text-muted-foreground
+                     hover:text-foreground hover:bg-foreground/[0.04] transition-colors duration-150
+                     disabled:opacity-60">
+          {sondar.isPending ? "Sondando…" : "Sondar Admin API"}
+        </button>
+      }>
+      {!relatorio && (
+        <div className="rounded-[14px] border border-dashed border-border px-4 py-4">
+          <p className="text-[12.5px] font-medium">Integração ainda não validada contra a API real.</p>
+          <p className="text-[11px] text-muted-foreground leading-snug mt-1.5 max-w-[62ch]">
+            A chave já está no servidor, mas os campos que esta organização devolve ainda não foram
+            medidos — e a doc descreve o contrato, não a conta. A sondagem faz uma chamada real ao
+            uso e ao custo e mostra exatamente o que chegou, sem gravar nada. É o retorno dela que
+            define o que a comparação pode afirmar.
+          </p>
+          <p className="text-[11px] text-muted-foreground leading-snug mt-2">
+            Uma coisa já é certa pela documentação: a Anthropic <strong>não informa número de
+            chamadas</strong>. Esse número continua vindo só de <span className="font-mono">ai_geracoes</span>,
+            e a comparação será de tokens e custo.
+          </p>
+        </div>
+      )}
+      {relatorio && (
+        <pre className="text-[10.5px] leading-[1.5] font-mono bg-muted/40 rounded-[12px] p-3.5
+                        max-h-[460px] overflow-auto whitespace-pre-wrap">
+          {relatorio}
+        </pre>
+      )}
     </Bloco>
   );
 }

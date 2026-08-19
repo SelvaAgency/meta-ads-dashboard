@@ -2546,6 +2546,23 @@ export const appRouter = router({
       }),
 
     /**
+     * Sondagem da Admin API da Anthropic — o que ela REALMENTE devolve.
+     *
+     * Só medição: não grava nada e não altera a página. Existe porque a doc
+     * descreve o contrato e a conta descreve a realidade — um campo documentado
+     * pode vir ausente nesta organização, e implementar contra a doc para
+     * descobrir isso em produção é o caminho para uma tela que mostra
+     * `undefined` com cara de zero.
+     *
+     * A chave nunca aparece no retorno: o relatório traz nomes de campo e
+     * valores agregados, e toda mensagem de erro passa por `sanitizar`.
+     */
+    sondarAnthropic: contentProcedure.mutation(async () => {
+      const { sondarAnthropic } = await import("./services/sondagemAnthropic");
+      return sondarAnthropic();
+    }),
+
+    /**
      * Quanto o Spaces gastou de IA no período, em todos os recortes da página.
      *
      * Contagem e custo, nunca conteúdo: nem prompt, nem resposta, nem dado de

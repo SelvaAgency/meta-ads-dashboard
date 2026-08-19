@@ -4,6 +4,18 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   // Anthropic API (replaces Forge/Manus LLM proxy)
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
+  /**
+   * Chave da Admin API (`sk-ant-admin01-…`) — uso e custo da ORGANIZAÇÃO.
+   *
+   * Separada de `anthropicApiKey` de propósito, e nunca intercambiável: são
+   * credenciais de poder diferente. Reaproveitar uma pela outra daria à geração
+   * de texto acesso administrativo, ou faria o relatório de custo falhar com
+   * 401 sem que ninguém entendesse por quê.
+   *
+   * Vazia quando não configurada — e aí a integração se declara desligada em
+   * vez de tentar e falhar.
+   */
+  anthropicAdminKey: process.env.ANTHROPIC_ADMIN_KEY ?? "",
   // App URL for email links (e.g. https://app.selvadash.com.br)
   appUrl: process.env.APP_URL ?? "http://localhost:3000",
   // Local admin credentials
