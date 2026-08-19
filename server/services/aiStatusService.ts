@@ -111,6 +111,9 @@ ${JSON.stringify(dados)}`;
 
   const result = await invokeLLM({
     origem: "status_ia",
+    // A conta que motivou a chamada — vira o ranking por cliente no painel
+    // de consumo. Sem ela, esta origem apareceria como "sem cliente".
+    accountId: accountId,
     messages: [{ role: "user", content: prompt }],
     responseFormat: { type: "json_object" },
     thinking: false,

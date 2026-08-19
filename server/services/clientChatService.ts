@@ -83,7 +83,10 @@ export async function perguntarSobreCliente(
 
   try {
     const resp = await invokeLLM({
-    origem: "chat_cliente", messages, maxTokens: 1500 });
+    origem: "chat_cliente",
+    // A conta que motivou a chamada — vira o ranking por cliente no painel
+    // de consumo. Sem ela, esta origem apareceria como "sem cliente".
+    accountId: accountId, messages, maxTokens: 1500 });
     const texto = extractTextContent(resp).trim();
     if (!texto) throw new Error("resposta vazia");
     return { resposta: texto, fontes };

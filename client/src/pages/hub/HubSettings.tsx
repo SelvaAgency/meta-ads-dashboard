@@ -26,7 +26,6 @@ import {
   PencilRuler,
 } from "lucide-react";
 import { Link } from "wouter";
-import { ConsumoDeIA } from "@/components/ConsumoDeIA";
 import { urlDoShellPara } from "./trackerRoutes";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -582,10 +581,25 @@ export default function HubSettings() {
               <NewsAdminSection />
               <SelvaTVAdminSection storageConfigured={storage.data?.configured ?? false} />
 
-              {/* Consumo de IA: mesma allowlist que a procedure (`contentProcedure`
-                  = admin ou dev). Mostrar o painel para quem o servidor recusa
-                  seria um bloco que carrega vazio e parece quebrado. */}
-              <ConsumoDeIA />
+              {/* O ÚNICO acesso visível ao Rascunho.
+                  Ele não entra na navegação principal: é bancada de peças fora
+                  de produção, e um item de menu a faria parecer tela oficial. O
+                  bloco já é admin/dev — a mesma allowlist que a rota exige, e
+                  um link que leva a "sem acesso" ensina a ignorar links. */}
+              <Link href={urlDoShellPara("/rascunho", "")}
+                className="rounded-xl border border-dashed border-border bg-card px-4 py-3
+                           flex items-center gap-3 hover:border-accent transition-colors duration-150">
+                <span className="w-8 h-8 rounded-lg bg-muted grid place-items-center flex-shrink-0">
+                  <PencilRuler className="w-4 h-4 text-muted-foreground" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">Rascunho</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Peças fora de produção, montadas com dado real. Não aparece para cliente.
+                  </span>
+                </span>
+              </Link>
+
 
             </>
           )}

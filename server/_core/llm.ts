@@ -70,6 +70,12 @@ export type InvokeParams = {
    * funcionalidade está gastando.
    */
   origem?: string;
+  /**
+   * A conta que motivou a chamada — vira o ranking "clientes que mais
+   * consomem". Deixe fora quando a chamada for da agência inteira: o painel
+   * mostra "Global / sem cliente", e forçar uma conta inventaria um culpado.
+   */
+  accountId?: number | null;
   /** Override the default model (claude-sonnet-4-6). Use sparingly — only for tasks that require higher precision. */
   model?: string;
   /**
@@ -350,10 +356,18 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
    * Sem `await`: a resposta do modelo não espera a contabilidade, e uma falha
    * de escrita não pode derrubar a geração que ela só deveria contar.
    */
-  const contar = (ok: boolean, uso?: { entrada?: number | null; saida?: number | null }) => {
+  const contar = (
+    ok: boolean,
+    uso?: { entrada?: number | null; saida?: number | null; modelo?: string | null },
+  ) => {
     void import("../services/consumoIA")
       .then((m) => m.registrarGeracao({
         origem, ok, ms: Date.now() - inicio,
+        accountId: params.accountId ?? null,
+        // O modelo vem da RESPOSTA, e não do payload: o pedido manda um nome, e
+        // quem respondeu pode ser outro (alias, roteamento). O painel precisa do
+        // que cobrou, não do que foi pedido.
+        modelo: uso?.modelo ?? params.model ?? null,
         tokensEntrada: uso?.entrada ?? null,
         tokensSaida: uso?.saida ?? null,
       }))
@@ -362,7 +376,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   try {
     const r = await invocarModelo(params);
-    contar(true, { entrada: r.usage?.prompt_tokens, saida: r.usage?.completion_tokens });
+    contar(true, {
+      entrada: r.usage?.prompt_tokens,
+      saida: r.usage?.completion_tokens,
+      modelo: r.model,
+    });
     return r;
   } catch (e) {
     // Falha também custa: a chamada saiu, o modelo pode ter processado, e uma

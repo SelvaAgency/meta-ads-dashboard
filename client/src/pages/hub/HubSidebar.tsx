@@ -40,7 +40,7 @@ import {
   ScrollText,
   ExternalLink,
   Users,
-  PencilRuler,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import { SelvaLogo } from "@/components/SelvaLogo";
@@ -140,21 +140,19 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Propostas", icon: ScrollText, kind: "placeholder" },
       { label: "Colaboradores", icon: Users, kind: "internal", href: "/people" },
       /**
-       * A bancada de peças fora de produção.
+       * Consumo de IA — gasto do próprio Spaces.
        *
-       * Mora no grupo restrito com `liberadoPara`, e não com `livre`: a página é
-       * de admin E dev, e o grupo é só de admin. `livre` abriria para o
+       * Mora no grupo restrito com `liberadoPara`, e não com `livre`: a página
+       * é de admin E dev, e o grupo é só de admin. `livre` abriria para o
        * colaborador também — que a rota recusa, e um link que leva a "sem
        * acesso" ensina a ignorar links. A função é a MESMA que a rota usa.
        *
-       * `kind: "app"` porque `/rascunho` é rota CRUA do Tracker — ela renderiza
-       * dentro do shell. O `href` aponta para a rota crua, e não para
-       * `/tracker?rota=…`: quem chega no topo é redirecionado por `Interna`, que
-       * é o mesmo caminho de todo deep-link de alerta. Apontar direto para o
-       * shell abreviaria um salto e quebraria o destaque do item ativo, que
-       * compara `location === href`.
+       * O Rascunho NÃO está aqui, e é de propósito: ele é bancada de peças fora
+       * de produção, alcançável pela rota e pelo atalho em Configurações. Uma
+       * ferramenta do produto e uma bancada de experimentos não dividem lugar na
+       * navegação — misturá-las faz a segunda parecer parte da primeira.
        */
-      { label: "Rascunho", icon: PencilRuler, kind: "app", href: "/rascunho", liberadoPara: canManageContent },
+      { label: "Consumo de IA", icon: Sparkles, kind: "app", href: "/consumo-ia", liberadoPara: canManageContent },
     ],
   },
 ];

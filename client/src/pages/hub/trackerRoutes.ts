@@ -47,6 +47,8 @@ export const ROTAS_INTERNAS = [
    * acesso trocaria um caminho quebrado por um buraco de segurança.
    */
   "/rascunho",
+  /** Consumo de IA — página de Administrador, admin e dev. */
+  "/consumo-ia",
   // Configurações do Tracker — é onde o hub de Conexões mora. Precisa estar na
   // allowlist porque as rotas aposentadas (/google-ads, /ga4, /lojas) mandam
   // para cá pelo shell: /tracker?rota=/settings&painel=conexoes.

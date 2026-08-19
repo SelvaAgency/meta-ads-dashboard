@@ -1614,6 +1614,26 @@ async function main() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · ai_geracoes garantida");
 
+    // Metadados que entraram depois. `null` nas linhas antigas é o certo: elas
+    // foram gravadas sem esses campos, e preencher agora inventaria origem.
+    for (const [coluna, tipo] of [["accountId", "INT"], ["modelo", "VARCHAR(64)"]]) {
+      const [existe] = await conn.query(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ai_geracoes' AND column_name = ?",
+        [coluna],
+      );
+      if (existe.length === 0) {
+        await conn.query(`ALTER TABLE \`ai_geracoes\` ADD COLUMN \`${coluna}\` ${tipo} NULL`);
+        console.log(`[ensure-schema] ok  · ai_geracoes.${coluna} adicionada`);
+      }
+    }
+    const [idxConta] = await conn.query(
+      "SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'ai_geracoes' AND index_name = 'idx_ai_geracoes_conta' LIMIT 1",
+    );
+    if (idxConta.length === 0) {
+      await conn.query("ALTER TABLE `ai_geracoes` ADD INDEX `idx_ai_geracoes_conta` (`accountId`, `criadoEm`)");
+      console.log("[ensure-schema] ok  · índice ai_geracoes por conta");
+    }
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

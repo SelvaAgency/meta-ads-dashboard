@@ -6711,12 +6711,15 @@ export async function contextoDeAchadoMaisRecente(accountId: number): Promise<Da
  */
 export async function registrarGeracaoIA(r: {
   origem: string; ok: boolean; ms: number;
+  accountId?: number | null; modelo?: string | null;
   tokensEntrada?: number | null; tokensSaida?: number | null;
 }) {
   const db = await getDb();
   if (!db) return;
   await db.insert(aiGeracoes).values({
     origem: r.origem.slice(0, 32),
+    accountId: r.accountId ?? null,
+    modelo: r.modelo?.slice(0, 64) ?? null,
     ok: r.ok,
     duracaoMs: Math.round(r.ms),
     tokensEntrada: r.tokensEntrada ?? null,
@@ -6725,41 +6728,99 @@ export async function registrarGeracaoIA(r: {
 }
 
 /**
- * O consumo dos últimos N dias, agrupado por origem e por dia.
+ * O consumo de um período, em todos os recortes que a página lê.
  *
- * Devolve CONTAGEM e tokens — nunca conteúdo. É o suficiente para responder
- * "o que está gastando" sem abrir nada de cliente nenhum.
+ * Uma consulta por recorte, e não uma tabela crua agregada no cliente: são
+ * dezenas de milhares de linhas no futuro, e o `GROUP BY` do banco existe
+ * exatamente para isso. O cliente recebe o que já é leitura.
+ *
+ * `medindoDesde` vem de uma consulta própria e IGNORA o período: a página
+ * precisa saber desde quando existe medição para não desenhar "30 dias" sobre
+ * três — e essa data não muda com o filtro.
  */
-export async function consumoDeIA(dias = 14) {
+export async function consumoDeIA(inicio: string, fim: string) {
   const db = await getDb();
-  if (!db) return { porOrigem: [], porDia: [], total: 0, falhas: 0 };
-  const desde = new Date(Date.now() - dias * 86_400_000);
+  const vazio = {
+    porOrigem: [], porDia: [], porCliente: [], porModelo: [],
+    maiores: [], recentes: [], medindoDesde: null as string | null,
+  };
+  if (!db) return vazio;
 
-  const porOrigem = await db
-    .select({
+  const de = new Date(`${inicio}T00:00:00.000Z`);
+  const ate = new Date(`${fim}T23:59:59.999Z`);
+  const noPeriodo = and(gte(aiGeracoes.criadoEm, de), lte(aiGeracoes.criadoEm, ate));
+
+  const [porOrigem, porDia, porCliente, porModelo, maiores, recentes, primeira] = await Promise.all([
+    db.select({
       origem: aiGeracoes.origem,
       chamadas: sql<number>`COUNT(*)`,
       falhas: sql<number>`SUM(CASE WHEN ${aiGeracoes.ok} = 0 THEN 1 ELSE 0 END)`,
       tokensEntrada: sql<number>`COALESCE(SUM(${aiGeracoes.tokensEntrada}), 0)`,
       tokensSaida: sql<number>`COALESCE(SUM(${aiGeracoes.tokensSaida}), 0)`,
       duracaoMediaMs: sql<number>`COALESCE(AVG(${aiGeracoes.duracaoMs}), 0)`,
-    })
-    .from(aiGeracoes)
-    .where(gte(aiGeracoes.criadoEm, desde))
-    .groupBy(aiGeracoes.origem);
+    }).from(aiGeracoes).where(noPeriodo).groupBy(aiGeracoes.origem),
 
-  const porDia = await db
-    .select({
+    db.select({
       dia: sql<string>`DATE(${aiGeracoes.criadoEm})`,
       chamadas: sql<number>`COUNT(*)`,
+      falhas: sql<number>`SUM(CASE WHEN ${aiGeracoes.ok} = 0 THEN 1 ELSE 0 END)`,
+      tokensEntrada: sql<number>`COALESCE(SUM(${aiGeracoes.tokensEntrada}), 0)`,
       tokensSaida: sql<number>`COALESCE(SUM(${aiGeracoes.tokensSaida}), 0)`,
-    })
-    .from(aiGeracoes)
-    .where(gte(aiGeracoes.criadoEm, desde))
-    .groupBy(sql`DATE(${aiGeracoes.criadoEm})`)
-    .orderBy(sql`DATE(${aiGeracoes.criadoEm})`);
+    }).from(aiGeracoes).where(noPeriodo)
+      .groupBy(sql`DATE(${aiGeracoes.criadoEm})`).orderBy(sql`DATE(${aiGeracoes.criadoEm})`),
 
-  const total = porOrigem.reduce((n, o) => n + Number(o.chamadas ?? 0), 0);
-  const falhas = porOrigem.reduce((n, o) => n + Number(o.falhas ?? 0), 0);
-  return { porOrigem, porDia, total, falhas, dias };
+    // `LEFT JOIN`: a linha sem conta é o jornalzinho e a consolidação, e ela
+    // PRECISA aparecer — como "Global", que é resposta e não lacuna.
+    db.select({
+      accountId: aiGeracoes.accountId,
+      nome: metaAdAccounts.accountName,
+      chamadas: sql<number>`COUNT(*)`,
+      tokensEntrada: sql<number>`COALESCE(SUM(${aiGeracoes.tokensEntrada}), 0)`,
+      tokensSaida: sql<number>`COALESCE(SUM(${aiGeracoes.tokensSaida}), 0)`,
+    }).from(aiGeracoes)
+      .leftJoin(metaAdAccounts, eq(aiGeracoes.accountId, metaAdAccounts.id))
+      .where(noPeriodo)
+      .groupBy(aiGeracoes.accountId, metaAdAccounts.accountName),
+
+    db.select({
+      modelo: aiGeracoes.modelo,
+      chamadas: sql<number>`COUNT(*)`,
+      tokensEntrada: sql<number>`COALESCE(SUM(${aiGeracoes.tokensEntrada}), 0)`,
+      tokensSaida: sql<number>`COALESCE(SUM(${aiGeracoes.tokensSaida}), 0)`,
+    }).from(aiGeracoes).where(noPeriodo).groupBy(aiGeracoes.modelo),
+
+    // As maiores chamadas — para investigação rápida. Sem conteúdo nenhum.
+    db.select({
+      id: aiGeracoes.id, origem: aiGeracoes.origem, accountId: aiGeracoes.accountId,
+      nome: metaAdAccounts.accountName, modelo: aiGeracoes.modelo,
+      tokensEntrada: aiGeracoes.tokensEntrada, tokensSaida: aiGeracoes.tokensSaida,
+      duracaoMs: aiGeracoes.duracaoMs, ok: aiGeracoes.ok, criadoEm: aiGeracoes.criadoEm,
+    }).from(aiGeracoes)
+      .leftJoin(metaAdAccounts, eq(aiGeracoes.accountId, metaAdAccounts.id))
+      .where(noPeriodo)
+      .orderBy(desc(sql`COALESCE(${aiGeracoes.tokensEntrada},0) + COALESCE(${aiGeracoes.tokensSaida},0)`))
+      .limit(5),
+
+    // O detalhamento. Teto de 300: a tabela é para investigar, não para exportar
+    // o banco — e uma página que baixa 50 mil linhas trava no navegador.
+    db.select({
+      id: aiGeracoes.id, origem: aiGeracoes.origem, accountId: aiGeracoes.accountId,
+      nome: metaAdAccounts.accountName, modelo: aiGeracoes.modelo,
+      tokensEntrada: aiGeracoes.tokensEntrada, tokensSaida: aiGeracoes.tokensSaida,
+      duracaoMs: aiGeracoes.duracaoMs, ok: aiGeracoes.ok, criadoEm: aiGeracoes.criadoEm,
+    }).from(aiGeracoes)
+      .leftJoin(metaAdAccounts, eq(aiGeracoes.accountId, metaAdAccounts.id))
+      .where(noPeriodo)
+      .orderBy(desc(aiGeracoes.criadoEm))
+      .limit(300),
+
+    db.select({ quando: sql<string>`DATE(MIN(${aiGeracoes.criadoEm}))` }).from(aiGeracoes),
+  ]);
+
+  return {
+    porOrigem, porDia, porCliente, porModelo, maiores, recentes,
+    medindoDesde: (primeira[0]?.quando as string | null) ?? null,
+  };
 }
+
+

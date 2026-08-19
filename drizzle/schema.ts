@@ -1987,6 +1987,14 @@ export const aiGeracoes = mysqlTable("ai_geracoes", {
   id: int("id").autoincrement().primaryKey(),
   /** `status_ia`, `briefing`, `relatorio`… — ver `OrigemDaGeracao`. */
   origem: varchar("origem", { length: 32 }).notNull(),
+  /**
+   * A conta que motivou a chamada. `null` é RESPOSTA, não lacuna: o jornalzinho
+   * é uma narrativa da agência inteira e a consolidação semanal não tem conta
+   * nenhuma em escopo. Atribuí-las a um cliente qualquer inventaria um culpado.
+   */
+  accountId: int("accountId"),
+  /** O modelo que respondeu — vem da própria resposta da Anthropic. */
+  modelo: varchar("modelo", { length: 64 }),
   /** `false` quando o modelo recusou ou a rede caiu. Falha também custa. */
   ok: boolean("ok").notNull().default(true),
   duracaoMs: int("duracaoMs"),
@@ -1996,4 +2004,5 @@ export const aiGeracoes = mysqlTable("ai_geracoes", {
 }, (table) => ({
   idxQuando: index("idx_ai_geracoes_quando").on(table.criadoEm),
   idxOrigem: index("idx_ai_geracoes_origem").on(table.origem, table.criadoEm),
+  idxConta: index("idx_ai_geracoes_conta").on(table.accountId, table.criadoEm),
 }));

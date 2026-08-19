@@ -166,6 +166,9 @@ export async function gerarRelatorioModular(
   try {
     const resp = await invokeLLM({
     origem: "relatorio",
+    // A conta que motivou a chamada — vira o ranking por cliente no painel
+    // de consumo. Sem ela, esta origem apareceria como "sem cliente".
+    accountId: accountId,
       messages: [{ role: "user", content: `${SISTEMA}\n\n════ DOSSIÊ ════\n${dossie}${blocoContaAgencia}${extra}\n════ FIM ════` }],
       // 4000: o teto antigo de 1600 cortava o JSON no meio e o parse falhava em
       // silêncio, fazendo o relatório parecer vazio em vez de quebrado.

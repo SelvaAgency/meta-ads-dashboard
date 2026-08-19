@@ -154,6 +154,9 @@ export async function gerarSiteReport(accountId: number, nomeConta: string, inic
   try {
     const resp = await invokeLLM({
     origem: "relatorio_site",
+    // A conta que motivou a chamada — vira o ranking por cliente no painel
+    // de consumo. Sem ela, esta origem apareceria como "sem cliente".
+    accountId: accountId,
       messages: [{ role: "user", content: prompt }],
       // Um diagnóstico completo passa de 6k caracteres. Com o teto antigo (1600)
       // o JSON era cortado no meio, o parse quebrava e caía no fallback sem que

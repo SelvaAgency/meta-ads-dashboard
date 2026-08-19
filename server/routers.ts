@@ -2546,15 +2546,16 @@ export const appRouter = router({
       }),
 
     /**
-     * Quanto o Spaces gastou de IA, por origem e por dia.
+     * Quanto o Spaces gastou de IA no período, em todos os recortes da página.
      *
      * Contagem e custo, nunca conteúdo: nem prompt, nem resposta, nem dado de
      * cliente. É o suficiente para responder "o que está gastando" sem abrir
-     * nada de ninguém.
+     * nada de ninguém — e é o teto do que esta procedure pode devolver, porque
+     * é o teto do que a tabela guarda.
      */
     consumoIA: contentProcedure
-      .input(z.object({ dias: z.number().int().min(1).max(90).default(14) }).optional())
-      .query(({ input }) => consumoDeIA(input?.dias ?? 14)),
+      .input(z.object({ startDate: z.string(), endDate: z.string() }))
+      .query(({ input }) => consumoDeIA(input.startDate, input.endDate)),
 
     /** Reanalisa o status da IA de TODAS as contas ativas (admin). Sequencial e
      *  com throttle para não estourar o rate limit do LLM. */

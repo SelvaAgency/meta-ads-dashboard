@@ -243,32 +243,51 @@ describe("ferramentas internas: admin e dev, e ninguém mais", () => {
   });
 
   /**
-   * O item da sidebar mora num grupo só-admin. Sem permissão própria, o dev
-   * levaria cadeado numa página que ele PODE abrir; com `livre`, o colaborador
-   * veria um link clicável que a rota recusa. Por isso ele carrega a MESMA
-   * função da rota.
+   * As duas ferramentas ocupam lugares DIFERENTES, e isso é decisão:
+   *
+   *   Consumo de IA  → navegação, no grupo restrito. É ferramenta do produto.
+   *   Rascunho       → fora da navegação. É bancada de peças fora de produção,
+   *                    e um item de menu a faria parecer tela oficial.
+   *
+   * O item de Consumo mora num grupo só-admin, então carrega `liberadoPara` com
+   * a MESMA função da rota: sem isso o dev levaria cadeado numa página que pode
+   * abrir; com `livre`, o colaborador veria um link que a rota recusa.
    */
-  it("o item da sidebar carrega o mesmo predicado da rota", () => {
+  it("Consumo de IA está na navegação, com o predicado da rota", () => {
     const s = fonte("../client/src/pages/hub/HubSidebar.tsx");
-    expect(s).toMatch(/label: "Rascunho"[^}]*liberadoPara: canManageContent/);
-    expect(s, "o Rascunho virou livre e abriu para o colaborador")
-      .not.toMatch(/label: "Rascunho"[^}]*livre: true/);
-    // E o render respeita a permissão do item dentro do grupo bloqueado.
+    expect(s).toMatch(/label: "Consumo de IA"[^}]*liberadoPara: canManageContent/);
+    expect(s, "virou livre e abriu para o colaborador")
+      .not.toMatch(/label: "Consumo de IA"[^}]*livre: true/);
     expect(s).toContain("item.livre || item.liberadoPara?.(papel)");
   });
 
-  /** Consumo de IA: procedure e tela pela mesma allowlist. */
-  it("o consumo de IA é contentProcedure, e o painel mora onde o dev alcança", () => {
+  it("o Rascunho NÃO está na navegação, e continua alcançável", () => {
+    expect(fonte("../client/src/pages/hub/HubSidebar.tsx")).not.toContain('label: "Rascunho"');
+    // O acesso sobrevive pelo atalho de Configurações, que já é admin/dev.
+    expect(fonte("../client/src/pages/hub/HubSettings.tsx")).toContain("/rascunho");
+  });
+
+  /** Página, procedure e rota interna pela mesma allowlist. */
+  it("o consumo de IA é contentProcedure e página própria", () => {
     const rotas = fonte("./routers.ts");
-    const bloco = rotas.slice(rotas.indexOf("consumoIA:"), rotas.indexOf("consumoIA:") + 200);
+    const de = rotas.indexOf("consumoIA:");
+    const bloco = rotas.slice(de, rotas.indexOf("refreshAllStatus:", de));
     expect(bloco).toContain("contentProcedure");
     expect(bloco, "voltou a ser só-admin").not.toContain("adminProcedure");
 
-    // O painel saiu da página Administrativo (só-admin) para Configurações,
-    // dentro do bloco que já é admin+dev.
-    expect(fonte("../client/src/pages/Admin.tsx"), "o painel voltou para a página só-admin")
-      .not.toContain("ConsumoDeIA");
-    expect(fonte("../client/src/pages/hub/HubSettings.tsx")).toContain("<ConsumoDeIA />");
+    const pagina = fonte("../client/src/pages/ConsumoIA.tsx");
+    expect(pagina).toContain("canManageContent(");
+    expect(pagina).toContain("<SemAcessoTracker");
+
+    // A rota crua precisa estar na allowlist do shell, senão cai no Tracker
+    // genérico sem erro nenhum — a quebra silenciosa de sempre.
+    expect(fonte("../client/src/pages/hub/trackerRoutes.ts")).toContain('"/consumo-ia"');
+  });
+
+  /** A página Administrativo não carrega mais o painel — ele tem casa própria. */
+  it("o painel antigo saiu de Configurações e da página Administrativo", () => {
+    expect(fonte("../client/src/pages/Admin.tsx")).not.toContain("ConsumoDeIA");
+    expect(fonte("../client/src/pages/hub/HubSettings.tsx")).not.toContain("<ConsumoDeIA />");
   });
 
   /** A página Administrativo continua só-admin — nada ali foi afrouxado. */

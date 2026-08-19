@@ -35,6 +35,13 @@ export type OrigemDaGeracao =
 
 export interface RegistroDeGeracao {
   /**
+   * A conta que motivou a chamada. `null` quando não HÁ conta — jornalzinho e
+   * consolidação são da agência inteira. `null` é resposta, não lacuna.
+   */
+  accountId?: number | null;
+  /** O modelo que respondeu, vindo da própria resposta da Anthropic. */
+  modelo?: string | null;
+  /**
    * `string` e não a união: `invokeLLM` é infraestrutura e não deve conhecer o
    * catálogo de funcionalidades. `OrigemDaGeracao` continua sendo a lista
    * CANÔNICA — quem escreve um chamador novo consulta ela para escolher o nome,

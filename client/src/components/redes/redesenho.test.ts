@@ -615,12 +615,19 @@ describe("o cabeçalho executivo continua montado no Rascunho", () => {
     expect(s, "a checagem virou forma negativa").not.toMatch(/role\s*!==\s*"user"/);
   });
 
-  /** E o item da sidebar não pode ser `livre`: livre fura o cadeado do grupo. */
-  it("o item da sidebar respeita o cadeado do grupo restrito", () => {
+  /**
+   * O Rascunho NÃO fica na sidebar.
+   *
+   * Ele é bancada de peças fora de produção, e a navegação do Spaces é do
+   * produto. Misturar as duas faz a bancada parecer parte do produto — e um
+   * colaborador que vê o item conclui que aquilo é uma tela oficial. O acesso
+   * continua existindo pela rota e pelo atalho em Configurações.
+   */
+  it("o Rascunho não aparece na navegação principal", () => {
     const s = fonte("../../pages/hub/HubSidebar.tsx");
-    expect(s).toMatch(/label: "Rascunho"[^}]*href: "\/rascunho"/);
-    expect(s, "o Rascunho voltou a ser livre no grupo restrito")
-      .not.toMatch(/label: "Rascunho"[^}]*livre: true/);
+    expect(s, "o Rascunho voltou para a sidebar").not.toContain('label: "Rascunho"');
+    // E continua alcançável pelo atalho de Configurações, que é admin/dev.
+    expect(fonte("../../pages/hub/HubSettings.tsx")).toContain("/rascunho");
   });
 
   /** A peça lê dado real: um rascunho com número fictício não ensina nada. */

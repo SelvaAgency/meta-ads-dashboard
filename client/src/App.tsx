@@ -3,6 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import RedesSociais from "@/pages/RedesSociais";
 import Rascunho from "@/pages/Rascunho";
+import ConsumoIA from "@/pages/ConsumoIA";
 import { Route, Switch, useRoute } from "wouter";
 import Settings from "./pages/Settings";
 import { useEffect } from "react";
@@ -187,6 +188,14 @@ function Router() {
         sobre como a peça se comporta.
       */}
       <Route path="/rascunho" component={() => <Interna><Rascunho /></Interna>} />
+      {/*
+        `/consumo-ia` — a gestão de gasto do próprio Spaces.
+
+        Interna como as outras do Tracker, e por isso também na allowlist de
+        `trackerRoutes`. Diferente do Rascunho, ela APARECE na navegação: é
+        ferramenta do produto, e não bancada de peças fora de produção.
+      */}
+      <Route path="/consumo-ia" component={() => <Interna><ConsumoIA /></Interna>} />
       <Route path="/experiments" component={() => <Interna><Experiments /></Interna>} />
       <Route path="/experiments/:id" component={() => <Interna><ExperimentDetail /></Interna>} />
 
