@@ -12,9 +12,49 @@
  *
  *  Roda automaticamente antes do start (npm start) e também manualmente:
  *    npm run migrate:prod        (ou)  npm run db:ensure-schema
+ *
+ *  ── Tudo aqui tem TETO, e o motivo é um deploy real ────────────────────────
+ *  Em 19/08/2026 o Railway passou a falhar com "Failed to connect before the
+ *  deadline" — build ok, container de pé, nada escutando na porta. A causa era
+ *  a forma deste script combinada com o `start`:
+ *
+ *      node scripts/ensure-schema.mjs && NODE_ENV=production node dist/index.js
+ *
+ *  São ~130 idas ao banco ANTES de o servidor abrir a porta, e nenhuma delas
+ *  tinha limite de tempo. Uma conexão que não completa, ou um ALTER esperando
+ *  metadata lock, trava para sempre: nada escuta, o healthcheck estoura, o
+ *  container é morto, reinicia — e trava no MESMO ponto. Um laço que não sai
+ *  sozinho, e que explica por que reexecutar o mesmo commit falhava igual.
+ *
+ *  Por isso agora existem três tetos: conexão, lock e o script inteiro. Eles não
+ *  escondem falha nenhuma — ao contrário, transformam um silêncio infinito num
+ *  erro nomeado, com o passo exato onde parou. Falha continua sendo `exit 1`,
+ *  e o deploy continua sendo recusado: migration quebrada não pode passar.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import mysql from "mysql2/promise";
+
+/** Teto para abrir a conexão. Banco inacessível vira erro, e não espera eterna. */
+const TIMEOUT_CONEXAO_MS = 15_000;
+/**
+ * Teto do script inteiro.
+ *
+ * Precisa ser confortavelmente MENOR que o healthcheck do Railway: se o script
+ * estourar primeiro, o log diz onde parou; se o healthcheck estourar primeiro,
+ * o container morre sem deixar rastro — que foi o que aconteceu.
+ */
+const TIMEOUT_TOTAL_MS = 90_000;
+/** Segundos que um DDL espera por lock antes de desistir. */
+const LOCK_WAIT_S = 20;
+
+/**
+ * O passo em execução, para o timeout poder NOMEAR onde travou.
+ *
+ * Sem isto, "o script excedeu 90s" é tão inútil quanto o silêncio que ele
+ * substituiu.
+ */
+let passoAtual = "início";
+const passo = (nome) => { passoAtual = nome; };
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -51,8 +91,36 @@ async function tableExists(conn, table) {
 }
 
 async function main() {
-  const conn = await mysql.createConnection(url);
+  passo("conectar ao banco");
+  const conn = await mysql.createConnection({ uri: url, connectTimeout: TIMEOUT_CONEXAO_MS });
   try {
+    /**
+     * Os DDLs abaixo desistem do lock em vez de esperar para sempre.
+     *
+     * O padrão do MySQL para `lock_wait_timeout` é 31.536.000 segundos — um
+     * ano. Um ALTER atrás de uma transação aberta ficaria pendurado até o
+     * container ser morto, e na volta pegaria a fila de novo.
+     */
+    passo("configurar tempo de espera por lock");
+    await conn.query(`SET SESSION lock_wait_timeout = ${LOCK_WAIT_S}`).catch(() => {});
+    await conn.query(`SET SESSION innodb_lock_wait_timeout = ${LOCK_WAIT_S}`).catch(() => {});
+
+    /**
+     * Cada query passa a dizer onde está — sem tocar em 130 chamadas.
+     *
+     * Envolver o `query` da conexão é o que transforma "excedeu 90s" em "excedeu
+     * 90s em ALTER TABLE social_media_snapshots". Rotular à mão daria o mesmo
+     * resultado nos pontos que alguém lembrasse de rotular, e silêncio no
+     * primeiro que esquecesse.
+     */
+    const queryOriginal = conn.query.bind(conn);
+    conn.query = (sql, params) => {
+      const texto = typeof sql === "string" ? sql : String(sql?.sql ?? "");
+      passo(texto.replace(/\s+/g, " ").trim().slice(0, 90));
+      return queryOriginal(sql, params);
+    };
+
+    passo("identificar o banco");
     const [dbRows] = await conn.query("SELECT DATABASE() AS db");
     console.log(`[ensure-schema] Banco em uso: ${dbRows[0]?.db}`);
 
@@ -1536,7 +1604,34 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error("[ensure-schema] FALHOU:", err?.message ?? err);
-  process.exit(1);
+/**
+ * O teto do script inteiro.
+ *
+ * `Promise.race` e não `setTimeout` solto: o que importa é que o processo
+ * TERMINE com mensagem, e não que ele continue rodando em segundo plano
+ * enquanto alguém lê um erro. `unref` evita que o timer segure o processo vivo
+ * quando o `main` ganha a corrida.
+ */
+const limite = new Promise((_, rejeitar) => {
+  const t = setTimeout(
+    () => rejeitar(new Error(
+      `excedeu ${TIMEOUT_TOTAL_MS / 1000}s no passo "${passoAtual}" — provavelmente banco fora do ar ou DDL esperando lock`)),
+    TIMEOUT_TOTAL_MS,
+  );
+  t.unref?.();
 });
+
+const inicio = Date.now();
+Promise.race([main(), limite])
+  .then(() => {
+    console.log(`[ensure-schema] tempo total: ${((Date.now() - inicio) / 1000).toFixed(1)}s`);
+    process.exit(0);
+  })
+  .catch((err) => {
+    // Falha continua recusando o deploy: migration quebrada não pode passar, e
+    // manter a versão anterior no ar é o comportamento certo. O que mudou é que
+    // agora existe uma MENSAGEM, com o passo onde parou.
+    console.error(`[ensure-schema] FALHOU no passo "${passoAtual}" após ${((Date.now() - inicio) / 1000).toFixed(1)}s:`,
+      err?.message ?? err);
+    process.exit(1);
+  });
