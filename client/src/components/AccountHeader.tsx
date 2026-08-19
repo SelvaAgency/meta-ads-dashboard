@@ -347,7 +347,20 @@ export function AccountHeader({
       quickContext: resumoCtx,
     });
     utils.context.getAccount.invalidate({ accountId: selectedAccountId });
-    refreshStatus.mutate({ accountId: selectedAccountId });
+    /**
+     * Salvar contexto NÃO chama o modelo.
+     *
+     * Aqui havia `refreshStatus.mutate(...)`: cada gravação do contexto rápido
+     * disparava uma geração, inclusive as três ou quatro seguidas de quem está
+     * ajustando a frase. O gasto ficava proporcional ao número de correções de
+     * texto, que é o oposto de previsível.
+     *
+     * A vigência é DERIVADA: `analiseVigente` compara a data da análise com a do
+     * contexto, então gravar já marca a leitura como desatualizada sozinho. O
+     * aviso aparece, e a chamada acontece quando alguém clicar em Atualizar —
+     * que é quando alguém realmente quer a análise nova.
+     */
+    utils.context.analiseVigente.invalidate({ accountId: selectedAccountId });
   }
 
   function saveContext() {

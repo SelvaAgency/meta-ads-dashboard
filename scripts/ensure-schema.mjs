@@ -1598,6 +1598,22 @@ async function main() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · account_finding_context garantida");
 
+    // Contabilidade de consumo do modelo. Só contagem e custo — nunca prompt,
+    // resposta ou dado de cliente.
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`ai_geracoes\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`origem\` VARCHAR(32) NOT NULL,
+      \`ok\` BOOLEAN NOT NULL DEFAULT 1,
+      \`duracaoMs\` INT NULL,
+      \`tokensEntrada\` INT NULL,
+      \`tokensSaida\` INT NULL,
+      \`criadoEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      KEY \`idx_ai_geracoes_quando\` (\`criadoEm\`),
+      KEY \`idx_ai_geracoes_origem\` (\`origem\`, \`criadoEm\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · ai_geracoes garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

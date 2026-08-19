@@ -110,6 +110,7 @@ Dados:
 ${JSON.stringify(dados)}`;
 
   const result = await invokeLLM({
+    origem: "status_ia",
     messages: [{ role: "user", content: prompt }],
     responseFormat: { type: "json_object" },
     thinking: false,

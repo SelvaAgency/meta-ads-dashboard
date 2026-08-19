@@ -34,7 +34,8 @@ export async function consolidarLearnings(): Promise<{ contas: number; consolida
       const base = ctx?.learningsConsolidated ? `Consolidação anterior (já sabida):\n${ctx.learningsConsolidated}\n\n` : "";
       const prompt = `Você mantém a MEMÓRIA de longo prazo de uma conta de anúncios. Abaixo, aprendizados acumulados (notas com data — geradas automaticamente e por decisões da equipe). Produza um "consolidado" conciso (máx 900 caracteres, português) com os PADRÕES DURÁVEIS e regras aprendidas que ainda valem para futuras decisões nesta conta. Incorpore a consolidação anterior. Descarte itens transitórios ou já resolvidos. Não invente. Não repita datas — extraia o padrão, não o log.\n\n${base}Aprendizados:\n${learnings}`;
 
-      const resp = await invokeLLM({ messages: [{ role: "user", content: prompt }], thinking: false });
+      const resp = await invokeLLM({
+    origem: "consolidacao", messages: [{ role: "user", content: prompt }], thinking: false });
       const consolidado = extractTextContent(resp).trim().slice(0, 1500);
       if (!consolidado) continue;
 

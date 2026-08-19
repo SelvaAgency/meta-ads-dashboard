@@ -62,6 +62,14 @@ export type InvokeParams = {
   output_schema?: OutputSchema;
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
+  /**
+   * De onde a chamada partiu — vira o agrupador do painel de consumo.
+   *
+   * Opcional para não quebrar chamador nenhum, mas quem não informa cai em
+   * "outra" e some no meio. Vale nomear: o painel só é útil se disser QUAL
+   * funcionalidade está gastando.
+   */
+  origem?: string;
   /** Override the default model (claude-sonnet-4-6). Use sparingly — only for tasks that require higher precision. */
   model?: string;
   /**
@@ -325,7 +333,46 @@ function mapAnthropicResponseToInvokeResult(resp: AnthropicResponse): InvokeResu
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
+/**
+ * A porta ÚNICA para o modelo — e por isso o lugar de contar.
+ *
+ * Toda chamada do Spaces passa por aqui. Instrumentar as sete funcionalidades
+ * de hoje deixaria a oitava fora da conta no dia em que alguém a escrevesse, e o
+ * número viraria um piso disfarçado de total. Aqui não tem como escapar.
+ *
+ * O registro guarda ORIGEM, resultado, duração e tokens — nunca prompt nem
+ * resposta. E falha em silêncio: contabilidade não pode derrubar produto.
+ */
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
+  const inicio = Date.now();
+  const origem = params.origem ?? "outra";
+  /**
+   * Sem `await`: a resposta do modelo não espera a contabilidade, e uma falha
+   * de escrita não pode derrubar a geração que ela só deveria contar.
+   */
+  const contar = (ok: boolean, uso?: { entrada?: number | null; saida?: number | null }) => {
+    void import("../services/consumoIA")
+      .then((m) => m.registrarGeracao({
+        origem, ok, ms: Date.now() - inicio,
+        tokensEntrada: uso?.entrada ?? null,
+        tokensSaida: uso?.saida ?? null,
+      }))
+      .catch(() => {});
+  };
+
+  try {
+    const r = await invocarModelo(params);
+    contar(true, { entrada: r.usage?.prompt_tokens, saida: r.usage?.completion_tokens });
+    return r;
+  } catch (e) {
+    // Falha também custa: a chamada saiu, o modelo pode ter processado, e uma
+    // sequência de erros é justamente o que ninguém percebe sem contar.
+    contar(false);
+    throw e;
+  }
+}
+
+async function invocarModelo(params: InvokeParams): Promise<InvokeResult> {
   if (!ENV.anthropicApiKey) {
     throw new Error("ANTHROPIC_API_KEY is not configured");
   }

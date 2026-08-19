@@ -181,7 +181,8 @@ ${linhas}
 Escreva em português brasileiro, de forma direta e profissional. Destaque padrões, o que está indo bem e o que precisa de atenção imediata. Não use markdown, listas ou tópicos — escreva em prosa corrida. Se os dados de hoje estiverem zerados, baseie-se nos dados de ontem que estão consolidados.`;
 
   try {
-    const resp = await invokeLLM({ messages: [{ role: "user", content: prompt }], maxTokens: 900, responseFormat: { type: "json_object" } });
+    const resp = await invokeLLM({
+    origem: "briefing", messages: [{ role: "user", content: prompt }], maxTokens: 900, responseFormat: { type: "json_object" } });
     const bruto = extractTextContent(resp);
     let conteudo = bruto;
     try {

@@ -72,6 +72,72 @@ describe("o erro da atualização chega em quem pode agir", () => {
   });
 });
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A IA só é chamada por clique explícito
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  `salvarContextoDoResumo` disparava uma geração a cada gravação — inclusive
+ *  as três ou quatro seguidas de quem está ajustando a frase. O gasto ficava
+ *  proporcional ao número de correções de texto, que é o oposto de previsível.
+ *
+ *  A vigência é DERIVADA: gravar contexto já marca a leitura como desatualizada,
+ *  porque `analiseVigente` compara duas datas. Não é preciso gerar nada para o
+ *  aviso aparecer — e o aviso é justamente o convite para gerar quando alguém
+ *  quiser.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("nenhuma geração acontece sem clique", () => {
+  it("salvar contexto não chama o modelo", () => {
+    const s = cabecalho();
+    const fn = s.slice(s.indexOf("async function salvarContextoDoResumo"),
+      s.indexOf("function saveContext"));
+    expect(fn, "salvar contexto voltou a disparar a IA").not.toContain("refreshStatus.mutate");
+    // Ele apenas invalida a vigência — o aviso aparece, e o clique decide.
+    expect(fn).toContain("analiseVigente.invalidate");
+  });
+
+  it("o formulário de contexto completo também não chama", () => {
+    const s = cabecalho();
+    const fn = s.slice(s.indexOf("function saveContext"), s.indexOf("function saveContext") + 600);
+    expect(fn).not.toContain("refreshStatus.mutate");
+  });
+
+  /**
+   * As ÚNICAS chamadas restantes são os dois botões. Se aparecer uma terceira,
+   * é quase certamente automática — nenhuma tela tem um terceiro lugar onde a
+   * pessoa peça a análise.
+   */
+  it("só os cliques explícitos disparam a geração", () => {
+    const s = cabecalho();
+    const disparos = s.match(/refreshStatus\.mutate/g) ?? [];
+    expect(disparos, "apareceu um disparo novo — automático?").toHaveLength(2);
+    // E os DOIS estão dentro de `onClick` — nenhum em efeito ou callback de
+    // sucesso, que é por onde um disparo automático entraria.
+    expect(s.match(/onClick=\{[^}]*refreshStatus\.mutate/g) ?? []).toHaveLength(2);
+    expect(s, "um disparo foi parar num efeito").not.toMatch(/useEffect\([\s\S]{0,300}refreshStatus\.mutate/);
+  });
+
+  /** Toda chamada passa pelo mesmo ponto, e é lá que ela é contada. */
+  it("o contador está na porta única, e não em cada funcionalidade", () => {
+    const s = fonte("../../../server/_core/llm.ts");
+    const wrapper = s.slice(s.indexOf("export async function invokeLLM"),
+      s.indexOf("async function invocarModelo"));
+    expect(wrapper).toContain("registrarGeracao");
+    // Sucesso E falha contam: a chamada saiu nos dois casos.
+    expect(wrapper).toContain("contar(true");
+    expect(wrapper).toContain("contar(false");
+  });
+
+  /** Contabilidade não guarda conteúdo — nem prompt, nem resposta. */
+  it("o registro não carrega prompt nem resposta", () => {
+    const s = fonte("../../../server/services/consumoIA.ts");
+    for (const proibido of ["prompt", "messages", "content", "resposta:"]) {
+      expect(s.toLowerCase(), proibido).not.toContain(`${proibido}:`);
+    }
+    expect(s).toContain("tokensEntrada");
+  });
+});
+
 describe("o aviso some quando — e só quando — a análise é refeita", () => {
   const antes = new Date("2026-08-18T10:00:00Z");
   const depois = new Date("2026-08-18T11:00:00Z");

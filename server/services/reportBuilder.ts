@@ -165,6 +165,7 @@ export async function gerarRelatorioModular(
   let relatorio: RelatorioModular;
   try {
     const resp = await invokeLLM({
+    origem: "relatorio",
       messages: [{ role: "user", content: `${SISTEMA}\n\n════ DOSSIÊ ════\n${dossie}${blocoContaAgencia}${extra}\n════ FIM ════` }],
       // 4000: o teto antigo de 1600 cortava o JSON no meio e o parse falhava em
       // silêncio, fazendo o relatório parecer vazio em vez de quebrado.

@@ -82,7 +82,8 @@ export async function perguntarSobreCliente(
   ];
 
   try {
-    const resp = await invokeLLM({ messages, maxTokens: 1500 });
+    const resp = await invokeLLM({
+    origem: "chat_cliente", messages, maxTokens: 1500 });
     const texto = extractTextContent(resp).trim();
     if (!texto) throw new Error("resposta vazia");
     return { resposta: texto, fontes };

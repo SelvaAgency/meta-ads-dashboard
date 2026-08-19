@@ -108,6 +108,7 @@ import {
   deleteMetaAdAccount,
   deleteScheduledReport,
   dismissSuggestion,
+  consumoDeIA,
   getAccountMetricsSummary,
   getAlertsByUserId,
   getAlertsByAccountId,
@@ -2543,6 +2544,17 @@ export const appRouter = router({
           });
         }
       }),
+
+    /**
+     * Quanto o Spaces gastou de IA, por origem e por dia.
+     *
+     * Contagem e custo, nunca conteúdo: nem prompt, nem resposta, nem dado de
+     * cliente. É o suficiente para responder "o que está gastando" sem abrir
+     * nada de ninguém.
+     */
+    consumoIA: adminProcedure
+      .input(z.object({ dias: z.number().int().min(1).max(90).default(14) }).optional())
+      .query(({ input }) => consumoDeIA(input?.dias ?? 14)),
 
     /** Reanalisa o status da IA de TODAS as contas ativas (admin). Sequencial e
      *  com throttle para não estourar o rate limit do LLM. */

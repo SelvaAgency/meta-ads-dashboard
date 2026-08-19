@@ -2870,7 +2870,7 @@ export async function saveDailyBriefing(userId: number, date: string, content: s
 }
 
 // ─── Account Thresholds ───────────────────────────────────────────────────────
-import { accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, socialSnapshots, socialMediaSnapshots, socialColetaExecucoes, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings, weeklyPriorities, weeklyPriorityResponsaveis, accountFindingContext, type InsertWeeklyPriority } from "../drizzle/schema";
+import { aiGeracoes, accountThresholds, notificationSettings, notificationPrefs, comunicados, clientCoordinators, clientClaritySettings, clientClaritySnapshots, clientSiteSnapshots, type InsertComunicado, type InsertClientClaritySettings, type InsertClientClaritySnapshot, type InsertClientSiteSnapshot, clientContext, clientNotes, clientSiteReports, clientChatMessages, dailyDigestSettings, dailyDigestOverrides, dailyDigestRecipients, emailSendLog, ecommerceConnections, type InsertClientContext, type InsertClientSiteReport, type InsertClientChatMessage, dashboardWidgetPrefs, clientSocialAccounts, socialCredentials, socialAccountTokens, socialSnapshots, socialMediaSnapshots, socialColetaExecucoes, type InsertClientSocialAccount, userEmailClientPrefs, dailyBriefingSegments, siteComplianceSettings, weeklyPriorities, weeklyPriorityResponsaveis, accountFindingContext, type InsertWeeklyPriority } from "../drizzle/schema";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "./_core/integrationsCrypto";
 import { type NotifTipo, type EmailModo, type NotifDominio, notifTipoDef, dominioDoAlerta, tipoServeRole } from "../shared/notifications";
 
@@ -6697,4 +6697,69 @@ export async function contextoDeAchadoMaisRecente(accountId: number): Promise<Da
   let maior: Date | null = null;
   for (const l of linhas) if (!maior || l.updatedAt > maior) maior = l.updatedAt;
   return maior;
+}
+
+
+// ─── Consumo de IA ───────────────────────────────────────────────────────────
+
+/**
+ * Grava uma geração. Silenciosa por contrato — ver `services/consumoIA.ts`.
+ *
+ * Sem banco, não grava e não reclama: em desenvolvimento local o app roda sem
+ * `DATABASE_URL`, e uma exceção aqui derrubaria a geração que ela só deveria
+ * contar.
+ */
+export async function registrarGeracaoIA(r: {
+  origem: string; ok: boolean; ms: number;
+  tokensEntrada?: number | null; tokensSaida?: number | null;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(aiGeracoes).values({
+    origem: r.origem.slice(0, 32),
+    ok: r.ok,
+    duracaoMs: Math.round(r.ms),
+    tokensEntrada: r.tokensEntrada ?? null,
+    tokensSaida: r.tokensSaida ?? null,
+  });
+}
+
+/**
+ * O consumo dos últimos N dias, agrupado por origem e por dia.
+ *
+ * Devolve CONTAGEM e tokens — nunca conteúdo. É o suficiente para responder
+ * "o que está gastando" sem abrir nada de cliente nenhum.
+ */
+export async function consumoDeIA(dias = 14) {
+  const db = await getDb();
+  if (!db) return { porOrigem: [], porDia: [], total: 0, falhas: 0 };
+  const desde = new Date(Date.now() - dias * 86_400_000);
+
+  const porOrigem = await db
+    .select({
+      origem: aiGeracoes.origem,
+      chamadas: sql<number>`COUNT(*)`,
+      falhas: sql<number>`SUM(CASE WHEN ${aiGeracoes.ok} = 0 THEN 1 ELSE 0 END)`,
+      tokensEntrada: sql<number>`COALESCE(SUM(${aiGeracoes.tokensEntrada}), 0)`,
+      tokensSaida: sql<number>`COALESCE(SUM(${aiGeracoes.tokensSaida}), 0)`,
+      duracaoMediaMs: sql<number>`COALESCE(AVG(${aiGeracoes.duracaoMs}), 0)`,
+    })
+    .from(aiGeracoes)
+    .where(gte(aiGeracoes.criadoEm, desde))
+    .groupBy(aiGeracoes.origem);
+
+  const porDia = await db
+    .select({
+      dia: sql<string>`DATE(${aiGeracoes.criadoEm})`,
+      chamadas: sql<number>`COUNT(*)`,
+      tokensSaida: sql<number>`COALESCE(SUM(${aiGeracoes.tokensSaida}), 0)`,
+    })
+    .from(aiGeracoes)
+    .where(gte(aiGeracoes.criadoEm, desde))
+    .groupBy(sql`DATE(${aiGeracoes.criadoEm})`)
+    .orderBy(sql`DATE(${aiGeracoes.criadoEm})`);
+
+  const total = porOrigem.reduce((n, o) => n + Number(o.chamadas ?? 0), 0);
+  const falhas = porOrigem.reduce((n, o) => n + Number(o.falhas ?? 0), 0);
+  return { porOrigem, porDia, total, falhas, dias };
 }

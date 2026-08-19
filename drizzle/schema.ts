@@ -1971,3 +1971,29 @@ export const accountFindingContext = mysqlTable("account_finding_context", {
   idxConta: index("idx_afc_conta").on(table.accountId),
 }));
 export type AccountFindingContext = typeof accountFindingContext.$inferSelect;
+
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Cada geração do modelo — a contabilidade do consumo
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Uma linha por chamada, gravada no único ponto por onde todas passam. Guarda
+ *  ORIGEM, resultado e custo — nunca prompt, resposta ou dado de cliente. Um log
+ *  de consumo que guarda conteúdo vira um segundo banco do cliente, com as
+ *  mesmas obrigações do primeiro e nenhuma das proteções.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export const aiGeracoes = mysqlTable("ai_geracoes", {
+  id: int("id").autoincrement().primaryKey(),
+  /** `status_ia`, `briefing`, `relatorio`… — ver `OrigemDaGeracao`. */
+  origem: varchar("origem", { length: 32 }).notNull(),
+  /** `false` quando o modelo recusou ou a rede caiu. Falha também custa. */
+  ok: boolean("ok").notNull().default(true),
+  duracaoMs: int("duracaoMs"),
+  tokensEntrada: int("tokensEntrada"),
+  tokensSaida: int("tokensSaida"),
+  criadoEm: timestamp("criadoEm").defaultNow().notNull(),
+}, (table) => ({
+  idxQuando: index("idx_ai_geracoes_quando").on(table.criadoEm),
+  idxOrigem: index("idx_ai_geracoes_origem").on(table.origem, table.criadoEm),
+}));
