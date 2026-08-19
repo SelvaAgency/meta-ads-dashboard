@@ -178,3 +178,89 @@ export function composicaoDeAtivacoes(a: Ativacoes): ParteDaAtivacao[] {
     { rotulo: "reels", total: leuPublicacoes ? porTipo.get("REELS") ?? 0 : null },
   ].filter((p) => p.total !== null);
 }
+
+// ─── A composição detalhada: as quatro fatias do donut ───────────────────────
+
+export interface FatiaDeAtivacao {
+  tipo: TipoConteudo;
+  rotulo: string;
+  total: number;
+  /** Fração do total. `0` quando o total é zero — e aí não há donut a desenhar. */
+  fracao: number;
+  /**
+   * `true` quando o número é um PISO conhecido, e não a contagem completa.
+   *
+   * Só stories têm isso, e a razão está no topo deste arquivo: a coleta lê o que
+   * está no ar às 06:20 e às 18:20. Um story publicado às 8h e expirado às 17h
+   * não é visto por ninguém.
+   */
+  incompleto: boolean;
+}
+
+export interface ComposicaoDetalhada {
+  fatias: FatiaDeAtivacao[];
+  total: number;
+  /** `true` quando alguma fatia é piso — a tela precisa dizer no rodapé. */
+  temPiso: boolean;
+  /** `true` quando a leitura de publicações falhou: o zero não é do cliente. */
+  publicacoesIndisponiveis: boolean;
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  As quatro fatias, na classificação OFICIAL de `tipoDeMidia.ts`
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Stories · Reels · Carrossel · Feed. Nenhuma categoria nova foi inventada aqui
+ *  — `TipoConteudo` já tinha exatamente estas, e criar um segundo vocabulário
+ *  para a mesma coisa faria a mesma publicação contar diferente em dois lugares
+ *  da mesma página.
+ *
+ *  ── Duas fontes numa rosca só, e isso precisa ser dito ─────────────────────
+ *  Feed, carrossel e reels vêm da LISTA DE MÍDIAS, por `publicadoEm`. Stories
+ *  vêm da CONTAGEM DIÁRIA, porque story expirado já não está na lista — contá-lo
+ *  pela lista devolveria quase sempre zero. São dois denominadores diferentes
+ *  desenhados como se fossem um, e `incompleto` é o que impede a rosca de
+ *  afirmar mais do que mediu.
+ *
+ *  ── Anúncio e não-identificado ficam de fora ───────────────────────────────
+ *  Pela mesma regra que já vale no resto da Social: `CONTA_COMO_POST` não os
+ *  inclui. Anúncio somado a "o que publicamos" faria a produção orgânica subir
+ *  por causa de verba, que é a mistura que esta frente inteira evita.
+ *
+ *  ── Zero medido aparece; não medido, não ───────────────────────────────────
+ *  Uma conta que não publicou reel nenhum mostra "Reels · 0" — é informação. Já
+ *  stories que a coleta não mediu somem da lista, porque um "0 stories" ali
+ *  afirmaria sobre o cliente o que é lacuna nossa.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export function composicaoDetalhada(a: Ativacoes): ComposicaoDetalhada {
+  const porTipo = new Map(a.porTipo.map((t) => [t.tipo, t.total]));
+  const stories = a.parcelas.find((p) => p.rotulo === "Stories");
+  const leuPublicacoes = !a.publicacoesIndisponiveis;
+
+  const fatias: FatiaDeAtivacao[] = [];
+  if (stories) {
+    fatias.push({
+      tipo: "STORY", rotulo: ROTULO_CONTEUDO.STORY, total: stories.total,
+      fracao: 0, incompleto: true,
+    });
+  }
+  if (leuPublicacoes) {
+    // A ordem é fixa e não segue a quantidade: uma rosca que reordena as fatias
+    // a cada troca de período obriga a reler a legenda toda vez.
+    for (const tipo of ["REELS", "CARROSSEL", "FEED"] as const) {
+      fatias.push({
+        tipo, rotulo: ROTULO_CONTEUDO[tipo], total: porTipo.get(tipo) ?? 0,
+        fracao: 0, incompleto: false,
+      });
+    }
+  }
+
+  const total = fatias.reduce((n, f) => n + f.total, 0);
+  return {
+    fatias: fatias.map((f) => ({ ...f, fracao: total > 0 ? f.total / total : 0 })),
+    total,
+    temPiso: fatias.some((f) => f.incompleto && f.total > 0),
+    publicacoesIndisponiveis: a.publicacoesIndisponiveis,
+  };
+}

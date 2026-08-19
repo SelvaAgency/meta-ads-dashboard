@@ -33,12 +33,52 @@ export interface Parcela {
 /** Abaixo disto é ruído com cara de tendência. */
 const PISO_PCT = 0.5;
 
-function Selo({ pct, anterior, bom }: {
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O selo de variação — e, desde 19/08/2026, o gatilho do detalhamento
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Ele deixou de ser só um adorno do canto: passar o mouse sobre "↗ 12%" abre o
+ *  painel que antes se alcançava pelo convite "o que compõe →" no rodapé.
+ *
+ *  ── Por que o convite saiu ─────────────────────────────────────────────────
+ *  Ele ocupava uma linha no fim de todo cartão para dizer, em texto, algo que a
+ *  interação já dizia. E ficava longe do número: ninguém mira o rodapé antes de
+ *  decidir investigar — mira o dado que chamou a atenção, que é justamente a
+ *  variação.
+ *
+ *  ── O caso que a regra nova cria: métrica sem variação ─────────────────────
+ *  `pct == null` NÃO pode virar "0%" — isso afirmaria estabilidade sobre dias
+ *  que ninguém mediu, e ninguém desconfia de um zero. Mas se o selo simplesmente
+ *  desaparecer, o cartão perde o único caminho para o painel: a métrica com
+ *  menos histórico seria a única impossível de investigar, que é o contrário do
+ *  necessário.
+ *
+ *  A saída é um selo NEUTRO com traço — ele não afirma número nenhum, diz "sem
+ *  comparação" ao passar o mouse, e mantém o painel alcançável.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+function Selo({ pct, anterior, bom, interativo }: {
   pct: number | null; anterior: number | null; bom: "sobe" | "cai";
+  /** `true` quando o selo abre painel: ganha afordância, nunca outro conteúdo. */
+  interativo?: boolean;
 }) {
-  // Sem variação calculável, NÃO há selo. Um "0%" afirmaria estabilidade sobre
-  // dias que ninguém mediu — e ninguém desconfia de um zero.
-  if (pct == null) return null;
+  const realce = interativo
+    ? " cursor-pointer ring-1 ring-inset ring-transparent hover:ring-current/25"
+      + " transition-[box-shadow,background-color] duration-150"
+    : "";
+
+  if (pct == null) {
+    // Sem comparação não há número — e também não há selo colorido. Cinza, com
+    // traço, e o mesmo alvo de mouse dos demais.
+    return (
+      <span className={`inline-flex items-center gap-1 text-[11px] font-bold tabular-nums
+                        px-2 py-1 rounded-full bg-muted text-muted-foreground${realce}`}
+        title="Sem período anterior medido para comparar">
+        <Minus className="w-3 h-3" strokeWidth={2.6} />
+        –
+      </span>
+    );
+  }
 
   const plano = Math.abs(pct) <= PISO_PCT;
   const positivo = bom === "sobe" ? pct > 0 : pct < 0;
@@ -50,7 +90,8 @@ function Selo({ pct, anterior, bom }: {
       : "bg-destructive/12 text-destructive";
 
   return (
-    <span className={`inline-flex items-center gap-1 text-[11px] font-bold tabular-nums px-2 py-1 rounded-full ${tom}`}
+    <span className={`inline-flex items-center gap-1 text-[11px] font-bold tabular-nums
+                      px-2 py-1 rounded-full ${tom}${realce}`}
       title={anterior != null ? `Período anterior: ${anterior.toLocaleString("pt-BR")}` : undefined}>
       <Icone className="w-3 h-3" strokeWidth={2.6} />
       {pct > 0 ? "+" : ""}{pct.toFixed(1)}%
@@ -60,7 +101,7 @@ function Selo({ pct, anterior, bom }: {
 
 export function CartaoGeral({
   icone: Icone, cor, rotulo, valor, detalhe, parcelas, ressalva, explicacao,
-  variacaoPct, anterior, bom = "sobe", grafico, evolucao, clicavel, acao,
+  variacaoPct, anterior, bom = "sobe", grafico, evolucao, envolverSelo,
 }: {
   icone: LucideIcon;
   /** O matiz da família — o mesmo do gráfico e da legenda desta métrica. */
@@ -96,13 +137,17 @@ export function CartaoGeral({
    */
   evolucao?: React.ReactNode;
   /**
-   * `true` quando o cartão abre um painel. Muda só a afordância — o cursor e o
-   * convite —, nunca o conteúdo: um cartão que parece clicável e não é ensina a
-   * não clicar em mais nada.
+   * Envolve o SELO DE VARIAÇÃO com o que abrir o detalhamento.
+   *
+   * A função recebe o selo pronto e devolve ele embrulhado — normalmente num
+   * `PainelDaMetrica`. É assim, e não com um `onClick`, porque quem abre o
+   * painel precisa ser o gatilho do Radix: ele cola ref e handlers no elemento,
+   * e o cartão não tem como saber quais.
+   *
+   * Sem ela o selo continua aparecendo, apenas inerte — nenhum cartão fica
+   * dependente de um painel para mostrar a variação.
    */
-  clicavel?: boolean;
-  /** O convite, quando há painel. */
-  acao?: string | null;
+  envolverSelo?: (selo: React.ReactNode) => React.ReactNode;
 }) {
   const [realce, setRealce] = useState<string | null>(null);
   const vazio = valor === "–";
@@ -111,22 +156,25 @@ export function CartaoGeral({
   return (
     /* O realce é do CARTÃO inteiro, não de um detalhe dele: o que o mouse marca
        é "estou lendo esta métrica". Fundo levíssimo e 160ms — passar o mouse
-       pela faixa não pode virar uma sequência de piscadas. */
-    /* O cartão clicável reage MAIS que o comum: 4% contra 2%. A diferença
-       precisa ser perceptível, senão o realce vira só "o mouse está aqui" e não
-       "isto abre". O convite de rodapé sozinho não bastava — ele fica no fim do
-       cartão, e ninguém mira ali antes de decidir clicar. */
-    <div className={`group flex flex-col flex-1 px-4 py-4 min-w-0 text-left w-full
-                     transition-colors duration-150 ${
-      clicavel
-        ? "cursor-pointer hover:bg-foreground/[0.04]"
-        : "hover:bg-foreground/[0.02]"}`}>
+       pela faixa não pode virar uma sequência de piscadas.
+
+       O realce mais forte de "isto abre" saiu daqui junto com o clique no
+       cartão: agora quem abre é o selo, e destacar a área inteira prometeria um
+       alvo que não existe mais. */
+    <div className="group flex flex-col flex-1 px-4 py-4 min-w-0 text-left w-full
+                    transition-colors duration-150 hover:bg-foreground/[0.02]">
       <div className="flex items-start justify-between gap-2 mb-3">
         <span className="w-8 h-8 rounded-[10px] grid place-items-center flex-shrink-0 transition-colors duration-150"
           style={{ background: `${cor}29`, color: cor }}>
           <Icone className="w-4 h-4" strokeWidth={2.2} />
         </span>
-        <Selo pct={variacaoPct ?? null} anterior={anterior ?? null} bom={bom} />
+        {(() => {
+          const selo = (
+            <Selo pct={variacaoPct ?? null} anterior={anterior ?? null} bom={bom}
+              interativo={!!envolverSelo} />
+          );
+          return envolverSelo ? envolverSelo(selo) : selo;
+        })()}
       </div>
 
       <span className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground mb-1"
@@ -188,14 +236,13 @@ export function CartaoGeral({
         <span className="text-[10px] text-muted-foreground/60 leading-snug mt-2">{ressalva}</span>
       )}
 
-      {/* O convite fica no fim e é discreto: ele diz que há mais, sem competir
-          com o número que é o assunto do cartão. */}
-      {acao && (
-        <span className="block text-[10px] mt-auto pt-2 text-muted-foreground/55
-                         group-hover:text-foreground transition-colors duration-150">
-          {acao} →
-        </span>
-      )}
+      {/*
+       * ── O que morava aqui ─────────────────────────────────────────────────
+       * O convite "o que compõe →". Ele gastava uma linha no fim de todo cartão
+       * para anunciar em texto o que a interação já faz, e ficava longe do
+       * número: ninguém mira o rodapé antes de decidir investigar. O gatilho é
+       * o selo de variação, no topo — o próprio dado que chama a atenção.
+       */}
     </div>
   );
 }
@@ -209,17 +256,14 @@ export function CartaoGeral({
  * mede — a agrupação é só visual, porque são duas ações sobre o mesmo objeto.
  */
 export function MetricaDoPerfil({
-  rotulo, valor, variacaoPct, anterior, ressalva, acao, evolucao,
+  rotulo, valor, variacaoPct, anterior, ressalva, evolucao, envolverSelo,
 }: {
   rotulo: string; valor: string;
   variacaoPct?: number | null; anterior?: number | null; ressalva?: string | null;
   /** A mini-linha de tendência — histórico máximo, nunca o período do filtro. */
   evolucao?: React.ReactNode;
-  /**
-   * O convite, quando a métrica abre algo. Sem ele, um número clicável é
-   * indistinguível de um número comum — e ninguém descobre o painel.
-   */
-  acao?: string | null;
+  /** Mesmo contrato do cartão: o selo é o gatilho do detalhamento. */
+  envolverSelo?: (selo: React.ReactNode) => React.ReactNode;
 }) {
   const vazio = valor === "–";
   return (
@@ -228,7 +272,13 @@ export function MetricaDoPerfil({
         <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 truncate">
           {rotulo}
         </span>
-        <Selo pct={variacaoPct ?? null} anterior={anterior ?? null} bom="sobe" />
+        {(() => {
+          const selo = (
+            <Selo pct={variacaoPct ?? null} anterior={anterior ?? null} bom="sobe"
+              interativo={!!envolverSelo} />
+          );
+          return envolverSelo ? envolverSelo(selo) : selo;
+        })()}
       </div>
       <span className={`block text-[22px] font-bold tabular-nums leading-none tracking-tight ${
         vazio ? "text-muted-foreground/40" : "text-foreground"}`}>
@@ -237,12 +287,6 @@ export function MetricaDoPerfil({
       {evolucao && <div className="mt-2">{evolucao}</div>}
       {ressalva && (
         <span className="block text-[10px] text-muted-foreground/60 leading-snug mt-1.5">{ressalva}</span>
-      )}
-      {acao && (
-        <span className="block text-[10px] mt-1.5 text-muted-foreground/60
-                         group-hover/metrica:text-foreground transition-colors duration-150">
-          {acao} →
-        </span>
       )}
     </div>
   );

@@ -12,7 +12,8 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it } from "vitest";
-import { contarAtivacoes, textoDaComposicao } from "./ativacoes";
+import { composicaoDetalhada, contarAtivacoes, textoDaComposicao } from "./ativacoes";
+import type { TipoConteudo } from "./tipoDeMidia";
 
 const JANELA = { inicio: "2026-08-10", fim: "2026-08-16" };
 const post = (publicadoEm: string, tipo = "FEED" as const) => ({ publicadoEm, tipo });
@@ -138,5 +139,93 @@ describe("desempenho por tipo", () => {
       post("2026-08-11", "CARROSSEL"),
     ], [], JANELA);
     expect(a.porTipo.map((t) => [t.tipo, t.total])).toEqual([["REELS", 3], ["CARROSSEL", 1]]);
+  });
+});
+
+// ─── A composição detalhada do donut ─────────────────────────────────────────
+
+describe("composicaoDetalhada — as quatro fatias", () => {
+  const janela = { inicio: "2026-08-01", fim: "2026-08-14" };
+  const midia = (tipo: TipoConteudo, dia = "2026-08-05") => ({ publicadoEm: dia, tipo });
+  const diasComStories = (quantos: number, porDia: number | null) =>
+    Array.from({ length: quantos }, () => ({ storiesVistos: porDia }));
+
+  it("usa a classificação oficial, sem inventar categoria nova", () => {
+    const c = composicaoDetalhada(contarAtivacoes(
+      [midia("REELS"), midia("CARROSSEL"), midia("FEED")],
+      diasComStories(3, 2), janela));
+    expect(c.fatias.map((f) => f.tipo)).toEqual(["STORY", "REELS", "CARROSSEL", "FEED"]);
+    // Os rótulos saem de ROTULO_CONTEUDO — um segundo vocabulário para a mesma
+    // coisa faria a publicação contar diferente em dois lugares da página.
+    expect(c.fatias.map((f) => f.rotulo)).toEqual(["Stories", "Reels", "Carrossel", "Feed"]);
+  });
+
+  it("stories vêm da contagem diária, e não da lista de mídias", () => {
+    // A lista tem UM story; a contagem diária soma 6. O 6 é que vale — story
+    // expirado já não está na lista, e contá-lo por ela devolveria quase zero.
+    const c = composicaoDetalhada(contarAtivacoes(
+      [midia("STORY"), midia("FEED")], diasComStories(3, 2), janela));
+    expect(c.fatias.find((f) => f.tipo === "STORY")!.total).toBe(6);
+    expect(c.total).toBe(7);
+  });
+
+  it("a fatia de stories vem marcada como piso", () => {
+    const c = composicaoDetalhada(contarAtivacoes([midia("FEED")], diasComStories(2, 3), janela));
+    expect(c.fatias.find((f) => f.tipo === "STORY")!.incompleto).toBe(true);
+    expect(c.fatias.find((f) => f.tipo === "FEED")!.incompleto).toBe(false);
+    expect(c.temPiso).toBe(true);
+  });
+
+  it("as frações somam 1 quando há total", () => {
+    const c = composicaoDetalhada(contarAtivacoes(
+      [midia("REELS"), midia("REELS"), midia("FEED")], diasComStories(1, 5), janela));
+    expect(c.total).toBe(8);
+    expect(c.fatias.reduce((n, f) => n + f.fracao, 0)).toBeCloseTo(1, 10);
+  });
+
+  it("total zero não vira divisão por zero", () => {
+    const c = composicaoDetalhada(contarAtivacoes([], diasComStories(3, 0), janela));
+    expect(c.total).toBe(0);
+    expect(c.fatias.every((f) => f.fracao === 0)).toBe(true);
+    expect(c.temPiso).toBe(false); // piso de zero não é piso de nada
+  });
+
+  it("zero MEDIDO aparece; não medido some", () => {
+    // Sem reel nenhum: "Reels · 0" é informação sobre o cliente.
+    const c = composicaoDetalhada(contarAtivacoes([midia("FEED")], diasComStories(2, 1), janela));
+    expect(c.fatias.find((f) => f.tipo === "REELS")!.total).toBe(0);
+    // Sem medição de stories: a fatia não existe. "0 stories" afirmaria sobre o
+    // cliente o que é lacuna nossa.
+    const sem = composicaoDetalhada(contarAtivacoes([midia("FEED")], diasComStories(2, null), janela));
+    expect(sem.fatias.find((f) => f.tipo === "STORY")).toBeUndefined();
+  });
+
+  it("publicações indisponíveis não viram três zeros", () => {
+    const c = composicaoDetalhada(contarAtivacoes(
+      [], diasComStories(2, 4), janela, { publicacoesIndisponiveis: true }));
+    expect(c.publicacoesIndisponiveis).toBe(true);
+    expect(c.fatias.map((f) => f.tipo)).toEqual(["STORY"]);
+  });
+
+  it("anúncio e não-identificado ficam fora — a regra é CONTA_COMO_POST", () => {
+    const c = composicaoDetalhada(contarAtivacoes(
+      [midia("ANUNCIO"), midia("DESCONHECIDO"), midia("FEED")], [], janela));
+    expect(c.total).toBe(1);
+    expect(c.fatias.map((f) => f.tipo)).not.toContain("ANUNCIO");
+  });
+
+  it("a ordem das fatias é fixa, e não segue a quantidade", () => {
+    // Uma rosca que reordena a cada troca de período obriga a reler a legenda.
+    const poucoReels = composicaoDetalhada(contarAtivacoes(
+      [midia("REELS"), ...Array(9).fill(0).map(() => midia("FEED"))], [], janela));
+    const muitoReels = composicaoDetalhada(contarAtivacoes(
+      [...Array(9).fill(0).map(() => midia("REELS")), midia("FEED")], [], janela));
+    expect(poucoReels.fatias.map((f) => f.tipo)).toEqual(muitoReels.fatias.map((f) => f.tipo));
+  });
+
+  it("respeita a janela — o donut é do período selecionado", () => {
+    const c = composicaoDetalhada(contarAtivacoes(
+      [midia("FEED", "2026-08-05"), midia("FEED", "2026-07-20")], [], janela));
+    expect(c.total).toBe(1);
   });
 });

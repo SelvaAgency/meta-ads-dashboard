@@ -35,7 +35,7 @@
  *  seguidores". Por isso quem chama decide, e o padrão é não mostrar.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { taxaPorSeguidores } from "@shared/engajamento";
 import { COR } from "@shared/coresSociais";
 
@@ -79,7 +79,13 @@ export function PainelDaMetrica({
   procedencia?: React.ReactNode;
   /** Composição, ressalva — o que for específico daquela métrica. */
   extra?: React.ReactNode;
-  /** O gatilho — a própria métrica na faixa. */
+  /**
+   * O gatilho — o SELO DE VARIAÇÃO do cartão, e não o cartão inteiro.
+   *
+   * Ele chega cru; o botão que o Radix precisa é montado aqui embaixo. Deixar
+   * isso a cargo de quem chama daria quatro chances de esquecer o elemento DOM,
+   * e o sintoma disso é mudo: o painel simplesmente não abre.
+   */
   children: React.ReactNode;
 }) {
   const porSeguidores = seguidores === undefined ? null : taxaPorSeguidores(total, seguidores);
@@ -91,9 +97,25 @@ export function PainelDaMetrica({
     : fmt(total);
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent align="start" sideOffset={10} className="w-[292px] p-4 rounded-[14px]">
+    /*
+     * ── Hover, e não clique ──────────────────────────────────────────────────
+     * O alvo é um selo de ~56px: exigir clique nele seria pedir pontaria para
+     * uma leitura de apoio. `openDelay` de 120ms impede que atravessar a faixa
+     * de cartões acenda quatro painéis em sequência; `closeDelay` de 100ms dá
+     * tempo de o mouse chegar ao conteúdo sem ele fugir no caminho.
+     *
+     * O clique continua funcionando: o gatilho é um `<button>`, então teclado e
+     * toque — onde não existe hover — chegam ao mesmo painel.
+     */
+    <HoverCard openDelay={120} closeDelay={100}>
+      <HoverCardTrigger asChild>
+        <button type="button"
+          className="inline-flex rounded-full focus-visible:outline-none
+                     focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1">
+          {children}
+        </button>
+      </HoverCardTrigger>
+      <HoverCardContent align="end" sideOffset={8} className="w-[292px] p-4 rounded-[14px]">
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-muted-foreground">
             {rotulo}
@@ -175,7 +197,7 @@ export function PainelDaMetrica({
         {procedencia && (
           <p className="text-[9.5px] text-muted-foreground/55 leading-snug mt-3">{procedencia}</p>
         )}
-      </PopoverContent>
-    </Popover>
+      </HoverCardContent>
+    </HoverCard>
   );
 }

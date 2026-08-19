@@ -312,83 +312,117 @@ function Numero({ rotulo, valor, destaque, miudo, dica }: {
 }
 
 /**
- * Duas seções, e não uma dividida em duas colunas.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Melhores → piores — o ranking, agora em meia largura
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Ele e o donut de Ativações respondem as duas perguntas de abertura da aba:
+ *  "quanto publicamos" e "o que funcionou". Lado a lado, a resposta é uma
+ *  leitura só — empilhados, eram duas rolagens.
  *
- * O protótipo separa "Performance por tipo" (quatro cartões em largura cheia) de
- * "Melhores → piores" (um cartão em largura cheia). Lado a lado, cada uma ficava
- * com metade da largura: os cartões de tipo espremiam os dois números que
- * carregam, e o ranking perdia a barra de alcance no mobile.
- *
- * São perguntas diferentes, e cada uma precisa da linha inteira: qual FORMATO
- * funciona, e qual PUBLICAÇÃO funcionou.
+ *  ── A lógica do ranking não mudou ──────────────────────────────────────────
+ *  Ordenado por taxa, com a barra sendo o ALCANCE relativo. As duas grandezas
+ *  ficam visíveis porque uma taxa alta sobre alcance minúsculo não é um bom
+ *  post — é uma amostra pequena. Ver `shared/desempenhoDaPublicacao.ts`.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
-export function PerformanceDeConteudo({ melhores, piores, porTipo, aviso, amostraPequena }: {
+export function MelhoresEPiores({ melhores, piores, aviso, amostraPequena }: {
   melhores: PublicacaoEmLinha[];
   piores: PublicacaoEmLinha[];
-  porTipo: DesempenhoPorTipo[];
   aviso?: string | null;
   amostraPequena: boolean;
 }) {
-  const temRanking = melhores.length > 0;
   const maxAlcance = Math.max(1, ...[...melhores, ...piores].map((p) => p.alcance ?? 0));
 
-  if (!temRanking && !porTipo.length) {
-    return (
-      <section className="flex flex-col gap-2">
-        <h2 className="text-[13px] font-bold uppercase tracking-[0.1em]">Performance de conteúdo</h2>
-        <p className="text-sm text-muted-foreground">
+  return (
+    <section className="flex flex-col min-w-0 px-5 py-[18px]">
+      <div className="flex items-baseline gap-2.5 flex-wrap">
+        <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Melhores → piores</h2>
+        <span className="text-[10.5px] text-muted-foreground/50">
+          por taxa · a barra é o alcance
+        </span>
+        {amostraPequena && (
+          <span className="text-[10px] text-amber-600">amostra pequena — indício, não conclusão</span>
+        )}
+      </div>
+
+      {!melhores.length ? (
+        <p className="text-[11.5px] text-muted-foreground mt-4">
           {aviso ?? "Ainda não há publicações medidas no período."}
         </p>
-      </section>
-    );
-  }
+      ) : (
+        <div className="mt-2 -mx-2">
+          <Faixa titulo="Melhores" />
+          {melhores.map((p, i) => (
+            <LinhaDoRanking key={p.id} p={p} pos={i + 1} maxAlcance={maxAlcance} destaque />
+          ))}
+          {piores.length > 0 && (
+            <>
+              <Faixa titulo="Piores" />
+              {piores.map((p, i) => (
+                <LinhaDoRanking key={p.id} p={p} pos={melhores.length + i + 1} maxAlcance={maxAlcance} />
+              ))}
+            </>
+          )}
+        </div>
+      )}
+      {aviso && melhores.length > 0 && (
+        <p className="text-[10px] text-muted-foreground/70 mt-2">{aviso}</p>
+      )}
+    </section>
+  );
+}
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Performance por posicionamento
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O nome era "Performance por tipo", e "tipo" não diz de que tipo se fala —
+ *  tipo de conteúdo, de campanha, de conta. "Posicionamento" é a palavra que a
+ *  agência usa para o mesmo conceito, e alinhar o vocabulário da tela ao de quem
+ *  a lê custa uma string e economiza uma explicação em toda reunião.
+ *
+ *  ── Quatro cartões, e não um gráfico ───────────────────────────────────────
+ *  A pergunta é "qual formato funciona melhor", e ela se responde comparando
+ *  duas grandezas por formato — alcance médio e taxa média. Um gráfico único
+ *  com as duas exigiria dois eixos para quatro categorias, que é mais desenho
+ *  do que leitura. Quatro cartões colocam os números lado a lado, que é como se
+ *  compara.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export function PerformancePorPosicionamento({ porTipo }: { porTipo: DesempenhoPorTipo[] }) {
   return (
-    <>
-      {porTipo.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <div className="flex items-baseline gap-2.5 flex-wrap">
-            <h2 className="text-[13px] font-bold uppercase tracking-[0.1em]">Performance por tipo</h2>
-            <span className="text-[11px] text-muted-foreground/50">
-              qual formato está funcionando · a amostra vem colada no nome
-            </span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            {porTipo.map((t) => <CartaoDeTipo key={t.tipo} t={t} porTipo={porTipo} />)}
-          </div>
-        </section>
-      )}
+    <section className="flex flex-col gap-3">
+      <div className="flex items-baseline gap-2.5 flex-wrap">
+        <h2 className="text-[13px] font-bold uppercase tracking-[0.1em]">
+          Performance por posicionamento
+        </h2>
+        <span className="text-[11px] text-muted-foreground/50">
+          qual formato está funcionando · a amostra vem colada no nome
+        </span>
+      </div>
 
-      {temRanking && (
-        <section className="flex flex-col gap-3">
-          <div className="flex items-baseline gap-2.5 flex-wrap">
-            <h2 className="text-[13px] font-bold uppercase tracking-[0.1em]">Melhores → piores</h2>
-            <span className="text-[11px] text-muted-foreground/50">
-              ordenado por taxa · a barra é o alcance relativo
-            </span>
-            {amostraPequena && (
-              <span className="text-[10px] text-amber-600">amostra pequena — indício, não conclusão</span>
-            )}
-          </div>
-          <div className="rounded-[20px] border border-border bg-card p-3
-                          shadow-[0_1px_2px_rgba(10,10,10,.04)]">
-            <Faixa titulo="Melhores" />
-            {melhores.map((p, i) => (
-              <LinhaDoRanking key={p.id} p={p} pos={i + 1} maxAlcance={maxAlcance} destaque />
-            ))}
-            {piores.length > 0 && (
-              <>
-                <Faixa titulo="Piores" />
-                {piores.map((p, i) => (
-                  <LinhaDoRanking key={p.id} p={p} pos={melhores.length + i + 1} maxAlcance={maxAlcance} />
-                ))}
-              </>
-            )}
-          </div>
-          {aviso && <p className="text-[10px] text-muted-foreground/70">{aviso}</p>}
-        </section>
+      {/*
+       * Sem posicionamento medido a seção FICA, e diz por quê.
+       *
+       * Sumir seria pior: uma conta que só publica stories veria a página mudar
+       * de forma sem explicação, e "a seção não existe" e "não há dado" viram a
+       * mesma coisa na tela. Stories não entram aqui porque a comparação é de
+       * alcance e taxa por publicação, e a contagem diária de stories não tem
+       * nem uma nem outra.
+       */}
+      {!porTipo.length && (
+        <div className="rounded-[20px] border border-dashed border-border bg-card px-5 py-6">
+          <p className="text-[12px] font-medium">Nenhuma publicação de feed, carrossel ou reels no período.</p>
+          <p className="text-[11px] text-muted-foreground leading-snug mt-1 max-w-[70ch]">
+            A comparação entre posicionamentos precisa de alcance e taxa por publicação. Stories
+            têm contagem diária, mas não têm nenhuma das duas — por isso não entram nesta grade.
+          </p>
+        </div>
       )}
-    </>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        {porTipo.map((t) => <CartaoDeTipo key={t.tipo} t={t} porTipo={porTipo} />)}
+      </div>
+    </section>
   );
 }
 

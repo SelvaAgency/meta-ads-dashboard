@@ -27,6 +27,17 @@ const semComentarios = (t: string) =>
 const fonte = (p: string) => semComentarios(readFileSync(new URL(p, import.meta.url), "utf-8"));
 
 const pagina = () => fonte("../../pages/RedesSociais.tsx");
+
+/**
+ * Só o corpo da aba Conteúdo — já sem comentários, porque `fonte` os retira.
+ *
+ * O recorte importa: sem ele, "não contém `midiasSalvas`" passaria a valer para
+ * a página inteira, onde a lista completa é legítima e usada pelo Resumo.
+ */
+const abaConteudo = () => {
+  const s = pagina();
+  return s.slice(s.indexOf('aba === "conteudo" && ('));
+};
 /* Os três gráficos vivem num arquivo só desde a aplicação do protótipo —
    `GraficoDaConta.tsx` foi substituído por `GraficosSociais.tsx`. */
 const grafico = () => fonte("./GraficosSociais.tsx");
@@ -538,14 +549,75 @@ describe("a Social tem duas abas, e nada se perdeu entre elas", () => {
     expect(home).toContain("<UltimasPublicacoes");
     // Análise de conteúdo NÃO mora na Home.
     expect(home).not.toContain("<RetencaoReels");
-    expect(home).not.toContain("<PerformanceDeConteudo");
+    expect(home).not.toContain("<PerformancePorPosicionamento");
+    expect(home).not.toContain("<DetalhamentoDeReels");
+    expect(home).not.toContain("<AtivacoesDoPeriodo");
   });
 
-  it("Conteúdo responde 'qual conteúdo explica' — e recebe os três blocos", () => {
-    const s = pagina();
-    const conteudo = s.slice(s.indexOf('aba === "conteudo" && ('));
-    expect(conteudo).toContain("<RetencaoReels");
-    expect(conteudo).toContain("<PerformanceDeConteudo");
+  it("Conteúdo responde 'qual conteúdo explica' — e recebe os quatro blocos", () => {
+    const conteudo = abaConteudo();
+    for (const bloco of [
+      "<AtivacoesDoPeriodo", "<MelhoresEPiores",
+      "<PerformancePorPosicionamento", "<RetencaoReels", "<DetalhamentoDeReels",
+    ]) {
+      expect(conteudo, bloco).toContain(bloco);
+    }
+  });
+
+  /**
+   * ── A ORDEM é a decisão, e não um detalhe de montagem ────────────────────
+   * Panorama do que foi produzido → o que funcionou → qual formato funciona →
+   * como os Reels seguram → o que houve em cada Reel. Cada passo é mais estreito
+   * que o anterior.
+   *
+   * Ela já foi outra: retenção abria a aba, e o detalhe de UM formato ficava
+   * acima do panorama de todos. Reordenar é uma linha de JSX movida, e nada no
+   * compilador nota — por isso a ordem é verificada aqui.
+   */
+  it("os quatro blocos vêm na ordem definida, do panorama ao detalhe", () => {
+    const conteudo = abaConteudo();
+    const ordem = [
+      "<AtivacoesDoPeriodo", "<PerformancePorPosicionamento",
+      "<RetencaoReels", "<DetalhamentoDeReels",
+    ].map((b) => conteudo.indexOf(b));
+    expect(ordem.every((i) => i >= 0)).toBe(true);
+    expect(ordem).toEqual([...ordem].sort((a, b) => a - b));
+  });
+
+  /** Ativações e o ranking dividem a MESMA faixa — meia largura cada. */
+  it("Ativações e Melhores → piores abrem a aba na mesma faixa", () => {
+    const conteudo = abaConteudo();
+    const faixa = conteudo.slice(0, conteudo.indexOf("<PerformancePorPosicionamento"));
+    expect(faixa).toContain("<AtivacoesDoPeriodo");
+    expect(faixa).toContain("<MelhoresEPiores");
+    expect(faixa).toContain("lg:grid-cols-2");
+  });
+
+  /**
+   * As duas seções de Reels leem a MESMA lista.
+   *
+   * Se cada uma filtrasse por conta própria, bastaria um ajuste num dos filtros
+   * para a página afirmar "4 Reels" em cima e listar 5 embaixo — e nada
+   * quebraria, só discordaria.
+   */
+  it("retenção e detalhamento saem da mesma lista de Reels", () => {
+    const conteudo = abaConteudo();
+    expect(conteudo).toContain("<RetencaoReels houveColeta={serie.length > 0} reels={reelsDoPeriodo");
+    expect(conteudo).toContain("<DetalhamentoDeReels reels={reelsDoPeriodo");
+  });
+
+  /**
+   * O filtro de período vale para as seções de Reels também.
+   *
+   * A retenção lia `midiasSalvas` — a lista inteira, sem recorte —, então
+   * escolher "7 dias" não mudava nada nela. `reelsDoPeriodo` deriva de
+   * `noPeriodo`, que já recorta por `publicadoEm`.
+   */
+  it("os Reels das duas seções respeitam o período selecionado", () => {
+    const decl = pagina().slice(pagina().indexOf("const reelsDoPeriodo"));
+    expect(decl.slice(0, 200)).toContain("noPeriodo.filter");
+    // A lista sem recorte não pode voltar a alimentar nenhuma das duas.
+    expect(abaConteudo()).not.toContain("midiasSalvas");
   });
 
   /** Uma aba só é destino de link se o nome dela sobreviver na URL. */
@@ -710,5 +782,156 @@ describe("o ranking mostra as duas pontas sem repetir publicação", () => {
 
   it("a seção recebe as duas listas", () => {
     expect(pagina()).toContain("piores={piores}");
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O gatilho do detalhamento é o SELO DE VARIAÇÃO
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O convite "o que compõe →" gastava uma linha no fim de todo cartão para
+ *  anunciar em texto o que a interação já faz, e ficava longe do número: ninguém
+ *  mira o rodapé antes de decidir investigar.
+ *
+ *  Nada disso é visível ao compilador. Um `acao="o que compõe"` reintroduzido
+ *  num cartão compila, renderiza e devolve em silêncio a redundância que esta
+ *  rodada tirou.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("a variação é o que abre o detalhamento", () => {
+  const cartao = () => fonte("./CartaoGeral.tsx");
+  const painel = () => fonte("./PainelDaMetrica.tsx");
+
+  it("o convite de rodapé não voltou a existir", () => {
+    expect(cartao()).not.toContain("o que compõe");
+    expect(pagina()).not.toContain("o que compõe");
+    // `acao` era a prop que o desenhava; sem ela não há como reintroduzi-lo
+    // sem passar por aqui. A borda à esquerda é obrigatória: sem ela o padrão
+    // casa dentro de `explicacao?:` e `variacaoPct`, e o teste falha sozinho.
+    expect(cartao()).not.toMatch(/\bacao\?:/);
+  });
+
+  it("todo painel de métrica é aberto pelo selo, e não pelo cartão", () => {
+    const s = pagina();
+    // Quatro métricas na faixa de dados gerais, quatro painéis pelo selo.
+    expect(s.match(/envolverSelo=\{/g)?.length).toBe(4);
+    // O botão que cobria o cartão inteiro (`w-full h-full`) sumiu junto: ele
+    // fazia a área clicável ser o cartão, que é justamente o que mudou.
+    expect(s).not.toContain("flex w-full h-full text-left");
+  });
+
+  it("o gatilho é montado no painel, e não em cada chamada", () => {
+    // Quem chama passa o selo cru. O `<button>` que o Radix exige nasce num
+    // lugar só — quatro chances de esquecê-lo dariam um painel que não abre, e
+    // o sintoma é mudo.
+    expect(painel()).toContain("<button type=\"button\"");
+    expect(painel()).toContain("HoverCardTrigger asChild");
+  });
+
+  it("abre por hover, e continua alcançável por clique e teclado", () => {
+    const s = painel();
+    expect(s).toContain("openDelay");
+    expect(s).toContain("closeDelay");
+    // O gatilho é `<button>`: onde não há hover — toque, teclado — o mesmo
+    // painel continua acessível.
+    expect(s).toContain("focus-visible:ring");
+  });
+
+  /**
+   * Uma métrica sem período anterior perderia o único caminho para o painel.
+   *
+   * `pct == null` não pode virar "0%" — isso afirmaria estabilidade sobre dias
+   * que ninguém mediu. Mas se o selo sumir, a métrica com MENOS histórico vira
+   * a única impossível de investigar, que é o contrário do necessário.
+   */
+  it("sem comparação, o selo fica neutro em vez de desaparecer", () => {
+    const s = cartao();
+    const selo = s.slice(s.indexOf("function Selo("), s.indexOf("export function CartaoGeral"));
+    expect(selo).toContain("if (pct == null)");
+    // Devolver null aqui apagaria o gatilho junto com o número.
+    expect(selo).not.toContain("if (pct == null) return null");
+    expect(selo).toContain("Sem período anterior medido");
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Uma gramática de leitura para todos os gráficos
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Data em tom de texto, valor na cor da série. O cinza claro é o tom da
+ *  informação de apoio, e usá-lo na linha inteira apagava justamente o número
+ *  que o mouse foi buscar — pior com duas séries, onde sem cor descobrir qual
+ *  valor é de qual curva exige contar a ordem.
+ *
+ *  O risco real é a divergência: quatro gráficos escrevendo a mesma linha de
+ *  quatro jeitos, e o primeiro ajuste feito num deles passa despercebido.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("todos os gráficos leem um ponto do mesmo jeito", () => {
+  const graficos = () => fonte("./GraficosSociais.tsx");
+
+  it("existe um componente único de leitura, e ele é exportado", () => {
+    expect(graficos()).toContain("export function LeituraDoPonto(");
+  });
+
+  it("as quatro leituras passam por ele", () => {
+    // Evolução da base, evolução geral, ativações e a mini-curva dos cartões.
+    expect(graficos().match(/<LeituraDoPonto/g)?.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("a data herda o tom de texto, e o valor recebe a cor da série", () => {
+    const s = graficos();
+    const corpo = s.slice(s.indexOf("export function LeituraDoPonto("));
+    // Até a PRÓXIMA declaração, e não até o primeiro `\n}` — esse fecha o tipo
+    // das props, umas dez linhas antes do corpo que interessa.
+    const fim = corpo.indexOf("\nfunction ");
+    const leitura = corpo.slice(0, fim > 0 ? fim : corpo.length);
+    expect(leitura).toContain("return (");
+    expect(leitura).toContain("font-bold");
+    expect(leitura).toContain("style={{ color: v.cor }}");
+    // Fixar "preto" sumiria no modo escuro; a data não recebe cor nenhuma.
+    expect(leitura).not.toContain("text-black");
+    // E a linha inteira não pode voltar a ser cinza de apoio.
+    expect(leitura).not.toContain("text-muted-foreground");
+  });
+
+  it("a mini-curva do cartão usa a mesma gramática sob o mouse", () => {
+    const s = graficos();
+    const mini = s.slice(s.indexOf("export function MiniEvolucao("));
+    const comMouse = mini.slice(0, mini.indexOf("evolução ·"));
+    expect(comMouse).toContain("<LeituraDoPonto miuda");
+    expect(comMouse).toContain("cor");
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A rosca de Ativações conta pela fonte certa
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Ela mistura duas origens de propósito, e a que engana é a de stories: contar
+ *  story pela LISTA de mídias devolveria quase sempre zero, porque story
+ *  expirado já não está nela. Um zero plausível, estável e errado.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("a rosca de Ativações não inventa classificação nem contagem", () => {
+  it("sai do mesmo contarAtivacoes do cartão do Resumo", () => {
+    // Duas contagens paralelas discordariam no primeiro ajuste feito só numa
+    // delas — e a mesma conta publicaria 24 vezes numa aba e 22 na outra.
+    expect(pagina()).toContain("composicaoDetalhada(ativacoes)");
+  });
+
+  it("respeita o filtro de período, e não uma janela própria", () => {
+    const s = pagina();
+    expect(s).toContain("rotuloDoPeriodo={rotuloDoPeriodo}");
+    expect(s).toContain("getPeriodLabel(period)");
+  });
+
+  it("as cores das fatias saem da paleta de conteúdo", () => {
+    const donut = fonte("./AtivacoesDoPeriodo.tsx");
+    expect(donut).toContain('from "@shared/coresSociais"');
+    expect(donut).toContain("COR_TIPO[");
+    // Nenhum hexadecimal solto: cor escolhida no componente vira a quinta
+    // família de uma paleta que tem quatro.
+    expect(donut).not.toMatch(/#[0-9a-fA-F]{6}/);
   });
 });

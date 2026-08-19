@@ -72,6 +72,49 @@ function Moldura({ titulo, nota, legenda, leitura, vazio, altura, children }: {
 }
 
 /**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A leitura de um ponto — UMA gramática para todos os gráficos da Social
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A regra é simples e vale em toda a página:
+ *
+ *    A DATA em tom de texto — escura, forte. Ela é o eixo, não o dado.
+ *    O VALOR na cor da própria série. Duas séries, duas cores.
+ *
+ *  ── Por que a legenda inteira em cinza estava errada ───────────────────────
+ *  O cinza claro é o tom da informação de apoio, e ele apagava exatamente o
+ *  número que o mouse foi buscar. Pior num gráfico de duas séries: sem a cor,
+ *  descobrir qual valor é de qual curva exigia contar a ordem — que é o
+ *  trabalho que a cor existe para dispensar.
+ *
+ *  ── Existe um só, e é de propósito ─────────────────────────────────────────
+ *  Quatro gráficos escreviam a mesma linha de quatro jeitos. Não é duplicação
+ *  estética: é que o primeiro ajuste feito num deles cria a divergência que
+ *  ninguém revisa. Aqui o ajuste é único por construção.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export function LeituraDoPonto({ dia, valores, miuda = false }: {
+  /** `AAAA-MM-DD`. Sai como `18/08`. */
+  dia: string;
+  valores: Array<{ rotulo?: string; valor: string; cor: string }>;
+  /** Versão de cartão: corpo menor, mesma gramática. */
+  miuda?: boolean;
+}) {
+  return (
+    <span className={`flex items-center flex-wrap tabular-nums ${
+      miuda ? "gap-x-2 gap-y-0.5 text-[9.5px]" : "gap-x-2.5 gap-y-1 text-[11px]"}`}>
+      {/* Sem cor explícita: herda o tom de texto do tema, que é o escuro em
+          claro e o claro em escuro. Fixar "preto" aqui sumiria no modo noturno. */}
+      <span className="font-bold">{dia.slice(8, 10)}/{dia.slice(5, 7)}</span>
+      {valores.map((v, i) => (
+        <span key={`${v.rotulo ?? ""}-${i}`} className="font-bold" style={{ color: v.cor }}>
+          {v.valor}{v.rotulo ? ` ${v.rotulo}` : ""}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
  * A leitura de um dia de ativações — total primeiro, composição depois.
  *
  * Só os tipos que o dia teve. Listar "0 reels" num dia sem reels transformaria
@@ -82,18 +125,19 @@ function LeituraDasAtivacoes({ dia, total, segmentos }: {
   dia: string; total: number; segmentos: Array<{ tipo: TipoConteudo; valor: number }>;
 }) {
   return (
-    <div className="flex items-center gap-3 flex-wrap text-[11px] tabular-nums">
-      <span className="font-bold">{dia.slice(8, 10)}/{dia.slice(5, 7)}</span>
-      <span className="font-bold">
-        {total} ativa{total === 1 ? "ção" : "ções"}
-      </span>
-      {segmentos.map((s) => (
-        <span key={s.tipo} className="inline-flex items-center gap-1.5" style={{ color: COR_TIPO[s.tipo] }}>
-          <i className="w-2 h-2 rounded-[3px] flex-shrink-0" style={{ background: COR_TIPO[s.tipo] }} />
-          {s.valor} {ROTULO_CONTEUDO[s.tipo].toLowerCase()}
-        </span>
-      ))}
-      {!segmentos.length && <span className="text-muted-foreground">nenhuma publicação</span>}
+    <div className="flex items-center gap-3 flex-wrap">
+      <LeituraDoPonto dia={dia} valores={[
+        // O total herda a cor da família de ativações; as parcelas, a do tipo.
+        { valor: String(total), rotulo: `ativa${total === 1 ? "ção" : "ções"}`, cor: COR.ativacoes },
+        ...segmentos.map((s) => ({
+          valor: String(s.valor),
+          rotulo: ROTULO_CONTEUDO[s.tipo].toLowerCase(),
+          cor: COR_TIPO[s.tipo],
+        })),
+      ]} />
+      {!segmentos.length && (
+        <span className="text-[11px] text-muted-foreground">nenhuma publicação</span>
+      )}
     </div>
   );
 }
@@ -129,16 +173,11 @@ export interface PontoDaConta {
  */
 function LeituraDaEvolucao({ p, ativacoes }: { p: PontoDaConta; ativacoes: number }) {
   return (
-    <div className="flex items-center gap-3 flex-wrap text-[11px] tabular-nums">
-      <span className="font-bold">{p.dia.slice(8, 10)}/{p.dia.slice(5, 7)}</span>
-      <span style={{ color: COR.seguidores }}>
-        Seguidores {p.seguidores == null ? "–" : fmt(p.seguidores)}
-      </span>
-      <span style={{ color: COR.visitas }}>
-        Visitas {p.visitas == null ? "–" : fmt(p.visitas)}
-      </span>
-      <span style={{ color: COR.ativacoes }}>Ativações {ativacoes}</span>
-    </div>
+    <LeituraDoPonto dia={p.dia} valores={[
+      { valor: p.seguidores == null ? "–" : fmt(p.seguidores), rotulo: "seguidores", cor: COR.seguidores },
+      { valor: p.visitas == null ? "–" : fmt(p.visitas), rotulo: "visitas", cor: COR.visitas },
+      { valor: String(ativacoes), rotulo: "ativações", cor: COR.ativacoes },
+    ]} />
   );
 }
 
@@ -505,11 +544,22 @@ export function MiniEvolucao({ dias, cor, altura = 72, id }: {
         ativo={ativo} aoEntrar={setAtivo} miuda />
       {/* Altura fixa: aparecer e sumir mexeria na altura do cartão a cada
           movimento do mouse, e os vizinhos pulariam junto. */}
-      <span className="block text-[9px] text-muted-foreground/60 tabular-nums min-h-[12px] truncate">
-        {ativo != null && pontos[ativo]
-          ? `${pontos[ativo].dia.slice(8, 10)}/${pontos[ativo].dia.slice(5, 7)} · ${
-              pontos[ativo].valor.toLocaleString("pt-BR")}`
-          : `evolução · ${pontos.length} dias de histórico`}
+      {/* Altura fixa: aparecer e sumir mexeria na altura do cartão a cada
+          movimento do mouse, e os vizinhos pulariam junto.
+
+          Com mouse, a MESMA gramática dos gráficos grandes — data escura, valor
+          na cor da série. Sem mouse, o rótulo de apoio continua discreto: ele é
+          contexto, e não dado. */}
+      <span className="block min-h-[13px] truncate">
+        {ativo != null && pontos[ativo] ? (
+          <LeituraDoPonto miuda dia={pontos[ativo].dia} valores={[
+            { valor: pontos[ativo].valor.toLocaleString("pt-BR"), cor },
+          ]} />
+        ) : (
+          <span className="text-[9px] text-muted-foreground/60 tabular-nums">
+            evolução · {pontos.length} dias de histórico
+          </span>
+        )}
       </span>
     </div>
   );
@@ -535,14 +585,9 @@ export function GraficoDaEvolucaoDaBase({ movimento, altura = 104, largura = 760
     <Moldura titulo="Evolução da base" nota="total de seguidores, snapshot a snapshot"
       vazio={vazio} altura={altura}
       leitura={ativo != null && pontos[ativo] ? (
-        <span className="flex items-center gap-2.5 text-[11px] tabular-nums">
-          <span className="font-bold">
-            {pontos[ativo].dia.slice(8, 10)}/{pontos[ativo].dia.slice(5, 7)}
-          </span>
-          <span style={{ color: COR.seguidores }} className="font-bold">
-            {fmt(pontos[ativo].valor)} seguidores
-          </span>
-        </span>
+        <LeituraDoPonto dia={pontos[ativo].dia} valores={[
+          { valor: fmt(pontos[ativo].valor), rotulo: "seguidores", cor: COR.seguidores },
+        ]} />
       ) : null}>
       <CurvaHistorica id="base" pontos={pontos} cor={COR.seguidores}
         altura={altura} largura={largura} ativo={ativo} aoEntrar={setAtivo} />
