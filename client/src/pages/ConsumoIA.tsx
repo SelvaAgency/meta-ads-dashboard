@@ -12,20 +12,43 @@
  *  detalhamento —, em corpo menor. Blocos com o mesmo peso não têm hierarquia
  *  nenhuma, e sem hierarquia a leitura rápida deixa de existir.
  *
+ *  ── Saúde antes de finanças ────────────────────────────────────────────────
+ *  O primeiro bloco não é um número: é um veredito. "US$ 2,53" não diz se está
+ *  bom, e a pergunta de gestão é exatamente essa. O veredito é determinístico e
+ *  testável (`shared/saudeDoConsumo.ts`), e NUNCA gerado por modelo — um
+ *  diagnóstico fluente sobre o gasto de IA custaria uma chamada de IA para
+ *  dizer algo que ninguém consegue conferir.
+ *
+ *  ── "Normal" é o próprio Spaces ────────────────────────────────────────────
+ *  Não há benchmark de mercado nesta tela. A régua é o histórico desta conta, e
+ *  quando ele ainda não existe a resposta é dita: "histórico insuficiente para
+ *  estabelecer um padrão". A régua vem de TODOS os dias medidos, e não do
+ *  período selecionado — trocar o seletor de datas não pode mudar o que conta
+ *  como normal.
+ *
+ *  ── Três naturezas de número, e a tela distingue ───────────────────────────
+ *    MEDIDO          contado por alguém: `ai_geracoes` ou a Anthropic
+ *    DERIVADO        aritmética sobre medidos — média, fatia, custo/milhão
+ *    INTERPRETAÇÃO   regra nossa lida sobre os dois — o veredito, os sinais
+ *
+ *  Sem essa distinção, "otimização recomendada" e "507.312 tokens" chegam com o
+ *  mesmo peso, e o primeiro é opinião com limiar configurável.
+ *
  *  ── O que esta tela NÃO faz ────────────────────────────────────────────────
- *  Não estima custo em R$: não há tabela de preços conectada, e um valor
- *  inventado ali viraria número de reunião. Não compara com a Anthropic: a
- *  Admin API não está conectada. Não desenha 30 dias sobre 3: a instrumentação
- *  começou em 18/08/2026, e a página diz desde quando mede.
+ *  Não estima custo em R$: a Anthropic cobra em USD, e converter exigiria uma
+ *  cotação que não está conectada. Não atribui custo por cliente ou por origem:
+ *  a Admin API não devolve esse recorte (ver o bloco de custo). Não desenha 30
+ *  dias sobre 3, e diz desde quando mede.
  *
  *  ── E o que ela nunca vai mostrar ──────────────────────────────────────────
- *  Prompt, resposta ou dado de cliente. A tabela não guarda — logo a tela não
- *  tem o que expor, nem por engano.
+ *  Prompt, resposta, dado de cliente ou a chave. A tabela não guarda e a chave
+ *  nunca sai do servidor — logo a tela não tem o que expor, nem por engano.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
-  AlertTriangle, Check, Gauge, Loader2, Sparkles, TrendingUp, Zap,
+  AlertTriangle, ArrowDownUp, Check, DollarSign, Gauge, Info, Lightbulb, Loader2,
+  RefreshCw, Sparkles, TrendingUp, Zap,
 } from "lucide-react";
 import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { PeriodFilter, usePeriodFilter } from "@/components/PeriodFilter";
@@ -38,6 +61,12 @@ import {
   leituraDoHistorico, totaisDoPeriodo, tokensDe,
   type AlertaDeConsumo, type TipoDeAlerta,
 } from "@shared/consumoDeIA";
+import {
+  alertasComparativos, compararFontes, custoPorMilhao, estatisticasDeChamada,
+  oportunidadesDeOtimizacao,
+  razaoEntradaSaida, saudeDoConsumo,
+  type EstadoDaSaude,
+} from "@shared/saudeDoConsumo";
 
 const ROTULO_ORIGEM: Record<string, string> = {
   status_ia: "Saúde da conta",
@@ -74,6 +103,9 @@ const TOM_ALERTA: Record<TipoDeAlerta, { fundo: string; texto: string; rotulo: s
   falha:      { fundo: "bg-destructive/8 border-destructive/25", texto: "text-destructive", rotulo: "Falha" },
   eficiencia: { fundo: "bg-amber-500/10 border-amber-500/30", texto: "text-amber-700", rotulo: "Eficiência" },
   volume:     { fundo: "bg-sky-500/8 border-sky-500/25", texto: "text-sky-700", rotulo: "Volume" },
+  crescimento: { fundo: "bg-sky-500/8 border-sky-500/25", texto: "text-sky-700", rotulo: "Crescimento" },
+  custo:      { fundo: "bg-amber-500/10 border-amber-500/30", texto: "text-amber-700", rotulo: "Custo" },
+  desalinhamento: { fundo: "bg-violet-500/8 border-violet-500/25", texto: "text-violet-700", rotulo: "Desalinhamento" },
 };
 
 export default function ConsumoIA() {
@@ -106,10 +138,92 @@ export default function ConsumoIA() {
     medindoDesde: d?.medindoDesde ? String(d.medindoDesde).slice(0, 10) : null,
   }), [d]);
 
+  /** A régua: TODO o histórico medido, e não o período da tela. */
+  const historicoDiario = useMemo(
+    () => (d?.historico ?? []).map((h) => ({
+      dia: String(h.dia).slice(0, 10), entrada: n(h.entrada), saida: n(h.saida), chamadas: n(h.chamadas),
+    })), [d]);
+
   const totais = useMemo(() => totaisDoPeriodo(dados.porOrigem), [dados]);
   const origens = useMemo(() => analisarOrigens(dados), [dados]);
   const clientes = useMemo(() => analisarClientes(dados), [dados]);
-  const alertas = useMemo(() => alertasDeConsumo(dados), [dados]);
+  const alertasProprios = useMemo(() => alertasDeConsumo(dados), [dados]);
+
+  const estatisticas = useMemo(
+    () => estatisticasDeChamada(d?.tokensPorChamada ?? []), [d]);
+  const razao = useMemo(
+    () => razaoEntradaSaida(totais.tokensEntrada, totais.tokensSaida, historicoDiario),
+    [totais, historicoDiario]);
+
+  /** O consumo da Anthropic, agregado. `null` quando a chave não está no ar. */
+  const anth = d?.anthropic ?? null;
+  const anthTotais = useMemo(() => {
+    if (!anth || anth.erro) return null;
+    const dias = anth.dias;
+    const soma = (f: (x: typeof dias[number]) => number) => dias.reduce((a, x) => a + f(x), 0);
+    const uncached = soma((x) => n(x.uncachedInput));
+    const cacheRead = soma((x) => n(x.cacheRead));
+    const cacheCreation = soma((x) => n(x.cacheCreation));
+    const output = soma((x) => n(x.output));
+    return {
+      uncached, cacheRead, cacheCreation, output,
+      // As quatro categorias somadas: é o total que a Anthropic viu. Elas ficam
+      // separadas em toda a tela porque têm preço diferente — só aqui, onde a
+      // pergunta é "quanto no total", faz sentido juntá-las.
+      total: uncached + cacheRead + cacheCreation + output,
+      centavos: n(anth.totalCentavos),
+      dolares: n(anth.totalCentavos) / 100,
+    };
+  }, [anth]);
+
+  const saude = useMemo(() => saudeDoConsumo({
+    periodo: {
+      entrada: totais.tokensEntrada, saida: totais.tokensSaida,
+      dias: Math.max(1, dados.porDia.length),
+    },
+    historico: historicoDiario,
+    estatisticas,
+  }), [totais, dados, historicoDiario, estatisticas]);
+
+  const oportunidades = useMemo(() => oportunidadesDeOtimizacao({
+    razao, estatisticas,
+    cacheRead: anthTotais?.cacheRead ?? 0,
+    cacheCreation: anthTotais?.cacheCreation ?? 0,
+    origens: origens.map((o) => ({
+      origem: rotuloOrigem(o.origem), chamadas: o.chamadas, tokensPorChamada: o.tokensPorChamada,
+    })),
+  }), [razao, estatisticas, anthTotais, origens]);
+
+  const comparacao = useMemo(
+    () => compararFontes(totais.tokensTotais, anthTotais?.total ?? null),
+    [totais, anthTotais]);
+
+  /**
+   * Os alertas comparativos entram DEPOIS dos próprios.
+   *
+   * Os primeiros vêm da nossa tabela e existem sempre; estes dependem de
+   * histórico longo e da leitura externa, e podem simplesmente não ter base.
+   * Ordenar por severidade depois disso põe o crítico no topo sem perder a
+   * separação entre "o que medimos" e "o que comparamos".
+   */
+  const alertas = useMemo(() => {
+    const comparativos = alertasComparativos({
+      periodo: {
+        entrada: totais.tokensEntrada, saida: totais.tokensSaida,
+        dias: Math.max(1, dados.porDia.length),
+        rotulo: `${dataCurta(dateRange.startDate)} a ${dataCurta(dateRange.endDate)}`,
+      },
+      historico: historicoDiario,
+      custoPorDia: (anth && !anth.erro ? anth.dias : []).map((x) => ({
+        dia: String(x.dia).slice(0, 10),
+        centavos: n(x.centavos),
+        tokens: n(x.uncachedInput) + n(x.cacheRead) + n(x.cacheCreation) + n(x.output),
+      })),
+      comparacao,
+    });
+    return [...alertasProprios, ...comparativos]
+      .sort((a, b) => Number(b.severidade === "critico") - Number(a.severidade === "critico"));
+  }, [alertasProprios, totais, dados, historicoDiario, anth, comparacao, dateRange]);
   const historico = useMemo(
     () => leituraDoHistorico(dados.medindoDesde, new Date().toISOString().slice(0, 10)),
     [dados],
@@ -162,23 +276,33 @@ export default function ConsumoIA() {
 
         {!q.isLoading && !vazio && (
           <>
-            {/* ══ CAMADA 1 · LEITURA RÁPIDA ════════════════════════════════ */}
+            {/* ══ CAMADA 1 · SAÚDE E LEITURA RÁPIDA ════════════════════════ */}
+            <SaudeDoConsumo saude={saude} oportunidades={oportunidades} />
             <Alertas alertas={alertas} aoFocar={setOrigemFoco} />
-            <Kpis totais={totais} />
-            <CustoIndisponivel />
+            <Kpis totais={totais} custo={anthTotais} />
+            <Custo dados={anth} totais={anthTotais} tokensSpaces={totais.tokensTotais} />
             <ConsumoNoTempo dias={dados.porDia} suficiente={historico.suficienteParaTendencia} />
             <PorOrigem origens={origens} foco={origemFoco} aoFocar={setOrigemFoco} />
 
             {/* ══ CAMADA 2 · INVESTIGAÇÃO ═════════════════════════════════ */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-[22px]">
+              <EstatisticasDaChamada e={estatisticas} />
+              <EntradaVersusSaida totais={totais} dias={dados.porDia} razao={razao} />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-[22px]">
               <PorCliente clientes={clientes} />
               <div className="flex flex-col gap-[22px]">
-                <EntradaVersusSaida totais={totais} dias={dados.porDia} />
-                <SpacesVersusApi periodo={`${dataCurta(dateRange.startDate)} a ${dataCurta(dateRange.endDate)}`} />
+                <Cache totais={anthTotais} disponivel={!!anth && !anth.erro} />
+                <PorModelo modelos={anth && !anth.erro ? anth.modelos : []} />
               </div>
             </div>
+            <SpacesVersusApi
+              comparacao={comparacao} anth={anth} chamadas={totais.chamadas}
+              periodo={`${dataCurta(dateRange.startDate)} a ${dataCurta(dateRange.endDate)}`}
+              range={dateRange} aoAtualizar={() => q.refetch()} />
             <MaioresChamadas linhas={d?.maiores ?? []} />
             <Detalhamento linhas={d?.recentes ?? []} foco={origemFoco} aoFocar={setOrigemFoco} />
+            <Capacidade />
           </>
         )}
       </div>
@@ -211,16 +335,40 @@ function Alertas({ alertas, aoFocar }: {
         return (
           <div key={i}
             onClick={() => a.origem && aoFocar(a.origem)}
-            className={`rounded-[14px] border px-4 py-3 ${tom.fundo} ${a.origem ? "cursor-pointer" : ""}`}>
+            className={`rounded-[14px] border px-4 py-3 ${tom.fundo} ${
+              a.severidade === "critico" ? "ring-1 ring-inset ring-destructive/30" : ""} ${
+              a.origem ? "cursor-pointer" : ""}`}>
             <div className="flex items-center gap-2">
               <AlertTriangle className={`w-3.5 h-3.5 flex-shrink-0 ${tom.texto}`} strokeWidth={2.4} />
               <span className={`text-[9.5px] font-bold uppercase tracking-[0.1em] ${tom.texto}`}>
                 {tom.rotulo}
               </span>
               <span className="text-[12.5px] font-semibold">{a.titulo}</span>
+              {a.severidade === "critico" && (
+                <span className="text-[8.5px] font-bold uppercase tracking-[0.1em] px-1.5 py-[2px]
+                                 rounded-[5px] bg-destructive/15 text-destructive ml-auto flex-shrink-0">
+                  Crítico
+                </span>
+              )}
             </div>
             {/* O número que causou o alerta, sempre. Sem ele é opinião. */}
             <p className="text-[11.5px] text-muted-foreground leading-snug mt-1">{a.detalhe}</p>
+
+            {/* A evidência destrinchada: métrica, valor, referência, período e
+                motivo. É o que permite discordar do alerta em vez de só acatá-lo. */}
+            <dl className="mt-2 pt-2 border-t border-foreground/[0.07] grid grid-cols-[auto_minmax(0,1fr)]
+                           gap-x-2.5 gap-y-[3px] text-[10px] leading-tight">
+              {[
+                ["Métrica", a.metrica], ["Atual", a.valorAtual],
+                ["Referência", a.referencia], ["Período", a.periodo],
+              ].map(([r, v]) => (
+                <Fragment key={r}>
+                  <dt className="font-bold uppercase tracking-[0.08em] text-muted-foreground/55">{r}</dt>
+                  <dd className="text-muted-foreground tabular-nums">{v}</dd>
+                </Fragment>
+              ))}
+            </dl>
+            <p className="text-[10px] text-muted-foreground/60 leading-snug mt-1.5">{a.motivo}</p>
           </div>
         );
       })}
@@ -253,12 +401,26 @@ function Kpi({ rotulo, valor, nota, cor, icone: Icone }: {
   );
 }
 
-function Kpis({ totais }: { totais: ReturnType<typeof totaisDoPeriodo> }) {
+function Kpis({ totais, custo }: {
+  totais: ReturnType<typeof totaisDoPeriodo>;
+  custo: { dolares: number } | null;
+}) {
+  /**
+   * Custo por chamada: DERIVADO, e com uma ressalva que a nota carrega.
+   *
+   * O numerador é da Anthropic (toda a organização) e o denominador é do Spaces
+   * (só o que passou pelo wrapper). Se houver consumo fora do painel, este
+   * número sai alto — e é por isso que a nota diz "aproximado" em vez de fingir
+   * precisão que a divisão não tem.
+   */
+  const porChamada = custo && totais.chamadas > 0 ? custo.dolares / totais.chamadas : null;
   return (
     <section className="rounded-[20px] border border-border bg-card overflow-hidden
                         shadow-[0_1px_2px_rgba(10,10,10,.04)]">
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 divide-x divide-y lg:divide-y-0 divide-border">
-        <Kpi rotulo="Chamadas" valor={fmt(totais.chamadas)} icone={Zap} cor="#7C5CE0" />
+        <Kpi rotulo="Chamadas" valor={fmt(totais.chamadas)} icone={Zap} cor="#7C5CE0"
+          nota={porChamada == null ? null
+            : `≈ US$ ${porChamada.toFixed(4).replace(".", ",")} por chamada`} />
         <Kpi rotulo="Tokens de entrada" valor={compacto(totais.tokensEntrada)}
           nota={totais.fracaoDeEntrada != null ? `${pct(totais.fracaoDeEntrada)} do total` : null} />
         <Kpi rotulo="Tokens de saída" valor={compacto(totais.tokensSaida)}
@@ -279,24 +441,202 @@ function Kpis({ totais }: { totais: ReturnType<typeof totaisDoPeriodo> }) {
 }
 
 /**
- * O custo em R$ não existe, e a tela diz por quê.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Selo de natureza — MEDIDO · DERIVADO · INTERPRETAÇÃO
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Três coisas muito diferentes convivem nesta página, e sem marcação elas
+ *  chegam com o mesmo peso:
  *
- * Estimar com um preço chutado transformaria um palpite em número de reunião —
- * e número de reunião não se desfaz depois.
+ *    MEDIDO         alguém contou — `ai_geracoes` ou a própria Anthropic
+ *    DERIVADO       aritmética sobre medidos, e portanto tão sólido quanto eles
+ *    INTERPRETAÇÃO  regra nossa, com limiar escolhido por gente
+ *
+ *  O veredito de saúde é a terceira categoria. Ele é útil, é testável, e não é
+ *  um fato — e quem lê precisa saber disso antes de agir sobre ele.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
-function CustoIndisponivel() {
+type Natureza = "medido" | "derivado" | "interpretacao";
+
+const SELO: Record<Natureza, { texto: string; classe: string; ajuda: string }> = {
+  medido: {
+    texto: "Medido", classe: "bg-foreground/[0.06] text-muted-foreground",
+    ajuda: "Contado diretamente — pelo Spaces ou pela Anthropic. Não é estimativa.",
+  },
+  derivado: {
+    texto: "Derivado", classe: "bg-sky-500/10 text-sky-700",
+    ajuda: "Calculado a partir de números medidos: média, fatia, custo por milhão.",
+  },
+  interpretacao: {
+    texto: "Interpretação", classe: "bg-amber-500/12 text-amber-700",
+    ajuda: "Leitura do Spaces sobre os números, com limiares definidos por nós. "
+      + "Não é um fato da API — é uma regra que pode ser ajustada.",
+  },
+};
+
+function Selo({ tipo }: { tipo: Natureza }) {
+  const s = SELO[tipo];
   return (
-    <div className="rounded-[16px] border border-dashed border-border bg-card px-4 py-3
-                    flex items-baseline gap-3 flex-wrap">
-      <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-        Custo financeiro
-      </span>
-      <span className="text-[13px] font-semibold text-muted-foreground/70">Não disponível</span>
-      <span className="text-[11.5px] text-muted-foreground/70 leading-snug">
-        O Spaces registra tokens e chamadas. A tabela de preços do modelo ainda não está conectada —
-        e um valor estimado com preço chutado viraria número de reunião.
-      </span>
-    </div>
+    <span title={s.ajuda}
+      className={`text-[8.5px] font-bold uppercase tracking-[0.1em] px-1.5 py-[3px]
+                  rounded-[5px] cursor-help flex-shrink-0 ${s.classe}`}>
+      {s.texto}
+    </span>
+  );
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Saúde do consumo — o primeiro bloco, e o único que dá um veredito
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Uma frase, o número que a sustenta, e a base de comparação declarada. Sem a
+ *  base, "acima do padrão" é acusação sem régua.
+ *
+ *  Ele é o bloco mais alto da página de propósito: quem abre esta tela quer
+ *  saber se precisa fazer alguma coisa, e o total de tokens não responde isso.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const TOM_DA_SAUDE: Record<EstadoDaSaude, { fundo: string; ponto: string; texto: string }> = {
+  saudavel:      { fundo: "border-emerald-500/25 bg-emerald-500/[0.06]", ponto: "#3FA66A", texto: "text-emerald-700" },
+  atencao:       { fundo: "border-sky-500/25 bg-sky-500/[0.06]",         ponto: "#2A9FD6", texto: "text-sky-700" },
+  otimizar:      { fundo: "border-amber-500/30 bg-amber-500/[0.08]",     ponto: "#E0A030", texto: "text-amber-700" },
+  capacidade:    { fundo: "border-destructive/25 bg-destructive/[0.06]", ponto: "#D65745", texto: "text-destructive" },
+  sem_historico: { fundo: "border-border bg-card",                        ponto: "#8C8C8C", texto: "text-muted-foreground" },
+};
+
+function SaudeDoConsumo({ saude, oportunidades }: {
+  saude: ReturnType<typeof saudeDoConsumo>;
+  oportunidades: ReturnType<typeof oportunidadesDeOtimizacao>;
+}) {
+  const tom = TOM_DA_SAUDE[saude.estado];
+  return (
+    <section className={`rounded-[20px] border px-5 py-[18px] ${tom.fundo}
+                         shadow-[0_1px_2px_rgba(10,10,10,.04)]`}>
+      <div className="flex items-start gap-3.5">
+        <span className="w-2.5 h-2.5 rounded-full mt-[7px] flex-shrink-0"
+          style={{ background: tom.ponto }} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2.5 flex-wrap">
+            <h2 className={`text-[15px] font-bold tracking-[-0.01em] ${tom.texto}`}>{saude.titulo}</h2>
+            <Selo tipo="interpretacao" />
+            {saude.base && (
+              <span className="text-[10px] text-muted-foreground/70">comparado com {saude.base}</span>
+            )}
+          </div>
+          <p className="text-[12.5px] text-muted-foreground leading-snug mt-1.5 max-w-[80ch]">
+            {saude.detalhe}
+          </p>
+        </div>
+      </div>
+
+      {/* As oportunidades vivem colados ao veredito: elas são o "e daí". */}
+      {oportunidades.length > 0 && (
+        <div className="mt-4 pt-3.5 border-t border-foreground/[0.07] flex flex-col gap-2.5">
+          <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground/70
+                           flex items-center gap-1.5">
+            <Lightbulb className="w-3 h-3" strokeWidth={2.4} /> Oportunidades de otimização
+          </span>
+          {oportunidades.map((o) => (
+            <div key={o.chave} className="flex items-start gap-2.5">
+              <span className="w-1 h-1 rounded-full bg-foreground/30 mt-[7px] flex-shrink-0" />
+              <p className="text-[11.5px] leading-snug">
+                <b className="font-semibold">{o.titulo}.</b>{" "}
+                <span className="text-muted-foreground">{o.detalhe}</span>
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Custo — vindo da Anthropic, em USD, e nunca estimado
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O número é o que a Cost API cobrou. Não há preço de tabela hardcoded aqui:
+ *  se o preço mudar, esta tela acompanha sozinha, porque ela não sabe o preço —
+ *  ela lê a fatura.
+ *
+ *  ── O limite honesto deste bloco ───────────────────────────────────────────
+ *  A Cost API entrega custo POR DIA e POR DESCRIÇÃO de item. Ela não sabe o que
+ *  é cliente, nem o que é "jornalzinho" — esses conceitos são nossos e não
+ *  viajam na chamada. Logo custo por cliente e custo por origem NÃO EXISTEM, e
+ *  a tela diz isso em vez de ratear o total por tokens e apresentar o resultado
+ *  como se fosse cobrado.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+function Custo({ dados, totais, tokensSpaces }: {
+  dados: { erro: string | null; moeda: string; atualizadoEm: string; doCache: boolean; dias: any[] } | null;
+  totais: { dolares: number; centavos: number; total: number } | null;
+  tokensSpaces: number;
+}) {
+  if (!dados) {
+    return (
+      <div className="rounded-[16px] border border-dashed border-border bg-card px-4 py-3
+                      flex items-baseline gap-3 flex-wrap">
+        <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          Custo financeiro
+        </span>
+        <span className="text-[13px] font-semibold text-muted-foreground/70">Não conectado</span>
+        <span className="text-[11.5px] text-muted-foreground/70 leading-snug">
+          A chave de administração da Anthropic não está configurada neste ambiente. O consumo em
+          tokens continua medido; o custo só aparece quando a Cost API responde.
+        </span>
+      </div>
+    );
+  }
+  if (dados.erro) {
+    return (
+      <div className="rounded-[16px] border border-destructive/25 bg-destructive/[0.05] px-4 py-3">
+        <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-destructive">
+          Custo indisponível
+        </span>
+        {/* A mensagem do servidor, já sanitizada lá — nunca a chave, nunca o header. */}
+        <p className="text-[11.5px] text-muted-foreground leading-snug mt-1">{dados.erro}</p>
+      </div>
+    );
+  }
+
+  const porMilhaoAnthropic = totais ? custoPorMilhao(totais.centavos, totais.total) : null;
+  return (
+    <section className="rounded-[20px] border border-border bg-card overflow-hidden
+                        shadow-[0_1px_2px_rgba(10,10,10,.04)]">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap px-5 pt-[18px]">
+        <div className="flex items-baseline gap-2.5 flex-wrap">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Custo na Anthropic</h2>
+          <Selo tipo="medido" />
+        </div>
+        <span className="text-[10px] text-muted-foreground/60">
+          leitura de {new Date(dados.atualizadoEm).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+          {dados.doCache ? " · do cache" : ""}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-border mt-3">
+        <Kpi rotulo="Custo do período" icone={DollarSign} cor="#3FA66A"
+          valor={totais ? `US$ ${totais.dolares.toFixed(2).replace(".", ",")}` : "–"}
+          nota="cobrado pela Anthropic" />
+        <Kpi rotulo="Custo por milhão"
+          valor={porMilhaoAnthropic == null ? "–"
+            : `US$ ${porMilhaoAnthropic.toFixed(2).replace(".", ",")}`}
+          nota="deste mix de modelos e de entrada/saída" />
+        <Kpi rotulo="Tokens (Anthropic)" valor={compacto(totais?.total ?? 0)}
+          nota="tudo que a organização gastou" />
+        <Kpi rotulo="Tokens (Spaces)" valor={compacto(tokensSpaces)}
+          nota="o que passou pelo wrapper" />
+      </div>
+
+      <p className="text-[10.5px] text-muted-foreground/70 leading-snug px-5 py-3 border-t border-border
+                    max-w-[92ch]">
+        <b className="font-semibold text-foreground/70">O custo não se divide por cliente nem por
+        origem.</b>{" "}
+        A Anthropic cobra por dia e por tipo de token, e não conhece os conceitos de "cliente" ou
+        "jornalzinho" — eles são nossos e não viajam na chamada. Ratear o total pelos tokens de cada
+        um produziria um número plausível e não cobrado, e ele acabaria numa planilha como se fosse
+        fatura. O que dá para dizer com segurança é a proporção de tokens, que está nos blocos abaixo.
+      </p>
+    </section>
   );
 }
 
@@ -452,79 +792,173 @@ function ConsumoNoTempo({ dias, suficiente }: {
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Por origem — o bloco que responde "onde estamos gastando"
+ *  Onde estamos gastando — a tabela ordenável das origens
  * ─────────────────────────────────────────────────────────────────────────────
- *  Quatro colunas de propósito: chamadas · tokens · % · tokens/chamada. As duas
- *  últimas juntas são o que separa "consome muito porque é usada muito" de
- *  "consome muito porque cada chamada é cara" — e as duas pedem ações opostas.
- *  Só o total não distingue as duas, e é por isso que o total sozinho não
- *  serve para otimizar.
+ *  Duas perguntas diferentes moram na mesma tabela, e a ordenação é o que
+ *  separa uma da outra: "o que consome mais no total" e "o que consome mais por
+ *  chamada". A primeira encontra o volume; a segunda encontra o desperdício —
+ *  uma origem chamada duas vezes por dia pode ser a mais cara de todas.
+ *
+ *  Por isso os dois destaques ficam FIXOS no topo, independentes da ordenação
+ *  escolhida: quem chega na tabela recebe as duas respostas antes de mexer em
+ *  qualquer coisa.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+type ColunaOrigem = "chamadas" | "entrada" | "saida" | "tokens" | "porChamada" | "razao" | "falhas";
+
+const COLUNAS: Array<{ chave: ColunaOrigem; rotulo: string; ajuda: string }> = [
+  { chave: "chamadas", rotulo: "Chamadas", ajuda: "Quantas vezes o modelo foi chamado." },
+  { chave: "entrada", rotulo: "Entrada", ajuda: "Tokens enviados: instrução, contexto e dados." },
+  { chave: "saida", rotulo: "Saída", ajuda: "Tokens escritos pelo modelo. Custam mais por token." },
+  { chave: "tokens", rotulo: "Total", ajuda: "Entrada + saída." },
+  { chave: "porChamada", rotulo: "Tok/chamada", ajuda: "Total dividido por chamadas — o custo unitário." },
+  { chave: "razao", rotulo: "Ent/saí", ajuda: "Quantas vezes lemos mais do que escrevemos nesta origem." },
+  { chave: "falhas", rotulo: "Falhas", ajuda: "Chamadas que não completaram. Falha também consome." },
+];
+
+const valorDaColuna = (o: ReturnType<typeof analisarOrigens>[number], c: ColunaOrigem): number => {
+  switch (c) {
+    case "chamadas": return o.chamadas;
+    case "entrada": return n(o.tokensEntrada);
+    case "saida": return n(o.tokensSaida);
+    case "tokens": return o.tokens;
+    case "porChamada": return o.tokensPorChamada ?? 0;
+    // Sem saída não há razão: zero ordena junto com "não se aplica", que é
+    // onde ele deve ficar — e não no topo, como um infinito ordenaria.
+    case "razao": return n(o.tokensSaida) > 0 ? n(o.tokensEntrada) / n(o.tokensSaida) : 0;
+    case "falhas": return o.falhas;
+  }
+};
+
 function PorOrigem({ origens, foco, aoFocar }: {
   origens: ReturnType<typeof analisarOrigens>;
   foco: string | null;
   aoFocar: (o: string | null) => void;
 }) {
+  const [ordem, setOrdem] = useState<ColunaOrigem>("tokens");
   const maiorTokens = Math.max(1, ...origens.map((o) => o.tokens));
+
+  const ordenadas = useMemo(
+    () => [...origens].sort((a, b) =>
+      valorDaColuna(b, ordem) - valorDaColuna(a, ordem) || a.origem.localeCompare(b.origem)),
+    [origens, ordem]);
+
+  /**
+   * Os dois destaques. O de custo por chamada exige um mínimo de chamadas: com
+   * uma chamada só, "a mais cara" é uma anedota promovida a diagnóstico.
+   */
+  const maiorVolume = [...origens].sort((a, b) => b.tokens - a.tokens)[0] ?? null;
+  const maiorUnitario = [...origens]
+    .filter((o) => o.chamadas >= 3 && o.tokensPorChamada != null)
+    .sort((a, b) => (b.tokensPorChamada ?? 0) - (a.tokensPorChamada ?? 0))[0] ?? null;
+
   return (
     <section className="rounded-[20px] border border-border bg-card overflow-hidden
                         shadow-[0_1px_2px_rgba(10,10,10,.04)]">
       <div className="flex items-baseline justify-between gap-3 flex-wrap px-5 pt-[18px]">
-        <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Onde estamos gastando</h2>
-        <span className="text-[10.5px] text-muted-foreground/60">
-          tokens/chamada separa uso frequente de chamada cara
-        </span>
+        <div className="flex items-baseline gap-2.5 flex-wrap">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Onde estamos gastando</h2>
+          <Selo tipo="medido" />
+        </div>
+        <span className="text-[10.5px] text-muted-foreground/60">clique numa coluna para ordenar</span>
       </div>
 
-      <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_70px_70px_54px_92px] items-center gap-3
-                      px-5 mt-3 text-[9px] font-bold uppercase tracking-[0.1em] text-muted-foreground/60">
-        <span>Origem</span>
-        <span className="text-right">Chamadas</span>
-        <span className="text-right">Tokens</span>
-        <span className="text-right">%</span>
-        <span className="text-right">Tokens/chamada</span>
-      </div>
+      {(maiorVolume || maiorUnitario) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 px-5 mt-3">
+          {maiorVolume && (
+            <div className="rounded-[12px] border border-border bg-muted/25 px-3.5 py-2.5">
+              <span className="text-[8.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground/70">
+                Maior volume
+              </span>
+              <p className="text-[12.5px] font-semibold mt-0.5">{rotuloOrigem(maiorVolume.origem)}</p>
+              <p className="text-[10.5px] text-muted-foreground">
+                {compacto(maiorVolume.tokens)} tokens em {fmt(maiorVolume.chamadas)} chamadas
+              </p>
+            </div>
+          )}
+          {maiorUnitario && (
+            <div className="rounded-[12px] border border-border bg-muted/25 px-3.5 py-2.5">
+              <span className="text-[8.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground/70">
+                Maior custo por chamada
+              </span>
+              <p className="text-[12.5px] font-semibold mt-0.5">{rotuloOrigem(maiorUnitario.origem)}</p>
+              <p className="text-[10.5px] text-muted-foreground">
+                {fmt(Math.round(maiorUnitario.tokensPorChamada ?? 0))} tokens por chamada
+                {maiorUnitario.vezesAMedia != null
+                  && ` · ${maiorUnitario.vezesAMedia.toFixed(1).replace(".", ",")}× a média`}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
-      <div className="flex flex-col px-3 pb-3 mt-1">
-        {origens.map((o, i) => {
-          const cor = corDaOrigem(o.origem, i);
-          const destacado = foco === o.origem;
-          const caro = o.vezesAMedia != null && o.vezesAMedia >= 1.5;
-          return (
-            <button key={o.origem} type="button"
-              onClick={() => aoFocar(destacado ? null : o.origem)}
-              className={`grid grid-cols-[minmax(0,1fr)_70px] sm:grid-cols-[minmax(0,1fr)_70px_70px_54px_92px]
-                          items-center gap-3 px-2 py-2 rounded-lg text-left
-                          transition-colors duration-150 ${
-                destacado ? "bg-foreground/[0.05]" : "hover:bg-foreground/[0.03]"}`}>
-              <span className="min-w-0">
-                <span className="flex items-center gap-2">
-                  <i className="w-2 h-2 rounded-[3px] flex-shrink-0" style={{ background: cor }} />
-                  <span className="text-[12.5px] font-medium truncate">{rotuloOrigem(o.origem)}</span>
-                  {o.falhas > 0 && (
-                    <span className="text-[10px] text-destructive flex-shrink-0">{fmt(o.falhas)} falhas</span>
-                  )}
-                </span>
-                {/* A barra é a fatia de TOKENS — a mesma grandeza da coluna %. */}
-                <span className="block h-[6px] rounded-full bg-muted overflow-hidden mt-1.5">
-                  <span className="block h-full rounded-full"
-                    style={{ width: `${(o.tokens / maiorTokens) * 100}%`, background: cor }} />
-                </span>
-              </span>
-              <span className="text-[12px] tabular-nums text-right">{fmt(o.chamadas)}</span>
-              <span className="hidden sm:block text-[12px] tabular-nums text-right">{compacto(o.tokens)}</span>
-              <span className="hidden sm:block text-[12px] tabular-nums text-right text-muted-foreground">
-                {o.fatia == null ? "–" : `${Math.round(o.fatia * 100)}%`}
-              </span>
-              <span className={`hidden sm:block text-[12px] tabular-nums text-right font-semibold ${
-                caro ? "text-amber-700" : "text-muted-foreground"}`}
-                title={o.vezesAMedia != null ? `${o.vezesAMedia.toFixed(1)}× a média geral` : undefined}>
-                {o.tokensPorChamada == null ? "–" : fmt(Math.round(o.tokensPorChamada))}
-              </span>
-            </button>
-          );
-        })}
+      <div className="overflow-x-auto mt-3">
+        <div className="min-w-[720px]">
+          <div className="grid grid-cols-[minmax(160px,1fr)_repeat(7,78px)_54px] items-center gap-2
+                          px-5 text-[9px] font-bold uppercase tracking-[0.1em] text-muted-foreground/60">
+            <span>Origem</span>
+            {COLUNAS.map((c) => (
+              <button key={c.chave} type="button" title={c.ajuda}
+                onClick={() => setOrdem(c.chave)}
+                className={`text-right transition-colors duration-150 hover:text-foreground ${
+                  ordem === c.chave ? "text-foreground" : ""}`}>
+                {c.rotulo}{ordem === c.chave ? " ↓" : ""}
+              </button>
+            ))}
+            <span className="text-right">%</span>
+          </div>
+
+          <div className="flex flex-col px-3 pb-3 mt-1">
+            {ordenadas.map((o) => {
+              const cor = corDaOrigem(o.origem, origens.findIndex((x) => x.origem === o.origem));
+              const destacado = foco === o.origem;
+              const caro = o.vezesAMedia != null && o.vezesAMedia >= 1.5;
+              const razao = n(o.tokensSaida) > 0 ? n(o.tokensEntrada) / n(o.tokensSaida) : null;
+              return (
+                <button key={o.origem} type="button"
+                  onClick={() => aoFocar(destacado ? null : o.origem)}
+                  className={`grid grid-cols-[minmax(160px,1fr)_repeat(7,78px)_54px] items-center gap-2
+                              px-2 py-2 rounded-lg text-left transition-colors duration-150 ${
+                    destacado ? "bg-foreground/[0.05]" : "hover:bg-foreground/[0.03]"}`}>
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-2">
+                      <i className="w-2 h-2 rounded-[3px] flex-shrink-0" style={{ background: cor }} />
+                      <span className="text-[12.5px] font-medium truncate">{rotuloOrigem(o.origem)}</span>
+                    </span>
+                    {/* A barra é a fatia de TOKENS — a mesma grandeza da coluna %. */}
+                    <span className="block h-[6px] rounded-full bg-muted overflow-hidden mt-1.5">
+                      <span className="block h-full rounded-full"
+                        style={{ width: `${(o.tokens / maiorTokens) * 100}%`, background: cor }} />
+                    </span>
+                  </span>
+                  <span className="text-[12px] tabular-nums text-right">{fmt(o.chamadas)}</span>
+                  <span className="text-[12px] tabular-nums text-right text-muted-foreground">
+                    {compacto(o.tokensEntrada)}
+                  </span>
+                  <span className="text-[12px] tabular-nums text-right text-muted-foreground">
+                    {compacto(o.tokensSaida)}
+                  </span>
+                  <span className="text-[12px] tabular-nums text-right">{compacto(o.tokens)}</span>
+                  <span className={`text-[12px] tabular-nums text-right font-semibold ${
+                    caro ? "text-amber-700" : "text-muted-foreground"}`}
+                    title={o.vezesAMedia != null ? `${o.vezesAMedia.toFixed(1)}× a média geral` : undefined}>
+                    {o.tokensPorChamada == null ? "–" : fmt(Math.round(o.tokensPorChamada))}
+                  </span>
+                  <span className="text-[12px] tabular-nums text-right text-muted-foreground">
+                    {razao == null ? "–" : `${razao.toFixed(1).replace(".", ",")}×`}
+                  </span>
+                  <span className={`text-[12px] tabular-nums text-right ${
+                    o.falhas > 0 ? "text-destructive" : "text-muted-foreground/40"}`}>
+                    {fmt(o.falhas)}
+                  </span>
+                  <span className="text-[12px] tabular-nums text-right text-muted-foreground">
+                    {o.fatia == null ? "–" : `${Math.round(o.fatia * 100)}%`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -557,22 +991,36 @@ function Bloco({ titulo, nota, children, acao }: {
  * Ele fica marcado para não competir com as contas reais na leitura.
  */
 function PorCliente({ clientes }: { clientes: ReturnType<typeof analisarClientes> }) {
-  const [por, setPor] = useState<"tokens" | "chamadas">("tokens");
-  const ordenados = [...clientes].sort((a, b) =>
-    por === "tokens" ? b.tokens - a.tokens : b.chamadas - a.chamadas);
-  const maior = Math.max(1, ...ordenados.map((c) => (por === "tokens" ? c.tokens : c.chamadas)));
+  /**
+   * Três leituras, e a terceira responde outra pergunta.
+   *
+   * "Quem consome mais" encontra o cliente grande — o que costuma ser só o
+   * cliente com mais contas e mais relatórios. "Por chamada" encontra o cliente
+   * CARO: aquele cuja análise, cada vez que roda, custa o dobro das outras. São
+   * ações diferentes, e o total sozinho esconde a segunda.
+   */
+  const [por, setPor] = useState<"tokens" | "chamadas" | "porChamada">("tokens");
+  const valor = (c: typeof clientes[number]) =>
+    por === "tokens" ? c.tokens
+    : por === "chamadas" ? c.chamadas
+    // Piso de 3 chamadas: com uma só, "o mais caro por chamada" é sorte de
+    // amostra e ocuparia o topo com um cliente que rodou um relatório uma vez.
+    : c.chamadas >= 3 ? c.tokens / c.chamadas : 0;
+  const ordenados = [...clientes].sort((a, b) => valor(b) - valor(a));
+  const maior = Math.max(1, ...ordenados.map(valor));
 
   return (
     <Bloco titulo="Clientes que mais consomem"
+      nota={por === "porChamada" ? "quem tem a análise mais cara, e não a maior" : null}
       acao={
         <span className="inline-flex rounded-md border border-border overflow-hidden">
-          {(["tokens", "chamadas"] as const).map((o) => (
+          {(["tokens", "chamadas", "porChamada"] as const).map((o) => (
             <button key={o} type="button" onClick={() => setPor(o)}
               className={`text-[9.5px] font-bold uppercase tracking-[0.06em] px-2 py-1
                           transition-colors duration-150 ${
                 por === o ? "bg-foreground text-background"
                           : "text-muted-foreground hover:bg-foreground/[0.04]"}`}>
-              {o}
+              {o === "porChamada" ? "por chamada" : o}
             </button>
           ))}
         </span>
@@ -588,13 +1036,17 @@ function PorCliente({ clientes }: { clientes: ReturnType<typeof analisarClientes
                 {c.rotulo}
               </span>
               <span className="text-[11px] tabular-nums text-muted-foreground flex-shrink-0">
-                {fmt(c.chamadas)} chamadas · {compacto(c.tokens)} tokens
+                {por === "porChamada"
+                  ? (c.chamadas >= 3
+                      ? `${fmt(Math.round(c.tokens / c.chamadas))} tokens/chamada`
+                      : `${fmt(c.chamadas)} chamada(s) — amostra pequena`)
+                  : `${fmt(c.chamadas)} chamadas · ${compacto(c.tokens)} tokens`}
               </span>
             </div>
             <span className="block h-[6px] rounded-full bg-muted overflow-hidden">
               <span className="block h-full rounded-full"
                 style={{
-                  width: `${((por === "tokens" ? c.tokens : c.chamadas) / maior) * 100}%`,
+                  width: `${(valor(c) / maior) * 100}%`,
                   background: c.global ? "#8C8C8C" : "#7C5CE0",
                 }} />
             </span>
@@ -606,15 +1058,23 @@ function PorCliente({ clientes }: { clientes: ReturnType<typeof analisarClientes
 }
 
 /**
- * Entrada × saída — onde mora o custo.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Entrada × saída — o bloco que explica onde o dinheiro está
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Entrada é o que MANDAMOS ao modelo: instrução, contexto, dados da conta.
+ *  Saída é o que ele ESCREVEU de volta. Elas têm preço diferente — a saída
+ *  custa várias vezes mais por token —, e é por isso que a proporção importa
+ *  mais que o total.
  *
- * Prompt grande e resposta grande custam por motivos diferentes e se resolvem
- * por caminhos diferentes: um se corta encurtando contexto, o outro limitando o
- * tamanho da resposta. A proporção diz qual dos dois investigar.
+ *  A proporção alta não é defeito: análise séria exige contexto, e um relatório
+ *  bom lê muito para escrever pouco. O que vira sinal é ela CRESCER contra a
+ *  própria história — o mesmo trabalho passando a exigir mais leitura.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
-function EntradaVersusSaida({ totais, dias }: {
+function EntradaVersusSaida({ totais, dias, razao }: {
   totais: ReturnType<typeof totaisDoPeriodo>;
   dias: Array<{ dia: string; tokensEntrada: number; tokensSaida: number }>;
+  razao: ReturnType<typeof razaoEntradaSaida>;
 }) {
   const f = totais.fracaoDeEntrada;
   return (
@@ -623,22 +1083,44 @@ function EntradaVersusSaida({ totais, dias }: {
         <p className="text-[11.5px] text-muted-foreground">Sem tokens medidos no período.</p>
       ) : (
         <>
-          <div className="flex items-baseline gap-4">
-            <span>
+          <div className="flex items-baseline gap-4 flex-wrap">
+            <span title="Instrução, contexto e dados que o Spaces envia ao modelo. É o lado barato do token, e o que mais cresce quando o contexto engorda."
+              className="cursor-help">
               <b className="text-[22px] font-bold tabular-nums" style={{ color: "#2A9FD6" }}>{pct(f)}</b>
               <span className="text-[10.5px] text-muted-foreground ml-1.5">entrada</span>
             </span>
-            <span>
+            <span title="O texto que o modelo escreveu de volta. Custa várias vezes mais por token que a entrada."
+              className="cursor-help">
               <b className="text-[22px] font-bold tabular-nums" style={{ color: "#E87AB0" }}>{pct(1 - f)}</b>
               <span className="text-[10.5px] text-muted-foreground ml-1.5">saída</span>
             </span>
+            {razao.razao != null && (
+              <span className="text-[10.5px] text-muted-foreground/70 flex items-center gap-1">
+                <ArrowDownUp className="w-3 h-3" strokeWidth={2.2} />
+                lemos {razao.razao.toFixed(1).replace(".", ",")}× o que escrevemos
+              </span>
+            )}
           </div>
           <span className="flex h-[10px] rounded-full overflow-hidden bg-muted">
             <span style={{ flexGrow: f, background: "#2A9FD6" }} />
             <span style={{ flexGrow: 1 - f, background: "#E87AB0" }} />
           </span>
-          {/* A evolução da proporção: se ela muda, o que mudou foi o desenho dos
-              prompts, e não o volume. */}
+
+          {/* A comparação com a própria história — o que transforma a proporção
+              de curiosidade em sinal. */}
+          <p className="text-[11px] text-muted-foreground leading-snug">
+            {razao.razaoHistorica == null ? (
+              <>Ainda não há histórico suficiente para dizer se esta proporção é a de sempre.</>
+            ) : razao.desvio != null && razao.desvio >= 1.6 ? (
+              <><b className="text-amber-700 font-semibold">Acima do padrão:</b>{" "}
+                o histórico desta conta é {razao.razaoHistorica.toFixed(1).replace(".", ",")}×.
+                Vale olhar o tamanho do contexto enviado por chamada.</>
+            ) : (
+              <>Em linha com o histórico desta conta, que é de{" "}
+                {razao.razaoHistorica.toFixed(1).replace(".", ",")}× — a proporção não mudou.</>
+            )}
+          </p>
+
           {dias.length >= 2 && (
             <div className="flex items-end gap-[3px] h-8 mt-1">
               {dias.map((d) => {
@@ -661,53 +1143,284 @@ function EntradaVersusSaida({ totais, dias }: {
 }
 
 /**
- * Spaces × Claude API — preparado, e honesto sobre não estar conectado.
- *
- * O bloco existe agora para que a comparação tenha lugar no dia em que a Admin
- * API entrar. Preencher a coluna da direita com o número do Spaces "por
- * enquanto" destruiria justamente o que ela serve para revelar: chamadas que
- * escapam da instrumentação.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Estatísticas por chamada — média E mediana, nunca só uma
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A média sozinha mente quando poucas chamadas são enormes: um relatório de
+ *  140 mil tokens entre cem classificações de 800 desloca a média e não toca a
+ *  mediana. A distância entre as duas é justamente o diagnóstico, e por isso
+ *  elas aparecem lado a lado com os extremos.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
-function SpacesVersusApi({ periodo }: { periodo: string }) {
-  const [relatorio, setRelatorio] = useState<string | null>(null);
-  const sondar = trpc.accounts.sondarAnthropic.useMutation({
-    onSuccess: (r) => setRelatorio(r.texto),
-    onError: (e) => setRelatorio(`Falhou: ${e.message}`),
-  });
-
+function EstatisticasDaChamada({ e }: { e: ReturnType<typeof estatisticasDeChamada> }) {
+  if (!e.chamadas) {
+    return (
+      <Bloco titulo="Tokens por chamada" nota="média, mediana e extremos">
+        <p className="text-[11.5px] text-muted-foreground">Sem chamadas medidas no período.</p>
+      </Bloco>
+    );
+  }
+  const linha = (rotulo: string, valor: number | null, ajuda: string, destaque = false) => (
+    <div className="flex flex-col" title={ajuda}>
+      <span className="text-[9px] font-bold uppercase tracking-[0.11em] text-muted-foreground/70 cursor-help">
+        {rotulo}
+      </span>
+      <span className={`text-[19px] font-bold tabular-nums leading-none mt-1 ${
+        destaque ? "text-amber-700" : ""}`}>
+        {valor == null ? "–" : fmt(Math.round(valor))}
+      </span>
+    </div>
+  );
   return (
-    <Bloco titulo="Spaces × Claude API" nota={`período ${periodo}`}
-      acao={
-        <button type="button" onClick={() => sondar.mutate()} disabled={sondar.isPending}
-          className="text-[10px] px-2.5 py-1 rounded-md border border-border text-muted-foreground
-                     hover:text-foreground hover:bg-foreground/[0.04] transition-colors duration-150
-                     disabled:opacity-60">
-          {sondar.isPending ? "Sondando…" : "Sondar Admin API"}
-        </button>
-      }>
-      {!relatorio && (
-        <div className="rounded-[14px] border border-dashed border-border px-4 py-4">
-          <p className="text-[12.5px] font-medium">Integração ainda não validada contra a API real.</p>
-          <p className="text-[11px] text-muted-foreground leading-snug mt-1.5 max-w-[62ch]">
-            A chave já está no servidor, mas os campos que esta organização devolve ainda não foram
-            medidos — e a doc descreve o contrato, não a conta. A sondagem faz uma chamada real ao
-            uso e ao custo e mostra exatamente o que chegou, sem gravar nada. É o retorno dela que
-            define o que a comparação pode afirmar.
-          </p>
-          <p className="text-[11px] text-muted-foreground leading-snug mt-2">
-            Uma coisa já é certa pela documentação: a Anthropic <strong>não informa número de
-            chamadas</strong>. Esse número continua vindo só de <span className="font-mono">ai_geracoes</span>,
-            e a comparação será de tokens e custo.
-          </p>
-        </div>
-      )}
-      {relatorio && (
-        <pre className="text-[10.5px] leading-[1.5] font-mono bg-muted/40 rounded-[12px] p-3.5
-                        max-h-[460px] overflow-auto whitespace-pre-wrap">
-          {relatorio}
-        </pre>
+    <Bloco titulo="Tokens por chamada" nota={`${fmt(e.chamadas)} chamadas`}
+      acao={<Selo tipo="derivado" />}>
+      <div className="grid grid-cols-4 gap-3">
+        {linha("Média", e.media, "Soma dos tokens dividida pelo número de chamadas. Sensível a extremos.", e.mediaDistorcida)}
+        {linha("Mediana", e.mediana, "O valor do meio: metade das chamadas gasta menos que isso. Não se move com extremos.")}
+        {linha("Maior", e.maior, "A maior chamada única do período.")}
+        {linha("Menor", e.menor, "A menor chamada única do período.")}
+      </div>
+      {e.mediaDistorcida ? (
+        <p className="text-[11px] leading-snug">
+          <b className="text-amber-700 font-semibold">Uma chamada muito acima do padrão está elevando
+          a média.</b>{" "}
+          <span className="text-muted-foreground">
+            A média está {(e.media! / e.mediana!).toFixed(1).replace(".", ",")}× a mediana — a maioria
+            das chamadas é bem menor que o número da esquerda sugere. As maiores estão listadas abaixo.
+          </span>
+        </p>
+      ) : (
+        <p className="text-[11px] text-muted-foreground leading-snug">
+          Média e mediana estão próximas: o consumo por chamada é uniforme, sem poucas chamadas
+          gigantes puxando o número.
+        </p>
       )}
     </Bloco>
+  );
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Cache — mostrado mesmo quando é zero, e explicado
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Zero aqui é um FATO medido, e não uma lacuna: significa que nenhum contexto
+ *  foi reaproveitado entre chamadas. Esconder o bloco quando dá zero faria a
+ *  informação sumir exatamente no caso em que ela é acionável.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+function Cache({ totais, disponivel }: {
+  totais: { cacheRead: number; cacheCreation: number; uncached: number } | null;
+  disponivel: boolean;
+}) {
+  return (
+    <Bloco titulo="Cache de contexto" nota="reaproveitamento entre chamadas"
+      acao={disponivel ? <Selo tipo="medido" /> : null}>
+      {!disponivel || !totais ? (
+        <p className="text-[11.5px] text-muted-foreground leading-snug">
+          O uso de cache só é visível pela Anthropic, e ela não respondeu nesta leitura.
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-3">
+            <div title="Tokens de contexto lidos de um cache já existente. Custam uma fração do preço normal.">
+              <span className="text-[9px] font-bold uppercase tracking-[0.11em] text-muted-foreground/70 cursor-help">
+                Lido do cache
+              </span>
+              <span className="block text-[19px] font-bold tabular-nums leading-none mt-1">
+                {compacto(totais.cacheRead)}
+              </span>
+            </div>
+            <div title="Tokens gravados no cache para reuso futuro. Custam um pouco mais que o normal na primeira vez.">
+              <span className="text-[9px] font-bold uppercase tracking-[0.11em] text-muted-foreground/70 cursor-help">
+                Gravado
+              </span>
+              <span className="block text-[19px] font-bold tabular-nums leading-none mt-1">
+                {compacto(totais.cacheCreation)}
+              </span>
+            </div>
+            <div title="Entrada cobrada a preço cheio, sem reaproveitamento.">
+              <span className="text-[9px] font-bold uppercase tracking-[0.11em] text-muted-foreground/70 cursor-help">
+                Sem cache
+              </span>
+              <span className="block text-[19px] font-bold tabular-nums leading-none mt-1">
+                {compacto(totais.uncached)}
+              </span>
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-snug">
+            {totais.cacheRead === 0 && totais.cacheCreation === 0 ? (
+              <>Nenhum cache em uso no período — toda a entrada foi cobrada a preço cheio. O cache
+              vale quando um mesmo trecho de contexto se repete entre chamadas; quando cada prompt é
+              diferente, não há o que reaproveitar e zero é o resultado correto.</>
+            ) : (
+              <>Parte da entrada foi reaproveitada de chamadas anteriores, a um preço menor que o da
+              entrada cheia.</>
+            )}
+          </p>
+        </>
+      )}
+    </Bloco>
+  );
+}
+
+/** O consumo por modelo — direto da Anthropic, que é quem sabe qual atendeu. */
+function PorModelo({ modelos }: {
+  modelos: Array<{ modelo: string; uncachedInput: number; cacheRead: number;
+                   cacheCreation: number; output: number; centavos: number }>;
+}) {
+  if (!modelos.length) {
+    return (
+      <Bloco titulo="Por modelo" nota="quem atendeu">
+        <p className="text-[11.5px] text-muted-foreground">Sem leitura da Anthropic neste período.</p>
+      </Bloco>
+    );
+  }
+  const total = (m: typeof modelos[number]) =>
+    m.uncachedInput + m.cacheRead + m.cacheCreation + m.output;
+  const maior = Math.max(1, ...modelos.map(total));
+  return (
+    <Bloco titulo="Por modelo" nota="quem atendeu" acao={<Selo tipo="medido" />}>
+      <div className="flex flex-col gap-2.5">
+        {modelos.map((m, i) => (
+          <div key={m.modelo}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[12px] font-medium truncate">{m.modelo}</span>
+              <span className="text-[11.5px] tabular-nums text-muted-foreground flex-shrink-0">
+                {compacto(total(m))}
+                {m.centavos > 0 && ` · US$ ${(m.centavos / 100).toFixed(2).replace(".", ",")}`}
+              </span>
+            </div>
+            <span className="block h-[6px] rounded-full bg-muted overflow-hidden mt-1.5">
+              <span className="block h-full rounded-full"
+                style={{ width: `${(total(m) / maior) * 100}%`, background: CORES[i % CORES.length] }} />
+            </span>
+          </div>
+        ))}
+      </div>
+    </Bloco>
+  );
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Spaces × Anthropic — duas contagens que medem coisas diferentes
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Elas não deveriam bater, e a tela diz isso antes de mostrar a diferença. O
+ *  Spaces conta o que passou pelo seu wrapper; a Anthropic cobra tudo que a
+ *  organização gastou com a mesma chave. A distância é consumo que este painel
+ *  não vê — que é informação, e não erro.
+ *
+ *  A Anthropic não informa número de CHAMADAS. Esse número continua vindo só de
+ *  `ai_geracoes`, e a comparação é de tokens e custo.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+function SpacesVersusApi({ comparacao, anth, chamadas, periodo, range, aoAtualizar }: {
+  comparacao: ReturnType<typeof compararFontes>;
+  anth: { erro: string | null; atualizadoEm: string; doCache: boolean } | null;
+  chamadas: number;
+  periodo: string;
+  range: { startDate: string; endDate: string };
+  aoAtualizar: () => void;
+}) {
+  const atualizar = trpc.accounts.atualizarAnthropic.useMutation({ onSuccess: aoAtualizar });
+
+  return (
+    <Bloco titulo="Spaces × Anthropic" nota={`período ${periodo}`}
+      acao={
+        <button type="button" disabled={atualizar.isPending}
+          onClick={() => atualizar.mutate({ startDate: range.startDate, endDate: range.endDate })}
+          className="text-[10px] px-2.5 py-1 rounded-md border border-border text-muted-foreground
+                     hover:text-foreground hover:bg-foreground/[0.04] transition-colors duration-150
+                     disabled:opacity-60 flex items-center gap-1.5">
+          <RefreshCw className={`w-3 h-3 ${atualizar.isPending ? "animate-spin" : ""}`} strokeWidth={2.2} />
+          {atualizar.isPending ? "Lendo…" : "Reler da Anthropic"}
+        </button>
+      }>
+      {!anth || anth.erro ? (
+        <p className="text-[11.5px] text-muted-foreground leading-snug">
+          {anth?.erro ?? "A chave de administração não está configurada neste ambiente."}
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <span className="text-[9px] font-bold uppercase tracking-[0.11em] text-muted-foreground/70">
+                Tokens · Spaces
+              </span>
+              <span className="block text-[21px] font-bold tabular-nums leading-none mt-1">
+                {compacto(comparacao.spaces)}
+              </span>
+              <span className="text-[10px] text-muted-foreground">{fmt(chamadas)} chamadas contadas</span>
+            </div>
+            <div>
+              <span className="text-[9px] font-bold uppercase tracking-[0.11em] text-muted-foreground/70">
+                Tokens · Anthropic
+              </span>
+              <span className="block text-[21px] font-bold tabular-nums leading-none mt-1">
+                {compacto(comparacao.anthropic ?? 0)}
+              </span>
+              {/* A ausência dita: a API não entrega contagem de chamadas. */}
+              <span className="text-[10px] text-muted-foreground/70">a API não informa chamadas</span>
+            </div>
+            <div>
+              <span className="text-[9px] font-bold uppercase tracking-[0.11em] text-muted-foreground/70">
+                Diferença
+              </span>
+              <span className={`block text-[21px] font-bold tabular-nums leading-none mt-1 ${
+                comparacao.desalinhado ? "text-amber-700" : ""}`}>
+                {comparacao.percentual == null ? "–" : pct(Math.abs(comparacao.percentual))}
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                {comparacao.diferenca == null ? "sem base"
+                  : comparacao.diferenca >= 0 ? "a Anthropic viu mais" : "o Spaces contou mais"}
+              </span>
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-snug max-w-[88ch]">
+            {comparacao.explicacao}
+            {comparacao.desalinhado && comparacao.diferenca != null && comparacao.diferenca < 0 && (
+              <> <b className="text-amber-700 font-semibold">Aqui o Spaces contou mais que a
+              Anthropic cobrou</b>, o que a explicação acima não cobre — vale conferir se o período
+              da leitura externa já fechou, já que o dado da Anthropic leva alguns minutos para
+              consolidar.</>
+            )}
+          </p>
+          <span className="text-[10px] text-muted-foreground/60">
+            Leitura de {new Date(anth.atualizadoEm).toLocaleString("pt-BR", {
+              day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+            {anth.doCache ? " · reaproveitada do cache de 10 minutos" : ""}
+          </span>
+        </>
+      )}
+    </Bloco>
+  );
+}
+
+/**
+ * Capacidade — a seção existe para dizer que não há limite conectado.
+ *
+ * Um painel de gestão precisa responder "estamos perto de bater em algum teto?".
+ * A resposta honesta hoje é que ninguém sabe: o rate limit da organização não
+ * está exposto a este painel. Inventar uma barra de "70% da capacidade" seria
+ * pior que a ausência — daria a alguém a sensação de folga que ninguém mediu.
+ */
+function Capacidade() {
+  return (
+    <div className="rounded-[16px] border border-dashed border-border bg-card px-4 py-3
+                    flex items-start gap-3">
+      <Info className="w-3.5 h-3.5 text-muted-foreground/60 mt-[3px] flex-shrink-0" strokeWidth={2.2} />
+      <div>
+        <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          Capacidade
+        </span>
+        <p className="text-[11.5px] text-muted-foreground/80 leading-snug mt-0.5 max-w-[88ch]">
+          Não há limite de capacidade conectado a este painel. O rate limit da organização e o teto
+          de gasto do plano não são expostos pelas APIs que esta página lê, então o Spaces não sabe
+          quanta folga existe — e não vai desenhar uma barra de ocupação sobre um teto que não mediu.
+          Falhas por limite, quando acontecem, aparecem como falhas nos blocos acima.
+        </p>
+      </div>
+    </div>
   );
 }
 

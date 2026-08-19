@@ -205,3 +205,142 @@ export function custoDaOrganizacao(inicio: string, fim: string) {
 
 /** A chamada crua, só para a sondagem — ela precisa ver o JSON como veio. */
 export const chamarCru = chamar;
+
+
+// ─── A leitura normalizada, com cache ────────────────────────────────────────
+
+export interface DiaAnthropic {
+  dia: string;
+  uncachedInput: number;
+  cacheRead: number;
+  cacheCreation: number;
+  output: number;
+  /** Custo do dia em CENTAVOS de USD, como a API devolve. */
+  centavos: number;
+}
+
+export interface ModeloAnthropic {
+  modelo: string;
+  uncachedInput: number;
+  cacheRead: number;
+  cacheCreation: number;
+  output: number;
+  centavos: number;
+}
+
+export interface ConsumoAnthropic {
+  dias: DiaAnthropic[];
+  modelos: ModeloAnthropic[];
+  totalCentavos: number;
+  moeda: string;
+  /** Quando esta leitura saiu da Anthropic — a tela mostra. */
+  atualizadoEm: string;
+  /** `true` quando veio do cache em vez de uma chamada nova. */
+  doCache: boolean;
+  erro: string | null;
+}
+
+/**
+ * Cache em memória, por período.
+ *
+ * O dado da Anthropic aparece em ~5 minutos e a doc recomenda no máximo um
+ * polling por minuto. Dez minutos é folgado o suficiente para uma tela que
+ * alguém recarrega algumas vezes seguidas, e curto o bastante para o número não
+ * envelhecer sem ninguém notar. Em memória e não no banco: é cache de leitura
+ * externa, e perdê-lo num restart custa uma chamada.
+ */
+const TTL_MS = 10 * 60_000;
+const cache = new Map<string, { quando: number; valor: ConsumoAnthropic }>();
+
+/** Descarta o custo que a doc avisa não estar no endpoint (Priority Tier). */
+const centavosDe = (a?: string) => {
+  const n = Number(a ?? 0);
+  return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * Uso e custo do período, numa leitura só.
+ *
+ * Duas chamadas à Anthropic no máximo — e nenhuma quando o cache vale. A página
+ * inteira come desta função: um `fetch` por gráfico multiplicaria por seis o
+ * consumo da API que a página existe para medir.
+ */
+export async function consumoAnthropic(
+  inicio: string, fim: string, forcar = false,
+): Promise<ConsumoAnthropic> {
+  const chave = `${inicio}|${fim}`;
+  const guardado = cache.get(chave);
+  if (!forcar && guardado && Date.now() - guardado.quando < TTL_MS) {
+    return { ...guardado.valor, doCache: true };
+  }
+
+  const [uso, custo] = await Promise.all([
+    usoDaOrganizacao(inicio, fim, "1d"),
+    custoDaOrganizacao(inicio, fim),
+  ]);
+
+  const erro = uso.erro ?? custo.erro;
+  const porDia = new Map<string, DiaAnthropic>();
+  const porModelo = new Map<string, ModeloAnthropic>();
+
+  const dia = (d: string) => {
+    const k = d.slice(0, 10);
+    if (!porDia.has(k)) {
+      porDia.set(k, { dia: k, uncachedInput: 0, cacheRead: 0, cacheCreation: 0, output: 0, centavos: 0 });
+    }
+    return porDia.get(k)!;
+  };
+  const modelo = (m: string) => {
+    if (!porModelo.has(m)) {
+      porModelo.set(m, { modelo: m, uncachedInput: 0, cacheRead: 0, cacheCreation: 0, output: 0, centavos: 0 });
+    }
+    return porModelo.get(m)!;
+  };
+
+  for (const b of uso.buckets) {
+    const d = dia(b.starting_at);
+    for (const r of b.results ?? []) {
+      // As quatro categorias entram SEPARADAS e nunca somadas entre si: a
+      // Anthropic cobra preços diferentes por cada uma, e juntá-las aqui faria
+      // a tela perder a distinção que a própria API se deu ao trabalho de fazer.
+      const cria = (r.cache_creation?.ephemeral_1h_input_tokens ?? 0)
+        + (r.cache_creation?.ephemeral_5m_input_tokens ?? 0);
+      d.uncachedInput += r.uncached_input_tokens ?? 0;
+      d.cacheRead += r.cache_read_input_tokens ?? 0;
+      d.cacheCreation += cria;
+      d.output += r.output_tokens ?? 0;
+      if (r.model) {
+        const m = modelo(r.model);
+        m.uncachedInput += r.uncached_input_tokens ?? 0;
+        m.cacheRead += r.cache_read_input_tokens ?? 0;
+        m.cacheCreation += cria;
+        m.output += r.output_tokens ?? 0;
+      }
+    }
+  }
+
+  let moeda = "USD";
+  for (const b of custo.buckets) {
+    const d = dia(b.starting_at);
+    for (const r of b.results ?? []) {
+      const c = centavosDe(r.amount);
+      d.centavos += c;
+      if (r.currency) moeda = r.currency;
+      if (r.model) modelo(r.model).centavos += c;
+    }
+  }
+
+  const valor: ConsumoAnthropic = {
+    dias: Array.from(porDia.values()).sort((a, b) => a.dia.localeCompare(b.dia)),
+    modelos: Array.from(porModelo.values()).sort((a, b) => b.centavos - a.centavos),
+    totalCentavos: Array.from(porDia.values()).reduce((n, d) => n + d.centavos, 0),
+    moeda,
+    atualizadoEm: new Date().toISOString(),
+    doCache: false,
+    erro,
+  };
+  // Erro não entra no cache: o próximo acesso tenta de novo em vez de repetir a
+  // falha por dez minutos.
+  if (!erro) cache.set(chave, { quando: Date.now(), valor });
+  return valor;
+}

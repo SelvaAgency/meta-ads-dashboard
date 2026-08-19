@@ -6742,7 +6742,9 @@ export async function consumoDeIA(inicio: string, fim: string) {
   const db = await getDb();
   const vazio = {
     porOrigem: [], porDia: [], porCliente: [], porModelo: [],
-    maiores: [], recentes: [], medindoDesde: null as string | null,
+    maiores: [], recentes: [], tokensPorChamada: [] as number[],
+    historico: [] as Array<{ dia: string; entrada: number; saida: number; chamadas: number }>,
+    medindoDesde: null as string | null,
   };
   if (!db) return vazio;
 
@@ -6750,7 +6752,7 @@ export async function consumoDeIA(inicio: string, fim: string) {
   const ate = new Date(`${fim}T23:59:59.999Z`);
   const noPeriodo = and(gte(aiGeracoes.criadoEm, de), lte(aiGeracoes.criadoEm, ate));
 
-  const [porOrigem, porDia, porCliente, porModelo, maiores, recentes, primeira] = await Promise.all([
+  const [porOrigem, porDia, porCliente, porModelo, maiores, recentes, primeira, porChamada, historico] = await Promise.all([
     db.select({
       origem: aiGeracoes.origem,
       chamadas: sql<number>`COUNT(*)`,
@@ -6815,10 +6817,50 @@ export async function consumoDeIA(inicio: string, fim: string) {
       .limit(300),
 
     db.select({ quando: sql<string>`DATE(MIN(${aiGeracoes.criadoEm}))` }).from(aiGeracoes),
+
+    /**
+     * O total de tokens de CADA chamada — para mediana, mínimo e máximo.
+     *
+     * A mediana não sai de um `AVG`: uma única chamada gigante desloca a média
+     * e some na mediana, e é justamente essa diferença que revela "uma chamada
+     * fora do padrão está elevando o número". Por isso os valores vêm em lista.
+     *
+     * Teto de 20 mil: acima disso a mediana da amostra já é a da população para
+     * o que esta tela decide, e trazer tudo travaria o navegador.
+     */
+    db.select({
+      tokens: sql<number>`COALESCE(${aiGeracoes.tokensEntrada},0) + COALESCE(${aiGeracoes.tokensSaida},0)`,
+    }).from(aiGeracoes).where(noPeriodo).limit(20_000),
+
+    /**
+     * TODO o histórico, dia a dia — e de propósito sem `noPeriodo`.
+     *
+     * Esta é a régua: "normal" nesta página significa o comportamento do próprio
+     * Spaces, e um padrão calculado apenas com os dias que a tela mostra se
+     * compararia consigo mesmo. Trocar o seletor de datas não pode mudar o que
+     * conta como normal.
+     *
+     * Teto de 400 dias: mais de um ano de histórico já não muda a régua, e
+     * mantém a consulta previsível quando a tabela crescer.
+     */
+    db.select({
+      dia: sql<string>`DATE(${aiGeracoes.criadoEm})`,
+      entrada: sql<number>`COALESCE(SUM(${aiGeracoes.tokensEntrada}), 0)`,
+      saida: sql<number>`COALESCE(SUM(${aiGeracoes.tokensSaida}), 0)`,
+      chamadas: sql<number>`COUNT(*)`,
+    }).from(aiGeracoes)
+      .groupBy(sql`DATE(${aiGeracoes.criadoEm})`)
+      .orderBy(sql`DATE(${aiGeracoes.criadoEm})`)
+      .limit(400),
   ]);
 
   return {
     porOrigem, porDia, porCliente, porModelo, maiores, recentes,
+    tokensPorChamada: porChamada.map((x) => Number(x.tokens ?? 0)),
+    historico: historico.map((h) => ({
+      dia: String(h.dia), entrada: Number(h.entrada ?? 0),
+      saida: Number(h.saida ?? 0), chamadas: Number(h.chamadas ?? 0),
+    })),
     medindoDesde: (primeira[0]?.quando as string | null) ?? null,
   };
 }

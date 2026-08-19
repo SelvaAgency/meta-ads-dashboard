@@ -2572,7 +2572,35 @@ export const appRouter = router({
      */
     consumoIA: contentProcedure
       .input(z.object({ startDate: z.string(), endDate: z.string() }))
-      .query(({ input }) => consumoDeIA(input.startDate, input.endDate)),
+      .query(async ({ input }) => {
+        /**
+         * As duas fontes numa chamada só, e em paralelo.
+         *
+         * A página compara o que o Spaces contou com o que a Anthropic cobrou —
+         * e duas queries separadas deixariam metade da tela renderizar antes da
+         * outra, dando a impressão de divergência enquanto a segunda carrega.
+         *
+         * A da Anthropic nunca lança: `consumoAnthropic` devolve o erro já
+         * sanitizado dentro do objeto, para uma indisponibilidade externa não
+         * derrubar o painel inteiro do que é nosso.
+         */
+        const { consumoAnthropic, temChaveAdmin } = await import("./services/anthropicAdmin");
+        const [spaces, anthropic] = await Promise.all([
+          consumoDeIA(input.startDate, input.endDate),
+          temChaveAdmin()
+            ? consumoAnthropic(input.startDate, input.endDate)
+            : Promise.resolve(null),
+        ]);
+        return { ...spaces, anthropic, temChaveAdmin: temChaveAdmin() };
+      }),
+
+    /** Força uma releitura da Anthropic, furando o cache de 10 minutos. */
+    atualizarAnthropic: contentProcedure
+      .input(z.object({ startDate: z.string(), endDate: z.string() }))
+      .mutation(async ({ input }) => {
+        const { consumoAnthropic } = await import("./services/anthropicAdmin");
+        return consumoAnthropic(input.startDate, input.endDate, true);
+      }),
 
     /** Reanalisa o status da IA de TODAS as contas ativas (admin). Sequencial e
      *  com throttle para não estourar o rate limit do LLM. */

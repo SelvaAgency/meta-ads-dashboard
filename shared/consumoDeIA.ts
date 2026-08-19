@@ -25,13 +25,37 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-export type TipoDeAlerta = "volume" | "eficiencia" | "anomalia" | "falha";
+export type TipoDeAlerta =
+  | "volume" | "eficiencia" | "anomalia" | "falha"
+  | "crescimento" | "custo" | "desalinhamento";
+
+/**
+ * A severidade separa "olhe hoje" de "vale saber".
+ *
+ * Dois níveis, e não cinco: com uma escala fina ninguém lembra a diferença
+ * entre o nível 2 e o 3, e o alerta médio vira ruído colorido.
+ */
+export type Severidade = "atencao" | "critico";
 
 export interface AlertaDeConsumo {
   tipo: TipoDeAlerta;
+  severidade: Severidade;
   titulo: string;
   /** A frase com o NÚMERO que disparou. Nunca um adjetivo solto. */
   detalhe: string;
+  /**
+   * A evidência, destrinchada — para a tela poder mostrar o alerta como
+   * argumento conferível, e não como veredito.
+   *
+   * "Consumo alto" sem métrica, valor e referência é uma opinião com cara de
+   * dado: quem lê não consegue discordar, porque não sabe do que se discorda.
+   */
+  metrica: string;
+  valorAtual: string;
+  referencia: string;
+  periodo: string;
+  /** Por que este número foi considerado digno de alerta. */
+  motivo: string;
   /** Para a tela poder levar ao bloco certo. */
   origem?: string;
   accountId?: number | null;
@@ -249,18 +273,28 @@ export function alertasDeConsumo(dados: DadosDeConsumo): AlertaDeConsumo[] {
 
     if (mediaChamadas > 0 && Number(hoje.chamadas) >= mediaChamadas * LIMIARES.anomaliaDoDia) {
       alertas.push({
-        tipo: "volume",
+        tipo: "volume", severidade: "atencao",
         titulo: "Mais chamadas que o normal",
         detalhe: `Foram ${num(Number(hoje.chamadas))} chamadas em ${hoje.dia}, contra média de `
           + `${num(mediaChamadas)} nos ${antes.length} dias anteriores.`,
+        metrica: "Chamadas no dia",
+        valorAtual: num(Number(hoje.chamadas)),
+        referencia: `média de ${num(mediaChamadas)} nos ${antes.length} dias anteriores`,
+        periodo: hoje.dia,
+        motivo: `Passou de ${vezes(LIMIARES.anomaliaDoDia)} a média recente.`,
       });
     }
     if (mediaTokens > 0 && tokensDe(hoje) >= mediaTokens * LIMIARES.anomaliaDoDia) {
       alertas.push({
-        tipo: "anomalia",
+        tipo: "anomalia", severidade: "atencao",
         titulo: "Consumo acima do comportamento recente",
         detalhe: `${hoje.dia} consumiu ${num(tokensDe(hoje))} tokens — `
           + `${pct(tokensDe(hoje) / mediaTokens - 1)} acima da média dos ${antes.length} dias anteriores.`,
+        metrica: "Tokens no dia",
+        valorAtual: num(tokensDe(hoje)),
+        referencia: `média de ${num(mediaTokens)} nos ${antes.length} dias anteriores`,
+        periodo: hoje.dia,
+        motivo: `Passou de ${vezes(LIMIARES.anomaliaDoDia)} a média recente.`,
       });
     }
   }
@@ -270,11 +304,17 @@ export function alertasDeConsumo(dados: DadosDeConsumo): AlertaDeConsumo[] {
     if (o.chamadas < LIMIARES.chamadasParaJulgarEficiencia) continue;
     if (o.vezesAMedia != null && o.vezesAMedia >= LIMIARES.ineficienciaDaOrigem) {
       alertas.push({
-        tipo: "eficiencia",
+        tipo: "eficiencia", severidade: "atencao",
         titulo: "Chamadas caras nesta origem",
         origem: o.origem,
         detalhe: `${num(o.tokensPorChamada ?? 0)} tokens por chamada — `
           + `${vezes(o.vezesAMedia)} a média geral de ${num(t.tokensPorChamada ?? 0)}.`,
+        metrica: "Tokens por chamada",
+        valorAtual: num(o.tokensPorChamada ?? 0),
+        referencia: `média geral de ${num(t.tokensPorChamada ?? 0)}`,
+        periodo: "período selecionado",
+        motivo: `Origem com ao menos ${LIMIARES.chamadasParaJulgarEficiencia} chamadas e `
+          + `${vezes(LIMIARES.ineficienciaDaOrigem)} o custo médio por chamada.`,
       });
     }
   }
@@ -283,10 +323,17 @@ export function alertasDeConsumo(dados: DadosDeConsumo): AlertaDeConsumo[] {
   if (t.chamadas >= LIMIARES.chamadasParaJulgarFalhas
       && t.taxaDeFalha != null && t.taxaDeFalha >= LIMIARES.falhas) {
     alertas.push({
-      tipo: "falha",
+      // Crítico: falha é a única categoria em que algo já não funcionou. As
+      // outras dizem que está caro; esta diz que não entregou.
+      tipo: "falha", severidade: "critico",
       titulo: "Falhas acima do esperado",
       detalhe: `${num(t.falhas)} de ${num(t.chamadas)} chamadas falharam `
         + `(${(t.taxaDeFalha * 100).toFixed(1).replace(".", ",")}%). Falha também consome.`,
+      metrica: "Taxa de falha",
+      valorAtual: `${(t.taxaDeFalha * 100).toFixed(1).replace(".", ",")}%`,
+      referencia: `limite de ${(LIMIARES.falhas * 100).toFixed(0)}%`,
+      periodo: "período selecionado",
+      motivo: `Com ao menos ${LIMIARES.chamadasParaJulgarFalhas} chamadas, a taxa já significa algo.`,
     });
   }
 
@@ -304,11 +351,16 @@ export function alertasDeConsumo(dados: DadosDeConsumo): AlertaDeConsumo[] {
     const top = comConta[0];
     if (mediana > 0 && top.tokens >= mediana * LIMIARES.clienteForaDoPadrao) {
       alertas.push({
-        tipo: "anomalia",
+        tipo: "anomalia", severidade: "atencao",
         titulo: "Cliente fora do padrão",
         accountId: top.accountId,
         detalhe: `${top.rotulo} consumiu ${num(top.tokens)} tokens — `
           + `${vezes(top.tokens / mediana)} a mediana das ${comConta.length} contas do período.`,
+        metrica: "Tokens por cliente",
+        valorAtual: num(top.tokens),
+        referencia: `mediana de ${num(mediana)} entre ${comConta.length} contas`,
+        periodo: "período selecionado",
+        motivo: `Acima de ${vezes(LIMIARES.clienteForaDoPadrao)} a mediana das demais contas.`,
       });
     }
   }
