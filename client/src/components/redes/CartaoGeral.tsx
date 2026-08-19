@@ -68,13 +68,23 @@ function Selo({ pct, anterior, bom, interativo }: {
     : "";
 
   if (pct == null) {
-    // Sem comparação não há número — e também não há selo colorido. Cinza, com
-    // traço, e o mesmo alvo de mouse dos demais.
+    /*
+     * ── Ausência não pode PARECER um valor medido ──────────────────────────
+     * Esta caixa já usou o mesmo ícone do estado "estável" — um `Minus` dos
+     * dois lados —, e aí "0,0% de variação" e "não há com o que comparar"
+     * ficavam indistinguíveis no canto do cartão. Um deles é um fato sobre a
+     * conta; o outro é um limite nosso, e trocá-los é pior que não mostrar
+     * nada, porque um selo cinza com traço se lê como "não mudou".
+     *
+     * Sem ícone, sem fundo, e com o contorno tracejado que a página inteira usa
+     * para dizer "aqui falta dado". O alvo de mouse continua, porque é por ele
+     * que o painel abre — e é lá que a frase completa está.
+     */
     return (
-      <span className={`inline-flex items-center gap-1 text-[11px] font-bold tabular-nums
-                        px-2 py-1 rounded-full bg-muted text-muted-foreground${realce}`}
-        title="Sem período anterior medido para comparar">
-        <Minus className="w-3 h-3" strokeWidth={2.6} />
+      <span className={`inline-flex items-center text-[11px] font-bold tabular-nums
+                        px-2 py-1 rounded-full border border-dashed border-border
+                        text-muted-foreground/60${realce}`}
+        title="Sem período anterior comparável — a variação não é calculável, e não é zero">
         –
       </span>
     );

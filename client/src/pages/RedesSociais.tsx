@@ -240,6 +240,17 @@ export default function RedesSociais() {
   const janelaFixa = useMemo(() => (d?.historico.statusDaConta ?? []), [d]);
 
   /**
+   * A série longa — 70 dias, e SÓ para comparar com o período anterior.
+   *
+   * `janelaFixa` para em 30 dias porque é ela que desenha os gráficos, e essa
+   * janela é decisão de leitura. Comparar 30 dias exige alcançar o dia −60, e
+   * era exatamente por isso que as quatro métricas perdiam o selo ao mesmo
+   * tempo quando alguém escolhia "Últimos 30d": o dado existia e não cabia no
+   * recorte enviado. Nenhum gráfico lê esta série.
+   */
+  const serieLonga = useMemo(() => (d?.historico.serieParaVariacao ?? []), [d]);
+
+  /**
    * A composição de cada dia, por tipo de conteúdo.
    *
    * A classificação vem do snapshot (`m.tipo`), gravada pelo coletor com
@@ -262,7 +273,12 @@ export default function RedesSociais() {
     }
     // Stories não vêm da listagem de mídias: eles são contados por dia na
     // série, porque a coleta lê o que está NO AR naquele momento.
-    for (const p of (d?.historico.statusDaConta ?? [])) {
+    //
+    // Da série LONGA, e não da de 30 dias: o selo de Ativações conta stories
+    // junto com posts, e um período anterior com os posts e sem os stories
+    // compararia cinco parcelas contra três — o selo mediria a mudança de
+    // alcance da série em vez da mudança de produção.
+    for (const p of (d?.historico.serieParaVariacao ?? [])) {
       somar(p.dia, "STORY", p.storiesVistos ?? 0);
     }
     return porDia;
@@ -537,15 +553,20 @@ export default function RedesSociais() {
   /**
    * O selo de variação de cada card geral.
    *
-   * A comparação vem de `janelaFixa` — as últimas 30 coletas, SEM filtro — que é
-   * a única fonte que alcança antes do período. Para 7 dias sobra folga; para 30
-   * não cabe, e aí a variação é `null` e o card não mostra selo. Nenhuma consulta
-   * nova: o dado já vem no painel.
+   * A comparação vem de `serieLonga` — 70 dias, SEM filtro —, que é a única
+   * fonte que alcança antes do período. Ela existe justamente porque a de 30
+   * dias não alcançava: com "Últimos 30d" o período anterior caía inteiro fora
+   * do recorte e as quatro métricas perdiam o selo ao mesmo tempo.
+   *
+   * `compararComAnterior` continua sendo quem decide se a comparação vale — e
+   * ela se recusa quando os dois lados não têm o mesmo número de dias medidos.
+   * Alargar o alcance não afrouxa a régua; só deixa de esconder dias que
+   * existem. Nenhuma consulta nova: o dado já vem no painel.
    */
   const variacaoDe = (ler: (d: { dia: string; metricas: Record<string, number> }) => number | null,
     atual: number | null) => {
     const c = compararComAnterior(
-      janelaFixa.map((p) => ({ dia: p.dia, metricas: p.metricas })),
+      serieLonga.map((p) => ({ dia: p.dia, metricas: p.metricas })),
       { inicio: dateRange.startDate, fim: dateRange.endDate }, ler);
     return { pct: variacao(atual, c), anterior: c.anterior };
   };
@@ -574,7 +595,7 @@ export default function RedesSociais() {
   const varCliques     = variacaoDe(met2("website_clicks"), cliques.total);
   const varAtivacoes   = (() => {
     const c = compararComAnterior(
-      janelaFixa.map((p) => ({ dia: p.dia, metricas: {} })),
+      serieLonga.map((p) => ({ dia: p.dia, metricas: {} })),
       { inicio: dateRange.startDate, fim: dateRange.endDate },
       (d) => ativacoesRecentesPorDia.get(d.dia) ?? null);
     return { pct: variacao(ativacoes.total, c), anterior: c.anterior };

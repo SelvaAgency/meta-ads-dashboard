@@ -850,7 +850,7 @@ describe("a variação é o que abre o detalhamento", () => {
     expect(selo).toContain("if (pct == null)");
     // Devolver null aqui apagaria o gatilho junto com o número.
     expect(selo).not.toContain("if (pct == null) return null");
-    expect(selo).toContain("Sem período anterior medido");
+    expect(selo).toContain("Sem período anterior comparável");
   });
 });
 
@@ -933,5 +933,107 @@ describe("a rosca de Ativações não inventa classificação nem contagem", () 
     // Nenhum hexadecimal solto: cor escolhida no componente vira a quinta
     // família de uma paleta que tem quatro.
     expect(donut).not.toMatch(/#[0-9a-fA-F]{6}/);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O selo de variação existe, e ausência não se disfarça de zero
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Dois erros diferentes moram aqui, e os dois já aconteceram:
+ *
+ *    1. A comparação lia uma série de 30 dias. Com "Últimos 30d" selecionado, o
+ *       período anterior caía inteiro fora do recorte e as QUATRO métricas
+ *       perdiam o selo ao mesmo tempo — sem erro, sem log, só um canto vazio
+ *       que parecia problema de dado do cliente.
+ *
+ *    2. O estado "sem comparação" usava o mesmo ícone do estado "estável". Um
+ *       é fato sobre a conta ("não mudou"), o outro é limite nosso ("não dá
+ *       para saber"), e um selo cinza com traço se lê como o primeiro.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("o selo de variação alcança o período anterior", () => {
+  const cartao = () => fonte("./CartaoGeral.tsx");
+
+  it("a comparação lê a série longa, e não a dos gráficos", () => {
+    const s = pagina();
+    const corpo = s.slice(s.indexOf("const variacaoDe ="), s.indexOf("const met2 ="));
+    expect(corpo).toContain("serieLonga.map");
+    // `janelaFixa` é a série de 30 dias que desenha os gráficos. Ela não
+    // alcança o período anterior de um filtro de 30 dias.
+    expect(corpo).not.toContain("janelaFixa");
+  });
+
+  it("Ativações compara pela mesma série longa que as outras três", () => {
+    const s = pagina();
+    const corpo = s.slice(s.indexOf("const varAtivacoes"), s.indexOf("const porTipo"));
+    expect(corpo).toContain("serieLonga.map");
+    expect(corpo).not.toContain("janelaFixa");
+  });
+
+  /**
+   * Stories entram na contagem de ativações. Se eles viessem da série curta e
+   * os posts da longa, o período anterior teria os posts e não os stories — e o
+   * selo mediria a mudança de ALCANCE DA SÉRIE, não a de produção.
+   */
+  it("stories da composição diária vêm da mesma série longa", () => {
+    const s = pagina();
+    const corpo = s.slice(s.indexOf("const composicaoPorDia"), s.indexOf("const ativacoesRecentesPorDia"));
+    expect(corpo).toContain("serieParaVariacao");
+    expect(corpo).not.toContain("statusDaConta");
+  });
+
+  it("a série longa não substituiu a dos gráficos", () => {
+    // `statusDaConta` continua alimentando os gráficos com a janela de sempre.
+    // Alargá-la seria mexer no período máximo deles, que é outra decisão.
+    const s = pagina();
+    expect(s).toContain("d?.historico.statusDaConta ?? []");
+    expect(s).toContain("d?.historico.serieParaVariacao ?? []");
+  });
+
+  it("o servidor manda as duas séries, e a longa não custa consulta nova", () => {
+    const r = fonte("../../../../server/routers.ts");
+    expect(r).toContain("const serieParaVariacao = todos.slice(-70)");
+    expect(r).toContain("const statusDaConta = todos.slice(-30)");
+    // `todos` já está em memória — a série longa é projeção, não busca.
+    const trecho = r.slice(r.indexOf("const serieParaVariacao"), r.indexOf("const midiasRecentes"));
+    expect(trecho).not.toContain("await");
+  });
+});
+
+describe("sem comparação não pode parecer estabilidade", () => {
+  const cartao = () => fonte("./CartaoGeral.tsx");
+  const selo = () => {
+    const s = cartao();
+    return s.slice(s.indexOf("function Selo("), s.indexOf("export function CartaoGeral"));
+  };
+
+  it("o estado estável mostra o número medido, com ícone", () => {
+    const s = selo();
+    // `0,0%` é um FATO sobre a conta, e some se o selo virar traço.
+    expect(s).toContain("plano");
+    expect(s).toContain("pct.toFixed(1)");
+    expect(s).toContain("Minus");
+  });
+
+  it("o estado sem comparação não usa o ícone do estável", () => {
+    const s = selo();
+    const ausencia = s.slice(s.indexOf("if (pct == null)"), s.indexOf("const plano"));
+    expect(ausencia).not.toContain("Minus");
+    expect(ausencia).not.toContain("bg-muted");
+    // Contorno tracejado: a gramática que a página usa para "falta dado".
+    expect(ausencia).toContain("border-dashed");
+    expect(ausencia).toContain("não é calculável");
+  });
+
+  it("as três direções continuam com cor e seta próprias", () => {
+    const s = selo();
+    expect(s).toContain("ArrowUpRight");
+    expect(s).toContain("ArrowDownRight");
+    expect(s).toContain("emerald");
+    expect(s).toContain("destructive");
+    // A direção boa é declarada, e não deduzida do sinal: uma métrica de custo
+    // que entrasse aqui apareceria em verde por ter subido.
+    expect(s).toContain('bom === "sobe"');
   });
 });

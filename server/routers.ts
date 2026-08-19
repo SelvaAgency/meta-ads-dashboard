@@ -4852,6 +4852,34 @@ export const appRouter = router({
         }));
 
         /**
+         * ─────────────────────────────────────────────────────────────────────
+         *  A série longa — existe SÓ para o selo de variação
+         * ─────────────────────────────────────────────────────────────────────
+         *  `statusDaConta` para em 30 dias porque é ele que desenha os gráficos,
+         *  e essa janela é decisão de leitura. Mas comparar um período de 30
+         *  dias exige alcançar o dia −60, e o resultado medido era este:
+         *
+         *     7d   diasAnterior=7    comparável
+         *    14d   diasAnterior=14   comparável
+         *    30d   diasAnterior=0    NÃO comparável  ← a variação sumia
+         *
+         *  As quatro métricas ficavam sem selo de uma vez, e por um motivo que
+         *  não tem nada a ver com o cliente: o dado existia no banco e não
+         *  cabia no recorte enviado.
+         *
+         *  Projeção enxuta de `todos`, que já está em memória — nenhuma consulta
+         *  nova, e `statusDaConta` continua exatamente como era.
+         *
+         *  70 dias: 60 é o mínimo para comparar 30, e a folga cobre o período
+         *  que termina antes de hoje.
+         */
+        const serieParaVariacao = todos.slice(-70).map((l) => ({
+          dia: l.dia,
+          metricas: (l.metricasJson ?? {}) as Record<string, number>,
+          storiesVistos: l.storiesVistos,
+        }));
+
+        /**
          * Mídias das últimas semanas, INDEPENDENTE do filtro de período.
          *
          * O cabeçalho da página é resumo executivo e mostra sempre hoje ×
@@ -4859,15 +4887,23 @@ export const appRouter = router({
          * período antigo, não cobriria, e as ativações de hoje ficariam em
          * branco num bloco que promete falar de hoje.
          *
+         * ── Por que 70 e não 30 ──────────────────────────────────────────────
+         * O selo de Ativações compara contando publicações por dia, e com 30
+         * dias de alcance o período anterior de um filtro de 30 dias vinha
+         * vazio. Alargar aqui é o que permite ao selo de Ativações existir junto
+         * com os outros três — sem isso, três cartões comparariam e um não, pela
+         * mesma pergunta.
+         *
          * Custa uma consulta ao BANCO, não à Meta: a otimização de chamadas
          * continua intacta.
          */
         const midiasRecentes = await midiasDoPeriodo(
-          input.accountId, diaMenos(hojeISO(), 30), hojeISO());
+          input.accountId, diaMenos(hojeISO(), 70), hojeISO());
 
         const historico = {
           serie: podeVerDiagnostico ? serie : serie.map((p2) => ({ ...p2, recusadas: {}, breakdownCru: null })),
           statusDaConta,
+          serieParaVariacao,
           midiasRecentes,
           coletaDesde,
           // A explicação da validação é sobre o funcionamento interno do

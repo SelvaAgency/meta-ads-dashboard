@@ -111,3 +111,117 @@ describe("a janela anterior é de CALENDÁRIO, não de registros", () => {
     expect(c.diasAnterior).toBe(2);
   });
 });
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O alcance da série decide se o selo de variação existe
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Esta suíte nasceu de um sintoma real: as quatro métricas da Social perderam o
+ *  indicador ao mesmo tempo, e a causa não estava na comparação — estava em
+ *  quantos dias chegavam até ela. A página recebia 30 dias, e um período de 30
+ *  dias precisa alcançar o dia −60 para ter com o que se comparar.
+ *
+ *  O sintoma é traiçoeiro porque parece problema de dado do cliente: nenhum erro,
+ *  nenhum log, só um canto de cartão vazio.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("o alcance da série é o que decide se há comparação", () => {
+  const DIA_MS = 86_400_000;
+  const hoje = Date.UTC(2026, 7, 19);
+  const dia = (atras: number) => new Date(hoje - atras * DIA_MS).toISOString().slice(0, 10);
+
+  /** `n` dias de coleta completa, terminando hoje. */
+  const serie = (n: number, valor = (i: number) => 100 + i) =>
+    Array.from({ length: n }, (_, i) => ({
+      dia: dia(n - 1 - i), metricas: { profile_views: valor(i) },
+    }));
+  const ler = (d: { metricas: Record<string, number> }) => d.metricas.profile_views ?? null;
+  const janela = (dias: number) => ({ inicio: dia(dias - 1), fim: dia(0) });
+  const soma = (s: ReturnType<typeof serie>, j: { inicio: string; fim: string }) =>
+    s.filter((d) => d.dia >= j.inicio && d.dia <= j.fim).reduce((n, d) => n + (ler(d) ?? 0), 0);
+
+  it("com 30 dias de alcance, um período de 30 dias NÃO tem o que comparar", () => {
+    // O sintoma exato, reproduzido: nada de errado com o cliente, só com o
+    // recorte que chegou até aqui.
+    const c = compararComAnterior(serie(30), janela(30), ler);
+    expect(c.diasAnterior).toBe(0);
+    expect(c.comparavel).toBe(false);
+    expect(variacao(1000, c)).toBeNull();
+  });
+
+  it("com 70 dias de alcance, o mesmo período de 30 dias compara", () => {
+    const s = serie(70);
+    const j = janela(30);
+    const c = compararComAnterior(s, j, ler);
+    expect(c.diasAtual).toBe(30);
+    expect(c.diasAnterior).toBe(30);
+    expect(c.comparavel).toBe(true);
+    expect(variacao(soma(s, j), c)).not.toBeNull();
+  });
+
+  it("7 e 14 dias já comparavam com 30 de alcance — o conserto não os muda", () => {
+    for (const dias of [1, 7, 14]) {
+      const s = serie(30);
+      const c = compararComAnterior(s, janela(dias), ler);
+      expect(c.comparavel, `${dias}d`).toBe(true);
+      expect(variacao(soma(s, janela(dias)), c), `${dias}d`).not.toBeNull();
+    }
+  });
+
+  /**
+   * Alargar o alcance NÃO afrouxa a régua.
+   *
+   * `comparavel` continua exigindo o mesmo número de dias medidos dos dois
+   * lados. O conserto deixa de esconder dias que existem; ele não passa a
+   * inventar os que não existem.
+   */
+  it("mais alcance não transforma série incompleta em comparável", () => {
+    // O buraco precisa cair DENTRO da janela anterior (dias -30 a -59) para
+    // significar algo: um dia faltando 64 dias atrás não é lido por ninguém.
+    const s = serie(70).filter((d) => d.dia !== dia(45));
+    expect(s.some((x) => x.dia === dia(45))).toBe(false);
+    const c = compararComAnterior(s, janela(30), ler);
+    expect(c.comparavel).toBe(false);
+    expect(variacao(1000, c)).toBeNull();
+  });
+
+  describe("os três sentidos que o selo precisa distinguir", () => {
+    /** Período atual e anterior com totais escolhidos a dedo. */
+    const comTotais = (anterior: number, atual: number) => {
+      const s = [
+        ...Array.from({ length: 7 }, (_, i) => ({
+          dia: dia(13 - i), metricas: { profile_views: anterior / 7 },
+        })),
+        ...Array.from({ length: 7 }, (_, i) => ({
+          dia: dia(6 - i), metricas: { profile_views: atual / 7 },
+        })),
+      ];
+      const c = compararComAnterior(s, janela(7), ler);
+      return { c, pct: variacao(atual, c) };
+    };
+
+    it("aumento devolve percentual positivo", () => {
+      const { pct } = comTotais(700, 840);
+      expect(pct).toBeCloseTo(20, 6);
+    });
+
+    it("queda devolve percentual negativo", () => {
+      const { pct } = comTotais(1000, 800);
+      expect(pct).toBeCloseTo(-20, 6);
+    });
+
+    it("estabilidade devolve ZERO medido, e não ausência", () => {
+      // A distinção que o cartão precisa fazer na tela: zero é um fato sobre a
+      // conta, `null` é um limite nosso. Confundi-los faz "não mudou" e "não
+      // sabemos" virarem o mesmo selo.
+      const { pct } = comTotais(700, 700);
+      expect(pct).toBe(0);
+      expect(pct).not.toBeNull();
+    });
+
+    it("base zero não vira variação infinita", () => {
+      const { pct } = comTotais(0, 500);
+      expect(pct).toBeNull();
+    });
+  });
+});
