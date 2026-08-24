@@ -45,7 +45,7 @@ import { toast } from "sonner";
 import {
   avaliarCliente, coberturaComparavel, funilVisual, indicadorDoSite, ordenarClientes,
   rankingProdutos, distribuicaoStatus, resumoPortfolio, segurancaDoPortfolio,
-  temEcommerce, vendasDe, fmtDia, SSL_AVISO_DIAS,
+  resumoDeSeguranca, segurancaDoSite, temEcommerce, vendasDe, fmtDia,
   type Achado, type ClientePanorama, type Nivel, type SegurancaDoSite,
 } from "@shared/panoramaLogic";
 import { BarraSaude, ChipStatus, Funil, RankingProdutos, DistribuicaoStatus } from "./panorama/Visuais";
@@ -63,6 +63,14 @@ const TOM_ACHADO: Record<string, { rotulo: string; classe: string }> = {
   atencao: { rotulo: "Atenção", classe: "bg-amber-500/14 text-amber-700" },
   medicao: { rotulo: "Medição", classe: "bg-sky-500/12 text-sky-700" },
   info:    { rotulo: "Nota", classe: "bg-muted text-muted-foreground" },
+};
+
+/** O tom da coluna de segurança — mesma paleta funcional do resto da página. */
+const TOM_SEGURANCA: Record<string, string> = {
+  ok: "text-foreground",
+  atencao: "text-amber-700",
+  critico: "text-destructive",
+  vazio: "text-muted-foreground/40",
 };
 
 const ESTADO_INDICADOR: Record<string, string> = {
@@ -667,8 +675,9 @@ function Sites({ linhas, total, filtro, aoFiltrar, busca, aoBuscar }: {
       ativo ? "bg-foreground text-background border-foreground"
             : "border-border text-muted-foreground hover:text-foreground"}`;
 
-  const GRADE = "grid grid-cols-[minmax(0,1.1fr)_86px_minmax(0,1fr)_minmax(0,1.6fr)] "
-    + "sm:grid-cols-[minmax(0,1fr)_92px_minmax(0,0.9fr)_minmax(0,1.8fr)_74px] gap-2.5 items-center";
+  const GRADE = "grid grid-cols-[minmax(0,1.1fr)_86px_minmax(0,0.9fr)_minmax(0,1fr)] "
+    + "sm:grid-cols-[minmax(0,1fr)_88px_minmax(0,0.85fr)_minmax(0,0.95fr)_minmax(0,1.5fr)_70px] "
+    + "gap-2.5 items-center";
 
   return (
     <section className="rounded-[14px] border border-border bg-card overflow-hidden
@@ -706,7 +715,8 @@ function Sites({ linhas, total, filtro, aoFiltrar, busca, aoBuscar }: {
                            tracking-[0.1em] text-muted-foreground/50 border-b border-border`}>
             <span>Cliente</span>
             <span>Status</span>
-            <span>Indicador</span>
+            <span>Performance</span>
+            <span className="hidden sm:block">Segurança</span>
             <span>Achados abertos</span>
             <span className="hidden sm:block text-right">Coleta</span>
           </div>
@@ -727,6 +737,8 @@ function Sites({ linhas, total, filtro, aoFiltrar, busca, aoBuscar }: {
 
 function LinhaDoSite({ l, grade }: { l: Linha; grade: string }) {
   const ind = indicadorDoSite(l.cliente);
+  const seg = segurancaDoSite(l.cliente);
+  const leitura = resumoDeSeguranca(seg);
   const ui = NIVEL_UI[l.nivel];
   const abertos = l.achados.filter((a) => a.status !== "contextualizado" && a.severidade !== "info");
   const problemas = abertos.filter((a) => a.severidade !== "medicao");
@@ -758,6 +770,42 @@ function LinhaDoSite({ l, grade }: { l: Linha; grade: string }) {
             title={ind.fonte ?? undefined}>
             {ind.rotulo}
           </span>
+        </span>
+
+        {/*
+         * Segurança — coluna própria, do mesmo tamanho da performance.
+         *
+         * O número é o score do verificador, com a composição documentada em
+         * `siteHealthService`; o texto abaixo é o fato que manda (sem HTTPS,
+         * certificado inválido, prazo). A mesma semântica que a página
+         * individual do cliente mostra — ler o `status` gravado, em vez de
+         * recalcular, é o que impede as duas telas de discordarem.
+         */}
+        <span className="hidden sm:block min-w-0">
+          {seg.estado === "sem_medicao" ? (
+            <span className="text-[10.5px] text-muted-foreground/40">sem verificação</span>
+          ) : (
+            <>
+              <span className="flex items-baseline gap-1">
+                {seg.score != null && (
+                  <span className={`text-[13px] font-bold tabular-nums ${TOM_SEGURANCA[leitura.tom]}`}>
+                    {seg.score}
+                  </span>
+                )}
+                <span className={`text-[10px] truncate ${
+                  seg.score != null ? "text-muted-foreground/60" : TOM_SEGURANCA[leitura.tom]}`}
+                  title={seg.score != null
+                    ? "Nota de segurança 0–100: HTTPS, certificado e headers de proteção"
+                    : undefined}>
+                  {seg.score != null ? "de 100" : leitura.texto}
+                </span>
+              </span>
+              <span className={`block text-[9.5px] truncate ${
+                leitura.tom === "ok" ? "text-muted-foreground/55" : TOM_SEGURANCA[leitura.tom]}`}>
+                {seg.score != null ? leitura.texto : "verificação diária"}
+              </span>
+            </>
+          )}
         </span>
 
         <span className="min-w-0 flex flex-col gap-0.5">

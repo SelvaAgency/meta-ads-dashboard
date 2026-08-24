@@ -85,7 +85,22 @@ export type ClientePanorama = {
   /** Plataforma dos snapshots loja_* (Woo ou VNDA); null quando não há loja real. */
   plataformaLoja?: PlataformaLoja | string | null;
   uptime: { dia: string; metricsJson: { status?: string } } | null;
-  seguranca: { dia: string; metricsJson: { https?: boolean; sslValido?: boolean | null; daysToSslExpiry?: number | null; score?: number | null } } | null;
+  seguranca: {
+    dia: string;
+    metricsJson: {
+      https?: boolean; sslValido?: boolean | null; daysToSslExpiry?: number | null;
+      score?: number | null;
+      /**
+       * O veredito do próprio verificador — `bom` · `atencao` · `critico`.
+       *
+       * Gravado por `checarSeguranca` junto com o score, e é a MESMA semântica
+       * que a página individual do cliente mostra. Ler daqui em vez de
+       * recalcular é o que impede as duas telas de divergirem.
+       */
+      status?: "bom" | "atencao" | "critico" | null;
+      redirecionaParaHttps?: boolean | null;
+    };
+  } | null;
   pagespeed: { dia: string; metricsJson: { performanceScore?: number | null; lcp?: number | null } } | null;
   ga4_7d: SnapGA4 | null;
   ga4_30d: SnapGA4 | null;
@@ -684,19 +699,33 @@ export function temEcommerce(c: ClientePanorama): boolean {
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  A faixa de segurança — peso próprio, e não escondida no indicador do site
+ *  Segurança — indicador próprio, ao lado do PageSpeed
  * ─────────────────────────────────────────────────────────────────────────────
  *  HTTPS e validade de certificado são binários e verificáveis: ou o site serve
  *  em HTTPS ou não; ou o certificado vence em N dias ou não. É a leitura mais
  *  objetiva do portfólio inteiro, e ficava diluída dentro de `celulaSaude`,
  *  competindo com PageSpeed e uptime numa string só.
  *
- *  ── O `score` NÃO entra ────────────────────────────────────────────────────
- *  `security_check` grava um campo `score`, e ele fica de fora de propósito: a
- *  composição dele não está documentada em lugar nenhum do repositório, e um
- *  número 0–100 sem régua conhecida ao lado de HTTPS e SSL — que são fatos —
- *  emprestaria a credibilidade dos dois ao terceiro. Quando a fórmula estiver
- *  escrita e testada, ele entra.
+ *  ── O `score` ENTRA, e a composição dele está escrita ─────────────────────
+ *  Uma revisão anterior o deixou de fora por supor que a fórmula não estava
+ *  documentada. Ela está, em `server/services/siteHealthService.ts`, e é
+ *  inteiramente explicável por deduções nomeadas a partir de 100:
+ *
+ *    −40  sem HTTPS                    −20  HSTS ausente
+ *    −30  certificado inválido         −20  CSP ausente
+ *    −10  sem redirect http→https      −15  X-Frame-Options ausente
+ *    −20  certificado vence em ≤7d     −10  X-Content-Type-Options ausente
+ *    −10  certificado vence em ≤30d    −10  Referrer-Policy ausente
+ *                                       −5  Permissions-Policy ausente
+ *
+ *  O `status` (`bom` · `atencao` · `critico`) vem gravado junto, e é o MESMO
+ *  que a página individual do cliente exibe. Lê-lo daqui, em vez de recalcular,
+ *  é o que impede as duas telas de discordarem sobre o mesmo site.
+ *
+ *  ── E ele NÃO entra na saúde geral ─────────────────────────────────────────
+ *  `avaliarCliente` continua exatamente como estava. Segurança é um indicador
+ *  ao lado do PageSpeed, e não um segundo critério de nível — um site com
+ *  headers faltando não é "crítico"; é um site com headers faltando.
  *
  *  ── Dias até vencer é o único número aqui, e ele é medido ──────────────────
  *  Vem de `daysToSslExpiry`, direto do certificado. Não é estimativa.
@@ -718,7 +747,42 @@ export interface SegurancaDoSite {
   sslValido: boolean | null;
   /** Dias até o certificado vencer. `null` quando não medido. */
   diasParaVencer: number | null;
+  /** 0–100, com a composição documentada acima. `null` quando não medido. */
+  score: number | null;
+  /** O veredito do verificador, como a página do cliente também mostra. */
+  status: "bom" | "atencao" | "critico" | null;
+  redirecionaParaHttps: boolean | null;
   dia: string | null;
+}
+
+/**
+ * A leitura compacta de segurança de um site — a linha da tabela.
+ *
+ * Ordem: o que quebra primeiro, o que vence depois, o que falta por último. Um
+ * site sem HTTPS não precisa que ninguém leia a nota de headers antes.
+ */
+export function resumoDeSeguranca(s: SegurancaDoSite): {
+  texto: string; tom: "ok" | "atencao" | "critico" | "vazio";
+} {
+  if (s.estado === "sem_medicao") return { texto: "sem verificação", tom: "vazio" };
+  if (s.https === false) return { texto: "sem HTTPS", tom: "critico" };
+  if (s.sslValido === false) return { texto: "certificado inválido", tom: "critico" };
+  if (s.diasParaVencer != null && s.diasParaVencer <= 0) {
+    return { texto: "certificado vencido", tom: "critico" };
+  }
+  if (s.diasParaVencer != null && s.diasParaVencer <= SSL_CRITICO_DIAS) {
+    return { texto: `vence em ${s.diasParaVencer}d`, tom: "critico" };
+  }
+  if (s.diasParaVencer != null && s.diasParaVencer <= SSL_AVISO_DIAS) {
+    return { texto: `vence em ${s.diasParaVencer}d`, tom: "atencao" };
+  }
+  // Nada quebrado e nada vencendo: o que sobra é o que a nota mede — headers.
+  // O tom sai do `status` do verificador, e não de um corte nosso.
+  const base = s.diasParaVencer != null ? `SSL ${s.diasParaVencer}d` : "SSL válido";
+  return {
+    texto: base,
+    tom: s.status === "atencao" ? "atencao" : "ok",
+  };
 }
 
 export interface SegurancaDoPortfolio {
@@ -740,6 +804,9 @@ export function segurancaDoSite(c: ClientePanorama): SegurancaDoSite {
     https: m?.https ?? null,
     sslValido: m?.sslValido ?? null,
     diasParaVencer: typeof m?.daysToSslExpiry === "number" ? m.daysToSslExpiry : null,
+    score: typeof m?.score === "number" ? m.score : null,
+    status: m?.status ?? null,
+    redirecionaParaHttps: m?.redirecionaParaHttps ?? null,
     dia: c.seguranca?.dia ?? null,
   };
   // Sem snapshot não se afirma nada. "Sem medição" não é "inseguro" — e pintar

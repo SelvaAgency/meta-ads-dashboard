@@ -10,7 +10,8 @@
 import { describe, expect, it } from "vitest";
 import {
   FONTES_DE_MEDICAO, SSL_AVISO_DIAS, SSL_CRITICO_DIAS,
-  achadosDe, avaliarCliente, coberturaComparavel, indicadorDoSite, resumoPortfolio,
+  achadosDe, avaliarCliente, coberturaComparavel, indicadorDoSite, resumoDeSeguranca,
+  resumoPortfolio,
   segurancaDoPortfolio, segurancaDoSite,
   type ClientePanorama,
 } from "./panoramaLogic";
@@ -124,12 +125,34 @@ describe("segurança do site", () => {
     expect(SSL_CRITICO_DIAS).toBeLessThan(SSL_AVISO_DIAS);
   });
 
-  it("o score NÃO é usado — a composição dele não está documentada", () => {
-    // Um 0–100 sem régua conhecida ao lado de HTTPS e SSL, que são fatos,
-    // emprestaria a credibilidade dos dois ao terceiro.
-    const s = segurancaDoSite(conta({ seguranca: seg({ https: true, sslValido: true, score: 12, daysToSslExpiry: 90 }) }));
+  /**
+   * O score É usado — e este teste substitui um que dizia o contrário.
+   *
+   * A revisão anterior o deixou de fora supondo que a fórmula não estava
+   * documentada. Ela está, em `siteHealthService.ts`, com deduções nomeadas a
+   * partir de 100 (−40 sem HTTPS, −20 HSTS ausente, e assim por diante). O
+   * `status` vem gravado junto, e é o MESMO que a página do cliente mostra.
+   */
+  it("o score e o status vêm do verificador, sem recálculo", () => {
+    const s = segurancaDoSite(conta({
+      seguranca: seg({ https: true, sslValido: true, score: 55, status: "atencao", daysToSslExpiry: 90 }),
+    }));
+    expect(s.score).toBe(55);
+    expect(s.status).toBe("atencao");
+  });
+
+  it("score NÃO muda o estado do site — headers faltando não é SSL quebrado", () => {
+    // O estado sai de fatos binários; o score mede outra coisa.
+    const s = segurancaDoSite(conta({
+      seguranca: seg({ https: true, sslValido: true, score: 10, status: "atencao", daysToSslExpiry: 200 }),
+    }));
     expect(s.estado).toBe("ok");
-    expect(Object.keys(s)).not.toContain("score");
+  });
+
+  it("sem medição, score e status são null — e não zero", () => {
+    const s = segurancaDoSite(conta());
+    expect(s.score).toBeNull();
+    expect(s.status).toBeNull();
   });
 });
 
@@ -234,5 +257,52 @@ describe("o indicador de cada site", () => {
       conta({ accountId: 4 }),
     ];
     expect(coberturaComparavel(carteira)).toEqual({ com: 2, total: 4 });
+  });
+});
+
+describe("a leitura compacta de segurança", () => {
+  const de = (m: Record<string, unknown>) =>
+    resumoDeSeguranca(segurancaDoSite(conta({ seguranca: seg(m) })));
+
+  it("sem verificação não afirma nada", () => {
+    expect(resumoDeSeguranca(segurancaDoSite(conta()))).toEqual({
+      texto: "sem verificação", tom: "vazio",
+    });
+  });
+
+  it("o que QUEBRA vem antes do que vence e do que falta", () => {
+    // Um site sem HTTPS não precisa que ninguém leia a nota de headers antes.
+    const r = de({ https: false, sslValido: false, daysToSslExpiry: 3, score: 10, status: "critico" });
+    expect(r.texto).toBe("sem HTTPS");
+    expect(r.tom).toBe("critico");
+  });
+
+  it("certificado inválido vem antes do prazo", () => {
+    expect(de({ https: true, sslValido: false, daysToSslExpiry: 90 }).texto)
+      .toBe("certificado inválido");
+  });
+
+  it("vencido é vencido, e não 'vence em 0d'", () => {
+    expect(de({ https: true, sslValido: true, daysToSslExpiry: 0 }).texto).toBe("certificado vencido");
+  });
+
+  it("dentro do corte crítico é crítico; dentro do aviso é atenção", () => {
+    expect(de({ https: true, sslValido: true, daysToSslExpiry: SSL_CRITICO_DIAS }).tom).toBe("critico");
+    expect(de({ https: true, sslValido: true, daysToSslExpiry: SSL_AVISO_DIAS }).tom).toBe("atencao");
+  });
+
+  it("nada quebrado e nada vencendo mostra o prazo, com o tom do verificador", () => {
+    // O tom sai do `status` gravado, e não de um corte inventado aqui — é o que
+    // mantém Panorama e página do cliente dizendo a mesma coisa.
+    const bom = de({ https: true, sslValido: true, daysToSslExpiry: 142, score: 92, status: "bom" });
+    expect(bom).toEqual({ texto: "SSL 142d", tom: "ok" });
+
+    const fraco = de({ https: true, sslValido: true, daysToSslExpiry: 142, score: 45, status: "atencao" });
+    expect(fraco.texto).toBe("SSL 142d");
+    expect(fraco.tom).toBe("atencao");
+  });
+
+  it("sem prazo medido, ainda diz que o SSL é válido", () => {
+    expect(de({ https: true, sslValido: true, status: "bom" }).texto).toBe("SSL válido");
   });
 });
