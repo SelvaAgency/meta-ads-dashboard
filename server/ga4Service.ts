@@ -381,30 +381,78 @@ export async function getGA4EcommerceTotais(
 }
 
 /**
- * Funil de compra: add_to_cart → begin_checkout → purchase, numa chamada só.
- * Substitui o antigo ga4TemEcommerce — "tem compra?" agora deriva de
- * purchases > 0, com uma chamada a menos.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Os eventos que a agência acompanha — contagem e período anterior
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Substitui `getGA4Funil`, que buscava só os três de e-commerce. Mesma
+ *  chamada, mesmo custo: o filtro por `inListFilter` apenas ganhou dois nomes,
+ *  e o período anterior vem no mesmo `runReport` porque a Data API aceita dois
+ *  `dateRanges`.
+ *
+ *  ── Lista EXPLÍCITA, e não os mais frequentes ──────────────────────────────
+ *  `getGA4Conversions` pede `eventName` ordenado por volume com `limit: 10` —
+ *  apesar do nome, ela devolve os eventos mais frequentes, e `form_start`
+ *  compete ali com `page_view`, `scroll` e `session_start`. Numa propriedade
+ *  típica ele não entra, e a ausência pareceria "não aconteceu".
+ *
+ *  Aqui os cinco nomes são pedidos por extenso. Um evento que a propriedade não
+ *  registra volta `null` — e `null` é "a propriedade não tem esse evento", que
+ *  é diferente de zero.
+ *
+ *  ── Com dimensão + dois períodos, a API acrescenta uma coluna ──────────────
+ *  Sem dimensão, dois `dateRanges` devolvem duas linhas na ordem pedida (é o
+ *  que `getGA4Resumo` faz). COM dimensão, a Data API injeta uma dimensão
+ *  `dateRange` no fim de cada linha, com valor `date_range_0` / `date_range_1`.
+ *  Ler pela posição da linha aqui misturaria os dois períodos.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
-export async function getGA4Funil(
+export const EVENTOS_ACOMPANHADOS = [
+  "form_start", "whatsapp_click", "add_to_cart", "begin_checkout", "purchase",
+] as const;
+
+export type EventoAcompanhado = (typeof EVENTOS_ACOMPANHADOS)[number];
+
+/** `null` = a propriedade não registrou o evento no período. Zero é zero. */
+export type ContagemDeEvento = { atual: number | null; anterior: number | null };
+
+export async function getGA4Eventos(
   config: GA4Config, propertyId: string, startDate: string, endDate: string,
-): Promise<{ addToCart: number; beginCheckout: number; purchases: number } | null> {
+  anterior?: { startDate: string; endDate: string },
+): Promise<Record<EventoAcompanhado, ContagemDeEvento> | null> {
   try {
     const r = await runReport(config, propertyId, {
-      dateRanges: [{ startDate, endDate }],
+      dateRanges: anterior
+        ? [{ startDate, endDate }, { startDate: anterior.startDate, endDate: anterior.endDate }]
+        : [{ startDate, endDate }],
       dimensions: [{ name: "eventName" }],
       metrics: [{ name: "eventCount" }],
       dimensionFilter: {
-        filter: { fieldName: "eventName", inListFilter: { values: ["add_to_cart", "begin_checkout", "purchase"] } },
+        filter: {
+          fieldName: "eventName",
+          inListFilter: { values: [...EVENTOS_ACOMPANHADOS] },
+        },
       },
     });
-    const contagem = new Map<string, number>(
-      (r.rows ?? []).map((row: any) => [row.dimensionValues?.[0]?.value ?? "", parseInt(row.metricValues?.[0]?.value ?? "0")]),
-    );
-    return {
-      addToCart: contagem.get("add_to_cart") ?? 0,
-      beginCheckout: contagem.get("begin_checkout") ?? 0,
-      purchases: contagem.get("purchase") ?? 0,
-    };
+
+    const vazio = (): ContagemDeEvento => ({ atual: null, anterior: null });
+    const saida = Object.fromEntries(
+      EVENTOS_ACOMPANHADOS.map((e) => [e, vazio()]),
+    ) as Record<EventoAcompanhado, ContagemDeEvento>;
+
+    for (const row of (r.rows ?? []) as Array<{
+      dimensionValues?: Array<{ value?: string }>;
+      metricValues?: Array<{ value?: string }>;
+    }>) {
+      const nome = row.dimensionValues?.[0]?.value as EventoAcompanhado | undefined;
+      if (!nome || !(nome in saida)) continue;
+      const n = parseInt(row.metricValues?.[0]?.value ?? "0", 10);
+      // A coluna de período: `date_range_1` é o anterior. Sem ela — quando não
+      // se pediu comparação — tudo é o período atual.
+      const faixa = anterior ? row.dimensionValues?.[1]?.value : undefined;
+      if (faixa === "date_range_1") saida[nome].anterior = n;
+      else saida[nome].atual = n;
+    }
+    return saida;
   } catch {
     return null;
   }

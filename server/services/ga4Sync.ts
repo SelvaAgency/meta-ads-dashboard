@@ -26,7 +26,7 @@ import { logger } from "../logger";
 import {
   getGA4Config, getGA4Overview, getGA4TrafficSources, getGA4TopPages,
   getGA4Conversions, getGA4Channels, getGA4LandingPages,
-  getGA4EcommerceTotais, getGA4Funil, getGA4OrigemCompras,
+  getGA4EcommerceTotais, getGA4Eventos, getGA4OrigemCompras,
 } from "../ga4Service";
 import {
   listarTodasContasGA4, tokenDaContaGA4, registrarSyncGA4, salvarSiteSnapshot,
@@ -88,7 +88,7 @@ export async function sincronizarPropriedade(conta: {
       // Período anterior de mesmo tamanho: 7d compara com os 7 dias antes dele.
       const anterior = { startDate: dia(janela * 2), endDate: dia(janela + 1) };
 
-      const [resumo, canais, origens, landing, paginas, eventos, ecomTotais, funil] = await Promise.all([
+      const [resumo, canais, origens, landing, paginas, eventosTop, ecomTotais, eventos] = await Promise.all([
         getGA4Overview(config, conta.propertyId, inicio, fim, anterior),
         getGA4Channels(config, conta.propertyId, inicio, fim).catch(() => []),
         getGA4TrafficSources(config, conta.propertyId, inicio, fim, 10).catch(() => []),
@@ -98,9 +98,30 @@ export async function sincronizarPropriedade(conta: {
         // E-commerce (F5-A): catch próprio — falha aqui vira "indisponivel" no
         // bloco, e sessões/canais/páginas seguem intactos.
         getGA4EcommerceTotais(config, conta.propertyId, inicio, fim).catch(() => null),
-        getGA4Funil(config, conta.propertyId, inicio, fim).catch(() => null),
+        /**
+         * Os cinco eventos acompanhados, com o período anterior na MESMA
+         * chamada — a Data API aceita dois `dateRanges`.
+         *
+         * Substituiu `getGA4Funil`: mesma consulta, mesma cota, e agora traz
+         * `form_start` e `whatsapp_click` junto com o trio de e-commerce. O
+         * funil continua saindo daqui, então nada foi duplicado.
+         */
+        getGA4Eventos(config, conta.propertyId, inicio, fim, anterior).catch(() => null),
       ]);
 
+      /**
+       * O funil do bloco de e-commerce sai dos MESMOS eventos, e não de uma
+       * segunda consulta. `montarBlocoEcommerce` continua recebendo o formato
+       * que sempre recebeu.
+       *
+       * `null` do coletor vira `null` aqui: o bloco então marca "indisponivel",
+       * que é o comportamento anterior quando `getGA4Funil` falhava.
+       */
+      const funil = eventos ? {
+        addToCart: eventos.add_to_cart.atual ?? 0,
+        beginCheckout: eventos.begin_checkout.atual ?? 0,
+        purchases: eventos.purchase.atual ?? 0,
+      } : null;
       const ecommerce = montarBlocoEcommerce({ totais: ecomTotais, funil, sessions: resumo.sessions });
       // Origem das compras só quando HÁ compra — cliente sem loja não gasta chamada.
       const origemCompras = ecommerce.status === "detectado"
@@ -136,6 +157,18 @@ export async function sincronizarPropriedade(conta: {
            * a diferença entre as duas é divergência de medição, não erro.
            */
           ecommerce,
+          /**
+           * Os CINCO eventos acompanhados, com o período anterior de cada um.
+           *
+           * Mora no `metricsJson` — e não no `issuesJson`, onde vive a lista
+           * dos 10 mais frequentes. A consulta do Panorama seleciona só
+           * `metricsJson`, então o que ficasse no outro campo simplesmente não
+           * chegaria à tela. Estrutura ampliada, e não uma segunda paralela.
+           *
+           * `null` num evento é "a propriedade não registra este evento" —
+           * diferente de zero, que é "aconteceu zero vez".
+           */
+          eventos,
           // null quando a API não devolveu o período anterior — a tela mostra
           // o número sem variação em vez de inventar uma.
           anterior: resumo.anterior
@@ -157,7 +190,11 @@ export async function sincronizarPropriedade(conta: {
           origens: origens.map((o) => ({ fonte: `${o.source} / ${o.medium}`, sessions: o.sessions })),
           landingPages: landing,
           paginas: paginas.map((p) => ({ url: p.pagePath, titulo: p.pageTitle, views: p.pageviews })),
-          eventos: eventos.map((e) => ({ nome: e.eventName, contagem: e.conversions })),
+          // A lista dos 10 mais frequentes — continua no `issuesJson`, que é
+          // o que a página individual do cliente lê. Diferente de `eventos` no
+          // `metricsJson`, que são os CINCO acompanhados, pedidos por nome.
+          eventos: eventosTop.map((e: { eventName: string; conversions: number }) =>
+            ({ nome: e.eventName, contagem: e.conversions })),
           ...(origemCompras.length ? { origemCompras } : {}),
           ...(aviso ? { limitacoes: [aviso] } : {}),
         },

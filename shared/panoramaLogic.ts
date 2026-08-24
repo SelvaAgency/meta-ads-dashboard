@@ -42,12 +42,19 @@ export type EcomGA4 = {
   taxaCheckoutPurchase: number | null;
 };
 
+/** `null` = a propriedade não registra o evento. Zero é zero medido. */
+export type ContagemDeEvento = { atual: number | null; anterior: number | null };
+
+export type EventosGA4 = Partial<Record<EventoAcompanhado, ContagemDeEvento>>;
+
 export type SnapGA4 = {
   dia: string;
   metricsJson: {
     sessions?: number;
     anterior?: { sessions?: number } | null;
     ecommerce?: EcomGA4 | null;
+    /** Os cinco eventos acompanhados. Ausente nos snapshots anteriores. */
+    eventos?: EventosGA4 | null;
   };
 };
 
@@ -951,3 +958,105 @@ export function coberturaComparavel(clientes: ClientePanorama[]): { com: number;
     total: clientes.length,
   };
 }
+
+// ─── Eventos do GA4 ──────────────────────────────────────────────────────────
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Os cinco eventos que a agência acompanha — em DOIS grupos
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Contato e Compra são jornadas diferentes, e por isso não há seta entre elas.
+ *  `form_start` e `whatsapp_click` são conversões de lead; `add_to_cart`,
+ *  `begin_checkout` e `purchase` são um funil de e-commerce de verdade, com
+ *  precedência real entre as etapas.
+ *
+ *  Desenhar as cinco numa sequência única sugeriria que quem preenche formulário
+ *  depois adiciona ao carrinho — e nada no dado sustenta isso. Nenhuma taxa é
+ *  calculada ENTRE os grupos.
+ *
+ *  ── A janela é do snapshot, e o total é do portfólio ───────────────────────
+ *  Cada snapshot de GA4 é um agregado móvel: `7d` é a soma dos sete dias
+ *  terminando no dia da coleta. A soma entre clientes é legítima porque todos
+ *  usam a mesma janela — e a janela viaja com o número até a tela.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export type EventoAcompanhado =
+  "form_start" | "whatsapp_click" | "add_to_cart" | "begin_checkout" | "purchase";
+
+export type GrupoDeEvento = "contato" | "compra";
+
+export const GRUPOS_DE_EVENTO: Array<{
+  chave: GrupoDeEvento; rotulo: string; eventos: EventoAcompanhado[];
+}> = [
+  { chave: "contato", rotulo: "Contato", eventos: ["form_start", "whatsapp_click"] },
+  { chave: "compra", rotulo: "Compra", eventos: ["add_to_cart", "begin_checkout", "purchase"] },
+];
+
+export interface EventoDoPortfolio {
+  evento: EventoAcompanhado;
+  grupo: GrupoDeEvento;
+  /** Soma entre os clientes que registram o evento. `null` = ninguém registra. */
+  total: number | null;
+  anterior: number | null;
+  /** Variação percentual. `null` sem base anterior ou com base zero. */
+  variacao: number | null;
+  /** Quantos clientes contribuíram — o denominador da soma. */
+  sites: number;
+}
+
+/**
+ * Soma os cinco eventos entre os clientes, na janela pedida.
+ *
+ * `total: null` significa que NENHUM cliente registra aquele evento — diferente
+ * de `0`, que é "todo mundo registra e ninguém disparou". A distinção decide se
+ * a célula mostra "—" ou "0", e as duas dizem coisas opostas sobre a implantação
+ * do tagueamento.
+ */
+export function eventosDoPortfolio(
+  clientes: ClientePanorama[],
+  janela: "7d" | "30d" = "7d",
+): { eventos: EventoDoPortfolio[]; janela: "7d" | "30d"; sitesComGA4: number; dia: string | null } {
+  const snaps = clientes
+    .map((c) => (janela === "7d" ? c.ga4_7d : c.ga4_30d))
+    .filter((s): s is SnapGA4 => !!s);
+
+  const dias = snaps.map((s) => s.dia).filter(Boolean).sort();
+  const eventos = GRUPOS_DE_EVENTO.flatMap((g) => g.eventos.map((evento) => {
+    const medidos = snaps
+      .map((s) => s.metricsJson.eventos?.[evento])
+      .filter((x): x is ContagemDeEvento => !!x && x.atual != null);
+
+    if (!medidos.length) {
+      return { evento, grupo: g.chave, total: null, anterior: null, variacao: null, sites: 0 };
+    }
+    const total = medidos.reduce((n, x) => n + (x.atual ?? 0), 0);
+    // O anterior só soma quem TEM anterior. Misturar um cliente sem base com
+    // outro que tem produziria uma variação entre populações diferentes.
+    const comAnterior = medidos.filter((x) => x.anterior != null);
+    const anterior = comAnterior.length === medidos.length && comAnterior.length > 0
+      ? comAnterior.reduce((n, x) => n + (x.anterior ?? 0), 0)
+      : null;
+    return {
+      evento, grupo: g.chave, total, anterior,
+      variacao: anterior != null && anterior > 0 ? ((total - anterior) / anterior) * 100 : null,
+      sites: medidos.length,
+    };
+  }));
+
+  return {
+    eventos,
+    janela,
+    sitesComGA4: snaps.length,
+    // O dia mais recente entre os snapshots — a coleta não é simultânea.
+    dia: dias.length ? dias[dias.length - 1] : null,
+  };
+}
+
+/** O rótulo curto de cada evento. O nome técnico fica no hover. */
+export const ROTULO_EVENTO: Record<EventoAcompanhado, string> = {
+  form_start: "Formulário",
+  whatsapp_click: "WhatsApp",
+  add_to_cart: "Carrinho",
+  begin_checkout: "Checkout",
+  purchase: "Compra",
+};

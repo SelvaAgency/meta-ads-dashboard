@@ -45,7 +45,8 @@ import { toast } from "sonner";
 import {
   avaliarCliente, coberturaComparavel, funilVisual, indicadorDoSite, ordenarClientes,
   rankingProdutos, distribuicaoStatus, resumoPortfolio, segurancaDoPortfolio,
-  resumoDeSeguranca, segurancaDoSite, temEcommerce, vendasDe, fmtDia,
+  eventosDoPortfolio, resumoDeSeguranca, segurancaDoSite, temEcommerce, vendasDe, fmtDia,
+  GRUPOS_DE_EVENTO, ROTULO_EVENTO,
   type Achado, type ClientePanorama, type Nivel, type SegurancaDoSite,
 } from "@shared/panoramaLogic";
 import { BarraSaude, ChipStatus, Funil, RankingProdutos, DistribuicaoStatus } from "./panorama/Visuais";
@@ -232,11 +233,14 @@ export default function Panorama() {
                 contextoDe={contextoDe} />
             </div>
 
-            {/* ══ 3 · A TABELA DE SITES ═════════════════════════════════════ */}
+            {/* ══ 3 · OS EVENTOS DO GA4 ═════════════════════════════════════ */}
+            <EventosGA4 clientes={clientes} />
+
+            {/* ══ 4 · A TABELA DE SITES ═════════════════════════════════════ */}
             <Sites linhas={visiveis} total={linhas.length}
               filtro={filtro} aoFiltrar={setFiltro} busca={busca} aoBuscar={setBusca} />
 
-            {/* ══ 4 · COMPARAÇÃO E EVOLUÇÃO ═════════════════════════════════ */}
+            {/* ══ 5 · COMPARAÇÃO E EVOLUÇÃO ═════════════════════════════════ */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <Comparacao linhas={linhas} cobertura={cobertura} />
               <Evolucao pontos={qHist.data ?? []} carregando={qHist.isLoading} />
@@ -645,6 +649,141 @@ function CaixaDeContexto({ achado, accountId, contexto, aoFechar }: {
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  GA4 · eventos do período — dois grupos, sem seta entre eles
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Contato e Compra são jornadas diferentes. `form_start` e `whatsapp_click`
+ *  são conversões de lead; os três de e-commerce formam um funil real, com
+ *  precedência entre as etapas. Uma seta ligando os cinco sugeriria que quem
+ *  preenche formulário depois adiciona ao carrinho, e nada no dado sustenta
+ *  isso — nenhuma taxa é calculada ENTRE os grupos.
+ *
+ *  ── "—" e "0" dizem coisas opostas ─────────────────────────────────────────
+ *  Traço é "nenhum cliente registra este evento" — lacuna de tagueamento, nossa.
+ *  Zero é "todo mundo registra e ninguém disparou" — fato sobre o período. A
+ *  célula distingue os dois, porque a ação que cada um pede é diferente.
+ *
+ *  ── A janela viaja com o número ────────────────────────────────────────────
+ *  Cada snapshot do GA4 é um agregado MÓVEL: 7d é a soma dos sete dias
+ *  terminando no dia da coleta. O rótulo "7d" no cabeçalho não é decoração — é
+ *  o que impede a leitura de "42 formulários hoje".
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const COR_GRUPO: Record<string, { fundo: string; texto: string; acento: string }> = {
+  contato: { fundo: "bg-violet-500/[0.07] border-violet-500/20", texto: "text-violet-700", acento: "#7C5CE0" },
+  compra: { fundo: "bg-emerald-500/[0.07] border-emerald-500/20", texto: "text-emerald-700", acento: "#3FA66A" },
+};
+
+function EventosGA4({ clientes }: { clientes: ClientePanorama[] }) {
+  const [janela, setJanela] = useState<"7d" | "30d">("7d");
+  const r = useMemo(() => eventosDoPortfolio(clientes, janela), [clientes, janela]);
+
+  if (!r.sitesComGA4) {
+    return (
+      <section className="rounded-[14px] border border-dashed border-border bg-card px-4 py-3">
+        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          GA4 · eventos do período
+        </span>
+        <p className="text-[11px] text-muted-foreground/70 mt-1">
+          Nenhum cliente com Google Analytics conectado.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-[14px] border border-border bg-card overflow-hidden
+                        shadow-[0_1px_2px_rgba(10,10,10,.04)]">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap px-4 pt-3.5">
+        <div className="flex items-baseline gap-2.5 flex-wrap">
+          <h2 className="text-[10px] font-bold uppercase tracking-[0.12em]">
+            GA4 · eventos do período
+          </h2>
+          <span className="text-[9.5px] text-muted-foreground/50">
+            soma de {r.sitesComGA4} site(s) · janela móvel de {janela}
+            {r.dia && ` · coleta ${fmtDia(r.dia)}`}
+          </span>
+        </div>
+        <span className="inline-flex rounded-md border border-border overflow-hidden">
+          {(["7d", "30d"] as const).map((j) => (
+            <button key={j} type="button" onClick={() => setJanela(j)}
+              className={`text-[9.5px] font-bold uppercase tracking-[0.06em] px-2 py-[3px]
+                          transition-colors duration-150 ${
+                janela === j ? "bg-foreground text-background"
+                             : "text-muted-foreground hover:bg-foreground/[0.04]"}`}>
+              {j}
+            </button>
+          ))}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-x-6 gap-y-3 px-4 py-3">
+        {GRUPOS_DE_EVENTO.map((g) => {
+          const cor = COR_GRUPO[g.chave];
+          return (
+            <div key={g.chave} className="min-w-0">
+              <span className={`block text-[8.5px] font-bold uppercase tracking-[0.13em] mb-1.5 ${cor.texto}`}>
+                {g.rotulo}
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {g.eventos.map((nome) => {
+                  const e = r.eventos.find((x) => x.evento === nome)!;
+                  return <CelulaDeEvento key={nome} nome={nome} e={e} cor={cor} janela={janela} />;
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function CelulaDeEvento({ nome, e, cor, janela }: {
+  nome: keyof typeof ROTULO_EVENTO;
+  e: ReturnType<typeof eventosDoPortfolio>["eventos"][number];
+  cor: { fundo: string; texto: string; acento: string };
+  janela: string;
+}) {
+  const ausente = e.total == null;
+  return (
+    <div className={`rounded-[10px] border px-2.5 py-1.5 min-w-[112px] ${
+      ausente ? "border-dashed border-border bg-transparent" : cor.fundo}`}
+      /* O nome técnico do evento fica no hover: a tela mostra o rótulo curto,
+         mas quem for conferir no GA4 precisa do nome exato. */
+      title={ausente
+        ? `${nome} — nenhum cliente registra este evento`
+        : `${nome} · janela móvel de ${janela}${e.sites ? ` · ${e.sites} site(s)` : ""}`}>
+      <span className={`block text-[8.5px] font-bold uppercase tracking-[0.09em] truncate ${
+        ausente ? "text-muted-foreground/40" : "text-muted-foreground/70"}`}>
+        {ROTULO_EVENTO[nome]}
+      </span>
+      <span className="flex items-baseline gap-1.5">
+        <span className={`text-[19px] font-bold tabular-nums leading-none ${
+          ausente ? "text-muted-foreground/30" : ""}`}>
+          {ausente ? "—" : fmt(e.total as number)}
+        </span>
+        {/* A variação só aparece quando TODOS os sites do evento têm base
+            anterior — senão ela compararia populações diferentes. */}
+        {e.variacao != null && (
+          <span className={`text-[10px] font-bold tabular-nums ${
+            e.variacao > 0 ? "text-emerald-700" : e.variacao < 0 ? "text-destructive"
+              : "text-muted-foreground"}`}>
+            {e.variacao > 0 ? "↑" : e.variacao < 0 ? "↓" : "→"}
+            {Math.abs(e.variacao).toFixed(0)}%
+          </span>
+        )}
+      </span>
+      <span className="block text-[8.5px] text-muted-foreground/45 mt-0.5 truncate">
+        {ausente ? "não registrado"
+          : e.variacao != null ? `vs. ${janela} anterior`
+          : e.sites === 1 ? "1 site" : `${e.sites} sites`}
+      </span>
     </div>
   );
 }
