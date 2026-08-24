@@ -176,20 +176,19 @@ export default function Panorama() {
 
   return (
     <MetaDashboardLayout title="Panorama de Sites">
-      <div className="flex flex-col gap-[22px] px-6 pt-7 pb-24 max-w-[1320px] mx-auto">
-        <header className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex items-start gap-3.5 min-w-0">
-            <span className="w-[46px] h-[46px] rounded-[14px] bg-foreground text-background
-                             grid place-items-center flex-shrink-0">
-              <Globe2 className="w-5 h-5" strokeWidth={2} />
-            </span>
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold tracking-[-0.02em] leading-none">Panorama de Sites</h1>
-              <p className="text-[12.5px] text-muted-foreground mt-1.5">
-                Visão geral do portfólio · cada número declara a fonte e a data
-              </p>
-            </div>
-          </div>
+      <div className="flex flex-col gap-3 px-6 pt-6 pb-24 max-w-[1440px] mx-auto">
+        {/* O cabeçalho não é a informação: ele identifica a tela e sai da
+            frente. Uma faixa de 46px com título de 24px empurrava a primeira
+            leitura para baixo da dobra em telas de notebook. */}
+        <header className="flex items-center gap-3 min-w-0 mb-0.5">
+          <span className="w-8 h-8 rounded-[10px] bg-foreground text-background
+                           grid place-items-center flex-shrink-0">
+            <Globe2 className="w-4 h-4" strokeWidth={2.2} />
+          </span>
+          <h1 className="text-[17px] font-bold tracking-[-0.01em] leading-none">Panorama de Sites</h1>
+          <span className="text-[11px] text-muted-foreground/60 truncate">
+            cada número declara a fonte e a data
+          </span>
         </header>
 
         {q.isLoading && (
@@ -209,13 +208,28 @@ export default function Panorama() {
 
         {!q.isLoading && clientes.length > 0 && (
           <>
-            <Kpis resumo={resumo} />
-            <Seguranca s={seguranca} />
-            <PrecisaAtencao pendencias={pendencias} explicados={explicados}
-              contextoDe={contextoDe} />
+            {/* ══ 1 · A FAIXA ═══════════════════════════════════════════════
+                Uma linha, seis leituras. Segurança entra aqui como razão
+                (12/13) em vez de ganhar seção própria: ela é uma contagem, e
+                contagem cabe numa célula. */}
+            <Kpis resumo={resumo} seguranca={seguranca} />
+
+            {/* ══ 2 · DUAS COLUNAS ══════════════════════════════════════════
+                Saúde e pendências convivem: a primeira diz onde o portfólio
+                está concentrado, a segunda diz o que fazer hoje. Empilhadas,
+                a resposta exigia rolar. */}
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] gap-3">
+              <SaudeESeguranca resumo={resumo} seguranca={seguranca} />
+              <PrecisaAtencao pendencias={pendencias} explicados={explicados}
+                contextoDe={contextoDe} />
+            </div>
+
+            {/* ══ 3 · A TABELA DE SITES ═════════════════════════════════════ */}
             <Sites linhas={visiveis} total={linhas.length}
               filtro={filtro} aoFiltrar={setFiltro} busca={busca} aoBuscar={setBusca} />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-[22px]">
+
+            {/* ══ 4 · COMPARAÇÃO E EVOLUÇÃO ═════════════════════════════════ */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <Comparacao linhas={linhas} cobertura={cobertura} />
               <Evolucao pontos={qHist.data ?? []} carregando={qHist.isLoading} />
             </div>
@@ -228,51 +242,56 @@ export default function Panorama() {
 }
 
 /**
- * A leitura rápida do portfólio.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A faixa — seis leituras numa linha
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Segurança entra aqui como RAZÃO (12/13) em vez de ganhar seção própria: ela
+ *  é uma contagem, e contagem cabe numa célula. O detalhe — quem está vencendo,
+ *  em quantos dias — desce para a coluna da esquerda, onde há espaço para nome.
  *
- * "Falhas de medição" ganha caixa própria e NÃO soma com os outros: ela conta
- * um problema nosso, não do cliente, e misturá-la faria o número de problemas
- * subir por dois motivos incomparáveis — um pede remedir, o outro pede agir.
+ *  "Falhas de medição" não vira célula: ela conta um problema NOSSO, e uma
+ *  sexta caixa com o mesmo peso das outras cinco a colocaria na mesma leitura
+ *  que "com problema". Ela aparece como nota sob "sem dados".
+ * ─────────────────────────────────────────────────────────────────────────────
  */
-function Kpis({ resumo }: { resumo: ReturnType<typeof resumoPortfolio> }) {
-  const caixa = (rotulo: string, valor: number, cor: string, nota?: string) => (
-    <div className="flex flex-col px-4 py-4 min-w-0 transition-colors duration-150 hover:bg-foreground/[0.02]">
-      <span className="flex items-center gap-1.5 text-[9.5px] font-bold uppercase
-                       tracking-[0.12em] text-muted-foreground mb-1.5">
-        <i className="w-2 h-2 rounded-[3px] flex-shrink-0" style={{ background: cor }} />
+function Kpis({ resumo, seguranca }: {
+  resumo: ReturnType<typeof resumoPortfolio>;
+  seguranca: ReturnType<typeof segurancaDoPortfolio>;
+}) {
+  const d = (n: Nivel) => resumo.distribuicao.find((x) => x.nivel === n)?.quantidade ?? 0;
+  const segOk = seguranca.ok;
+  const segMedidos = seguranca.ok + seguranca.expirando + seguranca.quebrado;
+
+  const celula = (rotulo: string, valor: string, cor: string | null, nota: string) => (
+    <div className="flex flex-col px-3.5 py-2.5 min-w-0">
+      <span className="flex items-center gap-1.5 text-[9px] font-bold uppercase
+                       tracking-[0.11em] text-muted-foreground/70">
+        {cor && <i className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: cor }} />}
         {rotulo}
       </span>
-      <span className="text-[26px] font-bold tabular-nums leading-none tracking-tight">{fmt(valor)}</span>
-      {nota && <span className="text-[10.5px] text-muted-foreground mt-1.5 leading-snug">{nota}</span>}
+      <span className="text-[21px] font-bold tabular-nums leading-none tracking-tight mt-1">
+        {valor}
+      </span>
+      <span className="text-[9.5px] text-muted-foreground/60 mt-0.5 leading-tight truncate">
+        {nota}
+      </span>
     </div>
   );
-  const d = (n: Nivel) => resumo.distribuicao.find((x) => x.nivel === n)?.quantidade ?? 0;
 
   return (
-    <section className="rounded-[20px] border border-border bg-card overflow-hidden
+    <section className="rounded-[14px] border border-border bg-card overflow-hidden
                         shadow-[0_1px_2px_rgba(10,10,10,.04)]">
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 divide-x divide-y lg:divide-y-0 divide-border">
-        {caixa("Sites", resumo.totalClientes, "#8C8C8C", "no portfólio")}
-        {caixa("Saudáveis", d("ok"), NIVEL_UI.ok.ponto, "sem achado aberto")}
-        {caixa("Em atenção", d("atencao"), NIVEL_UI.atencao.ponto,
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 divide-x divide-y lg:divide-y-0 divide-border">
+        {celula("Sites", fmt(resumo.totalClientes), null, "no portfólio")}
+        {celula("Saudáveis", fmt(d("ok")), NIVEL_UI.ok.ponto, "sem achado aberto")}
+        {celula("Atenção", fmt(d("atencao")), NIVEL_UI.atencao.ponto,
           `${resumo.achadosAtencao} achado(s)`)}
-        {caixa("Com problema", d("critico"), NIVEL_UI.critico.ponto,
+        {celula("Problemas", fmt(d("critico")), NIVEL_UI.critico.ponto,
           `${resumo.achadosCriticos} achado(s)`)}
-        {caixa("Sem dados", d("sem_dados"), "#8C8C8C",
-          resumo.falhasDeMedicao > 0
-            ? `+ ${resumo.falhasDeMedicao} medição(ões) falhada(s)`
-            : "nada conectado")}
-      </div>
-      <div className="px-5 py-3.5 border-t border-border">
-        <div className="flex items-baseline gap-2.5 mb-2">
-          <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-            Saúde do portfólio
-          </span>
-          <span className="text-[10px] text-muted-foreground/55">
-            proporção, não ranking
-          </span>
-        </div>
-        <BarraSaude distribuicao={resumo.distribuicao} total={resumo.totalClientes} />
+        {celula("Segurança",
+          segMedidos ? `${segOk}/${segMedidos}` : "—",
+          seguranca.quebrado > 0 ? "#D65745" : seguranca.expirando > 0 ? "#E0A030" : "#3FA66A",
+          segMedidos ? "HTTPS e certificado ok" : "sem verificação")}
       </div>
     </section>
   );
@@ -280,121 +299,131 @@ function Kpis({ resumo }: { resumo: ReturnType<typeof resumoPortfolio> }) {
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Segurança — faixa executiva, com peso próprio
+ *  Saúde + segurança — a coluna estreita da esquerda
  * ─────────────────────────────────────────────────────────────────────────────
- *  HTTPS e validade de certificado são os fatos mais objetivos do portfólio: ou
- *  o site serve em HTTPS ou não; ou o certificado vence em N dias ou não. Ficava
- *  diluída dentro do indicador genérico de cada site, competindo com PageSpeed
- *  numa string só — e um certificado a 5 dias de vencer não pode depender de
- *  alguém reparar numa célula de tabela.
+ *  As duas respondem "onde o portfólio está" e cabem numa coluna de 340px. A
+ *  barra é horizontal e fina: ela mostra PROPORÇÃO, e proporção não precisa de
+ *  altura — precisa de largura.
  *
- *  O `score` de `security_check` fica FORA: a composição dele não está
- *  documentada, e um 0–100 sem régua ao lado de dois fatos emprestaria a
- *  credibilidade deles ao terceiro.
+ *  Segurança perdeu a faixa de largura cheia e ganhou o que faltava: os nomes.
+ *  Um certificado a 5 dias de vencer aparece com o nome do cliente, e não como
+ *  um contador que manda procurar.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-function Seguranca({ s }: { s: ReturnType<typeof segurancaDoPortfolio> }) {
-  const tudoBem = s.quebrado === 0 && s.expirando === 0;
+function SaudeESeguranca({ resumo, seguranca }: {
+  resumo: ReturnType<typeof resumoPortfolio>;
+  seguranca: ReturnType<typeof segurancaDoPortfolio>;
+}) {
   return (
-    <section className={`rounded-[20px] border px-5 py-[18px] shadow-[0_1px_2px_rgba(10,10,10,.04)] ${
-      s.quebrado > 0 ? "border-destructive/25 bg-destructive/[0.05]"
-        : s.expirando > 0 ? "border-amber-500/25 bg-amber-500/[0.05]"
-        : "border-border bg-card"}`}>
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-start gap-3 min-w-0">
-          <span className={`w-8 h-8 rounded-[10px] grid place-items-center flex-shrink-0 ${
-            s.quebrado > 0 ? "bg-destructive/15 text-destructive"
-              : s.expirando > 0 ? "bg-amber-500/15 text-amber-700"
-              : "bg-emerald-500/15 text-emerald-700"}`}>
-            {s.quebrado > 0 ? <ShieldAlert className="w-4 h-4" strokeWidth={2.2} />
-              : <Lock className="w-4 h-4" strokeWidth={2.2} />}
-          </span>
-          <div className="min-w-0">
-            <div className="flex items-baseline gap-2.5 flex-wrap">
-              <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Segurança</h2>
-              <span className="text-[10px] text-muted-foreground/55">
-                HTTPS e certificado · verificação diária
-              </span>
-            </div>
-            <p className="text-[12.5px] mt-1 leading-snug">
-              {s.quebrado > 0 ? (
-                <><b className="text-destructive font-semibold">
-                  {s.quebrado} site(s) com HTTPS ou certificado quebrado.</b>{" "}
-                <span className="text-muted-foreground">Impede acesso seguro agora.</span></>
-              ) : s.expirando > 0 ? (
-                <><b className="text-amber-700 font-semibold">
-                  {s.expirando} certificado(s) vencendo em até {SSL_AVISO_DIAS} dias.</b>{" "}
-                <span className="text-muted-foreground">Renovar antes que vire queda.</span></>
-              ) : (
-                <span className="text-muted-foreground">
-                  Nenhum problema de HTTPS ou certificado entre os {s.ok} site(s) medido(s).
-                </span>
-              )}
-            </p>
-          </div>
+    <section className="rounded-[14px] border border-border bg-card px-4 py-3.5
+                        shadow-[0_1px_2px_rgba(10,10,10,.04)] flex flex-col gap-3">
+      <div>
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-[10px] font-bold uppercase tracking-[0.12em]">Saúde do portfólio</h2>
+          <span className="text-[9.5px] text-muted-foreground/50">proporção</span>
         </div>
-
-        <div className="flex items-center gap-4 flex-shrink-0">
-          {([["Ok", s.ok, "#3FA66A"], ["Vencendo", s.expirando, "#E0A030"],
-             ["Quebrado", s.quebrado, "#D65745"], ["Sem medição", s.semMedicao, "#8C8C8C"]] as const)
-            .map(([rotulo, valor, cor]) => (
-              <div key={rotulo} className="text-right">
-                <span className="block text-[18px] font-bold tabular-nums leading-none"
-                  style={{ color: valor > 0 ? cor : undefined }}>
-                  {valor}
-                </span>
-                <span className="block text-[9px] font-semibold uppercase tracking-[0.09em]
-                                 text-muted-foreground/60 mt-1">
-                  {rotulo}
-                </span>
-              </div>
-            ))}
+        <div className="mt-2">
+          <BarraSaude distribuicao={resumo.distribuicao} total={resumo.totalClientes} />
         </div>
+        {resumo.falhasDeMedicao > 0 && (
+          <p className="text-[10px] text-sky-700 mt-2 flex items-start gap-1.5 leading-snug">
+            <Wrench className="w-3 h-3 flex-shrink-0 mt-[1px]" strokeWidth={2.4} />
+            {resumo.falhasDeMedicao} medição(ões) não concluída(s) — não é problema do site.
+          </p>
+        )}
       </div>
 
-      {/* Os urgentes, nominais. Uma contagem sem nome manda procurar. */}
-      {s.urgentes.length > 0 && (
-        <div className="mt-3.5 pt-3 border-t border-foreground/[0.07] flex flex-wrap gap-x-4 gap-y-1.5">
-          {s.urgentes.map((x: SegurancaDoSite) => (
-            <span key={x.accountId} className="text-[11.5px]">
-              <LinkSite accountId={x.accountId} aba="seguranca">
-                <b className="font-semibold">{x.nome}</b>
-              </LinkSite>
-              <span className="text-muted-foreground ml-1.5">
-                {x.estado === "quebrado"
-                  ? (x.https === false ? "sem HTTPS" : "certificado inválido")
-                  : `vence em ${x.diasParaVencer} dia${x.diasParaVencer === 1 ? "" : "s"}`}
-              </span>
-            </span>
-          ))}
+      <div className="border-t border-border pt-3">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-[10px] font-bold uppercase tracking-[0.12em] flex items-center gap-1.5">
+            {seguranca.quebrado > 0
+              ? <ShieldAlert className="w-3 h-3 text-destructive" strokeWidth={2.4} />
+              : <Lock className="w-3 h-3 text-muted-foreground/60" strokeWidth={2.4} />}
+            Segurança
+          </h2>
+          <span className="text-[9.5px] text-muted-foreground/50">verificação diária</span>
         </div>
-      )}
 
-      {/* Sem urgência, o próximo vencimento ainda é informação útil. */}
-      {tudoBem && s.proximoVencimento?.diasParaVencer != null && (
-        <p className="text-[10.5px] text-muted-foreground/70 mt-3">
-          Próximo vencimento: {s.proximoVencimento.nome} em {s.proximoVencimento.diasParaVencer} dias.
-          {s.semMedicao > 0 && ` ${s.semMedicao} site(s) sem verificação de segurança.`}
-        </p>
-      )}
+        {/* Barra dos quatro estados: mesma gramática da saúde, e por isso a
+            leitura é a mesma sem reaprender nada. */}
+        {(() => {
+          const partes = [
+            { n: seguranca.ok, cor: "#3FA66A", r: "ok" },
+            { n: seguranca.expirando, cor: "#E0A030", r: "vencendo" },
+            { n: seguranca.quebrado, cor: "#D65745", r: "quebrado" },
+            { n: seguranca.semMedicao, cor: "#D6D3D1", r: "sem medição" },
+          ].filter((p) => p.n > 0);
+          const total = partes.reduce((a, b) => a + b.n, 0);
+          if (!total) return <p className="text-[10.5px] text-muted-foreground mt-2">Sem verificação.</p>;
+          return (
+            <>
+              <span className="flex h-[6px] rounded-full overflow-hidden bg-muted mt-2">
+                {partes.map((p) => (
+                  <span key={p.r} style={{ flexGrow: p.n, background: p.cor }}
+                    title={`${p.n} ${p.r}`} />
+                ))}
+              </span>
+              <span className="flex flex-wrap gap-x-2.5 gap-y-1 mt-1.5">
+                {partes.map((p) => (
+                  <span key={p.r} className="inline-flex items-center gap-1 text-[9.5px] text-muted-foreground">
+                    <i className="w-1.5 h-1.5 rounded-[2px]" style={{ background: p.cor }} />
+                    {p.n} {p.r}
+                  </span>
+                ))}
+              </span>
+            </>
+          );
+        })()}
+
+        {/* Os urgentes, nominais. Contagem sem nome manda procurar. */}
+        {seguranca.urgentes.length > 0 && (
+          <div className="flex flex-col gap-1 mt-2.5">
+            {seguranca.urgentes.map((x: SegurancaDoSite) => (
+              <span key={x.accountId} className="text-[10.5px] flex items-baseline gap-1.5">
+                <i className="w-1.5 h-1.5 rounded-full flex-shrink-0 translate-y-[-1px]"
+                  style={{ background: x.estado === "quebrado" ? "#D65745" : "#E0A030" }} />
+                <LinkSite accountId={x.accountId} aba="seguranca">
+                  <b className="font-semibold">{x.nome}</b>
+                </LinkSite>
+                <span className="text-muted-foreground truncate">
+                  {x.estado === "quebrado"
+                    ? (x.https === false ? "sem HTTPS" : "certificado inválido")
+                    : `vence em ${x.diasParaVencer}d`}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {seguranca.urgentes.length === 0 && seguranca.proximoVencimento?.diasParaVencer != null && (
+          <p className="text-[10px] text-muted-foreground/60 mt-2 leading-snug">
+            Próximo vencimento: {seguranca.proximoVencimento.nome} em{" "}
+            {seguranca.proximoVencimento.diasParaVencer} dias.
+          </p>
+        )}
+      </div>
     </section>
   );
 }
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Precisa da minha atenção — as três naturezas, separadas
+ *  Precisa da minha atenção — uma linha por achado
  * ─────────────────────────────────────────────────────────────────────────────
- *  Ordenado por severidade, e falha de medição sempre por último. Ela não é
- *  problema do cliente: misturá-la mandaria refazer um teste de PageSpeed antes
- *  de olhar um checkout vazando.
+ *  Ordenado por severidade, e falha de medição sempre por último: ela não é
+ *  problema do cliente, e misturá-la mandaria refazer um teste de PageSpeed
+ *  antes de olhar um checkout vazando.
  *
- *  Cada item traz O QUE aconteceu, QUAL site e para onde ir. O QUANDO fica no
- *  bloco de cada fonte — repeti-lo aqui em toda linha gastaria a largura que o
- *  texto do achado usa para explicar.
+ *  ── Uma linha, e não um cartão ─────────────────────────────────────────────
+ *  Cada achado é ponto + cliente + o que houve + ação. Três alertas ocupavam a
+ *  altura de um cartão; agora oito cabem no mesmo espaço, e a lista deixa de
+ *  precisar de "ver todos" na maior parte dos dias.
+ *
+ *  A caixa de contexto abre EMPURRANDO a linha, e não sobre ela: um popover
+ *  cobriria os achados vizinhos, que é justamente o que se está comparando.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-const TETO_PENDENCIAS = 6;
+const TETO_PENDENCIAS = 8;
 
 function PrecisaAtencao({ pendencias, explicados, contextoDe }: {
   pendencias: Array<{ achado: Achado; nome: string; accountId: number }>;
@@ -402,6 +431,7 @@ function PrecisaAtencao({ pendencias, explicados, contextoDe }: {
   contextoDe: (accountId: number, chave: string) => string | null;
 }) {
   const [todos, setTodos] = useState(false);
+  const [abertoEm, setAbertoEm] = useState<string | null>(null);
   const remedir = trpc.clarity.perfSync.useMutation({
     onSuccess: () => toast.success("Medição refeita. O painel atualiza na próxima leitura."),
     onError: (e: { message: string }) => toast.error(e.message),
@@ -409,102 +439,130 @@ function PrecisaAtencao({ pendencias, explicados, contextoDe }: {
 
   if (!pendencias.length && !explicados.length) {
     return (
-      <div className="rounded-[16px] border border-emerald-500/25 bg-emerald-500/[0.06] px-4 py-3
-                      flex items-center gap-2.5">
+      <section className="rounded-[14px] border border-emerald-500/25 bg-emerald-500/[0.06]
+                          px-4 py-3.5 flex items-center gap-2.5">
         <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" strokeWidth={2.4} />
-        <span className="text-[13px] text-emerald-800">
+        <span className="text-[12.5px] text-emerald-800">
           Nenhum achado aberto no portfólio. Nada exige ação agora.
         </span>
-      </div>
+      </section>
     );
   }
 
   const lista = todos ? pendencias : pendencias.slice(0, TETO_PENDENCIAS);
+
   return (
-    <section className="rounded-[20px] border border-border bg-card overflow-hidden
-                        shadow-[0_1px_2px_rgba(10,10,10,.04)]">
-      <div className="flex items-baseline gap-2.5 flex-wrap px-5 pt-[18px]">
-        <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Precisa da minha atenção</h2>
-        <span className="text-[10.5px] text-muted-foreground/55">
-          {pendencias.length} achado(s) · do mais grave para o mais leve
+    <section className="rounded-[14px] border border-border bg-card overflow-hidden
+                        shadow-[0_1px_2px_rgba(10,10,10,.04)] flex flex-col">
+      <div className="flex items-baseline justify-between gap-2 px-4 pt-3.5">
+        <h2 className="text-[10px] font-bold uppercase tracking-[0.12em]">Precisa da minha atenção</h2>
+        <span className="text-[9.5px] text-muted-foreground/50">
+          {pendencias.length} aberto(s) · do mais grave ao mais leve
         </span>
       </div>
 
-      <div className="flex flex-col divide-y divide-border mt-2">
+      <div className="flex flex-col mt-1.5">
         {lista.map(({ achado, nome, accountId }) => {
+          const id = `${accountId}-${achado.chave}`;
           const tom = TOM_ACHADO[achado.severidade] ?? TOM_ACHADO.info;
           const ehMedicao = achado.severidade === "medicao";
+          const ctx = contextoDe(accountId, achado.chave);
           return (
-            <div key={`${accountId}-${achado.chave}`}
-              className="flex items-start gap-3 px-5 py-2.5 transition-colors duration-150
-                         hover:bg-foreground/[0.02]">
-              <span className={`text-[9px] font-bold uppercase tracking-[0.09em] px-1.5 py-[3px]
-                                rounded-[5px] flex-shrink-0 mt-[1px] ${tom.classe}`}>
-                {tom.rotulo}
-              </span>
-              <div className="min-w-0 flex-1">
-                <span className="text-[12.5px] font-semibold">
+            <div key={id} className="px-4 py-[7px] hover:bg-foreground/[0.02] transition-colors duration-150">
+              <div className="flex items-center gap-2 min-w-0">
+                <i className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{
+                  background: achado.severidade === "critico" ? "#D65745"
+                    : achado.severidade === "atencao" ? "#E0A030" : "#2A9FD6",
+                }} />
+                <span className="text-[11.5px] font-semibold flex-shrink-0 max-w-[110px] truncate">
                   <LinkSite accountId={accountId} aba={achado.aba}>{nome}</LinkSite>
                 </span>
-                <p className="text-[11.5px] text-muted-foreground leading-snug mt-0.5">
+                <span className="text-[11px] text-muted-foreground truncate flex-1 min-w-0"
+                  title={achado.texto}>
                   {achado.texto}
-                </p>
-                {/* A caixa de explicação abre DENTRO da linha: ela precisa da
-                    largura do texto para caber, e um popover cobriria os
-                    achados vizinhos que a pessoa está comparando. */}
-                <CaixaDeContexto achado={achado} accountId={accountId}
-                  contexto={contextoDe(accountId, achado.chave)} />
-              </div>
-              {/* Falha de medição tem ação PRÓPRIA: refazer. Um problema real
-                  não tem botão aqui — ele exige olhar, não reprocessar. */}
-              {ehMedicao && (
-                <button type="button"
-                  onClick={() => remedir.mutate({ accountId })}
-                  disabled={remedir.isPending}
-                  className="text-[10px] px-2 py-1 rounded-md border border-border text-muted-foreground
-                             hover:text-foreground hover:bg-foreground/[0.04] transition-colors
-                             duration-150 disabled:opacity-60 flex items-center gap-1.5 flex-shrink-0">
-                  <RefreshCw className={`w-3 h-3 ${remedir.isPending ? "animate-spin" : ""}`}
-                    strokeWidth={2.2} />
-                  refazer medição
+                </span>
+                <span className={`text-[8.5px] font-bold uppercase tracking-[0.08em] px-1.5 py-[2px]
+                                  rounded-[4px] flex-shrink-0 ${tom.classe}`}>
+                  {tom.rotulo}
+                </span>
+                {ehMedicao && (
+                  <button type="button" onClick={() => remedir.mutate({ accountId })}
+                    disabled={remedir.isPending} title="Refazer a medição de PageSpeed"
+                    className="text-muted-foreground/50 hover:text-foreground transition-colors
+                               duration-150 flex-shrink-0 disabled:opacity-50">
+                    <RefreshCw className={`w-3 h-3 ${remedir.isPending ? "animate-spin" : ""}`}
+                      strokeWidth={2.2} />
+                  </button>
+                )}
+                {/* Rótulo em PALAVRA, e não um "+".
+                    A densidade não pode custar a descoberta: um ícone mudo faz
+                    a ação existir para quem já sabe que ela existe, e some para
+                    todo mundo. "explicar" cabe na linha e diz o que faz. */}
+                <button type="button" onClick={() => setAbertoEm(abertoEm === id ? null : id)}
+                  title={ctx ? "Ver o contexto salvo" : "Contextualizar este achado"}
+                  className={`text-[9px] font-bold uppercase tracking-[0.06em] px-1.5 py-[2px]
+                              rounded-[4px] flex-shrink-0 transition-colors duration-150 ${
+                    ctx ? "bg-foreground/[0.07] text-muted-foreground"
+                        : "text-muted-foreground/45 hover:text-foreground hover:bg-foreground/[0.05]"}`}>
+                  {ctx ? "explicado" : "explicar"}
                 </button>
+              </div>
+              {abertoEm === id && (
+                <CaixaDeContexto achado={achado} accountId={accountId} contexto={ctx}
+                  aoFechar={() => setAbertoEm(null)} />
               )}
             </div>
           );
         })}
       </div>
 
+      {pendencias.length > TETO_PENDENCIAS && (
+        <button type="button" onClick={() => setTodos((v) => !v)}
+          className="px-4 py-2 text-[10.5px] font-semibold text-muted-foreground border-t
+                     border-border hover:text-foreground hover:bg-foreground/[0.03] transition-colors">
+          {todos ? "mostrar menos" : `ver os outros ${pendencias.length - TETO_PENDENCIAS}`}
+        </button>
+      )}
+
       {/*
-       * Os já explicados, em cinza e sem chip.
+       * Os já explicados, em cinza.
        *
        * O FATO continua consultável — é o pedido de não apagar histórico —, mas
        * ele não disputa atenção com o que está aberto, e não conta em lugar
        * nenhum. Remover a explicação devolve o achado à lista de cima.
        */}
       {explicados.length > 0 && (
-        <div className="px-5 py-3 border-t border-border flex flex-col gap-1.5">
-          <span className="text-[9px] font-bold uppercase tracking-[0.11em] text-muted-foreground/50">
+        <div className="px-4 py-2 border-t border-border mt-auto">
+          <span className="text-[9px] font-bold uppercase tracking-[0.11em] text-muted-foreground/45">
             Já explicados · {explicados.length}
           </span>
-          {explicados.map(({ achado, nome, accountId }) => (
-            <div key={`${accountId}-${achado.chave}`}
-              className="flex items-start gap-2.5 text-[11px]">
-              <span className="text-muted-foreground/60 flex-1 min-w-0 leading-snug">
-                <b className="font-semibold text-muted-foreground/80">{nome}</b> · {achado.texto}
-              </span>
-              <CaixaDeContexto achado={achado} accountId={accountId}
-                contexto={contextoDe(accountId, achado.chave)} />
-            </div>
-          ))}
+          <div className="flex flex-col gap-0.5 mt-1">
+            {explicados.map(({ achado, nome, accountId }) => {
+              const id = `exp-${accountId}-${achado.chave}`;
+              return (
+                <div key={id}>
+                  <div className="flex items-center gap-2 text-[10.5px] min-w-0">
+                    <span className="text-muted-foreground/70 font-semibold flex-shrink-0 max-w-[110px] truncate">
+                      {nome}
+                    </span>
+                    <span className="text-muted-foreground/50 truncate flex-1 min-w-0">{achado.texto}</span>
+                    <button type="button" onClick={() => setAbertoEm(abertoEm === id ? null : id)}
+                      title="Ver ou remover o contexto salvo"
+                      className="text-[9px] uppercase tracking-[0.06em] text-muted-foreground/40
+                                 hover:text-foreground flex-shrink-0 transition-colors">
+                      ver
+                    </button>
+                  </div>
+                  {abertoEm === id && (
+                    <CaixaDeContexto achado={achado} accountId={accountId}
+                      contexto={contextoDe(accountId, achado.chave)}
+                      aoFechar={() => setAbertoEm(null)} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
-      )}
-
-      {pendencias.length > TETO_PENDENCIAS && (
-        <button type="button" onClick={() => setTodos((v) => !v)}
-          className="w-full px-5 py-2.5 text-[11px] font-semibold text-muted-foreground border-t
-                     border-border hover:text-foreground hover:bg-foreground/[0.03] transition-colors">
-          {todos ? "Mostrar menos" : `Ver os outros ${pendencias.length - TETO_PENDENCIAS}`}
-        </button>
       )}
     </section>
   );
@@ -527,34 +585,22 @@ function PrecisaAtencao({ pendencias, explicados, contextoDe }: {
  *  posição do cliente, e não só nesta linha.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-function CaixaDeContexto({ achado, accountId, contexto }: {
-  achado: Achado; accountId: number; contexto: string | null;
+function CaixaDeContexto({ achado, accountId, contexto, aoFechar }: {
+  achado: Achado; accountId: number; contexto: string | null; aoFechar: () => void;
 }) {
   const utils = trpc.useUtils();
-  const [aberto, setAberto] = useState(false);
   const [texto, setTexto] = useState(contexto ?? "");
   useEffect(() => { setTexto(contexto ?? ""); }, [contexto]);
 
   const salvar = trpc.context.salvarContextoDePonto.useMutation({
     onSuccess: () => {
-      setAberto(false);
+      aoFechar();
       utils.panorama.sites.invalidate();
       utils.context.analiseVigente.invalidate();
       toast.success("Contexto salvo");
     },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-
-  if (!aberto) {
-    return (
-      <button type="button" onClick={() => setAberto(true)}
-        className="text-[10px] px-2 py-1 rounded-md border border-border text-muted-foreground
-                   hover:text-foreground hover:bg-foreground/[0.04] transition-colors duration-150
-                   flex-shrink-0">
-        {contexto ? "ver contexto" : "contextualizar"}
-      </button>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-1.5 rounded-[10px] border border-border bg-muted/20 p-2.5
@@ -577,7 +623,7 @@ function CaixaDeContexto({ achado, accountId, contexto }: {
                      disabled:opacity-60">
           {salvar.isPending ? "Salvando…" : "Salvar"}
         </button>
-        <button type="button" onClick={() => { setAberto(false); setTexto(contexto ?? ""); }}
+        <button type="button" onClick={() => { setTexto(contexto ?? ""); aoFechar(); }}
           className="text-[10px] text-muted-foreground hover:text-foreground">
           Cancelar
         </button>
@@ -599,12 +645,16 @@ type Linha = { cliente: ClientePanorama; nome: string; nivel: Nivel; achados: Ac
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Sites — cada card com o indicador que AQUELE site tem
+ *  Sites — tabela densa, não grade de cartões
  * ─────────────────────────────────────────────────────────────────────────────
- *  O rótulo do indicador fica sempre visível, e é isso que impede a leitura
- *  errada: quem olha sabe que a Elwing está sendo mostrada por PageSpeed e a
- *  Ultramalhas por disponibilidade, em vez de achar que os dois números saem da
- *  mesma régua.
+ *  Treze cartões de três colunas ocupavam cinco dobras para mostrar o que uma
+ *  tabela mostra numa. E a pergunta aqui é comparativa — "quem está pior?" —,
+ *  que se responde varrendo uma coluna com o olho, não pulando entre cartões.
+ *
+ *  ── O rótulo do indicador é uma COLUNA, e não um detalhe ───────────────────
+ *  Não existe régua única no portfólio. A coluna "indicador" traz o nome do que
+ *  está sendo medido ao lado do número, para "88" e "No ar" nunca parecerem a
+ *  mesma escala. Sem ela, a tabela mentiria por alinhamento.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 function Sites({ linhas, total, filtro, aoFiltrar, busca, aoBuscar }: {
@@ -613,27 +663,31 @@ function Sites({ linhas, total, filtro, aoFiltrar, busca, aoBuscar }: {
   busca: string; aoBuscar: (s: string) => void;
 }) {
   const chip = (ativo: boolean) =>
-    `text-[10px] px-2.5 py-1 rounded-md border transition-colors duration-150 ${
+    `text-[9.5px] px-2 py-[3px] rounded-md border transition-colors duration-150 ${
       ativo ? "bg-foreground text-background border-foreground"
             : "border-border text-muted-foreground hover:text-foreground"}`;
 
+  const GRADE = "grid grid-cols-[minmax(0,1.1fr)_86px_minmax(0,1fr)_minmax(0,1.6fr)] "
+    + "sm:grid-cols-[minmax(0,1fr)_92px_minmax(0,0.9fr)_minmax(0,1.8fr)_74px] gap-2.5 items-center";
+
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+    <section className="rounded-[14px] border border-border bg-card overflow-hidden
+                        shadow-[0_1px_2px_rgba(10,10,10,.04)]">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap px-4 pt-3.5">
         <div className="flex items-baseline gap-2.5 flex-wrap">
-          <h2 className="text-[13px] font-bold uppercase tracking-[0.1em]">Sites</h2>
-          <span className="text-[11px] text-muted-foreground/55">
+          <h2 className="text-[10px] font-bold uppercase tracking-[0.12em]">Sites</h2>
+          <span className="text-[9.5px] text-muted-foreground/50">
             {linhas.length === total ? `${total} no portfólio` : `${linhas.length} de ${total}`}
-            {" · o indicador de cada site é o mais objetivo que ele tem"}
+            {" · cada um mostra o indicador mais objetivo que tem"}
           </span>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="relative">
             <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
             <input value={busca} onChange={(e) => aoBuscar(e.target.value)}
-              placeholder="Buscar cliente…"
-              className="text-[11px] pl-6 pr-2 py-1 rounded-md border border-border bg-transparent
-                         w-[150px] focus:outline-none focus:ring-1 focus:ring-ring" />
+              placeholder="Buscar…"
+              className="text-[10.5px] pl-6 pr-2 py-[3px] rounded-md border border-border
+                         bg-transparent w-[120px] focus:outline-none focus:ring-1 focus:ring-ring" />
           </span>
           <button type="button" onClick={() => aoFiltrar("todos")} className={chip(filtro === "todos")}>
             todos
@@ -646,20 +700,32 @@ function Sites({ linhas, total, filtro, aoFiltrar, busca, aoBuscar }: {
         </div>
       </div>
 
-      {!linhas.length ? (
-        <div className="rounded-[20px] border border-dashed border-border bg-card px-5 py-8 text-center">
-          <p className="text-[12.5px] text-muted-foreground">Nenhum site com esse filtro.</p>
+      <div className="overflow-x-auto mt-2.5">
+        <div className="min-w-[720px]">
+          <div className={`${GRADE} px-4 pb-1.5 text-[8.5px] font-bold uppercase
+                           tracking-[0.1em] text-muted-foreground/50 border-b border-border`}>
+            <span>Cliente</span>
+            <span>Status</span>
+            <span>Indicador</span>
+            <span>Achados abertos</span>
+            <span className="hidden sm:block text-right">Coleta</span>
+          </div>
+
+          <div className="flex flex-col divide-y divide-border/60">
+            {!linhas.length && (
+              <p className="text-[11.5px] text-muted-foreground py-8 text-center">
+                Nenhum site com esse filtro.
+              </p>
+            )}
+            {linhas.map((l) => <LinhaDoSite key={l.cliente.accountId} l={l} grade={GRADE} />)}
+          </div>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          {linhas.map((l) => <CartaoDoSite key={l.cliente.accountId} l={l} />)}
-        </div>
-      )}
+      </div>
     </section>
   );
 }
 
-function CartaoDoSite({ l }: { l: Linha }) {
+function LinhaDoSite({ l, grade }: { l: Linha; grade: string }) {
   const ind = indicadorDoSite(l.cliente);
   const ui = NIVEL_UI[l.nivel];
   const abertos = l.achados.filter((a) => a.status !== "contextualizado" && a.severidade !== "info");
@@ -669,69 +735,65 @@ function CartaoDoSite({ l }: { l: Linha }) {
 
   return (
     <Link href={`/site?account=${l.cliente.accountId}`}>
-      <article className="rounded-[16px] border border-border bg-card px-4 py-3.5 cursor-pointer
-                          h-full flex flex-col transition-shadow duration-150
-                          hover:shadow-[0_4px_16px_rgba(10,10,10,.07)]">
-        <div className="flex items-start justify-between gap-2">
-          <span className="text-[13px] font-bold truncate min-w-0">{l.nome}</span>
-          <span className={`inline-flex items-center gap-1.5 text-[9.5px] font-bold uppercase
-                            tracking-[0.08em] flex-shrink-0 ${ui.texto}`}>
-            <i className="w-1.5 h-1.5 rounded-full" style={{ background: ui.ponto }} />
-            {ui.rotulo}
-          </span>
-        </div>
+      <div className={`${grade} px-4 py-2 cursor-pointer hover:bg-foreground/[0.025]
+                       transition-colors duration-150`}>
+        <span className="text-[12px] font-semibold truncate min-w-0">{l.nome}</span>
 
-        {/* O indicador: número grande, rótulo colado. O rótulo é obrigatório —
-            sem ele, "88" e "No ar" pareceriam a mesma escala. */}
-        <div className="flex items-baseline gap-2 mt-3">
-          <span className={`text-[26px] font-bold tabular-nums leading-none tracking-tight ${
-            ESTADO_INDICADOR[ind.estado]}`}>
+        <span className={`inline-flex items-center gap-1.5 text-[9.5px] font-bold uppercase
+                          tracking-[0.07em] ${ui.texto}`}>
+          <i className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: ui.ponto }} />
+          {ui.rotulo}
+        </span>
+
+        {/* Número e RÓTULO juntos: sem o segundo, "88" e "No ar" alinhados na
+            mesma coluna pareceriam a mesma régua. */}
+        <span className="min-w-0">
+          <span className={`text-[13px] font-bold tabular-nums ${ESTADO_INDICADOR[ind.estado]}`}>
             {ind.valor}
           </span>
           {ind.unidade && (
-            <span className="text-[10.5px] text-muted-foreground">{ind.unidade}</span>
+            <span className="text-[9.5px] text-muted-foreground/60 ml-1">{ind.unidade}</span>
           )}
-        </div>
-        <span className="text-[9.5px] font-bold uppercase tracking-[0.1em] text-muted-foreground/70 mt-1"
-          title={ind.fonte ? `${ind.fonte}${ind.dia ? ` · ${fmtDia(ind.dia)}` : ""}` : undefined}>
-          {ind.rotulo}
-          {ind.dia && <span className="font-normal normal-case tracking-normal text-muted-foreground/50">
-            {" "}· {fmtDia(ind.dia)}
-          </span>}
+          <span className="block text-[9px] uppercase tracking-[0.08em] text-muted-foreground/55 truncate"
+            title={ind.fonte ?? undefined}>
+            {ind.rotulo}
+          </span>
         </span>
 
-        <div className="flex-1" />
-
-        {/* Achados abertos e falhas de medição em faixas distintas: a segunda
-            não é problema do cliente. */}
-        <div className="flex flex-col gap-1 mt-3">
+        <span className="min-w-0 flex flex-col gap-0.5">
           {problemas.slice(0, 2).map((a) => (
-            <span key={a.chave} className="flex items-start gap-1.5 text-[10.5px] leading-snug">
-              <AlertTriangle className={`w-3 h-3 flex-shrink-0 mt-[1px] ${
-                a.severidade === "critico" ? "text-destructive" : "text-amber-600"}`} strokeWidth={2.4} />
-              <span className="text-muted-foreground truncate">{a.texto}</span>
+            <span key={a.chave} className="flex items-center gap-1.5 text-[10.5px] min-w-0">
+              <i className="w-1 h-1 rounded-full flex-shrink-0" style={{
+                background: a.severidade === "critico" ? "#D65745" : "#E0A030" }} />
+              <span className="text-muted-foreground truncate" title={a.texto}>{a.texto}</span>
             </span>
           ))}
           {problemas.length > 2 && (
-            <span className="text-[10px] text-muted-foreground/55 pl-[18px]">
+            <span className="text-[9.5px] text-muted-foreground/50 pl-[10px]">
               + {problemas.length - 2} outro(s)
             </span>
           )}
+          {/* Falha de medição em faixa própria e em azul: não é problema do
+              cliente, e o azul é o tom neutro do sistema. */}
           {medicoes.map((a) => (
-            <span key={a.chave} className="flex items-start gap-1.5 text-[10.5px] leading-snug">
-              <Wrench className="w-3 h-3 flex-shrink-0 mt-[1px] text-sky-600" strokeWidth={2.4} />
-              <span className="text-muted-foreground/80 truncate">{a.texto}</span>
+            <span key={a.chave} className="flex items-center gap-1.5 text-[10.5px] min-w-0">
+              <Wrench className="w-2.5 h-2.5 flex-shrink-0 text-sky-600" strokeWidth={2.6} />
+              <span className="text-sky-700/80 truncate" title={a.texto}>{a.texto}</span>
             </span>
           ))}
           {!problemas.length && !medicoes.length && (
-            <span className="text-[10.5px] text-muted-foreground/50">
+            <span className="text-[10.5px] text-muted-foreground/45 truncate">
               {venda?.receita != null
-                ? `Venda ${venda.rotuloFonte} · ${venda.janela}`
-                : "Nenhum achado aberto"}
+                ? `venda ${venda.rotuloFonte} · ${venda.janela}`
+                : "nenhum achado aberto"}
             </span>
           )}
-        </div>
-      </article>
+        </span>
+
+        <span className="hidden sm:block text-[10px] tabular-nums text-muted-foreground/55 text-right">
+          {ind.dia ? fmtDia(ind.dia) : "—"}
+        </span>
+      </div>
     </Link>
   );
 }
@@ -757,12 +819,12 @@ function Comparacao({ linhas, cobertura }: {
     .sort((a, b) => Number(b.ind.valor) - Number(a.ind.valor));
 
   return (
-    <section className="rounded-[20px] border border-border bg-card px-5 py-[18px]
-                        shadow-[0_1px_2px_rgba(10,10,10,.04)] flex flex-col gap-3">
-      <div className="flex items-baseline gap-2.5 flex-wrap">
-        <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Comparação técnica</h2>
-        <span className="text-[10.5px] text-muted-foreground/55">
-          PageSpeed mobile · {cobertura.com} de {cobertura.total} sites
+    <section className="rounded-[14px] border border-border bg-card px-4 py-3.5
+                        shadow-[0_1px_2px_rgba(10,10,10,.04)] flex flex-col gap-2.5">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <h2 className="text-[10px] font-bold uppercase tracking-[0.12em]">Comparação técnica</h2>
+        <span className="text-[9.5px] text-muted-foreground/50">
+          PageSpeed mobile · {cobertura.com} de {cobertura.total}
         </span>
       </div>
 
@@ -773,15 +835,15 @@ function Comparacao({ linhas, cobertura }: {
         </p>
       ) : (
         <>
-          <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1">
             {comparaveis.map(({ l, ind }) => {
               const v = Number(ind.valor);
               return (
                 <div key={l.cliente.accountId} className="flex items-center gap-2.5">
-                  <span className="text-[11.5px] truncate w-[110px] flex-shrink-0">
+                  <span className="text-[11px] truncate w-[96px] flex-shrink-0">
                     <LinkSite accountId={l.cliente.accountId} aba="tecnico">{l.nome}</LinkSite>
                   </span>
-                  <span className="flex-1 h-[7px] rounded-full bg-muted overflow-hidden">
+                  <span className="flex-1 h-[6px] rounded-full bg-muted overflow-hidden">
                     <span className="block h-full rounded-full" style={{
                       width: `${v}%`,
                       // A cor sai da faixa do próprio Lighthouse, e não de um
@@ -790,15 +852,15 @@ function Comparacao({ linhas, cobertura }: {
                       background: v >= 90 ? "#3FA66A" : v >= 50 ? "#E0A030" : "#D65745",
                     }} />
                   </span>
-                  <span className="text-[12px] font-bold tabular-nums w-[28px] text-right flex-shrink-0">
+                  <span className="text-[11.5px] font-bold tabular-nums w-[24px] text-right flex-shrink-0">
                     {v}
                   </span>
                 </div>
               );
             })}
           </div>
-          <p className="text-[10px] text-muted-foreground/60 leading-snug">
-            Escala 0–100 do Lighthouse, estratégia mobile — a mesma que o job diário coleta.
+          <p className="text-[9.5px] text-muted-foreground/55 leading-snug">
+            Escala 0–100 do Lighthouse, estratégia mobile — a mesma do job diário.
             {cobertura.com < cobertura.total && (
               <> Os {cobertura.total - cobertura.com} site(s) fora desta lista não têm medição
               técnica; ausência aqui não é nota baixa.</>
@@ -833,21 +895,21 @@ function Evolucao({ pontos, carregando }: {
 
   if (carregando) {
     return (
-      <section className="rounded-[20px] border border-border bg-card px-5 py-[18px]
-                          flex items-center justify-center h-[180px] text-muted-foreground gap-2">
+        <section className="rounded-[14px] border border-border bg-card px-4 py-3.5
+                          flex items-center justify-center h-[150px] text-muted-foreground gap-2">
         <Loader2 className="w-4 h-4 animate-spin" /> <span className="text-xs">Lendo o histórico…</span>
       </section>
     );
   }
 
   return (
-    <section className="rounded-[20px] border border-border bg-card px-5 py-[18px]
-                        shadow-[0_1px_2px_rgba(10,10,10,.04)] flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-3 flex-wrap min-h-[18px]">
+    <section className="rounded-[14px] border border-border bg-card px-4 py-3.5
+                        shadow-[0_1px_2px_rgba(10,10,10,.04)] flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap min-h-[16px]">
         <div className="flex items-baseline gap-2.5 flex-wrap">
-          <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Evolução do portfólio</h2>
+          <h2 className="text-[10px] font-bold uppercase tracking-[0.12em]">Evolução do portfólio</h2>
           {ativo == null && (
-            <span className="text-[10.5px] text-muted-foreground/55">
+            <span className="text-[9.5px] text-muted-foreground/50">
               média de PageSpeed · até 60 dias
             </span>
           )}
@@ -870,7 +932,7 @@ function Evolucao({ pontos, carregando }: {
       </div>
 
       {pontos.length < 2 ? (
-        <div className="h-[132px] flex flex-col items-center justify-center text-center gap-1">
+        <div className="h-[108px] flex flex-col items-center justify-center text-center gap-1">
           <p className="text-[12px] font-medium">Histórico insuficiente para desenhar evolução</p>
           <p className="text-[11px] text-muted-foreground max-w-[46ch] leading-snug">
             {pontos.length === 0
@@ -890,7 +952,7 @@ function CurvaDoPortfolio({ pontos, ativo, aoEntrar }: {
   pontos: Array<{ dia: string; media: number; sites: number }>;
   ativo: number | null; aoEntrar: (i: number | null) => void;
 }) {
-  const W = 560, H = 132, ml = 30, mr = 10, mt = 10, mb = 18;
+  const W = 560, H = 108, ml = 28, mr = 10, mt = 8, mb = 16;
   const iw = W - ml - mr, ih = H - mt - mb;
   const vals = pontos.map((p) => p.media);
   const min = Math.min(...vals), max = Math.max(...vals);
@@ -962,13 +1024,13 @@ function CurvaDoPortfolio({ pontos, ativo, aoEntrar }: {
 function Ecommerce({ lojas }: { lojas: Linha[] }) {
   const [aberto, setAberto] = useState(false);
   return (
-    <section className="rounded-[20px] border border-border bg-card overflow-hidden
+    <section className="rounded-[14px] border border-border bg-card overflow-hidden
                         shadow-[0_1px_2px_rgba(10,10,10,.04)]">
       <button type="button" onClick={() => setAberto((v) => !v)}
-        className="w-full flex items-center gap-2.5 px-5 py-[14px] text-left
+        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left
                    hover:bg-foreground/[0.02] transition-colors duration-150">
         <ShoppingCart className="w-4 h-4 text-muted-foreground" strokeWidth={2.2} />
-        <span className="text-[11px] font-bold uppercase tracking-[0.13em]">E-commerce</span>
+        <span className="text-[10px] font-bold uppercase tracking-[0.12em]">E-commerce</span>
         <span className="text-[10.5px] text-muted-foreground/55">
           {lojas.length} cliente(s) com base de venda
         </span>
