@@ -18,6 +18,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { useEffect, useState } from "react";
+import { FaixaDeEventos, DetalheDeEventos } from "@/components/site/EventosDeConversao";
 import {
   Activity, AlertTriangle, ExternalLink, Eye, Loader2, MousePointerClick,
   RefreshCw, Settings2, TrendingUp, Users, Clock, ArrowDownWideNarrow,
@@ -562,6 +563,15 @@ function AbaResumo({ accountId, onIr }: { accountId: number; onIr: (a: AbaSite) 
 
       {/* ★ PERFORMANCE — o foco do Resumo (tráfego GA4, visual) */}
       {temGa4 && <PerformanceVisual accountId={accountId} periodo={periodo} m={gm} listas={gl} />}
+
+      {/* As conversões deste cliente, logo abaixo do tráfego: "quantos vieram"
+          e "quantos converteram" são a mesma leitura em dois passos. Só o que a
+          propriedade REGISTRA — no Resumo, uma fileira de traços diria que o
+          cliente não converte quando o que falta é tagueamento. */}
+      {temGa4 && (
+        <FaixaDeEventos snapshot={ga4Q.data?.[periodo === 30 ? "d30" : "d7"] as never}
+          janela={periodo === 30 ? "30d" : "7d"} />
+      )}
       {clarityComp && (
         <Secao id="comportamento" titulo="Comportamento (Clarity)" icone={<Activity className="w-4 h-4" />}
           estado={`${fmtNum(m?.sessions)} sessões · ${fmtPct(m?.averageScrollDepth)} de scroll médio`} aberta>
@@ -1168,6 +1178,22 @@ function AbaPerformanceSite({ accountId, podeConfigurar, destaque }: {
       )}
 
       {temGa4 && <BlocosGA4 m7={g7} m30={g30} listas={gListas} fonteErro={fonteGa4?.status === "erro" ? fonteGa4.porque : undefined} />}
+
+      {/*
+       * O detalhamento das conversões — aqui os eventos AUSENTES aparecem.
+       *
+       * É o oposto da faixa do Resumo, e de propósito: na página de análise, um
+       * evento que a propriedade não registra é uma tarefa de implantação, não
+       * um silêncio. "Não convertemos" e "não medimos" pedem conversas
+       * diferentes, e é aqui que a segunda vira lista.
+       */}
+      {temGa4 && (
+        <Secao id="conversoes" titulo="Eventos de conversão" icone={<Globe className="w-4 h-4" />}
+          estado="GA4 · janela móvel de 7 dias, com o período anterior" aberta>
+          <DetalheDeEventos snapshot={ga4Q.data?.d7 as never} janela="7d"
+            sessions={g7?.sessions ?? null} />
+        </Secao>
+      )}
 
       {configurado && <Secao id="comportamento" titulo="Comportamento" icone={<Activity className="w-4 h-4" />}
         estado={estadoComportamento} aberta destaque={destaque === "comportamento"}>
