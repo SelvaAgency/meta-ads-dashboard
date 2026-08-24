@@ -60,7 +60,10 @@ describe("a ação de contextualizar vive no Panorama", () => {
   /** Se ela não existir em lugar nenhum, remover do cabeçalho perdeu a função. */
   it("o Panorama tem a ação e a mutation", () => {
     const s = panorama();
-    expect(s).toContain("Contextualizar");
+    // O RÓTULO, e não a grafia: o redesign de 19/08/2026 passou os chips para
+    // caixa baixa, e travar a inicial maiúscula faria o teste guardar a
+    // tipografia em vez da existência da ação.
+    expect(s.toLowerCase()).toContain("contextualizar");
     expect(s).toContain("salvarContextoDePonto");
   });
 

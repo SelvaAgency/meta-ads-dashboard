@@ -5728,6 +5728,56 @@ export async function serieSiteSnapshots(accountId: number, limite = 30) {
     .orderBy(desc(clientSiteSnapshots.dia)).limit(limite);
 }
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Histórico de PageSpeed do portfólio — uma consulta, todos os clientes
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Existe para o gráfico de evolução do Panorama, e é a única fonte nova que a
+ *  página ganhou. Ela não coleta nada: lê o que os snapshots diários já
+ *  gravaram.
+ *
+ *  ── Uma consulta, e não uma por cliente ────────────────────────────────────
+ *  Treze clientes × uma consulta cada seria N+1 para desenhar uma linha. Aqui é
+ *  um `SELECT` só, filtrado por dia e por provider, e a agregação por dia
+ *  acontece no banco — o payload que sobe é uma linha por dia, não uma por
+ *  snapshot.
+ *
+ *  ── Só `mobile`, e isso é a régua ──────────────────────────────────────────
+ *  O job diário coleta mobile; um teste manual pode gravar desktop. Misturar as
+ *  duas estratégias na mesma série faria a linha subir ou cair por causa da
+ *  ESTRATÉGIA, e não do site — a variação entre mobile e desktop no mesmo dia é
+ *  rotineiramente de 30 pontos. O filtro é o que torna a série comparável
+ *  consigo mesma.
+ *
+ *  ── A média é do dia, e o denominador viaja junto ──────────────────────────
+ *  `sites` diz quantos clientes entraram na média daquele dia. Sem ele, um dia
+ *  em que só três dos treze foram medidos desenharia um ponto com o mesmo peso
+ *  visual de um dia completo.
+ */
+export async function historicoPagespeedDoPortfolio(dias = 60) {
+  const db = await getDb();
+  if (!db) return [];
+  // Teto: 60 dias cobrem tendência de sobra e mantêm a consulta previsível
+  // quando a tabela crescer. `dias` é limitado por quem chama.
+  const limite = Math.max(1, Math.min(dias, 180));
+  const desde = new Date(Date.now() - limite * 86_400_000).toISOString().slice(0, 10);
+  const [rows] = await db.execute(sql`
+    SELECT
+      s.dia AS dia,
+      ROUND(AVG(CAST(JSON_EXTRACT(s.metricsJson, '$.performanceScore') AS DECIMAL(6,2))), 1) AS media,
+      COUNT(DISTINCT s.accountId) AS sites
+    FROM client_site_snapshots s
+    WHERE s.provider = 'pagespeed'
+      AND s.estrategia = 'mobile'
+      AND s.dia >= ${desde}
+      AND JSON_EXTRACT(s.metricsJson, '$.performanceScore') IS NOT NULL
+    GROUP BY s.dia
+    ORDER BY s.dia ASC`);
+  return (rows as unknown as Array<{ dia: string; media: unknown; sites: unknown }>)
+    .map((r) => ({ dia: String(r.dia), media: Number(r.media), sites: Number(r.sites) }))
+    .filter((r) => Number.isFinite(r.media));
+}
+
 /** Clientes com performance ligada e URL — base do job diário. */
 export async function contasComPerformance(): Promise<{ accountId: number; nome: string | null; url: string; provider: string }[]> {
   const db = await getDb();

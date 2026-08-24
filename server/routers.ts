@@ -123,6 +123,7 @@ import {
   getAllActiveMetaAdAccountsForListing,
   contasDeMidia,
   snapshotsParaPanorama,
+  historicoPagespeedDoPortfolio,
   lojasParaPanorama,
   snapshotsDeVendaDaConta,
   vndaContaComoLojaReal,
@@ -6850,6 +6851,19 @@ export const appRouter = router({
    * função pura no cliente (panoramaLogic.ts), testada sem banco.
    */
   panorama: router({
+    /**
+     * Histórico de PageSpeed do portfólio — a série do gráfico de evolução.
+     *
+     * Procedure SEPARADA de `sites` de propósito: ela é opcional para a leitura
+     * da página (o resto funciona sem gráfico) e tem custo diferente. Junta,
+     * uma falha no histórico derrubaria o panorama inteiro.
+     *
+     * Nenhuma chamada de IA, nenhuma coleta nova: lê snapshots já gravados.
+     */
+    historico: contentProcedure
+      .input(z.object({ dias: z.number().int().min(7).max(180).default(60) }).optional())
+      .query(({ input }) => historicoPagespeedDoPortfolio(input?.dias ?? 60)),
+
     sites: contentProcedure.query(async () => {
       const [contas, fontes, snaps, lojas, vndaReal] = await Promise.all([
         getAllActiveMetaAdAccountsForListing(),

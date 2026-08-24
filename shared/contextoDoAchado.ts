@@ -40,7 +40,11 @@ export interface ContextoDoAchado {
 
 export interface AchadoBase {
   chave: string;
-  severidade: "critico" | "atencao" | "info";
+  /**
+   * `medicao` entrou em 19/08/2026, com o PageSpeed: falha de MEDIÇÃO nossa, e
+   * não afirmação sobre o cliente. Ver `SeveridadeDoAchado` em `panoramaLogic`.
+   */
+  severidade: "critico" | "atencao" | "info" | "medicao";
   texto: string;
 }
 
@@ -50,7 +54,15 @@ export interface AchadoContextualizado<T extends AchadoBase = AchadoBase> {
   contexto: string | null;
 }
 
-const PESO: Record<AchadoBase["severidade"], number> = { critico: 0, atencao: 1, info: 2 };
+/**
+ * `medicao` fica DEPOIS de `info`, no fim da lista.
+ *
+ * Não é o menos importante — é o menos urgente para quem lê "o que está errado
+ * com este cliente": a resposta ali é "nada que saibamos; o que falhou foi a
+ * nossa medição". Colocá-lo acima de um vazamento de checkout mandaria refazer
+ * um teste antes de olhar o dinheiro saindo.
+ */
+const PESO: Record<AchadoBase["severidade"], number> = { critico: 0, atencao: 1, info: 2, medicao: 3 };
 
 /**
  * Casa cada achado com o contexto dele e reordena.

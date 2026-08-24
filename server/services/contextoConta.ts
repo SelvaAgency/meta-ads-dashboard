@@ -47,7 +47,7 @@ export type ContextoMontado = { texto: string; temContexto: boolean };
  */
 export async function montarContextoDosPontos(
   accountId: number,
-  achados: Array<{ chave: string; severidade: "critico" | "atencao" | "info"; texto: string }>,
+  achados: Array<{ chave: string; severidade: "critico" | "atencao" | "info" | "medicao"; texto: string }>,
 ): Promise<string> {
   if (!achados.length) return "";
   const linhas = await contextosDeAchado(accountId).catch(() => []);

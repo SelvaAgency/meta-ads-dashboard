@@ -182,9 +182,45 @@ export function vendasDe(c: ClientePanorama): Vendas | null {
 
 // ─── Achados: regra sobre dado medido ────────────────────────────────────────
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Três naturezas de achado, e a terceira nasceu de um falso positivo real
+ * ─────────────────────────────────────────────────────────────────────────────
+ *    critico   o site ou a venda está quebrado AGORA
+ *    atencao   merece investigação; pode não ser problema
+ *    info      parece problema e não é
+ *    medicao   NÓS não conseguimos medir — não é afirmação sobre o cliente
+ *
+ *  ── Por que `medicao` existe ───────────────────────────────────────────────
+ *  O PageSpeed dá timeout na coleta da manhã e volta ao normal na remedição
+ *  manual. Pela regra antiga isso virava `critico` — "fonte com erro" —, e o
+ *  cliente aparecia em vermelho no Panorama e no Jornalzinho por um site que
+ *  estava no ar, com SSL válido e recebendo tráfego.
+ *
+ *  Falha de medição não é falha do site. A distinção não é cosmética: ela muda
+ *  quem entra em `nivel: "critico"`, e portanto quem a equipe vai olhar
+ *  primeiro numa segunda-feira.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export type SeveridadeDoAchado = "critico" | "atencao" | "info" | "medicao";
+
+/**
+ * Fontes cujo erro é falha de MEDIÇÃO, e não problema do cliente.
+ *
+ * Um conjunto nomeado, e não um `if` por fonte: acrescentar a próxima é uma
+ * linha, e a razão fica escrita num lugar só.
+ *
+ * Só `pagespeed` por enquanto, e é deliberado. Ele é um teste sintético de
+ * laboratório — carrega a página num navegador remoto e cronometra —, e o
+ * timeout dele diz respeito ao teste. Erro de GA4 ou de importação de loja
+ * continua crítico: ali "não estamos recebendo dado" é um problema operacional
+ * que alguém precisa resolver, e não um ruído que se resolve remedindo.
+ */
+export const FONTES_DE_MEDICAO = new Set(["pagespeed"]);
+
 export type Achado = {
   chave: string;
-  severidade: "critico" | "atencao" | "info";
+  severidade: SeveridadeDoAchado;
   /**
    * `aberto` = problema real e ainda relevante.
    * `contextualizado` = existe nos dados, mas a equipe explicou e ele não conta
@@ -222,9 +258,24 @@ export function achadosDe(c: ClientePanorama): Achado[] {
   }
   // Fonte esperada quebrada: o SISTEMA registrou falha. Ausente nunca entra.
   for (const f of c.fontes) {
-    if (f.status === "erro") {
-      a.push({ chave: `fonte_${f.chave}`, severidade: "critico", texto: `${f.rotulo} com erro${f.porque ? ` — ${f.porque}` : ""}` });
-    }
+    if (f.status !== "erro") continue;
+    /*
+     * Falha de medição não entra como crítico.
+     *
+     * O PageSpeed dá timeout de manhã e volta na remedição manual: tratar isso
+     * como "fonte com erro" pintava de vermelho um site no ar, com SSL válido e
+     * recebendo tráfego. O achado CONTINUA existindo — a equipe precisa saber
+     * que a medição falhou e refazê-la —, mas ele não decide o nível do cliente.
+     */
+    const medicao = FONTES_DE_MEDICAO.has(f.chave);
+    a.push({
+      chave: `fonte_${f.chave}`,
+      severidade: medicao ? "medicao" : "critico",
+      texto: medicao
+        ? `${f.rotulo} · medição não concluída${f.porque ? ` — ${f.porque}` : ""}`
+        : `${f.rotulo} com erro${f.porque ? ` — ${f.porque}` : ""}`,
+      aba: medicao ? "tecnico" : undefined,
+    });
   }
   if (c.loja?.lastSyncStatus === "erro") {
     a.push({ chave: "loja_sync", severidade: "critico", texto: `importação da loja falhou${c.loja.lastSyncError ? ` — ${c.loja.lastSyncError}` : ""}` });
@@ -464,6 +515,14 @@ export type ResumoPortfolio = {
   lojasConectadas: number;
   achadosCriticos: number;
   achadosAtencao: number;
+  /**
+   * Medições que o sistema não conseguiu concluir.
+   *
+   * Conta SEPARADO dos achados, e nunca dentro deles: somar "PageSpeed deu
+   * timeout" a "checkout vazando" produziria um contador que sobe por dois
+   * motivos incomparáveis — um pede remedir, o outro pede agir.
+   */
+  falhasDeMedicao: number;
   /** Sempre nesta ordem — a barra empilhada não reordena por tamanho. */
   distribuicao: { nivel: Nivel; quantidade: number }[];
 };
@@ -485,6 +544,7 @@ export function resumoPortfolio(
     lojasConectadas: clientes.filter((c) => c.loja?.platform === "woocommerce" || c.loja?.platform === "vnda" || c.loja?.platform === "wix").length,
     achadosCriticos: achados.filter((x) => x.severidade === "critico").length,
     achadosAtencao: achados.filter((x) => x.severidade === "atencao").length,
+    falhasDeMedicao: achados.filter((x) => x.severidade === "medicao").length,
     distribuicao: (["critico", "atencao", "ok", "sem_dados"] as Nivel[])
       .map((nivel) => ({ nivel, quantidade: conta(nivel) })),
   };
@@ -618,4 +678,209 @@ export function distribuicaoStatus(c: ClientePanorama): DistribuicaoStatus | nul
 /** Clientes que entram na seção E-commerce — só quem tem base real. */
 export function temEcommerce(c: ClientePanorama): boolean {
   return vendasDe(c) !== null;
+}
+
+// ─── Segurança do portfólio ──────────────────────────────────────────────────
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A faixa de segurança — peso próprio, e não escondida no indicador do site
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  HTTPS e validade de certificado são binários e verificáveis: ou o site serve
+ *  em HTTPS ou não; ou o certificado vence em N dias ou não. É a leitura mais
+ *  objetiva do portfólio inteiro, e ficava diluída dentro de `celulaSaude`,
+ *  competindo com PageSpeed e uptime numa string só.
+ *
+ *  ── O `score` NÃO entra ────────────────────────────────────────────────────
+ *  `security_check` grava um campo `score`, e ele fica de fora de propósito: a
+ *  composição dele não está documentada em lugar nenhum do repositório, e um
+ *  número 0–100 sem régua conhecida ao lado de HTTPS e SSL — que são fatos —
+ *  emprestaria a credibilidade dos dois ao terceiro. Quando a fórmula estiver
+ *  escrita e testada, ele entra.
+ *
+ *  ── Dias até vencer é o único número aqui, e ele é medido ──────────────────
+ *  Vem de `daysToSslExpiry`, direto do certificado. Não é estimativa.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/** Dias de antecedência a partir dos quais o vencimento vira aviso. */
+export const SSL_AVISO_DIAS = 30;
+/** Abaixo disto o vencimento é crítico — o mesmo corte que `achadosDe` usa. */
+export const SSL_CRITICO_DIAS = 7;
+
+export type EstadoDeSeguranca = "ok" | "expirando" | "quebrado" | "sem_medicao";
+
+export interface SegurancaDoSite {
+  accountId: number;
+  nome: string;
+  estado: EstadoDeSeguranca;
+  https: boolean | null;
+  sslValido: boolean | null;
+  /** Dias até o certificado vencer. `null` quando não medido. */
+  diasParaVencer: number | null;
+  dia: string | null;
+}
+
+export interface SegurancaDoPortfolio {
+  sites: SegurancaDoSite[];
+  ok: number;
+  expirando: number;
+  quebrado: number;
+  semMedicao: number;
+  /** Os que pedem ação, do mais urgente para o menos. Vazio é resposta boa. */
+  urgentes: SegurancaDoSite[];
+  /** O certificado que vence primeiro, entre os medidos. */
+  proximoVencimento: SegurancaDoSite | null;
+}
+
+export function segurancaDoSite(c: ClientePanorama): SegurancaDoSite {
+  const m = c.seguranca?.metricsJson;
+  const base = {
+    accountId: c.accountId, nome: c.nome,
+    https: m?.https ?? null,
+    sslValido: m?.sslValido ?? null,
+    diasParaVencer: typeof m?.daysToSslExpiry === "number" ? m.daysToSslExpiry : null,
+    dia: c.seguranca?.dia ?? null,
+  };
+  // Sem snapshot não se afirma nada. "Sem medição" não é "inseguro" — e pintar
+  // de vermelho quem não foi medido faria a equipe caçar um problema nosso.
+  if (!c.seguranca || !m) return { ...base, estado: "sem_medicao" };
+  if (m.https === false || m.sslValido === false
+      || (typeof m.daysToSslExpiry === "number" && m.daysToSslExpiry <= 0)) {
+    return { ...base, estado: "quebrado" };
+  }
+  if (typeof m.daysToSslExpiry === "number" && m.daysToSslExpiry <= SSL_AVISO_DIAS) {
+    return { ...base, estado: "expirando" };
+  }
+  return { ...base, estado: "ok" };
+}
+
+const PESO_SEGURANCA: Record<EstadoDeSeguranca, number> = {
+  quebrado: 0, expirando: 1, sem_medicao: 2, ok: 3,
+};
+
+export function segurancaDoPortfolio(clientes: ClientePanorama[]): SegurancaDoPortfolio {
+  const sites = clientes.map(segurancaDoSite);
+  const conta = (e: EstadoDeSeguranca) => sites.filter((s) => s.estado === e).length;
+  const medidos = sites.filter((s) => s.diasParaVencer != null);
+  return {
+    sites,
+    ok: conta("ok"),
+    expirando: conta("expirando"),
+    quebrado: conta("quebrado"),
+    semMedicao: conta("sem_medicao"),
+    urgentes: sites
+      .filter((s) => s.estado === "quebrado" || s.estado === "expirando")
+      .sort((a, b) => PESO_SEGURANCA[a.estado] - PESO_SEGURANCA[b.estado]
+        || (a.diasParaVencer ?? 1e9) - (b.diasParaVencer ?? 1e9)),
+    // Entre os MEDIDOS: um site sem medição não tem "próximo vencimento", e
+    // colocá-lo aqui como 0 dias inventaria uma urgência.
+    proximoVencimento: medidos.length
+      ? medidos.slice().sort((a, b) => (a.diasParaVencer ?? 0) - (b.diasParaVencer ?? 0))[0]
+      : null,
+  };
+}
+
+// ─── O indicador de cada site ────────────────────────────────────────────────
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Cada site mostra o melhor indicador QUE ELE TEM — e diz qual é
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Não existe uma métrica que cubra o portfólio inteiro. PageSpeed exige site
+ *  configurado; GA4 exige propriedade conectada; receita exige loja. A
+ *  interseção pode ser vazia, e forçar uma coluna única exigiria inventar um
+ *  score composto — um número sem fonte, com aparência de medida.
+ *
+ *  A saída é honesta e mais útil: cada card mostra o indicador mais objetivo
+ *  disponível para aquele site, NOMEADO, com unidade e fonte. Quem lê sabe que
+ *  a Elwing está sendo avaliada por PageSpeed e a Ultramalhas por uptime — em
+ *  vez de achar que os dois números são a mesma régua.
+ *
+ *  ── A ordem é de objetividade, e não de preferência ────────────────────────
+ *    1. PageSpeed   escala 0–100, mesmo método, comparável entre sites
+ *    2. Uptime      binário e verificável
+ *    3. Tráfego     só a VARIAÇÃO — sessões absolutas medem tamanho do cliente
+ *
+ *  Sessões absolutas ficam fora de propósito: 2.000 da UMA e 200 da Elwing não
+ *  se comparam, e exibi-las lado a lado como "o indicador" convidaria a isso.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export type ChaveDoIndicador = "pagespeed" | "uptime" | "trafego" | "nenhum";
+
+export interface IndicadorDoSite {
+  chave: ChaveDoIndicador;
+  /** O nome do que está sendo medido — sempre visível no card. */
+  rotulo: string;
+  /** O valor pronto para a tela. "—" quando não há indicador. */
+  valor: string;
+  /** A unidade/escala, para o número não ficar solto. */
+  unidade: string | null;
+  fonte: string | null;
+  dia: string | null;
+  /** `true` só onde a comparação entre clientes é legítima. */
+  comparavel: boolean;
+  estado: "ok" | "atencao" | "critico" | "vazio";
+}
+
+export function indicadorDoSite(c: ClientePanorama): IndicadorDoSite {
+  const ps = c.pagespeed?.metricsJson?.performanceScore;
+  if (typeof ps === "number") {
+    return {
+      chave: "pagespeed", rotulo: "PageSpeed", valor: String(Math.round(ps)),
+      unidade: "de 100", fonte: "PageSpeed · mobile", dia: c.pagespeed!.dia,
+      comparavel: true,
+      estado: ps < PAGESPEED_MUITO_BAIXO ? "atencao" : "ok",
+    };
+  }
+
+  const up = c.uptime?.metricsJson?.status;
+  if (up) {
+    const rotulos: Record<string, { v: string; e: IndicadorDoSite["estado"] }> = {
+      no_ar: { v: "No ar", e: "ok" },
+      fora_do_ar: { v: "Fora do ar", e: "critico" },
+      bloqueado: { v: "WAF 403", e: "atencao" },
+    };
+    const r = rotulos[up] ?? { v: up, e: "ok" as const };
+    return {
+      chave: "uptime", rotulo: "Disponibilidade", valor: r.v, unidade: null,
+      fonte: "Verificação de uptime", dia: c.uptime!.dia,
+      // Comparável em forma, mas não é escala: dois "No ar" não se ordenam.
+      comparavel: false, estado: r.e,
+    };
+  }
+
+  const t = c.ga4_7d?.metricsJson;
+  const ant = t?.anterior?.sessions;
+  if (typeof t?.sessions === "number" && typeof ant === "number" && ant > 0) {
+    const varPct = ((t.sessions - ant) / ant) * 100;
+    return {
+      chave: "trafego", rotulo: "Tráfego 7d",
+      valor: `${varPct >= 0 ? "+" : ""}${varPct.toFixed(0)}%`,
+      unidade: "vs. período anterior", fonte: "GA4 · 7d", dia: c.ga4_7d!.dia,
+      // Variação é de cada site contra SI MESMO — ordenar clientes por ela
+      // compararia velocidades de mudança, não estados. Fora do ranking.
+      comparavel: false,
+      estado: varPct <= QUEDA_FORTE_TRAFEGO ? "atencao" : "ok",
+    };
+  }
+
+  return {
+    chave: "nenhum", rotulo: "Sem medição técnica", valor: "—",
+    unidade: null, fonte: null, dia: null, comparavel: false, estado: "vazio",
+  };
+}
+
+/**
+ * Quantos sites do portfólio têm a métrica comparável.
+ *
+ * A tela usa isto para dizer "8 de 13 sites têm medição de PageSpeed" em cima
+ * do ranking. Sem essa frase, um ranking de 8 linhas num portfólio de 13 se lê
+ * como o portfólio inteiro — e os 5 ausentes parecem os piores.
+ */
+export function coberturaComparavel(clientes: ClientePanorama[]): { com: number; total: number } {
+  return {
+    com: clientes.filter((c) => indicadorDoSite(c).comparavel).length,
+    total: clientes.length,
+  };
 }
