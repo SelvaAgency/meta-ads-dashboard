@@ -5778,6 +5778,63 @@ export async function historicoPagespeedDoPortfolio(dias = 60) {
     .filter((r) => Number.isFinite(r.media));
 }
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Série de PageSpeed por conta — uma consulta para o portfólio inteiro
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Alimenta a mediana histórica do Panorama e o detalhe do Site. Não coleta
+ *  nada: lê os snapshots que o job diário das 07:00 já grava.
+ *
+ *  ── Os dois filtros não são detalhe ────────────────────────────────────────
+ *  `provider = 'pagespeed'` porque a tabela também guarda `gtmetrix` e
+ *  `manual`, e os três usam escalas diferentes — uma mediana misturando-os
+ *  compararia réguas.
+ *
+ *  `estrategia = 'mobile'` porque a diferença entre mobile e desktop no MESMO
+ *  site passa rotineiramente de 30 pontos. Um teste desktop avulso na série
+ *  faria a mediana andar por causa da estratégia, e não do site.
+ *
+ *  ── Uma consulta, e não uma por cliente ────────────────────────────────────
+ *  Treze contas × uma consulta cada seria N+1 para montar um ranking. Aqui é um
+ *  `SELECT` só; o agrupamento por conta acontece em memória, sobre um resultado
+ *  que tem no máximo `contas × dias` linhas.
+ *
+ *  ── Uma linha por dia, e é o último valor daquele dia ──────────────────────
+ *  `uq_site_snap` inclui `dia`, então remedir manualmente SOBRESCREVE o valor
+ *  do dia. A série guarda o último valor medido em cada dia — não todas as
+ *  tentativas. É por isso que a tela conta MEDIÇÕES em vez de prometer dias.
+ */
+export async function seriePagespeedPorConta(
+  dias = 7, accountId?: number,
+): Promise<Map<number, Array<{ dia: string; score: number }>>> {
+  const db = await getDb();
+  if (!db) return new Map();
+  const limite = Math.max(1, Math.min(dias, 180));
+  const desde = new Date(Date.now() - (limite - 1) * 86_400_000).toISOString().slice(0, 10);
+
+  const [rows] = await db.execute(sql`
+    SELECT
+      s.accountId AS accountId,
+      s.dia AS dia,
+      CAST(JSON_EXTRACT(s.metricsJson, '$.performanceScore') AS DECIMAL(6,2)) AS score
+    FROM client_site_snapshots s
+    WHERE s.provider = 'pagespeed'
+      AND s.estrategia = 'mobile'
+      AND s.dia >= ${desde}
+      AND JSON_EXTRACT(s.metricsJson, '$.performanceScore') IS NOT NULL
+      ${accountId != null ? sql`AND s.accountId = ${accountId}` : sql``}
+    ORDER BY s.accountId, s.dia ASC`);
+
+  const porConta = new Map<number, Array<{ dia: string; score: number }>>();
+  for (const r of rows as unknown as Array<{ accountId: number; dia: string; score: unknown }>) {
+    const score = Number(r.score);
+    if (!Number.isFinite(score)) continue;
+    const id = Number(r.accountId);
+    porConta.set(id, [...(porConta.get(id) ?? []), { dia: String(r.dia), score }]);
+  }
+  return porConta;
+}
+
 /** Clientes com performance ligada e URL — base do job diário. */
 export async function contasComPerformance(): Promise<{ accountId: number; nome: string | null; url: string; provider: string }[]> {
   const db = await getDb();

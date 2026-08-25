@@ -46,6 +46,12 @@ import {
   avaliarCliente, coberturaComparavel, funilVisual, indicadorDoSite, ordenarClientes,
   rankingProdutos, distribuicaoStatus, resumoPortfolio, segurancaDoPortfolio,
   resumoDeSeguranca, segurancaDoSite, temEcommerce, vendasDe, fmtDia,
+} from "@shared/panoramaLogic";
+import {
+  JANELA_PAGESPEED_DIAS, PISO_MEDICOES, faixaDoLighthouse, historicoPagespeed,
+  textoDaBase, valorDeRanking,
+} from "@shared/pagespeedHistorico";
+import {
   type Achado, type ClientePanorama, type Nivel, type SegurancaDoSite,
 } from "@shared/panoramaLogic";
 import { BarraSaude, ChipStatus, Funil, RankingProdutos, DistribuicaoStatus } from "./panorama/Visuais";
@@ -860,23 +866,32 @@ function LinhaDoSite({ l, grade }: { l: Linha; grade: string }) {
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Comparação — só onde a régua é a mesma, e a cobertura é dita
+ *  Comparação técnica — a MEDIANA manda no ranking
  * ─────────────────────────────────────────────────────────────────────────────
- *  PageSpeed é a única métrica do portfólio com escala absoluta e método
- *  idêntico entre clientes. Só ela entra aqui, e só entre quem a tem.
+ *  O ranking lia a última medição, e virava de ponta-cabeça com ela. Caso real:
+ *  a UMA marcou ~90, ~41 no dia seguinte e voltou ao topo na remedição manual —
+ *  um teste sintético instável pintando de vermelho um site que costuma ser bom.
  *
- *  A frase de cobertura não é ressalva de rodapé: um ranking de 8 linhas num
- *  portfólio de 13 se lê como o portfólio inteiro, e os 5 ausentes parecem os
- *  piores. Dizer "8 de 13" no cabeçalho é o que impede essa leitura.
+ *  A pergunta desta seção é "quem COSTUMA ir pior", e não "quem teve a pior
+ *  medição hoje". A mediana responde a primeira e é imune ao outlier; a última
+ *  medição fica ao lado, porque degradação recente também importa.
+ *
+ *  ── A cobertura continua dita ──────────────────────────────────────────────
+ *  Um ranking de 8 linhas num portfólio de 13 se lê como o portfólio inteiro, e
+ *  os 5 ausentes parecem os piores.
  * ─────────────────────────────────────────────────────────────────────────────
  */
+const COR_FAIXA: Record<string, string> = {
+  bom: "#3FA66A", medio: "#E0A030", ruim: "#D65745", vazio: "#D6D3D1",
+};
+
 function Comparacao({ linhas, cobertura }: {
   linhas: Linha[]; cobertura: { com: number; total: number };
 }) {
   const comparaveis = linhas
-    .map((l) => ({ l, ind: indicadorDoSite(l.cliente) }))
-    .filter((x) => x.ind.comparavel)
-    .sort((a, b) => Number(b.ind.valor) - Number(a.ind.valor));
+    .map((l) => ({ l, h: historicoPagespeed(l.cliente.pagespeedSerie ?? []) }))
+    .filter((x) => valorDeRanking(x.h) != null)
+    .sort((a, b) => (valorDeRanking(b.h) as number) - (valorDeRanking(a.h) as number));
 
   return (
     <section className="rounded-[14px] border border-border bg-card px-4 py-3.5
@@ -884,46 +899,69 @@ function Comparacao({ linhas, cobertura }: {
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
         <h2 className="text-[10px] font-bold uppercase tracking-[0.12em]">Comparação técnica</h2>
         <span className="text-[9.5px] text-muted-foreground/50">
-          PageSpeed mobile · {cobertura.com} de {cobertura.total}
+          PageSpeed mobile · mediana de {JANELA_PAGESPEED_DIAS}d · {comparaveis.length} de {cobertura.total}
         </span>
       </div>
 
       {!comparaveis.length ? (
         <p className="text-[11.5px] text-muted-foreground leading-snug">
-          Nenhum site com medição de PageSpeed no portfólio. A comparação entre clientes exige a
-          mesma régua, e ela é a única métrica com escala absoluta e método idêntico.
+          Nenhum site com medição de PageSpeed nos últimos {JANELA_PAGESPEED_DIAS} dias. A comparação
+          entre clientes exige a mesma régua, e ela é a única métrica com escala absoluta e método
+          idêntico.
         </p>
       ) : (
         <>
-              <div className="flex flex-col gap-1">
-            {comparaveis.map(({ l, ind }) => {
-              const v = Number(ind.valor);
+          <div className="flex flex-col gap-1.5">
+            {comparaveis.map(({ l, h }) => {
+              const valor = valorDeRanking(h) as number;
+              const cor = COR_FAIXA[faixaDoLighthouse(valor)];
               return (
                 <div key={l.cliente.accountId} className="flex items-center gap-2.5">
                   <span className="text-[11px] truncate w-[96px] flex-shrink-0">
                     <LinkSite accountId={l.cliente.accountId} aba="tecnico">{l.nome}</LinkSite>
                   </span>
                   <span className="flex-1 h-[6px] rounded-full bg-muted overflow-hidden">
-                    <span className="block h-full rounded-full" style={{
-                      width: `${v}%`,
-                      // A cor sai da faixa do próprio Lighthouse, e não de um
-                      // ranking relativo: o último colocado de um portfólio bom
-                      // não é vermelho.
-                      background: v >= 90 ? "#3FA66A" : v >= 50 ? "#E0A030" : "#D65745",
-                    }} />
+                    {/* A cor sai da faixa do próprio Lighthouse, e não de um
+                        ranking relativo: o último colocado de um portfólio bom
+                        não é vermelho. */}
+                    <span className="block h-full rounded-full"
+                      style={{ width: `${valor}%`, background: cor }} />
                   </span>
                   <span className="text-[11.5px] font-bold tabular-nums w-[24px] text-right flex-shrink-0">
-                    {v}
+                    {Math.round(valor)}
+                  </span>
+                  {/*
+                   * A última medição ao lado, com a seta só quando ela se
+                   * afasta do costume. É informação de estado atual — não muda
+                   * o nível do cliente, que continua vindo de `avaliarCliente`.
+                   */}
+                  <span className="text-[9.5px] tabular-nums w-[66px] text-right flex-shrink-0
+                                   text-muted-foreground/60 truncate"
+                    title={`${textoDaBase(h)}${h.ultima != null ? ` · última medição ${h.ultima}` : ""}`}>
+                    {h.ultima != null && h.temBase ? (
+                      <>
+                        {h.desvioNotavel && (
+                          <span className={h.desvio! < 0 ? "text-destructive" : "text-emerald-600"}>
+                            {h.desvio! < 0 ? "↓" : "↑"}
+                          </span>
+                        )}
+                        {" "}{Math.round(h.ultima)} agora
+                      </>
+                    ) : (
+                      `${h.quantidade}×`
+                    )}
                   </span>
                 </div>
               );
             })}
           </div>
           <p className="text-[9.5px] text-muted-foreground/55 leading-snug">
-            Escala 0–100 do Lighthouse, estratégia mobile — a mesma do job diário.
-            {cobertura.com < cobertura.total && (
-              <> Os {cobertura.total - cobertura.com} site(s) fora desta lista não têm medição
-              técnica; ausência aqui não é nota baixa.</>
+            Escala 0–100 do Lighthouse, mobile. O ranking usa a <b>mediana</b> das medições
+            disponíveis — uma medição isolada instável não muda a posição. Sites com menos de{" "}
+            {PISO_MEDICOES} medições aparecem pela última, marcados com a contagem.
+            {cobertura.total > comparaveis.length && (
+              <> Os {cobertura.total - comparaveis.length} site(s) fora da lista não têm medição;
+              ausência aqui não é nota baixa.</>
             )}
           </p>
         </>

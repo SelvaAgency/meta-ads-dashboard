@@ -113,6 +113,14 @@ export type ClientePanorama = {
     };
   } | null;
   pagespeed: { dia: string; metricsJson: { performanceScore?: number | null; lcp?: number | null } } | null;
+  /**
+   * As medições de PageSpeed da janela — mobile, provider pagespeed.
+   *
+   * Cruas de propósito: a mediana é calculada pela função pura que o Site
+   * individual também usa. Duas implementações divergiriam no primeiro ajuste
+   * feito só numa delas.
+   */
+  pagespeedSerie?: Array<{ dia: string; score: number }>;
   ga4_7d: SnapGA4 | null;
   ga4_30d: SnapGA4 | null;
   loja_7d: SnapLoja | null;

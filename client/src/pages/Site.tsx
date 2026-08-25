@@ -19,6 +19,7 @@
  */
 import { useEffect, useState } from "react";
 import { FaixaDeEventos, DetalheDeEventos } from "@/components/site/EventosDeConversao";
+import { PagespeedHistorico } from "@/components/site/PagespeedHistorico";
 import {
   Activity, AlertTriangle, ExternalLink, Eye, Loader2, MousePointerClick,
   RefreshCw, Settings2, TrendingUp, Users, Clock, ArrowDownWideNarrow,
@@ -1386,6 +1387,13 @@ function AbaTecnico({ accountId, podeConfigurar, destaque }: {
   const perfQ = trpc.clarity.perfUltimo.useQuery({ accountId });
   const saudeQ = trpc.clarity.saude.useQuery({ accountId });
   const fontesQ = trpc.fontes.doCliente.useQuery({ accountId });
+  /**
+   * A série de PageSpeed — mobile, provider pagespeed, sem coleta nova.
+   *
+   * Separada de `clarity.serie`, que devolve `PERF_PROVIDERS` inteiro e sem
+   * filtro de estratégia: escalas diferentes numa série só.
+   */
+  const serieQ = trpc.clarity.seriePagespeed.useQuery({ accountId });
 
   if (cfgQ.isLoading) return <Carregando />;
   const cfg = cfgQ.data;
@@ -1411,7 +1419,17 @@ function AbaTecnico({ accountId, podeConfigurar, destaque }: {
         estado={ehNum(pm?.performanceScore) ? `Nota ${fmtScore(pm?.performanceScore)} · LCP ${fmtMs(pm?.lcp)} · CLS ${fmtDec(pm?.cls)}` : "Nenhum teste de performance rodado ainda."}
         alerta={erroPageSpeed ? "última medição falhou" : undefined}
         aberta={destaque !== "seguranca" && destaque !== "disponibilidade"} destaque={destaque === "carregamento"}>
-        <AbaPerformance accountId={accountId} podeConfigurar={podeConfigurar} />
+        {/*
+         * A leitura histórica vem ANTES do detalhe da última medição.
+         *
+         * "Como este site costuma ir" é a pergunta mais estável, e ela precisa
+         * chegar antes de um número que pode ser um outlier. O detalhe da
+         * última medição — LCP, CLS, recomendações — continua logo abaixo.
+         */}
+        <PagespeedHistorico medicoes={serieQ.data ?? []} />
+        <div className="mt-3">
+          <AbaPerformance accountId={accountId} podeConfigurar={podeConfigurar} />
+        </div>
       </Secao>
 
       <Secao id="seguranca" titulo="Segurança" icone={<ShieldCheck className="w-4 h-4" />}

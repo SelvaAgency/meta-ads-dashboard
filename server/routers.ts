@@ -7,6 +7,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getPageIdsForAdAccount } from "@shared/pageMapping";
 import { sendEmail, DAILY_REPORT_RECIPIENTS, isEmailConfigured } from "./emailService";
 import { analiseDesatualizada } from "@shared/contextoDaAnalise";
+import { JANELA_PAGESPEED_DIAS } from "@shared/pagespeedHistorico";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, contentProcedure, prioridadesProcedure, router } from "./_core/trpc";
@@ -124,6 +125,7 @@ import {
   contasDeMidia,
   snapshotsParaPanorama,
   historicoPagespeedDoPortfolio,
+  seriePagespeedPorConta,
   lojasParaPanorama,
   snapshotsDeVendaDaConta,
   vndaContaComoLojaReal,
@@ -3931,6 +3933,23 @@ export const appRouter = router({
       .input(z.object({ accountId: z.number().int(), limite: z.number().int().min(1).max(90).default(30) }))
       .query(({ input }) => serieSiteSnapshots(input.accountId, input.limite)),
 
+    /**
+     * A série de PageSpeed de UM cliente — mobile, só provider pagespeed.
+     *
+     * Existe separada de `serie` porque aquela devolve `PERF_PROVIDERS` inteiro
+     * (pagespeed, gtmetrix, manual) e sem filtro de estratégia: escalas e
+     * réguas diferentes numa série só. Nenhuma coleta nova.
+     */
+    seriePagespeed: protectedProcedure
+      .input(z.object({
+        accountId: z.number().int(),
+        dias: z.number().int().min(1).max(180).default(JANELA_PAGESPEED_DIAS),
+      }))
+      .query(async ({ input }) => {
+        const m = await seriePagespeedPorConta(input.dias, input.accountId);
+        return m.get(input.accountId) ?? [];
+      }),
+
     /** Teste real de carregamento: 10–30s. */
     perfSync: contentProcedure
       .input(z.object({ accountId: z.number().int() }))
@@ -6882,6 +6901,15 @@ export const appRouter = router({
        * que motivou esta rodada.
        */
       const contextosPorConta = await contextosDeAchadoDeTodasAsContas().catch(() => new Map());
+
+      /**
+       * A série de PageSpeed dos últimos dias, para a mediana histórica.
+       *
+       * Uma consulta para o portfólio inteiro — não uma por cliente. E nenhuma
+       * chamada nova ao PageSpeed: lê os snapshots que o job diário já gravou.
+       */
+      const seriePagespeed = await seriePagespeedPorConta(JANELA_PAGESPEED_DIAS)
+        .catch(() => new Map<number, Array<{ dia: string; score: number }>>());
       const fontesPorConta = new Map(fontes.map((f) => [f.accountId, f.fontes]));
       const lojaPorConta = new Map(lojas.map((l) => [l.accountId, l]));
       const snap = (accountId: number, provider: string, estrategia?: string) => {
@@ -6912,6 +6940,10 @@ export const appRouter = router({
           fontes: fontesPorConta.get(c.id) ?? [],
           loja: lojaPorConta.get(c.id) ?? null,
           plataformaLoja: loja30?.provider ?? loja7?.provider ?? null,
+          // As medições de PageSpeed da janela, cruas. A mediana é calculada na
+          // tela, pela mesma função pura que o Site individual usa — duas
+          // implementações divergiriam no primeiro ajuste feito só numa.
+          pagespeedSerie: seriePagespeed.get(c.id) ?? [],
           uptime: snap(c.id, "uptime_check"),
           seguranca: snap(c.id, "security_check"),
           pagespeed: snap(c.id, "pagespeed"),
