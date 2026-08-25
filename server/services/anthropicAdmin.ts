@@ -24,6 +24,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { ENV } from "../_core/env";
+import { logger } from "../logger";
 import { sanitizar } from "./instagram";
 
 const BASE = "https://api.anthropic.com/v1/organizations";
@@ -82,9 +83,20 @@ async function chamar<T>(caminho: string, params: URLSearchParams): Promise<Resp
   }
   const err = (dados as { error?: { message?: string; type?: string } })?.error;
   if (err) {
+    /*
+     * A JANELA vai junto da mensagem.
+     *
+     * "Invalid date range" sem dizer qual intervalo foi enviado custou duas
+     * rodadas de investigação: as datas eram montadas corretamente numa camada
+     * e alinhadas por fora, na API, e nenhum dos dois lados aparecia. Só os
+     * parâmetros de janela — que não são dado de ninguém, nem chave.
+     */
+    const janela = `${params.get("starting_at")} → ${params.get("ending_at")}`;
+    logger.warn(`[Anthropic] ${caminho} recusou · janela ${janela} · ${err.type ?? "erro"}`);
     return {
       status: resp.status, corpo: null,
-      erro: `${err.type ?? "erro"}: ${sanitizar(err.message ?? "", ENV.anthropicAdminKey)}`,
+      erro: `${err.type ?? "erro"}: ${sanitizar(err.message ?? "", ENV.anthropicAdminKey)}`
+        + ` (janela enviada: ${janela})`,
     };
   }
   if (!resp.ok) {
@@ -165,61 +177,33 @@ async function paginar<T>(
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Custo AUSENTE não é custo ZERO
+ *  A janela da consulta — e o teto no último dia FECHADO
  * ─────────────────────────────────────────────────────────────────────────────
- *  A Cost API trabalha com buckets de dia fechado, e o do dia corrente só
- *  aparece depois do processamento. Com a janela válida a chamada devolve 200 —
- *  mas sem o bucket do último dia, e o total fica em zero.
+ *  Duas correções em camadas diferentes, e a segunda só apareceu quando a
+ *  primeira não resolveu.
  *
- *  Zero na tela seria lido como "não gastamos nada", que é o oposto de "a
- *  Anthropic ainda não fechou o dia".
+ *  ── 1. O limite superior é exclusivo ───────────────────────────────────────
+ *  Isto já foi `${fim}T23:59:59Z`. Com `bucket_width=1d` a API alinha os
+ *  limites ao início do dia UTC, então 23:59:59 do dia 19 virava 19T00:00:00Z e
+ *  o bucket do dia 19 ficava de fora — a sondagem devolveu 6 buckets para um
+ *  intervalo de 7 dias. Passou a ser o início do dia SEGUINTE.
  *
- *  ── A pergunta NÃO é "o período é hoje?" ───────────────────────────────────
- *  É "o último dia pedido tem bucket de custo?". Qualquer período que termine
- *  num dia ainda não fechado cai aqui, inclusive um personalizado — e no dia em
- *  que a API passar a entregar mais cedo, ninguém precisa mexer em nada.
+ *  ── 2. O fim não pode passar do último dia fechado ─────────────────────────
+ *  A correção acima não resolveu "Hoje", e o motivo é que a API não valida o
+ *  intervalo que recebe: ela o ALINHA primeiro e valida depois. Um `ending_at`
+ *  no futuro é recuado até a última fronteira de bucket completa — o início de
+ *  hoje. Para um período de um dia só, que começa exatamente aí, os dois lados
+ *  colapsam no mesmo instante e a resposta é `Invalid date range: ending date
+ *  must be after starting date`.
  *
- *  Com ERRO não se fala em pendência: aí o que não se sabe é outra coisa, e
- *  confundir os dois faria uma falha de integração parecer latência normal.
- * ─────────────────────────────────────────────────────────────────────────────
- */
-export function custoEstaPendente(e: {
-  /** O último dia que o relatório de custo devolveu. `null` = nenhum. */
-  ultimoComCusto: string | null;
-  /** O último dia do período pedido. */
-  ultimoDiaPedido: string;
-  houveErro: boolean;
-}): boolean {
-  if (e.houveErro) return false;
-  // Nenhum bucket em todo o período também é pendência — e aí não há "último
-  // disponível" a declarar dentro desta janela.
-  if (e.ultimoComCusto === null) return true;
-  return e.ultimoComCusto < e.ultimoDiaPedido;
-}
-
-/**
- * ─────────────────────────────────────────────────────────────────────────────
- *  A janela da consulta — limite superior EXCLUSIVO, no início do dia seguinte
- * ─────────────────────────────────────────────────────────────────────────────
- *  Isto já foi `${fim}T23:59:59Z`, e o resultado era duas coisas erradas ao
- *  mesmo tempo.
+ *  É por isso que só "Hoje" quebrava: em 7d ou 30d o início fica dias atrás, e
+ *  o recuo do fim ainda deixa um intervalo válido — só perde o dia corrente,
+ *  em silêncio.
  *
- *  ── 1. Um dia inteiro faltando ─────────────────────────────────────────────
- *  Com `bucket_width=1d` a API alinha os limites ao início do dia UTC. Um
- *  `ending_at` às 23:59:59 do dia 19 é truncado para 19T00:00:00Z, e o bucket
- *  do dia 19 fica FORA. A sondagem de 19/08 devolveu 6 buckets para o intervalo
- *  13→19, que tem sete dias — o último não vinha, e ninguém reparou porque 6 é
- *  um número plausível.
- *
- *  ── 2. Período de UM dia recusado ──────────────────────────────────────────
- *  Com início e fim no mesmo dia, os dois lados truncam para o mesmo instante e
- *  a API responde `Invalid date range: ending date must be after starting
- *  date`. É o que quebrava "Hoje", "Ontem" e o personalizado de um dia.
- *
- *  A correção é a convenção normal de série temporal: início INCLUSIVO no
- *  primeiro instante, fim EXCLUSIVO no primeiro instante do dia seguinte. Cada
- *  seletor passa a cobrir exatamente os dias que ele nomeia — nenhum "+1 dia"
- *  aplicado por fora para escapar do erro.
+ *  A regra passa a ser explícita: `ending_at` nunca ultrapassa o início do dia
+ *  de hoje em UTC. Quando isso esvazia a janela, NÃO se chama a API — o período
+ *  pedido está inteiro dentro do dia aberto, e a resposta certa é "ainda não
+ *  disponível", não um erro.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 const inicioDoDia = (dia: string) => `${dia}T00:00:00Z`;
@@ -227,40 +211,83 @@ const inicioDoDia = (dia: string) => `${dia}T00:00:00Z`;
 /**
  * O dia seguinte, em UTC.
  *
- * `Date.UTC` a partir das partes, e não `new Date(dia)`: a segunda forma
- * interpreta no fuso local em alguns runtimes, e a virada de mês passaria a
- * depender de onde o servidor está.
+ * `Date.UTC` a partir das partes, e não `new Date(dia)`: a segunda interpreta
+ * no fuso local em alguns runtimes, e a virada de mês passaria a depender de
+ * onde o servidor está.
  */
 export function diaSeguinte(dia: string): string {
   const [a, m, d] = dia.split("-").map(Number);
   return new Date(Date.UTC(a, (m ?? 1) - 1, (d ?? 1) + 1)).toISOString().slice(0, 10);
 }
 
-/**
- * A janela pronta, e a recusa quando ela não faz sentido.
- *
- * `erro` em vez de exceção: quem chama já devolve o erro dentro do objeto, e a
- * tela mostra a mensagem em vez de transformar custo em zero — um zero ali
- * afirmaria que não se gastou nada.
- */
-export function janelaDaConsulta(inicio: string, fim: string):
-  | { ok: true; starting_at: string; ending_at: string }
-  | { ok: false; erro: string } {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(inicio) || !/^\d{4}-\d{2}-\d{2}$/.test(fim)) {
-    return { ok: false, erro: `Intervalo mal formado: "${inicio}" a "${fim}" (esperado AAAA-MM-DD).` };
+/** Hoje em UTC — o mesmo referencial dos buckets da Anthropic. */
+export const hojeUTC = (): string => new Date().toISOString().slice(0, 10);
+
+export type Janela =
+  | { ok: true; starting_at: string; ending_at: string; /** `true` quando o fim
+      pedido foi recuado por incluir o dia aberto. */ recuado: boolean }
+  /** O período está inteiro no dia aberto: não há o que perguntar ainda. */
+  | { ok: false; motivo: "dia_aberto"; erro: string }
+  /** Entrada malformada ou invertida — isso é erro de quem chamou. */
+  | { ok: false; motivo: "invalido"; erro: string };
+
+export function janelaDaConsulta(inicio: string, fim: string, hoje = hojeUTC()): Janela {
+  const formato = /^\d{4}-\d{2}-\d{2}$/;
+  if (!formato.test(inicio) || !formato.test(fim)) {
+    return { ok: false, motivo: "invalido",
+      erro: `Intervalo mal formado: "${inicio}" a "${fim}" (esperado AAAA-MM-DD).` };
   }
-  // Fim ANTES do início é erro de quem chamou — a API recusaria, e recusar aqui
-  // economiza a viagem e dá uma mensagem que diz o que aconteceu.
   if (fim < inicio) {
-    return { ok: false, erro: `Intervalo invertido: fim (${fim}) é anterior ao início (${inicio}).` };
+    return { ok: false, motivo: "invalido",
+      erro: `Intervalo invertido: fim (${fim}) é anterior ao início (${inicio}).` };
   }
+
   const starting_at = inicioDoDia(inicio);
-  const ending_at = inicioDoDia(diaSeguinte(fim));
-  // A garantia que o endpoint exige, verificada antes de sair daqui.
+  // O teto: o início de hoje é a última fronteira de bucket que a API tem
+  // fechada. Pedir além dela é pedir um bucket que ainda não existe.
+  const tetoExclusivo = inicioDoDia(hoje);
+  const pedido = inicioDoDia(diaSeguinte(fim));
+  const ending_at = pedido > tetoExclusivo ? tetoExclusivo : pedido;
+
   if (!(ending_at > starting_at)) {
-    return { ok: false, erro: `Janela vazia: ${starting_at} → ${ending_at}.` };
+    return {
+      ok: false, motivo: "dia_aberto",
+      erro: `O período pedido (${inicio} a ${fim}) está dentro do dia ainda não fechado pela Anthropic.`,
+    };
   }
-  return { ok: true, starting_at, ending_at };
+  return { ok: true, starting_at, ending_at, recuado: pedido > tetoExclusivo };
+}
+
+/**
+ * Acrescenta ao resultado da paginação o que a JANELA sabe.
+ *
+ * `recuado` diz que o fim pedido foi cortado no último dia fechado; `diaAberto`
+ * diz que não houve chamada porque o período inteiro está no dia aberto. São
+ * dois fatos sobre a PERGUNTA, e não sobre a resposta — por isso não saem de
+ * `paginar`.
+ */
+async function comMeta<T>(
+  janela: Extract<Janela, { ok: true }>,
+  promessa: Promise<{ buckets: T[]; paginas: number; erro: string | null; status: number }>,
+) {
+  const r = await promessa;
+  return { ...r, diaAberto: false, recuado: janela.recuado };
+}
+
+/**
+ * O log do request — sem chave, sem cabeçalho, sem resposta.
+ *
+ * Existe porque a causa de "só Hoje quebra" levou duas rodadas para aparecer:
+ * as datas eram montadas certas numa camada e alinhadas por fora na API, e
+ * nenhum dos dois lados era visível. Só os parâmetros de janela, que não são
+ * dado de ninguém.
+ */
+function registrarJanela(caminho: string, p: URLSearchParams, extra = "") {
+  logger.info(
+    `[Anthropic] ${caminho} · starting_at=${p.get("starting_at")} `
+    + `ending_at=${p.get("ending_at")} bucket=${p.get("bucket_width")} `
+    + `limit=${p.get("limit")} tz=UTC${extra}`,
+  );
 }
 
 /**
@@ -274,9 +301,20 @@ export function janelaDaConsulta(inicio: string, fim: string):
 export function usoDaOrganizacao(inicio: string, fim: string, bucket: Granularidade = "1d") {
   const janela = janelaDaConsulta(inicio, fim);
   if (!janela.ok) {
-    // Sem chamada: a janela é inválida e a API só devolveria o mesmo erro
-    // depois de uma viagem de rede.
-    return Promise.resolve({ buckets: [], paginas: 0, erro: janela.erro, status: 0 });
+    /*
+     * Sem chamada, e por dois motivos diferentes que NÃO se confundem:
+     *
+     *   invalido    entrada torta — é erro, e vira erro na tela
+     *   dia_aberto  o período está dentro do dia que a Anthropic ainda não
+     *               fechou. Não é erro: é ausência de dado, e a chamada só
+     *               devolveria o mesmo alinhamento com uma viagem de rede.
+     */
+    return Promise.resolve({
+      buckets: [], paginas: 0, status: 0,
+      erro: janela.motivo === "invalido" ? janela.erro : null,
+      diaAberto: janela.motivo === "dia_aberto",
+      recuado: false,
+    });
   }
   const p = new URLSearchParams({
     starting_at: janela.starting_at,
@@ -285,7 +323,8 @@ export function usoDaOrganizacao(inicio: string, fim: string, bucket: Granularid
     limit: String(TETO_DE_BUCKETS[bucket]),
   });
   p.append("group_by[]", "model");
-  return paginar<BucketDeUso>("usage_report/messages", p);
+  registrarJanela("usage_report/messages", p);
+  return comMeta(janela, paginar<BucketDeUso>("usage_report/messages", p));
 }
 
 /**
@@ -298,9 +337,20 @@ export function usoDaOrganizacao(inicio: string, fim: string, bucket: Granularid
 export function custoDaOrganizacao(inicio: string, fim: string) {
   const janela = janelaDaConsulta(inicio, fim);
   if (!janela.ok) {
-    // Sem chamada: a janela é inválida e a API só devolveria o mesmo erro
-    // depois de uma viagem de rede.
-    return Promise.resolve({ buckets: [], paginas: 0, erro: janela.erro, status: 0 });
+    /*
+     * Sem chamada, e por dois motivos diferentes que NÃO se confundem:
+     *
+     *   invalido    entrada torta — é erro, e vira erro na tela
+     *   dia_aberto  o período está dentro do dia que a Anthropic ainda não
+     *               fechou. Não é erro: é ausência de dado, e a chamada só
+     *               devolveria o mesmo alinhamento com uma viagem de rede.
+     */
+    return Promise.resolve({
+      buckets: [], paginas: 0, status: 0,
+      erro: janela.motivo === "invalido" ? janela.erro : null,
+      diaAberto: janela.motivo === "dia_aberto",
+      recuado: false,
+    });
   }
   const p = new URLSearchParams({
     starting_at: janela.starting_at,
@@ -309,7 +359,8 @@ export function custoDaOrganizacao(inicio: string, fim: string) {
     limit: "31",
   });
   p.append("group_by[]", "description");
-  return paginar<BucketDeCusto>("cost_report", p);
+  registrarJanela("cost_report", p);
+  return comMeta(janela, paginar<BucketDeCusto>("cost_report", p));
 }
 
 /** A chamada crua, só para a sondagem — ela precisa ver o JSON como veio. */
@@ -484,7 +535,20 @@ export async function consumoAnthropic(
    *  cair, sem ninguém mexer em nada.
    */
   const ultimoComCusto = Array.from(diasComCusto).sort().pop() ?? null;
-  const pendencia = custoEstaPendente({ ultimoComCusto, ultimoDiaPedido: fim, houveErro: !!erro });
+  /*
+   * Pendente quando a JANELA foi recuada ou nem chegou a existir.
+   *
+   * O sinal vem da pergunta, e não da resposta: `recuado` diz que o fim pedido
+   * incluía o dia aberto, e `diaAberto` diz que o período inteiro estava nele.
+   * Nos dois casos há custo faltando, e num deles não houve chamada nenhuma.
+   *
+   * Deduzir isso da resposta — comparando o último bucket com o dia pedido —
+   * confundiria "a Anthropic não fechou o dia" com "a organização não gastou
+   * naquele dia", que produzem o mesmo silêncio.
+   *
+   * Com ERRO não se fala em pendência: aí o que não se sabe é outra coisa.
+   */
+  const pendencia = !erro && (custo.diaAberto || custo.recuado);
 
   const valor: ConsumoAnthropic = {
     dias: Array.from(porDia.values()).sort((a, b) => a.dia.localeCompare(b.dia)),

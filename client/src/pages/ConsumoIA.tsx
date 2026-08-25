@@ -675,12 +675,29 @@ function Custo({ dados, totais, tokensSpaces, chamadasSpaces }: {
               Custo do período ainda não disponível
             </span>
             <p className="text-[12px] leading-snug mt-1">
-              A Anthropic ainda não disponibilizou o fechamento de custo
-              {dados.diaPedido ? ` de ${dataCurta(dados.diaPedido)}` : " deste período"}.
-              {dados.ultimoDiaComCusto
-                ? <> Último custo disponível: <b>{dataCurta(dados.ultimoDiaComCusto)}</b>.</>
-                : " Nenhum dia deste período foi fechado ainda."}
+              {dados.ultimoDiaComCusto ? (
+                <>O custo de <b>{dataCurta(dados.diaPedido ?? "")}</b> ainda não foi fechado pela
+                Anthropic — os números abaixo vão até{" "}
+                <b>{dataCurta(dados.ultimoDiaComCusto)}</b>.</>
+              ) : (
+                <>O período pedido está dentro do dia que a Anthropic ainda não fechou. O custo
+                aparece depois do processamento diário.</>
+              )}
             </p>
+
+            {/* Quando há custo dos dias fechados, ele é MOSTRADO — esconder o
+                que já se sabe por causa do que falta seria trocar um silêncio
+                por outro. */}
+            {totais && totais.dolares > 0 && (
+              <p className="text-[13px] mt-2">
+                <b className="text-[17px] font-bold tabular-nums">
+                  US$ {totais.dolares.toFixed(2).replace(".", ",")}
+                </b>
+                <span className="text-[11px] text-muted-foreground ml-1.5">
+                  nos dias já fechados
+                </span>
+              </p>
+            )}
             {/* O contraste que torna a espera compreensível: o log é nosso e é
                 imediato; o custo é da Anthropic e tem latência própria. */}
             <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-2.5 pt-2.5 border-t border-sky-500/20">

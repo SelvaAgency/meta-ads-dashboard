@@ -14,13 +14,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it } from "vitest";
-import { custoEstaPendente, diaSeguinte, janelaDaConsulta } from "./anthropicAdmin";
-
-const ok = (i: string, f: string) => {
-  const j = janelaDaConsulta(i, f);
-  if (!j.ok) throw new Error(`esperava janela válida, veio: ${j.erro}`);
-  return j;
-};
+import { diaSeguinte, janelaDaConsulta } from "./anthropicAdmin";
 
 describe("diaSeguinte", () => {
   it("avança um dia", () => {
@@ -41,63 +35,106 @@ describe("diaSeguinte", () => {
   });
 });
 
-describe("os seletores do filtro de período", () => {
-  it("HOJE — início e fim no mesmo dia produz janela válida", () => {
-    // O caso que quebrava: os dois lados truncavam para o mesmo instante.
-    const j = ok("2026-08-19", "2026-08-19");
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O request FINAL, com "hoje" fixado — não a função intermediária
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A causa de "só Hoje quebra" viveu duas rodadas porque cada camada estava
+ *  certa isoladamente. A API não valida o intervalo que recebe: ela ALINHA
+ *  primeiro — recuando um `ending_at` futuro até a última fronteira de bucket
+ *  fechada — e valida depois. Para um período de um dia só, que começa
+ *  exatamente nessa fronteira, os dois lados colapsam.
+ *
+ *  Por isso estes testes fixam `hoje` e conferem o par que sai da função, e não
+ *  o que entra nela.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const HOJE = "2026-08-25";
+
+const janela = (i: string, f: string, hoje = HOJE) => janelaDaConsulta(i, f, hoje);
+const valida = (i: string, f: string, hoje = HOJE) => {
+  const j = janela(i, f, hoje);
+  if (!j.ok) throw new Error(`esperava janela válida, veio: ${j.motivo} — ${j.erro}`);
+  return j;
+};
+
+describe("o caso reportado: período HOJE", () => {
+  it("não produz janela — o dia ainda não fechou", () => {
+    // E isto NÃO é erro: é ausência de dado. A chamada nem sai.
+    const j = janela(HOJE, HOJE);
+    expect(j.ok).toBe(false);
+    if (!j.ok) {
+      expect(j.motivo).toBe("dia_aberto");
+      expect(j.erro).toContain("não fechado");
+    }
+  });
+
+  it("dia aberto é distinto de intervalo inválido", () => {
+    // Os dois estados viram telas diferentes: pendência versus erro.
+    const aberto = janela(HOJE, HOJE);
+    const torto = janela("2026-08-25", "2026-08-13");
+    if (!aberto.ok && !torto.ok) {
+      expect(aberto.motivo).toBe("dia_aberto");
+      expect(torto.motivo).toBe("invalido");
+    }
+  });
+
+  it("ONTEM continua funcionando — o dia fechou", () => {
+    const j = valida("2026-08-24", "2026-08-24");
+    expect(j.starting_at).toBe("2026-08-24T00:00:00Z");
+    expect(j.ending_at).toBe("2026-08-25T00:00:00Z");
+    expect(j.recuado).toBe(false);
+  });
+
+  it("7d terminando hoje: consulta até ontem, e AVISA que recuou", () => {
+    // O silêncio anterior era este: o dia corrente saía da conta sem ninguém
+    // saber. Agora `recuado` sobe até a tela como "não inclui hoje".
+    const j = valida("2026-08-19", HOJE);
     expect(j.starting_at).toBe("2026-08-19T00:00:00Z");
-    expect(j.ending_at).toBe("2026-08-20T00:00:00Z");
-    expect(j.ending_at > j.starting_at).toBe(true);
+    expect(j.ending_at).toBe("2026-08-25T00:00:00Z");
+    expect(j.recuado).toBe(true);
   });
 
-  it("ONTEM — mesmo dia, um dia atrás", () => {
-    const j = ok("2026-08-18", "2026-08-18");
-    expect(j.starting_at).toBe("2026-08-18T00:00:00Z");
-    expect(j.ending_at).toBe("2026-08-19T00:00:00Z");
+  it("30d terminando hoje: mesma regra", () => {
+    const j = valida("2026-07-27", HOJE);
+    expect(j.ending_at).toBe("2026-08-25T00:00:00Z");
+    expect(j.recuado).toBe(true);
   });
 
-  it("7 DIAS — cobre os sete, e não seis", () => {
-    // O off-by-one silencioso: 13→19 são 7 dias, e a versão anterior devolvia
-    // 6 buckets porque o último ficava fora.
-    const j = ok("2026-08-13", "2026-08-19");
-    expect(j.starting_at).toBe("2026-08-13T00:00:00Z");
-    expect(j.ending_at).toBe("2026-08-20T00:00:00Z");
+  it("personalizado 25/08 → 25/08 é o mesmo caso de Hoje", () => {
+    const j = janela("2026-08-25", "2026-08-25");
+    expect(j.ok).toBe(false);
+    if (!j.ok) expect(j.motivo).toBe("dia_aberto");
   });
 
-  it("30 DIAS — o fim continua sendo o dia seguinte ao último", () => {
-    const j = ok("2026-07-21", "2026-08-19");
-    expect(j.ending_at).toBe("2026-08-20T00:00:00Z");
+  it("período inteiramente no passado não é recuado", () => {
+    const j = valida("2026-08-10", "2026-08-16");
+    expect(j.ending_at).toBe("2026-08-17T00:00:00Z");
+    expect(j.recuado).toBe(false);
   });
 
-  it("PERSONALIZADO de 1 dia — igual a Hoje, e válido", () => {
-    const j = ok("2026-03-05", "2026-03-05");
-    expect(j.ending_at).toBe("2026-03-06T00:00:00Z");
+  it("período que termina exatamente ontem cobre ontem inteiro", () => {
+    const j = valida("2026-08-20", "2026-08-24");
+    expect(j.ending_at).toBe("2026-08-25T00:00:00Z");
   });
 
-  it("PERSONALIZADO longo, atravessando o mês", () => {
-    const j = ok("2026-07-28", "2026-08-03");
-    expect(j.starting_at).toBe("2026-07-28T00:00:00Z");
-    expect(j.ending_at).toBe("2026-08-04T00:00:00Z");
-  });
-
-  /** A invariante que o endpoint exige, sobre todos os casos de uma vez. */
-  it("ending_at é SEMPRE maior que starting_at", () => {
+  /** A invariante do endpoint, sobre toda janela que a função aceita emitir. */
+  it("quando há janela, ending_at é SEMPRE maior que starting_at", () => {
     const casos: Array<[string, string]> = [
-      ["2026-08-19", "2026-08-19"], ["2026-08-18", "2026-08-18"],
-      ["2026-08-13", "2026-08-19"], ["2026-07-21", "2026-08-19"],
-      ["2026-12-31", "2026-12-31"], ["2028-02-29", "2028-02-29"],
+      ["2026-08-24", "2026-08-24"], ["2026-08-19", "2026-08-25"],
+      ["2026-07-27", "2026-08-25"], ["2026-08-10", "2026-08-16"],
+      ["2026-01-01", "2026-08-25"],
     ];
     for (const [i, f] of casos) {
-      const j = ok(i, f);
+      const j = valida(i, f);
       expect(j.ending_at > j.starting_at, `${i} → ${f}`).toBe(true);
     }
   });
 
-  /** Nenhum "+1 dia" indiscriminado: o início é sempre o dia pedido. */
-  it("o início é exatamente o dia escolhido, em todo seletor", () => {
-    for (const d of ["2026-08-19", "2026-01-01", "2026-12-31"]) {
-      expect(ok(d, d).starting_at).toBe(`${d}T00:00:00Z`);
-    }
+  it("a virada de mês respeita o teto de hoje", () => {
+    const j = valida("2026-08-28", "2026-09-02", "2026-09-01");
+    expect(j.ending_at).toBe("2026-09-01T00:00:00Z");
+    expect(j.recuado).toBe(true);
   });
 });
 
@@ -124,68 +161,5 @@ describe("a proteção antes da chamada", () => {
       expect(j.erro).toContain("2026-08-13");
       expect(j.erro).toContain("2026-08-19");
     }
-  });
-});
-
-/**
- * ─────────────────────────────────────────────────────────────────────────────
- *  Custo ausente ≠ custo zero ≠ erro
- * ─────────────────────────────────────────────────────────────────────────────
- *  A Cost API entrega buckets de dia FECHADO. Com a janela válida, "Hoje"
- *  devolve 200 e nenhum bucket — e o total fica em zero. Zero na tela seria
- *  lido como "não gastamos nada hoje", que é o oposto de "a Anthropic ainda não
- *  processou o dia".
- * ─────────────────────────────────────────────────────────────────────────────
- */
-describe("custoEstaPendente", () => {
-  const p = (ultimoComCusto: string | null, ultimoDiaPedido: string, houveErro = false) =>
-    custoEstaPendente({ ultimoComCusto, ultimoDiaPedido, houveErro });
-
-  it("HOJE — o dia pedido ainda não tem bucket", () => {
-    expect(p("2026-08-18", "2026-08-19")).toBe(true);
-  });
-
-  it("ONTEM — o dia já fechou, nada pendente", () => {
-    expect(p("2026-08-18", "2026-08-18")).toBe(false);
-  });
-
-  it("7 dias terminando ontem — completo", () => {
-    expect(p("2026-08-18", "2026-08-18")).toBe(false);
-  });
-
-  it("7 dias terminando HOJE — pendente, mesmo com seis dias fechados", () => {
-    // A regra não pergunta "o período é hoje?": pergunta se o ÚLTIMO dia
-    // pedido tem bucket. Qualquer janela que termine num dia aberto cai aqui.
-    expect(p("2026-08-18", "2026-08-19")).toBe(true);
-  });
-
-  it("personalizado terminando hoje — mesmo tratamento, sem caso especial", () => {
-    expect(p("2026-08-18", "2026-08-19")).toBe(true);
-  });
-
-  it("personalizado inteiramente no passado — completo", () => {
-    expect(p("2026-07-15", "2026-07-15")).toBe(false);
-  });
-
-  it("nenhum bucket em todo o período também é pendência", () => {
-    expect(p(null, "2026-08-19")).toBe(true);
-  });
-
-  it("com ERRO não se fala em pendência — são estados diferentes", () => {
-    // Confundir os dois faria uma falha de integração parecer latência normal.
-    expect(p(null, "2026-08-19", true)).toBe(false);
-    expect(p("2026-08-18", "2026-08-19", true)).toBe(false);
-  });
-
-  it("custo além do pedido não é pendência", () => {
-    // Não deveria acontecer, mas um bucket adiante do fim não torna nada
-    // pendente — e a comparação por string cobre isso porque as datas são ISO.
-    expect(p("2026-08-20", "2026-08-19")).toBe(false);
-  });
-
-  it("a comparação atravessa mês e ano corretamente", () => {
-    expect(p("2026-08-31", "2026-09-01")).toBe(true);
-    expect(p("2026-12-31", "2027-01-01")).toBe(true);
-    expect(p("2027-01-01", "2026-12-31")).toBe(false);
   });
 });
