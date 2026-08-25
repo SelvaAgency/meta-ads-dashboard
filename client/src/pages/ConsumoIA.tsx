@@ -47,7 +47,7 @@
  */
 import { Fragment, useMemo, useState } from "react";
 import {
-  AlertTriangle, ArrowDownUp, Check, DollarSign, Gauge, Info, Lightbulb, Loader2,
+  AlertTriangle, ArrowDownUp, Check, Clock, DollarSign, Gauge, Info, Lightbulb, Loader2,
   RefreshCw, Sparkles, TrendingUp, Zap,
 } from "lucide-react";
 import { HubShell } from "@/pages/hub/HubShell";
@@ -161,6 +161,10 @@ export default function ConsumoIA() {
   /** O consumo da Anthropic, agregado. `null` quando a chave não está no ar. */
   const anth = d?.anthropic ?? null;
   const anthTotais = useMemo(() => {
+    // Custo pendente também zera o bloco de custo: um `dolares: 0` alimentaria
+    // o "≈ US$ 0,0000 por chamada" do KPI, que afirmaria gasto nulo onde o que
+    // há é dia não fechado. Os TOKENS continuam válidos — o uso tem latência
+    // menor que o custo.
     if (!anth || anth.erro) return null;
     const dias = anth.dias;
     const soma = (f: (x: typeof dias[number]) => number) => dias.reduce((a, x) => a + f(x), 0);
@@ -323,7 +327,8 @@ export default function ConsumoIA() {
             <SaudeDoConsumo saude={saude} oportunidades={oportunidades} />
             <Alertas alertas={alertas} aoFocar={setOrigemFoco} />
             <Kpis totais={totais} custo={anthTotais} />
-            <Custo dados={anth} totais={anthTotais} tokensSpaces={totais.tokensTotais} />
+            <Custo dados={anth} totais={anthTotais} tokensSpaces={totais.tokensTotais}
+              chamadasSpaces={totais.chamadas} />
             <ConsumoNoTempo dias={dados.porDia} suficiente={historico.suficienteParaTendencia} />
             <PorQueAIAFoiChamada porGatilho={porGatilho} rotinas={rotinas}
               alertas={alertasDoGatilho} />
@@ -459,7 +464,9 @@ function Kpis({ totais, custo }: {
    * número sai alto — e é por isso que a nota diz "aproximado" em vez de fingir
    * precisão que a divisão não tem.
    */
-  const porChamada = custo && totais.chamadas > 0 ? custo.dolares / totais.chamadas : null;
+  const porChamada = custo && custo.dolares > 0 && totais.chamadas > 0
+    ? custo.dolares / totais.chamadas
+    : null;
   return (
     <section className="rounded-[20px] border border-border bg-card overflow-hidden
                         shadow-[0_1px_2px_rgba(10,10,10,.04)]">
@@ -612,10 +619,14 @@ function SaudeDoConsumo({ saude, oportunidades }: {
  *  como se fosse cobrado.
  * ─────────────────────────────────────────────────────────────────────────────
  */
-function Custo({ dados, totais, tokensSpaces }: {
-  dados: { erro: string | null; moeda: string; atualizadoEm: string; doCache: boolean; dias: any[] } | null;
+function Custo({ dados, totais, tokensSpaces, chamadasSpaces }: {
+  dados: {
+    erro: string | null; moeda: string; atualizadoEm: string; doCache: boolean; dias: any[];
+    ultimoDiaComCusto?: string | null; custoPendente?: boolean; diaPedido?: string;
+  } | null;
   totais: { dolares: number; centavos: number; total: number } | null;
   tokensSpaces: number;
+  chamadasSpaces: number;
 }) {
   if (!dados) {
     return (
@@ -632,15 +643,67 @@ function Custo({ dados, totais, tokensSpaces }: {
       </div>
     );
   }
+  /*
+   * ── Três estados, e eles não são graus do mesmo problema ──────────────────
+   *   erro           a integração falhou — alguém precisa olhar
+   *   pendente       a chamada funcionou; a Anthropic não fechou o dia ainda
+   *   disponível     mostra o número
+   *
+   * Colapsar os dois primeiros em "Custo indisponível" faria uma latência
+   * normal parecer defeito. E mostrar US$ 0 no segundo seria pior ainda: leria
+   * como "não gastamos nada", que é o oposto do que se sabe.
+   */
   if (dados.erro) {
     return (
       <div className="rounded-[16px] border border-destructive/25 bg-destructive/[0.05] px-4 py-3">
         <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-destructive">
-          Custo indisponível
+          Erro na consulta de custo
         </span>
         {/* A mensagem do servidor, já sanitizada lá — nunca a chave, nunca o header. */}
         <p className="text-[11.5px] text-muted-foreground leading-snug mt-1">{dados.erro}</p>
       </div>
+    );
+  }
+
+  if (dados.custoPendente) {
+    return (
+      <section className="rounded-[16px] border border-sky-500/25 bg-sky-500/[0.05] px-4 py-3.5">
+        <div className="flex items-start gap-3">
+          <Clock className="w-4 h-4 text-sky-600 mt-[2px] flex-shrink-0" strokeWidth={2.2} />
+          <div className="min-w-0">
+            <span className="text-[9.5px] font-bold uppercase tracking-[0.12em] text-sky-700">
+              Custo do período ainda não disponível
+            </span>
+            <p className="text-[12px] leading-snug mt-1">
+              A Anthropic ainda não disponibilizou o fechamento de custo
+              {dados.diaPedido ? ` de ${dataCurta(dados.diaPedido)}` : " deste período"}.
+              {dados.ultimoDiaComCusto
+                ? <> Último custo disponível: <b>{dataCurta(dados.ultimoDiaComCusto)}</b>.</>
+                : " Nenhum dia deste período foi fechado ainda."}
+            </p>
+            {/* O contraste que torna a espera compreensível: o log é nosso e é
+                imediato; o custo é da Anthropic e tem latência própria. */}
+            <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-2.5 pt-2.5 border-t border-sky-500/20">
+              <span className="text-[11px]">
+                <b className="text-[9px] font-bold uppercase tracking-[0.1em] text-muted-foreground/70 block">
+                  Spaces
+                </b>
+                {fmt(chamadasSpaces)} chamadas · {compacto(tokensSpaces)} tokens
+              </span>
+              <span className="text-[11px]">
+                <b className="text-[9px] font-bold uppercase tracking-[0.1em] text-muted-foreground/70 block">
+                  Anthropic
+                </b>
+                <span className="text-muted-foreground">custo ainda não fechado</span>
+              </span>
+            </div>
+            <p className="text-[10px] text-muted-foreground/60 mt-2 leading-snug">
+              Uso interno e custo faturado não têm a mesma latência: o log do Spaces é gravado na
+              hora, e o custo entra depois do processamento do dia.
+            </p>
+          </div>
+        </div>
+      </section>
     );
   }
 

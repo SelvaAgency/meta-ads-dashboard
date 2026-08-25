@@ -14,7 +14,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { describe, expect, it } from "vitest";
-import { diaSeguinte, janelaDaConsulta } from "./anthropicAdmin";
+import { custoEstaPendente, diaSeguinte, janelaDaConsulta } from "./anthropicAdmin";
 
 const ok = (i: string, f: string) => {
   const j = janelaDaConsulta(i, f);
@@ -124,5 +124,68 @@ describe("a proteção antes da chamada", () => {
       expect(j.erro).toContain("2026-08-13");
       expect(j.erro).toContain("2026-08-19");
     }
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Custo ausente ≠ custo zero ≠ erro
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A Cost API entrega buckets de dia FECHADO. Com a janela válida, "Hoje"
+ *  devolve 200 e nenhum bucket — e o total fica em zero. Zero na tela seria
+ *  lido como "não gastamos nada hoje", que é o oposto de "a Anthropic ainda não
+ *  processou o dia".
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe("custoEstaPendente", () => {
+  const p = (ultimoComCusto: string | null, ultimoDiaPedido: string, houveErro = false) =>
+    custoEstaPendente({ ultimoComCusto, ultimoDiaPedido, houveErro });
+
+  it("HOJE — o dia pedido ainda não tem bucket", () => {
+    expect(p("2026-08-18", "2026-08-19")).toBe(true);
+  });
+
+  it("ONTEM — o dia já fechou, nada pendente", () => {
+    expect(p("2026-08-18", "2026-08-18")).toBe(false);
+  });
+
+  it("7 dias terminando ontem — completo", () => {
+    expect(p("2026-08-18", "2026-08-18")).toBe(false);
+  });
+
+  it("7 dias terminando HOJE — pendente, mesmo com seis dias fechados", () => {
+    // A regra não pergunta "o período é hoje?": pergunta se o ÚLTIMO dia
+    // pedido tem bucket. Qualquer janela que termine num dia aberto cai aqui.
+    expect(p("2026-08-18", "2026-08-19")).toBe(true);
+  });
+
+  it("personalizado terminando hoje — mesmo tratamento, sem caso especial", () => {
+    expect(p("2026-08-18", "2026-08-19")).toBe(true);
+  });
+
+  it("personalizado inteiramente no passado — completo", () => {
+    expect(p("2026-07-15", "2026-07-15")).toBe(false);
+  });
+
+  it("nenhum bucket em todo o período também é pendência", () => {
+    expect(p(null, "2026-08-19")).toBe(true);
+  });
+
+  it("com ERRO não se fala em pendência — são estados diferentes", () => {
+    // Confundir os dois faria uma falha de integração parecer latência normal.
+    expect(p(null, "2026-08-19", true)).toBe(false);
+    expect(p("2026-08-18", "2026-08-19", true)).toBe(false);
+  });
+
+  it("custo além do pedido não é pendência", () => {
+    // Não deveria acontecer, mas um bucket adiante do fim não torna nada
+    // pendente — e a comparação por string cobre isso porque as datas são ISO.
+    expect(p("2026-08-20", "2026-08-19")).toBe(false);
+  });
+
+  it("a comparação atravessa mês e ano corretamente", () => {
+    expect(p("2026-08-31", "2026-09-01")).toBe(true);
+    expect(p("2026-12-31", "2027-01-01")).toBe(true);
+    expect(p("2027-01-01", "2026-12-31")).toBe(false);
   });
 });

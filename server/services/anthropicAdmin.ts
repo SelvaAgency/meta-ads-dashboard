@@ -165,6 +165,40 @@ async function paginar<T>(
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
+ *  Custo AUSENTE não é custo ZERO
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A Cost API trabalha com buckets de dia fechado, e o do dia corrente só
+ *  aparece depois do processamento. Com a janela válida a chamada devolve 200 —
+ *  mas sem o bucket do último dia, e o total fica em zero.
+ *
+ *  Zero na tela seria lido como "não gastamos nada", que é o oposto de "a
+ *  Anthropic ainda não fechou o dia".
+ *
+ *  ── A pergunta NÃO é "o período é hoje?" ───────────────────────────────────
+ *  É "o último dia pedido tem bucket de custo?". Qualquer período que termine
+ *  num dia ainda não fechado cai aqui, inclusive um personalizado — e no dia em
+ *  que a API passar a entregar mais cedo, ninguém precisa mexer em nada.
+ *
+ *  Com ERRO não se fala em pendência: aí o que não se sabe é outra coisa, e
+ *  confundir os dois faria uma falha de integração parecer latência normal.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export function custoEstaPendente(e: {
+  /** O último dia que o relatório de custo devolveu. `null` = nenhum. */
+  ultimoComCusto: string | null;
+  /** O último dia do período pedido. */
+  ultimoDiaPedido: string;
+  houveErro: boolean;
+}): boolean {
+  if (e.houveErro) return false;
+  // Nenhum bucket em todo o período também é pendência — e aí não há "último
+  // disponível" a declarar dentro desta janela.
+  if (e.ultimoComCusto === null) return true;
+  return e.ultimoComCusto < e.ultimoDiaPedido;
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
  *  A janela da consulta — limite superior EXCLUSIVO, no início do dia seguinte
  * ─────────────────────────────────────────────────────────────────────────────
  *  Isto já foi `${fim}T23:59:59Z`, e o resultado era duas coisas erradas ao
@@ -312,7 +346,24 @@ export interface ConsumoAnthropic {
   atualizadoEm: string;
   /** `true` quando veio do cache em vez de uma chamada nova. */
   doCache: boolean;
+  /** Falha de integração. Diferente de custo pendente — ver abaixo. */
   erro: string | null;
+  /**
+   * O último dia que o relatório de CUSTO cobriu. `null` quando nenhum.
+   *
+   * É a resposta de "até onde o dado financeiro está atualizado", e a tela
+   * mostra a data em vez de deixar o usuário adivinhar.
+   */
+  ultimoDiaComCusto: string | null;
+  /**
+   * `true` quando o período pedido vai além do último dia com custo fechado.
+   *
+   * NÃO é erro: a chamada funcionou. É a Anthropic ainda não tendo processado o
+   * dia. A tela precisa dizer isso em vez de mostrar US$ 0.
+   */
+  custoPendente: boolean;
+  /** O último dia pedido — para a tela poder comparar com o disponível. */
+  diaPedido: string;
 }
 
 /**
@@ -395,8 +446,17 @@ export async function consumoAnthropic(
   }
 
   let moeda = "USD";
+  /**
+   * Os dias que o relatório de CUSTO devolveu — e não os que o de uso devolveu.
+   *
+   * Os dois têm latências diferentes: o uso aparece em minutos, o custo depois
+   * do fechamento do dia. Rastreá-los juntos faria um dia com tokens e sem
+   * custo parecer um dia de custo zero.
+   */
+  const diasComCusto = new Set<string>();
   for (const b of custo.buckets) {
     const d = dia(b.starting_at);
+    diasComCusto.add(b.starting_at.slice(0, 10));
     for (const r of b.results ?? []) {
       const c = centavosDe(r.amount);
       d.centavos += c;
@@ -404,6 +464,27 @@ export async function consumoAnthropic(
       if (r.model) modelo(r.model).centavos += c;
     }
   }
+
+  /**
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Custo AUSENTE não é custo ZERO
+   * ───────────────────────────────────────────────────────────────────────────
+   *  A Cost API trabalha com buckets de dia fechado, e o de hoje só aparece
+   *  depois do processamento. Com a janela válida a chamada devolve 200 — mas
+   *  sem o bucket do dia corrente, e o total fica em zero.
+   *
+   *  Zero na tela seria lido como "não gastamos nada hoje", que é o oposto de
+   *  "a Anthropic ainda não fechou o dia". São estados diferentes, e o terceiro
+   *  — falha de integração — é diferente dos dois.
+   *
+   *  A detecção NÃO pergunta "o período é hoje?". Ela compara o último dia
+   *  PEDIDO com o último dia que o relatório de custo devolveu: qualquer
+   *  período que termine num dia ainda não fechado cai aqui, inclusive um
+   *  personalizado. E o dia que a API passar a entregar mais cedo deixa de
+   *  cair, sem ninguém mexer em nada.
+   */
+  const ultimoComCusto = Array.from(diasComCusto).sort().pop() ?? null;
+  const pendencia = custoEstaPendente({ ultimoComCusto, ultimoDiaPedido: fim, houveErro: !!erro });
 
   const valor: ConsumoAnthropic = {
     dias: Array.from(porDia.values()).sort((a, b) => a.dia.localeCompare(b.dia)),
@@ -413,6 +494,9 @@ export async function consumoAnthropic(
     atualizadoEm: new Date().toISOString(),
     doCache: false,
     erro,
+    ultimoDiaComCusto: ultimoComCusto,
+    custoPendente: pendencia,
+    diaPedido: fim,
   };
   // Erro não entra no cache: o próximo acesso tenta de novo em vez de repetir a
   // falha por dez minutos.
