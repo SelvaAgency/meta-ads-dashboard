@@ -163,8 +163,71 @@ async function paginar<T>(
   return { buckets, paginas, erro: null, status };
 }
 
-const rfc = (dia: string, fimDoDia = false) =>
-  `${dia}T${fimDoDia ? "23:59:59" : "00:00:00"}Z`;
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A janela da consulta — limite superior EXCLUSIVO, no início do dia seguinte
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Isto já foi `${fim}T23:59:59Z`, e o resultado era duas coisas erradas ao
+ *  mesmo tempo.
+ *
+ *  ── 1. Um dia inteiro faltando ─────────────────────────────────────────────
+ *  Com `bucket_width=1d` a API alinha os limites ao início do dia UTC. Um
+ *  `ending_at` às 23:59:59 do dia 19 é truncado para 19T00:00:00Z, e o bucket
+ *  do dia 19 fica FORA. A sondagem de 19/08 devolveu 6 buckets para o intervalo
+ *  13→19, que tem sete dias — o último não vinha, e ninguém reparou porque 6 é
+ *  um número plausível.
+ *
+ *  ── 2. Período de UM dia recusado ──────────────────────────────────────────
+ *  Com início e fim no mesmo dia, os dois lados truncam para o mesmo instante e
+ *  a API responde `Invalid date range: ending date must be after starting
+ *  date`. É o que quebrava "Hoje", "Ontem" e o personalizado de um dia.
+ *
+ *  A correção é a convenção normal de série temporal: início INCLUSIVO no
+ *  primeiro instante, fim EXCLUSIVO no primeiro instante do dia seguinte. Cada
+ *  seletor passa a cobrir exatamente os dias que ele nomeia — nenhum "+1 dia"
+ *  aplicado por fora para escapar do erro.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+const inicioDoDia = (dia: string) => `${dia}T00:00:00Z`;
+
+/**
+ * O dia seguinte, em UTC.
+ *
+ * `Date.UTC` a partir das partes, e não `new Date(dia)`: a segunda forma
+ * interpreta no fuso local em alguns runtimes, e a virada de mês passaria a
+ * depender de onde o servidor está.
+ */
+export function diaSeguinte(dia: string): string {
+  const [a, m, d] = dia.split("-").map(Number);
+  return new Date(Date.UTC(a, (m ?? 1) - 1, (d ?? 1) + 1)).toISOString().slice(0, 10);
+}
+
+/**
+ * A janela pronta, e a recusa quando ela não faz sentido.
+ *
+ * `erro` em vez de exceção: quem chama já devolve o erro dentro do objeto, e a
+ * tela mostra a mensagem em vez de transformar custo em zero — um zero ali
+ * afirmaria que não se gastou nada.
+ */
+export function janelaDaConsulta(inicio: string, fim: string):
+  | { ok: true; starting_at: string; ending_at: string }
+  | { ok: false; erro: string } {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(inicio) || !/^\d{4}-\d{2}-\d{2}$/.test(fim)) {
+    return { ok: false, erro: `Intervalo mal formado: "${inicio}" a "${fim}" (esperado AAAA-MM-DD).` };
+  }
+  // Fim ANTES do início é erro de quem chamou — a API recusaria, e recusar aqui
+  // economiza a viagem e dá uma mensagem que diz o que aconteceu.
+  if (fim < inicio) {
+    return { ok: false, erro: `Intervalo invertido: fim (${fim}) é anterior ao início (${inicio}).` };
+  }
+  const starting_at = inicioDoDia(inicio);
+  const ending_at = inicioDoDia(diaSeguinte(fim));
+  // A garantia que o endpoint exige, verificada antes de sair daqui.
+  if (!(ending_at > starting_at)) {
+    return { ok: false, erro: `Janela vazia: ${starting_at} → ${ending_at}.` };
+  }
+  return { ok: true, starting_at, ending_at };
+}
 
 /**
  * Uso da organização no período, agrupado por modelo.
@@ -175,9 +238,15 @@ const rfc = (dia: string, fimDoDia = false) =>
  * hoje não há nada do nosso lado para cruzá-los.
  */
 export function usoDaOrganizacao(inicio: string, fim: string, bucket: Granularidade = "1d") {
+  const janela = janelaDaConsulta(inicio, fim);
+  if (!janela.ok) {
+    // Sem chamada: a janela é inválida e a API só devolveria o mesmo erro
+    // depois de uma viagem de rede.
+    return Promise.resolve({ buckets: [], paginas: 0, erro: janela.erro, status: 0 });
+  }
   const p = new URLSearchParams({
-    starting_at: rfc(inicio),
-    ending_at: rfc(fim, true),
+    starting_at: janela.starting_at,
+    ending_at: janela.ending_at,
     bucket_width: bucket,
     limit: String(TETO_DE_BUCKETS[bucket]),
   });
@@ -193,9 +262,15 @@ export function usoDaOrganizacao(inicio: string, fim: string, bucket: Granularid
  * como saber de onde veio.
  */
 export function custoDaOrganizacao(inicio: string, fim: string) {
+  const janela = janelaDaConsulta(inicio, fim);
+  if (!janela.ok) {
+    // Sem chamada: a janela é inválida e a API só devolveria o mesmo erro
+    // depois de uma viagem de rede.
+    return Promise.resolve({ buckets: [], paginas: 0, erro: janela.erro, status: 0 });
+  }
   const p = new URLSearchParams({
-    starting_at: rfc(inicio),
-    ending_at: rfc(fim, true),
+    starting_at: janela.starting_at,
+    ending_at: janela.ending_at,
     bucket_width: "1d",
     limit: "31",
   });
