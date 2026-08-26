@@ -1,4 +1,6 @@
 import { trpc } from "@/lib/trpc";
+import { useRascunhoAutosalvo } from "@/hooks/useRascunhoAutosalvo";
+import { ROTULO_DO_RASCUNHO } from "@shared/rascunhoAutosalvo";
 import { ContextoGeralPanel } from "@/components/ContextoGeralPanel";
 import { ThresholdsPanel } from "@/components/ThresholdsPanel";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
@@ -299,7 +301,6 @@ export function AccountHeader({
   // e vale na reanálise (manual e noturna). O histórico automático (learnings) fica
   // só no backend, alimenta a IA e nunca aparece aqui.
   const [resumoCtxOpen, setResumoCtxOpen] = useState(false);
-  const [resumoCtx, setResumoCtx] = useState("");
   const [ctxProfile, setCtxProfile] = useState("");
   const [ctxRules, setCtxRules] = useState("");
   const [ctxLearnings, setCtxLearnings] = useState("");
@@ -330,6 +331,44 @@ export function AccountHeader({
     }
   }, [accountCtx]);
 
+  /**
+   * ───────────────────────────────────────────────────────────────────────────
+   *  O contexto rápido vira rascunho persistente
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Ele vivia em `useState("")` e só ia ao banco no clique de Salvar. Trocar de
+   *  aba desmontava o componente, o estado voltava a vazio, e o texto digitado
+   *  sumia — sem aviso. Com o navegador descartando abas para liberar memória, a
+   *  janela de perda era indefinida.
+   *
+   *  Agora cada pausa de 500ms grava. E gravar NÃO gera análise: a mutation
+   *  abaixo só escreve na tabela `account_context`. A vigência continua sendo
+   *  DERIVADA — `analiseVigente` compara a data da leitura com a do contexto —,
+   *  então o aviso de "análise desatualizada" aparece sozinho e a chamada ao
+   *  modelo acontece no clique de Atualizar.
+   */
+  const rascunho = useRascunhoAutosalvo({
+    chave: selectedAccountId ?? null,
+    doServidor: (accountCtx as { quickContext?: string } | undefined)?.quickContext ?? undefined,
+    salvar: async (texto) => {
+      if (!selectedAccountId) return;
+      // Upsert PARCIAL: só `quickContext`. Não toca perfil, regras nem
+      // aprendizados — que são editados noutra seção e pelo próprio sistema.
+      await upsertContextSilencioso.mutateAsync({
+        accountId: selectedAccountId, quickContext: texto,
+      });
+    },
+  });
+
+  /**
+   * A mutation do autosave — SEM toast e SEM invalidação de análise.
+   *
+   * Separada da que o botão usa de propósito: um toast a cada pausa de digitação
+   * seria uma chuva de avisos, e invalidar `analiseVigente` a cada tecla faria a
+   * tela repintar enquanto a pessoa escreve. O indicador discreto do formulário
+   * já diz o que precisa ser dito.
+   */
+  const upsertContextSilencioso = trpc.context.upsertAccount.useMutation();
+
   const upsertContext = trpc.context.upsertAccount.useMutation({
     onSuccess: () => { toast.success("Contexto salvo"); setCtxSaving(false); },
     onError: () => { toast.error("Erro ao salvar contexto"); setCtxSaving(false); },
@@ -342,9 +381,12 @@ export function AccountHeader({
     if (!selectedAccountId) return;
     // Grava no campo PRÓPRIO (quickContext) — não sobrescreve o perfil, que agora
     // é editado só pela seção "Contexto Geral". Upsert parcial: não toca o resto.
+    // O rascunho pode ter uma pausa em voo. Gravar aqui de novo é barato e
+    // garante que a análise leia o texto final, e não o de meio segundo atrás.
+    rascunho.flush();
     await upsertContext.mutateAsync({
       accountId: selectedAccountId,
-      quickContext: resumoCtx,
+      quickContext: rascunho.valor,
     });
     utils.context.getAccount.invalidate({ accountId: selectedAccountId });
     /**
@@ -525,7 +567,7 @@ export function AccountHeader({
               {saudeCfg.label} <span className="font-medium opacity-70">— 7 dias</span>
             </span>
             <button
-              onClick={() => { if (!resumoCtxOpen) setResumoCtx((accountCtx as any)?.quickContext ?? ""); setResumoCtxOpen((v) => !v); }}
+              onClick={() => setResumoCtxOpen((v) => !v)}
               title="Adicionar contexto e reanalisar"
               className="p-1.5 rounded-md hover:bg-black/5 transition-colors"
               style={{ color: resumoCtxOpen ? "#E85BA8" : muted }}
@@ -548,8 +590,8 @@ export function AccountHeader({
             return (
               <div className="mb-3">
                 <textarea
-                  value={resumoCtx}
-                  onChange={(e) => setResumoCtx(e.target.value)}
+                  value={rascunho.valor}
+                  onChange={(e) => rascunho.digitar(e.target.value)}
                   placeholder="Contexto que a IA deve considerar (ex.: sazonalidade, campanha de lançamento, verba reduzida, regra do cliente)…"
                   rows={3}
                   className="w-full text-xs leading-snug px-2.5 py-2 rounded-lg border border-border bg-background resize-y outline-none focus:ring-1 focus:ring-primary"
@@ -562,7 +604,19 @@ export function AccountHeader({
                 >
                   {salvando ? "Salvando…" : "Salvar e reanalisar"}
                 </button>
-                <p className="text-[10px] text-muted-foreground mt-1.5">Fica salvo e vale também na reanálise automática noturna.</p>
+                <span className="flex items-baseline gap-2 flex-wrap mt-1.5">
+                  <p className="text-[10px] text-muted-foreground">
+                    Salvo automaticamente. Vale também na reanálise noturna.
+                  </p>
+                  {/* O indicador discreto: altura fixa para a caixa não pular a
+                      cada pausa de digitação. */}
+                  <span className={`text-[10px] tabular-nums ${
+                    rascunho.estado === "erro" ? "text-destructive"
+                      : rascunho.estado === "salvo" ? "text-emerald-600"
+                      : "text-muted-foreground/60"}`}>
+                    {ROTULO_DO_RASCUNHO[rascunho.estado] ?? ""}
+                  </span>
+                </span>
               </div>
             );
           })()}
