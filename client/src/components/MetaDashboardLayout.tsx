@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { BarraMobile, FundoDaGaveta, BotaoFecharGaveta, classesDaGaveta, useMenuMobile, usePonteiroFino } from "@/components/MenuMobile";
-import { canManageContent } from "@shared/permissions";
+import { canAccessTrackerSettings, canManageContent } from "@shared/permissions";
 import { type Fonte, type StatusFonte, type ChaveFonte } from "@shared/fontes";
 import { isEmbedded } from "@/pages/hub/embed";
 import { getLoginUrl } from "@/const";
@@ -158,6 +158,7 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   // Visibilidade temporária: Alertas/Google Ads/Social ficam ocultos para
   // o colaborador. Também desliga as queries de alerta e o sino do topo.
   const isManager = canManageContent(user?.role);
+  const podeConfigurar = canAccessTrackerSettings(user?.role);
 
   const {
     activeAccount,
@@ -372,7 +373,10 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
           })()}
 
           {/* Configurações — restrito a admin/dev (visibilidade + acesso). */}
-          {isManager && (() => {
+          {/* Configurações tem régua PRÓPRIA — admin, dev e coordenador. As
+              demais áreas escondidas por `isManager` (Panorama, Alertas)
+              seguem admin/dev, e por isso não compartilham o predicado. */}
+          {podeConfigurar && (() => {
             const isActive = location === "/settings";
             return (
               <Link href="/settings">

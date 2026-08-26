@@ -170,8 +170,10 @@ describe("o gatilho chega ao registro", () => {
 
   it("toda procedure autenticada declara ator", () => {
     const s = fonte("./_core/trpc.ts");
-    // Cinco famílias autenticadas; a pública fica de fora de propósito.
-    expect(s.match(/\.use\(comAtorDaSessao\)/g)?.length).toBe(5);
+    // Seis famílias autenticadas; a pública fica de fora de propósito.
+    // Subiu para seis em 25/08/2026 com `trackerSettingsProcedure` — e ela
+    // carregar o ator é justamente o que se quer de uma procedure nova.
+    expect(s.match(/\.use\(comAtorDaSessao\)/g)?.length).toBe(6);
     expect(s).toContain("origem: path");
   });
 

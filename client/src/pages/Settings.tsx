@@ -2,7 +2,7 @@ import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { contasMarcadasPorPadrao, EXPLICACAO_STATUS, ROTULO_STATUS, type ContaClassificada, type StatusImportacao } from "@shared/importacaoContas";
 import { SemAcessoTracker } from "@/components/SemAcessoTracker";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { canManageContent } from "@shared/permissions";
+import { canAccessTrackerSettings } from "@shared/permissions";
 import { useSelectedAccount } from "@/hooks/useSelectedAccount";
 import { trpc } from "@/lib/trpc";
 import { useState } from "react";
@@ -906,15 +906,25 @@ function AgencyBar({ totalAccounts }: { totalAccounts: number }) {
 export default function Settings() {
   const { user } = useAuth();
   const { accounts } = useSelectedAccount();
-  const podeEditar = canManageContent(user?.role);
+  /**
+   * Admin, dev e coordenador — e ninguém mais.
+   *
+   * `canAccessTrackerSettings`, e não `canManageContent`: a segunda governa
+   * Consumo de IA, Panorama, Rascunho, News e SelvaTV, que seguem admin/dev.
+   * Ampliá-la aqui abriria as cinco de uma vez.
+   *
+   * O mesmo predicado decide o ACESSO e o `podeEditar` de dentro: o coordenador
+   * entra com exatamente as capacidades que admin e dev já tinham, sem uma
+   * segunda régua para ele.
+   */
+  const podeEditar = canAccessTrackerSettings(user?.role);
 
-  // Configurações do Tracker é restrita a admin/dev (visibilidade + acesso).
   // Guard depois dos hooks para respeitar as regras de hooks.
   if (!podeEditar) {
     return (
       <SemAcessoTracker
         title="Configurações"
-        message="As configurações do Brand Inteligent Tracker são restritas a administradores e desenvolvedores."
+        message="As configurações do Brand Inteligent Tracker são restritas a administradores, desenvolvedores e coordenadores."
       />
     );
   }

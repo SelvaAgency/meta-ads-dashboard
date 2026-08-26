@@ -198,10 +198,18 @@ describe("a tela não oferece o que o servidor recusaria", () => {
     expect(pagina).not.toMatch(/const podeVer = canManageContent/);
   });
 
+  /**
+   * A restrição continua — o que mudou foi QUAL restrição.
+   *
+   * Configurações passou de admin/dev para admin/dev/coordenador em
+   * 25/08/2026, com predicado próprio (`canAccessTrackerSettings`) justamente
+   * para não arrastar as outras áreas de `canManageContent` junto. O que este
+   * teste guarda é que a página continua tendo um portão, e não qual dos dois.
+   */
   it("Configurações inteira já é restrita — é onde Redes Sociais vive", () => {
     const settings = readFileSync(new URL("../client/src/pages/Settings.tsx", import.meta.url), "utf-8")
       .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-    expect(settings).toContain("canManageContent");
+    expect(settings).toContain("canAccessTrackerSettings");
     expect(settings).toContain("SemAcessoTracker");
   });
 });

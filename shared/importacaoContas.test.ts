@@ -235,7 +235,7 @@ describe("o caminho de importação não pode sobrescrever", () => {
   /** Recorta o corpo da procedure de importação. */
   const corpoDaImportacao = () => {
     const fonte = routers();
-    const i = fonte.indexOf("importarSelecionadas: contentProcedure");
+    const i = fonte.indexOf("importarSelecionadas: trackerSettingsProcedure");
     expect(i, "procedure de importação não encontrada — foi renomeada?").toBeGreaterThan(-1);
     return fonte.slice(i, fonte.indexOf("\n    }),", i));
   };
@@ -255,9 +255,20 @@ describe("o caminho de importação não pode sobrescrever", () => {
     expect(corpo).toContain("podeImportarSemForcar");
   });
 
-  it("aceita developer, não só admin", () => {
-    expect(routers()).toContain("importarSelecionadas: contentProcedure");
-    expect(routers()).toContain("previewImportacao: contentProcedure");
+  /**
+   * A régua mudou de nome, e de largura, em 25/08/2026.
+   *
+   * Importação vive na página de Configurações do Tracker, que passou a aceitar
+   * coordenador. `trackerSettingsProcedure` é o predicado próprio dessa área —
+   * ampliar `contentProcedure` teria arrastado Consumo de IA, Rascunho,
+   * Panorama, News e SelvaTV junto.
+   *
+   * O que o teste guarda continua sendo o mesmo: importar NÃO é só-admin.
+   */
+  it("não é só-admin — aceita developer e coordenador", () => {
+    expect(routers()).toContain("importarSelecionadas: trackerSettingsProcedure");
+    expect(routers()).toContain("previewImportacao: trackerSettingsProcedure");
+    expect(routers()).not.toContain("importarSelecionadas: adminProcedure");
   });
 
   /** O botão de importar tudo, que sobrescrevia, não pode voltar. */

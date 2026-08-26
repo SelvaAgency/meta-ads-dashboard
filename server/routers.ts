@@ -10,7 +10,7 @@ import { analiseDesatualizada } from "@shared/contextoDaAnalise";
 import { JANELA_PAGESPEED_DIAS } from "@shared/pagespeedHistorico";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, contentProcedure, prioridadesProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, contentProcedure, prioridadesProcedure, trackerSettingsProcedure, router } from "./_core/trpc";
 import { isStorageConfigured, getReadUrl, deleteObject } from "./storage/storageService";
 import { hashPassword, verifyPassword, generateTempPassword } from "./_core/oauth";
 import { encryptSecret, decryptSecret } from "./_core/integrationsCrypto";
@@ -1967,10 +1967,10 @@ export const appRouter = router({
      * da importação, porque a duplicata pode ter nascido de qualquer caminho —
      * inclusive de antes desta tela existir, que é o caso da Aiká.
      */
-    duplicatas: contentProcedure.query(() => duplicatasDeContas()),
+    duplicatas: trackerSettingsProcedure.query(() => duplicatasDeContas()),
 
     /** Nome customizado do cliente — prevalece sobre o que vem da Meta. */
-    renomear: contentProcedure
+    renomear: trackerSettingsProcedure
       .input(z.object({ accountId: z.number().int(), nome: z.string().min(1).max(255) }))
       .mutation(async ({ input }) => {
         await renomearConta(input.accountId, input.nome);
@@ -1984,7 +1984,7 @@ export const appRouter = router({
      * descartada vira histórico inativo em vez de sumir; apagar seria
      * irreversível e o registro não atrapalha ninguém.
      */
-    mesclar: contentProcedure
+    mesclar: trackerSettingsProcedure
       .input(z.object({ manterId: z.number().int(), descartarId: z.number().int() }))
       .mutation(async ({ input }) => {
         try {
@@ -1994,7 +1994,7 @@ export const appRouter = router({
         }
       }),
 
-    previewImportacao: contentProcedure
+    previewImportacao: trackerSettingsProcedure
       .input(z.object({ accessToken: z.string().min(10) }))
       .mutation(async ({ input }) => {
         const user = await validateToken(input.accessToken);
@@ -2032,7 +2032,7 @@ export const appRouter = router({
      * travas para o mesmo dano, porque o dano é irreversível pela tela: nome
      * customizado, foto, Site, Monitoramento e preferências não voltam.
      */
-    importarSelecionadas: contentProcedure
+    importarSelecionadas: trackerSettingsProcedure
       .input(z.object({
         accessToken: z.string().min(10),
         accountIds: z.array(z.string().min(1)).min(1).max(200),
@@ -2093,7 +2093,7 @@ export const appRouter = router({
      *
      * Leitura pura: não escreve nada, não renova nada.
      */
-    diagnosticoTokens: contentProcedure.mutation(async () => {
+    diagnosticoTokens: trackerSettingsProcedure.mutation(async () => {
       const contas = await diagnosticoDeTokens();
 
       // Um teste por impressão digital — 12 contas com o mesmo token são uma
@@ -2137,7 +2137,7 @@ export const appRouter = router({
      * serve. Trocar o token de dez contas que funcionam por um que não as
      * alcança é um clique, e a volta não é.
      */
-    previaDeToken: contentProcedure
+    previaDeToken: trackerSettingsProcedure
       .input(z.object({ accessToken: z.string().min(10) }))
       .mutation(async ({ input }) => {
         const me = await validateToken(input.accessToken);
@@ -2173,7 +2173,7 @@ export const appRouter = router({
      * cliente, e gravar um token que não serve numa conta a quebra em silêncio
      * — ela só falharia na próxima sincronização, longe daqui.
      */
-    aplicarToken: contentProcedure
+    aplicarToken: trackerSettingsProcedure
       .input(z.object({
         accessToken: z.string().min(10),
         accountIds: z.array(z.number().int()).min(1).max(200),
@@ -7338,7 +7338,7 @@ export const appRouter = router({
       .mutation(({ input }) => sincronizarGA4(input.apenas)),
 
     /** Desconecta o OAuth da agência. As propriedades e vínculos permanecem. */
-    desconectarOAuth: contentProcedure.mutation(async () => {
+    desconectarOAuth: trackerSettingsProcedure.mutation(async () => {
       const conexao = await getConexaoGA4Agencia();
       if (conexao) await deactivateUserIntegration(conexao.userId, "ga4");
       return { success: true } as const;

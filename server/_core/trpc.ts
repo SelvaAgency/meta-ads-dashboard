@@ -3,7 +3,7 @@ import { comGatilho } from "./contextoDeGatilho";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
-import { canManageContent, canManagePriorities } from "@shared/permissions";
+import { canAccessTrackerSettings, canManageContent, canManagePriorities } from "@shared/permissions";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -111,6 +111,33 @@ export const prioridadesProcedure = t.procedure.use(
         code: "FORBIDDEN",
         message: "Só Administrativo, Desenvolvedor ou Coordenador podem editar as prioridades da semana.",
       });
+    }
+    return next({ ctx: { ...ctx, user: ctx.user } });
+  }),
+).use(comAtorDaSessao);
+
+/**
+ * Configurações do Tracker/BIT: admin, developer OU coordinator.
+ *
+ * Uma procedure própria em vez de ampliar `contentProcedure`, e o motivo é
+ * concreto: `contentProcedure` também guarda Consumo de IA, Rascunho, a barra
+ * de News e a SelvaTV. Ampliá-la para liberar Configurações abriria as quatro
+ * de uma vez, sem ninguém ter decidido isso.
+ *
+ * A regra vem de `canAccessTrackerSettings` — a MESMA função que a tela usa
+ * para mostrar o menu e liberar a página. Dois critérios escritos separados
+ * divergem, e a divergência aparece como um botão que existe e não funciona.
+ */
+export const trackerSettingsProcedure = t.procedure.use(
+  t.middleware(async ({ ctx, next }) => {
+    if (!ctx.user) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+    if (ctx.user.mustChangePassword) {
+      throw new TRPCError({ code: "FORBIDDEN", message: PASSWORD_CHANGE_REQUIRED });
+    }
+    if (!canAccessTrackerSettings(ctx.user.role)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
     return next({ ctx: { ...ctx, user: ctx.user } });
   }),

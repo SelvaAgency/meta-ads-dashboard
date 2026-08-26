@@ -67,6 +67,28 @@ export function canManagePriorities(r: unknown): boolean {
   return x === "admin" || x === "developer" || x === "coordinator";
 }
 
+/**
+ * Configurações do Tracker/BIT: contas, tokens, importação, duplicatas.
+ *
+ * ── Por que não é `canManageContent` ───────────────────────────────────────
+ * Porque `canManageContent` governa OUTRAS áreas — Consumo de IA, Panorama,
+ * Rascunho, a barra de News, a SelvaTV — e todas elas seguem admin/dev.
+ * Ampliá-la para liberar Configurações abriria as cinco de uma vez, sem
+ * ninguém ter decidido isso.
+ *
+ * Uma permissão nova por área é o preço de conseguir mexer numa sem mexer nas
+ * outras. Este arquivo já tinha três predicados por esse mesmo motivo.
+ *
+ * ── A forma continua sendo allowlist ───────────────────────────────────────
+ * Três valores escritos por extenso, e não `!== "user"`. A garantia que
+ * sustenta o coordenador é que um role novo cai FORA de toda permissão por
+ * construção — a forma negativa o incluiria aqui sem ninguém decidir.
+ */
+export function canAccessTrackerSettings(r: unknown): boolean {
+  const x = role(r);
+  return x === "admin" || x === "developer" || x === "coordinator";
+}
+
 /** Gerenciar colaboradores (CRUD, reset de senha). Somente admin. */
 export function canManagePeople(r: unknown): boolean {
   return role(r) === "admin";
