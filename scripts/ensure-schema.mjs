@@ -1393,6 +1393,17 @@ async function main() {
         { name: "nextSteps",            ddl: "ADD COLUMN `nextSteps` TEXT NULL" },
         { name: "learningsConsolidated", ddl: "ADD COLUMN `learningsConsolidated` TEXT NULL" },
         { name: "quickContext",          ddl: "ADD COLUMN `quickContext` TEXT NULL" },
+        /*
+         * Quando o contexto foi CONFIRMADO para a IA — não quando foi salvo.
+         *
+         * `updatedAt` marca qualquer gravação, e desde o autosave isso inclui
+         * cada pausa de digitação. Usá-lo para decidir se a análise envelheceu
+         * fazia o cron das 06:00 regerar por causa de rascunho.
+         *
+         * `NULL` nas linhas antigas é o certo: nenhum contexto salvo antes
+         * desta coluna passa a gerar chamada retroativamente.
+         */
+        { name: "contextoConfirmadoEm",  ddl: "ADD COLUMN `contextoConfirmadoEm` TIMESTAMP NULL" },
       ];
       for (const col of ctxCols) {
         if (await columnExists(conn, "account_context", col.name)) {

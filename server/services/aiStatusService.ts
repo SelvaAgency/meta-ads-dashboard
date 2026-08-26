@@ -49,12 +49,24 @@ export type StatusIA = {
 };
 
 /**
- * O contexto mais recente da conta — o dos DOIS níveis.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  O contexto CONFIRMADO mais recente — dos dois níveis
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Mesma regra que a tela usa: explicar um ponto também envelhece a leitura, e
+ *  comparar só com o contexto da conta deixaria a análise velha no ar
+ *  justamente no caso que motivou o contexto de ponto.
  *
- * Mesma regra que a tela usa para dizer "análise desatualizada": explicar um
- * ponto também envelhece a leitura, e comparar só com o contexto da conta
- * deixaria a análise velha no ar justamente no caso que motivou o contexto de
- * ponto. Duas consultas leves, e nenhuma delas lê o conteúdo — só a data.
+ *  ── `contextoConfirmadoEm`, e não `updatedAt` ──────────────────────────────
+ *  O autosave grava a cada pausa de digitação e mexe em `updatedAt`. Ler daqui
+ *  faria a análise constar como desatualizada por causa de rascunho, e o cron
+ *  das 06:00 regeraria — um disparo indireto de IA a cada dia em que alguém
+ *  ajustou uma frase. `contextoConfirmadoEm` só é escrito no clique de
+ *  confirmar.
+ *
+ *  O contexto de PONTO continua entrando inteiro: ele nasce de uma ação
+ *  explícita, e não tem autosave.
+ *
+ *  Duas consultas leves, e nenhuma delas lê o conteúdo — só a data.
  */
 async function contextoMaisRecente(accountId: number): Promise<Date | null> {
   const { getAccountContext, contextoDeAchadoMaisRecente } = await import("../db");
@@ -62,7 +74,7 @@ async function contextoMaisRecente(accountId: number): Promise<Date | null> {
     getAccountContext(accountId).catch(() => null),
     contextoDeAchadoMaisRecente(accountId).catch(() => null),
   ]);
-  return [ctx?.updatedAt ?? null, pontoEm]
+  return [ctx?.contextoConfirmadoEm ?? null, pontoEm]
     .filter((d): d is Date => !!d)
     .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
 }

@@ -1581,6 +1581,30 @@ export const accountContext = mysqlTable("account_context", {
   learningsConsolidated: text("learningsConsolidated"),
   // Input pontual da caixa "Leitura de IA" do header — NÃO sobrescreve o perfil.
   quickContext: text("quickContext"),
+  /**
+   * ─────────────────────────────────────────────────────────────────────────
+   *  Quando o contexto foi CONFIRMADO para a IA — diferente de quando foi salvo
+   * ─────────────────────────────────────────────────────────────────────────
+   *  `updatedAt` marca qualquer gravação, e desde o autosave isso inclui cada
+   *  pausa de meio segundo de quem está digitando. Usá-lo para decidir se a
+   *  análise envelheceu criava um disparo indireto:
+   *
+   *    digitação → autosave → updatedAt muda → análise "desatualizada"
+   *              → cron das 06:00 → chamada ao modelo
+   *
+   *  O gasto voltava a ser proporcional ao número de correções de texto, que é
+   *  exatamente o que a separação entre rascunho e confirmação existe para
+   *  evitar.
+   *
+   *  Esta coluna só é escrita quando alguém clica em confirmar/atualizar. É ela
+   *  que a regra de frescor compara com `aiStatusAt` — `updatedAt` continua
+   *  existindo e respondendo "quando o contexto mudou pela última vez", que é
+   *  outra pergunta.
+   *
+   *  `null` = nunca confirmado. A análise NÃO envelhece por conta do contexto
+   *  da conta, e nenhum rascunho antigo passa a gerar chamada retroativamente.
+   */
+  contextoConfirmadoEm: timestamp("contextoConfirmadoEm"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   updatedBy: varchar("updatedBy", { length: 255 }),
 });

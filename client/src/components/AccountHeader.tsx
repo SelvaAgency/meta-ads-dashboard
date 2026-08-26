@@ -387,6 +387,9 @@ export function AccountHeader({
     await upsertContext.mutateAsync({
       accountId: selectedAccountId,
       quickContext: rascunho.valor,
+      // A confirmação: só aqui o contexto passa a valer para a IA. O autosave
+      // omite este campo, e por isso não torna a análise elegível ao cron.
+      confirmarParaIA: true,
     });
     utils.context.getAccount.invalidate({ accountId: selectedAccountId });
     /**

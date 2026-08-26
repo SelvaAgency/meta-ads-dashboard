@@ -621,7 +621,17 @@ const contextRouter = router({
       // O mais recente dos DOIS níveis: explicar um ponto também envelhece a
       // análise, e comparar só com o contexto da conta deixaria a leitura velha
       // no ar justamente no caso que motivou o contexto de ponto.
-      const contextoEm = [ctx?.updatedAt ?? null, pontoEm]
+      /*
+       * A CONFIRMAÇÃO, e não a última gravação.
+       *
+       * `updatedAt` muda a cada pausa do autosave; usá-lo aqui faria o aviso de
+       * "análise desatualizada" acender enquanto a pessoa ainda está
+       * escrevendo — e empurraria para o clique de Atualizar, que é o que gasta.
+       *
+       * O contexto de PONTO continua entrando: ele nasce de uma ação explícita
+       * (contextualizar um achado, no Panorama) e não tem autosave.
+       */
+      const contextoEm = [ctx?.contextoConfirmadoEm ?? null, pontoEm]
         .filter((d): d is Date => !!d)
         .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
       return {
@@ -649,6 +659,13 @@ const contextRouter = router({
       freeInput: z.string().optional(),
       focusMoment: z.string().optional(),
       quickContext: z.string().optional(),
+      /**
+       * `true` só quando a pessoa CONFIRMA — o botão "Salvar e reanalisar".
+       *
+       * O autosave omite, e por isso não carimba `contextoConfirmadoEm`: um
+       * rascunho salvo não torna a análise elegível para o cron regerar.
+       */
+      confirmarParaIA: z.boolean().optional(),
       // Campos de site (tabela unificada — Fase 2/3): editáveis pela seção
       // "Contexto Geral". Antes só a AbaContexto (Site/Panorama) os gravava.
       objective: z.string().optional(),
@@ -663,11 +680,11 @@ const contextRouter = router({
       nextSteps: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { accountId, ...values } = input;
+      const { accountId, confirmarParaIA, ...values } = input;
       await upsertAccountContext(accountId, {
         ...values,
         updatedBy: (ctx.user as any)?.name ?? "user",
-      });
+      }, { confirmarParaIA });
       return { ok: true };
     }),
 

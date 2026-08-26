@@ -2925,16 +2925,37 @@ export async function getAccountContext(accountId: number) {
   return rows[0] ?? null;
 }
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Salvar contexto — e, separadamente, CONFIRMÁ-LO para a IA
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  `updatedAt` marca toda gravação, autosave incluído. `contextoConfirmadoEm`
+ *  só é escrito quando alguém confirma explicitamente, e é ele que a regra de
+ *  frescor compara com a data da análise.
+ *
+ *  Sem essa separação, digitar disparava IA por via indireta: cada pausa de
+ *  meio segundo mexia em `updatedAt`, a análise passava a constar como
+ *  desatualizada, e o cron das 06:00 regerava. O gasto voltava a ser
+ *  proporcional ao número de correções de texto.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
 export async function upsertAccountContext(
   accountId: number,
   values: Partial<Omit<typeof accountContext.$inferInsert, "id" | "accountId" | "updatedAt">>,
+  opcoes: { confirmarParaIA?: boolean } = {},
 ) {
   const db = await getDb();
   if (!db) return;
+  // O carimbo entra no MESMO update dos campos: gravado depois, num segundo
+  // comando, uma falha entre os dois deixaria o texto salvo e a confirmação
+  // perdida — e a análise seguiria velha sem ninguém entender por quê.
+  const campos = opcoes.confirmarParaIA
+    ? { ...values, contextoConfirmadoEm: new Date() }
+    : values;
   await db
     .insert(accountContext)
-    .values({ accountId, ...values })
-    .onDuplicateKeyUpdate({ set: { ...values } });
+    .values({ accountId, ...campos })
+    .onDuplicateKeyUpdate({ set: { ...campos } });
 }
 
 export async function appendAccountLearning(accountId: number, note: string, updatedBy: string) {
