@@ -1557,7 +1557,15 @@ export const accountContext = mysqlTable("account_context", {
   operationalRules: text("operationalRules"),
   learnings: text("learnings"),
   // Structured fields
-  businessType: varchar("businessType", { length: 50 }),
+  /**
+   * Uma ou MAIS categorias, separadas por vírgula — ver `contextoOpcoes`.
+   *
+   * 200 e não 50: as sete categorias somam ~66 caracteres, e o MySQL truncaria
+   * em silêncio, perdendo a última selecionada sem erro nenhum. Continua
+   * `varchar` porque o formato é retrocompatível: "B2B" salvo antes da mudança
+   * lê como uma lista de um item, sem migração de dado.
+   */
+  businessType: varchar("businessType", { length: 200 }),
   ticketRange: varchar("ticketRange", { length: 50 }),
   audienceAge: varchar("audienceAge", { length: 50 }),
   audienceGender: varchar("audienceGender", { length: 50 }),

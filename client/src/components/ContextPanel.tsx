@@ -1,17 +1,56 @@
 import { trpc } from "@/lib/trpc";
+import {
+  FAIXAS_DE_TICKET, TIPOS_DE_NEGOCIO, alternarTipoDeNegocio, escreverTiposDeNegocio,
+  lerFaixaDeTicket, lerTiposDeNegocio,
+} from "@shared/contextoOpcoes";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Brain, Plus, X, Calendar, Save } from "lucide-react";
+import { Brain, Check, Plus, X, Calendar, Save } from "lucide-react";
 
-const BUSINESS_TYPES = ["E-commerce", "Serviço", "B2B", "Varejo físico", "Marketplace", "SaaS", "Outro"];
-const TICKET_RANGES = ["Até R$100", "R$100–500", "R$500–2k", "Acima de R$2k"];
 const AUDIENCE_AGES = ["18–24", "25–34", "35–44", "45–54", "55+", "Amplo"];
 const AUDIENCE_GENDERS = ["Feminino", "Masculino", "Neutro"];
 const AUDIENCE_GEOS = ["Nacional", "Sul/Sudeste", "Nordeste", "Regional", "Internacional"];
 const EVENT_TYPES = ["Lançamento", "Promoção", "Sazonalidade", "Pausa", "Crise", "Outro"];
 
+const estiloChip = (on: boolean) => ({
+  padding: "4px 12px", borderRadius: 20, fontSize: 12, cursor: "pointer",
+  border: on ? "1px solid rgba(212,83,126,0.5)" : "0.5px solid rgba(0,0,0,0.15)",
+  background: on ? "rgba(212,83,126,0.08)" : "white",
+  color: on ? "#993556" : "rgba(0,0,0,0.5)",
+  fontWeight: on ? 500 : 400,
+  display: "inline-flex", alignItems: "center", gap: 5,
+} as const);
+
+/**
+ * Seleção MÚLTIPLA — as categorias de negócio não são exclusivas.
+ *
+ * B2B + SaaS e E-commerce + Marketplace são combinações reais. O visto marcado
+ * é o que distingue este grupo do de seleção única; sem ele os dois pareceriam
+ * iguais e ninguém descobriria que dá para marcar mais de um.
+ */
+function ChipGroupMultiplo({ options, valores, onToggle }: {
+  options: readonly string[];
+  valores: string[];
+  onToggle: (v: string) => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      {options.map((opt) => {
+        const on = valores.includes(opt);
+        return (
+          <button key={opt} type="button" aria-pressed={on}
+            onClick={() => onToggle(opt)} style={estiloChip(on)}>
+            {on && <Check size={12} strokeWidth={3} />}
+            {opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ChipGroup({ options, value, onChange }: {
-  options: string[];
+  options: readonly string[];
   value: string;
   onChange: (v: string) => void;
 }) {
@@ -137,9 +176,18 @@ export function ContextPanel({ accountId, onClose }: { accountId: number; onClos
           <div>
             <span style={sectionLabel}>Negócio</span>
             <p style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", marginBottom: 8 }}>Tipo de negócio</p>
-            <ChipGroup options={BUSINESS_TYPES} value={businessType} onChange={setBusinessType} />
+            <ChipGroupMultiplo options={TIPOS_DE_NEGOCIO} valores={lerTiposDeNegocio(businessType)}
+              onToggle={(t) => setBusinessType(
+                escreverTiposDeNegocio(alternarTipoDeNegocio(lerTiposDeNegocio(businessType), t)))} />
             <p style={{ fontSize: 11, color: "rgba(0,0,0,0.4)", margin: "12px 0 8px" }}>Ticket médio</p>
-            <ChipGroup options={TICKET_RANGES} value={ticketRange} onChange={setTicketRange} />
+            <ChipGroup options={FAIXAS_DE_TICKET} value={lerFaixaDeTicket(ticketRange).faixa ?? ""}
+              onChange={setTicketRange} />
+            {lerFaixaDeTicket(ticketRange).legado && (
+              <p style={{ fontSize: 10.5, color: "#B45309", marginTop: 6, lineHeight: 1.35 }}>
+                Valor anterior: <b>{lerFaixaDeTicket(ticketRange).legado}</b> — a escala mudou e esta
+                faixa não tem correspondente exato. Escolha a nova.
+              </p>
+            )}
           </div>
 
           <div style={{ borderTop: "0.5px solid rgba(0,0,0,0.06)", paddingTop: 16 }}>

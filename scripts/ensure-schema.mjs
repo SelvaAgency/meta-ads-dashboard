@@ -1405,6 +1405,24 @@ async function main() {
          */
         { name: "contextoConfirmadoEm",  ddl: "ADD COLUMN `contextoConfirmadoEm` TIMESTAMP NULL" },
       ];
+
+      /*
+       * `businessType` passou a aceitar VÁRIAS categorias, separadas por
+       * vírgula. As sete somam ~66 caracteres e `varchar(50)` truncaria em
+       * silêncio — perdendo a última selecionada sem erro nenhum.
+       *
+       * `MODIFY` e não `ADD`: a coluna existe. Alargar é seguro e não toca o
+       * dado — "B2B" continua sendo "B2B".
+       */
+      const [larguraTipo] = await conn.query(
+        "SELECT character_maximum_length AS n FROM information_schema.columns "
+        + "WHERE table_schema = DATABASE() AND table_name = 'account_context' "
+        + "AND column_name = 'businessType'",
+      );
+      if (larguraTipo.length && Number(larguraTipo[0].n) < 200) {
+        await conn.query("ALTER TABLE `account_context` MODIFY `businessType` VARCHAR(200) NULL");
+        console.log("[ensure-schema] ok  · account_context.businessType alargada para 200");
+      }
       for (const col of ctxCols) {
         if (await columnExists(conn, "account_context", col.name)) {
           console.log(`[ensure-schema] ok  · account_context.${col.name} já existe`);

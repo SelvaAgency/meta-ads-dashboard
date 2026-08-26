@@ -15,6 +15,7 @@
 import {
   getAccountContext, listClientNotes, getAccountThresholds, contextosDeAchado,
 } from "../db";
+import { tiposDeNegocioParaIA } from "@shared/contextoOpcoes";
 import { aplicarContextoAosAchados, blocoDosContextosDePonto } from "../../shared/contextoDoAchado";
 
 export type MontarContextoOpts = {
@@ -73,7 +74,10 @@ export async function montarContextoDaConta(opts: MontarContextoOpts): Promise<C
   const add = (cond: unknown, linha: string) => { if (cond) L.push(linha); };
 
   // Perfil e negócio (mescla account_context estruturado + client_context de site)
-  add(acc?.businessType, `- Tipo de negócio: ${acc?.businessType}`);
+  // TODAS as categorias, e não a primeira: o campo passou a aceitar
+  // combinações (B2B + SaaS, E-commerce + Marketplace), e a IA precisa receber
+  // o conjunto inteiro para não descrever metade do negócio.
+  add(tiposDeNegocioParaIA(acc?.businessType), `- Tipo de negócio: ${tiposDeNegocioParaIA(acc?.businessType)}`);
   add(acc?.ticketRange, `- Ticket médio: ${acc?.ticketRange}`);
   add(cli?.objective, `- Objetivo: ${cli?.objective}`);
   add(cli?.offer, `- Oferta: ${cli?.offer}`);

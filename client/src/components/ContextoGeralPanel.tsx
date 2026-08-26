@@ -13,12 +13,14 @@
  *  (hipóteses/testes/próximos) e input livre saíram — a IA não os lê mais.
  */
 import { trpc } from "@/lib/trpc";
+import {
+  FAIXAS_DE_TICKET, TIPOS_DE_NEGOCIO, alternarTipoDeNegocio, escreverTiposDeNegocio,
+  lerFaixaDeTicket, lerTiposDeNegocio,
+} from "@shared/contextoOpcoes";
 import { useState, useEffect, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Brain, X, Save, Plus, Sparkles } from "lucide-react";
+import { Brain, Check, X, Save, Plus, Sparkles } from "lucide-react";
 
-const BUSINESS_TYPES = ["E-commerce", "Serviço", "B2B", "Varejo físico", "Marketplace", "SaaS", "Outro"];
-const TICKET_RANGES = ["Até R$100", "R$100–500", "R$500–2k", "Acima de R$2k"];
 const AUDIENCE_AGES = ["18–24", "25–34", "35–44", "45–54", "55+", "Amplo"];
 const AUDIENCE_GENDERS = ["Feminino", "Masculino", "Neutro"];
 const AUDIENCE_GEOS = ["Nacional", "Sul/Sudeste", "Nordeste", "Regional", "Internacional"];
@@ -26,19 +28,70 @@ const EVENT_TYPES = ["Lançamento", "Promoção", "Sazonalidade", "Pausa", "Cris
 
 type Evento = { date: string; type: string; description: string };
 
-function Chips({ options, value, onChange }: { options: string[]; value: string; onChange: (v: string) => void }) {
+const CHIP_ON = "border-primary/50 bg-primary/[0.08] text-primary font-medium";
+const CHIP_OFF = "border-border text-muted-foreground hover:bg-accent/30";
+
+/** Seleção ÚNICA — clicar no marcado desmarca. Usado pela faixa de ticket. */
+function Chips({ options, value, onChange }: {
+  options: readonly string[]; value: string; onChange: (v: string) => void;
+}) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {options.map((opt) => {
         const on = value === opt;
         return (
           <button key={opt} type="button" onClick={() => onChange(on ? "" : opt)}
-            className={`px-3 py-1 rounded-full text-xs border transition-colors ${on ? "border-primary/50 bg-primary/[0.08] text-primary font-medium" : "border-border text-muted-foreground hover:bg-accent/30"}`}>
+            className={`px-3 py-1 rounded-full text-xs border transition-colors ${on ? CHIP_ON : CHIP_OFF}`}>
             {opt}
           </button>
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Seleção MÚLTIPLA — o mesmo visual, com um sinal a mais.
+ *
+ * As categorias não são mutuamente exclusivas: B2B + SaaS e E-commerce +
+ * Marketplace são combinações reais. O visto marcado é o que distingue este
+ * grupo do de seleção única — sem ele, os dois pareceriam iguais e ninguém
+ * descobriria que dá para marcar mais de um.
+ */
+function ChipsMultiplos({ options, valores, onToggle }: {
+  options: readonly string[]; valores: string[]; onToggle: (v: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((opt) => {
+        const on = valores.includes(opt);
+        return (
+          <button key={opt} type="button" onClick={() => onToggle(opt)}
+            aria-pressed={on}
+            className={`px-3 py-1 rounded-full text-xs border transition-colors inline-flex
+                        items-center gap-1.5 ${on ? CHIP_ON : CHIP_OFF}`}>
+            {on && <Check className="w-3 h-3" strokeWidth={3} />}
+            {opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * A faixa antiga que não pôde ser migrada.
+ *
+ * "Acima de R$2k" cobre TRÊS faixas novas; escolher uma inventaria precisão que
+ * o dado nunca teve. O valor fica visível para alguém reescolher, em vez de o
+ * campo aparecer vazio como se nunca tivesse sido preenchido.
+ */
+function FaixaAnterior({ valor }: { valor: string }) {
+  return (
+    <p className="text-[10.5px] text-amber-700 mt-1.5 leading-snug">
+      Valor anterior: <b>{valor}</b> — a escala mudou e esta faixa não tem
+      correspondente exato. Escolha a nova.
+    </p>
   );
 }
 
@@ -148,8 +201,22 @@ export function ContextoGeralPanel({ accountId, onClose, metasSlot }: { accountI
 
           <Secao titulo="Negócio">
             <div className="flex flex-col gap-3">
-              <div><p className="text-[11px] text-muted-foreground mb-1.5">Tipo de negócio</p><Chips options={BUSINESS_TYPES} value={businessType} onChange={setBusinessType} /></div>
-              <div><p className="text-[11px] text-muted-foreground mb-1.5">Ticket médio</p><Chips options={TICKET_RANGES} value={ticketRange} onChange={setTicketRange} /></div>
+              <div>
+                <p className="text-[11px] text-muted-foreground mb-1.5">
+                  Tipo de negócio <span className="text-muted-foreground/55">· pode marcar mais de um</span>
+                </p>
+                <ChipsMultiplos options={TIPOS_DE_NEGOCIO} valores={lerTiposDeNegocio(businessType)}
+                  onToggle={(t) => setBusinessType(
+                    escreverTiposDeNegocio(alternarTipoDeNegocio(lerTiposDeNegocio(businessType), t)))} />
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground mb-1.5">Ticket médio</p>
+                <Chips options={FAIXAS_DE_TICKET} value={lerFaixaDeTicket(ticketRange).faixa ?? ""}
+                  onChange={setTicketRange} />
+                {lerFaixaDeTicket(ticketRange).legado && (
+                  <FaixaAnterior valor={lerFaixaDeTicket(ticketRange).legado as string} />
+                )}
+              </div>
             </div>
           </Secao>
 
