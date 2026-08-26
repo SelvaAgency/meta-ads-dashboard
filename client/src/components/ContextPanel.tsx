@@ -1,9 +1,10 @@
 import { trpc } from "@/lib/trpc";
+import { IndicadorDeRascunho, useRascunhoDeFormulario } from "@/hooks/useRascunhoAutosalvo";
 import {
   FAIXAS_DE_TICKET, TIPOS_DE_NEGOCIO, alternarTipoDeNegocio, escreverTiposDeNegocio,
   lerFaixaDeTicket, lerTiposDeNegocio,
 } from "@shared/contextoOpcoes";
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Brain, Check, Plus, X, Calendar, Save } from "lucide-react";
 
@@ -75,6 +76,22 @@ function ChipGroup({ options, value, onChange }: {
   );
 }
 
+interface CamposDoPainel {
+  businessType: string; ticketRange: string;
+  audienceAge: string; audienceGender: string; audienceGeo: string;
+  restrictions: string[]; events: Array<{ date: string; type: string; description: string }>;
+  freeInput: string; focusMoment: string;
+}
+
+/**
+ * O payload, montado num lugar só.
+ *
+ * Autosave, botão e adoção do que vem do servidor passam todos por aqui. Três
+ * montagens separadas divergiriam, e uma delas passaria a esquecer um campo sem
+ * ninguém notar.
+ */
+const montarPayload = (c: CamposDoPainel) => ({ ...c });
+
 export function ContextPanel({ accountId, onClose }: { accountId: number; onClose?: () => void }) {
   const [businessType, setBusinessType] = useState("");
   const [ticketRange, setTicketRange] = useState("");
@@ -106,7 +123,25 @@ export function ContextPanel({ accountId, onClose }: { accountId: number; onClos
       setEvents((ctx.events as any[]) ?? []);
       setFreeInput(ctx.freeInput ?? "");
       setFocusMoment(ctx.focusMoment ?? "");
+
+      /*
+       * A adoção acontece AQUI, com o payload montado a partir de `ctx`.
+       *
+       * Os `setState` acima só valem no próximo render; um efeito posterior
+       * rodaria neste ciclo ainda com os campos em branco e adotaria um payload
+       * vazio como se fosse o do servidor — o autosave então gravaria vazio por
+       * cima do contexto real na primeira tecla.
+       */
+      rascunho.adotarDoServidor(montarPayload({
+        businessType: ctx.businessType ?? "", ticketRange: ctx.ticketRange ?? "",
+        audienceAge: ctx.audienceAge ?? "", audienceGender: ctx.audienceGender ?? "",
+        audienceGeo: ctx.audienceGeo ?? "",
+        restrictions: (ctx.restrictions as string[]) ?? [],
+        events: (ctx.events as CamposDoPainel["events"]) ?? [],
+        freeInput: ctx.freeInput ?? "", focusMoment: ctx.focusMoment ?? "",
+      }));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx]);
 
   const upsert = trpc.context.upsertAccount.useMutation({
@@ -114,9 +149,33 @@ export function ContextPanel({ accountId, onClose }: { accountId: number; onClos
     onError: () => { toast.error("Erro ao salvar"); setSaving(false); },
   });
 
+  /**
+   * Autosave — a MESMA máquina do contexto rápido.
+   *
+   * Sem toast e SEM `confirmarParaIA`: gravar rascunho não carimba
+   * `contextoConfirmadoEm`, então o cron das 06:00 não regera por causa de
+   * digitação.
+   */
+  const upsertSilencioso = trpc.context.upsertAccount.useMutation();
+  const rascunho = useRascunhoDeFormulario<CamposDoPainel>({
+    chave: accountId,
+    salvar: (v) => upsertSilencioso.mutateAsync({ accountId, ...v } as never),
+  });
+
+  const payload = useMemo(() => montarPayload({
+    businessType, ticketRange, audienceAge, audienceGender, audienceGeo,
+    restrictions, events, freeInput, focusMoment,
+  }), [businessType, ticketRange, audienceAge, audienceGender, audienceGeo,
+       restrictions, events, freeInput, focusMoment]);
+
+  useEffect(() => { rascunho.sincronizar(payload); }, [payload, rascunho]);
+
   function save() {
     setSaving(true);
-    upsert.mutate({ accountId, businessType, ticketRange, audienceAge, audienceGender, audienceGeo, restrictions, events, freeInput, focusMoment });
+    // Pode haver uma pausa em voo; gravar aqui garante o texto final.
+    rascunho.flush();
+    // `confirmarParaIA`: é o gesto explícito. O autosave nunca manda isto.
+    upsert.mutate({ accountId, ...payload, confirmarParaIA: true });
   }
 
   function addRestriction() {
@@ -289,15 +348,23 @@ export function ContextPanel({ accountId, onClose }: { accountId: number; onClos
         </div>
       </div>
 
-      {/* Save button */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20, paddingTop: 16, borderTop: "0.5px solid rgba(0,0,0,0.06)" }}>
+      {/*
+        O botão FICA, e mudou de significado.
+        Auditado: ele nunca gerou IA — só persistia (com toast, refetch e
+        fechamento do painel). Com o autosave, persistir deixou de ser trabalho
+        dele. O que sobra é dizer que ESTE contexto deve valer para a próxima
+        análise: ele carimba `contextoConfirmadoEm`, e o rótulo diz isso.
+      */}
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, marginTop: 20, paddingTop: 16, borderTop: "0.5px solid rgba(0,0,0,0.06)" }}>
+        <IndicadorDeRascunho estado={rascunho.estado} />
         <button
           onClick={save}
           disabled={saving}
+          title="Marca este contexto como o que a IA deve considerar na próxima análise"
           style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 18px", borderRadius: 8, border: "none", background: "#D4537E", color: "white", fontSize: 13, fontWeight: 500, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.75 : 1 }}
         >
           <Save style={{ width: 13, height: 13 }} />
-          {saving ? "Salvando..." : "Salvar contexto"}
+          {saving ? "Confirmando…" : "Confirmar para a IA"}
         </button>
       </div>
     </div>

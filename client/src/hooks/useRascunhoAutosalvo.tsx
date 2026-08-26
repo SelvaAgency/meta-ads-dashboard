@@ -23,7 +23,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  criarRascunho, type EstadoDoRascunho, type Rascunho,
+  ROTULO_DO_RASCUNHO, criarRascunho, type EstadoDoRascunho, type Rascunho,
 } from "@shared/rascunhoAutosalvo";
 
 export function useRascunhoAutosalvo(opts: {
@@ -98,4 +98,97 @@ export function useRascunhoAutosalvo(opts: {
   }, []);
 
   return { valor, digitar, estado, flush };
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  A mesma máquina, para formulários de vários campos
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  `useRascunhoAutosalvo` dono do valor serve a um campo só — o contexto rápido.
+ *  Os painéis completos têm doze campos em `useState` separados, e transformá-los
+ *  num objeto único seria refatorar tudo para ganhar autosave.
+ *
+ *  Este hook usa exatamente o mesmo `criarRascunho` — debounce, flush, proteção
+ *  contra sobrescrita, tratamento de erro — e só não é dono do valor. Quem chama
+ *  monta o objeto e avisa a cada mudança.
+ *
+ *  Não é um segundo mecanismo: é a mesma máquina com outro dono do estado.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+export function useRascunhoDeFormulario<T>(opts: {
+  salvar: (valor: T) => Promise<unknown>;
+  chave: string | number | null;
+}) {
+  const [estado, setEstado] = useState<EstadoDoRascunho>("limpo");
+  const rascunho = useRef<Rascunho<T> | null>(null);
+  const salvarRef = useRef(opts.salvar);
+  salvarRef.current = opts.salvar;
+  /** Enquanto o servidor não respondeu, mudança de campo não é edição. */
+  const pronto = useRef(false);
+
+  useEffect(() => {
+    pronto.current = false;
+    setEstado("limpo");
+    rascunho.current = criarRascunho<T>({
+      // `inicial` vazio e `pronto` em false: até `adotarDoServidor`, os
+      // `useState` do painel ainda estão em branco, e comparar com eles
+      // marcaria tudo como sujo e gravaria por cima do que está no banco.
+      inicial: undefined as unknown as T,
+      salvar: (v) => salvarRef.current(v),
+      aoMudarEstado: setEstado,
+      // Comparação estrutural: os painéis remontam o objeto a cada render, e
+      // `===` acusaria mudança em todo ciclo — um write por render.
+      iguais: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+    });
+    return () => {
+      rascunho.current?.flush();
+      rascunho.current?.cancelar();
+    };
+  }, [opts.chave]);
+
+  /** O painel chama a cada mudança de campo. Antes do servidor, é ignorado. */
+  const sincronizar = useCallback((valor: T) => {
+    if (!pronto.current) return;
+    rascunho.current?.digitar(valor);
+  }, []);
+
+  /** O painel chama quando a query responde. Libera o autosave. */
+  const adotarDoServidor = useCallback((valor: T) => {
+    const adotado = rascunho.current?.adotarDoServidor(valor);
+    // Só libera quando o valor foi de fato adotado: com edição local pendente,
+    // `adotarDoServidor` recusa, e aí o autosave já estava ligado.
+    if (adotado !== null && adotado !== undefined) pronto.current = true;
+    return adotado;
+  }, []);
+
+  const flush = useCallback(() => rascunho.current?.flush(), []);
+
+  useEffect(() => {
+    const aoSair = () => rascunho.current?.flush();
+    const aoTrocarVisibilidade = () => { if (document.hidden) aoSair(); };
+    document.addEventListener("visibilitychange", aoTrocarVisibilidade);
+    window.addEventListener("blur", aoSair);
+    window.addEventListener("pagehide", aoSair);
+    return () => {
+      document.removeEventListener("visibilitychange", aoTrocarVisibilidade);
+      window.removeEventListener("blur", aoSair);
+      window.removeEventListener("pagehide", aoSair);
+    };
+  }, []);
+
+  return { estado, sincronizar, adotarDoServidor, flush };
+}
+
+/** O indicador discreto — o MESMO nos três pontos de contexto. */
+export function IndicadorDeRascunho({ estado }: { estado: EstadoDoRascunho }) {
+  const rotulo = ROTULO_DO_RASCUNHO[estado];
+  if (!rotulo) return null;
+  return (
+    <span className={`text-[10px] tabular-nums ${
+      estado === "erro" ? "text-destructive"
+        : estado === "salvo" ? "text-emerald-600"
+        : "text-muted-foreground/60"}`}>
+      {rotulo}
+    </span>
+  );
 }

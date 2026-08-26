@@ -13,11 +13,12 @@
  *  (hipóteses/testes/próximos) e input livre saíram — a IA não os lê mais.
  */
 import { trpc } from "@/lib/trpc";
+import { IndicadorDeRascunho, useRascunhoDeFormulario } from "@/hooks/useRascunhoAutosalvo";
 import {
   FAIXAS_DE_TICKET, TIPOS_DE_NEGOCIO, alternarTipoDeNegocio, escreverTiposDeNegocio,
   lerFaixaDeTicket, lerTiposDeNegocio,
 } from "@shared/contextoOpcoes";
-import { useState, useEffect, type ReactNode } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Brain, Check, X, Save, Plus, Sparkles } from "lucide-react";
 
@@ -115,6 +116,38 @@ function Campo({ label, value, onChange, rows = 2, placeholder }: { label?: stri
   );
 }
 
+interface CamposDoContexto {
+  sobreCliente: string; regras: string; businessType: string; ticketRange: string;
+  audienceAge: string; audienceGender: string; audienceGeo: string; audience: string;
+  focusMoment: string; trackingNotes: string;
+  conversionEvents: string; importantPages: string; events: Evento[];
+}
+
+const linhas = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
+
+/**
+ * O payload, montado num lugar só.
+ *
+ * O autosave, o botão e a adoção do que vem do servidor passam TODOS por aqui.
+ * Três montagens separadas divergiriam, e o botão passaria a gravar um campo
+ * que o autosave esquece — ou o contrário, sem ninguém notar.
+ */
+function montarPayload(c: CamposDoContexto) {
+  return {
+    // Canônicos (fusões) + limpeza dos redundantes para não duplicar.
+    clientProfile: c.sobreCliente, objective: "", offer: "",
+    operationalRules: c.regras, restrictions: [] as string[], constraints: "",
+    // Estruturados
+    businessType: c.businessType, ticketRange: c.ticketRange,
+    audienceAge: c.audienceAge, audienceGender: c.audienceGender,
+    audienceGeo: c.audienceGeo, audience: c.audience,
+    focusMoment: c.focusMoment, events: c.events,
+    conversionEventsJson: linhas(c.conversionEvents),
+    importantPagesJson: linhas(c.importantPages),
+    trackingNotes: c.trackingNotes,
+  };
+}
+
 export function ContextoGeralPanel({ accountId, onClose, metasSlot }: { accountId: number; onClose?: () => void; metasSlot?: ReactNode }) {
   const [sobreCliente, setSobreCliente] = useState("");   // perfil + objetivo + oferta (fundidos)
   const [businessType, setBusinessType] = useState("");
@@ -152,6 +185,30 @@ export function ContextoGeralPanel({ accountId, onClose, metasSlot }: { accountI
     setImportantPages(((c.importantPagesJson as string[]) ?? []).join("\n"));
     setTrackingNotes(c.trackingNotes ?? "");
     setEvents((c.events as Evento[]) ?? []);
+
+    /*
+     * A adoção acontece AQUI, e não num efeito seguinte.
+     *
+     * Os `setState` acima só valem no próximo render. Um efeito posterior
+     * rodaria neste mesmo ciclo, ainda com os campos em branco, e adotaria um
+     * payload vazio como se fosse o do servidor — o autosave então gravaria
+     * vazio por cima do contexto real na primeira tecla.
+     *
+     * Montando o payload a partir de `c` diretamente, a comparação nasce certa.
+     */
+    rascunho.adotarDoServidor(montarPayload({
+      sobreCliente: [c.clientProfile, c.objective, c.offer].filter(Boolean).join("\n\n"),
+      regras: [c.operationalRules, ...((c.restrictions as string[]) ?? []), c.constraints]
+        .filter(Boolean).join("\n"),
+      businessType: c.businessType ?? "", ticketRange: c.ticketRange ?? "",
+      audienceAge: c.audienceAge ?? "", audienceGender: c.audienceGender ?? "",
+      audienceGeo: c.audienceGeo ?? "", audience: c.audience ?? "",
+      focusMoment: c.focusMoment ?? "", trackingNotes: c.trackingNotes ?? "",
+      conversionEvents: ((c.conversionEventsJson as string[]) ?? []).join("\n"),
+      importantPages: ((c.importantPagesJson as string[]) ?? []).join("\n"),
+      events: (c.events as Evento[]) ?? [],
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx]);
 
   const upsert = trpc.context.upsertAccount.useMutation({
@@ -159,20 +216,41 @@ export function ContextoGeralPanel({ accountId, onClose, metasSlot }: { accountI
     onError: (e) => { toast.error(e.message || "Erro ao salvar"); setSaving(false); },
   });
 
-  const linhas = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
+  /**
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Autosave — a MESMA máquina do contexto rápido
+   * ───────────────────────────────────────────────────────────────────────────
+   *  Doze campos que só iam ao banco no clique de Salvar. Trocar de aba
+   *  desmontava o painel e o trabalho sumia — a mesma perda que o contexto
+   *  rápido já não tem.
+   *
+   *  Sem toast e SEM `confirmarParaIA`: gravar rascunho não carimba
+   *  `contextoConfirmadoEm`, então o cron das 06:00 não regera por causa de
+   *  digitação. A análise só é pedida no botão de confirmar.
+   */
+  const upsertSilencioso = trpc.context.upsertAccount.useMutation();
+  const rascunho = useRascunhoDeFormulario<Record<string, unknown>>({
+    chave: accountId,
+    salvar: (v) => upsertSilencioso.mutateAsync({ accountId, ...v } as never),
+  });
+
+  const payload = useMemo(() => montarPayload({
+    sobreCliente, regras, businessType, ticketRange, audienceAge, audienceGender,
+    audienceGeo, audience, focusMoment, trackingNotes,
+    conversionEvents, importantPages, events,
+  }), [sobreCliente, regras, businessType, ticketRange, audienceAge, audienceGender,
+       audienceGeo, audience, focusMoment, events, conversionEvents, importantPages, trackingNotes]);
+
+  // Toda mudança de campo avisa a máquina. Ela decide se agenda.
+  useEffect(() => { rascunho.sincronizar(payload); }, [payload, rascunho]);
 
   function save() {
     setSaving(true);
-    upsert.mutate({
-      accountId,
-      // Canônicos (fusões) + limpeza dos redundantes para não duplicar.
-      clientProfile: sobreCliente, objective: "", offer: "",
-      operationalRules: regras, restrictions: [], constraints: "",
-      // Estruturados
-      businessType, ticketRange, audienceAge, audienceGender, audienceGeo, audience,
-      focusMoment, events,
-      conversionEventsJson: linhas(conversionEvents), importantPagesJson: linhas(importantPages), trackingNotes,
-    });
+    // O rascunho pode ter uma pausa em voo. Gravar aqui garante que a
+    // confirmação leve o texto final, e não o de meio segundo atrás.
+    rascunho.flush();
+    // `confirmarParaIA`: é o gesto explícito. O autosave nunca manda isto.
+    upsert.mutate({ accountId, ...payload, confirmarParaIA: true });
   }
 
   function addEvent() {
@@ -290,9 +368,20 @@ export function ContextoGeralPanel({ accountId, onClose, metasSlot }: { accountI
         </div>
       )}
 
-      <div className="flex justify-end mt-4 pt-3 border-t border-border/60">
-        <button onClick={save} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-60">
-          <Save className="w-4 h-4" /> {saving ? "Salvando..." : "Salvar contexto"}
+      {/*
+        O botão FICA, e mudou de significado.
+        Auditado: ele nunca gerou IA — só persistia, com toast e refetch. Com o
+        autosave, persistir deixou de ser trabalho dele. O que sobra é a única
+        coisa que a máquina não faz: dizer que ESTE contexto deve valer para a
+        próxima análise. Por isso ele carimba `contextoConfirmadoEm`, e o rótulo
+        passou a dizer o que faz.
+      */}
+      <div className="flex items-center justify-end gap-3 mt-4 pt-3 border-t border-border/60">
+        <IndicadorDeRascunho estado={rascunho.estado} />
+        <button onClick={save} disabled={saving}
+          title="Marca este contexto como o que a IA deve considerar na próxima análise"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-60">
+          <Save className="w-4 h-4" /> {saving ? "Confirmando…" : "Confirmar para a IA"}
         </button>
       </div>
     </div>
