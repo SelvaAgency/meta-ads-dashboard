@@ -89,6 +89,27 @@ export function canAccessTrackerSettings(r: unknown): boolean {
   return x === "admin" || x === "developer" || x === "coordinator";
 }
 
+/**
+ * Página Acessos: criar, editar e desativar clientes e credenciais.
+ *
+ * ── Por que é um predicado próprio, e não `canManageContent` ───────────────
+ * Pelo mesmo motivo de `canAccessTrackerSettings`: `canManageContent` governa
+ * Consumo de IA, Rascunho, Panorama, News e SelvaTV. Ampliá-la para liberar
+ * Acessos abriria as cinco de uma vez, sem ninguém ter decidido isso.
+ *
+ * Uma permissão por área é o preço de conseguir mexer numa sem mexer nas
+ * outras — e é por isso que este arquivo tem uma função por área em vez de
+ * dois níveis genéricos.
+ *
+ * ── Não é permissão administrativa ────────────────────────────────────────
+ * O coordenador ganha o que admin e dev já podiam fazer NESTA página, e nada
+ * além: `canAccessAdmin` e `canManagePeople` continuam cegos a ele.
+ */
+export function canManageAccesses(r: unknown): boolean {
+  const x = role(r);
+  return x === "admin" || x === "developer" || x === "coordinator";
+}
+
 /** Gerenciar colaboradores (CRUD, reset de senha). Somente admin. */
 export function canManagePeople(r: unknown): boolean {
   return role(r) === "admin";

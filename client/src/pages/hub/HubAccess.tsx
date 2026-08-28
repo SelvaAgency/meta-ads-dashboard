@@ -12,7 +12,7 @@ import { useState } from "react";
 import { KeyRound, Search, Plus, Building2, Star, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { canManageContent } from "@shared/permissions";
+import { canManageAccesses } from "@shared/permissions";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -69,7 +69,18 @@ function ClientCardView({ c, onOpen, highlight = false }: {
 export default function HubAccess() {
   const { user } = useAuth();
   // Só admin/developer criam/editam/excluem. Colaborador (user) só visualiza.
-  const canEdit = canManageContent((user as { role?: string } | null)?.role);
+  /**
+   * Admin, dev e coordenador — e ninguém mais.
+   *
+   * `canManageAccesses`, e não `canManageContent`: a segunda governa Consumo de
+   * IA, Panorama, Rascunho, News e SelvaTV, que seguem admin/dev. O mesmo
+   * predicado que o servidor usa em `accessProcedure` — dois critérios escritos
+   * separados divergem, e a divergência vira um botão que existe e não funciona.
+   *
+   * `canEdit` desce para os modais e governa criar, editar e desativar, tanto
+   * de clientes quanto de credenciais.
+   */
+  const canEdit = canManageAccesses((user as { role?: string } | null)?.role);
   const utils = trpc.useUtils();
   const status = trpc.access.status.useQuery(undefined, { retry: false });
   const clientsQ = trpc.access.clientsList.useQuery(undefined, { retry: false });

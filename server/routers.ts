@@ -10,7 +10,7 @@ import { analiseDesatualizada } from "@shared/contextoDaAnalise";
 import { JANELA_PAGESPEED_DIAS } from "@shared/pagespeedHistorico";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, contentProcedure, prioridadesProcedure, trackerSettingsProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, contentProcedure, prioridadesProcedure, trackerSettingsProcedure, accessProcedure, router } from "./_core/trpc";
 import { isStorageConfigured, getReadUrl, deleteObject } from "./storage/storageService";
 import { hashPassword, verifyPassword, generateTempPassword } from "./_core/oauth";
 import { encryptSecret, decryptSecret } from "./_core/integrationsCrypto";
@@ -1729,7 +1729,7 @@ export const appRouter = router({
     }),
 
     /** Remove a foto do cliente do cofre — volta para as iniciais. */
-    removerFotoCliente: contentProcedure
+    removerFotoCliente: accessProcedure
       .input(z.object({ id: z.number().int() }))
       .mutation(async ({ ctx, input }) => {
         const c = await getAccessClientById(input.id);
@@ -1739,7 +1739,7 @@ export const appRouter = router({
         return { success: true } as const;
       }),
 
-    createClient: contentProcedure
+    createClient: accessProcedure
       .input(z.object({ name: z.string().min(1).max(255) }))
       .mutation(async ({ ctx, input }) => {
         const name = input.name.trim();
@@ -1752,7 +1752,7 @@ export const appRouter = router({
         return { id };
       }),
 
-    updateClient: contentProcedure
+    updateClient: accessProcedure
       .input(z.object({ id: z.number().int(), name: z.string().min(1).max(255) }))
       .mutation(async ({ ctx, input }) => {
         await updateAccessClient(input.id, { name: input.name.trim(), updatedByUserId: ctx.user.id });
@@ -1760,7 +1760,7 @@ export const appRouter = router({
         return { success: true } as const;
       }),
 
-    deactivateClient: contentProcedure
+    deactivateClient: accessProcedure
       .input(z.object({ id: z.number().int() }))
       .mutation(async ({ ctx, input }) => {
         const client = await getAccessClientById(input.id);
@@ -1785,7 +1785,7 @@ export const appRouter = router({
         }));
       }),
 
-    createItem: contentProcedure
+    createItem: accessProcedure
       .input(z.object({
         clientId: z.number().int(),
         platform: z.string().min(1).max(120),
@@ -1819,7 +1819,7 @@ export const appRouter = router({
         return { id };
       }),
 
-    updateItem: contentProcedure
+    updateItem: accessProcedure
       .input(z.object({
         id: z.number().int(),
         platform: z.string().min(1).max(120),
@@ -1855,7 +1855,7 @@ export const appRouter = router({
         return { success: true } as const;
       }),
 
-    deactivateItem: contentProcedure
+    deactivateItem: accessProcedure
       .input(z.object({ id: z.number().int() }))
       .mutation(async ({ ctx, input }) => {
         const item = await getAccessItemById(input.id);

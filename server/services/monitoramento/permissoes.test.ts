@@ -99,14 +99,31 @@ describe("o predicado que a tela usa bate com o do servidor", () => {
 describe("as duas portas de criar cliente aceitam developer", () => {
   const fonte = () => readFileSync(join(RAIZ, "server", "routers.ts"), "utf8");
 
+  /**
+   * ── O que este teste guarda (e o que ele DEIXOU de guardar) ──────────────
+   * O 10002 nasceu de tela e servidor discordarem, e não de um valor específico
+   * de procedure. Em 25/08/2026 a porta de Acessos passou a aceitar coordenador
+   * (`accessProcedure` + `canManageAccesses`), enquanto a do Site seguiu em
+   * admin/dev — as duas continuam CASADAS, cada uma com a sua régua.
+   *
+   * Travar o nome `contextProcedure` guardaria a régua de ontem; o que importa
+   * é o par bater, e é isso que a tabela abaixo declara.
+   */
   it.each([
-    ["access.createClient", "createClient"],
-    ["monitoramento.adicionarClienteSemMidia", "adicionarClienteSemMidia"],
-  ])("%s usa contentProcedure", (_rotulo, nome) => {
+    ["access.createClient", "createClient", "accessProcedure"],
+    ["monitoramento.adicionarClienteSemMidia", "adicionarClienteSemMidia", "contentProcedure"],
+  ])("%s usa a procedure declarada", (_rotulo, nome, esperada) => {
     const m = new RegExp(`^\\s+${nome}: (\\w+Procedure)`, "m").exec(fonte());
     expect(m, `procedure ${nome} não encontrada — foi renomeada?`).not.toBeNull();
-    expect(m![1], `${nome} precisa aceitar developer`).toBe("contentProcedure");
+    expect(m![1], `${nome} mudou de régua sem o teste saber`).toBe(esperada);
   });
+
+  /** Nenhuma das duas pode voltar a ser admin-only — foi o bug original. */
+  it.each([["createClient"], ["adicionarClienteSemMidia"]])(
+    "%s nunca é adminProcedure", (nome) => {
+      const m = new RegExp(`^\\s+${nome}: (\\w+Procedure)`, "m").exec(fonte());
+      expect(m![1]).not.toBe("adminProcedure");
+    });
 
   /**
    * O outro lado: a TELA precisa oferecer o botão para as mesmas pessoas. Foi a
@@ -114,13 +131,13 @@ describe("as duas portas de criar cliente aceitam developer", () => {
    * isoladamente, e nada no compilador relaciona os dois.
    */
   it.each([
-    ["client/src/pages/Site.tsx", "podeConfigurar"],
-    ["client/src/pages/hub/HubAccess.tsx", "canEdit"],
-  ])("a tela %s decide por canManageContent", (caminho, variavel) => {
+    ["client/src/pages/Site.tsx", "podeConfigurar", "canManageContent"],
+    ["client/src/pages/hub/HubAccess.tsx", "canEdit", "canManageAccesses"],
+  ])("a tela %s decide pelo predicado da sua porta", (caminho, variavel, predicado) => {
     const tela = readFileSync(join(RAIZ, caminho), "utf8");
     const m = new RegExp(`const ${variavel} = (\\w+)\\(`).exec(tela);
     expect(m, `${variavel} não encontrada em ${caminho}`).not.toBeNull();
-    expect(m![1], "a tela precisa usar o mesmo critério do servidor").toBe("canManageContent");
+    expect(m![1], "a tela precisa usar o mesmo critério do servidor").toBe(predicado);
   });
 
   it("o predicado das telas e o guarda do servidor concordam", () => {

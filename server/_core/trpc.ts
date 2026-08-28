@@ -3,7 +3,7 @@ import { comGatilho } from "./contextoDeGatilho";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
-import { canAccessTrackerSettings, canManageContent, canManagePriorities } from "@shared/permissions";
+import { canAccessTrackerSettings, canManageAccesses, canManageContent, canManagePriorities } from "@shared/permissions";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -111,6 +111,32 @@ export const prioridadesProcedure = t.procedure.use(
         code: "FORBIDDEN",
         message: "Só Administrativo, Desenvolvedor ou Coordenador podem editar as prioridades da semana.",
       });
+    }
+    return next({ ctx: { ...ctx, user: ctx.user } });
+  }),
+).use(comAtorDaSessao);
+
+/**
+ * Página Acessos: admin, developer OU coordinator.
+ *
+ * Procedure própria em vez de ampliar `contentProcedure`, que também guarda
+ * Consumo de IA, Rascunho, News e SelvaTV — ampliá-la abriria as quatro de uma
+ * vez.
+ *
+ * A regra vem de `canManageAccesses`, a MESMA função que a tela usa para
+ * mostrar os botões. Dois critérios escritos separados divergem, e a
+ * divergência aparece como um botão que existe e não funciona.
+ */
+export const accessProcedure = t.procedure.use(
+  t.middleware(async ({ ctx, next }) => {
+    if (!ctx.user) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+    if (ctx.user.mustChangePassword) {
+      throw new TRPCError({ code: "FORBIDDEN", message: PASSWORD_CHANGE_REQUIRED });
+    }
+    if (!canManageAccesses(ctx.user.role)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
     return next({ ctx: { ...ctx, user: ctx.user } });
   }),
