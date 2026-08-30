@@ -308,6 +308,15 @@ import {
   gerarMesRecorrente,
   recorrenciaStatusMes,
   createDespesaRecorrencia,
+  criarTrilhaOnboarding,
+  trilhaOnboardingDoUsuario,
+  visaoAdminOnboarding,
+  marcarItemOnboarding,
+  salvarNotaOnboarding,
+  compartilharNotaOnboarding,
+  excluirNotaOnboarding,
+  arquivarTrilhaOnboarding,
+  atualizarInicioOnboarding,
   deleteRecorrencia,
   lancarDespesaRecorrenteNoMes,
   createReceitaRecorrencia,
@@ -7763,6 +7772,66 @@ Responda APENAS com JSON válido, sem markdown, no formato exato:
         return JSON.parse(text.replace(/```json|```/g, '').trim());
       }),
   }),
+  /**
+   * ─── Onboarding ─────────────────────────────────────────────────────────
+   *  A pessoa lê e escreve a PRÓPRIA trilha; o admin cria, acompanha e vê o
+   *  que falta de acesso. As duas coisas não se misturam: nenhuma rota daqui
+   *  deixa o admin ler uma nota que a pessoa não compartilhou — a separação
+   *  está na consulta (visaoAdminOnboarding), e estas rotas só a preservam.
+   *
+   *  O dono NUNCA vem do input: sai sempre de ctx.user.id, como nos reembolsos.
+   */
+  onboarding: router({
+    minha: protectedProcedure.query(({ ctx }) => trilhaOnboardingDoUsuario(ctx.user.id)),
+
+    marcarItem: protectedProcedure
+      .input(z.object({ id: z.number().int(), feito: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        await marcarItemOnboarding(input.id, input.feito, { userId: ctx.user.id, admin: canAccessAdmin(ctx.user.role) });
+        return { success: true } as const;
+      }),
+
+    salvarNota: protectedProcedure
+      .input(z.object({ id: z.number().int().optional(), trilhaId: z.number().int(), tipo: z.enum(["REGISTRO", "RESPOSTA"]), pergunta: z.string().max(255).nullable().optional(), texto: z.string().min(1).max(20000) }))
+      .mutation(async ({ ctx, input }) => ({ id: await salvarNotaOnboarding(input, ctx.user.id) })),
+
+    compartilharNota: protectedProcedure
+      .input(z.object({ id: z.number().int(), compartilhado: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        await compartilharNotaOnboarding(input.id, input.compartilhado, ctx.user.id);
+        return { success: true } as const;
+      }),
+
+    excluirNota: protectedProcedure
+      .input(z.object({ id: z.number().int() }))
+      .mutation(async ({ ctx, input }) => {
+        await excluirNotaOnboarding(input.id, ctx.user.id);
+        return { success: true } as const;
+      }),
+
+    // ── Administração da trilha ────────────────────────────────────────────
+    lista: adminProcedure.query(() => visaoAdminOnboarding()),
+
+    criar: adminProcedure
+      .input(z.object({ userId: z.number().int(), dataInicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "data deve ser AAAA-MM-DD"), modelo: z.string().max(24).optional() }))
+      .mutation(({ input }) => criarTrilhaOnboarding(input)),
+
+    definirInicio: adminProcedure
+      .input(z.object({ trilhaId: z.number().int(), dataInicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "data deve ser AAAA-MM-DD") }))
+      .mutation(async ({ input }) => {
+        await atualizarInicioOnboarding(input.trilhaId, input.dataInicio);
+        return { success: true } as const;
+      }),
+
+    /** Arquiva, não apaga: o que a pessoa escreveu não some por decisão de outro. */
+    arquivar: adminProcedure
+      .input(z.object({ trilhaId: z.number().int() }))
+      .mutation(async ({ input }) => {
+        await arquivarTrilhaOnboarding(input.trilhaId);
+        return { success: true } as const;
+      }),
+  }),
+
   finance: financeRouter,
   context: contextRouter,
 });

@@ -32,6 +32,7 @@ import ExperimentDetail from "./pages/ExperimentDetail";
 import Hub from "./pages/hub/Hub";
 import HubAccess from "./pages/hub/HubAccess";
 import NotificacoesPage from "./pages/hub/NotificacoesPage";
+import OnboardingPage from "./pages/Onboarding";
 import Site from "./pages/Site";
 import Panorama from "@/pages/Panorama";
 import HubApp from "./pages/hub/HubApp";
@@ -118,6 +119,10 @@ function Router() {
       <Route path="/settings" component={SettingsRoute} />
       <Route path="/access" component={HubAccess} />
       <Route path="/notificacoes" component={NotificacoesPage} />
+      {/* A própria página decide o que mostrar: a trilha de quem entra, ou o
+          acompanhamento para o administrativo. Sem trilha e sem papel, é um
+          aviso — e não um 404, que faria parecer erro. */}
+      <Route path="/onboarding" component={OnboardingPage} />
       <Route path="/people" component={() => <AdminOnly><PeoplePage /></AdminOnly>} />
       {/* Prévia do Jornalzinho — admin/dev. O developer precisa conferir o
           e-mail dele e o do colaborador; a visão ADMIN (que carrega o

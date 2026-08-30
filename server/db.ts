@@ -7068,3 +7068,148 @@ export async function consumoDeIA(inicio: string, fim: string) {
 }
 
 
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Onboarding — trilha de entrada de um colaborador
+// ═════════════════════════════════════════════════════════════════════════════
+//  A regra que atravessa todas as funções daqui: o CADERNO é da pessoa. Admin
+//  vê progresso e acessos pendentes — nunca uma nota que não foi compartilhada.
+//  Por isso a leitura tem duas portas separadas (`trilhaOnboardingDoUsuario` e
+//  `visaoAdminOnboarding`) em vez de uma função com flag: uma porta só, com um
+//  `if`, é uma linha de distância entre "privado" e vazado.
+import { onboardingTrilhas, onboardingItens, onboardingNotas } from "../drizzle/schema";
+import { SEED_ACESSOS, SEED_SEMANA1 } from "@shared/onboarding";
+
+/** Cria a trilha e já materializa os itens marcáveis. Idempotente por usuário. */
+export async function criarTrilhaOnboarding(data: { userId: number; dataInicio: string; modelo?: string }): Promise<{ id: number; jaExistia: boolean }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const [jaTem] = await db.select().from(onboardingTrilhas)
+    .where(and(eq(onboardingTrilhas.userId, data.userId), ne(onboardingTrilhas.status, "ARQUIVADA"))).limit(1);
+  if (jaTem) return { id: jaTem.id, jaExistia: true };
+  const [row] = await db.insert(onboardingTrilhas).values({
+    userId: data.userId, dataInicio: data.dataInicio, modelo: data.modelo ?? "gtm", status: "ATIVA",
+  }).$returningId();
+  // O texto é copiado para a linha — ver o comentário da tabela em drizzle/schema.
+  const itens = [
+    ...SEED_ACESSOS.map((titulo, i) => ({ trilhaId: row.id, bloco: "ACESSO", titulo, descricao: null, ordem: i })),
+    ...SEED_SEMANA1.map((m, i) => ({ trilhaId: row.id, bloco: "SEMANA1", titulo: m.titulo, descricao: m.descricao, ordem: i })),
+  ];
+  if (itens.length) await db.insert(onboardingItens).values(itens);
+  return { id: row.id, jaExistia: false };
+}
+
+/** A trilha de quem está pedindo — com as notas dela, compartilhadas ou não. */
+export async function trilhaOnboardingDoUsuario(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [trilha] = await db.select().from(onboardingTrilhas)
+    .where(and(eq(onboardingTrilhas.userId, userId), ne(onboardingTrilhas.status, "ARQUIVADA"))).limit(1);
+  if (!trilha) return null;
+  const [itens, notas] = await Promise.all([
+    db.select().from(onboardingItens).where(eq(onboardingItens.trilhaId, trilha.id)).orderBy(onboardingItens.bloco, onboardingItens.ordem),
+    db.select().from(onboardingNotas).where(eq(onboardingNotas.trilhaId, trilha.id)).orderBy(desc(onboardingNotas.createdAt)),
+  ]);
+  return { trilha, itens, notas };
+}
+
+/** A trilha de UMA pessoa para o admin — progresso e itens, sem nota privada. */
+export async function visaoAdminOnboarding() {
+  const db = await getDb();
+  if (!db) return [] as { trilha: typeof onboardingTrilhas.$inferSelect; pessoa: { id: number; name: string | null; avatarKey: string | null }; itens: (typeof onboardingItens.$inferSelect)[]; notasCompartilhadas: (typeof onboardingNotas.$inferSelect)[] }[];
+  const trilhas = await db.select().from(onboardingTrilhas).where(ne(onboardingTrilhas.status, "ARQUIVADA")).orderBy(desc(onboardingTrilhas.createdAt));
+  if (!trilhas.length) return [];
+  const ids = trilhas.map((t) => t.id);
+  const [itens, notas, pessoas] = await Promise.all([
+    db.select().from(onboardingItens).where(inArray(onboardingItens.trilhaId, ids)).orderBy(onboardingItens.bloco, onboardingItens.ordem),
+    // SÓ as compartilhadas. O filtro é da consulta, não da tela.
+    db.select().from(onboardingNotas).where(and(inArray(onboardingNotas.trilhaId, ids), eq(onboardingNotas.compartilhado, true))).orderBy(desc(onboardingNotas.compartilhadoEm)),
+    db.select({ id: users.id, name: users.name, avatarKey: users.avatarKey }).from(users).where(inArray(users.id, trilhas.map((t) => t.userId))),
+  ]);
+  const pmap = new Map(pessoas.map((p) => [p.id, p]));
+  return trilhas.map((trilha) => ({
+    trilha,
+    pessoa: pmap.get(trilha.userId) ?? { id: trilha.userId, name: null, avatarKey: null },
+    itens: itens.filter((i) => i.trilhaId === trilha.id),
+    notasCompartilhadas: notas.filter((n) => n.trilhaId === trilha.id),
+  }));
+}
+
+/** Quem pode mexer nesta trilha: a dona ou um admin. Devolve a trilha ou lança. */
+async function trilhaPermitida(trilhaId: number, acesso: { userId: number; admin: boolean }) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const [trilha] = await db.select().from(onboardingTrilhas).where(eq(onboardingTrilhas.id, trilhaId)).limit(1);
+  if (!trilha) throw new Error("Trilha não encontrada");
+  if (!acesso.admin && trilha.userId !== acesso.userId) throw new Error("Esta trilha não é sua.");
+  return trilha;
+}
+
+/** Marca/desmarca um item. Os dois lados marcam — metade dos acessos é da Selva. */
+export async function marcarItemOnboarding(itemId: number, feito: boolean, acesso: { userId: number; admin: boolean }) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const [item] = await db.select().from(onboardingItens).where(eq(onboardingItens.id, itemId)).limit(1);
+  if (!item) throw new Error("Item não encontrado");
+  await trilhaPermitida(item.trilhaId, acesso);
+  await db.update(onboardingItens)
+    .set({ feito, feitoPor: feito ? acesso.userId : null, feitoEm: feito ? new Date() : null })
+    .where(eq(onboardingItens.id, itemId));
+}
+
+/**
+ * Escreve no caderno. Só a dona escreve — nem admin.
+ *
+ * Um caderno onde outra pessoa pode escrever deixa de ser caderno: a pessoa
+ * passa a ler as próprias anotações sem saber quais são dela.
+ */
+export async function salvarNotaOnboarding(data: { id?: number; trilhaId: number; tipo: "REGISTRO" | "RESPOSTA"; pergunta?: string | null; texto: string }, userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const trilha = await trilhaPermitida(data.trilhaId, { userId, admin: false });
+  if (data.id != null) {
+    const [nota] = await db.select().from(onboardingNotas).where(eq(onboardingNotas.id, data.id)).limit(1);
+    if (!nota || nota.trilhaId !== trilha.id) throw new Error("Nota não encontrada");
+    await db.update(onboardingNotas).set({ texto: data.texto }).where(eq(onboardingNotas.id, data.id));
+    return data.id;
+  }
+  const [row] = await db.insert(onboardingNotas).values({
+    trilhaId: trilha.id, tipo: data.tipo, pergunta: data.pergunta ?? null, texto: data.texto,
+  }).$returningId();
+  return row.id;
+}
+
+/** Levar (ou tirar) uma anotação do 1:1 — a única forma de o admin ler uma nota. */
+export async function compartilharNotaOnboarding(id: number, compartilhado: boolean, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const [nota] = await db.select().from(onboardingNotas).where(eq(onboardingNotas.id, id)).limit(1);
+  if (!nota) throw new Error("Nota não encontrada");
+  await trilhaPermitida(nota.trilhaId, { userId, admin: false });
+  await db.update(onboardingNotas)
+    .set({ compartilhado, compartilhadoEm: compartilhado ? new Date() : null })
+    .where(eq(onboardingNotas.id, id));
+}
+
+export async function excluirNotaOnboarding(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  const [nota] = await db.select().from(onboardingNotas).where(eq(onboardingNotas.id, id)).limit(1);
+  if (!nota) return;
+  await trilhaPermitida(nota.trilhaId, { userId, admin: false });
+  await db.delete(onboardingNotas).where(eq(onboardingNotas.id, id));
+}
+
+/** Arquiva — não apaga. O que a pessoa escreveu não some por decisão de outro. */
+export async function arquivarTrilhaOnboarding(trilhaId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(onboardingTrilhas).set({ status: "ARQUIVADA" }).where(eq(onboardingTrilhas.id, trilhaId));
+}
+
+/** Muda o primeiro dia — os checkpoints são derivados, então todos andam junto. */
+export async function atualizarInicioOnboarding(trilhaId: number, dataInicio: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB indisponível");
+  await db.update(onboardingTrilhas).set({ dataInicio }).where(eq(onboardingTrilhas.id, trilhaId));
+}

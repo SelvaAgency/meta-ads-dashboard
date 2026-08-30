@@ -1678,6 +1678,60 @@ async function main() {
       }
     }
 
+    // ── Onboarding: a trilha de entrada de um colaborador ─────────────────
+    //
+    // O texto das seções NÃO vive aqui — é dado tipado em shared/onboarding.ts,
+    // versionado no git. Estas tabelas guardam só o que é da pessoa: o que ela
+    // marcou e o que ela escreveu.
+    passo("onboarding");
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`onboarding_trilhas\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`userId\` INT NOT NULL,
+      \`modelo\` VARCHAR(24) NOT NULL DEFAULT 'gtm',
+      \`dataInicio\` VARCHAR(10) NOT NULL,
+      \`status\` VARCHAR(12) NOT NULL DEFAULT 'ATIVA',
+      \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      KEY \`idx_ob_trilha_user\` (\`userId\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · onboarding_trilhas garantida");
+
+    // Título copiado, e não referência ao seed por índice: o conteúdo de
+    // shared/ vai ser reescrito, e uma trilha em andamento não pode ver seus
+    // itens trocarem de significado no meio do caminho.
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`onboarding_itens\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`trilhaId\` INT NOT NULL,
+      \`bloco\` VARCHAR(16) NOT NULL,
+      \`titulo\` VARCHAR(200) NOT NULL,
+      \`descricao\` TEXT NULL,
+      \`ordem\` INT NOT NULL DEFAULT 0,
+      \`feito\` BOOLEAN NOT NULL DEFAULT 0,
+      \`feitoPor\` INT NULL,
+      \`feitoEm\` TIMESTAMP NULL,
+      PRIMARY KEY (\`id\`),
+      KEY \`idx_ob_item_trilha\` (\`trilhaId\`, \`bloco\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · onboarding_itens garantida");
+
+    // `compartilhado` é a regra inteira da privacidade do caderno: nasce falso,
+    // e só a própria pessoa lê o que está falso.
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`onboarding_notas\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`trilhaId\` INT NOT NULL,
+      \`tipo\` VARCHAR(12) NOT NULL,
+      \`pergunta\` VARCHAR(255) NULL,
+      \`texto\` TEXT NOT NULL,
+      \`compartilhado\` BOOLEAN NOT NULL DEFAULT 0,
+      \`compartilhadoEm\` TIMESTAMP NULL,
+      \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      KEY \`idx_ob_nota_trilha\` (\`trilhaId\`, \`tipo\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · onboarding_notas garantida");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

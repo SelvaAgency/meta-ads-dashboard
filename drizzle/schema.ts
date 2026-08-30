@@ -2067,3 +2067,81 @@ export const aiGeracoes = mysqlTable("ai_geracoes", {
   idxConta: index("idx_ai_geracoes_conta").on(table.accountId, table.criadoEm),
   idxGatilho: index("idx_ai_geracoes_gatilho").on(table.triggerType, table.criadoEm),
 }));
+
+// ─── Onboarding (trilha de entrada de um colaborador) ────────────────────────
+//
+// Três tabelas e uma regra de leitura. O CONTEÚDO das seções não mora aqui: ele
+// é dado tipado em shared/onboarding.ts, versionado no git como o resto do
+// texto do produto. O banco guarda só o que é da PESSOA — o que ela marcou e o
+// que ela escreveu —, que é justamente o que um PDF não guarda.
+
+export const onboardingTrilhas = mysqlTable("onboarding_trilhas", {
+  id: int("id").autoincrement().primaryKey(),
+  /** `users.id`. Sem FK física, como o resto da base. */
+  userId: int("userId").notNull(),
+  /**
+   * Qual conteúdo de leitura carregar (`gtm` hoje). É a costura com
+   * shared/onboarding.ts: quando existir a trilha de outra área, muda aqui.
+   */
+  modelo: varchar("modelo", { length: 24 }).default("gtm").notNull(),
+  /** Primeiro dia, `AAAA-MM-DD`. Texto de propósito: é chave, não instante. */
+  dataInicio: varchar("dataInicio", { length: 10 }).notNull(),
+  /** `ATIVA` | `CONCLUIDA` | `ARQUIVADA`. */
+  status: varchar("status", { length: 12 }).default("ATIVA").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxUser: index("idx_ob_trilha_user").on(table.userId),
+}));
+export type OnboardingTrilha = typeof onboardingTrilhas.$inferSelect;
+
+/**
+ * Itens marcáveis: o checklist de acessos e os marcos da primeira semana.
+ *
+ * O texto é COPIADO para a linha em vez de referenciar o seed por índice: o
+ * conteúdo de shared/ vai ser reescrito, e uma trilha em andamento não pode ver
+ * seus itens trocarem de significado no meio do caminho.
+ */
+export const onboardingItens = mysqlTable("onboarding_itens", {
+  id: int("id").autoincrement().primaryKey(),
+  trilhaId: int("trilhaId").notNull(),
+  /** `ACESSO` | `SEMANA1`. */
+  bloco: varchar("bloco", { length: 16 }).notNull(),
+  titulo: varchar("titulo", { length: 200 }).notNull(),
+  descricao: text("descricao"),
+  ordem: int("ordem").default(0).notNull(),
+  feito: boolean("feito").default(false).notNull(),
+  /** Quem marcou — metade dos acessos é responsabilidade da Selva, não da pessoa. */
+  feitoPor: int("feitoPor"),
+  feitoEm: timestamp("feitoEm"),
+}, (table) => ({
+  idxTrilha: index("idx_ob_item_trilha").on(table.trilhaId, table.bloco),
+}));
+export type OnboardingItem = typeof onboardingItens.$inferSelect;
+
+/**
+ * O caderno e as respostas de 1:1 — o que a pessoa escreve.
+ *
+ * `compartilhado` é a regra inteira da privacidade: nasce falso, e só a própria
+ * pessoa lê o que está falso. Sem isso ela escreve o que é seguro escrever, e o
+ * caderno perde a única razão de existir.
+ */
+export const onboardingNotas = mysqlTable("onboarding_notas", {
+  id: int("id").autoincrement().primaryKey(),
+  trilhaId: int("trilhaId").notNull(),
+  /** `REGISTRO` (caderno livre) | `RESPOSTA` (a uma pergunta de 1:1). */
+  tipo: varchar("tipo", { length: 12 }).notNull(),
+  /**
+   * O enunciado da pergunta, copiado. Mesma razão do título do item: a lista de
+   * perguntas muda, e uma resposta órfã de pergunta não significa nada.
+   */
+  pergunta: varchar("pergunta", { length: 255 }),
+  texto: text("texto").notNull(),
+  compartilhado: boolean("compartilhado").default(false).notNull(),
+  compartilhadoEm: timestamp("compartilhadoEm"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxTrilha: index("idx_ob_nota_trilha").on(table.trilhaId, table.tipo),
+}));
+export type OnboardingNota = typeof onboardingNotas.$inferSelect;

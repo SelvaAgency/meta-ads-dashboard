@@ -362,8 +362,21 @@ export function HubSidebar({ mobile }: { mobile?: MenuMobileControles }) {
   // Administrativo não some mais para não-admin: aparece com cadeado. Saber que
   // a área existe (e que não é para você) é diferente de achar que ela não existe.
   const groups = NAV_GROUPS;
+  /**
+   * Onboarding só aparece para quem TEM uma trilha aberta (e para o admin, que
+   * acompanha as dos outros). É o único item da sidebar gated por dado e não
+   * por papel: onboarding é um período, não um cargo, e some sozinho quando a
+   * trilha é arquivada.
+   *
+   * A query é a MESMA da página — react-query devolve do cache quando ela
+   * abre, então isto não é uma ida a mais ao servidor por navegação.
+   */
+  const trilha = trpc.onboarding.minha.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const temOnboarding = !!trilha.data || isAdmin;
   // Notificações é "Em breve" para todos (placeholder sem destino), igual Tarefas.
-  const navGlobal: NavItem[] = NAV_GLOBAL;
+  const navGlobal: NavItem[] = temOnboarding
+    ? [NAV_GLOBAL[0], { label: "Onboarding", icon: Sparkles, kind: "internal", href: "/onboarding" }, ...NAV_GLOBAL.slice(1)]
+    : NAV_GLOBAL;
   // Sem ponteiro fino (celular/tablet), hover não existe — ver usePonteiroFino.
   const hoverVale = usePonteiroFino();
   const [hovering, setHovering] = useState(false);
