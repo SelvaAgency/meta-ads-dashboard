@@ -170,3 +170,45 @@ describe("o coletor não inventa zero", () => {
     expect(auto).toMatch(/agendado\(\s*\n?\s*"rodarColetaLinkedIn"/);
   });
 });
+
+describe("o nome da Página vem da API, nunca do cliente", () => {
+  it("a descoberta tem TRÊS fontes de nome, e a terceira é a que a Fase 0 provou", () => {
+    // A ACL versionada não devolve nome nenhum; a legada só devolve quando a
+    // decoração `organizationalTarget~` é aceita. `/rest/organizations` é o
+    // endpoint que entrega `localizedName` — sem ele, Página recusada pela
+    // decoração ficava como número para sempre.
+    const fonte = semComentarios(ler("server/services/linkedinApi.ts"));
+    expect(fonte).toContain("organizationalTarget~(id,localizedName,vanityName)");
+    expect(fonte).toMatch(/const anonimas = paginas\.filter\(\(p\) => !p\.nome\)/);
+    expect(fonte).toContain("await organizacao(ctx, p.id)");
+    expect(fonte).toContain("semNome:");
+  });
+
+  it("o coletor GRAVA o nome que busca", () => {
+    // Ele já pagava a chamada de `/rest/organizations` e jogava o
+    // `localizedName` dentro de `organizacaoJson`. Buscar e não gravar é pior
+    // que não buscar: o vínculo mostrava o número da organização para sempre,
+    // mesmo depois de uma sincronização bem-sucedida.
+    const fonte = semComentarios(ler("server/services/coletaLinkedIn.ts"));
+    expect(fonte).toContain("nomeDaOrg = String(r.dados.localizedName)");
+    const update = fonte.slice(fonte.indexOf("db.update(linkedinPages).set({"));
+    expect(update.slice(0, 400)).toContain("nome: nomeDaOrg");
+  });
+
+  it("NUNCA cai para o nome do cliente", () => {
+    // O vínculo é `cliente → organizationUrn`. Usar um para nomear o outro
+    // inventaria uma identidade que a API não deu.
+    const pagina = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(pagina).toContain("Nome não disponível");
+    expect(pagina).not.toMatch(/nome\s*\?\?\s*[a-z]*[Cc]liente/);
+    expect(pagina).not.toMatch(/nome\s*\?\?\s*\w*\.accountName/);
+  });
+
+  it("a identidade continua sendo o URN", () => {
+    const rotulo = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    // O nome é rótulo; quem grava e quem casa é o URN.
+    expect(rotulo).toContain("organizationUrn: p.urn");
+    const router = semComentarios(ler("server/routers.ts"));
+    expect(blocoDoLab(router)).toContain("organizationUrn: input.organizationUrn");
+  });
+});

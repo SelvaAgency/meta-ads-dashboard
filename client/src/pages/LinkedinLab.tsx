@@ -51,6 +51,18 @@ import {
 } from "@shared/linkedinLab";
 import { JANELA_HISTORICA_DIAS, projecaoDeFrota } from "@shared/linkedinPlanoDeColeta";
 
+/**
+ * O rótulo de uma Página — nome primeiro, sempre.
+ *
+ * Quando o LinkedIn não entrega o nome (a decoração da ACL falha nas Páginas
+ * que ele recusa, e `/rest/organizations` responde 403 nelas), a tela DIZ que
+ * não há nome. Ela nunca cai para o nome do cliente: o vínculo é
+ * `cliente → organizationUrn`, e usar um para nomear o outro inventaria uma
+ * identidade que a API não deu.
+ */
+const rotuloDaPagina = (p: { nome?: string | null; organizationId?: string }) =>
+  p.nome ?? `Nome não disponível · ${p.organizationId ?? ""}`;
+
 /* ── utilitários de formatação ─────────────────────────────────────────── */
 const fmt = (n: number) => n.toLocaleString("pt-BR");
 const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
@@ -298,7 +310,10 @@ export default function LinkedinLab() {
 function Cabecalho({
   vinculos, ativo, aoTrocar, dias, aoTrocarPeriodo, status, papeis, carregando, onSincronizado,
 }: {
-  vinculos: Array<{ id: number; nome: string | null; organizationId: string; capacidade: string }>;
+  vinculos: Array<{
+    id: number; nome: string | null; vanityName: string | null;
+    organizationId: string; organizationUrn: string; capacidade: string;
+  }>;
   ativo: number | null;
   aoTrocar: (id: number) => void;
   dias: number;
@@ -310,6 +325,7 @@ function Cabecalho({
 }) {
   const vivos = cargosVivos(papeis);
   const principal = cargoPrincipal(papeis);
+  const escolhida = vinculos.find((v) => v.id === ativo) ?? null;
 
   return (
     <header className="border-b border-border bg-card/40">
@@ -340,7 +356,7 @@ function Cabecalho({
             >
               {!vinculos.length && <option value="">nenhuma Página vinculada</option>}
               {vinculos.map((v) => (
-                <option key={v.id} value={v.id}>{v.nome ?? v.organizationId}</option>
+                <option key={v.id} value={v.id}>{rotuloDaPagina(v)}</option>
               ))}
             </select>
           </label>
@@ -357,6 +373,20 @@ function Cabecalho({
               ))}
             </select>
           </label>
+
+          {/* O URN fica logo abaixo do nome: técnico e importante, mas
+              secundário — a pessoa escolhe pelo nome e confere pelo URN. */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Identificação</span>
+            <div className="h-8 flex flex-col justify-center leading-tight">
+              <span className="text-[11px] font-mono text-muted-foreground break-all">
+                {escolhida?.organizationUrn ?? "—"}
+              </span>
+              {escolhida?.vanityName && (
+                <span className="text-[10px] text-muted-foreground/70">/{escolhida.vanityName}</span>
+              )}
+            </div>
+          </div>
 
           <div className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Conexão</span>
@@ -448,12 +478,17 @@ function SemVinculo({ aoVincular }: { aoVincular: () => void }) {
     id: string; urn: string; nome: string | null; vanity: string | null;
     papeis: Array<{ papel: string; estado: string }>;
   }> | null>(null);
+  const [semNome, setSemNome] = useState(0);
 
   const clientesQ = trpc.accounts.list.useQuery(undefined, { refetchOnWindowFocus: false });
   const descobrir = trpc.social.linkedinLab.descobrir.useMutation({
     onSuccess: (r) => {
       setPaginas(r.paginas);
-      toast.success(`${r.paginas.length} Página(s) na carteira`, { description: `${r.chamadas} chamadas` });
+      setSemNome(r.semNome);
+      toast.success(`${r.paginas.length} Página(s) na carteira`, {
+        description: `${r.chamadas} chamadas`
+          + (r.semNome ? ` · ${r.semNome} sem nome (o LinkedIn recusou a identidade)` : ""),
+      });
     },
     onError: (e) => toast.error("Não foi possível ler a carteira.", { description: e.message }),
   });
@@ -483,9 +518,27 @@ function SemVinculo({ aoVincular }: { aoVincular: () => void }) {
           {descobrir.isPending
             ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
             : <Search className="w-3.5 h-3.5 mr-1.5" />}
-          Ler carteira do LinkedIn <span className="ml-1.5 opacity-70">~2</span>
+          Ler carteira do LinkedIn
+          <span className="ml-1.5 opacity-70" title="2 chamadas de ACL + 1 por Página que vier sem nome">
+            ~2+
+          </span>
         </Button>
       </div>
+
+      {paginas && semNome > 0 && (
+        // Dito, e não escondido: o número ali não é um nome, e a pessoa precisa
+        // saber por quê antes de vincular às cegas.
+        <p className="text-[12px] text-muted-foreground flex items-start gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-amber-600 flex-shrink-0" />
+          <span>
+            {semNome} Página(s) sem nome. A ACL devolve a identidade só quando o
+            LinkedIn deixa ler a organização — nas Páginas que ele recusa, vem
+            <code className="mx-1 px-1 rounded bg-muted font-mono text-[11px]">organizationalTarget!</code>
+            e <code className="mx-1 px-1 rounded bg-muted font-mono text-[11px]">/rest/organizations</code>
+            responde 403. O Spaces não substitui isso pelo nome do cliente.
+          </span>
+        </p>
+      )}
 
       {paginas && (
         <div className="overflow-x-auto">
@@ -493,7 +546,7 @@ function SemVinculo({ aoVincular }: { aoVincular: () => void }) {
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
                 <th className="text-left py-2 pr-3">Página</th>
-                <th className="text-left py-2 pr-3">URN</th>
+                <th className="text-left py-2 pr-3">ID / URN</th>
                 <th className="text-left py-2 pr-3">Cargos</th>
                 <th className="py-2" />
               </tr>
@@ -503,8 +556,27 @@ function SemVinculo({ aoVincular }: { aoVincular: () => void }) {
                 const vivo = p.papeis.some((x) => x.estado === "APPROVED");
                 return (
                   <tr key={p.id} className="border-t border-border/60">
-                    <td className="py-2 pr-3 font-medium">{p.nome ?? p.id}</td>
-                    <td className="py-2 pr-3 font-mono text-[11px] text-muted-foreground">{p.urn}</td>
+                    <td className="py-2 pr-3">
+                      <div className="flex flex-col leading-tight min-w-0">
+                        <span className={`font-medium ${p.nome ? "" : "text-muted-foreground italic"}`}>
+                          {p.nome ?? "Nome não disponível"}
+                        </span>
+                        {p.vanity && (
+                          <span className="text-[10.5px] text-muted-foreground/70">/{p.vanity}</span>
+                        )}
+                        {!p.nome && (
+                          <span className="text-[10px] text-muted-foreground/60">
+                            o LinkedIn recusou a identidade desta organização
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-2 pr-3">
+                      <div className="flex flex-col leading-tight font-mono text-[11px] text-muted-foreground">
+                        <span>{p.id}</span>
+                        <span className="text-[10px] text-muted-foreground/60 break-all">{p.urn}</span>
+                      </div>
+                    </td>
                     <td className="py-2 pr-3">
                       <div className="flex gap-1 flex-wrap">
                         {p.papeis.map((x) => (

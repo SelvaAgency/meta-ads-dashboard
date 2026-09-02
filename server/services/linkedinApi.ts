@@ -78,8 +78,8 @@ export interface PaginaDescoberta {
  * o NOME junto. Sem ela o laboratório mostraria números de organização no lugar
  * dos clientes — foi o que aconteceu na rodada 4 da sondagem.
  */
-export async function descobrirPaginas(ctx: Ctx): Promise<{
-  paginas: PaginaDescoberta[]; ok: boolean; erro: string | null;
+export async function descobrirPaginas(ctx: Ctx, tetoDeNomes = 25): Promise<{
+  paginas: PaginaDescoberta[]; ok: boolean; erro: string | null; semNome: number;
 }> {
   const paginas: PaginaDescoberta[] = [];
   const absorver = (els: Array<Record<string, unknown>>) => {
@@ -124,10 +124,33 @@ export async function descobrirPaginas(ctx: Ctx): Promise<{
     });
   absorver(legada.dados?.elements ?? []);
 
+  // ── Terceira fonte do NOME ────────────────────────────────────────────
+  //
+  // A ACL versionada não devolve nome nenhum (`roleAssignee, state,
+  // lastModified, role, created, organization`), e a legada só devolve quando a
+  // decoração `organizationalTarget~` é aceita — nas Páginas que o LinkedIn
+  // recusa, ele responde `organizationalTarget!` e a Página entra sem nome.
+  //
+  // `/rest/organizations/{id}` é o endpoint que a Fase 0 provou entregar
+  // `localizedName` e `vanityName`. Uma chamada por Página anônima, com teto —
+  // é o preço de não mostrar número no lugar do cliente.
+  //
+  // Onde ele também recusar (403 `ADMIN_ONLY VisibilityReduction`), a Página
+  // continua sem nome, e a tela DIZ isso. Nunca cai para o nome do cliente:
+  // seria inventar identidade a partir de outra coisa.
+  const anonimas = paginas.filter((p) => !p.nome).slice(0, tetoDeNomes);
+  for (const p of anonimas) {
+    const r = await organizacao(ctx, p.id);
+    if (!r.ok || !r.dados) continue;
+    if (r.dados.localizedName) p.nome = String(r.dados.localizedName);
+    if (r.dados.vanityName) p.vanity = String(r.dados.vanityName);
+  }
+
   return {
     paginas,
     ok: versionada.ok || legada.ok,
     erro: versionada.ok || legada.ok ? null : (versionada.erro ?? legada.erro),
+    semNome: paginas.filter((p) => !p.nome).length,
   };
 }
 

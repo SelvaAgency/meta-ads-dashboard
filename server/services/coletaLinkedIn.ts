@@ -273,10 +273,22 @@ export async function coletarPaginaLinkedIn(o: OpcoesDeColeta): Promise<Resultad
 
   /* ── Página ─────────────────────────────────────────────────────────── */
   let organizacaoJson: unknown = null;
+  /**
+   * O nome vindo dos detalhes.
+   *
+   * A coleta já buscava `localizedName` e o jogava dentro de
+   * `organizacaoJson` — e o vínculo continuava mostrando o número da
+   * organização para sempre, mesmo depois de uma sincronização bem-sucedida.
+   * Buscar e não gravar é pior que não buscar: paga a chamada e não resolve.
+   */
+  let nomeDaOrg: string | null = null;
+  let vanityDaOrg: string | null = null;
   if (semanal) {
     const antes = contador.chamadas;
     const r = await api.organizacao(ctx, o.alvo.organizationId);
     organizacaoJson = r.dados ?? null;
+    if (r.dados?.localizedName) nomeDaOrg = String(r.dados.localizedName);
+    if (r.dados?.vanityName) vanityDaOrg = String(r.dados.vanityName);
     anotar(mapa, "pagina", r, false, agora);
     marcar("detalhes da organização", r, false,
       r.dados?.localizedName ? String(r.dados.localizedName) : "ok", antes);
@@ -613,6 +625,11 @@ export async function coletarPaginaLinkedIn(o: OpcoesDeColeta): Promise<Resultad
 
   if (db) {
     await db.update(linkedinPages).set({
+      // O nome é informação VISUAL — a identidade continua sendo o URN, e ela
+      // não muda aqui. Reescrever a cada coleta é o que faz uma Página
+      // renomeada no LinkedIn aparecer renomeada no Spaces.
+      ...(nomeDaOrg ? { nome: nomeDaOrg } : {}),
+      ...(vanityDaOrg ? { vanityName: vanityDaOrg } : {}),
       capacidade: status,
       capacidadeDetalheJson: mapa as never,
       ultimaColetaEm: agora,
