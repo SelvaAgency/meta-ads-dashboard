@@ -1410,9 +1410,23 @@ function CartaoDePublicacao({ p, aoAbrir, melhor = false }: {
         ) : (
           // Ausência NUNCA é silenciosa: a caixa diz que não houve imagem, e o
           // motivo técnico fica no hover.
-          <div className="flex flex-col items-center gap-1 text-muted-foreground/25"
-            title={img.motivo ?? undefined}>
-            <ImgIcon className="w-8 h-8" />
+          /* O placeholder DIZ por quê.
+             Na Social o thumbnail quase sempre existe, e o ícone mudo basta.
+             Aqui a ausência é a regra — e um ícone sem explicação, repetido em
+             toda a grade, faz a tela parecer quebrada quando o que houve foi
+             uma chamada que ninguém fez. */
+          <div className="flex flex-col items-center justify-center gap-1.5 px-4 text-center
+                          text-muted-foreground/50" title={img.motivo ?? undefined}>
+            <ImgIcon className="w-7 h-7 text-muted-foreground/25" />
+            <span className="text-[10px] leading-tight max-w-[22ch]">
+              {img.estado === "sem_midia"
+                ? "sem mídia nesta publicação"
+                : conteudo.midias.length
+                  ? `mídia por URN · ${img.estado === "consultada_sem_retorno"
+                      ? "a API não devolveu a imagem"
+                      : "resolução ainda não pedida"}`
+                  : "sem imagem no conteúdo salvo"}
+            </span>
           </div>
         )}
         <span className="absolute top-2.5 left-2.5 text-[9px] font-bold uppercase tracking-[0.08em]
@@ -3286,6 +3300,21 @@ function ConteudoDoPeriodo({ d, periodo, aoAbrir, completo = false }: {
         </div>
         </div>
       }>
+      {/* Uma grade inteira de placeholder parece defeito. Dizer o motivo uma
+          vez, no bloco, é mais honesto que repetir a explicação em cada card. */}
+      {lista.length > 0 && lista.every((p) => !midiaDe(p).url) && (
+        <div className="flex items-start gap-2 text-[11.5px] text-muted-foreground
+                        border-l-2 border-amber-500/60 pl-3 mb-3">
+          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-amber-600 flex-shrink-0" />
+          <span>
+            Nenhuma publicação do período tem imagem no que já foi coletado. O LinkedIn
+            entrega a mídia dos posts modernos (<code className="font-mono text-[10.5px]">ugcPost</code>)
+            por URN — a URL só existe depois de uma chamada de resolução, que ainda não foi feita
+            para estas. Nada aqui consulta a API sozinho.
+          </span>
+        </div>
+      )}
+
       {lista.length ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {lista.map((p, i) => (

@@ -486,8 +486,32 @@ export async function coletarPaginaLinkedIn(o: OpcoesDeColeta): Promise<Resultad
       perguntadas.forEach((u) => consultadas.add(u));
       const r = await api.resolverImagens(ctx, perguntadas);
       if (r.ok && r.dados) {
-        const res = (r.dados.results ?? r.dados) as Record<string, unknown>;
-        for (const [urn, v] of Object.entries(res)) imagensPorUrn.set(urn, v);
+        // O batch-get do Rest.li devolve `{results, statuses, errors}`; o
+        // versionado às vezes devolve `{elements: [...]}`; e há endpoint que
+        // devolve o mapa direto. Assumir uma das três formas e não achar nada
+        // fica indistinguível de "a API recusou" — que foi como 225 mídias da
+        // Musa acabaram rotuladas.
+        const d = r.dados as Record<string, unknown>;
+        const mapa = (d.results ?? d) as Record<string, unknown>;
+        for (const [urn, v] of Object.entries(mapa)) {
+          if (["statuses", "errors", "elements", "paging"].includes(urn)) continue;
+          if (v && typeof v === "object") imagensPorUrn.set(urn, v);
+        }
+        if (Array.isArray(d.elements)) {
+          for (const el of d.elements as Array<Record<string, unknown>>) {
+            const urn = String(el.id ?? el.urn ?? "");
+            if (urn) imagensPorUrn.set(urn, el);
+          }
+        }
+        // Os erros por URN, quando vierem — é a resposta certa para "por que
+        // esta imagem não veio", e ela é diferente para cada uma.
+        const erros = d.errors as Record<string, unknown> | undefined;
+        if (!imagensPorUrn.size) {
+          motivoDaImagem = erros && Object.keys(erros).length
+            ? `a API recusou ${Object.keys(erros).length} URN(s): `
+              + `${JSON.stringify(Object.values(erros)[0]).slice(0, 160)}`
+            : "a API respondeu, e a resposta não trouxe URL para nenhuma URN pedida";
+        }
       } else {
         motivoDaImagem = r.erro ?? `HTTP ${r.status ?? "?"}`;
       }

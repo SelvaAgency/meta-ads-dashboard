@@ -629,3 +629,29 @@ describe("a tela Social continua intacta", () => {
     expect(social).not.toContain("linkedin-lab");
   });
 });
+
+describe("a ausência de imagem é explicada, não desenhada como defeito", () => {
+  it("o card DIZ por que não há imagem", () => {
+    // Um ícone mudo repetido em toda a grade faz a tela parecer quebrada
+    // quando o que houve foi uma chamada que ninguém fez.
+    const s = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(s).toContain("mídia por URN");
+    expect(s).toContain("resolução ainda não pedida");
+    expect(s).toContain("sem mídia nesta publicação");
+  });
+
+  it("o bloco explica uma vez quando a grade inteira está sem imagem", () => {
+    const s = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(s).toContain("lista.every((p) => !midiaDe(p).url)");
+    expect(s).toContain("Nada aqui consulta a API sozinho");
+  });
+
+  it("o parser de imagens aceita as três formas do Rest.li", () => {
+    // Assumir uma forma e não achar nada fica indistinguível de "a API
+    // recusou" — foi assim que 225 mídias da Musa foram rotuladas errado.
+    const s = semComentarios(ler("server/services/coletaLinkedIn.ts"));
+    expect(s).toContain("d.results ?? d");
+    expect(s).toContain("Array.isArray(d.elements)");
+    expect(s).toContain("d.errors as Record<string, unknown>");
+  });
+});
