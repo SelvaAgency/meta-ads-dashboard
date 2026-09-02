@@ -41,11 +41,12 @@ import {
   ExternalLink,
   Users,
   Sparkles,
+  FlaskConical,
   type LucideIcon,
 } from "lucide-react";
 import { SelvaLogo } from "@/components/SelvaLogo";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { canAccessAdmin, canManageContent } from "@shared/permissions";
+import { canAccessAdmin, canManageContent, canAccessLaboratorio } from "@shared/permissions";
 import { useActiveAccount } from "@/contexts/ActiveAccountContext";
 import { trpc } from "@/lib/trpc";
 import { urlDoShellPara } from "./trackerRoutes";
@@ -158,6 +159,19 @@ const NAV_GROUPS: NavGroup[] = [
        * leitor onde a página mora de verdade.
        */
       { label: "Consumo de IA", icon: Sparkles, kind: "internal", href: "/consumo-ia", liberadoPara: canManageContent },
+      /**
+       * Laboratório do LinkedIn — bancada da Fase 1, marcada como tal.
+       *
+       * `liberadoPara: canAccessLaboratorio`, e não `canManageContent`: hoje as
+       * duas devolvem o mesmo conjunto, mas a porta do laboratório precisa
+       * poder abrir e fechar sozinha. O item some da navegação de quem não
+       * passa, e o link direto para em `LaboratorioOnly`.
+       *
+       * O "· lab" no rótulo é regra, não enfeite: sem ele, uma bancada de
+       * validação sentada ao lado de ferramentas de produção acaba lida como
+       * uma delas.
+       */
+      { label: "LinkedIn · lab", icon: FlaskConical, kind: "internal", href: "/linkedin-lab", liberadoPara: canAccessLaboratorio },
     ],
   },
 ];

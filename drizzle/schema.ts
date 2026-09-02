@@ -2145,3 +2145,239 @@ export const onboardingNotas = mysqlTable("onboarding_notas", {
   idxTrilha: index("idx_ob_nota_trilha").on(table.trilhaId, table.tipo),
 }));
 export type OnboardingNota = typeof onboardingNotas.$inferSelect;
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════
+ *  LinkedIn — Fase 1 · LABORATÓRIO (interno, admin/dev)
+ * ═════════════════════════════════════════════════════════════════════════════
+ *  Tabelas PRÓPRIAS, e não `client_social_accounts` com provider="linkedin".
+ *
+ *  Aquela tabela é moldada no mundo da Meta: `pageId`, `instagramUserId`,
+ *  `tipoConta`, `statusInsight`. LinkedIn deixaria metade nula e traria outra
+ *  metade que o Instagram deixaria nula — e a primeira consulta que esquecesse
+ *  o filtro misturaria as duas redes. É o mesmo raciocínio que já separou
+ *  `social_account_tokens` de `social_credentials` neste repo.
+ *
+ *  Separado também deixa o laboratório REMOVÍVEL inteiro: se ele não virar
+ *  produto, some sem tocar em nada do Instagram.
+ *
+ *  ── Toda coluna numérica nasce NULL ────────────────────────────────────────
+ *  Nenhuma recebe 0 de consolo. Os quatro estados (ver shared/linkedinLab.ts):
+ *    0                       mediu e deu zero
+ *    NULL + indisponiveisJson  a API recusou, e sabemos o motivo
+ *    NULL sozinho            não pedimos nessa rodada
+ *    linha ausente           naquele dia não estávamos coletando
+ * ═════════════════════════════════════════════════════════════════════════════
+ */
+
+/**
+ * O vínculo CLIENTE → PÁGINA. A identidade é o URN, nunca o nome.
+ *
+ * Nome e vanity são cópias de conveniência, reescritas a cada coleta: se o
+ * cliente renomear a Página, um casamento por nome perderia o vínculo — e
+ * perderia em silêncio, que é pior.
+ */
+export const linkedinPages = mysqlTable("linkedin_pages", {
+  id: int("id").autoincrement().primaryKey(),
+  /** `meta_ad_accounts.id` — o "cliente" no vocabulário do Spaces. */
+  accountId: int("accountId").notNull(),
+  organizationId: varchar("organizationId", { length: 40 }).notNull(),
+  organizationUrn: varchar("organizationUrn", { length: 120 }).notNull(),
+  nome: varchar("nome", { length: 255 }),
+  vanityName: varchar("vanityName", { length: 160 }),
+
+  /**
+   * TODAS as atribuições, com o `state` de cada uma.
+   *
+   * `[{ papel, estado }]` — e não uma coluna `papel` + uma `estado`. A Fase 0
+   * provou que a MESMA Página tem ADMINISTRATOR=APPROVED e
+   * CONTENT_ADMINISTRATOR=REVOKED ao mesmo tempo; "o cargo da Página" não
+   * existe como valor único, e fingir que existe foi o que fez duas rodadas da
+   * sondagem se contradizerem.
+   */
+  papeisJson: json("papeisJson"),
+
+  /** `completo | parcial | sem_acesso | erro | nao_vinculada`. */
+  capacidade: varchar("capacidade", { length: 16 }).default("nao_vinculada").notNull(),
+  /** Capacidade → { estado, status, motivo, medidaEm }. É o que explica "parcial". */
+  capacidadeDetalheJson: json("capacidadeDetalheJson"),
+
+  cargaInicialEm: timestamp("cargaInicialEm"),
+  cargaInicialChamadas: int("cargaInicialChamadas"),
+  ultimaColetaEm: timestamp("ultimaColetaEm"),
+  ultimoErro: varchar("ultimoErro", { length: 500 }),
+  ativo: boolean("ativo").default(true).notNull(),
+
+  criadoPor: int("criadoPor"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  // Uma Página, um vínculo. Duas linhas apontando para a mesma organização
+  // significariam coletar tudo duas vezes numa cota que não conseguimos ver.
+  uqOrg: uniqueIndex("uq_li_page_org").on(t.organizationId),
+  idxConta: index("idx_li_page_conta").on(t.accountId),
+}));
+
+/** Uma Página num dia. Sobrescrita quando o dia é recoletado. */
+export const linkedinPageDaily = mysqlTable("linkedin_page_daily", {
+  id: int("id").autoincrement().primaryKey(),
+  pageId: int("pageId").notNull(),
+  dia: varchar("dia", { length: 10 }).notNull(),
+
+  seguidoresTotal: int("seguidoresTotal"),
+  ganhoOrganico: int("ganhoOrganico"),
+  ganhoPago: int("ganhoPago"),
+
+  /** Os ~30 recortes de `pageViews`/`uniquePageViews`, achatados como vieram. */
+  viewsJson: json("viewsJson"),
+  /** Métrica → motivo da recusa. É o que separa "deu zero" de "a API negou". */
+  indisponiveisJson: json("indisponiveisJson"),
+
+  statusColeta: varchar("statusColeta", { length: 10 }).default("ok").notNull(),
+  origem: varchar("origem", { length: 10 }),
+  coletadoEm: timestamp("coletadoEm").defaultNow().notNull(),
+  atualizadoEm: timestamp("atualizadoEm").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uqDia: uniqueIndex("uq_li_daily").on(t.pageId, t.dia),
+  idxPagina: index("idx_li_daily_pagina").on(t.pageId, t.dia),
+}));
+
+/**
+ * O retrato vitalício — segmentações e totais.
+ *
+ * Tabela separada da diária porque a frequência é outra (semanal) e o formato
+ * é outro (mapas grandes, não números). Numa linha por dia, 95% do conteúdo
+ * seria idêntico ao do dia anterior.
+ */
+export const linkedinPageLifetime = mysqlTable("linkedin_page_lifetime", {
+  id: int("id").autoincrement().primaryKey(),
+  pageId: int("pageId").notNull(),
+  dia: varchar("dia", { length: 10 }).notNull(),
+
+  /** Setor, senioridade, função, porte, país, região, tipo de associação. */
+  segmentacoesJson: json("segmentacoesJson"),
+  totalPageStatisticsJson: json("totalPageStatisticsJson"),
+  agregadoDePostsJson: json("agregadoDePostsJson"),
+  organizacaoJson: json("organizacaoJson"),
+  indisponiveisJson: json("indisponiveisJson"),
+  coletadoEm: timestamp("coletadoEm").defaultNow().notNull(),
+}, (t) => ({
+  uqDia: uniqueIndex("uq_li_lifetime").on(t.pageId, t.dia),
+}));
+
+/** Uma publicação. Identidade, conteúdo e mídia — nunca métrica. */
+export const linkedinPosts = mysqlTable("linkedin_posts", {
+  id: int("id").autoincrement().primaryKey(),
+  pageId: int("pageId").notNull(),
+  postUrn: varchar("postUrn", { length: 160 }).notNull(),
+  /**
+   * `ugcPost` ou `share`.
+   *
+   * Guardado porque é ele que escolhe o parâmetro do endpoint de métricas. A
+   * Fase 0 tomou um 400 mandando `urn:li:share:` dentro de `ugcPosts` — a chave
+   * sai de CADA publicação, e derivá-la na hora da leitura repetiria o erro.
+   */
+  tipoUrn: varchar("tipoUrn", { length: 16 }).notNull(),
+
+  publicadoEm: timestamp("publicadoEm"),
+  editadoEm: timestamp("editadoEm"),
+  lifecycleState: varchar("lifecycleState", { length: 32 }),
+  visibility: varchar("visibility", { length: 32 }),
+
+  /** O texto da publicação, como a API entrega. */
+  commentary: text("commentary"),
+  /** `content` CRU e inteiro. É a única forma de descobrir depois o que havia ali. */
+  contentJson: json("contentJson"),
+  /** URNs de mídia + URLs resolvidas, com carimbo (a URL de CDN expira). */
+  midiasJson: json("midiasJson"),
+  /** Por que a imagem não pôde ser mostrada. Ausência silenciosa é proibida. */
+  midiaIndisponivel: varchar("midiaIndisponivel", { length: 300 }),
+  permalink: varchar("permalink", { length: 500 }),
+
+  /** A resposta da listagem, crua. Alimenta a aba de investigação. */
+  bruto: json("bruto"),
+  vistoEm: timestamp("vistoEm").defaultNow().notNull(),
+  atualizadoEm: timestamp("atualizadoEm").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uqPost: uniqueIndex("uq_li_post").on(t.pageId, t.postUrn),
+  idxPagina: index("idx_li_post_pagina").on(t.pageId, t.publicadoEm),
+}));
+
+/**
+ * Uma publicação num dia — impressão e reação mudam com o tempo.
+ *
+ * Chaveada por `postUrn`, e não pelo índice do lote: o endpoint OMITE
+ * publicação sem estatística (pedimos 2, voltou 1, medido na Fase 0). Casar
+ * pela posição do array atribuiria a métrica de um post a outro, em silêncio.
+ */
+export const linkedinPostMetrics = mysqlTable("linkedin_post_metrics", {
+  id: int("id").autoincrement().primaryKey(),
+  pageId: int("pageId").notNull(),
+  postUrn: varchar("postUrn", { length: 160 }).notNull(),
+  dia: varchar("dia", { length: 10 }).notNull(),
+
+  impressions: int("impressions"),
+  uniqueImpressions: int("uniqueImpressions"),
+  clicks: int("clicks"),
+  likes: int("likes"),
+  comments: int("comments"),
+  shares: int("shares"),
+  /** Vem como fração da API (0.0672…). `decimal` porque truncar apaga a ordem. */
+  engagement: decimal("engagement", { precision: 10, scale: 6 }),
+
+  /** LIKE, PRAISE, EMPATHY, INTEREST — e o que mais vier. Nunca inventado. */
+  reacoesPorTipoJson: json("reacoesPorTipoJson"),
+  /** `likesSummary`/`commentsSummary` crus, de `socialActions`. */
+  socialActionsJson: json("socialActionsJson"),
+
+  indisponiveisJson: json("indisponiveisJson"),
+  statusColeta: varchar("statusColeta", { length: 10 }).default("ok").notNull(),
+  bruto: json("bruto"),
+  coletadoEm: timestamp("coletadoEm").defaultNow().notNull(),
+}, (t) => ({
+  uqPostDia: uniqueIndex("uq_li_post_dia").on(t.pageId, t.postUrn, t.dia),
+  idxPagina: index("idx_li_metric_pagina").on(t.pageId, t.dia),
+}));
+
+/**
+ * Uma rodada de coleta.
+ *
+ * `chamadas` é a coluna que justifica a tabela: sem cabeçalho de cota, o número
+ * de chamadas é a única forma de saber quanto a frente custa — e comparar o
+ * estimado com o realizado é o que revela um estouro na segunda rodada, e não
+ * no dia em que a API parar de responder.
+ */
+export const linkedinColetaExecucoes = mysqlTable("linkedin_coleta_execucoes", {
+  id: int("id").autoincrement().primaryKey(),
+  /** `cron` ou `manual`. */
+  origem: varchar("origem", { length: 10 }).notNull(),
+  /** `carga` | `incremental` | `semanal` | `capacidade`. */
+  escopo: varchar("escopo", { length: 16 }).default("incremental").notNull(),
+  dia: varchar("dia", { length: 10 }).notNull(),
+  /** Nulo quando a rodada é da frota inteira. */
+  pageId: int("pageId"),
+
+  tentados: int("tentados").default(0).notNull(),
+  ok: int("ok").default(0).notNull(),
+  parciais: int("parciais").default(0).notNull(),
+  erros: int("erros").default(0).notNull(),
+
+  chamadasEstimadas: int("chamadasEstimadas"),
+  chamadas: int("chamadas").default(0).notNull(),
+  chamadasComErro: int("chamadasComErro").default(0).notNull(),
+  registrosGravados: int("registrosGravados").default(0).notNull(),
+  duracaoMs: int("duracaoMs"),
+
+  disparadaPor: int("disparadaPor"),
+  /** Passo a passo sanitizado — é o que a tela mostra como progresso. */
+  detalheJson: json("detalheJson"),
+  executadaEm: timestamp("executadaEm").defaultNow().notNull(),
+}, (t) => ({
+  idxQuando: index("idx_li_exec").on(t.origem, t.executadaEm),
+  idxPagina: index("idx_li_exec_pagina").on(t.pageId, t.executadaEm),
+}));
+
+export type LinkedinPage = typeof linkedinPages.$inferSelect;
+export type LinkedinPost = typeof linkedinPosts.$inferSelect;
+export type LinkedinPageDaily = typeof linkedinPageDaily.$inferSelect;
+export type LinkedinPostMetric = typeof linkedinPostMetrics.$inferSelect;

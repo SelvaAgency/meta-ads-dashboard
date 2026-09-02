@@ -10,7 +10,7 @@ import { analiseDesatualizada } from "@shared/contextoDaAnalise";
 import { JANELA_PAGESPEED_DIAS } from "@shared/pagespeedHistorico";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, contentProcedure, prioridadesProcedure, trackerSettingsProcedure, accessProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, adminProcedure, authedProcedure, contentProcedure, prioridadesProcedure, trackerSettingsProcedure, accessProcedure, laboratorioProcedure, router } from "./_core/trpc";
 import { isStorageConfigured, getReadUrl, deleteObject } from "./storage/storageService";
 import { hashPassword, verifyPassword, generateTempPassword } from "./_core/oauth";
 import { encryptSecret, decryptSecret } from "./_core/integrationsCrypto";
@@ -4592,6 +4592,157 @@ export const appRouter = router({
           });
           await registrarTesteSocial(r.ok, r.texto, "linkedin");
           return r;
+        }),
+    }),
+
+    /**
+     * ── LinkedIn · Fase 1 · LABORATÓRIO ──────────────────────────────────
+     *
+     * INTERNO E EXPERIMENTAL. Não é a interface final do Social, e todas as
+     * procedures nascem em `laboratorioProcedure` — colaborador não alcança
+     * nenhuma delas, nem por link direto.
+     *
+     * A divisão importa: as queries LEEM banco e nunca tocam a API; só as
+     * mutations `sincronizar`/`cargaInicial` chamam o LinkedIn. Numa cota
+     * invisível, uma query que coleta gastaria a cota da agência numa tarde de
+     * exploração — e ninguém descobriria pelo erro, e sim pelo silêncio da API
+     * no dia seguinte.
+     */
+    linkedinLab: router({
+      /** A carteira do LinkedIn + os vínculos já criados. 2 chamadas à API. */
+      descobrir: laboratorioProcedure.mutation(async () => {
+        const token = await tokenSocial("linkedin");
+        if (!token) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Nenhuma credencial de LinkedIn cadastrada. Cole o token em Conexões → Social → LinkedIn.",
+          });
+        }
+        const { descobrirPaginas, novoContador } = await import("./services/linkedinApi");
+        const contador = novoContador();
+        const r = await descobrirPaginas({ token, contador, agora: new Date() });
+        return { ...r, chamadas: contador.chamadas };
+      }),
+
+      vinculos: laboratorioProcedure.query(async () => {
+        const { listarVinculos } = await import("./services/linkedinLabDados");
+        return listarVinculos();
+      }),
+
+      vincular: laboratorioProcedure
+        .input(z.object({
+          accountId: z.number().int().positive(),
+          organizationId: z.string().min(1).max(40),
+          organizationUrn: z.string().min(1).max(120),
+          nome: z.string().max(255).nullable().optional(),
+          vanityName: z.string().max(160).nullable().optional(),
+          papeis: z.array(z.object({ papel: z.string().max(60), estado: z.string().max(20) })).default([]),
+        }))
+        .mutation(async ({ ctx, input }) => {
+          const { getDb } = await import("./db");
+          const { linkedinPages } = await import("../drizzle/schema");
+          const { eq } = await import("drizzle-orm");
+          const db = await getDb();
+          if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco indisponível." });
+          await db.insert(linkedinPages).values({
+            accountId: input.accountId,
+            organizationId: input.organizationId,
+            organizationUrn: input.organizationUrn,
+            nome: input.nome ?? null,
+            vanityName: input.vanityName ?? null,
+            papeisJson: input.papeis as never,
+            capacidade: "nao_vinculada",
+            criadoPor: ctx.user.id,
+          }).onDuplicateKeyUpdate({
+            set: {
+              accountId: input.accountId,
+              nome: input.nome ?? null,
+              vanityName: input.vanityName ?? null,
+              papeisJson: input.papeis as never,
+              ativo: true,
+            },
+          });
+          const [p] = await db.select().from(linkedinPages)
+            .where(eq(linkedinPages.organizationId, input.organizationId)).limit(1);
+          return p;
+        }),
+
+      desvincular: laboratorioProcedure
+        .input(z.object({ pageId: z.number().int().positive() }))
+        .mutation(async ({ input }) => {
+          const { getDb } = await import("./db");
+          const { linkedinPages } = await import("../drizzle/schema");
+          const { eq } = await import("drizzle-orm");
+          const db = await getDb();
+          if (!db) return { ok: false };
+          // Desativa, não apaga: o que já foi coletado continua sendo o registro
+          // de que a API entregava aquilo.
+          await db.update(linkedinPages).set({ ativo: false })
+            .where(eq(linkedinPages.id, input.pageId));
+          return { ok: true };
+        }),
+
+      /** Tudo da Página, do BANCO. Zero chamadas ao LinkedIn. */
+      pagina: laboratorioProcedure
+        .input(z.object({
+          pageId: z.number().int().positive(),
+          de: z.string().length(10).optional(),
+          ate: z.string().length(10).optional(),
+        }))
+        .query(async ({ input }) => {
+          const d = await import("./services/linkedinLabDados");
+          const hoje = new Date().toISOString().slice(0, 10);
+          const de = input.de ?? new Date(Date.now() - 395 * 86_400_000).toISOString().slice(0, 10);
+          const [pagina, serie, lifetime, posts, exec, cob] = await Promise.all([
+            d.vinculo(input.pageId),
+            d.serieDiaria(input.pageId, de, input.ate ?? hoje),
+            d.ultimoLifetime(input.pageId),
+            d.publicacoes(input.pageId),
+            d.execucoes(input.pageId),
+            d.cobertura(input.pageId),
+          ]);
+          return { pagina, serie, lifetime, posts, execucoes: exec, cobertura: cob };
+        }),
+
+      /** O orçamento ANTES de gastar. Só lê banco. */
+      orcamento: laboratorioProcedure
+        .input(z.object({ pageId: z.number().int().positive(), modo: z.enum(["carga", "incremental"]) }))
+        .query(async ({ input }) => {
+          const { postsAtivos } = await import("./services/coletaLinkedIn");
+          const plano = await import("@shared/linkedinPlanoDeColeta");
+          const a = await postsAtivos(input.pageId);
+          return input.modo === "carga"
+            ? plano.planoDeCargaInicial({ posts: a.total || 20, postsUgc: a.total || 20 })
+            : plano.planoIncremental({
+                postsAtivos: a.ativos, postsAtivosUgc: a.ativosUgc, postsNovos: 2,
+              });
+        }),
+
+      /** A ÚNICA porta que gasta cota, e ela é sempre um clique explícito. */
+      sincronizar: laboratorioProcedure
+        .input(z.object({
+          pageId: z.number().int().positive(),
+          modo: z.enum(["carga", "incremental", "semanal"]).default("incremental"),
+        }))
+        .mutation(async ({ input }) => {
+          const token = await tokenSocial("linkedin");
+          if (!token) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Nenhuma credencial de LinkedIn cadastrada." });
+          }
+          const { getDb } = await import("./db");
+          const { linkedinPages } = await import("../drizzle/schema");
+          const { eq } = await import("drizzle-orm");
+          const db = await getDb();
+          if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco indisponível." });
+          const [p] = await db.select().from(linkedinPages)
+            .where(eq(linkedinPages.id, input.pageId)).limit(1);
+          if (!p) throw new TRPCError({ code: "NOT_FOUND", message: "Vínculo não encontrado." });
+
+          const { coletarPaginaLinkedIn } = await import("./services/coletaLinkedIn");
+          return coletarPaginaLinkedIn({
+            token, modo: input.modo,
+            alvo: { id: p.id, organizationId: p.organizationId, organizationUrn: p.organizationUrn },
+          });
         }),
     }),
 

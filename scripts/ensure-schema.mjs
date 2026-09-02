@@ -1732,6 +1732,140 @@ async function main() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
     console.log("[ensure-schema] ok  · onboarding_notas garantida");
 
+    // ── LinkedIn · Fase 1 (laboratório interno) ───────────────────────────
+    //
+    // Tabelas próprias, e não `client_social_accounts` com provider="linkedin":
+    // aquela é moldada no mundo da Meta e deixaria metade das colunas nula de
+    // cada lado. Separado, o laboratório também some inteiro se não virar
+    // produto.
+    //
+    // Toda coluna numérica nasce NULL. Nenhuma recebe 0 de consolo — 0 é
+    // medida, NULL é ausência, e `indisponiveisJson` diz qual foi recusada.
+    passo("linkedin");
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`linkedin_pages\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`accountId\` INT NOT NULL,
+      \`organizationId\` VARCHAR(40) NOT NULL,
+      \`organizationUrn\` VARCHAR(120) NOT NULL,
+      \`nome\` VARCHAR(255) NULL,
+      \`vanityName\` VARCHAR(160) NULL,
+      \`papeisJson\` JSON NULL,
+      \`capacidade\` VARCHAR(16) NOT NULL DEFAULT 'nao_vinculada',
+      \`capacidadeDetalheJson\` JSON NULL,
+      \`cargaInicialEm\` TIMESTAMP NULL,
+      \`cargaInicialChamadas\` INT NULL,
+      \`ultimaColetaEm\` TIMESTAMP NULL,
+      \`ultimoErro\` VARCHAR(500) NULL,
+      \`ativo\` BOOLEAN NOT NULL DEFAULT 1,
+      \`criadoPor\` INT NULL,
+      \`createdAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      \`updatedAt\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`uq_li_page_org\` (\`organizationId\`),
+      KEY \`idx_li_page_conta\` (\`accountId\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`linkedin_page_daily\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`pageId\` INT NOT NULL,
+      \`dia\` VARCHAR(10) NOT NULL,
+      \`seguidoresTotal\` INT NULL,
+      \`ganhoOrganico\` INT NULL,
+      \`ganhoPago\` INT NULL,
+      \`viewsJson\` JSON NULL,
+      \`indisponiveisJson\` JSON NULL,
+      \`statusColeta\` VARCHAR(10) NOT NULL DEFAULT 'ok',
+      \`origem\` VARCHAR(10) NULL,
+      \`coletadoEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      \`atualizadoEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`uq_li_daily\` (\`pageId\`, \`dia\`),
+      KEY \`idx_li_daily_pagina\` (\`pageId\`, \`dia\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`linkedin_page_lifetime\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`pageId\` INT NOT NULL,
+      \`dia\` VARCHAR(10) NOT NULL,
+      \`segmentacoesJson\` JSON NULL,
+      \`totalPageStatisticsJson\` JSON NULL,
+      \`agregadoDePostsJson\` JSON NULL,
+      \`organizacaoJson\` JSON NULL,
+      \`indisponiveisJson\` JSON NULL,
+      \`coletadoEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`uq_li_lifetime\` (\`pageId\`, \`dia\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`linkedin_posts\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`pageId\` INT NOT NULL,
+      \`postUrn\` VARCHAR(160) NOT NULL,
+      \`tipoUrn\` VARCHAR(16) NOT NULL,
+      \`publicadoEm\` TIMESTAMP NULL,
+      \`editadoEm\` TIMESTAMP NULL,
+      \`lifecycleState\` VARCHAR(32) NULL,
+      \`visibility\` VARCHAR(32) NULL,
+      \`commentary\` TEXT NULL,
+      \`contentJson\` JSON NULL,
+      \`midiasJson\` JSON NULL,
+      \`midiaIndisponivel\` VARCHAR(300) NULL,
+      \`permalink\` VARCHAR(500) NULL,
+      \`bruto\` JSON NULL,
+      \`vistoEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      \`atualizadoEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`uq_li_post\` (\`pageId\`, \`postUrn\`),
+      KEY \`idx_li_post_pagina\` (\`pageId\`, \`publicadoEm\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`linkedin_post_metrics\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`pageId\` INT NOT NULL,
+      \`postUrn\` VARCHAR(160) NOT NULL,
+      \`dia\` VARCHAR(10) NOT NULL,
+      \`impressions\` INT NULL,
+      \`uniqueImpressions\` INT NULL,
+      \`clicks\` INT NULL,
+      \`likes\` INT NULL,
+      \`comments\` INT NULL,
+      \`shares\` INT NULL,
+      \`engagement\` DECIMAL(10,6) NULL,
+      \`reacoesPorTipoJson\` JSON NULL,
+      \`socialActionsJson\` JSON NULL,
+      \`indisponiveisJson\` JSON NULL,
+      \`statusColeta\` VARCHAR(10) NOT NULL DEFAULT 'ok',
+      \`bruto\` JSON NULL,
+      \`coletadoEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      UNIQUE KEY \`uq_li_post_dia\` (\`pageId\`, \`postUrn\`, \`dia\`),
+      KEY \`idx_li_metric_pagina\` (\`pageId\`, \`dia\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    await conn.query(`CREATE TABLE IF NOT EXISTS \`linkedin_coleta_execucoes\` (
+      \`id\` INT NOT NULL AUTO_INCREMENT,
+      \`origem\` VARCHAR(10) NOT NULL,
+      \`escopo\` VARCHAR(16) NOT NULL DEFAULT 'incremental',
+      \`dia\` VARCHAR(10) NOT NULL,
+      \`pageId\` INT NULL,
+      \`tentados\` INT NOT NULL DEFAULT 0,
+      \`ok\` INT NOT NULL DEFAULT 0,
+      \`parciais\` INT NOT NULL DEFAULT 0,
+      \`erros\` INT NOT NULL DEFAULT 0,
+      \`chamadasEstimadas\` INT NULL,
+      \`chamadas\` INT NOT NULL DEFAULT 0,
+      \`chamadasComErro\` INT NOT NULL DEFAULT 0,
+      \`registrosGravados\` INT NOT NULL DEFAULT 0,
+      \`duracaoMs\` INT NULL,
+      \`disparadaPor\` INT NULL,
+      \`detalheJson\` JSON NULL,
+      \`executadaEm\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      KEY \`idx_li_exec\` (\`origem\`, \`executadaEm\`),
+      KEY \`idx_li_exec_pagina\` (\`pageId\`, \`executadaEm\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    console.log("[ensure-schema] ok  · 6 tabelas de LinkedIn garantidas");
+
     console.log("[ensure-schema] concluído com sucesso.");
   } finally {
     await conn.end();

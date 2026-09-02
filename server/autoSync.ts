@@ -1274,6 +1274,27 @@ export async function startAutoSync() {
     await rodarColetaSocial({ apenasStories: true });
   }, TZ);
 
+  // ── LinkedIn · Fase 1 (laboratório) ───────────────────────────────────────
+  //
+  // 07:10 BRT: depois do Instagram (06:20) e antes do Jornalzinho. Duas redes na
+  // mesma janela empilhariam dois picos de chamada no mesmo minuto.
+  //
+  // Nasce DESLIGADA — `rodarColetaLinkedIn` recusa sem
+  // `LINKEDIN_COLETA_ENABLED=true`. A cota do LinkedIn é diária e invisível
+  // (nenhuma resposta traz cabeçalho de limite), então um cron que começa a
+  // rodar sozinho gastaria a cota antes de alguém olhar o primeiro resultado, e
+  // o estouro apareceria como silêncio da API.
+  //
+  // Envolta em `agendado()` como todo cron: sem o gatilho, qualquer chamada da
+  // rodada apareceria como "Não rastreado" no Consumo de IA.
+  cron.schedule("0 10 7 * * *", agendado(
+    "rodarColetaLinkedIn", "Coleta do LinkedIn (laboratório)",
+    async () => {
+      const { rodarColetaLinkedIn } = await import("./services/rodarColetaLinkedIn");
+      await rodarColetaLinkedIn();
+    },
+  ), TZ);
+
   // Geração híbrida de recomendações (07:45 BRT) — depois do ciclo noturno, com
   // as cores da IA já frescas. Só contas Atenção/Crítico sem sugestão recente.
   cron.schedule("0 45 7 * * *", agendado("runGeracaoRecomendacoes", "Geração automática de recomendações", runGeracaoRecomendacoes), TZ);

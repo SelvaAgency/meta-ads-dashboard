@@ -10,7 +10,7 @@
 import type { ReactNode } from "react";
 import { Lock } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { canAccessAdmin, canManageContent } from "@shared/permissions";
+import { canAccessAdmin, canAccessLaboratorio, canManageContent } from "@shared/permissions";
 import { Card } from "@/components/ui/card";
 import { HubShell } from "./HubShell";
 
@@ -29,6 +29,26 @@ export function AdminOnly({ children }: { children: ReactNode }) {
  */
 export function AdminOuDevOnly({ children }: { children: ReactNode }) {
   return <Guard permitido={canManageContent} aviso="Esta área é exclusiva para administradores e desenvolvedores.">{children}</Guard>;
+}
+
+/**
+ * O Laboratório do LinkedIn — bancada interna, admin + developer.
+ *
+ * Guarda PRÓPRIA, e não `AdminOuDevOnly` reaproveitada. Hoje as duas liberam o
+ * mesmo conjunto, e é exatamente por isso que a distinção precisa nascer agora:
+ * abrir o laboratório para coordenador depois não pode arrastar News bar,
+ * SelvaTV, Rascunho e Consumo de IA junto.
+ *
+ * A proteção REAL é `laboratorioProcedure` no servidor — isto só evita
+ * renderizar a área.
+ */
+export function LaboratorioOnly({ children }: { children: ReactNode }) {
+  return (
+    <Guard permitido={canAccessLaboratorio}
+      aviso="Área experimental interna, restrita a administradores e desenvolvedores.">
+      {children}
+    </Guard>
+  );
 }
 
 function Guard({ permitido, aviso, children }: {

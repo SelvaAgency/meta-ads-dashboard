@@ -110,6 +110,23 @@ export function canManageAccesses(r: unknown): boolean {
   return x === "admin" || x === "developer" || x === "coordinator";
 }
 
+/**
+ * O Laboratório do LinkedIn — bancada interna, admin + developer.
+ *
+ * Função PRÓPRIA, e não `canManageContent` emprestada. Hoje as duas devolvem o
+ * mesmo conjunto, e é justamente por isso que a distinção precisa existir
+ * agora: no dia em que o laboratório abrir para coordenador — ou fechar para
+ * developer — a mudança é nesta linha, e não arrasta News bar, SelvaTV,
+ * Rascunho e Consumo de IA junto.
+ *
+ * É o mesmo padrão que permitiu abrir Acessos e Configurações do Tracker para
+ * coordenador sem tocar em mais nada.
+ */
+export function canAccessLaboratorio(r: unknown): boolean {
+  const x = role(r);
+  return x === "admin" || x === "developer";
+}
+
 /** Gerenciar colaboradores (CRUD, reset de senha). Somente admin. */
 export function canManagePeople(r: unknown): boolean {
   return role(r) === "admin";

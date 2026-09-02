@@ -3,7 +3,7 @@ import { comGatilho } from "./contextoDeGatilho";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
-import { canAccessTrackerSettings, canManageAccesses, canManageContent, canManagePriorities } from "@shared/permissions";
+import { canAccessTrackerSettings, canManageAccesses, canAccessLaboratorio, canManageContent, canManagePriorities } from "@shared/permissions";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -136,6 +136,29 @@ export const accessProcedure = t.procedure.use(
       throw new TRPCError({ code: "FORBIDDEN", message: PASSWORD_CHANGE_REQUIRED });
     }
     if (!canManageAccesses(ctx.user.role)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
+    }
+    return next({ ctx: { ...ctx, user: ctx.user } });
+  }),
+).use(comAtorDaSessao);
+
+/**
+ * Laboratório do LinkedIn: admin + developer.
+ *
+ * A guarda de UI (`LaboratorioOnly`) evita renderizar; quem PROTEGE é esta.
+ * Toda procedure do laboratório nasce aqui — nenhuma nasce em
+ * `authedProcedure` "só por enquanto", porque o "por enquanto" de uma área
+ * experimental é justamente o que fica.
+ */
+export const laboratorioProcedure = t.procedure.use(
+  t.middleware(async ({ ctx, next }) => {
+    if (!ctx.user) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+    if (ctx.user.mustChangePassword) {
+      throw new TRPCError({ code: "FORBIDDEN", message: PASSWORD_CHANGE_REQUIRED });
+    }
+    if (!canAccessLaboratorio(ctx.user.role)) {
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
     return next({ ctx: { ...ctx, user: ctx.user } });
