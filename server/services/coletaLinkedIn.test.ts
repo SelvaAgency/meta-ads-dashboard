@@ -276,7 +276,9 @@ describe("explorar o que já foi coletado não custa chamada", () => {
 
   it("as abas novas leem do banco, e nenhuma dispara mutation", () => {
     const pagina = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
-    for (const aba of ["AbaBanco", "AbaIdentidade", "AbaVisualizacoes", "AbaSegmentacoes"]) {
+    // A reorganização de produto dissolveu duas destas em componentes maiores;
+    // o que o teste guarda é que a exploração continua existindo, não os nomes.
+    for (const aba of ["AbaBanco", "AbaIdentidade", "AbaAudiencia", "RecortesDeVisualizacao"]) {
       expect(pagina, aba).toContain(`function ${aba}(`);
     }
     // Só o cabeçalho e o gerenciador chamam mutation — as abas de exploração
@@ -375,5 +377,90 @@ describe("nada aqui gasta chamada nova", () => {
     expect(pagina).toContain("b.vitalicio.segmentacoesGrupos");
     expect(pagina).toContain("b.publicacoes.urnsConsultadas");
     expect(pagina).toContain("b.metricas.publicacoesSemMetrica");
+  });
+});
+
+describe("o Lab virou protótipo de produto, sem virar mentira", () => {
+  const pagina = () => semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+
+  it("a curva de seguidores NÃO é reconstruída", () => {
+    // `networkSizes` é ponto único: 1 dia com total contra 394 com ganho.
+    // Reconstruir a série a partir do total de hoje daria uma linha bonita e
+    // DERIVADA, que numa tela de produto passaria por dado do LinkedIn.
+    const s = pagina();
+    expect(s).toContain("Histórico de seguidores");
+    expect(s).toContain("Não disponível.");
+    // O total não entra no seletor de séries.
+    const i = s.indexOf("const seguidores: Metrica[]");
+    expect(s.slice(i, i + 400)).not.toContain('id: "seguidoresTotal"');
+  });
+
+  it("a faceta mostra o código original, e nunca um nome inventado", () => {
+    const s = pagina();
+    expect(s).toContain("não identificado");
+    expect(s).toContain("código LinkedIn:");
+    expect(s).toContain("resolução de entidades do LinkedIn");
+  });
+
+  it("desempenho por formato mostra o denominador de cada média", () => {
+    // "imagem: 4,2%" pareceria falar de 32 publicações quando fala de 15.
+    const s = pagina();
+    expect(s).toContain("Com métricas");
+    expect(s).toContain("comMetrica: comMetrica.length");
+  });
+
+  it("as abas técnicas ficam atrás de UM item", () => {
+    const s = pagina();
+    expect(s).toContain("ABAS_PRODUTO");
+    expect(s).toContain("ABAS_DIAGNOSTICO");
+    expect(s).toContain("Dados da integração");
+    // Consumo da API, JSON cru e cobertura saem da fileira principal.
+    const i = s.indexOf("const ABAS_PRODUTO");
+    const produto = s.slice(i, s.indexOf("const ABAS_DIAGNOSTICO"));
+    for (const tecnica of ["consumo", "cru", "banco", "paginas"]) {
+      expect(produto, tecnica).not.toContain(`id: "${tecnica}"`);
+    }
+  });
+
+  it("o selo experimental continua, e o cabeçalho é do cliente", () => {
+    const s = pagina();
+    expect(s).toContain("interno · experimental");
+    expect(s).toContain("rotuloDaPagina(escolhida)");
+  });
+
+  it("'menor engajamento' não acusa quem não foi medido", () => {
+    // Publicação sem métrica no topo dos piores seria culpá-la por um
+    // desempenho que ninguém mediu.
+    expect(pagina()).toContain("Number.POSITIVE_INFINITY");
+  });
+
+  it("audiência diz que é perfil de SEGUIDOR, não de conversão", () => {
+    const s = pagina();
+    expect(s).toContain("Perfil dos seguidores");
+    expect(s).toContain("não quem converte");
+  });
+});
+
+describe("a reorganização de produto não escondeu dado", () => {
+  it("os 48 recortes de visualização continuam alcançáveis", () => {
+    // Eles moravam numa aba própria que a reorganização dissolveu. Sumir com
+    // eles seria repetir o defeito que a rodada anterior existiu para corrigir.
+    const s = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(s).toContain("function RecortesDeVisualizacao");
+    expect(s).toContain("<RecortesDeVisualizacao d={d} />");
+    expect(s).toContain("TabelaDeRecortes");
+  });
+
+  it("nenhuma aba órfã ficou para trás", () => {
+    const s = ler("client/src/pages/LinkedinLab.tsx");
+    for (const morta of ["AbaVisualizacoes", "AbaSegmentacoes", "AbaGeral", "SemVinculo"]) {
+      expect(s, morta).not.toContain(`function ${morta}(`);
+    }
+  });
+
+  it("as segmentações continuam sendo tabela, agora em Audiência", () => {
+    const s = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    const i = s.indexOf("function AbaAudiencia");
+    expect(s.slice(i, i + 2500)).toContain("TabelaDeFacetas");
   });
 });

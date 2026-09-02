@@ -30,7 +30,8 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle, ChevronDown, ChevronRight, Download, ExternalLink, Image as ImgIcon,
-  Layers, Link2, Loader2, RefreshCw, Search, Unlink, X,
+  Layers, Link2, Linkedin, Loader2, RefreshCw, Search, TrendingDown, TrendingUp,
+  Unlink, Wrench, X,
 } from "lucide-react";
 import type { inferRouterOutputs } from "@trpc/server";
 import { trpc } from "@/lib/trpc";
@@ -199,35 +200,59 @@ function baixarCsv(nome: string, linhas: Array<Record<string, unknown>>) {
    A página
    ═══════════════════════════════════════════════════════════════════════════ */
 
-type Aba = "geral" | "banco" | "identidade" | "evolucao" | "visualizacoes"
-  | "segmentacoes" | "conteudo" | "publicacoes" | "cobertura" | "consumo" | "cru" | "paginas";
+type Aba = "geral" | "evolucao" | "conteudo" | "formatos" | "audiencia" | "identidade"
+  | "banco" | "cobertura" | "consumo" | "cru" | "paginas";
 
-const ABAS: Array<{ id: Aba; nome: string }> = [
+/**
+ * Duas camadas, e a fronteira é quem lê.
+ *
+ * As de PRODUTO são a demonstração: é o que o usuário do Tracker veria se o
+ * LinkedIn entrasse no Social amanhã. As de DIAGNÓSTICO são nossas — consumo de
+ * API, JSON cru, cobertura técnica. Misturá-las numa fileira só fazia a
+ * ferramenta parecer o produto, e era isso que precisava mudar.
+ */
+const ABAS_PRODUTO: Array<{ id: Aba; nome: string }> = [
   { id: "geral", nome: "Visão geral" },
-  { id: "banco", nome: "Estado do banco" },
-  { id: "identidade", nome: "Página" },
   { id: "evolucao", nome: "Evolução" },
-  { id: "visualizacoes", nome: "Visualizações" },
-  { id: "segmentacoes", nome: "Segmentações" },
   { id: "conteudo", nome: "Conteúdo" },
-  { id: "publicacoes", nome: "Publicações" },
+  { id: "formatos", nome: "Formatos" },
+  { id: "audiencia", nome: "Audiência" },
+  { id: "identidade", nome: "Página" },
+];
+
+const ABAS_DIAGNOSTICO: Array<{ id: Aba; nome: string }> = [
+  { id: "banco", nome: "Estado do banco" },
   { id: "cobertura", nome: "Cobertura" },
   { id: "consumo", nome: "Consumo da API" },
   { id: "cru", nome: "Dados brutos" },
-  /**
-   * Última, e SEMPRE presente.
-   *
-   * A tela de vincular só aparecia quando não havia nenhum vínculo — depois do
-   * primeiro, ela sumia para sempre e não havia como trocar, adicionar nem
-   * remover Página. Uma porta que fecha por dentro não é fluxo, é beco.
-   */
   { id: "paginas", nome: "Páginas vinculadas" },
 ];
+
+/**
+ * A URL de uma imagem, quando ela existe de verdade.
+ *
+ * O LinkedIn devolve mídia por URN na maioria dos campos. Procurar uma `http`
+ * em qualquer profundidade é o que separa "temos a imagem" de "temos a
+ * referência dela" — e sem isso o produto mostraria um quadrado quebrado.
+ */
+function urlDeImagem(o: unknown, nivel = 0): string | null {
+  if (!o || typeof o !== "object" || nivel > 5) return null;
+  for (const v of Object.values(o as Record<string, unknown>)) {
+    if (typeof v === "string" && /^https?:\/\//.test(v)) return v;
+    if (v && typeof v === "object") {
+      const u = urlDeImagem(v, nivel + 1);
+      if (u) return u;
+    }
+  }
+  return null;
+}
+
 
 export default function LinkedinLab() {
   const { user } = useAuth();
   const [pageId, setPageId] = useState<number | null>(null);
   const [aba, setAba] = useState<Aba>("geral");
+  const [diagnostico, setDiagnostico] = useState(false);
   const [dias, setDias] = useState(90);
   const [postAberto, setPostAberto] = useState<string | null>(null);
 
@@ -264,6 +289,18 @@ export default function LinkedinLab() {
   const papeis = (pagina?.papeisJson ?? []) as Array<{ papel: string; estado: string }>;
   const status = (pagina?.capacidade ?? "nao_vinculada") as StatusDoVinculo;
 
+  /**
+   * O logo, quando a API deu uma URL de verdade.
+   *
+   * `logoV2` do LinkedIn costuma referenciar `digitalmediaAsset` por URN, sem
+   * URL — o mesmo caso das imagens de publicação. Quando é isso, o cabeçalho
+   * mostra o ícone da rede em vez de inventar uma imagem.
+   */
+  const logoDaPagina = useMemo(() => {
+    const org = (d?.lifetime?.organizacaoJson ?? null) as Record<string, unknown> | null;
+    return urlDeImagem(org?.logoV2) ?? urlDeImagem(org?.logo);
+  }, [d]);
+
   if (!pode) {
     return (
       <SemAcessoTracker title="LinkedIn Lab"
@@ -283,20 +320,48 @@ export default function LinkedinLab() {
         papeis={papeis}
         carregando={vinculosQ.isLoading}
         onSincronizado={() => { void dadosQ.refetch(); void vinculosQ.refetch(); }}
+        logoDaPagina={logoDaPagina}
+        ultimaColeta={pagina?.ultimaColetaEm ? dataBr(pagina.ultimaColetaEm) : null}
       />
 
       <div className="max-w-[1400px] mx-auto px-4 md:px-6 pb-16">
-        <nav className="flex gap-1 flex-wrap border-b border-border mb-4">
-          {ABAS.map((a) => (
+        <nav className="flex items-center gap-1 flex-wrap border-b border-border mb-4">
+          {ABAS_PRODUTO.map((a) => (
             <button key={a.id} type="button" onClick={() => setAba(a.id)}
-              className={`px-3 py-2 text-[12px] font-medium border-b-2 -mb-px transition-colors ${
+              className={`px-3 py-2 text-[13px] font-medium border-b-2 -mb-px transition-colors ${
                 aba === a.id
                   ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground"}`}>
               {a.nome}
             </button>
           ))}
+
+          {/* A camada técnica fica atrás de UM item, e só abre quando pedida.
+              O usuário final nunca deveria ver consumo de API nem JSON cru. */}
+          <div className="ml-auto flex items-center gap-1">
+            <button type="button" onClick={() => setDiagnostico((x) => !x)}
+              className={`px-3 py-2 text-[12px] font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${
+                diagnostico || ABAS_DIAGNOSTICO.some((x) => x.id === aba)
+                  ? "border-muted-foreground/40 text-foreground"
+                  : "border-transparent text-muted-foreground/70 hover:text-foreground"}`}>
+              <Wrench className="w-3.5 h-3.5" />
+              Dados da integração
+              {diagnostico ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            </button>
+          </div>
         </nav>
+
+        {(diagnostico || ABAS_DIAGNOSTICO.some((x) => x.id === aba)) && (
+          <div className="flex gap-1 flex-wrap mb-4 -mt-2 pb-3 border-b border-dashed border-border">
+            {ABAS_DIAGNOSTICO.map((a) => (
+              <button key={a.id} type="button" onClick={() => setAba(a.id)}
+                className={`px-2.5 py-1.5 rounded text-[11.5px] font-medium transition-colors ${
+                  aba === a.id ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/50"}`}>
+                {a.nome}
+              </button>
+            ))}
+          </div>
+        )}
 
         {aba === "paginas" && (
           <GerenciarVinculos aoMudar={() => { void vinculosQ.refetch(); void dadosQ.refetch(); }} />
@@ -316,16 +381,15 @@ export default function LinkedinLab() {
 
         {ativo && d && aba !== "paginas" && (
           <>
-            {aba === "geral" && <AbaGeral d={d} capacidades={capacidades} status={status} />}
-            {aba === "banco" && <AbaBanco d={d} capacidades={capacidades} />}
-            {aba === "identidade" && <AbaIdentidade d={d} papeis={papeis} status={status} />}
-            {aba === "evolucao" && <AbaEvolucao d={d} />}
-            {aba === "visualizacoes" && <AbaVisualizacoes d={d} />}
-            {aba === "segmentacoes" && <AbaSegmentacoes d={d} />}
-            {aba === "conteudo" && <AbaConteudo d={d} aoAbrir={setPostAberto} />}
-            {aba === "publicacoes" && (
-              <AbaPublicacoes posts={d.posts} aoAbrir={setPostAberto} />
+            {aba === "geral" && (
+              <AbaVisaoGeral d={d} capacidades={capacidades} aoIr={setAba} />
             )}
+            {aba === "evolucao" && <AbaEvolucao d={d} dias={dias} />}
+            {aba === "conteudo" && <AbaPublicacoes posts={d.posts} aoAbrir={setPostAberto} />}
+            {aba === "formatos" && <AbaConteudo d={d} aoAbrir={setPostAberto} />}
+            {aba === "audiencia" && <AbaAudiencia d={d} />}
+            {aba === "identidade" && <AbaIdentidade d={d} papeis={papeis} status={status} />}
+            {aba === "banco" && <AbaBanco d={d} capacidades={capacidades} />}
             {aba === "cobertura" && <AbaCobertura d={d} capacidades={capacidades} />}
             {aba === "consumo" && <AbaConsumo d={d} totalDePaginas={vinculos.length} />}
             {aba === "cru" && <AbaCru d={d} />}
@@ -347,6 +411,7 @@ export default function LinkedinLab() {
 
 function Cabecalho({
   vinculos, ativo, aoTrocar, dias, aoTrocarPeriodo, status, papeis, carregando, onSincronizado,
+  logoDaPagina, ultimaColeta,
 }: {
   vinculos: Array<{
     id: number; nome: string | null; vanityName: string | null;
@@ -360,6 +425,8 @@ function Cabecalho({
   papeis: Array<{ papel: string; estado: string }>;
   carregando: boolean;
   onSincronizado: () => void;
+  logoDaPagina: string | null;
+  ultimaColeta: string | null;
 }) {
   const vivos = cargosVivos(papeis);
   const principal = cargoPrincipal(papeis);
@@ -368,18 +435,30 @@ function Cabecalho({
   return (
     <header className="border-b border-border bg-card/40">
       <div className="max-w-[1400px] mx-auto px-4 md:px-6 pt-6 pb-4 flex flex-col gap-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="text-base font-bold tracking-tight flex items-center gap-2">
-            <Layers className="w-4 h-4 text-primary" />
-            LinkedIn Lab
-          </h1>
-          {/* O rótulo é regra, não decoração: sem ele, daqui a três meses
-              alguém trata a bancada como se fosse o produto. */}
-          <span className="text-[10px] font-mono uppercase tracking-[0.12em] px-2 py-0.5 rounded border border-primary/50 text-primary">
-            interno · experimental
+        {/* Cabeçalho de PRODUTO: quem lê precisa ver o cliente e a rede, não a
+            ferramenta. O selo continua — pequeno, porque a regra de não
+            confundir bancada com produto não some, só para de gritar. */}
+        <div className="flex items-start gap-3 flex-wrap">
+          <span className="w-11 h-11 rounded-xl bg-[#0A66C2] text-white grid place-items-center flex-shrink-0 overflow-hidden">
+            {logoDaPagina
+              ? <img src={logoDaPagina} alt="" className="w-full h-full object-cover" />
+              : <Linkedin className="w-5 h-5" strokeWidth={2.2} />}
           </span>
-          <span className="text-[11px] text-muted-foreground">
-            não é a interface final da aba Social
+          <div className="min-w-0 flex flex-col leading-tight">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              LinkedIn
+            </span>
+            <h1 className="text-xl font-bold tracking-[-0.02em] truncate">
+              {escolhida ? rotuloDaPagina(escolhida) : "—"}
+            </h1>
+            <span className="text-[11.5px] text-muted-foreground">
+              {ultimaColeta
+                ? `Conectado · última sincronização em ${ultimaColeta}`
+                : "Ainda sem sincronização"}
+            </span>
+          </div>
+          <span className="text-[9.5px] font-mono uppercase tracking-[0.12em] px-1.5 py-0.5 rounded border border-border text-muted-foreground/70 mt-0.5">
+            interno · experimental
           </span>
         </div>
 
@@ -406,7 +485,7 @@ function Cabecalho({
               value={dias}
               onChange={(e) => aoTrocarPeriodo(Number(e.target.value))}
             >
-              {[7, 30, 90, 180, 395].map((n) => (
+              {[7, 30, 90, 365].map((n) => (
                 <option key={n} value={n}>{n} dias</option>
               ))}
             </select>
@@ -816,62 +895,6 @@ function Kpi({ rotulo, valor, motivo, nota, variacao, sufixo }: {
   );
 }
 
-function AbaGeral({ d, capacidades, status }: {
-  d: Dados; capacidades: MapaDeCapacidades; status: StatusDoVinculo;
-}) {
-  const serie = d.serie;
-  const comSeguidores = serie.filter((s) => s.seguidoresTotal !== null);
-  const ultimo = comSeguidores[comSeguidores.length - 1] ?? null;
-  const penultimo = comSeguidores[comSeguidores.length - 2] ?? null;
-  const ganho = serie.reduce<number | null>((t, s) =>
-    s.ganhoOrganico === null ? t : (t ?? 0) + s.ganhoOrganico, null);
-  const views = serie.reduce<number | null>((t, s) => {
-    const v = (s.viewsJson as Record<string, number> | null)?.["views.allPageViews.pageViews"];
-    return typeof v === "number" ? (t ?? 0) + v : t;
-  }, null);
-  const ultimaExec = d.execucoes[0] ?? null;
-  const cob = d.cobertura;
-
-  return (
-    <div className="flex flex-col gap-4">
-      <Bloco titulo="Visão geral da Página"
-        nota={`${d.pagina?.organizationUrn ?? ""}`}>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-          <Kpi rotulo="Seguidores" valor={ultimo?.seguidoresTotal ?? null}
-            motivo={capacidades.seguidores_atuais?.motivo}
-            variacao={ultimo && penultimo && ultimo.seguidoresTotal !== null && penultimo.seguidoresTotal !== null
-              ? ultimo.seguidoresTotal - penultimo.seguidoresTotal : null}
-            nota={ultimo ? `em ${dataBr(ultimo.dia)}` : "sem medição"} />
-          <Kpi rotulo="Crescimento no período" valor={ganho}
-            motivo={capacidades.seguidores_serie?.motivo}
-            nota="soma do ganho orgânico" />
-          <Kpi rotulo="Visualizações da Página" valor={views}
-            motivo={capacidades.pagina_serie?.motivo}
-            nota="allPageViews no período" />
-          <Kpi rotulo="Publicações" valor={cob?.publicacoes ?? null}
-            nota={cob?.publicacaoMaisAntiga ? `desde ${dataBr(cob.publicacaoMaisAntiga)}` : "nenhuma encontrada"} />
-          <Kpi rotulo="Com métricas" valor={cob?.publicacoesComMetrica ?? null}
-            nota={cob?.publicacoes ? `de ${cob.publicacoes}` : undefined} />
-          <Kpi rotulo="Dias com dado" valor={cob?.diasComDado ?? null}
-            nota={cob?.primeiroDia ? `${dataBr(cob.primeiroDia)} → ${dataBr(cob.ultimoDia)}` : "nenhum"} />
-          <Kpi rotulo="Última coleta"
-            valor={d.pagina?.ultimaColetaEm ? dataBr(d.pagina.ultimaColetaEm) : null}
-            nota={ultimaExec ? `${ultimaExec.escopo}` : "nunca"} />
-          <Kpi rotulo="Chamadas na última" valor={ultimaExec?.chamadas ?? null}
-            nota={ultimaExec?.chamadasEstimadas ? `estimadas ${ultimaExec.chamadasEstimadas}` : undefined} />
-          <Kpi rotulo="Carga histórica"
-            valor={d.pagina?.cargaInicialChamadas ?? null}
-            nota={d.pagina?.cargaInicialEm ? `em ${dataBr(d.pagina.cargaInicialEm)}` : "ainda não feita"}
-            sufixo="chamadas" />
-          <Kpi rotulo="Status" valor={ROTULO_VINCULO[status]}
-            nota={d.pagina?.ultimoErro ?? undefined} />
-        </div>
-      </Bloco>
-
-    </div>
-  );
-}
-
 /* ═══ 2. Evolução ═════════════════════════════════════════════════════════ */
 
 type Serie = Dados["serie"];
@@ -889,7 +912,7 @@ type Serie = Dados["serie"];
  */
 interface Metrica { id: string; nome: string; unidade: string; cor: string }
 
-function AbaEvolucao({ d }: { d: Dados }) {
+function AbaEvolucao({ d, dias }: { d: Dados; dias: number }) {
   const serie = d.serie;
 
   /** As métricas que EXISTEM nos dados — nenhuma inventada, nenhuma escondida. */
@@ -898,10 +921,12 @@ function AbaEvolucao({ d }: { d: Dados }) {
     for (const x of serie) {
       for (const k of Object.keys((x.viewsJson ?? {}) as Record<string, number>)) recortes.add(k);
     }
+    // `seguidoresTotal` NÃO entra: `networkSizes` é chamada de ponto único, e
+    // uma curva com um ponto só não é série. O bloco abaixo explica isso em vez
+    // de desenhar uma reta reconstruída que pareceria dado do LinkedIn.
     const seguidores: Metrica[] = [
-      { id: "seguidoresTotal", nome: "Total de seguidores", unidade: "seguidores", cor: COR.seguidores },
-      { id: "ganhoOrganico", nome: "Ganho orgânico", unidade: "novos seguidores", cor: COR.entrada },
-      { id: "ganhoPago", nome: "Ganho pago", unidade: "novos seguidores", cor: COR.ativacoes },
+      { id: "ganhoOrganico", nome: "Ganho orgânico de seguidores", unidade: "novos seguidores", cor: COR.entrada },
+      { id: "ganhoPago", nome: "Ganho pago de seguidores", unidade: "novos seguidores", cor: COR.ativacoes },
     ];
     const views: Metrica[] = Array.from(recortes).sort().map((k) => ({
       id: `views:${k}`,
@@ -916,7 +941,7 @@ function AbaEvolucao({ d }: { d: Dados }) {
   }, [serie]);
 
   const todas = useMemo(() => grupos.flatMap((g) => g.metricas), [grupos]);
-  const [metrica, setMetrica] = useState("seguidoresTotal");
+  const [metrica, setMetrica] = useState("ganhoOrganico");
   const [ativo, setAtivo] = useState<number | null>(null);
   const m = todas.find((x) => x.id === metrica) ?? todas[0];
 
@@ -947,8 +972,54 @@ function AbaEvolucao({ d }: { d: Dados }) {
   const b = d.banco;
   const fezCarga = (b?.execucoes.cargas ?? 0) > 0;
 
+  const comSeguidores = serie.filter((x) => x.seguidoresTotal !== null);
+
   return (
     <div className="flex flex-col gap-4">
+      {/*
+        A ausência que vale ser dita.
+
+        `networkSizes` devolve o total do momento, e `followerStatistics` devolve
+        o ganho por dia. São duas coisas, e o LinkedIn não entrega a terceira: a
+        série do total. Reconstruí-la a partir do total de hoje menos os ganhos
+        acumulados daria uma linha bonita e DERIVADA — que numa tela de produto
+        passaria por número oficial do LinkedIn. Não desenhamos.
+      */}
+      <Bloco titulo="Histórico de seguidores"
+        nota={`${dias} dias selecionados`}>
+        <div className="flex items-start gap-3 flex-wrap">
+          <div className="flex-1 min-w-[200px]">
+            <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/80">
+              Total atual
+            </span>
+            <div className="text-[26px] font-bold leading-none tracking-[-0.02em] mt-1">
+              <Numero valor={comSeguidores[comSeguidores.length - 1]?.seguidoresTotal ?? null} />
+            </div>
+            <span className="text-[11px] text-muted-foreground">
+              {comSeguidores.length
+                ? `medido em ${dataBr(comSeguidores[comSeguidores.length - 1].dia)} · `
+                  + `${comSeguidores.length} medição(ões) no período`
+                : "sem medição no período"}
+            </span>
+          </div>
+          <div className="flex-[2] min-w-[280px] border-l border-border/60 pl-4">
+            <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/80">
+              Série histórica do total
+            </span>
+            <p className="text-[12.5px] mt-1 leading-relaxed">
+              <strong>Não disponível.</strong> O LinkedIn entrega o total atual e o
+              crescimento diário como métricas <em>separadas</em> — não existe endpoint
+              que devolva o total dia a dia.
+            </p>
+            <p className="text-[11.5px] text-muted-foreground mt-1">
+              Dá para reconstruir a curva a partir do total de hoje e dos ganhos
+              acumulados, mas seria número derivado por nós. Numa tela de produto ele
+              passaria por dado oficial do LinkedIn, e por isso não é desenhado aqui.
+            </p>
+          </div>
+        </div>
+      </Bloco>
+
       <Bloco titulo="Evolução"
         nota={m ? `${m.nome} · em ${m.unidade}` : undefined}
         acao={
@@ -1058,6 +1129,8 @@ function AbaEvolucao({ d }: { d: Dados }) {
             porque="Nenhuma sincronização gravou série para esta Página no período selecionado." />
         )}
       </Bloco>
+
+      <RecortesDeVisualizacao d={d} />
     </div>
   );
 }
@@ -1109,11 +1182,14 @@ const TOM_METRICA: Record<EstadoDaMetrica, EstadoDaCapacidade> = {
   erro: "erro",
 };
 
-type Ordem = "recente" | "antiga" | "impressoes" | "cliques" | "reacoes" | "comentarios" | "compartilhamentos";
+type Ordem = "recente" | "antiga" | "engajamento" | "piores" | "impressoes"
+  | "cliques" | "reacoes" | "comentarios" | "compartilhamentos";
 
 const ORDENS: Array<{ id: Ordem; nome: string }> = [
   { id: "recente", nome: "Mais recente" },
   { id: "antiga", nome: "Mais antiga" },
+  { id: "engajamento", nome: "Maior engajamento" },
+  { id: "piores", nome: "Menor engajamento" },
   { id: "impressoes", nome: "Mais impressões" },
   { id: "cliques", nome: "Mais cliques" },
   { id: "reacoes", nome: "Mais reações" },
@@ -1129,6 +1205,7 @@ function AbaPublicacoes({ posts, aoAbrir }: {
   const [metricas, setMetricas] = useState<"todas" | "com" | "sem">("todas");
   const [imagem, setImagem] = useState<"todas" | "com" | "sem">("todas");
   const [busca, setBusca] = useState("");
+  const [formato, setFormato] = useState("todos");
 
   const filtrados = useMemo(() => {
     const n = (p: Publicacao, campo: keyof NonNullable<Publicacao["metrica"]>) => {
@@ -1142,6 +1219,7 @@ function AbaPublicacoes({ posts, aoAbrir }: {
     };
     let lista = posts.filter((p) => {
       if (tipo !== "todos" && p.tipoUrn !== tipo) return false;
+      if (formato !== "todos" && lerConteudo(p.contentJson, !!p.commentary).tipo !== formato) return false;
       if (metricas === "com" && !p.metrica) return false;
       if (metricas === "sem" && p.metrica) return false;
       const img = midiaDe(p);
@@ -1153,8 +1231,16 @@ function AbaPublicacoes({ posts, aoAbrir }: {
     });
     const t = (p: Publicacao) => (p.publicadoEm ? new Date(p.publicadoEm).getTime() : 0);
     lista = [...lista].sort((a, b) => {
+      const eng = (p: Publicacao) =>
+        p.metrica?.engagement != null ? Number(p.metrica.engagement) : null;
       switch (ordem) {
         case "antiga": return t(a) - t(b);
+        case "engajamento": return (eng(b) ?? -1) - (eng(a) ?? -1);
+        // "Piores" só ordena o que foi MEDIDO: publicação sem métrica não é
+        // publicação ruim, e deixá-la no topo da lista de piores seria acusá-la
+        // de um desempenho que ninguém mediu.
+        case "piores": return (eng(a) ?? Number.POSITIVE_INFINITY)
+          - (eng(b) ?? Number.POSITIVE_INFINITY);
         case "impressoes": return n(b, "impressions") - n(a, "impressions");
         case "cliques": return n(b, "clicks") - n(a, "clicks");
         case "reacoes": return reacoes(b) - reacoes(a);
@@ -1164,12 +1250,14 @@ function AbaPublicacoes({ posts, aoAbrir }: {
       }
     });
     return lista;
-  }, [posts, ordem, tipo, metricas, imagem, busca]);
+  }, [posts, ordem, tipo, metricas, imagem, busca, formato]);
 
   return (
     <div className="flex flex-col gap-4">
       <Bloco titulo="Publicações"
-        nota={`${filtrados.length} de ${posts.length}`}
+        nota={`${filtrados.length} de ${posts.length} · `
+          + `${posts.filter((p) => typeof p.metrica?.impressions === "number").length} com métricas · `
+          + `${posts.filter((p) => p.metrica?.reacoesPorTipoJson).length} com reações por tipo`}
         acao={
           <Button size="sm" variant="ghost" className="h-7 text-[11px]"
             onClick={() => baixarCsv("linkedin-publicacoes", filtrados.map((p) => ({
@@ -1186,6 +1274,10 @@ function AbaPublicacoes({ posts, aoAbrir }: {
         <div className="flex gap-2 flex-wrap items-end">
           <Filtro rotulo="Ordenar" valor={ordem} aoTrocar={(v) => setOrdem(v as Ordem)}
             opcoes={ORDENS.map((o) => [o.id, o.nome])} />
+          <Filtro rotulo="Formato" valor={formato} aoTrocar={setFormato}
+            opcoes={[["todos", "Todos"],
+              ...Array.from(new Set(posts.map((p) => lerConteudo(p.contentJson, !!p.commentary).tipo)))
+                .map((t) => [t, ROTULO_CONTEUDO[t]] as [string, string])]} />
           <Filtro rotulo="Tipo" valor={tipo} aoTrocar={(v) => setTipo(v as typeof tipo)}
             opcoes={[["todos", "Todos"], ["ugcPost", "ugcPost"], ["share", "share"]]} />
           <Filtro rotulo="Métricas" valor={metricas} aoTrocar={(v) => setMetricas(v as typeof metricas)}
@@ -2085,8 +2177,8 @@ function VazioExplicado({ titulo, porque, oQueTem }: {
  * o dado chegou; ele não serve para descobrir que setor concentra a audiência —
  * que é a pergunta que este laboratório existe para responder.
  */
-function TabelaDeFacetas({ titulo, itens, campoDeContagem, unidade }: {
-  titulo: string; itens: unknown; campoDeContagem?: string; unidade: string;
+function TabelaDeFacetas({ titulo, campo, itens, campoDeContagem, unidade }: {
+  titulo: string; campo?: string; itens: unknown; campoDeContagem?: string; unidade: string;
 }) {
   const linhas = useMemo(
     () => linhasDoSegmento(itens, campoDeContagem), [itens, campoDeContagem]);
@@ -2095,9 +2187,10 @@ function TabelaDeFacetas({ titulo, itens, campoDeContagem, unidade }: {
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[10.5px] font-mono text-muted-foreground">{titulo}</span>
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+        <span className="text-[12.5px] font-semibold">{titulo}</span>
         <span className="text-[10px] text-muted-foreground/70">
+          {campo && <span className="font-mono mr-2">{campo}</span>}
           {linhas.length} faceta(s) · {fmt(total)} {unidade}
         </span>
       </div>
@@ -2115,7 +2208,21 @@ function TabelaDeFacetas({ titulo, itens, campoDeContagem, unidade }: {
           <tbody>
             {linhas.map((l) => (
               <tr key={l.chave} className="border-t border-border/50">
-                <td className="py-1 pr-3" title={l.chave}>{l.rotulo}</td>
+                <td className="py-1 pr-3">
+                  {/* O dado ORIGINAL, sem tradução inventada. O LinkedIn manda
+                      `urn:li:industry:96`; o nome da categoria depende de uma
+                      resolução de entidades que esta versão não conecta, e
+                      escrever "Tecnologia" aqui seria eu digitando o dado. */}
+                  <div className="flex flex-col leading-tight" title={l.chave}>
+                    <span className="text-muted-foreground">
+                      {titulo} não identificado
+                    </span>
+                    <span className="font-mono text-[10.5px] text-muted-foreground/70"
+                      title="O nome da categoria depende da resolução de entidades do LinkedIn, ainda não conectada nesta versão.">
+                      código LinkedIn: {l.chave.split(":").pop()}
+                    </span>
+                  </div>
+                </td>
                 <td className="py-1 pr-3 text-right"><Numero valor={l.organico} /></td>
                 <td className="py-1 pr-3 text-right"><Numero valor={l.pago} /></td>
                 <td className="py-1 pr-3 text-right font-semibold"><Numero valor={l.total} /></td>
@@ -2127,9 +2234,13 @@ function TabelaDeFacetas({ titulo, itens, campoDeContagem, unidade }: {
           </tbody>
         </table>
       </div>
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <span className="text-[10.5px] text-muted-foreground/70">
+          O nome de cada categoria depende da resolução de entidades do LinkedIn,
+          ainda não conectada nesta versão — o código é o dado original.
+        </span>
         <Button size="sm" variant="ghost" className="h-6 text-[10.5px]"
-          onClick={() => baixarCsv(`linkedin-${titulo}`, linhas.map((l) => ({ ...l })))}>
+          onClick={() => baixarCsv(`linkedin-${campo ?? titulo}`, linhas.map((l) => ({ ...l })))}>
           <Download className="w-3 h-3 mr-1" /> CSV
         </Button>
       </div>
@@ -2162,14 +2273,18 @@ const DIMENSOES: Record<string, string> = {
 
 const nomeDaDimensao = (campo: string) => DIMENSOES[campo] ?? campo;
 
-function AbaVisualizacoes({ d }: { d: Dados }) {
+/**
+ * Os recortes de visualização — os 48 que a série guarda.
+ *
+ * Eles moravam numa aba própria que a reorganização de produto dissolveu. Sem
+ * este bloco, 48 recortes medidos voltariam a ficar invisíveis — que é
+ * exatamente o defeito que a rodada anterior existiu para não repetir.
+ */
+function RecortesDeVisualizacao({ d }: { d: Dados }) {
   const vital = (d.lifetime?.totalPageStatisticsJson ?? null) as Record<string, unknown> | null;
   const totalVital = (vital?.totalPageStatistics ?? null) as Record<string, unknown> | null;
-  const facetas = segmentosDisponiveis(vital).filter((x) => x.campo.startsWith("pageStatistics"));
-  const b = d.banco;
-  const fezCarga = (b?.execucoes.cargas ?? 0) > 0;
+  const fezCarga = (d.banco?.execucoes.cargas ?? 0) > 0;
 
-  /** Os recortes que a série diária guardou, somados no período. */
   const somaDaSerie = useMemo(() => {
     const soma: Record<string, number> = {};
     for (const x of d.serie) {
@@ -2180,7 +2295,7 @@ function AbaVisualizacoes({ d }: { d: Dados }) {
     return soma;
   }, [d.serie]);
 
-  const recortesVitalicios = useMemo(() => {
+  const vitalicios = useMemo(() => {
     const saida: Record<string, number> = {};
     const achatar = (o: unknown, prefixo = "", nivel = 0) => {
       if (!o || typeof o !== "object" || nivel > 4) return;
@@ -2195,51 +2310,26 @@ function AbaVisualizacoes({ d }: { d: Dados }) {
   }, [totalVital]);
 
   return (
-    <div className="flex flex-col gap-4">
-      <Bloco titulo="Vitalício"
+    <>
+      <Bloco titulo="Visualizações no período, recorte por recorte"
+        nota={`${Object.keys(somaDaSerie).length} recorte(s) · somados nos dias medidos`}>
+        {Object.keys(somaDaSerie).length
+          ? <TabelaDeRecortes valores={somaDaSerie} nome="linkedin-views-periodo" />
+          : <VazioExplicado titulo="Nenhuma visualização por dia no período"
+              porque="A série de visualizações não foi gravada, ou o período está fora do coletado." />}
+      </Bloco>
+
+      <Bloco titulo="Visualizações vitalícias"
         nota={d.lifetime?.dia ? `retrato de ${dataBr(d.lifetime.dia)}` : undefined}>
-        {Object.keys(recortesVitalicios).length ? (
-          <TabelaDeRecortes valores={recortesVitalicios} nome="linkedin-views-vitalicio" />
-        ) : (
-          <VazioExplicado
-            titulo="Nenhuma visualização vitalícia salva"
-            porque={fezCarga
-              ? "A carga rodou, mas a API não devolveu totalPageStatistics para esta Página."
-              : "O incremental não pede visualizações vitalícias — só a Carga histórica e a rodada semanal chamam /rest/organizationPageStatistics sem janela."}
-            oQueTem="os ~30 recortes de pageViews desde sempre, mais os cortes por setor, senioridade, geografia, função e porte"
-          />
-        )}
+        {Object.keys(vitalicios).length
+          ? <TabelaDeRecortes valores={vitalicios} nome="linkedin-views-vitalicio" />
+          : <VazioExplicado titulo="Nenhuma visualização vitalícia salva"
+              porque={fezCarga
+                ? "A carga rodou e a API não devolveu totalPageStatistics para esta Página."
+                : "Só a Carga histórica e a rodada semanal pedem este dado."}
+              oQueTem="os recortes de pageViews desde sempre" />}
       </Bloco>
 
-      <Bloco titulo="Somado no período"
-        nota={`${d.serie.filter((x) => Object.keys((x.viewsJson ?? {}) as object).length).length} dia(s) com visualização`}>
-        {Object.keys(somaDaSerie).length ? (
-          <TabelaDeRecortes valores={somaDaSerie} nome="linkedin-views-periodo" />
-        ) : (
-          <VazioExplicado
-            titulo="Nenhuma visualização por dia no período"
-            porque="A série diária de visualizações não foi gravada, ou o período selecionado está fora do que foi coletado."
-          />
-        )}
-      </Bloco>
-
-      {facetas.length > 0 && (
-        <Bloco titulo="Quem viu a Página, por dimensão"
-          nota={`${facetas.length} dimensão(ões) · só existe no retrato vitalício, `
-            + "porque o coletor guarda apenas o total de cada dia da série"}>
-          <div className="flex flex-col gap-6">
-            {facetas.map((f) => (
-              <TabelaDeFacetas key={f.campo}
-                titulo={`${nomeDaDimensao(f.campo)} · ${f.campo}`}
-                itens={(vital as Record<string, unknown>)[f.campo]}
-                campoDeContagem="pageStatistics" unidade="visualizações" />
-            ))}
-          </div>
-          <Recolhivel titulo="Resposta bruta — organizationPageStatistics">{bruto(vital)}</Recolhivel>
-        </Bloco>
-      )}
-
-      {/* O que a API recusou naquele retrato — estava salvo e em tela nenhuma. */}
       {d.lifetime?.indisponiveisJson
         && Object.keys(d.lifetime.indisponiveisJson as object).length > 0 ? (
         <Bloco titulo="Recusado pela API neste retrato">
@@ -2253,7 +2343,7 @@ function AbaVisualizacoes({ d }: { d: Dados }) {
           </div>
         </Bloco>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -2298,49 +2388,6 @@ function TabelaDeRecortes({ valores, nome }: { valores: Record<string, number>; 
   );
 }
 
-/* ═══ Segmentações de seguidores ══════════════════════════════════════════ */
-
-function AbaSegmentacoes({ d }: { d: Dados }) {
-  const seg = (d.lifetime?.segmentacoesJson ?? null) as Record<string, unknown> | null;
-  const grupos = segmentosDisponiveis(seg).filter((x) => x.campo.startsWith("followerCounts"));
-  const b = d.banco;
-  const fezCarga = (b?.execucoes.cargas ?? 0) > 0;
-
-  if (!grupos.length) {
-    return (
-      <Bloco titulo="Segmentações de seguidores">
-        <VazioExplicado
-          titulo="Nenhuma segmentação salva"
-          porque={fezCarga
-            ? "A carga rodou, mas a API não devolveu as segmentações para esta Página — confira o estado na aba Cobertura."
-            : "O incremental não pede segmentações — só a Carga histórica e a rodada semanal chamam organizationalEntityFollowerStatistics sem janela."}
-          oQueTem="tipo de associação, senioridade, setor, função, porte da empresa, país e região"
-        />
-        {seg && <Recolhivel titulo="Resposta bruta — o que foi salvo">{bruto(seg)}</Recolhivel>}
-      </Bloco>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      <Bloco titulo="Segmentações de seguidores"
-        nota={`${grupos.length} recorte(s) · retrato de ${dataBr(d.lifetime?.dia)}`}>
-        <div className="flex flex-col gap-6">
-          {grupos.map((g) => (
-            <TabelaDeFacetas key={g.campo}
-              titulo={`${nomeDaDimensao(g.campo)} · ${g.campo}`}
-              itens={(seg as Record<string, unknown>)[g.campo]}
-              campoDeContagem="followerCounts" unidade="seguidores" />
-          ))}
-        </div>
-        <Recolhivel titulo="Resposta bruta — organizationalEntityFollowerStatistics">
-          {bruto(seg)}
-        </Recolhivel>
-      </Bloco>
-    </div>
-  );
-}
-
 /* ═══ Conteúdo — o que estava parado em 355 objetos `content` ═════════════ */
 
 /**
@@ -2357,6 +2404,34 @@ function AbaConteudo({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string) => void 
   const dist = useMemo(
     () => distribuicaoDeConteudo(leituras.map((x) => x.l)), [leituras]);
   const [tipo, setTipo] = useState<string>("todos");
+
+  /**
+   * Desempenho por formato, com o `n` de cada média.
+   *
+   * A média sai só das publicações que TÊM métrica — 160 das 390 na Musa. Sem
+   * mostrar o denominador, "imagem: 4,2%" pareceria falar das 32 publicações
+   * quando fala de 15. É assim que número honesto vira mentira.
+   */
+  const desempenho = useMemo(() => {
+    const por = new Map<string, typeof leituras>();
+    for (const x of leituras) por.set(x.l.tipo, [...(por.get(x.l.tipo) ?? []), x]);
+    const media = (xs: typeof leituras, f: (m: NonNullable<Publicacao["metrica"]>) => unknown) => {
+      const vs = xs.map((x) => (x.p.metrica ? Number(f(x.p.metrica)) : NaN))
+        .filter((v) => Number.isFinite(v));
+      return vs.length ? vs.reduce((t, v) => t + v, 0) / vs.length : null;
+    };
+    return Array.from(por.entries()).map(([tipo, xs]) => {
+      const comMetrica = xs.filter((x) => typeof x.p.metrica?.impressions === "number");
+      return {
+        tipo: tipo as keyof typeof ROTULO_CONTEUDO,
+        total: xs.length,
+        comMetrica: comMetrica.length,
+        engajamento: media(comMetrica, (m) => m.engagement),
+        impressoes: (() => { const v = media(comMetrica, (m) => m.impressions); return v === null ? null : Math.round(v); })(),
+        cliques: (() => { const v = media(comMetrica, (m) => m.clicks); return v === null ? null : Math.round(v); })(),
+      };
+    }).sort((a, b) => b.total - a.total);
+  }, [leituras]);
 
   const filtradas = tipo === "todos" ? leituras : leituras.filter((x) => x.l.tipo === tipo);
   const semContent = leituras.filter((x) => !x.p.contentJson).length;
@@ -2375,6 +2450,49 @@ function AbaConteudo({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string) => void 
             <Download className="w-3 h-3 mr-1" /> CSV
           </Button>
         }>
+        {/* Quantidade sozinha vira gráfico bonito e inútil: "publica muita
+            imagem" não diz se imagem funciona. A tabela abaixo põe o
+            desempenho ao lado da contagem, com o `n` de cada média à vista. */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12.5px] min-w-[560px]">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                <th className="text-left py-2 pr-3">Formato</th>
+                <th className="text-right py-2 pr-3">Publicações</th>
+                <th className="text-right py-2 pr-3">Com métricas</th>
+                <th className="text-right py-2 pr-3">Engajamento médio</th>
+                <th className="text-right py-2 pr-3">Impressões médias</th>
+                <th className="text-right py-2">Cliques médios</th>
+              </tr>
+            </thead>
+            <tbody>
+              {desempenho.map((x) => (
+                <tr key={x.tipo} className="border-t border-border/60 cursor-pointer hover:bg-muted/40"
+                  onClick={() => setTipo(tipo === x.tipo ? "todos" : x.tipo)}>
+                  <td className="py-2 pr-3 font-medium">{ROTULO_CONTEUDO[x.tipo]}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums">{fmt(x.total)}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums">
+                    {x.comMetrica
+                      ? <>{fmt(x.comMetrica)}<span className="text-muted-foreground/60 text-[10.5px] ml-1">
+                          de {fmt(x.total)}</span></>
+                      : <span className="text-muted-foreground/50">—</span>}
+                  </td>
+                  <td className="py-2 pr-3 text-right font-semibold">
+                    <Numero valor={x.engajamento !== null ? `${(x.engajamento * 100).toFixed(2)}%` : null}
+                      motivo={x.comMetrica ? null : "nenhuma publicação deste formato tem métrica"} />
+                  </td>
+                  <td className="py-2 pr-3 text-right">
+                    <Numero valor={x.impressoes} motivo={x.comMetrica ? null : "sem métrica"} />
+                  </td>
+                  <td className="py-2 text-right">
+                    <Numero valor={x.cliques} motivo={x.comMetrica ? null : "sem métrica"} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
         {/* Barras proporcionais: a composição se lê de relance, e o número
             fica ao lado para conferência. */}
         <div className="flex flex-col gap-1.5">
@@ -2459,6 +2577,212 @@ function AbaConteudo({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string) => void 
           </table>
         </div>
       </Bloco>
+    </div>
+  );
+}
+
+/* ═══ Visão geral — a leitura executiva ═══════════════════════════════════ */
+
+/** O KPI de produto: número grande, estado discreto, motivo no hover. */
+function KpiGrande({ rotulo, valor, unidade, nota, motivo, variacao, aoClicar }: {
+  rotulo: string; valor: number | string | null | undefined; unidade?: string;
+  nota?: string | null; motivo?: string | null; variacao?: number | null;
+  aoClicar?: () => void;
+}) {
+  const Tag = aoClicar ? "button" : "div";
+  return (
+    <Tag type={aoClicar ? "button" : undefined} onClick={aoClicar}
+      className={`rounded-lg border border-border bg-card px-4 py-3 flex flex-col gap-1 min-w-0 text-left ${
+        aoClicar ? "hover:border-primary/50 transition-colors cursor-pointer" : ""}`}>
+      <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/80">{rotulo}</span>
+      <span className="text-[26px] font-bold leading-none tracking-[-0.02em]">
+        <Numero valor={valor} motivo={motivo} />
+        {valor !== null && valor !== undefined && unidade && (
+          <span className="text-[13px] font-medium text-muted-foreground ml-1">{unidade}</span>
+        )}
+      </span>
+      <span className="text-[11px] text-muted-foreground flex items-center gap-1.5 min-h-[16px]">
+        {variacao !== null && variacao !== undefined && variacao !== 0 && (
+          <span className={`flex items-center gap-0.5 font-semibold ${
+            variacao > 0 ? "text-emerald-600 dark:text-emerald-500" : "text-destructive"}`}>
+            {variacao > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+            {variacao > 0 ? "+" : ""}{fmt(variacao)}
+          </span>
+        )}
+        {nota}
+      </span>
+    </Tag>
+  );
+}
+
+function AbaVisaoGeral({ d, capacidades, aoIr }: {
+  d: Dados; capacidades: MapaDeCapacidades; aoIr: (a: Aba) => void;
+}) {
+  const org = (d.lifetime?.organizacaoJson ?? null) as Record<string, unknown> | null;
+  const agregado = (d.lifetime?.agregadoDePostsJson as
+    { totalShareStatistics?: Record<string, unknown> } | null)?.totalShareStatistics ?? null;
+
+  const comSeguidores = d.serie.filter((x) => x.seguidoresTotal !== null);
+  const seguidores = comSeguidores[comSeguidores.length - 1]?.seguidoresTotal ?? null;
+  const ganho = d.serie.reduce<number | null>(
+    (t, x) => (x.ganhoOrganico === null ? t : (t ?? 0) + x.ganhoOrganico), null);
+  const views = d.serie.reduce<number | null>((t, x) => {
+    const v = (x.viewsJson as Record<string, number> | null)?.["views.allPageViews.pageViews"];
+    return typeof v === "number" ? (t ?? 0) + v : t;
+  }, null);
+
+  const comMetrica = d.posts.filter((p) => typeof p.metrica?.impressions === "number");
+  const impressoes = comMetrica.reduce((t, p) => t + (p.metrica!.impressions ?? 0), 0);
+  const engajamentos = d.posts
+    .map((p) => (p.metrica?.engagement != null ? Number(p.metrica.engagement) : null))
+    .filter((x): x is number => x !== null && Number.isFinite(x));
+  const engMedio = engajamentos.length
+    ? engajamentos.reduce((t, x) => t + x, 0) / engajamentos.length : null;
+
+  const melhor = [...comMetrica].sort((a, b) =>
+    Number(b.metrica?.engagement ?? 0) - Number(a.metrica?.engagement ?? 0))[0] ?? null;
+
+  const dias = d.serie.length;
+  const periodo = d.serie.length
+    ? `${dataBr(d.serie[0].dia)} → ${dataBr(d.serie[d.serie.length - 1].dia)}` : null;
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* A ficha do cliente, do jeito que um módulo do Tracker abriria. */}
+      {org && (
+        <Card className="p-4 flex gap-4 items-start flex-wrap">
+          <div className="min-w-0 flex-1 flex flex-col gap-1">
+            <span className="text-[13px] font-semibold">{d.pagina?.nome ?? "—"}</span>
+            <p className="text-[12.5px] text-muted-foreground leading-relaxed max-w-[72ch] line-clamp-3">
+              {String(org.localizedDescription ?? org.description ?? "—")}
+            </p>
+            <div className="flex gap-x-4 gap-y-1 flex-wrap text-[11.5px] text-muted-foreground mt-1">
+              {typeof org.localizedWebsite === "string" || typeof org.website === "string" ? (
+                <a href={String(org.localizedWebsite ?? org.website)} target="_blank" rel="noreferrer"
+                  className="text-primary hover:underline flex items-center gap-1">
+                  {String(org.localizedWebsite ?? org.website)} <ExternalLink className="w-3 h-3" />
+                </a>
+              ) : null}
+              {typeof org.staffCountRange === "string" && <span>{org.staffCountRange}</span>}
+              {typeof org.organizationType === "string" && <span>{org.organizationType}</span>}
+              {periodo && <span>Período analisado: {periodo} · {dias} dia(s)</span>}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiGrande rotulo="Seguidores" valor={seguidores}
+          motivo={capacidades.seguidores_atuais?.motivo}
+          nota={comSeguidores.length ? `medido em ${dataBr(comSeguidores[comSeguidores.length - 1].dia)}` : null} />
+        <KpiGrande rotulo="Crescimento no período" valor={ganho} unidade="seguidores"
+          motivo={capacidades.seguidores_serie?.motivo}
+          nota={`orgânico · ${d.serie.filter((x) => x.ganhoOrganico !== null).length} dia(s) medido(s)`}
+          aoClicar={() => aoIr("evolucao")} />
+        <KpiGrande rotulo="Visualizações da Página" valor={views}
+          motivo={capacidades.pagina_serie?.motivo}
+          nota="allPageViews no período" aoClicar={() => aoIr("evolucao")} />
+        <KpiGrande rotulo="Publicações" valor={d.posts.length || null}
+          nota={`${comMetrica.length} com métricas` } aoClicar={() => aoIr("conteudo")} />
+        <KpiGrande rotulo="Impressões" valor={impressoes || null}
+          nota={`somadas de ${comMetrica.length} publicação(ões)`}
+          motivo={comMetrica.length ? null : "nenhuma publicação com métrica"} />
+        <KpiGrande rotulo="Engajamento médio"
+          valor={engMedio !== null ? `${(engMedio * 100).toFixed(2)}%` : null}
+          nota={`média de ${engajamentos.length} publicação(ões) medidas`}
+          motivo={engajamentos.length ? null : "nenhuma publicação com engajamento medido"}
+          aoClicar={() => aoIr("formatos")} />
+        <KpiGrande rotulo="Engajamento da Página"
+          valor={typeof agregado?.engagement === "number"
+            ? `${(agregado.engagement * 100).toFixed(2)}%` : null}
+          nota="medido pelo LinkedIn, vitalício"
+          motivo={agregado ? null : "o agregado vitalício não foi coletado"} />
+        <KpiGrande rotulo="Melhor publicação"
+          valor={melhor?.metrica?.engagement != null
+            ? `${(Number(melhor.metrica.engagement) * 100).toFixed(2)}%` : null}
+          nota={melhor ? `${dataBr(melhor.publicadoEm)} · por engajamento` : null}
+          motivo={melhor ? null : "nenhuma publicação com engajamento medido"}
+          aoClicar={() => aoIr("conteudo")} />
+      </div>
+
+      {melhor && (
+        <Bloco titulo="Publicação de maior engajamento"
+          nota={`${(Number(melhor.metrica!.engagement) * 100).toFixed(2)}% · ${dataBr(melhor.publicadoEm)}`}>
+          <div className="flex gap-4 items-start flex-wrap">
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] leading-relaxed line-clamp-4">
+                {melhor.commentary || <span className="text-muted-foreground/60">sem texto</span>}
+              </p>
+              <div className="flex gap-x-5 gap-y-1 flex-wrap mt-3 text-[12px]">
+                <Mini rotulo="impressões" valor={melhor.metrica?.impressions} />
+                <Mini rotulo="únicas" valor={melhor.metrica?.uniqueImpressions} />
+                <Mini rotulo="cliques" valor={melhor.metrica?.clicks} />
+                <Mini rotulo="reações" valor={melhor.metrica?.likes} />
+                <Mini rotulo="comentários" valor={melhor.metrica?.comments} />
+                <Mini rotulo="compart." valor={melhor.metrica?.shares} />
+              </div>
+            </div>
+          </div>
+        </Bloco>
+      )}
+    </div>
+  );
+}
+
+/* ═══ Audiência — perfil de quem segue, e de quem viu ═════════════════════ */
+
+/**
+ * Perfil dos SEGUIDORES. Não é público que converte, não é lead, não é
+ * intenção — é quem apertou seguir. Rotular isso como qualquer outra coisa
+ * seria interpretação de negócio em cima de um dado que não a sustenta.
+ */
+function AbaAudiencia({ d }: { d: Dados }) {
+  const seg = (d.lifetime?.segmentacoesJson ?? null) as Record<string, unknown> | null;
+  const vital = (d.lifetime?.totalPageStatisticsJson ?? null) as Record<string, unknown> | null;
+  const grupos = segmentosDisponiveis(seg).filter((x) => x.campo.startsWith("followerCounts"));
+  const facetas = segmentosDisponiveis(vital).filter((x) => x.campo.startsWith("pageStatistics"));
+  const fezCarga = (d.banco?.execucoes.cargas ?? 0) > 0;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Bloco titulo="Perfil dos seguidores"
+        nota={grupos.length
+          ? `${grupos.length} dimensão(ões) · retrato de ${dataBr(d.lifetime?.dia)}`
+          : undefined}>
+        {/* Dito uma vez, no lugar certo: é quem segue, e nada além disso. */}
+        <p className="text-[12px] text-muted-foreground">
+          Quem <strong>segue</strong> a Página — não quem converte, não quem visitou o site.
+          O LinkedIn entrega isso como retrato do momento, sem série histórica.
+        </p>
+        {grupos.length ? (
+          <div className="flex flex-col gap-6">
+            {grupos.map((g) => (
+              <TabelaDeFacetas key={g.campo} titulo={nomeDaDimensao(g.campo)} campo={g.campo}
+                itens={(seg as Record<string, unknown>)[g.campo]}
+                campoDeContagem="followerCounts" unidade="seguidores" />
+            ))}
+          </div>
+        ) : (
+          <VazioExplicado titulo="Nenhuma segmentação salva"
+            porque={fezCarga
+              ? "A carga rodou e a API não devolveu as segmentações para esta Página."
+              : "Só a Carga histórica e a rodada semanal pedem este dado."}
+            oQueTem="tipo de associação, senioridade, setor, função, porte, país e região" />
+        )}
+      </Bloco>
+
+      {facetas.length > 0 && (
+        <Bloco titulo="Quem viu a Página"
+          nota="visualizações por dimensão — é audiência de visita, não de seguidor">
+          <div className="flex flex-col gap-6">
+            {facetas.map((f) => (
+              <TabelaDeFacetas key={f.campo} titulo={nomeDaDimensao(f.campo)} campo={f.campo}
+                itens={(vital as Record<string, unknown>)[f.campo]}
+                campoDeContagem="pageStatistics" unidade="visualizações" />
+            ))}
+          </div>
+        </Bloco>
+      )}
     </div>
   );
 }
