@@ -18,6 +18,7 @@ import {
   linkedinColetaExecucoes, linkedinPageDaily, linkedinPageLifetime,
   linkedinPages, linkedinPostMetrics, linkedinPosts,
 } from "../../drizzle/schema";
+import { lerConteudo, type EntradaDeMidia } from "@shared/linkedinConteudo";
 
 /**
  * Os vínculos ATIVOS — os que o seletor mostra.
@@ -163,17 +164,70 @@ export async function estadoDoBanco(pageId: number) {
         diario.flatMap((d) => Object.keys((d.viewsJson ?? {}) as Record<string, number>)))).length,
       comIndisponiveis: diario.filter((d) => temChaves(d.indisponiveisJson)).length,
     },
-    vitalicio: {
-      linhas: vitalicios.length,
-      primeiro: vitalicios[0]?.dia ?? null,
-      ultimo: ultimoVitalicio?.dia ?? null,
-      temSegmentacoes: temChaves(ultimoVitalicio?.segmentacoesJson),
-      temVisualizacoes: temChaves(ultimoVitalicio?.totalPageStatisticsJson),
-      temAgregado: temChaves(ultimoVitalicio?.agregadoDePostsJson),
-      temOrganizacao: temChaves(ultimoVitalicio?.organizacaoJson),
-    },
-    publicacoes: {
-      linhas: posts.length,
+    vitalicio: (() => {
+      // Contagem real no lugar de "presente": quantas facetas, quantos
+      // recortes, quantos campos. "Presente 1" não deixa ninguém conferir nada.
+      const contarFacetas = (o: unknown) => {
+        if (!o || typeof o !== "object") return { grupos: 0, itens: 0 };
+        const arrays = Object.values(o as Record<string, unknown>)
+          .filter((v): v is unknown[] => Array.isArray(v) && v.length > 0);
+        return { grupos: arrays.length, itens: arrays.reduce((t, a) => t + a.length, 0) };
+      };
+      const achatar = (o: unknown, n = 0): number => {
+        if (!o || typeof o !== "object" || n > 4) return 0;
+        return Object.values(o as Record<string, unknown>).reduce<number>((t, v) => {
+          if (typeof v === "number") return t + 1;
+          if (v && typeof v === "object" && !Array.isArray(v)) return t + achatar(v, n + 1);
+          return t;
+        }, 0);
+      };
+      const seg = contarFacetas(ultimoVitalicio?.segmentacoesJson);
+      const vis = contarFacetas(ultimoVitalicio?.totalPageStatisticsJson);
+      const total = (ultimoVitalicio?.totalPageStatisticsJson as
+        { totalPageStatistics?: unknown } | null)?.totalPageStatistics;
+      const agreg = (ultimoVitalicio?.agregadoDePostsJson as
+        { totalShareStatistics?: unknown } | null)?.totalShareStatistics;
+      return {
+        linhas: vitalicios.length,
+        primeiro: vitalicios[0]?.dia ?? null,
+        ultimo: ultimoVitalicio?.dia ?? null,
+        temSegmentacoes: temChaves(ultimoVitalicio?.segmentacoesJson),
+        temVisualizacoes: temChaves(ultimoVitalicio?.totalPageStatisticsJson),
+        temAgregado: temChaves(ultimoVitalicio?.agregadoDePostsJson),
+        temOrganizacao: temChaves(ultimoVitalicio?.organizacaoJson),
+        segmentacoesGrupos: seg.grupos,
+        segmentacoesItens: seg.itens,
+        visualizacoesFacetas: vis.grupos,
+        visualizacoesItens: vis.itens,
+        recortesVitalicios: achatar(total),
+        camposDoAgregado: achatar(agreg),
+        camposDaOrganizacao: ultimoVitalicio?.organizacaoJson
+          ? Object.keys(ultimoVitalicio.organizacaoJson as object).length : 0,
+        indisponiveis: (ultimoVitalicio?.indisponiveisJson ?? null) as Record<string, string> | null,
+      };
+    })(),
+    publicacoes: (() => {
+      // Mídia: quantas URNs existem, e quantas chegaram a ser PERGUNTADAS.
+      // A diferença entre as duas é a informação que faltava.
+      let urnsDeMidia = 0, urnsConsultadas = 0, urnsResolvidas = 0, indeterminadas = 0;
+      for (const p of posts) {
+        const ms = (p.midiasJson ?? []) as EntradaDeMidia[];
+        if (!Array.isArray(ms) || !ms.length) continue;
+        urnsDeMidia += ms.length;
+        urnsConsultadas += ms.filter((m) => m.consultada === true).length;
+        urnsResolvidas += ms.filter((m) => !!m.dados).length;
+        if (ms.every((m) => typeof m.consultada !== "boolean")) indeterminadas++;
+      }
+      const porTipo: Record<string, number> = {};
+      for (const p of posts) {
+        const t = lerConteudo(p.contentJson, !!p.commentary).tipo;
+        porTipo[t] = (porTipo[t] ?? 0) + 1;
+      }
+      return {
+        linhas: posts.length,
+        urnsDeMidia, urnsConsultadas, urnsResolvidas,
+        publicacoesComMidiaIndeterminada: indeterminadas,
+        porTipoDeConteudo: porTipo,
       comTexto: posts.filter((p) => !!p.commentary).length,
       comContent: posts.filter((p) => temChaves(p.contentJson)).length,
       comMidiaResolvida: posts.filter((p) =>
@@ -186,7 +240,8 @@ export async function estadoDoBanco(pageId: number) {
         .sort((a, b) => (a as Date).getTime() - (b as Date).getTime())[0] ?? null,
       maisNova: posts.map((p) => p.publicadoEm).filter(Boolean)
         .sort((a, b) => (b as Date).getTime() - (a as Date).getTime())[0] ?? null,
-    },
+      };
+    })(),
     metricas: {
       linhas: metricas.length,
       publicacoesDistintas: new Set(metricas.map((m) => m.postUrn)).size,
@@ -197,6 +252,9 @@ export async function estadoDoBanco(pageId: number) {
       comReacoesPorTipo: metricas.filter((m) => temChaves(m.reacoesPorTipoJson)).length,
       comSocialActions: metricas.filter((m) => temChaves(m.socialActionsJson)).length,
       parciais: metricas.filter((m) => m.statusColeta !== "ok").length,
+      // Publicações que existem e NÃO têm nenhuma linha de métrica. Não são
+      // "não coletadas": o lote foi pedido e o endpoint omitiu.
+      publicacoesSemMetrica: posts.length - new Set(metricas.map((m) => m.postUrn)).size,
     },
     execucoes: {
       linhas: execs.length,

@@ -468,6 +468,8 @@ export async function coletarPaginaLinkedIn(o: OpcoesDeColeta): Promise<Resultad
 
   /* ── Imagens: tentativa MEDIDA, nunca promessa ──────────────────────── */
   const imagensPorUrn = new Map<string, unknown>();
+  /** As URNs que chegaram a ser perguntadas nesta rodada. */
+  const consultadas = new Set<string>();
   let motivoDaImagem: string | null = null;
   {
     const comMidia = lidos
@@ -477,7 +479,12 @@ export async function coletarPaginaLinkedIn(o: OpcoesDeColeta): Promise<Resultad
     const todas = Array.from(new Set(comMidia.flatMap((x) => x.urns)));
     if (todas.length) {
       const antes = contador.chamadas;
-      const r = await api.resolverImagens(ctx, todas.slice(0, 20));
+      // Só estas foram perguntadas. Sem guardar a lista, uma publicação que
+      // nunca chegou a ser consultada ficava indistinguível de uma que a API
+      // recusou — foi o que aconteceu com 205 das 225 mídias da Musa.
+      const perguntadas = todas.slice(0, 20);
+      perguntadas.forEach((u) => consultadas.add(u));
+      const r = await api.resolverImagens(ctx, perguntadas);
       if (r.ok && r.dados) {
         const res = (r.dados.results ?? r.dados) as Record<string, unknown>;
         for (const [urn, v] of Object.entries(res)) imagensPorUrn.set(urn, v);
@@ -596,12 +603,17 @@ export async function coletarPaginaLinkedIn(o: OpcoesDeColeta): Promise<Resultad
         urn: u,
         dados: imagensPorUrn.get(u) ?? null,
         obtidaEm: imagensPorUrn.has(u) ? agora.toISOString() : null,
+        consultada: consultadas.has(u),
       }));
+      const algumaConsultada = resolvidas.some((x) => x.consultada);
       await db.update(linkedinPosts).set({
         midiasJson: resolvidas as never,
-        midiaIndisponivel: resolvidas.some((x) => x.dados)
+        // `midiaIndisponivel` só é escrito quando a API foi de fato
+        // perguntada. Antes ele era escrito para todas, e transformava
+        // "não perguntamos" em "o LinkedIn não tem".
+        midiaIndisponivel: resolvidas.some((x) => x.dados) || !algumaConsultada
           ? null
-          : (motivoDaImagem ?? "a API não devolveu URL para esta mídia"),
+          : (motivoDaImagem ?? "a API foi consultada e não devolveu URL para esta mídia"),
       }).where(and(
         eq(linkedinPosts.pageId, o.alvo.id),
         eq(linkedinPosts.postUrn, p.urn),

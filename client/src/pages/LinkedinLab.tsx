@@ -56,6 +56,11 @@ import {
   GRUPOS_DE_DADO, ROTULO_MEDIDA, linhasDoSegmento, oQueFalta, segmentosDisponiveis,
   vereditoDoGrupo, type EstadoDaMedida, type VereditoDoGrupo,
 } from "@shared/linkedinCobertura";
+import {
+  ROTULO_CONTEUDO, ROTULO_METRICA, ROTULO_MIDIA, distribuicaoDeConteudo,
+  estadoDaMetrica, estadoDaMidia, lerConteudo,
+  type EstadoDaMetrica, type EstadoDaMidia, type EntradaDeMidia,
+} from "@shared/linkedinConteudo";
 
 /**
  * O rótulo de uma Página — nome primeiro, sempre.
@@ -195,7 +200,7 @@ function baixarCsv(nome: string, linhas: Array<Record<string, unknown>>) {
    ═══════════════════════════════════════════════════════════════════════════ */
 
 type Aba = "geral" | "banco" | "identidade" | "evolucao" | "visualizacoes"
-  | "segmentacoes" | "publicacoes" | "cobertura" | "consumo" | "cru" | "paginas";
+  | "segmentacoes" | "conteudo" | "publicacoes" | "cobertura" | "consumo" | "cru" | "paginas";
 
 const ABAS: Array<{ id: Aba; nome: string }> = [
   { id: "geral", nome: "Visão geral" },
@@ -204,6 +209,7 @@ const ABAS: Array<{ id: Aba; nome: string }> = [
   { id: "evolucao", nome: "Evolução" },
   { id: "visualizacoes", nome: "Visualizações" },
   { id: "segmentacoes", nome: "Segmentações" },
+  { id: "conteudo", nome: "Conteúdo" },
   { id: "publicacoes", nome: "Publicações" },
   { id: "cobertura", nome: "Cobertura" },
   { id: "consumo", nome: "Consumo da API" },
@@ -316,6 +322,7 @@ export default function LinkedinLab() {
             {aba === "evolucao" && <AbaEvolucao d={d} />}
             {aba === "visualizacoes" && <AbaVisualizacoes d={d} />}
             {aba === "segmentacoes" && <AbaSegmentacoes d={d} />}
+            {aba === "conteudo" && <AbaConteudo d={d} aoAbrir={setPostAberto} />}
             {aba === "publicacoes" && (
               <AbaPublicacoes posts={d.posts} aoAbrir={setPostAberto} />
             )}
@@ -478,7 +485,14 @@ function BotoesDeColeta({ pageId, onPronto }: { pageId: number; onPronto: () => 
             ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
             : <Download className="w-3.5 h-3.5 mr-1.5" />}
           Carga histórica
-          {orcCarga.data && <span className="ml-1.5 text-muted-foreground">~{orcCarga.data.chamadasEstimadas}</span>}
+          {orcCarga.data?.faixa && (
+            <span className="ml-1.5 text-muted-foreground"
+              title={orcCarga.data.faixa.premissa}>
+              {orcCarga.data.faixa.estimada
+                ? `~${orcCarga.data.faixa.minimo}–${orcCarga.data.faixa.maximo}`
+                : `~${orcCarga.data.faixa.minimo}`}
+            </span>
+          )}
         </Button>
         <Button size="sm" className="h-8 text-[12px]"
           disabled={sinc.isPending}
@@ -487,11 +501,16 @@ function BotoesDeColeta({ pageId, onPronto }: { pageId: number; onPronto: () => 
             ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
             : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
           Sincronizar agora
-          {orcInc.data && <span className="ml-1.5 opacity-70">~{orcInc.data.chamadasEstimadas}</span>}
+          {orcInc.data?.plano && (
+            <span className="ml-1.5 opacity-70">~{orcInc.data.plano.chamadasEstimadas}</span>
+          )}
         </Button>
       </div>
-      <span className="text-[10px] text-muted-foreground/70">
-        estimativa de chamadas · nenhuma outra ação desta página consulta a API
+      <span className="text-[10px] text-muted-foreground/70 text-right max-w-[420px]">
+        {orcCarga.data?.faixa?.estimada
+          ? `faixa, não número: ${orcCarga.data.faixa.premissa}`
+          : "estimativa de chamadas"}
+        {" · nenhuma outra ação desta página consulta a API"}
       </span>
       {progresso && (
         <div className="w-full max-w-[520px] text-[10.5px] font-mono bg-muted/50 rounded p-2 max-h-[180px] overflow-auto">
@@ -1047,17 +1066,48 @@ function AbaEvolucao({ d }: { d: Dados }) {
 
 type Publicacao = Dados["posts"][number];
 
-/** A URL da imagem, se a resolução funcionou. Nunca inventada. */
-function urlDaMidia(p: Publicacao): { url: string | null; motivo: string | null } {
-  const midias = (p.midiasJson ?? []) as Array<{ urn: string; dados: unknown }>;
-  for (const m of midias) {
-    const d = m.dados as Record<string, unknown> | null;
-    const u = d?.downloadUrl ?? d?.originalUrl ?? d?.url;
-    if (typeof u === "string" && u.startsWith("http")) return { url: u, motivo: null };
-  }
-  if (!midias.length) return { url: null, motivo: null };
-  return { url: null, motivo: p.midiaIndisponivel ?? "a API não devolveu URL para esta mídia" };
+/**
+ * O estado da mídia — quatro respostas, e nenhuma é "indisponível" por padrão.
+ *
+ * A carga da Musa marcou 225 publicações como "a API não devolveu URL" quando
+ * só 20 URNs chegaram a ser perguntados. Chamar de indisponível o que nunca foi
+ * perguntado é o mesmo erro que a Fase 0 levou quatro rodadas para achar, agora
+ * do nosso lado.
+ */
+function midiaDe(p: Publicacao) {
+  return estadoDaMidia({
+    midias: (p.midiasJson ?? []) as EntradaDeMidia[],
+    erro: p.midiaIndisponivel && /erro|falh|HTTP/i.test(p.midiaIndisponivel)
+      ? p.midiaIndisponivel : null,
+  });
 }
+
+const TOM_MIDIA: Record<EstadoDaMidia, EstadoDaCapacidade> = {
+  resolvida: "ok",
+  consultada_sem_retorno: "sem_dados",
+  nao_consultada: "nao_coletado",
+  erro: "erro",
+  sem_midia: "sem_dados",
+};
+
+/** O estado da métrica — "sem retorno" nunca vira zero nem `·`. */
+function metricaDe(p: Publicacao) {
+  return estadoDaMetrica({
+    temLinha: !!p.metrica,
+    temValor: typeof p.metrica?.impressions === "number",
+    statusColeta: p.metrica?.statusColeta,
+    // Toda publicação listada entra no lote da carga — o endpoint é que omite
+    // as que não têm estatística.
+    foiPedida: !p.metrica,
+  });
+}
+
+const TOM_METRICA: Record<EstadoDaMetrica, EstadoDaCapacidade> = {
+  coletada: "ok",
+  sem_retorno: "sem_dados",
+  nao_solicitada: "nao_coletado",
+  erro: "erro",
+};
 
 type Ordem = "recente" | "antiga" | "impressoes" | "cliques" | "reacoes" | "comentarios" | "compartilhamentos";
 
@@ -1094,7 +1144,7 @@ function AbaPublicacoes({ posts, aoAbrir }: {
       if (tipo !== "todos" && p.tipoUrn !== tipo) return false;
       if (metricas === "com" && !p.metrica) return false;
       if (metricas === "sem" && p.metrica) return false;
-      const img = urlDaMidia(p);
+      const img = midiaDe(p);
       if (imagem === "com" && !img.url) return false;
       if (imagem === "sem" && img.url) return false;
       if (busca && !(p.commentary ?? "").toLowerCase().includes(busca.toLowerCase())
@@ -1178,7 +1228,9 @@ function Filtro({ rotulo, valor, aoTrocar, opcoes }: {
 }
 
 function CartaoDePublicacao({ p, aoAbrir }: { p: Publicacao; aoAbrir: (urn: string) => void }) {
-  const img = urlDaMidia(p);
+  const img = midiaDe(p);
+  const met = metricaDe(p);
+  const conteudo = lerConteudo(p.contentJson, !!p.commentary);
   const m = p.metrica;
   const reacoes = (m?.reacoesPorTipoJson ?? null) as Record<string, number> | null;
 
@@ -1193,20 +1245,28 @@ function CartaoDePublicacao({ p, aoAbrir }: { p: Publicacao; aoAbrir: (urn: stri
         ) : (
           // Ausência NUNCA é silenciosa: a caixa diz que não houve imagem, e o
           // motivo técnico fica no hover.
-          <div className="flex flex-col items-center gap-1 text-muted-foreground/60" title={img.motivo ?? undefined}>
+          <div className="flex flex-col items-center gap-1 text-muted-foreground/60"
+            title={img.motivo ?? undefined}>
             <ImgIcon className="w-5 h-5" />
-            <span className="text-[10.5px]">
-              {img.motivo ? "Imagem indisponível" : "Sem mídia nesta publicação"}
-            </span>
+            <span className="text-[10.5px]">{ROTULO_MIDIA[img.estado]}</span>
+            {img.indeterminado && (
+              <span className="text-[9.5px] opacity-70">estado indeterminado</span>
+            )}
           </div>
         )}
       </div>
 
       <div className="p-3 flex flex-col gap-2 flex-1 min-w-0">
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-2 flex-wrap text-[10px] text-muted-foreground">
           <span className="tabular-nums">{dataBr(p.publicadoEm)}</span>
           <span className="font-mono px-1 rounded bg-muted">{p.tipoUrn}</span>
-          {!m && <Selo estado="nao_coletado">sem métricas</Selo>}
+          <Selo estado={conteudo.tipo === "nao_identificado" ? "nao_coletado" : "ok"}
+            titulo={conteudo.evidencia}>{ROTULO_CONTEUDO[conteudo.tipo]}</Selo>
+          {met.estado !== "coletada" && (
+            <Selo estado={TOM_METRICA[met.estado]} titulo={met.motivo ?? undefined}>
+              {ROTULO_METRICA[met.estado]}
+            </Selo>
+          )}
         </div>
 
         <p className="text-[12px] leading-snug line-clamp-3 min-h-[3.2em]">
@@ -1214,9 +1274,9 @@ function CartaoDePublicacao({ p, aoAbrir }: { p: Publicacao; aoAbrir: (urn: stri
         </p>
 
         <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-[11px] mt-auto pt-2 border-t border-border/50">
-          <Mini rotulo="impressões" valor={m?.impressions} motivo={indisp(m, "metricas")} />
-          <Mini rotulo="únicas" valor={m?.uniqueImpressions} motivo={indisp(m, "metricas")} />
-          <Mini rotulo="cliques" valor={m?.clicks} motivo={indisp(m, "metricas")} />
+          <Mini rotulo="impressões" valor={m?.impressions} motivo={met.motivo} />
+          <Mini rotulo="únicas" valor={m?.uniqueImpressions} motivo={met.motivo} />
+          <Mini rotulo="cliques" valor={m?.clicks} motivo={met.motivo} />
           <Mini rotulo="reações" valor={reacoes ? Object.values(reacoes).reduce((t, x) => t + x, 0) : m?.likes} />
           <Mini rotulo="comentários" valor={m?.comments} />
           <Mini rotulo="compart." valor={m?.shares} />
@@ -1251,7 +1311,9 @@ function Mini({ rotulo, valor, motivo }: {
 /* ═══ 4. Uma publicação, campo por campo ══════════════════════════════════ */
 
 function PainelDaPublicacao({ post, aoFechar }: { post: Publicacao; aoFechar: () => void }) {
-  const img = urlDaMidia(post);
+  const img = midiaDe(post);
+  const met = metricaDe(post);
+  const conteudo = lerConteudo(post.contentJson, !!post.commentary);
   const m = post.metrica;
   const reacoes = (m?.reacoesPorTipoJson ?? null) as Record<string, number> | null;
   const acoes = (m?.socialActionsJson ?? null) as Record<string, unknown> | null;
@@ -1282,6 +1344,8 @@ function PainelDaPublicacao({ post, aoFechar }: { post: Publicacao; aoFechar: ()
           <Categoria titulo="Identificação">
             <Campo k="URN" v={post.postUrn} />
             <Campo k="Tipo de URN" v={post.tipoUrn} />
+            <Campo k="Formato identificado" v={ROTULO_CONTEUDO[conteudo.tipo]} />
+            <Campo k="Evidência do formato" v={conteudo.evidencia} />
             <Campo k="Publicado em" v={dataBr(post.publicadoEm)} />
             <Campo k="Editado em" v={dataBr(post.editadoEm)} />
             <Campo k="Permalink" v={post.permalink} />
@@ -1297,11 +1361,12 @@ function PainelDaPublicacao({ post, aoFechar }: { post: Publicacao; aoFechar: ()
             {img.url ? (
               <img src={img.url} alt="" className="col-span-full max-h-[320px] object-contain rounded border border-border" />
             ) : (
-              <div className="col-span-full text-[12px] text-muted-foreground flex items-center gap-2">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                {img.motivo
-                  ? <>Imagem indisponível — <span className="font-mono text-[11px]">{img.motivo}</span></>
-                  : "Esta publicação não tem mídia."}
+              <div className="col-span-full flex items-start gap-2 text-[12px] text-muted-foreground">
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                <span>
+                  <strong>{ROTULO_MIDIA[img.estado]}</strong>
+                  {img.motivo && <> — {img.motivo}</>}
+                </span>
               </div>
             )}
             <Campo k="URNs de mídia"
@@ -1309,9 +1374,10 @@ function PainelDaPublicacao({ post, aoFechar }: { post: Publicacao; aoFechar: ()
           </Categoria>
 
           <Categoria titulo="Performance">
-            <Campo k="Impressões" v={m?.impressions} motivo={indisp(m, "metricas")} />
-            <Campo k="Impressões únicas" v={m?.uniqueImpressions} motivo={indisp(m, "metricas")} />
-            <Campo k="Cliques" v={m?.clicks} motivo={indisp(m, "metricas")} />
+            <Campo k="Estado" v={ROTULO_METRICA[met.estado]} />
+            <Campo k="Impressões" v={m?.impressions} motivo={met.motivo} />
+            <Campo k="Impressões únicas" v={m?.uniqueImpressions} motivo={met.motivo} />
+            <Campo k="Cliques" v={m?.clicks} motivo={met.motivo} />
             <Campo k="Engajamento" v={m?.engagement !== null && m?.engagement !== undefined ? pct(Number(m.engagement)) : null} />
             <Campo k="Medido em" v={m?.dia ? dataBr(m.dia) : null} />
             <Campo k="Status da coleta" v={m?.statusColeta ?? null} />
@@ -1329,15 +1395,39 @@ function PainelDaPublicacao({ post, aoFechar }: { post: Publicacao; aoFechar: ()
             <Campo k="Curtidas (agregado)" v={m?.likes} />
           </Categoria>
 
-          <Categoria titulo="Comentários">
-            <Campo k="Quantidade" v={m?.comments} />
-            <Campo k="commentsSummary"
-              v={acoes?.commentsSummary ? JSON.stringify(acoes.commentsSummary) : null}
-              motivo={acoes ? null : "socialActions não foi coletado para esta publicação"} />
+          <Categoria titulo="Reações e comentários (socialActions)">
+            {/* `likesSummary` e `commentsSummary` estavam só no JSON cru. São a
+                contagem que o LinkedIn mostra na própria publicação. */}
+            {acoes ? (
+              <>
+                {Object.entries((acoes.likesSummary ?? {}) as Record<string, unknown>)
+                  .filter(([, v]) => typeof v === "number" || typeof v === "boolean")
+                  .map(([k, v]) => <Campo key={`l-${k}`} k={`likes · ${k}`} v={String(v)} />)}
+                {Object.entries((acoes.commentsSummary ?? {}) as Record<string, unknown>)
+                  .filter(([, v]) => typeof v === "number" || typeof v === "boolean")
+                  .map(([k, v]) => <Campo key={`c-${k}`} k={`comentários · ${k}`} v={String(v)} />)}
+              </>
+            ) : (
+              <Campo k="socialActions" v={null}
+                motivo="não foi coletado para esta publicação — só as 30 mais recentes da carga têm" />
+            )}
+            <Campo k="Comentários (agregado)" v={m?.comments} motivo={met.motivo} />
           </Categoria>
 
           <Categoria titulo="Compartilhamentos">
-            <Campo k="Quantidade" v={m?.shares} />
+            <Campo k="Quantidade" v={m?.shares} motivo={met.motivo} />
+          </Categoria>
+
+          {/* O `bruto` da listagem: campos que só existiam dentro do JSON. */}
+          <Categoria titulo="Campos técnicos da listagem">
+            {Object.entries((post.bruto ?? {}) as Record<string, unknown>)
+              .filter(([k]) => !["id", "commentary", "content"].includes(k))
+              .map(([k, v]) => (
+                <Campo key={k} k={k}
+                  v={typeof v === "object" && v !== null
+                    ? Object.keys(v as object).join(", ")
+                    : String(v)} />
+              ))}
           </Categoria>
 
           <Categoria titulo="Metadados">
@@ -1819,15 +1909,16 @@ function AbaBanco({ d, capacidades }: { d: Dados; capacidades: MapaDeCapacidades
 
         <Bloco titulo="linkedin_page_lifetime"
           nota={b.vitalicio.ultimo ? `último em ${dataBr(b.vitalicio.ultimo)}` : "vazia — só a Carga escreve aqui"}>
+          {/* Quantidade real, nunca "presente": "presente 1" não deixa
+              ninguém conferir se as sete segmentações vieram ou só duas. */}
           <Contagem rotulo="Retratos guardados" n={b.vitalicio.linhas} />
-          <Contagem rotulo="Segmentações de seguidores" n={b.vitalicio.temSegmentacoes ? 1 : 0}
-            nota={b.vitalicio.temSegmentacoes ? "presente" : "ausente"} />
-          <Contagem rotulo="Visualizações vitalícias" n={b.vitalicio.temVisualizacoes ? 1 : 0}
-            nota={b.vitalicio.temVisualizacoes ? "presente" : "ausente"} />
-          <Contagem rotulo="Agregado de publicações" n={b.vitalicio.temAgregado ? 1 : 0}
-            nota={b.vitalicio.temAgregado ? "presente" : "ausente"} />
-          <Contagem rotulo="Detalhes da organização" n={b.vitalicio.temOrganizacao ? 1 : 0}
-            nota={b.vitalicio.temOrganizacao ? "presente" : "ausente"} />
+          <Contagem rotulo="Segmentações de seguidores" n={b.vitalicio.segmentacoesGrupos}
+            nota={`${fmt(b.vitalicio.segmentacoesItens)} faceta(s) no total`} />
+          <Contagem rotulo="Recortes de visualização vitalícios" n={b.vitalicio.recortesVitalicios} />
+          <Contagem rotulo="Dimensões de audiência" n={b.vitalicio.visualizacoesFacetas}
+            nota={`${fmt(b.vitalicio.visualizacoesItens)} faceta(s)`} />
+          <Contagem rotulo="Campos do agregado" n={b.vitalicio.camposDoAgregado} />
+          <Contagem rotulo="Campos da organização" n={b.vitalicio.camposDaOrganizacao} />
         </Bloco>
 
         <Bloco titulo="linkedin_posts"
@@ -1836,8 +1927,15 @@ function AbaBanco({ d, capacidades }: { d: Dados; capacidades: MapaDeCapacidades
           <Contagem rotulo="Publicações" n={b.publicacoes.linhas} />
           <Contagem rotulo="Com texto" n={b.publicacoes.comTexto} />
           <Contagem rotulo="Com content cru" n={b.publicacoes.comContent} />
-          <Contagem rotulo="Com imagem resolvida" n={b.publicacoes.comMidiaResolvida} />
-          <Contagem rotulo="Com mídia sem URL" n={b.publicacoes.comMidiaSemUrl} />
+          <Contagem rotulo="Com mídia (URNs)" n={b.publicacoes.urnsDeMidia}
+            nota={`em ${fmt(b.publicacoes.comMidiaResolvida + b.publicacoes.comMidiaSemUrl)} publicação(ões)`} />
+          {/* A diferença entre estes dois é a informação que faltava: só o que
+              foi PERGUNTADO pode ser chamado de indisponível. */}
+          <Contagem rotulo="URNs consultados na API" n={b.publicacoes.urnsConsultadas} />
+          <Contagem rotulo="URNs resolvidos em URL" n={b.publicacoes.urnsResolvidas} />
+          <Contagem rotulo="Publicações de estado indeterminado"
+            n={b.publicacoes.publicacoesComMidiaIndeterminada}
+            nota="coleta anterior não registrava o que foi perguntado" />
           <Contagem rotulo="Tipo ugcPost" n={b.publicacoes.ugcPost} />
           <Contagem rotulo="Tipo share" n={b.publicacoes.share} />
         </Bloco>
@@ -1848,8 +1946,11 @@ function AbaBanco({ d, capacidades }: { d: Dados; capacidades: MapaDeCapacidades
           <Contagem rotulo="Publicações distintas" n={b.metricas.publicacoesDistintas} />
           <Contagem rotulo="Dias distintos" n={b.metricas.diasDistintos} />
           <Contagem rotulo="Com impressões" n={b.metricas.comImpressoes} />
-          <Contagem rotulo="Com reações por tipo" n={b.metricas.comReacoesPorTipo} />
+          <Contagem rotulo="Com reações por tipo" n={b.metricas.comReacoesPorTipo}
+            nota="teto da carga" />
           <Contagem rotulo="Com socialActions" n={b.metricas.comSocialActions} />
+          <Contagem rotulo="Publicações SEM métrica" n={b.metricas.publicacoesSemMetrica}
+            nota="pedidas no lote, o endpoint omitiu" />
           <Contagem rotulo="Parciais" n={b.metricas.parciais} />
         </Bloco>
       </div>
@@ -2036,6 +2137,31 @@ function TabelaDeFacetas({ titulo, itens, campoDeContagem, unidade }: {
   );
 }
 
+/**
+ * O nome humano de cada dimensão que a API devolve.
+ *
+ * Só traduz o que EXISTE — uma chave nova aparece com o nome cru dela, e não
+ * é escondida nem renomeada por analogia.
+ */
+const DIMENSOES: Record<string, string> = {
+  pageStatisticsByIndustryV2: "Setor",
+  pageStatisticsBySeniority: "Senioridade",
+  pageStatisticsByGeoCountry: "País",
+  pageStatisticsByGeo: "Região",
+  pageStatisticsByFunction: "Função",
+  pageStatisticsByStaffCountRange: "Porte da empresa",
+  pageStatisticsByTargetedContent: "Conteúdo direcionado",
+  followerCountsByAssociationType: "Tipo de associação",
+  followerCountsBySeniority: "Senioridade",
+  followerCountsByIndustry: "Setor",
+  followerCountsByFunction: "Função",
+  followerCountsByStaffCountRange: "Porte da empresa",
+  followerCountsByGeoCountry: "País",
+  followerCountsByGeo: "Região",
+};
+
+const nomeDaDimensao = (campo: string) => DIMENSOES[campo] ?? campo;
+
 function AbaVisualizacoes({ d }: { d: Dados }) {
   const vital = (d.lifetime?.totalPageStatisticsJson ?? null) as Record<string, unknown> | null;
   const totalVital = (vital?.totalPageStatistics ?? null) as Record<string, unknown> | null;
@@ -2098,11 +2224,13 @@ function AbaVisualizacoes({ d }: { d: Dados }) {
       </Bloco>
 
       {facetas.length > 0 && (
-        <Bloco titulo="Recortes de audiência (vitalício)"
-          nota="quem viu a Página, por faceta — só existe no retrato vitalício">
-          <div className="flex flex-col gap-5">
+        <Bloco titulo="Quem viu a Página, por dimensão"
+          nota={`${facetas.length} dimensão(ões) · só existe no retrato vitalício, `
+            + "porque o coletor guarda apenas o total de cada dia da série"}>
+          <div className="flex flex-col gap-6">
             {facetas.map((f) => (
-              <TabelaDeFacetas key={f.campo} titulo={f.campo}
+              <TabelaDeFacetas key={f.campo}
+                titulo={`${nomeDaDimensao(f.campo)} · ${f.campo}`}
                 itens={(vital as Record<string, unknown>)[f.campo]}
                 campoDeContagem="pageStatistics" unidade="visualizações" />
             ))}
@@ -2110,6 +2238,21 @@ function AbaVisualizacoes({ d }: { d: Dados }) {
           <Recolhivel titulo="Resposta bruta — organizationPageStatistics">{bruto(vital)}</Recolhivel>
         </Bloco>
       )}
+
+      {/* O que a API recusou naquele retrato — estava salvo e em tela nenhuma. */}
+      {d.lifetime?.indisponiveisJson
+        && Object.keys(d.lifetime.indisponiveisJson as object).length > 0 ? (
+        <Bloco titulo="Recusado pela API neste retrato">
+          <div className="flex flex-col gap-1">
+            {Object.entries(d.lifetime.indisponiveisJson as Record<string, string>).map(([k, v]) => (
+              <div key={k} className="flex items-baseline justify-between gap-3 text-[12.5px] py-1 border-b border-border/40">
+                <span className="font-mono text-[11.5px]">{k}</span>
+                <span className="text-muted-foreground text-[11.5px] text-right">{v}</span>
+              </div>
+            ))}
+          </div>
+        </Bloco>
+      ) : null}
     </div>
   );
 }
@@ -2184,7 +2327,8 @@ function AbaSegmentacoes({ d }: { d: Dados }) {
         nota={`${grupos.length} recorte(s) · retrato de ${dataBr(d.lifetime?.dia)}`}>
         <div className="flex flex-col gap-6">
           {grupos.map((g) => (
-            <TabelaDeFacetas key={g.campo} titulo={g.campo}
+            <TabelaDeFacetas key={g.campo}
+              titulo={`${nomeDaDimensao(g.campo)} · ${g.campo}`}
               itens={(seg as Record<string, unknown>)[g.campo]}
               campoDeContagem="followerCounts" unidade="seguidores" />
           ))}
@@ -2192,6 +2336,128 @@ function AbaSegmentacoes({ d }: { d: Dados }) {
         <Recolhivel titulo="Resposta bruta — organizationalEntityFollowerStatistics">
           {bruto(seg)}
         </Recolhivel>
+      </Bloco>
+    </div>
+  );
+}
+
+/* ═══ Conteúdo — o que estava parado em 355 objetos `content` ═════════════ */
+
+/**
+ * A composição do acervo, lida do `content` que já está no banco.
+ *
+ * "Não identificado" é uma categoria de primeira classe aqui, com as chaves
+ * cruas à vista: chutar "imagem" porque havia um `media` transformaria dúvida
+ * em número, e número não se desconfia depois.
+ */
+function AbaConteudo({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string) => void }) {
+  const leituras = useMemo(
+    () => d.posts.map((p) => ({ p, l: lerConteudo(p.contentJson, !!p.commentary) })),
+    [d.posts]);
+  const dist = useMemo(
+    () => distribuicaoDeConteudo(leituras.map((x) => x.l)), [leituras]);
+  const [tipo, setTipo] = useState<string>("todos");
+
+  const filtradas = tipo === "todos" ? leituras : leituras.filter((x) => x.l.tipo === tipo);
+  const semContent = leituras.filter((x) => !x.p.contentJson).length;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Bloco titulo="Formatos publicados"
+        nota={`${d.posts.length} publicação(ões) · ${d.posts.length - semContent} com content salvo`}
+        acao={
+          <Button size="sm" variant="ghost" className="h-7 text-[11px]"
+            onClick={() => baixarCsv("linkedin-conteudo", leituras.map((x) => ({
+              urn: x.p.postUrn, tipo: x.l.tipo, evidencia: x.l.evidencia,
+              publicadoEm: x.p.publicadoEm, midias: x.l.midias.join(" "),
+              chaves: x.l.chaves.join(" "),
+            })))}>
+            <Download className="w-3 h-3 mr-1" /> CSV
+          </Button>
+        }>
+        {/* Barras proporcionais: a composição se lê de relance, e o número
+            fica ao lado para conferência. */}
+        <div className="flex flex-col gap-1.5">
+          {dist.map((x) => (
+            <button key={x.tipo} type="button"
+              onClick={() => setTipo(tipo === x.tipo ? "todos" : x.tipo)}
+              className={`flex items-center gap-3 text-left rounded px-2 py-1.5 transition-colors ${
+                tipo === x.tipo ? "bg-muted" : "hover:bg-muted/50"}`}>
+              <span className="w-[130px] flex-shrink-0 text-[12.5px] font-medium truncate">
+                {x.rotulo}
+              </span>
+              <span className="flex-1 h-2 rounded-full bg-muted/70 overflow-hidden min-w-[60px]">
+                <span className="block h-full rounded-full"
+                  style={{
+                    width: `${Math.max(1, x.fatia * 100)}%`,
+                    background: x.tipo === "nao_identificado" ? COR.saida : COR.ativacoes,
+                  }} />
+              </span>
+              <span className="w-[92px] flex-shrink-0 text-right text-[12px] tabular-nums">
+                {fmt(x.quantidade)}
+                <span className="text-muted-foreground/70 ml-1.5">
+                  {(x.fatia * 100).toFixed(1)}%
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div className="text-[11px] text-muted-foreground flex flex-col gap-0.5 pt-2 border-t border-border/50">
+          {dist.map((x) => (
+            <span key={x.tipo}>
+              <strong className="text-foreground">{x.rotulo}</strong> — identificado por{" "}
+              <span className="font-mono text-[10.5px]">{x.evidencias.join(" · ")}</span>
+            </span>
+          ))}
+        </div>
+      </Bloco>
+
+      <Bloco titulo={tipo === "todos" ? "Todas as publicações" : `Formato: ${ROTULO_CONTEUDO[tipo as never]}`}
+        nota={`${filtradas.length} publicação(ões) · clique para abrir o detalhe completo`}>
+        <div className="overflow-x-auto max-h-[560px]">
+          <table className="w-full text-[12px] min-w-[720px]">
+            <thead className="sticky top-0 bg-card">
+              <tr className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                <th className="text-left py-2 pr-3">Data</th>
+                <th className="text-left py-2 pr-3">Formato</th>
+                <th className="text-left py-2 pr-3">Texto</th>
+                <th className="text-right py-2 pr-3">Mídias</th>
+                <th className="text-right py-2 pr-3">Impressões</th>
+                <th className="text-left py-2">Mídia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtradas.map(({ p, l }) => {
+                const img = midiaDe(p);
+                const met = metricaDe(p);
+                return (
+                  <tr key={p.postUrn}
+                    className="border-t border-border/50 cursor-pointer hover:bg-muted/40"
+                    onClick={() => aoAbrir(p.postUrn)}>
+                    <td className="py-1.5 pr-3 tabular-nums whitespace-nowrap">{dataBr(p.publicadoEm)}</td>
+                    <td className="py-1.5 pr-3">
+                      <Selo estado={l.tipo === "nao_identificado" ? "nao_coletado" : "ok"}
+                        titulo={l.evidencia}>{ROTULO_CONTEUDO[l.tipo]}</Selo>
+                    </td>
+                    <td className="py-1.5 pr-3 max-w-[320px] truncate">
+                      {p.commentary || <span className="text-muted-foreground/60">sem texto</span>}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{l.midias.length || "—"}</td>
+                    <td className="py-1.5 pr-3 text-right">
+                      <Numero valor={p.metrica?.impressions} motivo={met.motivo} />
+                    </td>
+                    <td className="py-1.5">
+                      <Selo estado={TOM_MIDIA[img.estado]} titulo={img.motivo ?? undefined}>
+                        {ROTULO_MIDIA[img.estado]}
+                      </Selo>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </Bloco>
     </div>
   );

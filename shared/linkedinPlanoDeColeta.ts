@@ -35,6 +35,34 @@ export const POSTS_POR_PAGINA = 20;
 export const LOTE_DE_METRICAS = 5;
 
 /**
+ * Reações custam DUAS chamadas por publicação, não uma.
+ *
+ * `socialMetadata` traz o tipo de reação; `socialActions` traz likes e
+ * comentários. O coletor faz as duas, e o plano contava uma — sozinho, esse
+ * erro respondeu por 30 das 42 chamadas que sobraram na carga da Musa.
+ */
+export const CHAMADAS_POR_REACAO = 2;
+
+/**
+ * A listagem gasta UMA página a mais do que o acervo exige.
+ *
+ * A última chamada volta vazia, e é ela que confirma que a listagem acabou —
+ * sem ela não dá para distinguir "acabou" de "o teto da sondagem cortou".
+ */
+export const PAGINA_QUE_CONFIRMA_O_FIM = 1;
+
+/**
+ * Faixa de publicações de uma Página nunca carregada.
+ *
+ * O orçamento antigo usava as publicações JÁ no banco — que, numa carga
+ * inicial, é justamente o que ainda não existe. Na Musa ele disse ~40 e a carga
+ * custou 176, porque o incremental tinha listado só 20 posts. Um número exato
+ * derivado de uma tabela vazia é pior que uma faixa honesta: ele parece
+ * conhecimento.
+ */
+export const FAIXA_DE_POSTS = { minimo: 20, maximo: 400 } as const;
+
+/**
  * Teto de reações por tipo na carga inicial.
  *
  * `socialMetadata` é chamada por CAMINHO, um URN por vez — numa Página de 400
@@ -64,7 +92,8 @@ export type TipoDePasso =
   | "agregado_de_posts"
   | "metricas_de_posts"
   | "reacoes_do_post"
-  | "comentarios_do_post";
+  | "comentarios_do_post"
+  | "resolver_imagens";
 
 export interface PassoDoPlano {
   tipo: TipoDePasso;
@@ -110,6 +139,8 @@ export interface EntradaDaCarga {
   loteDeMetricas?: number;
   tetoDeReacoes?: number;
   tetoDeChamadas?: number;
+  /** A carga tenta resolver imagem; um orçamento hipotético pode não querer. */
+  resolverImagens?: boolean;
 }
 
 /**
@@ -141,9 +172,22 @@ export function planoDeCargaInicial(e: EntradaDaCarga): PlanoDeColeta {
     { tipo: "pagina_lifetime", chamadas: 1, detalhe: "visualizações vitalício" },
     { tipo: "pagina_serie", chamadas: blocos, detalhe: `série de visualizações · ${janela}d em ${blocos} bloco(s)` },
     { tipo: "agregado_de_posts", chamadas: 1, detalhe: "agregado de publicações" },
-    { tipo: "listar_posts", chamadas: Math.max(1, Math.ceil(n / POSTS_POR_PAGINA)), detalhe: "listar publicações" },
+    {
+      tipo: "listar_posts",
+      chamadas: Math.max(1, Math.ceil(n / POSTS_POR_PAGINA)) + PAGINA_QUE_CONFIRMA_O_FIM,
+      detalhe: `listar publicações (${Math.ceil(n / POSTS_POR_PAGINA)} página(s) + 1 que confirma o fim)`,
+    },
     { tipo: "metricas_de_posts", chamadas: lotes, detalhe: `métricas de ${n} publicação(ões) em ${lotes} lote(s)` },
-    { tipo: "reacoes_do_post", chamadas: Math.min(n, tetoReacoes), detalhe: `reações por tipo · ${Math.min(n, tetoReacoes)} publicação(ões)` },
+    {
+      tipo: "reacoes_do_post",
+      chamadas: Math.min(n, tetoReacoes) * CHAMADAS_POR_REACAO,
+      detalhe: `reações por tipo · ${Math.min(n, tetoReacoes)} publicação(ões) × `
+        + `${CHAMADAS_POR_REACAO} chamadas (socialMetadata + socialActions)`,
+    },
+    ...(e.resolverImagens === false || n === 0 ? [] : [{
+      tipo: "resolver_imagens" as TipoDePasso, chamadas: 1,
+      detalhe: "resolver imagens (1 chamada, até 20 URNs)",
+    }]),
   ] as PassoDoPlano[]).filter((p) => p.chamadas > 0);
 
   return aplicarTeto("inicial", passos, e.tetoDeChamadas ?? TETO_DE_CHAMADAS_POR_RODADA);
@@ -182,7 +226,11 @@ export function planoIncremental(e: EntradaIncremental): PlanoDeColeta {
     { tipo: "agregado_de_posts", chamadas: 1, detalhe: "agregado de publicações" },
     { tipo: "listar_posts", chamadas: 1, detalhe: "publicações novas (1ª página)" },
     { tipo: "metricas_de_posts", chamadas: lotes, detalhe: `métricas de ${n} publicação(ões) ativa(s)` },
-    { tipo: "reacoes_do_post", chamadas: Math.max(0, e.postsNovos), detalhe: `reações das ${e.postsNovos} publicação(ões) nova(s)` },
+    {
+      tipo: "reacoes_do_post",
+      chamadas: Math.max(0, e.postsNovos) * CHAMADAS_POR_REACAO,
+      detalhe: `reações das ${e.postsNovos} publicação(ões) nova(s) × ${CHAMADAS_POR_REACAO} chamadas`,
+    },
   ];
   if (e.incluirSemanal) {
     passos.push(
@@ -219,4 +267,56 @@ export function projecaoDeFrota(
   const semanal = diario + paginas * 3;
   // 30 dias: 26 diários + 4 semanais.
   return { diario, semanal, mensal: diario * 26 + semanal * 4 };
+}
+
+/**
+ * ─── O orçamento de uma Página que nunca foi carregada ───────────────────────
+ *  Não dá para saber quantas publicações ela tem sem listar — e listar já é a
+ *  coleta. Então a resposta honesta é uma FAIXA, com a premissa escrita.
+ *
+ *  Depois da carga, `linkedin_coleta_execucoes.chamadas` passa a ser a fonte da
+ *  verdade, e a faixa deixa de importar.
+ */
+export interface FaixaDeOrcamento {
+  minimo: number;
+  maximo: number;
+  /** O plano do piso e o do teto, para a tela poder abrir o detalhe. */
+  planoMinimo: PlanoDeColeta;
+  planoMaximo: PlanoDeColeta;
+  premissa: string;
+  /** `true` quando é faixa; `false` quando o acervo já é conhecido. */
+  estimada: boolean;
+}
+
+export function faixaDaCargaInicial(o: {
+  postsConhecidos?: number | null;
+  postsUgcConhecidos?: number | null;
+  minimo?: number;
+  maximo?: number;
+} = {}): FaixaDeOrcamento {
+  // Acervo conhecido: a faixa colapsa num número, e a tela diz que é exato.
+  if (typeof o.postsConhecidos === "number" && o.postsConhecidos > 0) {
+    const p = planoDeCargaInicial({
+      posts: o.postsConhecidos,
+      postsUgc: o.postsUgcConhecidos ?? o.postsConhecidos,
+    });
+    return {
+      minimo: p.chamadasEstimadas, maximo: p.chamadasEstimadas,
+      planoMinimo: p, planoMaximo: p,
+      premissa: `${o.postsConhecidos} publicação(ões) já listadas nesta Página`,
+      estimada: false,
+    };
+  }
+  const min = o.minimo ?? FAIXA_DE_POSTS.minimo;
+  const max = o.maximo ?? FAIXA_DE_POSTS.maximo;
+  const planoMinimo = planoDeCargaInicial({ posts: min, postsUgc: min });
+  const planoMaximo = planoDeCargaInicial({ posts: max, postsUgc: max });
+  return {
+    minimo: planoMinimo.chamadasEstimadas,
+    maximo: planoMaximo.chamadasEstimadas,
+    planoMinimo, planoMaximo,
+    premissa: `entre ${min} e ${max} publicações — o acervo só é conhecido depois de listar, `
+      + "e listar já é a própria coleta",
+    estimada: true,
+  };
 }

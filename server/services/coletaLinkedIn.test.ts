@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { casarPorUrn, lotesPorTipo } from "./coletaLinkedIn";
+import * as plano from "@shared/linkedinPlanoDeColeta";
 
 const raiz = join(__dirname, "..", "..");
 const ler = (p: string) => readFileSync(join(raiz, p), "utf8");
@@ -313,5 +314,66 @@ describe("explorar o que já foi coletado não custa chamada", () => {
     const fonte = semComentarios(ler("server/services/coletaLinkedIn.ts"));
     expect(fonte).toContain("juntar(acc, d, { views: numeros(el.totalPageStatistics) });");
     expect(fonte).not.toContain("commentSummary");
+  });
+});
+
+describe("o orçamento passou a contar o que realmente acontece", () => {
+  it("o plano bate com a carga REAL da Musa: 176 chamadas", () => {
+    // A reconciliação: 15 fixas + 21 listagem + 79 lotes + 60 reações + 1
+    // imagens. O antigo dizia 143 e a diferença era quase toda das reações.
+    const p = plano.planoDeCargaInicial({ posts: 390, postsUgc: 206 });
+    expect(p.chamadasEstimadas).toBe(176);
+    const por = (t: string) => p.passos.find((x) => x.tipo === t)?.chamadas;
+    expect(por("listar_posts")).toBe(21);
+    expect(por("metricas_de_posts")).toBe(79);
+    expect(por("reacoes_do_post")).toBe(60);
+    expect(por("resolver_imagens")).toBe(1);
+  });
+
+  it("o incremental da Musa custa 9, como a tela mostrava", () => {
+    expect(plano.planoIncremental({ postsAtivos: 8, postsAtivosUgc: 8, postsNovos: 1 })
+      .chamadasEstimadas).toBe(9);
+  });
+
+  it("Página nunca carregada devolve FAIXA — número exato ali é mentira", () => {
+    const f = plano.faixaDaCargaInicial();
+    expect(f.estimada).toBe(true);
+    expect(f.minimo).toBeLessThan(f.maximo);
+  });
+
+  it("o coletor registra quais URNs foram perguntadas", () => {
+    // Sem isso, uma publicação nunca consultada fica indistinguível de uma que
+    // a API recusou — foi o que aconteceu com 205 das 225 mídias da Musa.
+    const fonte = semComentarios(ler("server/services/coletaLinkedIn.ts"));
+    expect(fonte).toContain("perguntadas.forEach((u) => consultadas.add(u))");
+    expect(fonte).toContain("consultada: consultadas.has(u)");
+    // E só marca indisponível o que foi de fato perguntado.
+    expect(fonte).toContain("|| !algumaConsultada");
+  });
+});
+
+describe("nada aqui gasta chamada nova", () => {
+  it("a aba Conteúdo lê o `content` que já está no banco", () => {
+    const pagina = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(pagina).toContain("function AbaConteudo");
+    expect(pagina).toContain("lerConteudo(p.contentJson");
+    const i = pagina.indexOf("function AbaConteudo");
+    expect(pagina.slice(i, i + 3000)).not.toContain("useMutation");
+  });
+
+  it("os quatro conjuntos escondidos ganharam leitura", () => {
+    const pagina = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(pagina).toContain("acoes.likesSummary");          // socialActions
+    expect(pagina).toContain("Campos técnicos da listagem");  // bruto do post
+    expect(pagina).toContain("Recusado pela API neste retrato"); // indisponiveisJson
+    expect(pagina).toContain("Formato identificado");         // contentJson
+  });
+
+  it("o Estado do banco conta, em vez de dizer 'presente'", () => {
+    const pagina = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(pagina).not.toContain('nota={b.vitalicio.temSegmentacoes ? "presente" : "ausente"}');
+    expect(pagina).toContain("b.vitalicio.segmentacoesGrupos");
+    expect(pagina).toContain("b.publicacoes.urnsConsultadas");
+    expect(pagina).toContain("b.metricas.publicacoesSemMetrica");
   });
 });

@@ -4738,11 +4738,31 @@ export const appRouter = router({
           const { postsAtivos } = await import("./services/coletaLinkedIn");
           const plano = await import("@shared/linkedinPlanoDeColeta");
           const a = await postsAtivos(input.pageId);
-          return input.modo === "carga"
-            ? plano.planoDeCargaInicial({ posts: a.total || 20, postsUgc: a.total || 20 })
-            : plano.planoIncremental({
+          if (input.modo !== "carga") {
+            return {
+              tipo: "exato" as const,
+              plano: plano.planoIncremental({
                 postsAtivos: a.ativos, postsAtivosUgc: a.ativosUgc, postsNovos: 2,
-              });
+              }),
+            };
+          }
+          // A carga só tem número exato depois que o acervo é conhecido. Antes
+          // disso, o orçamento antigo usava a tabela vazia e dizia ~40 para uma
+          // carga que custou 176 — número derivado de ausência parece
+          // conhecimento, e é pior que uma faixa honesta.
+          const { getDb } = await import("./db");
+          const { linkedinPages } = await import("../drizzle/schema");
+          const { eq } = await import("drizzle-orm");
+          const db = await getDb();
+          const [p] = db
+            ? await db.select().from(linkedinPages).where(eq(linkedinPages.id, input.pageId)).limit(1)
+            : [];
+          const jaCarregada = !!p?.cargaInicialEm;
+          const faixa = plano.faixaDaCargaInicial(
+            jaCarregada && a.total
+              ? { postsConhecidos: a.total, postsUgcConhecidos: a.ativosUgc }
+              : {});
+          return { tipo: "faixa" as const, faixa };
         }),
 
       /** A ÚNICA porta que gasta cota, e ela é sempre um clique explícito. */

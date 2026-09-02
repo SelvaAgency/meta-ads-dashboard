@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  JANELA_HISTORICA_DIAS, TETO_REACOES_CARGA,
+  JANELA_HISTORICA_DIAS, TETO_REACOES_CARGA, faixaDaCargaInicial,
   janelasDaCarga, planoDeCargaInicial, planoIncremental, projecaoDeFrota,
 } from "./linkedinPlanoDeColeta";
 
@@ -15,8 +15,9 @@ describe("carga inicial", () => {
   it("conta cada passo, e o total bate com a soma", () => {
     const p = planoDeCargaInicial({ posts: 80, postsUgc: 80 });
     expect(p.chamadasEstimadas).toBe(p.passos.reduce((t, x) => t + x.chamadas, 0));
-    // 1+1+1+5(série)+1+5(série)+1+4(listagem)+16(lotes)+30(reações)
-    expect(p.chamadasEstimadas).toBe(65);
+    // 15 fixas + 5 listagem (4 cheias + 1 que confirma o fim)
+    // + 16 lotes + 60 reações (30 posts × 2 chamadas) + 1 imagens
+    expect(p.chamadasEstimadas).toBe(97);
   });
 
   it("URNs de tipos diferentes viram lotes SEPARADOS", () => {
@@ -31,8 +32,11 @@ describe("carga inicial", () => {
   });
 
   it("as reações têm teto — é o item que domina o custo", () => {
-    const p = planoDeCargaInicial({ posts: 400, postsUgc: 400 });
-    expect(p.passos.find((x) => x.tipo === "reacoes_do_post")!.chamadas).toBe(TETO_REACOES_CARGA);
+    const p = planoDeCargaInicial({ posts: 400, postsUgc: 400, tetoDeChamadas: 9999 });
+    // Duas chamadas por post: `socialMetadata` + `socialActions`. Contar uma
+    // respondeu sozinho por 30 das 42 chamadas que sobraram na carga da Musa.
+    expect(p.passos.find((x) => x.tipo === "reacoes_do_post")!.chamadas)
+      .toBe(TETO_REACOES_CARGA * 2);
   });
 
   it("o teto PODA por prioridade e diz o que ficou de fora", () => {
@@ -58,7 +62,7 @@ describe("incremental", () => {
     const a = planoIncremental({ postsAtivos: 8, postsAtivosUgc: 8, postsNovos: 1 });
     const b = planoIncremental({ postsAtivos: 8, postsAtivosUgc: 8, postsNovos: 1 });
     expect(a.chamadasEstimadas).toBe(b.chamadasEstimadas);
-    expect(a.chamadasEstimadas).toBe(8);
+    expect(a.chamadasEstimadas).toBe(9);
   });
 
   it("NUNCA refaz os 395 dias", () => {
@@ -86,5 +90,25 @@ describe("projeção da frota", () => {
   it("soma a descoberta uma vez por rodada, não por Página", () => {
     expect(projecaoDeFrota(10, 8).diario).toBe(82);
     expect(projecaoDeFrota(50, 8).diario).toBe(402);
+  });
+});
+
+describe("a carga de uma Página nunca carregada é FAIXA, não número", () => {
+  it("sem acervo conhecido, devolve piso e teto com a premissa escrita", () => {
+    // O orçamento antigo usava as publicações JÁ no banco — que, numa carga
+    // inicial, é justamente o que ainda não existe. Na Musa ele disse ~40 e a
+    // carga custou 176.
+    const f = faixaDaCargaInicial();
+    expect(f.estimada).toBe(true);
+    expect(f.maximo).toBeGreaterThan(f.minimo);
+    expect(f.premissa).toContain("só é conhecido depois de listar");
+  });
+
+  it("com acervo conhecido, a faixa colapsa num número exato", () => {
+    const f = faixaDaCargaInicial({ postsConhecidos: 390, postsUgcConhecidos: 206 });
+    expect(f.estimada).toBe(false);
+    expect(f.minimo).toBe(f.maximo);
+    // O custo REAL da carga da Musa, medido: 176 chamadas.
+    expect(f.minimo).toBe(176);
   });
 });
