@@ -158,6 +158,26 @@ export interface OrganizacaoDescoberta {
    */
   papeis: string[];
   estado: string | null;
+  /** O `state` de CADA atribuição, na ordem de `papeis`. */
+  estados: string[];
+  /**
+   * `true` quando pelo menos UMA atribuição está APPROVED.
+   *
+   * É o portão que faltava. Uma atribuição REVOKED significa que a pessoa da
+   * SELVA foi removida daquela Página — medir ali produz 403 em tudo, e ler
+   * esse 403 como "a API não entrega" é o erro mais caro que esta sondagem
+   * pode cometer. Foi o que aconteceu: duas rodadas seguidas mediram Páginas
+   * diferentes e chegaram a conclusões opostas sobre a mesma API.
+   */
+  aprovado: boolean;
+  /**
+   * `true` quando a ACL devolveu `organizationalTarget!` em vez de `~`.
+   *
+   * O `!` é a decoração FALHANDO: o LinkedIn não deixou nem ler o nome da
+   * Página. É um pré-teste de acesso que sai de graça, antes de qualquer
+   * chamada de estatística.
+   */
+  decoracaoFalhou: boolean;
   /** `roleAssignee` — a quem o cargo está atribuído. */
   atribuidoA: string | null;
 }
@@ -341,7 +361,7 @@ export interface OpcoesSondagem {
 
 /** Quantas páginas se olha procurando uma ATIVA, antes de desistir. */
 /** A rodada da sondagem. Fica no cabeçalho para não confundir dois relatórios. */
-const RODADA = 4;
+const RODADA = 5;
 
 const TETO_DE_CANDIDATAS = 6;
 
@@ -498,11 +518,18 @@ export async function sondarLinkedIn(
       if (!id) continue;
       const papel = el.role ? String(el.role) : null;
       const det = (el["organizationalTarget~"] ?? {}) as Record<string, unknown>;
+      const estado = el.state ? String(el.state) : null;
+      const falhou = el["organizationalTarget!"] !== undefined;
       const jaVista = organizacoes.find((x) => x.id === id);
       if (jaVista) {
         // Segundo cargo na MESMA Página. A rodada 2 descartava aqui, e com ele
         // ia embora a existência dos outros três cargos.
-        if (papel && !jaVista.papeis.includes(papel)) jaVista.papeis.push(papel);
+        if (papel && !jaVista.papeis.includes(papel)) {
+          jaVista.papeis.push(papel);
+          jaVista.estados.push(estado ?? "?");
+        }
+        if (estado === "APPROVED") jaVista.aprovado = true;
+        if (falhou) jaVista.decoracaoFalhou = true;
         // A chamada SEM projeção passa antes da legada e vem sem decoração: as
         // Páginas entravam sem nome e o relatório inteiro saía com números de
         // organização no lugar dos clientes. Quem tiver o nome, preenche.
@@ -516,7 +543,10 @@ export async function sondarLinkedIn(
         vanity: det.vanityName ? String(det.vanityName) : null,
         papel,
         papeis: papel ? [papel] : [],
-        estado: el.state ? String(el.state) : null,
+        estado,
+        estados: papel ? [estado ?? "?"] : [],
+        aprovado: estado === "APPROVED",
+        decoracaoFalhou: falhou,
         atribuidoA: el.roleAssignee ? String(el.roleAssignee) : null,
       });
     }
@@ -534,6 +564,25 @@ export async function sondarLinkedIn(
         : [],
       nota,
     });
+  }
+
+  // A ACL não devolve os cargos em ordem estável: a MESMA Página apareceu como
+  // CONTENT_ADMINISTRATOR numa rodada e DIRECT_SPONSORED_CONTENT_POSTER na
+  // seguinte, e dois relatórios do mesmo dia pareceram falar de clientes
+  // diferentes. O cargo principal passa a ser o de maior alcance.
+  const ORDEM = ["ADMINISTRATOR", "CONTENT_ADMINISTRATOR"];
+  const posto = (pp: string) => {
+    const i = ORDEM.indexOf(pp);
+    return i === -1 ? ORDEM.length : i;
+  };
+  for (const org of organizacoes) {
+    const ordenados = [...org.papeis].sort((a, b) => posto(a) - posto(b) || a.localeCompare(b));
+    if (ordenados.length) {
+      const estadoPor = new Map(org.papeis.map((pp, i) => [pp, org.estados[i] ?? "?"]));
+      org.papeis = ordenados;
+      org.estados = ordenados.map((pp) => estadoPor.get(pp) ?? "?");
+      org.papel = ordenados[0];
+    }
   }
 
   const todosOsPapeis = Array.from(new Set(organizacoes.flatMap((x) => x.papeis)));
@@ -577,12 +626,32 @@ export async function sondarLinkedIn(
     return { r, n: r.dados?.elements?.length ?? 0 };
   };
 
-  const admins = organizacoes.filter((x) => x.papeis.includes("ADMINISTRATOR"));
-  const conteudo = organizacoes.filter((x) => x.papeis.includes("CONTENT_ADMINISTRATOR"));
+  // ── O PORTÃO QUE FALTAVA ──────────────────────────────────────────────
+  //
+  // Duas rodadas mediram Páginas diferentes e chegaram a conclusões opostas
+  // sobre a mesma API. A rodada 3 pegou duas APPROVED e viu 365 dias de
+  // histórico; a rodada 4 pegou duas REVOKED e viu 403 em tudo, e o relatório
+  // saiu dizendo que o LinkedIn não entrega histórico.
+  //
+  // REVOKED significa que a pessoa da SELVA foi removida daquela Página. O 403
+  // dali é um fato sobre a carteira, não sobre a API — e um instrumento que
+  // não separa as duas coisas mede ruído.
+  const vivas = organizacoes.filter((x) => x.aprovado);
+  const revogadas = organizacoes.filter((x) => !x.aprovado);
+  anotar("descoberta", "atribuições vivas",
+    vivas.length ? "funciona" : "sem_permissao",
+    `${vivas.length} Página(s) com atribuição APPROVED · ${revogadas.length} sem nenhuma. `
+    + (vivas.length
+      ? "Só as vivas são medidas — um 403 de Página revogada não diz nada sobre a API."
+      : "NENHUMA atribuição viva: tudo abaixo mede a carteira, não a API."));
+
+  const candidatas = vivas.length ? vivas : organizacoes;
+  const admins = candidatas.filter((x) => x.papeis.includes("ADMINISTRATOR"));
+  const conteudo = candidatas.filter((x) => x.papeis.includes("CONTENT_ADMINISTRATOR"));
   // Uma Página cujo cargo NÃO é nenhum dos dois principais. Com a dedupe da
   // rodada 2 este balde vinha sempre vazio, e os outros três cargos nunca
   // foram medidos.
-  const outros = organizacoes.filter((x) =>
+  const outros = candidatas.filter((x) =>
     x.papeis.length > 0
     && !x.papeis.includes("ADMINISTRATOR") && !x.papeis.includes("CONTENT_ADMINISTRATOR"));
 
@@ -595,7 +664,7 @@ export async function sondarLinkedIn(
       organizacoes.find((x) => x.id === o.organizationId)
       ?? { id: o.organizationId, urn: `urn:li:organization:${o.organizationId}`,
            nome: null, vanity: null, papel: null, papeis: [], estado: null,
-           atribuidoA: null });
+           estados: [], aprovado: false, decoracaoFalhou: false, atribuidoA: null });
   } else {
     /** A primeira ADMINISTRATOR com post. Cai na primeira da lista se nenhuma tiver. */
     let ativa: OrganizacaoDescoberta | null = null;
@@ -671,8 +740,14 @@ export async function sondarLinkedIn(
     // atribuições REVOKED na carteira; ver o estado junto do 403 é o que
     // transforma correlação em resposta.
     anotar("cargo", `estado da atribuição · ${rot}`,
-      org.estado === "APPROVED" ? "funciona" : "inconclusivo",
-      `${org.papeis.join(" + ") || "sem cargo"} · state=${org.estado ?? "?"}`
+      org.aprovado ? "funciona" : "sem_permissao",
+      org.papeis.map((pp, i) => `${pp}=${org.estados[i] ?? "?"}`).join(" · ")
+      + (org.aprovado ? "" : " — REVOGADA: a SELVA não está mais nesta Página. "
+        + "Todo 403 abaixo é sobre a carteira, NÃO sobre a API")
+      + (org.decoracaoFalhou
+        ? " · a ACL nem devolveu o nome da Página (`organizationalTarget!`), "
+          + "que é sinal de acesso perdido antes de qualquer chamada"
+        : "")
       + (org.papeis.length > 1
         ? " — esta Página acumula VÁRIOS cargos, então nenhum resultado dela "
           + "isola um cargo sozinho"
@@ -1117,7 +1192,10 @@ function vereditoDeCargos(
 
   return papeis.map((papel) => {
     // TODAS as páginas medidas com esse cargo — não a primeira.
-    const doPapel = medidas.filter((m) => temPapel(m, papel));
+    // Página revogada fora: o 403 dela é sobre a carteira, e deixá-lo entrar
+    // no consenso do cargo foi o que fez a rodada 4 declarar que ADMINISTRATOR
+    // não lê seguidores — com base em duas Páginas de onde a SELVA saiu.
+    const doPapel = medidas.filter((m) => temPapel(m, papel) && m.aprovado);
     const alcanca: Record<string, Desfecho> = {};
     const divergentes: Record<string, string> = {};
 
@@ -1296,7 +1374,7 @@ function texto(s: SondagemLinkedIn, agora: Date): string {
       L.push("      NÃO MEDIDO nesta rodada — sem veredito");
       continue;
     }
-    L.push(`      medido em: ${c.medidas.join(", ")}`);
+    L.push(`      medido em: ${c.medidas.join(", ")} (atribuição viva)`);
     if (c.ambiguo) {
       L.push("      ATRIBUIÇÃO AMBÍGUA — as Páginas medidas acumulam outros cargos, "
         + "então o que segue é o alcance DELAS, não deste cargo isoladamente.");
@@ -1325,10 +1403,24 @@ function texto(s: SondagemLinkedIn, agora: Date): string {
   L.push("");
 
   L.push("6. LIMITAÇÕES DA API");
-  const perm = s.medicoes.filter((m) => m.desfecho === "sem_permissao");
+  // Uma Página revogada devolve 403 em tudo. Listar isso como limitação da API
+  // encheu a rodada 4 com 28 linhas de bloqueio que eram, todas, a mesma frase:
+  // a SELVA não está mais nessas Páginas.
+  const revogadas = new Set(s.medidas.filter((m) => !m.aprovado).map((m) => m.nome ?? m.id));
+  const daCarteira = s.medicoes.filter(
+    (m) => m.desfecho === "sem_permissao" && m.pagina && revogadas.has(m.pagina));
+  const perm = s.medicoes.filter(
+    (m) => m.desfecho === "sem_permissao" && !(m.pagina && revogadas.has(m.pagina)));
   const nd = s.medicoes.filter((m) => m.desfecho === "indisponivel");
   const req = s.medicoes.filter((m) => m.desfecho === "request_invalido");
-  if (!perm.length && !nd.length && !req.length) L.push("   nenhuma observada");
+  if (!perm.length && !nd.length && !req.length && !daCarteira.length) {
+    L.push("   nenhuma observada");
+  }
+  if (daCarteira.length) {
+    L.push(`   NÃO é limitação da API — ${daCarteira.length} bloqueio(s) em Página(s) `
+      + `com atribuição REVOGADA (${Array.from(revogadas).join(", ")}).`);
+    L.push("   O conserto é readmitir a SELVA na Página, e não mexer no app.");
+  }
   for (const [rotulo, lista] of [
     ["bloqueio de permissão/cargo/produto", perm],
     ["endpoint indisponível nesta versão", nd],
@@ -1371,7 +1463,11 @@ function texto(s: SondagemLinkedIn, agora: Date): string {
   L.push("");
 
   L.push("10. RECOMENDAÇÃO DE ARQUITETURA DE COLETA");
-  if (s.historicoMaisProfundoDias !== null) {
+  if (s.medidas.length && s.medidas.every((m) => !m.aprovado)) {
+    L.push("   INCONCLUSIVO POR CARTEIRA, não por API — todas as Páginas medidas");
+    L.push("   têm atribuição REVOGADA. Readmitir a SELVA em uma delas e rodar");
+    L.push("   de novo é o que fecha esta seção.");
+  } else if (s.historicoMaisProfundoDias !== null) {
     L.push(`   O histórico é BUSCÁVEL até ${s.historicoMaisProfundoDias} dias atrás.`);
     L.push("   Preencher o passado de uma vez na conexão, e usar cron só como");
     L.push("   conveniência de atualização. É o oposto do Instagram, onde o");

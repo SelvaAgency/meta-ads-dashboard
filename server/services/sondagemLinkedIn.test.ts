@@ -445,8 +445,10 @@ describe("dois cargos na mesma Página", () => {
       ["DIRECT_SPONSORED_CONTENT_POSTER", 100],
     ])]]);
     const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    // Ordenados por alcance, não pela ordem em que a ACL devolveu — a ACL
+    // varia entre rodadas e fazia a mesma Página trocar de identidade.
     expect(s.organizacoes[0].papeis).toEqual([
-      "ADMINISTRATOR", "LEAD_GEN_FORMS_MANAGER", "DIRECT_SPONSORED_CONTENT_POSTER"]);
+      "ADMINISTRATOR", "DIRECT_SPONSORED_CONTENT_POSTER", "LEAD_GEN_FORMS_MANAGER"]);
     expect(s.cargos.map((x) => x.papel)).toContain("LEAD_GEN_FORMS_MANAGER");
   });
 
@@ -612,5 +614,75 @@ describe("as atribuições são contadas uma vez", () => {
     const c = fake([[/Acls/, () => aclDe([["ADMINISTRATOR", 100], ["ADMINISTRATOR", 101]])]]);
     const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
     expect(s.texto).toContain("2 Página(s) para 2 atribuição(ões)");
+  });
+});
+
+describe("atribuição REVOGADA não é resposta sobre a API", () => {
+  /** Uma revogada com posts (lista, mas não mede) e uma viva. */
+  const carteira = () => fake([
+    [/Acls/, () => resp({ elements: [
+      { role: "ADMINISTRATOR", state: "REVOKED",
+        organizationalTarget: "urn:li:organization:100",
+        "organizationalTarget!": { status: 403 } },
+      { role: "ADMINISTRATOR", state: "APPROVED",
+        organizationalTarget: "urn:li:organization:101",
+        "organizationalTarget~": { localizedName: "Viva" } },
+    ] })],
+    [/\/rest\/posts/, (_c, o) => resp({
+      elements: Number(o.params.start ?? 0) > 0 ? []
+        : String(o.params.author).endsWith(":100")
+          ? [{ id: "urn:li:ugcPost:1", createdAt: 1_780_000_000_000 }] : [] })],
+    [/FollowerStatistics/, (_c, o) =>
+      String(o.params.organizationalEntity).endsWith(":100")
+        ? erro(403, "Viewer has insufficient permissions")
+        : resp({ elements: Array.from({ length: 30 },
+            () => ({ followerGains: { organicFollowerGain: 2 } })) })],
+  ]);
+
+  it("a revogada não é medida, mesmo tendo publicações", async () => {
+    // O erro da rodada 4: a busca por 'Página ativa' premiava justamente a
+    // revogada, porque uma Página revogada ainda LISTA posts.
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, carteira());
+    expect(s.medidas.map((m) => m.id)).not.toContain("100");
+    expect(s.medidas.map((m) => m.id)).toContain("101");
+  });
+
+  it("com a Página viva, o histórico volta a ter resposta", async () => {
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, carteira());
+    expect(s.historicoMaisProfundoDias).toBe(760);
+  });
+
+  it("o relatório separa carteira de API", async () => {
+    const c = fake([
+      [/Acls/, () => aclDe([["ADMINISTRATOR", 100]], "REVOKED")],
+      [/FollowerStatistics/, () => erro(403, "Viewer has insufficient permissions")],
+      [/PageStatistics/, () => erro(403, "Viewer has insufficient permissions")],
+    ]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(s.texto).toContain("NÃO é limitação da API");
+    expect(s.texto).toContain("readmitir a SELVA na Página");
+    expect(s.texto).toContain("INCONCLUSIVO POR CARTEIRA");
+  });
+
+  it("um 403 de Página revogada não vira veredito de cargo", async () => {
+    const c = fake([
+      [/Acls/, () => aclDe([["ADMINISTRATOR", 100]], "REVOKED")],
+      [/FollowerStatistics/, () => erro(403, "Viewer has insufficient permissions")],
+    ]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const admin = s.cargos.find((x) => x.papel === "ADMINISTRATOR")!;
+    expect(admin.medidas).toEqual([]);
+    expect(admin.alcanca["seguidores"]).toBe("inconclusivo");
+  });
+
+  it("o `organizationalTarget!` é lido como acesso perdido", async () => {
+    const c = fake([[/Acls/, () => resp({ elements: [{
+      role: "ADMINISTRATOR", state: "REVOKED",
+      organizationalTarget: "urn:li:organization:100",
+      "organizationalTarget!": { status: 403 },
+    }] })]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(s.organizacoes[0].decoracaoFalhou).toBe(true);
+    expect(s.texto).toContain("nem devolveu o nome da Página");
   });
 });
