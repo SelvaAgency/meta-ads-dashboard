@@ -120,6 +120,96 @@ export async function execucoes(pageId: number | null, limite = 20) {
  * TEM é outra coisa, e confundir as duas faria o laboratório prometer um ano de
  * série numa Página conectada ontem.
  */
+/**
+ * O que existe no banco para esta Página — contado, não estimado.
+ *
+ * Responde "o que já temos" sem uma única chamada à API. Foi a primeira coisa
+ * que faltou quando a exploração começou: a tela mostrava lacunas e não dizia
+ * se elas eram da API, da carteira ou de uma coleta que nunca rodou.
+ *
+ * Conta em memória e não com `COUNT(*)`: são dezenas a centenas de linhas por
+ * Página, e a versão legível vale mais que a esperta quando as duas custam o
+ * mesmo.
+ */
+export async function estadoDoBanco(pageId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [diario, vitalicios, posts, metricas, execs] = await Promise.all([
+    db.select().from(linkedinPageDaily).where(eq(linkedinPageDaily.pageId, pageId))
+      .orderBy(asc(linkedinPageDaily.dia)),
+    db.select().from(linkedinPageLifetime).where(eq(linkedinPageLifetime.pageId, pageId))
+      .orderBy(asc(linkedinPageLifetime.dia)),
+    db.select().from(linkedinPosts).where(eq(linkedinPosts.pageId, pageId)),
+    db.select().from(linkedinPostMetrics).where(eq(linkedinPostMetrics.pageId, pageId))
+      .orderBy(asc(linkedinPostMetrics.dia)),
+    db.select().from(linkedinColetaExecucoes).where(eq(linkedinColetaExecucoes.pageId, pageId))
+      .orderBy(asc(linkedinColetaExecucoes.executadaEm)),
+  ]);
+
+  const ultimoVitalicio = vitalicios[vitalicios.length - 1] ?? null;
+  const temChaves = (o: unknown) =>
+    !!o && typeof o === "object" && Object.keys(o as object).length > 0;
+
+  return {
+    diario: {
+      linhas: diario.length,
+      primeiro: diario[0]?.dia ?? null,
+      ultimo: diario[diario.length - 1]?.dia ?? null,
+      comSeguidores: diario.filter((d) => d.seguidoresTotal !== null).length,
+      comGanho: diario.filter((d) => d.ganhoOrganico !== null || d.ganhoPago !== null).length,
+      comViews: diario.filter((d) => temChaves(d.viewsJson)).length,
+      recortesDeView: Array.from(new Set(
+        diario.flatMap((d) => Object.keys((d.viewsJson ?? {}) as Record<string, number>)))).length,
+      comIndisponiveis: diario.filter((d) => temChaves(d.indisponiveisJson)).length,
+    },
+    vitalicio: {
+      linhas: vitalicios.length,
+      primeiro: vitalicios[0]?.dia ?? null,
+      ultimo: ultimoVitalicio?.dia ?? null,
+      temSegmentacoes: temChaves(ultimoVitalicio?.segmentacoesJson),
+      temVisualizacoes: temChaves(ultimoVitalicio?.totalPageStatisticsJson),
+      temAgregado: temChaves(ultimoVitalicio?.agregadoDePostsJson),
+      temOrganizacao: temChaves(ultimoVitalicio?.organizacaoJson),
+    },
+    publicacoes: {
+      linhas: posts.length,
+      comTexto: posts.filter((p) => !!p.commentary).length,
+      comContent: posts.filter((p) => temChaves(p.contentJson)).length,
+      comMidiaResolvida: posts.filter((p) =>
+        Array.isArray(p.midiasJson)
+        && (p.midiasJson as Array<{ dados: unknown }>).some((m) => !!m.dados)).length,
+      comMidiaSemUrl: posts.filter((p) => !!p.midiaIndisponivel).length,
+      ugcPost: posts.filter((p) => p.tipoUrn === "ugcPost").length,
+      share: posts.filter((p) => p.tipoUrn === "share").length,
+      maisAntiga: posts.map((p) => p.publicadoEm).filter(Boolean)
+        .sort((a, b) => (a as Date).getTime() - (b as Date).getTime())[0] ?? null,
+      maisNova: posts.map((p) => p.publicadoEm).filter(Boolean)
+        .sort((a, b) => (b as Date).getTime() - (a as Date).getTime())[0] ?? null,
+    },
+    metricas: {
+      linhas: metricas.length,
+      publicacoesDistintas: new Set(metricas.map((m) => m.postUrn)).size,
+      diasDistintos: new Set(metricas.map((m) => m.dia)).size,
+      primeiro: metricas[0]?.dia ?? null,
+      ultimo: metricas[metricas.length - 1]?.dia ?? null,
+      comImpressoes: metricas.filter((m) => m.impressions !== null).length,
+      comReacoesPorTipo: metricas.filter((m) => temChaves(m.reacoesPorTipoJson)).length,
+      comSocialActions: metricas.filter((m) => temChaves(m.socialActionsJson)).length,
+      parciais: metricas.filter((m) => m.statusColeta !== "ok").length,
+    },
+    execucoes: {
+      linhas: execs.length,
+      cargas: execs.filter((e) => e.escopo === "carga").length,
+      incrementais: execs.filter((e) => e.escopo === "incremental").length,
+      semanais: execs.filter((e) => e.escopo === "semanal").length,
+      chamadasTotais: execs.reduce((t, e) => t + e.chamadas, 0),
+      primeira: execs[0]?.executadaEm ?? null,
+      ultima: execs[execs.length - 1]?.executadaEm ?? null,
+    },
+  };
+}
+
 export async function cobertura(pageId: number) {
   const db = await getDb();
   if (!db) return null;

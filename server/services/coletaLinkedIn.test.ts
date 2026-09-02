@@ -263,3 +263,55 @@ describe("dá para trocar de Página depois de vincular a primeira", () => {
     expect(tc).not.toContain("organizationId:");
   });
 });
+
+describe("explorar o que já foi coletado não custa chamada", () => {
+  it("o estado do banco é CONTADO, e não estimado", () => {
+    const dados = semComentarios(ler("server/services/linkedinLabDados.ts"));
+    expect(dados).toContain("export async function estadoDoBanco");
+    // Continua sendo só banco: nenhuma porta para a API entrou junto.
+    expect(dados).not.toContain("linkedinApi");
+    expect(dados).not.toContain("medirLinkedIn");
+  });
+
+  it("as abas novas leem do banco, e nenhuma dispara mutation", () => {
+    const pagina = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    for (const aba of ["AbaBanco", "AbaIdentidade", "AbaVisualizacoes", "AbaSegmentacoes"]) {
+      expect(pagina, aba).toContain(`function ${aba}(`);
+    }
+    // Só o cabeçalho e o gerenciador chamam mutation — as abas de exploração
+    // recebem `d` por parâmetro e não conhecem trpc.
+    const i = pagina.indexOf("function AbaBanco(");
+    expect(pagina.slice(i)).not.toContain("useMutation");
+  });
+
+  it("o vazio EXPLICA em vez de só dizer 'sem dados'", () => {
+    // "Sem dados" sozinho manda procurar o problema, e na maioria das vezes não
+    // há problema: o dado existe na API e o incremental não pede por ele.
+    const pagina = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(pagina).toContain("function VazioExplicado");
+    expect(pagina).toContain("O incremental não pede");
+  });
+
+  it("segmentações não são mais um `<pre>` de JSON", () => {
+    const pagina = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(pagina).toContain("function TabelaDeFacetas");
+    expect(pagina).toContain("linhasDoSegmento");
+  });
+
+  it("os três conjuntos invisíveis agora têm tela", () => {
+    // `organizacaoJson`, `totalPageStatisticsJson` e `agregadoDePostsJson`
+    // estavam no banco e não apareciam em lugar nenhum.
+    const pagina = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(pagina).toContain("organizacaoJson");
+    expect(pagina).toContain("totalPageStatisticsJson");
+    expect(pagina).toContain("agregadoDePostsJson");
+  });
+
+  it("o coletor NÃO foi tocado nesta etapa", () => {
+    // A comparação antes/depois exige que a coleta continue exatamente como
+    // estava quando os dados atuais foram gravados.
+    const fonte = semComentarios(ler("server/services/coletaLinkedIn.ts"));
+    expect(fonte).toContain("juntar(acc, d, { views: numeros(el.totalPageStatistics) });");
+    expect(fonte).not.toContain("commentSummary");
+  });
+});

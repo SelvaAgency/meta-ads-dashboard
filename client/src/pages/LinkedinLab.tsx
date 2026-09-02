@@ -49,7 +49,13 @@ import {
   cargoPrincipal, cargosVivos,
   type EstadoDaCapacidade, type MapaDeCapacidades, type StatusDoVinculo,
 } from "@shared/linkedinLab";
-import { JANELA_HISTORICA_DIAS, projecaoDeFrota } from "@shared/linkedinPlanoDeColeta";
+import {
+  JANELA_HISTORICA_DIAS, SOBREPOSICAO_DIAS, projecaoDeFrota,
+} from "@shared/linkedinPlanoDeColeta";
+import {
+  GRUPOS_DE_DADO, ROTULO_MEDIDA, linhasDoSegmento, oQueFalta, segmentosDisponiveis,
+  vereditoDoGrupo, type EstadoDaMedida, type VereditoDoGrupo,
+} from "@shared/linkedinCobertura";
 
 /**
  * O rótulo de uma Página — nome primeiro, sempre.
@@ -188,11 +194,16 @@ function baixarCsv(nome: string, linhas: Array<Record<string, unknown>>) {
    A página
    ═══════════════════════════════════════════════════════════════════════════ */
 
-type Aba = "geral" | "evolucao" | "publicacoes" | "cobertura" | "consumo" | "cru" | "paginas";
+type Aba = "geral" | "banco" | "identidade" | "evolucao" | "visualizacoes"
+  | "segmentacoes" | "publicacoes" | "cobertura" | "consumo" | "cru" | "paginas";
 
 const ABAS: Array<{ id: Aba; nome: string }> = [
   { id: "geral", nome: "Visão geral" },
+  { id: "banco", nome: "Estado do banco" },
+  { id: "identidade", nome: "Página" },
   { id: "evolucao", nome: "Evolução" },
+  { id: "visualizacoes", nome: "Visualizações" },
+  { id: "segmentacoes", nome: "Segmentações" },
   { id: "publicacoes", nome: "Publicações" },
   { id: "cobertura", nome: "Cobertura" },
   { id: "consumo", nome: "Consumo da API" },
@@ -300,7 +311,11 @@ export default function LinkedinLab() {
         {ativo && d && aba !== "paginas" && (
           <>
             {aba === "geral" && <AbaGeral d={d} capacidades={capacidades} status={status} />}
-            {aba === "evolucao" && <AbaEvolucao serie={d.serie} />}
+            {aba === "banco" && <AbaBanco d={d} capacidades={capacidades} />}
+            {aba === "identidade" && <AbaIdentidade d={d} papeis={papeis} status={status} />}
+            {aba === "evolucao" && <AbaEvolucao d={d} />}
+            {aba === "visualizacoes" && <AbaVisualizacoes d={d} />}
+            {aba === "segmentacoes" && <AbaSegmentacoes d={d} />}
             {aba === "publicacoes" && (
               <AbaPublicacoes posts={d.posts} aoAbrir={setPostAberto} />
             )}
@@ -834,31 +849,7 @@ function AbaGeral({ d, capacidades, status }: {
         </div>
       </Bloco>
 
-      <CoberturaCurta capacidades={capacidades} />
     </div>
-  );
-}
-
-/** A lista de capacidades — o que conseguimos medir NESTA Página. */
-function CoberturaCurta({ capacidades }: { capacidades: MapaDeCapacidades }) {
-  return (
-    <Bloco titulo="O que conseguimos medir nesta Página"
-      nota="a capacidade é a resposta desta Página, nunca o cargo declarado">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1.5">
-        {CAPACIDADES.map((c) => {
-          const l = capacidades[c];
-          const estado = l?.estado ?? "nao_coletado";
-          return (
-            <div key={c} className="flex items-center justify-between gap-2 text-[12.5px] py-0.5 border-b border-border/40">
-              <span className="truncate">{ROTULO_CAPACIDADE[c]}</span>
-              <Selo estado={estado} titulo={l?.motivo ?? undefined}>
-                {ROTULO_ESTADO[estado]}
-              </Selo>
-            </div>
-          );
-        })}
-      </div>
-    </Bloco>
   );
 }
 
@@ -867,88 +858,188 @@ function CoberturaCurta({ capacidades }: { capacidades: MapaDeCapacidades }) {
 type Serie = Dados["serie"];
 
 /**
- * Um gráfico só, com seletor de métrica.
+ * Um gráfico, um seletor agrupado, e um vazio que explica.
  *
- * Os ~30 recortes de visualização entram todos na lista — inclusive os que
- * talvez ninguém use. Escolher aqui os "importantes" seria decidir antes de
- * observar, que é justamente o que o laboratório existe para evitar.
+ * Os ~30 recortes de visualização entram TODOS — inclusive os que talvez
+ * ninguém use. Escolher aqui os "importantes" seria decidir antes de observar,
+ * que é justamente o que este laboratório existe para evitar.
+ *
+ * E quando não há dois pontos, a tela diz quantos existem e por quê, em vez de
+ * mostrar uma moldura em branco: numa Página só com sincronizações
+ * incrementais, três dias de série é o esperado, não um defeito.
  */
-function AbaEvolucao({ serie }: { serie: Serie }) {
-  const recortes = useMemo(() => {
-    const chaves = new Set<string>();
-    for (const s of serie) {
-      for (const k of Object.keys((s.viewsJson ?? {}) as Record<string, number>)) chaves.add(k);
+interface Metrica { id: string; nome: string; unidade: string; cor: string }
+
+function AbaEvolucao({ d }: { d: Dados }) {
+  const serie = d.serie;
+
+  /** As métricas que EXISTEM nos dados — nenhuma inventada, nenhuma escondida. */
+  const grupos = useMemo((): Array<{ grupo: string; metricas: Metrica[] }> => {
+    const recortes = new Set<string>();
+    for (const x of serie) {
+      for (const k of Object.keys((x.viewsJson ?? {}) as Record<string, number>)) recortes.add(k);
     }
-    return Array.from(chaves).sort();
+    const seguidores: Metrica[] = [
+      { id: "seguidoresTotal", nome: "Total de seguidores", unidade: "seguidores", cor: COR.seguidores },
+      { id: "ganhoOrganico", nome: "Ganho orgânico", unidade: "novos seguidores", cor: COR.entrada },
+      { id: "ganhoPago", nome: "Ganho pago", unidade: "novos seguidores", cor: COR.ativacoes },
+    ];
+    const views: Metrica[] = Array.from(recortes).sort().map((k) => ({
+      id: `views:${k}`,
+      nome: k.replace(/^views\./, ""),
+      unidade: k.includes("unique") ? "visualizações únicas" : "visualizações",
+      cor: COR.visitas,
+    }));
+    return [
+      { grupo: "Seguidores", metricas: seguidores },
+      { grupo: `Visualizações da Página (${views.length})`, metricas: views },
+    ].filter((g) => g.metricas.length);
   }, [serie]);
 
-  const metricas = useMemo(() => [
-    { id: "seguidoresTotal", nome: "Seguidores", unidade: "seguidores", cor: COR.seguidores },
-    { id: "ganhoOrganico", nome: "Ganho de seguidores (orgânico)", unidade: "novos seguidores", cor: COR.entrada },
-    { id: "ganhoPago", nome: "Ganho de seguidores (pago)", unidade: "novos seguidores", cor: COR.ativacoes },
-    ...recortes.map((k) => ({
-      id: `views:${k}`, nome: k.replace(/^views\./, ""), unidade: "visualizações", cor: COR.visitas,
-    })),
-  ], [recortes]);
-
+  const todas = useMemo(() => grupos.flatMap((g) => g.metricas), [grupos]);
   const [metrica, setMetrica] = useState("seguidoresTotal");
   const [ativo, setAtivo] = useState<number | null>(null);
-  const m = metricas.find((x) => x.id === metrica) ?? metricas[0];
+  const m = todas.find((x) => x.id === metrica) ?? todas[0];
+
+  const valorDe = (x: Serie[number], id: string): number | null => {
+    if (id.startsWith("views:")) {
+      const v = ((x.viewsJson ?? {}) as Record<string, number>)[id.slice(6)];
+      return typeof v === "number" ? v : null;
+    }
+    const v = x[id as "seguidoresTotal" | "ganhoOrganico" | "ganhoPago"];
+    return typeof v === "number" ? v : null;
+  };
 
   const pontos: PontoHistorico[] = useMemo(() => {
+    if (!m) return [];
     const saida: PontoHistorico[] = [];
     let anterior: string | null = null;
-    for (const s of serie) {
-      const v = m.id.startsWith("views:")
-        ? ((s.viewsJson ?? {}) as Record<string, number>)[m.id.slice(6)]
-        : (s[m.id as "seguidoresTotal" | "ganhoOrganico" | "ganhoPago"] as number | null);
-      if (typeof v !== "number") { anterior = anterior; continue; }
-      saida.push({ dia: s.dia, valor: v, vao: !!anterior && diasEntre(anterior, s.dia) > 1 });
-      anterior = s.dia;
+    for (const x of serie) {
+      const v = valorDe(x, m.id);
+      if (v === null) continue;
+      saida.push({ dia: x.dia, valor: v, vao: !!anterior && diasEntre(anterior, x.dia) > 1 });
+      anterior = x.dia;
     }
     return saida;
   }, [serie, m]);
 
-  const faltando = serie.length - pontos.length;
+  /** Quantos dias têm ESTA métrica, e quantos existem no período. */
+  const semEsta = serie.length - pontos.length;
+  const b = d.banco;
+  const fezCarga = (b?.execucoes.cargas ?? 0) > 0;
 
   return (
-    <Bloco titulo="Evolução da Página"
-      nota={`${pontos.length} ponto(s) medido(s)${faltando > 0 ? ` · ${faltando} dia(s) sem esta métrica` : ""}`}
-      acao={
-        <div className="flex items-center gap-2">
-          {ativo !== null && pontos[ativo] && (
-            <LeituraDoPonto dia={pontos[ativo].dia}
-              valores={[{ valor: fmt(pontos[ativo].valor), rotulo: m.unidade, cor: m.cor }]} />
+    <div className="flex flex-col gap-4">
+      <Bloco titulo="Evolução"
+        nota={m ? `${m.nome} · em ${m.unidade}` : undefined}
+        acao={
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {ativo !== null && pontos[ativo] && m && (
+              <LeituraDoPonto dia={pontos[ativo].dia}
+                valores={[{ valor: fmt(pontos[ativo].valor), rotulo: m.unidade, cor: m.cor }]} />
+            )}
+            <select className="h-7 rounded border border-border bg-background px-2 text-[12px] max-w-[320px]"
+              value={metrica} onChange={(e) => { setMetrica(e.target.value); setAtivo(null); }}>
+              {grupos.map((g) => (
+                <optgroup key={g.grupo} label={g.grupo}>
+                  {g.metricas.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+        }>
+        {/* A linha que responde "posso confiar nesta curva?" antes de olhá-la. */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11.5px] text-muted-foreground">
+          <span><strong className="text-foreground tabular-nums">{pontos.length}</strong> ponto(s) medido(s)</span>
+          <span><strong className="text-foreground tabular-nums">{serie.length}</strong> dia(s) no período</span>
+          {semEsta > 0 && <span>{semEsta} dia(s) sem esta métrica — não viram zero</span>}
+          {pontos.length >= 2 && (
+            <span>{dataBr(pontos[0].dia)} → {dataBr(pontos[pontos.length - 1].dia)}</span>
           )}
-          <select className="h-7 rounded border border-border bg-background px-2 text-[12px] max-w-[280px]"
-            value={metrica} onChange={(e) => { setMetrica(e.target.value); setAtivo(null); }}>
-            {metricas.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
-          </select>
         </div>
-      }>
-      {pontos.length < 2 ? (
-        <div className="h-[200px] flex items-center justify-center text-sm text-muted-foreground">
-          Menos de dois pontos medidos — não há série para desenhar.
-          {faltando > 0 && " Os dias sem medida ficam de fora, e não viram zero."}
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <CurvaHistorica id={`lab-${m.id}`} pontos={pontos} cor={m.cor}
-            altura={220} largura={Math.max(760, pontos.length * 9)}
-            ativo={ativo} aoEntrar={setAtivo} />
-        </div>
-      )}
-      <div className="flex justify-end">
-        <Button size="sm" variant="ghost" className="h-7 text-[11px]"
-          onClick={() => baixarCsv("linkedin-serie", serie.map((s) => ({
-            dia: s.dia, seguidores: s.seguidoresTotal,
-            ganhoOrganico: s.ganhoOrganico, ganhoPago: s.ganhoPago,
-            ...((s.viewsJson ?? {}) as Record<string, number>),
-          })))}>
-          <Download className="w-3 h-3 mr-1" /> CSV da série
-        </Button>
-      </div>
-    </Bloco>
+
+        {pontos.length >= 2 ? (
+          <div className="overflow-x-auto">
+            <CurvaHistorica id={`lab-${m!.id}`} pontos={pontos} cor={m!.cor}
+              altura={240} largura={Math.max(760, pontos.length * 9)}
+              ativo={ativo} aoEntrar={setAtivo} />
+          </div>
+        ) : (
+          <VazioExplicado
+            titulo={pontos.length === 1
+              ? "Um ponto só — não há série para desenhar"
+              : "Nenhum ponto desta métrica"}
+            porque={fezCarga
+              ? "A carga histórica rodou, mas esta métrica não veio nos dias coletados. Confira o estado dela na aba Cobertura."
+              : `Esta Página tem ${b?.execucoes.incrementais ?? 0} sincronização(ões) incremental(is) e nenhuma carga histórica. `
+                + `O incremental grava ${SOBREPOSICAO_DIAS} dias de série por rodada — a curva de ${JANELA_HISTORICA_DIAS} dias vem da Carga histórica.`}
+          />
+        )}
+      </Bloco>
+
+      {/* A série inteira, número por número. É o que permite conferir a curva. */}
+      <Bloco titulo="Série completa"
+        nota={`${serie.length} dia(s) · ausência aparece como — e nunca como zero`}
+        acao={
+          <Button size="sm" variant="ghost" className="h-7 text-[11px]"
+            onClick={() => baixarCsv("linkedin-serie", serie.map((x) => ({
+              dia: x.dia, seguidores: x.seguidoresTotal,
+              ganhoOrganico: x.ganhoOrganico, ganhoPago: x.ganhoPago,
+              statusColeta: x.statusColeta, origem: x.origem,
+              ...((x.viewsJson ?? {}) as Record<string, number>),
+            })))}>
+            <Download className="w-3 h-3 mr-1" /> CSV
+          </Button>
+        }>
+        {serie.length ? (
+          <div className="overflow-x-auto max-h-[420px]">
+            <table className="w-full text-[12px] min-w-[560px]">
+              <thead className="sticky top-0 bg-card">
+                <tr className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                  <th className="text-left py-2 pr-3">Dia</th>
+                  <th className="text-right py-2 pr-3">Seguidores</th>
+                  <th className="text-right py-2 pr-3">Orgânico</th>
+                  <th className="text-right py-2 pr-3">Pago</th>
+                  <th className="text-right py-2 pr-3">Recortes de view</th>
+                  <th className="text-left py-2 pr-3">Origem</th>
+                  <th className="text-left py-2">Coleta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...serie].reverse().map((x) => {
+                  const views = (x.viewsJson ?? {}) as Record<string, number>;
+                  const ind = (x.indisponiveisJson ?? null) as Record<string, string> | null;
+                  return (
+                    <tr key={x.dia} className="border-t border-border/50">
+                      <td className="py-1.5 pr-3 tabular-nums">{dataBr(x.dia)}</td>
+                      <td className="py-1.5 pr-3 text-right">
+                        <Numero valor={x.seguidoresTotal} motivo={ind?.seguidores_atuais} />
+                      </td>
+                      <td className="py-1.5 pr-3 text-right">
+                        <Numero valor={x.ganhoOrganico} motivo={ind?.seguidores_serie} />
+                      </td>
+                      <td className="py-1.5 pr-3 text-right">
+                        <Numero valor={x.ganhoPago} motivo={ind?.seguidores_serie} />
+                      </td>
+                      <td className="py-1.5 pr-3 text-right">
+                        <Numero valor={Object.keys(views).length || null} motivo={ind?.pagina_serie} />
+                      </td>
+                      <td className="py-1.5 pr-3 text-muted-foreground">{x.origem ?? "—"}</td>
+                      <td className="py-1.5">
+                        <Selo estado={x.statusColeta === "ok" ? "ok" : "erro"}>{x.statusColeta}</Selo>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <VazioExplicado titulo="Nenhum dia coletado"
+            porque="Nenhuma sincronização gravou série para esta Página no período selecionado." />
+        )}
+      </Bloco>
+    </div>
   );
 }
 
@@ -1327,12 +1418,70 @@ function Campo({ k, v, motivo }: {
 
 function AbaCobertura({ d, capacidades }: { d: Dados; capacidades: MapaDeCapacidades }) {
   const cob = d.cobertura;
-  const lifetime = d.lifetime;
-  const seg = (lifetime?.segmentacoesJson ?? null) as Record<string, unknown> | null;
+  const v = vereditos(d, capacidades);
+  const agregado = (d.lifetime?.agregadoDePostsJson ?? null) as Record<string, unknown> | null;
+  const totalAgregado = (agregado?.totalShareStatistics ?? null) as Record<string, unknown> | null;
 
   return (
     <div className="flex flex-col gap-4">
-      <CoberturaCurta capacidades={capacidades} />
+      {/* Cinco estados, e nenhum deles é "vazio". A tabela de conjuntos vem
+          primeiro porque ela responde a pergunta que a pessoa traz. */}
+      <Bloco titulo="O que conseguimos medir nesta Página"
+        nota="a capacidade é a resposta desta Página, nunca o cargo declarado">
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12.5px] min-w-[680px]">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                <th className="text-left py-2 pr-3">Conjunto</th>
+                <th className="text-left py-2 pr-3">Estado</th>
+                <th className="text-left py-2 pr-3">Resposta da API</th>
+                <th className="text-left py-2">O que fazer</th>
+              </tr>
+            </thead>
+            <tbody>
+              {v.map((x) => {
+                const cap = x.grupo.capacidade ? capacidades[x.grupo.capacidade] : null;
+                return (
+                  <tr key={x.grupo.id} className="border-t border-border/60">
+                    <td className="py-2 pr-3 font-medium">{x.grupo.rotulo}</td>
+                    <td className="py-2 pr-3">
+                      <Selo estado={TOM_MEDIDA[x.estado]}>{ROTULO_MEDIDA[x.estado]}</Selo>
+                    </td>
+                    <td className="py-2 pr-3 text-[11.5px] text-muted-foreground">
+                      {cap
+                        ? <>HTTP {cap.status ?? "—"} · {ROTULO_ESTADO[cap.estado]}
+                            {cap.motivo && <span className="block text-[10.5px] opacity-80">{cap.motivo}</span>}</>
+                        : <span className="opacity-60">nunca medida</span>}
+                    </td>
+                    <td className="py-2 text-[11.5px] text-muted-foreground">{x.acao ?? "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Bloco>
+
+      <Bloco titulo="Agregado de publicações"
+        nota="os totais da Página inteira, vitalícios">
+        {totalAgregado && Object.keys(totalAgregado).length ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {Object.entries(totalAgregado)
+              .filter(([, x]) => typeof x === "number")
+              .map(([k, x]) => (
+                <Kpi key={k} rotulo={k}
+                  valor={k === "engagement" ? pct(x as number) : (x as number)} />
+              ))}
+          </div>
+        ) : (
+          <VazioExplicado
+            titulo="Nenhum agregado salvo"
+            porque="O agregado é gravado no retrato vitalício, e só a Carga histórica e a rodada semanal escrevem lá."
+            oQueTem="impressões, únicas, cliques, curtidas, comentários, compartilhamentos e engajamento da Página inteira"
+          />
+        )}
+        {agregado && <Recolhivel titulo="Resposta bruta — agregado">{bruto(agregado)}</Recolhivel>}
+      </Bloco>
 
       <Bloco titulo="Histórico"
         nota="o que a API PERMITE e o que esta Página TEM são coisas diferentes">
@@ -1353,41 +1502,11 @@ function AbaCobertura({ d, capacidades }: { d: Dados; capacidades: MapaDeCapacid
           <Kpi rotulo="Com métricas" valor={cob?.publicacoesComMetrica ?? null}
             nota={cob?.publicacoes ? `de ${cob.publicacoes}` : undefined} />
           <Kpi rotulo="Retrato vitalício"
-            valor={lifetime?.dia ? dataBr(lifetime.dia) : null}
-            nota="segmentações · atualizado semanalmente" />
+            valor={d.lifetime?.dia ? dataBr(d.lifetime.dia) : null}
+            nota={d.lifetime ? "segmentações e vitalícios" : "só a Carga histórica escreve"} />
         </div>
       </Bloco>
 
-      {seg && (
-        <Bloco titulo="Segmentações de seguidores"
-          nota="tudo que a API devolveu — inclusive o que talvez ninguém use"
-          acao={
-            <Button size="sm" variant="ghost" className="h-7 text-[11px]"
-              onClick={() => baixarCsv("linkedin-segmentacoes",
-                Object.entries(seg).flatMap(([grupo, v]) =>
-                  Array.isArray(v)
-                    ? v.map((x) => ({ grupo, ...(x as Record<string, unknown>) }))
-                    : [{ grupo, valor: JSON.stringify(v) }]))}>
-              <Download className="w-3 h-3 mr-1" /> CSV
-            </Button>
-          }>
-          <div className="flex flex-col gap-3">
-            {Object.entries(seg)
-              .filter(([, v]) => Array.isArray(v) && v.length)
-              .map(([grupo, v]) => (
-                <div key={grupo} className="flex flex-col gap-1">
-                  <span className="text-[10.5px] font-mono text-muted-foreground">{grupo}</span>
-                  <div className="overflow-x-auto">
-                    <pre className="text-[10.5px] bg-muted/40 rounded p-2 max-h-[220px] overflow-auto">
-                      {bruto(v)}
-                    </pre>
-                  </div>
-                </div>
-              ))}
-          </div>
-          <Recolhivel titulo="Resposta bruta — segmentações">{bruto(seg)}</Recolhivel>
-        </Bloco>
-      )}
     </div>
   );
 }
@@ -1558,6 +1677,521 @@ function AbaCru({ d }: { d: Dados }) {
         <Recolhivel titulo="retrato vitalício">{bruto(d.lifetime)}</Recolhivel>
         <Recolhivel titulo="publicações" contagem={d.posts.length}>{bruto(d.posts)}</Recolhivel>
         <Recolhivel titulo="cobertura">{bruto(d.cobertura)}</Recolhivel>
+      </Bloco>
+    </div>
+  );
+}
+
+/* ═══ Estado do banco — o que já temos, sem gastar uma chamada ════════════ */
+
+const TOM_MEDIDA: Record<EstadoDaMedida, EstadoDaCapacidade> = {
+  com_dado: "ok",
+  sem_dado: "sem_dados",
+  recusado: "sem_permissao",
+  nao_coletado: "nao_coletado",
+  so_na_carga: "nao_disponivel",
+};
+
+/**
+ * O veredito de cada conjunto, montado a partir do que EXISTE no banco.
+ *
+ * A evidência vem de contagem real — não de suposição sobre o que a coleta
+ * deveria ter feito. É a diferença entre "a interface acha que tem" e "tem".
+ */
+function vereditos(d: Dados, capacidades: MapaDeCapacidades): VereditoDoGrupo[] {
+  const b = d.banco;
+  const jaFezCarga = (b?.execucoes.cargas ?? 0) > 0;
+  const evidencia: Record<string, { temLinha: boolean; temValor: boolean }> = {
+    identificacao: { temLinha: !!d.pagina, temValor: !!d.pagina?.organizationUrn },
+    organizacao: { temLinha: (b?.vitalicio.linhas ?? 0) > 0, temValor: !!b?.vitalicio.temOrganizacao },
+    seguidores_total: { temLinha: (b?.diario.linhas ?? 0) > 0, temValor: (b?.diario.comSeguidores ?? 0) > 0 },
+    seguidores_serie: { temLinha: (b?.diario.linhas ?? 0) > 0, temValor: (b?.diario.comGanho ?? 0) > 0 },
+    segmentacoes: { temLinha: (b?.vitalicio.linhas ?? 0) > 0, temValor: !!b?.vitalicio.temSegmentacoes },
+    views_serie: { temLinha: (b?.diario.linhas ?? 0) > 0, temValor: (b?.diario.comViews ?? 0) > 0 },
+    views_lifetime: { temLinha: (b?.vitalicio.linhas ?? 0) > 0, temValor: !!b?.vitalicio.temVisualizacoes },
+    agregado: { temLinha: (b?.vitalicio.linhas ?? 0) > 0, temValor: !!b?.vitalicio.temAgregado },
+    publicacoes: { temLinha: (b?.publicacoes.linhas ?? 0) > 0, temValor: (b?.publicacoes.linhas ?? 0) > 0 },
+    metricas_post: { temLinha: (b?.metricas.linhas ?? 0) > 0, temValor: (b?.metricas.comImpressoes ?? 0) > 0 },
+    reacoes: { temLinha: (b?.metricas.linhas ?? 0) > 0, temValor: (b?.metricas.comReacoesPorTipo ?? 0) > 0 },
+  };
+  return GRUPOS_DE_DADO.map((g) => vereditoDoGrupo(g, {
+    ...(evidencia[g.id] ?? { temLinha: false, temValor: false }),
+    capacidade: g.capacidade ? capacidades[g.capacidade] ?? null : null,
+    jaFezCarga,
+  }));
+}
+
+function Contagem({ rotulo, n, nota }: { rotulo: string; n: number | null | undefined; nota?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-[12.5px] py-1 border-b border-border/40">
+      <span className="text-muted-foreground">{rotulo}</span>
+      <span className="flex items-baseline gap-2">
+        {nota && <span className="text-[10.5px] text-muted-foreground/70">{nota}</span>}
+        <span className={`font-semibold tabular-nums ${n ? "" : "text-muted-foreground/50"}`}>
+          {n ?? 0}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function AbaBanco({ d, capacidades }: { d: Dados; capacidades: MapaDeCapacidades }) {
+  const b = d.banco;
+  const v = vereditos(d, capacidades);
+  const falta = oQueFalta(v);
+
+  if (!b) {
+    return <Bloco titulo="Estado do banco"><p className="text-[12.5px] text-muted-foreground">
+      Não foi possível ler o banco.</p></Bloco>;
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* O aviso que faltava: nada disso é falha da API. */}
+      {falta.soNaCarga.length > 0 && (
+        <Bloco titulo="Por que falta metade dos dados">
+          <p className="text-[12.5px] leading-relaxed">
+            Esta Página tem <strong>{b.execucoes.incrementais} sincronização(ões) incremental(is)</strong> e
+            <strong> {b.execucoes.cargas} carga(s) histórica(s)</strong>. O incremental não pede
+            {" "}{falta.soNaCarga.length} conjunto(s) de dado — não porque a API recusou, mas porque
+            eles só são buscados na Carga histórica:
+          </p>
+          <ul className="text-[12.5px] flex flex-col gap-1 pl-4">
+            {falta.soNaCarga.map((x) => (
+              <li key={x.grupo.id} className="list-disc">
+                <strong>{x.grupo.rotulo}</strong>
+                <span className="text-muted-foreground"> — {x.grupo.oQueTem}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[12px] text-muted-foreground">
+            A Carga histórica está no topo da página e mostra a estimativa de chamadas antes do clique.
+            Nada aqui roda sozinho.
+          </p>
+        </Bloco>
+      )}
+
+      <Bloco titulo="Conjunto por conjunto"
+        nota="cinco estados, e nenhum deles é 'vazio'">
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12.5px] min-w-[720px]">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                <th className="text-left py-2 pr-3">Conjunto</th>
+                <th className="text-left py-2 pr-3">Estado</th>
+                <th className="text-left py-2 pr-3">Onde mora</th>
+                <th className="text-left py-2">O que fazer</th>
+              </tr>
+            </thead>
+            <tbody>
+              {v.map((x) => (
+                <tr key={x.grupo.id} className="border-t border-border/60">
+                  <td className="py-2 pr-3">
+                    <div className="flex flex-col leading-tight">
+                      <span className="font-medium">{x.grupo.rotulo}</span>
+                      <span className="text-[10.5px] text-muted-foreground/70">{x.grupo.oQueTem}</span>
+                    </div>
+                  </td>
+                  <td className="py-2 pr-3">
+                    <Selo estado={TOM_MEDIDA[x.estado]}>{ROTULO_MEDIDA[x.estado]}</Selo>
+                  </td>
+                  <td className="py-2 pr-3 font-mono text-[10.5px] text-muted-foreground break-all">
+                    {x.grupo.tabela}
+                  </td>
+                  <td className="py-2 text-[11.5px] text-muted-foreground">{x.acao ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Bloco>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Bloco titulo="linkedin_page_daily"
+          nota={b.diario.primeiro ? `${dataBr(b.diario.primeiro)} → ${dataBr(b.diario.ultimo)}` : "vazia"}>
+          <Contagem rotulo="Linhas (um dia cada)" n={b.diario.linhas} />
+          <Contagem rotulo="Com total de seguidores" n={b.diario.comSeguidores} />
+          <Contagem rotulo="Com ganho diário" n={b.diario.comGanho} />
+          <Contagem rotulo="Com visualizações" n={b.diario.comViews} />
+          <Contagem rotulo="Recortes de visualização distintos" n={b.diario.recortesDeView} />
+          <Contagem rotulo="Com métrica recusada" n={b.diario.comIndisponiveis} />
+        </Bloco>
+
+        <Bloco titulo="linkedin_page_lifetime"
+          nota={b.vitalicio.ultimo ? `último em ${dataBr(b.vitalicio.ultimo)}` : "vazia — só a Carga escreve aqui"}>
+          <Contagem rotulo="Retratos guardados" n={b.vitalicio.linhas} />
+          <Contagem rotulo="Segmentações de seguidores" n={b.vitalicio.temSegmentacoes ? 1 : 0}
+            nota={b.vitalicio.temSegmentacoes ? "presente" : "ausente"} />
+          <Contagem rotulo="Visualizações vitalícias" n={b.vitalicio.temVisualizacoes ? 1 : 0}
+            nota={b.vitalicio.temVisualizacoes ? "presente" : "ausente"} />
+          <Contagem rotulo="Agregado de publicações" n={b.vitalicio.temAgregado ? 1 : 0}
+            nota={b.vitalicio.temAgregado ? "presente" : "ausente"} />
+          <Contagem rotulo="Detalhes da organização" n={b.vitalicio.temOrganizacao ? 1 : 0}
+            nota={b.vitalicio.temOrganizacao ? "presente" : "ausente"} />
+        </Bloco>
+
+        <Bloco titulo="linkedin_posts"
+          nota={b.publicacoes.maisAntiga
+            ? `${dataBr(b.publicacoes.maisAntiga)} → ${dataBr(b.publicacoes.maisNova)}` : "vazia"}>
+          <Contagem rotulo="Publicações" n={b.publicacoes.linhas} />
+          <Contagem rotulo="Com texto" n={b.publicacoes.comTexto} />
+          <Contagem rotulo="Com content cru" n={b.publicacoes.comContent} />
+          <Contagem rotulo="Com imagem resolvida" n={b.publicacoes.comMidiaResolvida} />
+          <Contagem rotulo="Com mídia sem URL" n={b.publicacoes.comMidiaSemUrl} />
+          <Contagem rotulo="Tipo ugcPost" n={b.publicacoes.ugcPost} />
+          <Contagem rotulo="Tipo share" n={b.publicacoes.share} />
+        </Bloco>
+
+        <Bloco titulo="linkedin_post_metrics"
+          nota={b.metricas.primeiro ? `${dataBr(b.metricas.primeiro)} → ${dataBr(b.metricas.ultimo)}` : "vazia"}>
+          <Contagem rotulo="Medições (publicação × dia)" n={b.metricas.linhas} />
+          <Contagem rotulo="Publicações distintas" n={b.metricas.publicacoesDistintas} />
+          <Contagem rotulo="Dias distintos" n={b.metricas.diasDistintos} />
+          <Contagem rotulo="Com impressões" n={b.metricas.comImpressoes} />
+          <Contagem rotulo="Com reações por tipo" n={b.metricas.comReacoesPorTipo} />
+          <Contagem rotulo="Com socialActions" n={b.metricas.comSocialActions} />
+          <Contagem rotulo="Parciais" n={b.metricas.parciais} />
+        </Bloco>
+      </div>
+
+      <Bloco titulo="linkedin_coleta_execucoes"
+        nota={b.execucoes.primeira
+          ? `${new Date(b.execucoes.primeira).toLocaleString("pt-BR")} → ${new Date(b.execucoes.ultima!).toLocaleString("pt-BR")}`
+          : "nenhuma"}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+          <Contagem rotulo="Rodadas" n={b.execucoes.linhas} />
+          <Contagem rotulo="Cargas históricas" n={b.execucoes.cargas} />
+          <Contagem rotulo="Incrementais" n={b.execucoes.incrementais} />
+          <Contagem rotulo="Semanais" n={b.execucoes.semanais} />
+          <Contagem rotulo="Chamadas à API, no total" n={b.execucoes.chamadasTotais} />
+        </div>
+      </Bloco>
+    </div>
+  );
+}
+
+/* ═══ Página — a identidade completa que já está salva ════════════════════ */
+
+function AbaIdentidade({ d, papeis, status }: {
+  d: Dados; papeis: Array<{ papel: string; estado: string }>; status: StatusDoVinculo;
+}) {
+  const org = (d.lifetime?.organizacaoJson ?? null) as Record<string, unknown> | null;
+  const p = d.pagina;
+
+  /** O texto de um campo da organização, seja ele string, número ou lista. */
+  const texto = (v: unknown): string | null => {
+    if (v === null || v === undefined) return null;
+    if (typeof v === "string" || typeof v === "number") return String(v);
+    if (Array.isArray(v)) return v.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(", ");
+    if (typeof v === "object") {
+      const o = v as Record<string, unknown>;
+      // `foundedOn: { year: 2018 }` e afins — legível sem virar JSON.
+      const partes = Object.entries(o).filter(([, x]) => typeof x === "string" || typeof x === "number");
+      if (partes.length) return partes.map(([k, x]) => `${k}: ${x}`).join(" · ");
+    }
+    return null;
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Bloco titulo="Identificação" nota="salvo no vínculo — não depende de coleta">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
+          <Campo k="Nome" v={p?.nome ?? null} motivo={p?.nome ? null : "o LinkedIn recusou a identidade desta organização"} />
+          <Campo k="Vanity" v={p?.vanityName ?? null} />
+          <Campo k="ID da organização" v={p?.organizationId ?? null} />
+          <Campo k="URN" v={p?.organizationUrn ?? null} />
+          <Campo k="Status do vínculo" v={ROTULO_VINCULO[status]} />
+          <Campo k="Vinculada em" v={p?.createdAt ? dataBr(p.createdAt) : null} />
+          <Campo k="Carga histórica" v={p?.cargaInicialEm ? dataBr(p.cargaInicialEm) : null}
+            motivo={p?.cargaInicialEm ? null : "ainda não foi feita nesta Página"} />
+          <Campo k="Última coleta" v={p?.ultimaColetaEm ? dataBr(p.ultimaColetaEm) : null} />
+          <Campo k="Último erro" v={p?.ultimoErro ?? null} />
+        </div>
+      </Bloco>
+
+      <Bloco titulo="Cargos da SELVA nesta Página"
+        nota="por atribuição, com o state de cada uma — a mesma Página tem cargos vivos e revogados ao mesmo tempo">
+        {papeis.length ? (
+          <div className="flex flex-col gap-1.5">
+            {papeis.map((x) => (
+              <div key={x.papel} className="flex items-center justify-between gap-3 text-[12.5px] py-1 border-b border-border/40">
+                <span className="font-mono text-[11.5px]">{x.papel}</span>
+                <Selo estado={x.estado === "APPROVED" ? "ok" : "sem_permissao"}>
+                  {x.estado}
+                </Selo>
+              </div>
+            ))}
+          </div>
+        ) : <p className="text-[12.5px] text-muted-foreground">Nenhum cargo registrado no vínculo.</p>}
+      </Bloco>
+
+      <Bloco titulo="Detalhes da organização"
+        nota={org ? "de /rest/organizations, salvo na última carga ou semanal" : undefined}>
+        {org ? (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
+              {Object.entries(org)
+                .filter(([, v]) => texto(v) !== null)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([k, v]) => <Campo key={k} k={k} v={texto(v)} />)}
+            </div>
+            <Recolhivel titulo="Resposta bruta — /rest/organizations">{bruto(org)}</Recolhivel>
+          </>
+        ) : (
+          <VazioExplicado
+            titulo="Nenhum detalhe de organização salvo"
+            porque="O incremental não busca este dado — só a Carga histórica e a rodada semanal pedem /rest/organizations."
+            oQueTem="site, descrição, fundação, especialidades, porte, tipo de organização, logo e capa"
+          />
+        )}
+      </Bloco>
+    </div>
+  );
+}
+
+/**
+ * O vazio que EXPLICA.
+ *
+ * "Sem dados" sozinho manda a pessoa procurar o problema, e na maioria das vezes
+ * não há problema nenhum: o dado existe na API e a sincronização que rodou não
+ * pede por ele. Dizer isso é a diferença entre uma tela vazia e um diagnóstico.
+ */
+function VazioExplicado({ titulo, porque, oQueTem }: {
+  titulo: string; porque: string; oQueTem?: string;
+}) {
+  return (
+    <div className="flex items-start gap-3 py-6 px-1">
+      <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-600 flex-shrink-0" />
+      <div className="flex flex-col gap-1 min-w-0">
+        <span className="text-[13px] font-semibold">{titulo}</span>
+        <span className="text-[12.5px] text-muted-foreground leading-relaxed">{porque}</span>
+        {oQueTem && (
+          <span className="text-[11.5px] text-muted-foreground/80">
+            O que viria aqui: {oQueTem}.
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══ Visualizações — vitalício e histórico, separados ════════════════════ */
+
+/**
+ * Tabela de facetas, ordenável.
+ *
+ * Substitui o `<pre>` de JSON que estava aqui. Um dump serve para conferir que
+ * o dado chegou; ele não serve para descobrir que setor concentra a audiência —
+ * que é a pergunta que este laboratório existe para responder.
+ */
+function TabelaDeFacetas({ titulo, itens, campoDeContagem, unidade }: {
+  titulo: string; itens: unknown; campoDeContagem?: string; unidade: string;
+}) {
+  const linhas = useMemo(
+    () => linhasDoSegmento(itens, campoDeContagem), [itens, campoDeContagem]);
+  const total = linhas.reduce((t, l) => t + (l.total ?? 0), 0);
+  if (!linhas.length) return null;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[10.5px] font-mono text-muted-foreground">{titulo}</span>
+        <span className="text-[10px] text-muted-foreground/70">
+          {linhas.length} faceta(s) · {fmt(total)} {unidade}
+        </span>
+      </div>
+      <div className="overflow-x-auto max-h-[320px]">
+        <table className="w-full text-[12px] min-w-[420px]">
+          <thead className="sticky top-0 bg-card">
+            <tr className="text-[9.5px] uppercase tracking-wider text-muted-foreground/70">
+              <th className="text-left py-1.5 pr-3">Faceta</th>
+              <th className="text-right py-1.5 pr-3">Orgânico</th>
+              <th className="text-right py-1.5 pr-3">Pago</th>
+              <th className="text-right py-1.5 pr-3">Total</th>
+              <th className="text-right py-1.5">Fatia</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map((l) => (
+              <tr key={l.chave} className="border-t border-border/50">
+                <td className="py-1 pr-3" title={l.chave}>{l.rotulo}</td>
+                <td className="py-1 pr-3 text-right"><Numero valor={l.organico} /></td>
+                <td className="py-1 pr-3 text-right"><Numero valor={l.pago} /></td>
+                <td className="py-1 pr-3 text-right font-semibold"><Numero valor={l.total} /></td>
+                <td className="py-1 text-right tabular-nums text-muted-foreground">
+                  {total && l.total !== null ? `${((l.total / total) * 100).toFixed(1)}%` : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex justify-end">
+        <Button size="sm" variant="ghost" className="h-6 text-[10.5px]"
+          onClick={() => baixarCsv(`linkedin-${titulo}`, linhas.map((l) => ({ ...l })))}>
+          <Download className="w-3 h-3 mr-1" /> CSV
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function AbaVisualizacoes({ d }: { d: Dados }) {
+  const vital = (d.lifetime?.totalPageStatisticsJson ?? null) as Record<string, unknown> | null;
+  const totalVital = (vital?.totalPageStatistics ?? null) as Record<string, unknown> | null;
+  const facetas = segmentosDisponiveis(vital).filter((x) => x.campo.startsWith("pageStatistics"));
+  const b = d.banco;
+  const fezCarga = (b?.execucoes.cargas ?? 0) > 0;
+
+  /** Os recortes que a série diária guardou, somados no período. */
+  const somaDaSerie = useMemo(() => {
+    const soma: Record<string, number> = {};
+    for (const x of d.serie) {
+      for (const [k, v] of Object.entries((x.viewsJson ?? {}) as Record<string, number>)) {
+        if (typeof v === "number") soma[k] = (soma[k] ?? 0) + v;
+      }
+    }
+    return soma;
+  }, [d.serie]);
+
+  const recortesVitalicios = useMemo(() => {
+    const saida: Record<string, number> = {};
+    const achatar = (o: unknown, prefixo = "", nivel = 0) => {
+      if (!o || typeof o !== "object" || nivel > 4) return;
+      for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+        const caminho = prefixo ? `${prefixo}.${k}` : k;
+        if (typeof v === "number") saida[caminho] = v;
+        else if (v && typeof v === "object" && !Array.isArray(v)) achatar(v, caminho, nivel + 1);
+      }
+    };
+    achatar(totalVital);
+    return saida;
+  }, [totalVital]);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Bloco titulo="Vitalício"
+        nota={d.lifetime?.dia ? `retrato de ${dataBr(d.lifetime.dia)}` : undefined}>
+        {Object.keys(recortesVitalicios).length ? (
+          <TabelaDeRecortes valores={recortesVitalicios} nome="linkedin-views-vitalicio" />
+        ) : (
+          <VazioExplicado
+            titulo="Nenhuma visualização vitalícia salva"
+            porque={fezCarga
+              ? "A carga rodou, mas a API não devolveu totalPageStatistics para esta Página."
+              : "O incremental não pede visualizações vitalícias — só a Carga histórica e a rodada semanal chamam /rest/organizationPageStatistics sem janela."}
+            oQueTem="os ~30 recortes de pageViews desde sempre, mais os cortes por setor, senioridade, geografia, função e porte"
+          />
+        )}
+      </Bloco>
+
+      <Bloco titulo="Somado no período"
+        nota={`${d.serie.filter((x) => Object.keys((x.viewsJson ?? {}) as object).length).length} dia(s) com visualização`}>
+        {Object.keys(somaDaSerie).length ? (
+          <TabelaDeRecortes valores={somaDaSerie} nome="linkedin-views-periodo" />
+        ) : (
+          <VazioExplicado
+            titulo="Nenhuma visualização por dia no período"
+            porque="A série diária de visualizações não foi gravada, ou o período selecionado está fora do que foi coletado."
+          />
+        )}
+      </Bloco>
+
+      {facetas.length > 0 && (
+        <Bloco titulo="Recortes de audiência (vitalício)"
+          nota="quem viu a Página, por faceta — só existe no retrato vitalício">
+          <div className="flex flex-col gap-5">
+            {facetas.map((f) => (
+              <TabelaDeFacetas key={f.campo} titulo={f.campo}
+                itens={(vital as Record<string, unknown>)[f.campo]}
+                campoDeContagem="pageStatistics" unidade="visualizações" />
+            ))}
+          </div>
+          <Recolhivel titulo="Resposta bruta — organizationPageStatistics">{bruto(vital)}</Recolhivel>
+        </Bloco>
+      )}
+    </div>
+  );
+}
+
+/** Os recortes achatados, ordenados por valor — é o mapa dos ~30. */
+function TabelaDeRecortes({ valores, nome }: { valores: Record<string, number>; nome: string }) {
+  const [busca, setBusca] = useState("");
+  const linhas = Object.entries(valores)
+    .filter(([k]) => !busca || k.toLowerCase().includes(busca.toLowerCase()))
+    .sort((a, b) => b[1] - a[1]);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <input className="h-7 rounded border border-border bg-background px-2 text-[12px] min-w-[200px]"
+          value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="filtrar recorte" />
+        <span className="text-[10.5px] text-muted-foreground">{linhas.length} recorte(s)</span>
+      </div>
+      <div className="overflow-x-auto max-h-[460px]">
+        <table className="w-full text-[12px] min-w-[420px]">
+          <thead className="sticky top-0 bg-card">
+            <tr className="text-[9.5px] uppercase tracking-wider text-muted-foreground/70">
+              <th className="text-left py-1.5 pr-3">Recorte</th>
+              <th className="text-right py-1.5">Visualizações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map(([k, v]) => (
+              <tr key={k} className="border-t border-border/50">
+                <td className="py-1 pr-3 font-mono text-[11px]">{k}</td>
+                <td className="py-1 text-right font-semibold tabular-nums">{fmt(v)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex justify-end">
+        <Button size="sm" variant="ghost" className="h-6 text-[10.5px]"
+          onClick={() => baixarCsv(nome, linhas.map(([recorte, valor]) => ({ recorte, valor })))}>
+          <Download className="w-3 h-3 mr-1" /> CSV
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ Segmentações de seguidores ══════════════════════════════════════════ */
+
+function AbaSegmentacoes({ d }: { d: Dados }) {
+  const seg = (d.lifetime?.segmentacoesJson ?? null) as Record<string, unknown> | null;
+  const grupos = segmentosDisponiveis(seg).filter((x) => x.campo.startsWith("followerCounts"));
+  const b = d.banco;
+  const fezCarga = (b?.execucoes.cargas ?? 0) > 0;
+
+  if (!grupos.length) {
+    return (
+      <Bloco titulo="Segmentações de seguidores">
+        <VazioExplicado
+          titulo="Nenhuma segmentação salva"
+          porque={fezCarga
+            ? "A carga rodou, mas a API não devolveu as segmentações para esta Página — confira o estado na aba Cobertura."
+            : "O incremental não pede segmentações — só a Carga histórica e a rodada semanal chamam organizationalEntityFollowerStatistics sem janela."}
+          oQueTem="tipo de associação, senioridade, setor, função, porte da empresa, país e região"
+        />
+        {seg && <Recolhivel titulo="Resposta bruta — o que foi salvo">{bruto(seg)}</Recolhivel>}
+      </Bloco>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Bloco titulo="Segmentações de seguidores"
+        nota={`${grupos.length} recorte(s) · retrato de ${dataBr(d.lifetime?.dia)}`}>
+        <div className="flex flex-col gap-6">
+          {grupos.map((g) => (
+            <TabelaDeFacetas key={g.campo} titulo={g.campo}
+              itens={(seg as Record<string, unknown>)[g.campo]}
+              campoDeContagem="followerCounts" unidade="seguidores" />
+          ))}
+        </div>
+        <Recolhivel titulo="Resposta bruta — organizationalEntityFollowerStatistics">
+          {bruto(seg)}
+        </Recolhivel>
       </Bloco>
     </div>
   );

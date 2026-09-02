@@ -4719,15 +4719,16 @@ export const appRouter = router({
           const d = await import("./services/linkedinLabDados");
           const hoje = new Date().toISOString().slice(0, 10);
           const de = input.de ?? new Date(Date.now() - 395 * 86_400_000).toISOString().slice(0, 10);
-          const [pagina, serie, lifetime, posts, exec, cob] = await Promise.all([
+          const [pagina, serie, lifetime, posts, exec, cob, banco] = await Promise.all([
             d.vinculo(input.pageId),
             d.serieDiaria(input.pageId, de, input.ate ?? hoje),
             d.ultimoLifetime(input.pageId),
             d.publicacoes(input.pageId),
             d.execucoes(input.pageId),
             d.cobertura(input.pageId),
+            d.estadoDoBanco(input.pageId),
           ]);
-          return { pagina, serie, lifetime, posts, execucoes: exec, cobertura: cob };
+          return { pagina, serie, lifetime, posts, execucoes: exec, cobertura: cob, banco };
         }),
 
       /** O orçamento ANTES de gastar. Só lê banco. */
