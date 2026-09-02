@@ -96,9 +96,16 @@ describe("abrir o laboratório NÃO gasta cota", () => {
   it("só sincronizar e carga são mutation — o resto é query", () => {
     const fonte = semComentarios(ler("server/routers.ts"));
     const corpo = blocoDoLab(fonte);
-    // As leituras de dado são queries; as três mutations são ações explícitas.
-    expect(corpo).toContain("pagina: laboratorioProcedure\n");
-    expect(corpo.match(/\.mutation\(/g)?.length).toBe(4);
+    // Toda LEITURA é query; mutation é só ação explícita do usuário. Contar
+    // mutations envelheceria a cada procedure nova — o que importa é que
+    // nenhuma leitura vire uma.
+    for (const leitura of ["vinculos", "todosOsVinculos", "pagina", "orcamento"]) {
+      const i = corpo.indexOf(`${leitura}: laboratorioProcedure`);
+      expect(i, leitura).toBeGreaterThan(0);
+      const trecho = corpo.slice(i, i + 400);
+      expect(trecho.indexOf(".query("), leitura).toBeGreaterThan(0);
+      expect(trecho.slice(0, trecho.indexOf(".query(")), leitura).not.toContain(".mutation(");
+    }
   });
 });
 
@@ -210,5 +217,49 @@ describe("o nome da Página vem da API, nunca do cliente", () => {
     expect(rotulo).toContain("organizationUrn: p.urn");
     const router = semComentarios(ler("server/routers.ts"));
     expect(blocoDoLab(router)).toContain("organizationUrn: input.organizationUrn");
+  });
+});
+
+describe("dá para trocar de Página depois de vincular a primeira", () => {
+  it("o gerenciador é aba PERMANENTE, e não só a tela de conta vazia", () => {
+    // A tela de vincular só aparecia com `!ativo` — depois do primeiro vínculo
+    // ela sumia para sempre, e não havia como trocar, adicionar nem remover.
+    const pagina = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(pagina).toContain('{ id: "paginas", nome: "Páginas vinculadas" }');
+    expect(pagina).toContain("function GerenciarVinculos");
+    expect(pagina).not.toContain("function SemVinculo");
+  });
+
+  it("desvincular e trocar de cliente têm botão", () => {
+    const pagina = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(pagina).toContain("linkedinLab.desvincular.useMutation");
+    expect(pagina).toContain("linkedinLab.trocarCliente.useMutation");
+  });
+
+  it("o seletor só mostra vínculo ATIVO", () => {
+    // Sem o filtro, desvincular não desvinculava nada: a Página seguia no
+    // seletor, porque desvincular marca `ativo=false` em vez de apagar.
+    const dados = semComentarios(ler("server/services/linkedinLabDados.ts"));
+    const fn = dados.slice(dados.indexOf("export async function listarVinculos"));
+    expect(fn.slice(0, 320)).toContain("eq(linkedinPages.ativo, true)");
+  });
+
+  it("desvincular NÃO apaga o que foi coletado", () => {
+    const router = semComentarios(ler("server/routers.ts"));
+    const bloco = blocoDoLab(router);
+    const dv = bloco.slice(bloco.indexOf("desvincular:"));
+    expect(dv.slice(0, 500)).toContain("ativo: false");
+    expect(dv.slice(0, 500)).not.toContain("db.delete");
+  });
+
+  it("trocar de cliente não mexe na identidade", () => {
+    // A identidade é o URN. Trocar o dono não pode reescrevê-la, senão a série
+    // e as publicações já coletadas ficariam órfãs.
+    const router = semComentarios(ler("server/routers.ts"));
+    const bloco = blocoDoLab(router);
+    const tc = bloco.slice(bloco.indexOf("trocarCliente:"), bloco.indexOf("vincular: laboratorioProcedure"));
+    expect(tc).toContain("accountId: input.accountId");
+    expect(tc).not.toContain("organizationUrn:");
+    expect(tc).not.toContain("organizationId:");
   });
 });

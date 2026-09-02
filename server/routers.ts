@@ -4629,6 +4629,32 @@ export const appRouter = router({
         return listarVinculos();
       }),
 
+      /** Inclui os desvinculados — a tela de gerenciar precisa deles. */
+      todosOsVinculos: laboratorioProcedure.query(async () => {
+        const { listarTodosOsVinculos } = await import("./services/linkedinLabDados");
+        return listarTodosOsVinculos();
+      }),
+
+      /** Troca o cliente de uma Página já vinculada, sem perder o coletado. */
+      trocarCliente: laboratorioProcedure
+        .input(z.object({
+          pageId: z.number().int().positive(),
+          accountId: z.number().int().positive(),
+        }))
+        .mutation(async ({ input }) => {
+          const { getDb } = await import("./db");
+          const { linkedinPages } = await import("../drizzle/schema");
+          const { eq } = await import("drizzle-orm");
+          const db = await getDb();
+          if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco indisponível." });
+          // A identidade é o URN, e ela NÃO muda aqui — muda só a quem a Página
+          // pertence. Por isso a série e as publicações continuam de pé.
+          await db.update(linkedinPages)
+            .set({ accountId: input.accountId, ativo: true })
+            .where(eq(linkedinPages.id, input.pageId));
+          return { ok: true };
+        }),
+
       vincular: laboratorioProcedure
         .input(z.object({
           accountId: z.number().int().positive(),

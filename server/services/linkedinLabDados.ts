@@ -19,7 +19,23 @@ import {
   linkedinPages, linkedinPostMetrics, linkedinPosts,
 } from "../../drizzle/schema";
 
+/**
+ * Os vínculos ATIVOS — os que o seletor mostra.
+ *
+ * O filtro por `ativo` faltava, e sem ele desvincular não desvinculava nada: a
+ * Página continuava no seletor, porque desvincular marca `ativo=false` em vez
+ * de apagar (o que já foi coletado é o registro de que a API entregava aquilo).
+ */
 export async function listarVinculos() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(linkedinPages)
+    .where(eq(linkedinPages.ativo, true))
+    .orderBy(asc(linkedinPages.nome));
+}
+
+/** Todos, inclusive os desvinculados — é como um vínculo removido volta. */
+export async function listarTodosOsVinculos() {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(linkedinPages).orderBy(asc(linkedinPages.nome));

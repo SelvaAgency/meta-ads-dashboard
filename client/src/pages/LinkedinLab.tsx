@@ -30,7 +30,7 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle, ChevronDown, ChevronRight, Download, ExternalLink, Image as ImgIcon,
-  Layers, Link2, Loader2, RefreshCw, Search, X,
+  Layers, Link2, Loader2, RefreshCw, Search, Unlink, X,
 } from "lucide-react";
 import type { inferRouterOutputs } from "@trpc/server";
 import { trpc } from "@/lib/trpc";
@@ -188,7 +188,7 @@ function baixarCsv(nome: string, linhas: Array<Record<string, unknown>>) {
    A página
    ═══════════════════════════════════════════════════════════════════════════ */
 
-type Aba = "geral" | "evolucao" | "publicacoes" | "cobertura" | "consumo" | "cru";
+type Aba = "geral" | "evolucao" | "publicacoes" | "cobertura" | "consumo" | "cru" | "paginas";
 
 const ABAS: Array<{ id: Aba; nome: string }> = [
   { id: "geral", nome: "Visão geral" },
@@ -197,6 +197,14 @@ const ABAS: Array<{ id: Aba; nome: string }> = [
   { id: "cobertura", nome: "Cobertura" },
   { id: "consumo", nome: "Consumo da API" },
   { id: "cru", nome: "Dados brutos" },
+  /**
+   * Última, e SEMPRE presente.
+   *
+   * A tela de vincular só aparecia quando não havia nenhum vínculo — depois do
+   * primeiro, ela sumia para sempre e não havia como trocar, adicionar nem
+   * remover Página. Uma porta que fecha por dentro não é fluxo, é beco.
+   */
+  { id: "paginas", nome: "Páginas vinculadas" },
 ];
 
 export default function LinkedinLab() {
@@ -273,15 +281,23 @@ export default function LinkedinLab() {
           ))}
         </nav>
 
-        {!ativo && !vinculosQ.isLoading && <SemVinculo aoVincular={() => void vinculosQ.refetch()} />}
+        {aba === "paginas" && (
+          <GerenciarVinculos aoMudar={() => { void vinculosQ.refetch(); void dadosQ.refetch(); }} />
+        )}
 
-        {ativo && dadosQ.isLoading && (
+        {/* Sem nenhuma Página, o gerenciador é a própria tela — não faz sentido
+            mostrar abas vazias antes de existir o que olhar. */}
+        {!ativo && !vinculosQ.isLoading && aba !== "paginas" && (
+          <GerenciarVinculos aoMudar={() => void vinculosQ.refetch()} />
+        )}
+
+        {ativo && aba !== "paginas" && dadosQ.isLoading && (
           <div className="py-16 flex items-center justify-center text-sm text-muted-foreground gap-2">
             <Loader2 className="w-4 h-4 animate-spin" /> Lendo o que já foi coletado…
           </div>
         )}
 
-        {ativo && d && (
+        {ativo && d && aba !== "paginas" && (
           <>
             {aba === "geral" && <AbaGeral d={d} capacidades={capacidades} status={status} />}
             {aba === "evolucao" && <AbaEvolucao serie={d.serie} />}
@@ -473,14 +489,33 @@ function BotoesDeColeta({ pageId, onPronto }: { pageId: number; onPronto: () => 
 
 /* ── Vincular ──────────────────────────────────────────────────────────── */
 
-function SemVinculo({ aoVincular }: { aoVincular: () => void }) {
+/**
+ * Gerenciar as Páginas vinculadas — vincular, trocar de cliente, desvincular.
+ *
+ * Desvincular NÃO apaga: marca `ativo=false`. O que já foi coletado é o
+ * registro de que a API entregava aquilo naquele dia, e jogar isso fora para
+ * corrigir um vínculo errado seria perder a medição junto com o engano. Uma
+ * Página desvinculada volta pelo mesmo botão que a vinculou.
+ */
+function GerenciarVinculos({ aoMudar }: { aoMudar: () => void }) {
   const [paginas, setPaginas] = useState<Array<{
     id: string; urn: string; nome: string | null; vanity: string | null;
     papeis: Array<{ papel: string; estado: string }>;
   }> | null>(null);
   const [semNome, setSemNome] = useState(0);
+  const [cliente, setCliente] = useState<number | null>(null);
 
   const clientesQ = trpc.accounts.list.useQuery(undefined, { refetchOnWindowFocus: false });
+  const todosQ = trpc.social.linkedinLab.todosOsVinculos.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
+  const nomeDoCliente = (id: number) => {
+    const c = (clientesQ.data ?? []).find((x) => x.id === id);
+    return c?.accountName ?? c?.accountId ?? `conta ${id}`;
+  };
+
+  const pronto = () => { void todosQ.refetch(); aoMudar(); };
+
   const descobrir = trpc.social.linkedinLab.descobrir.useMutation({
     onSuccess: (r) => {
       setPaginas(r.paginas);
@@ -493,122 +528,229 @@ function SemVinculo({ aoVincular }: { aoVincular: () => void }) {
     onError: (e) => toast.error("Não foi possível ler a carteira.", { description: e.message }),
   });
   const vincular = trpc.social.linkedinLab.vincular.useMutation({
-    onSuccess: () => { toast.success("Página vinculada."); aoVincular(); },
+    onSuccess: () => { toast.success("Página vinculada."); pronto(); },
     onError: (e) => toast.error("Falha ao vincular.", { description: e.message }),
   });
+  const desvincular = trpc.social.linkedinLab.desvincular.useMutation({
+    onSuccess: () => { toast.success("Página desvinculada. O que foi coletado continua no banco."); pronto(); },
+    onError: (e) => toast.error("Falha ao desvincular.", { description: e.message }),
+  });
+  const trocar = trpc.social.linkedinLab.trocarCliente.useMutation({
+    onSuccess: () => { toast.success("Cliente trocado. A série e as publicações continuam de pé."); pronto(); },
+    onError: (e) => toast.error("Falha ao trocar o cliente.", { description: e.message }),
+  });
 
-  const [cliente, setCliente] = useState<number | null>(null);
+  const vinculadas = todosQ.data ?? [];
+  const jaVinculada = (orgId: string) =>
+    vinculadas.find((v) => v.organizationId === orgId && v.ativo) ?? null;
 
   return (
-    <Bloco titulo="Vincular uma Página"
-      nota="cliente → Página → URN. A identidade é o URN, nunca o nome.">
-      <div className="flex items-end gap-3 flex-wrap">
-        <label className="flex flex-col gap-1">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Cliente</span>
-          <select className="h-8 min-w-[220px] rounded border border-border bg-background px-2 text-[13px]"
-            value={cliente ?? ""} onChange={(e) => setCliente(Number(e.target.value))}>
-            <option value="">selecione…</option>
-            {(clientesQ.data ?? []).map((c) => (
-              <option key={c.id} value={c.id}>{c.accountName ?? c.accountId}</option>
-            ))}
-          </select>
-        </label>
-        <Button size="sm" className="h-8 text-[12px]" disabled={descobrir.isPending}
-          onClick={() => descobrir.mutate()}>
-          {descobrir.isPending
-            ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-            : <Search className="w-3.5 h-3.5 mr-1.5" />}
-          Ler carteira do LinkedIn
-          <span className="ml-1.5 opacity-70" title="2 chamadas de ACL + 1 por Página que vier sem nome">
-            ~2+
-          </span>
-        </Button>
-      </div>
-
-      {paginas && semNome > 0 && (
-        // Dito, e não escondido: o número ali não é um nome, e a pessoa precisa
-        // saber por quê antes de vincular às cegas.
-        <p className="text-[12px] text-muted-foreground flex items-start gap-2">
-          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-amber-600 flex-shrink-0" />
-          <span>
-            {semNome} Página(s) sem nome. A ACL devolve a identidade só quando o
-            LinkedIn deixa ler a organização — nas Páginas que ele recusa, vem
-            <code className="mx-1 px-1 rounded bg-muted font-mono text-[11px]">organizationalTarget!</code>
-            e <code className="mx-1 px-1 rounded bg-muted font-mono text-[11px]">/rest/organizations</code>
-            responde 403. O Spaces não substitui isso pelo nome do cliente.
-          </span>
-        </p>
-      )}
-
-      {paginas && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-[12.5px] min-w-[640px]">
-            <thead>
-              <tr className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                <th className="text-left py-2 pr-3">Página</th>
-                <th className="text-left py-2 pr-3">ID / URN</th>
-                <th className="text-left py-2 pr-3">Cargos</th>
-                <th className="py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {paginas.map((p) => {
-                const vivo = p.papeis.some((x) => x.estado === "APPROVED");
-                return (
-                  <tr key={p.id} className="border-t border-border/60">
+    <div className="flex flex-col gap-4">
+      {/* ── O que já está vinculado ─────────────────────────────────────── */}
+      <Bloco titulo="Páginas vinculadas"
+        nota={`${vinculadas.filter((v) => v.ativo).length} ativa(s)`}>
+        {!vinculadas.length ? (
+          <p className="text-[12.5px] text-muted-foreground">
+            Nenhuma Página vinculada ainda. Leia a carteira abaixo para escolher.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12.5px] min-w-[720px]">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                  <th className="text-left py-2 pr-3">Página</th>
+                  <th className="text-left py-2 pr-3">ID / URN</th>
+                  <th className="text-left py-2 pr-3">Cliente</th>
+                  <th className="text-left py-2 pr-3">Estado</th>
+                  <th className="py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {vinculadas.map((v) => (
+                  <tr key={v.id} className={`border-t border-border/60 ${v.ativo ? "" : "opacity-55"}`}>
                     <td className="py-2 pr-3">
-                      <div className="flex flex-col leading-tight min-w-0">
-                        <span className={`font-medium ${p.nome ? "" : "text-muted-foreground italic"}`}>
-                          {p.nome ?? "Nome não disponível"}
+                      <div className="flex flex-col leading-tight">
+                        <span className={`font-medium ${v.nome ? "" : "text-muted-foreground italic"}`}>
+                          {v.nome ?? "Nome não disponível"}
                         </span>
-                        {p.vanity && (
-                          <span className="text-[10.5px] text-muted-foreground/70">/{p.vanity}</span>
-                        )}
-                        {!p.nome && (
-                          <span className="text-[10px] text-muted-foreground/60">
-                            o LinkedIn recusou a identidade desta organização
-                          </span>
+                        {v.vanityName && (
+                          <span className="text-[10.5px] text-muted-foreground/70">/{v.vanityName}</span>
                         )}
                       </div>
                     </td>
                     <td className="py-2 pr-3">
                       <div className="flex flex-col leading-tight font-mono text-[11px] text-muted-foreground">
-                        <span>{p.id}</span>
-                        <span className="text-[10px] text-muted-foreground/60 break-all">{p.urn}</span>
+                        <span>{v.organizationId}</span>
+                        <span className="text-[10px] text-muted-foreground/60 break-all">{v.organizationUrn}</span>
                       </div>
                     </td>
                     <td className="py-2 pr-3">
-                      <div className="flex gap-1 flex-wrap">
-                        {p.papeis.map((x) => (
-                          <Selo key={x.papel} estado={x.estado === "APPROVED" ? "ok" : "sem_permissao"}
-                            titulo={`state=${x.estado}`}>
-                            {x.papel.replace(/_/g, " ").toLowerCase()}
-                          </Selo>
+                      {/* Trocar o cliente sem perder o coletado: a identidade é
+                          o URN, e ela não muda aqui. */}
+                      <select
+                        className="h-7 rounded border border-border bg-background px-2 text-[12px] max-w-[190px]"
+                        value={v.accountId}
+                        disabled={trocar.isPending}
+                        onChange={(e) => trocar.mutate({ pageId: v.id, accountId: Number(e.target.value) })}
+                      >
+                        {(clientesQ.data ?? []).map((c) => (
+                          <option key={c.id} value={c.id}>{c.accountName ?? c.accountId}</option>
                         ))}
-                      </div>
+                      </select>
+                    </td>
+                    <td className="py-2 pr-3">
+                      {v.ativo
+                        ? <Selo estado={v.capacidade === "completo" ? "ok"
+                            : v.capacidade === "parcial" ? "sem_permissao"
+                            : v.capacidade === "sem_acesso" ? "erro" : "nao_coletado"}>
+                            {ROTULO_VINCULO[(v.capacidade ?? "nao_vinculada") as StatusDoVinculo]}
+                          </Selo>
+                        : <Selo estado="nao_coletado">desvinculada</Selo>}
                     </td>
                     <td className="py-2 text-right">
-                      <Button size="sm" variant={vivo ? "default" : "outline"}
-                        className="h-7 text-[11px]"
-                        disabled={!cliente || vincular.isPending}
-                        title={vivo ? undefined
-                          : "Todas as atribuições estão REVOGADAS — esta Página responde 403 em tudo"}
-                        onClick={() => cliente && vincular.mutate({
-                          accountId: cliente, organizationId: p.id, organizationUrn: p.urn,
-                          nome: p.nome, vanityName: p.vanity, papeis: p.papeis,
-                        })}>
-                        <Link2 className="w-3 h-3 mr-1" />
-                        {vivo ? "Vincular" : "Vincular mesmo assim"}
-                      </Button>
+                      {v.ativo ? (
+                        <Button size="sm" variant="outline" className="h-7 text-[11px]"
+                          disabled={desvincular.isPending}
+                          onClick={() => desvincular.mutate({ pageId: v.id })}>
+                          <Unlink className="w-3 h-3 mr-1" /> Desvincular
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="ghost" className="h-7 text-[11px]"
+                          disabled={vincular.isPending}
+                          onClick={() => vincular.mutate({
+                            accountId: v.accountId, organizationId: v.organizationId,
+                            organizationUrn: v.organizationUrn, nome: v.nome,
+                            vanityName: v.vanityName,
+                            papeis: (v.papeisJson ?? []) as Array<{ papel: string; estado: string }>,
+                          })}>
+                          <Link2 className="w-3 h-3 mr-1" /> Revincular
+                        </Button>
+                      )}
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Bloco>
+
+      {/* ── Vincular uma nova ───────────────────────────────────────────── */}
+      <Bloco titulo="Vincular uma Página"
+        nota="cliente → Página → URN. A identidade é o URN, nunca o nome.">
+        <div className="flex items-end gap-3 flex-wrap">
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Cliente</span>
+            <select className="h-8 min-w-[220px] rounded border border-border bg-background px-2 text-[13px]"
+              value={cliente ?? ""} onChange={(e) => setCliente(Number(e.target.value))}>
+              <option value="">selecione…</option>
+              {(clientesQ.data ?? []).map((c) => (
+                <option key={c.id} value={c.id}>{c.accountName ?? c.accountId}</option>
+              ))}
+            </select>
+          </label>
+          <Button size="sm" className="h-8 text-[12px]" disabled={descobrir.isPending}
+            onClick={() => descobrir.mutate()}>
+            {descobrir.isPending
+              ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              : <Search className="w-3.5 h-3.5 mr-1.5" />}
+            Ler carteira do LinkedIn
+            <span className="ml-1.5 opacity-70" title="2 chamadas de ACL + 1 por Página que vier sem nome">
+              ~2+
+            </span>
+          </Button>
         </div>
-      )}
-    </Bloco>
+
+        {paginas && semNome > 0 && (
+          <p className="text-[12px] text-muted-foreground flex items-start gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-amber-600 flex-shrink-0" />
+            <span>
+              {semNome} Página(s) sem nome. A ACL devolve a identidade só quando o
+              LinkedIn deixa ler a organização — nas Páginas que ele recusa, vem
+              <code className="mx-1 px-1 rounded bg-muted font-mono text-[11px]">organizationalTarget!</code>
+              e <code className="mx-1 px-1 rounded bg-muted font-mono text-[11px]">/rest/organizations</code>
+              responde 403. O Spaces não substitui isso pelo nome do cliente.
+            </span>
+          </p>
+        )}
+
+        {paginas && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12.5px] min-w-[640px]">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                  <th className="text-left py-2 pr-3">Página</th>
+                  <th className="text-left py-2 pr-3">ID / URN</th>
+                  <th className="text-left py-2 pr-3">Cargos</th>
+                  <th className="py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {paginas.map((p) => {
+                  const vivo = p.papeis.some((x) => x.estado === "APPROVED");
+                  const ja = jaVinculada(p.id);
+                  return (
+                    <tr key={p.id} className="border-t border-border/60">
+                      <td className="py-2 pr-3">
+                        <div className="flex flex-col leading-tight min-w-0">
+                          <span className={`font-medium ${p.nome ? "" : "text-muted-foreground italic"}`}>
+                            {p.nome ?? "Nome não disponível"}
+                          </span>
+                          {p.vanity && (
+                            <span className="text-[10.5px] text-muted-foreground/70">/{p.vanity}</span>
+                          )}
+                          {!p.nome && (
+                            <span className="text-[10px] text-muted-foreground/60">
+                              o LinkedIn recusou a identidade desta organização
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <div className="flex flex-col leading-tight font-mono text-[11px] text-muted-foreground">
+                          <span>{p.id}</span>
+                          <span className="text-[10px] text-muted-foreground/60 break-all">{p.urn}</span>
+                        </div>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <div className="flex gap-1 flex-wrap">
+                          {p.papeis.map((x) => (
+                            <Selo key={x.papel} estado={x.estado === "APPROVED" ? "ok" : "sem_permissao"}
+                              titulo={`state=${x.estado}`}>
+                              {x.papel.replace(/_/g, " ").toLowerCase()}
+                            </Selo>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="py-2 text-right whitespace-nowrap">
+                        {ja ? (
+                          <span className="text-[11px] text-muted-foreground">
+                            já vinculada a {nomeDoCliente(ja.accountId)}
+                          </span>
+                        ) : (
+                          <Button size="sm" variant={vivo ? "default" : "outline"}
+                            className="h-7 text-[11px]"
+                            disabled={!cliente || vincular.isPending}
+                            title={vivo ? undefined
+                              : "Todas as atribuições estão REVOGADAS — esta Página responde 403 em tudo"}
+                            onClick={() => cliente && vincular.mutate({
+                              accountId: cliente, organizationId: p.id, organizationUrn: p.urn,
+                              nome: p.nome, vanityName: p.vanity, papeis: p.papeis,
+                            })}>
+                            <Link2 className="w-3 h-3 mr-1" />
+                            {vivo ? "Vincular" : "Vincular mesmo assim"}
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Bloco>
+    </div>
   );
 }
 
