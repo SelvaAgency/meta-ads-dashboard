@@ -361,7 +361,7 @@ export interface OpcoesSondagem {
 
 /** Quantas páginas se olha procurando uma ATIVA, antes de desistir. */
 /** A rodada da sondagem. Fica no cabeçalho para não confundir dois relatórios. */
-const RODADA = 7;
+const RODADA = 8;
 
 /**
  * Aquele cargo, naquela Página, está APPROVED?
@@ -590,7 +590,13 @@ export async function sondarLinkedIn(
     return i === -1 ? ORDEM.length : i;
   };
   for (const org of organizacoes) {
-    const ordenados = [...org.papeis].sort((a, b) => posto(a) - posto(b) || a.localeCompare(b));
+    // Cargo VIVO na frente do morto, e só então por alcance. Sem isso, a Página
+    // 30728633 aparecia no cabeçalho como CONTENT_ADMINISTRATOR — um cargo que
+    // ela tem REVOGADO — enquanto seus cargos vivos são os três menores. É a
+    // distinção que carrega a conclusão sobre cargos, e o rótulo a desmentia.
+    const vivo = (pp: string) => (papelVivo(org, pp) ? 0 : 1);
+    const ordenados = [...org.papeis].sort(
+      (a, b) => vivo(a) - vivo(b) || posto(a) - posto(b) || a.localeCompare(b));
     if (ordenados.length) {
       const estadoPor = new Map(org.papeis.map((pp, i) => [pp, org.estados[i] ?? "?"]));
       org.papeis = ordenados;

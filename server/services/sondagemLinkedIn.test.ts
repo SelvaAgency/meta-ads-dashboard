@@ -850,3 +850,19 @@ describe("as seções 8 e 9 não se contradizem", () => {
     expect(sec9).not.toMatch(/^   seguidores · vitalício — /m);
   });
 });
+
+describe("o cabeçalho não rotula a Página por um cargo morto", () => {
+  it("o cargo principal é um VIVO, mesmo que um morto tenha mais alcance", async () => {
+    const c = fake([[/Acls/, () => resp({ elements: [
+      { role: "CONTENT_ADMINISTRATOR", state: "REVOKED",
+        organizationalTarget: "urn:li:organization:100",
+        "organizationalTarget~": { localizedName: "Mista" } },
+      { role: "LEAD_GEN_FORMS_MANAGER", state: "APPROVED",
+        organizationalTarget: "urn:li:organization:100",
+        "organizationalTarget~": { localizedName: "Mista" } },
+    ] })]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(s.organizacoes[0].papel).toBe("LEAD_GEN_FORMS_MANAGER");
+    expect(s.organizacoes[0].estados[0]).toBe("APPROVED");
+  });
+});
