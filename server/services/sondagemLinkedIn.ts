@@ -1,116 +1,143 @@
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Fase 0 do LinkedIn — perguntar à API o que ela entrega, item por item
+ *  Sondagem do LinkedIn · Fase 0 · segunda rodada
  * ─────────────────────────────────────────────────────────────────────────────
- *  Mesmo motivo da Fase 0 do Instagram: nenhuma tabela nasce de documentação. E
- *  aqui existe um motivo a mais, específico do LinkedIn.
+ *  Somente leitura. Não grava no banco, não cria coletor, não toca em tela.
+ *  Existe para responder o que a documentação não responde: o que ESTE app, com
+ *  ESTES escopos, consegue ler de VERDADE.
  *
- *  ── A pergunta que decide a ARQUITETURA, e não só o schema ─────────────────
- *  O modelo do Instagram é o que é por uma limitação medida: `profile_views` só
- *  responde o dia corrente, e dia fechado do passado NÃO se busca. Foi isso que
- *  obrigou snapshot diário, cron às 06:20 e a série de dias parciais — o Spaces
- *  é o único registro daquele dia porque a Meta não devolve o dia de novo.
+ *  ── O que a primeira rodada deixou em aberto ──────────────────────────────
+ *  Ela mediu UMA página — a primeira da lista, que calhou de ser quase dormente.
+ *  Resultado: quatro itens de publicações vieram como "NÃO" quando na verdade
+ *  eram INCONCLUSIVOS: `respondeu, sem posts` numa página sem posts é a resposta
+ *  certa da API, não uma falha dela.
  *
- *  Se o LinkedIn devolver dia fechado retroativo, essa obrigação some: dá para
- *  buscar o histórico inteiro de uma vez, e o cron passa a ser conveniência em
- *  vez de necessidade. Se não devolver, o modelo do Instagram se repete.
+ *  E dois `400` foram lidos como limitação da API quando eram erro nosso:
+ *  mandávamos `projection` para o endpoint versionado (que usa `fields`) e uma
+ *  forma errada de `networkSizes`.
  *
- *  São duas arquiteturas opostas decididas por UMA medição, e é por isso que
- *  `retroatividade` é testada explicitamente — janela vitalícia, janela de dias
- *  fechados recentes e janela de dois meses atrás — em vez de deduzida do fato
- *  de o parâmetro existir. Parâmetro que existe e devolve vazio é exatamente o
- *  caso do `online_followers` da Meta, que respondia `{}` numa conta de 24 mil.
+ *  ── As três perguntas que esta rodada existe para fechar ───────────────────
+ *    1. Publicações e as métricas delas: dá ou não dá, medido numa página ATIVA
+ *    2. `CONTENT_ADMINISTRATOR` lê analytics, ou só `ADMINISTRATOR`?
+ *    3. Até onde o histórico retroativo alcança de verdade
  *
- *  ── Falhar não é uma coisa só ──────────────────────────────────────────────
- *  Na Meta, o código do erro dizia se era volume ou permissão. Aqui o par
- *  (HTTP, serviceErrorCode) separa QUATRO causas com correções diferentes:
- *
- *    401  token morto ou revogado          → gerar outro
- *    403  escopo ausente no token          → reautorizar com o escopo
- *    403 + "not enough permissions"        → produto não aprovado no app
- *    404  organização fora do alcance      → falta cargo na Página
- *
- *  Sem essa separação, "não veio" mandaria pedir aprovação de produto quando o
- *  que faltava era um cargo na Página — semanas de espera pelo motivo errado.
- *
- *  ── O que NÃO sai daqui ────────────────────────────────────────────────────
- *  Nenhum token, nenhum texto de publicação. Comentário e legenda são reportados
- *  por tamanho, nunca por conteúdo — a pergunta é se o campo responde.
+ *  ── A regra que governa o relatório ────────────────────────────────────────
+ *  Nada é preenchido por suposição. Um item que a API não permitiu determinar
+ *  sai como INCONCLUSIVO — e a seção final lista só o que continuou assim.
+ *  "Provavelmente funciona" não é resultado de sondagem.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import {
-  chamarLinkedIn, introspectarToken, sanitizar, versaoQueResponde,
-  type ErroLinkedIn, type OpcoesChamada,
+  medirLinkedIn, versaoQueResponde, introspectarToken, sanitizar,
+  type OpcoesChamada, type RespostaMedida,
 } from "./linkedin";
 
+// ─── O veredito de cada medição ──────────────────────────────────────────────
+
 /**
- * As três portas para o LinkedIn, injetáveis.
+ * Seis desfechos, e cada um pede uma ação diferente.
  *
- * Existe para o teste poder dirigir a sondagem inteira sem rede — e o que se
- * testa aqui não é o transporte, são as REGRAS: que lista vazia não conta como
- * disponível, que 403 de escopo e 403 de produto se separam, e que a janela
- * antiga é o que decide a retroatividade. Regra que só roda contra a API de
- * verdade é regra que ninguém reprova antes de ela errar em produção.
+ * A primeira rodada colapsava três deles em "NÃO", e foi isso que fez um
+ * resultado inconclusivo parecer uma limitação da API.
  */
-export interface ClienteLinkedIn {
-  chamar: <T>(caminho: string, o: OpcoesChamada) => Promise<T>;
-  versao: (token: string) => Promise<{ versao: string | null; tentativas: Array<{ versao: string; ok: boolean; detalhe: string }> }>;
-  introspectar: (token: string, clientId: string, clientSecret: string) => Promise<{
-    ativo: boolean; scopes: string[]; expiraEm: Date | null; autorizadoEm: Date | null; tipo: string | null;
-  }>;
+export type Desfecho =
+  /** 2xx com dado. */
+  | "funciona"
+  /** 2xx com lista vazia porque a página não tem atividade — NÃO é limitação. */
+  | "sem_atividade"
+  /** 403: falta cargo na Página, ou escopo, ou produto aprovado no app. */
+  | "sem_permissao"
+  /** 400: a requisição está errada. É nosso, e tem conserto aqui. */
+  | "request_invalido"
+  /** 404 ou "unknown": o endpoint não existe nesta versão. */
+  | "indisponivel"
+  /** Não deu para determinar — e o relatório diz por quê. */
+  | "inconclusivo";
+
+export const ROTULO_DESFECHO: Record<Desfecho, string> = {
+  funciona: "OK  ",
+  sem_atividade: "VAZIO",
+  sem_permissao: "PERM",
+  request_invalido: "REQ ",
+  indisponivel: "N/D ",
+  inconclusivo: "?   ",
+};
+
+/** O que resolve cada desfecho. É a coluna acionável do relatório. */
+export const CORRECAO: Record<Desfecho, string> = {
+  funciona: "—",
+  sem_atividade: "nada a corrigir — a página não tem esse dado no período",
+  sem_permissao: "cargo na Página, escopo do token, ou produto aprovado no app",
+  request_invalido: "corrigir a forma da requisição — é erro nosso",
+  indisponivel: "endpoint não existe nesta versão da API",
+  inconclusivo: "não determinável com o que temos — ver a observação",
+};
+
+/**
+ * Classifica pela EVIDÊNCIA, e nunca por suposição.
+ *
+ * `sem_atividade` só é atribuído por quem sabe se a lista veio vazia — por isso
+ * ele entra por parâmetro, e não é deduzido do status.
+ */
+export function classificar(r: { ok: boolean; status: number | null; erro: string | null },
+  vazio = false): Desfecho {
+  if (r.ok) return vazio ? "sem_atividade" : "funciona";
+  const msg = (r.erro ?? "").toLowerCase();
+  if (r.status === 401) return "sem_permissao";
+  if (r.status === 403) return "sem_permissao";
+  if (r.status === 404) return "indisponivel";
+  if (r.status === 400) {
+    // "unknown field/param" é a API dizendo que o campo não existe nela — isso
+    // é indisponibilidade, e não requisição torta.
+    if (msg.includes("unknown")) return "indisponivel";
+    return "request_invalido";
+  }
+  if (r.status === null) return "inconclusivo";
+  return "inconclusivo";
 }
 
-const CLIENTE_REAL: ClienteLinkedIn = {
-  chamar: chamarLinkedIn,
-  versao: versaoQueResponde,
-  introspectar: introspectarToken,
-};
+// ─── O registro de cada medição ──────────────────────────────────────────────
 
 export type GrupoLinkedIn =
-  | "acesso" | "descoberta" | "crescimento" | "pagina" | "publicacoes";
-
-export interface LinhaLinkedIn {
-  grupo: GrupoLinkedIn;
-  item: string;
-  disponivel: boolean;
-  /** Valor, natureza do valor, ou o erro da API — sempre sanitizado. */
-  detalhe: string;
-  /** O que fazer quando falhou, deduzido do par (HTTP, serviceErrorCode). */
-  causa?: CausaDaFalha;
-}
+  | "acesso" | "descoberta" | "cargo" | "crescimento" | "pagina" | "publicacoes" | "historico";
 
 /**
- * A causa provável, e cada uma tem uma correção diferente.
+ * Uma linha do relatório.
  *
- * `escopo` e `produto` são o par que mais confunde: os dois devolvem 403, mas um
- * se resolve reautorizando em minutos e o outro depende de aprovação do LinkedIn
- * que leva semanas. A mensagem é o que os separa.
+ * Ela guarda o que o pedido exige registrar de CADA endpoint: status, escopo
+ * necessário e concedido, estrutura, período, paginação e volume. Sem isso o
+ * relatório vira uma lista de sim/não que não sustenta decisão de arquitetura.
  */
-export type CausaDaFalha = "token" | "escopo" | "produto" | "alcance" | "inexistente" | "outra";
-
-const CORRECAO: Record<CausaDaFalha, string> = {
-  token: "token morto ou revogado — gerar outro",
-  escopo: "escopo ausente — reautorizar pedindo o escopo",
-  produto: "produto não aprovado no app — depende de aprovação do LinkedIn",
-  alcance: "organização fora do alcance — falta cargo na Página",
-  inexistente: "endpoint ou campo não existe nesta versão da API",
-  outra: "sem classificação — ver a mensagem",
-};
-
-/** Classifica pela evidência que veio, não por suposição. */
-export function causaDe(e: ErroLinkedIn): CausaDaFalha {
-  const msg = (e.message ?? "").toLowerCase();
-  if (e.httpStatus === 401) return "token";
-  if (e.httpStatus === 403) {
-    // As duas frases que o LinkedIn usa para produto não aprovado. Sem elas,
-    // todo 403 viraria "escopo" e mandaria reautorizar um app que nunca teve o
-    // produto — o conserto que não conserta.
-    if (msg.includes("not enough permissions") || msg.includes("not authorized for")) return "produto";
-    return "escopo";
-  }
-  if (e.httpStatus === 404) return "alcance";
-  if (e.httpStatus === 400 && msg.includes("unknown")) return "inexistente";
-  return "outra";
+export interface Medicao {
+  grupo: GrupoLinkedIn;
+  item: string;
+  /** A página medida, quando a linha é por página. */
+  pagina?: string;
+  papel?: string | null;
+  desfecho: Desfecho;
+  endpoint: string;
+  metodo: "GET";
+  status: number | null;
+  codigo: number | null;
+  /** O escopo que a documentação do LinkedIn exige para este endpoint. */
+  escopoNecessario: string | null;
+  /** `true`/`false`/`null` quando não se sabe quais escopos o token tem. */
+  escopoConcedido: boolean | null;
+  /** Os campos que voltaram — a estrutura real, não a prometida. */
+  campos: string[];
+  /** Números lidos, com o caminho completo. */
+  valores: string[];
+  /** A janela pedida, quando houve. */
+  periodo: string | null;
+  granularidade: string | null;
+  /** Quantos elementos vieram. */
+  quantidade: number | null;
+  /** Há mais páginas? `null` quando o endpoint não informa. */
+  paginado: boolean | null;
+  limites: Record<string, string>;
+  erro: string | null;
+  /** Observação livre — é onde um inconclusivo explica por quê. */
+  nota?: string;
 }
 
 export interface OrganizacaoDescoberta {
@@ -122,17 +149,33 @@ export interface OrganizacaoDescoberta {
   estado: string | null;
 }
 
+/** O que se descobriu sobre um cargo, medindo — e não lendo documentação. */
+export interface VeredictoDeCargo {
+  papel: string;
+  paginasComEssePapel: number;
+  /** A página usada para medir. `null` quando não havia nenhuma com o cargo. */
+  medida: string | null;
+  /** Por capacidade: o que esse cargo alcança de fato. */
+  alcanca: Record<string, Desfecho>;
+}
+
 export interface SondagemLinkedIn {
   ok: boolean;
   versaoUsada: string | null;
   scopes: string[];
   organizacoes: OrganizacaoDescoberta[];
-  organizacaoMedida: OrganizacaoDescoberta | null;
-  linhas: LinhaLinkedIn[];
+  /** As páginas efetivamente medidas nesta rodada. */
+  medidas: OrganizacaoDescoberta[];
+  medicoes: Medicao[];
+  cargos: VeredictoDeCargo[];
+  /** O horizonte retroativo mais profundo que devolveu dado, em dias. */
+  historicoMaisProfundoDias: number | null;
+  /** A primeira janela que NÃO devolveu — o limite real, quando encontrado. */
+  historicoLimiteDias: number | null;
+  /** Medições com dado. Para o resumo de uma linha na tela. */
   disponiveis: number;
+  /** Tudo que não é `funciona` — inclui os inconclusivos, de propósito. */
   indisponiveis: number;
-  /** A pergunta que decide a arquitetura. `null` = não foi possível decidir. */
-  retroatividade: boolean | null;
   texto: string;
 }
 
@@ -141,348 +184,644 @@ export interface SondagemLinkedIn {
 /**
  * Meia-noite UTC de um dia N dias atrás.
  *
- * Precisa ser meia-noite: com granularidade DAY o LinkedIn recusa (ou trunca em
- * silêncio) intervalo que começa no meio do dia, e "truncou em silêncio" é o
- * tipo de resposta que a sondagem leria como sucesso.
+ * Precisa ser meia-noite: com granularidade DAY o LinkedIn recusa — ou trunca
+ * em silêncio — um intervalo que começa no meio do dia. "Truncou em silêncio" é
+ * o pior desfecho possível numa sondagem, porque devolve dado plausível e errado.
  */
 export function meiaNoiteUTC(agora: Date, diasAtras: number): number {
-  const d = new Date(agora.getTime() - diasAtras * 86_400_000);
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const d = new Date(agora);
+  d.setUTCDate(d.getUTCDate() - diasAtras);
+  d.setUTCHours(0, 0, 0, 0);
+  return d.getTime();
 }
+
+/** A sintaxe Rest.li de intervalo. Não pode ser percent-encodada. */
+export function janelaRestli(agora: Date, deDiasAtras: number, ateDiasAtras: number): string {
+  return `(timeRange:(start:${meiaNoiteUTC(agora, deDiasAtras)},`
+    + `end:${meiaNoiteUTC(agora, ateDiasAtras)}),timeGranularityType:DAY)`;
+}
+
+// ─── Leitura de estrutura ────────────────────────────────────────────────────
+
+/** Os caminhos numéricos de um objeto, achatados. Mostra a ESTRUTURA real. */
+export function numerosDe(o: unknown, prefixo = "", profundidade = 0): string[] {
+  if (profundidade > 4 || o === null || typeof o !== "object") return [];
+  const saida: string[] = [];
+  for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+    const caminho = prefixo ? `${prefixo}.${k}` : k;
+    if (typeof v === "number") saida.push(`${caminho}=${v}`);
+    else if (v && typeof v === "object" && !Array.isArray(v)) {
+      saida.push(...numerosDe(v, caminho, profundidade + 1));
+    }
+  }
+  return saida;
+}
+
+/** As chaves de segmentação de um elemento de estatística. */
+export function segmentacoesDe(el: Record<string, unknown>): string[] {
+  return Object.keys(el).filter((k) => k.startsWith("followerCountsBy") || k.startsWith("shareStatisticsBy"));
+}
+
+const campoDe = (o: unknown): string[] =>
+  o && typeof o === "object" ? Object.keys(o as object).filter((k) => !k.startsWith("$")) : [];
 
 /**
- * A janela em sintaxe Rest.li, literal.
+ * `paging.links` ou `paging.total` dizem se há mais. Sem eles, `null`.
  *
- * Sai como valor CRU de propósito: percent-encodar os parênteses e os
- * dois-pontos devolve 400, e esse 400 é indistinguível, no relatório, de "esta
- * métrica não existe".
+ * `false` afirmaria que a lista está completa, e afirmar isso sem o campo seria
+ * inventar — justamente o que esta rodada existe para não fazer.
  */
-export function janelaRestli(agora: Date, deDiasAtras: number, ateDiasAtras: number): string {
-  const start = meiaNoiteUTC(agora, deDiasAtras);
-  const end = meiaNoiteUTC(agora, ateDiasAtras);
-  return `(timeRange:(start:${start},end:${end}),timeGranularityType:DAY)`;
-}
-
-// ─── Descrição de valores ────────────────────────────────────────────────────
-
-/** Descreve sem revelar: texto vira tamanho, número vira número. */
-function descrever(v: unknown): string {
-  if (v === null || v === undefined) return "veio vazio";
-  if (typeof v === "number") return `${v}`;
-  if (typeof v === "boolean") return String(v);
-  if (typeof v === "string") return `texto (${v.length} caracteres)`;
-  if (Array.isArray(v)) return `lista de ${v.length}`;
-  return "objeto";
-}
-
-/** Os campos numéricos de um objeto de estatística, achatados e nomeados. */
-function numerosDe(o: unknown, prefixo = ""): string[] {
-  if (!o || typeof o !== "object") return [];
-  const out: string[] = [];
-  for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
-    if (typeof v === "number") out.push(`${prefixo}${k}=${v}`);
-    else if (v && typeof v === "object" && !Array.isArray(v)) out.push(...numerosDe(v, `${prefixo}${k}.`));
+function paginacaoDe(dados: unknown): boolean | null {
+  const p = (dados as { paging?: { links?: unknown[]; total?: number; count?: number; start?: number } })?.paging;
+  if (!p) return null;
+  if (Array.isArray(p.links)) return p.links.some((l) => (l as { rel?: string })?.rel === "next");
+  if (typeof p.total === "number" && typeof p.count === "number" && typeof p.start === "number") {
+    return p.start + p.count < p.total;
   }
-  return out;
+  return null;
 }
 
-/** As chaves de segmentação presentes — é isso que vira "dados de audiência". */
-function segmentacoesDe(elemento: Record<string, unknown>): string[] {
-  return Object.keys(elemento).filter((k) => k.startsWith("followerCountsBy"));
+// ─── Escopos que cada endpoint exige ─────────────────────────────────────────
+
+/**
+ * O escopo documentado de cada endpoint.
+ *
+ * Serve para o relatório poder dizer, num 403, se o escopo estava concedido —
+ * o que separa "falta escopo" de "falta cargo na Página". Os dois devolvem 403
+ * e têm consertos completamente diferentes: um é reautorizar em minutos, o
+ * outro é pedir ao cliente para mudar um cargo no LinkedIn dele.
+ */
+export const ESCOPO_DO_ENDPOINT: Record<string, string> = {
+  "/v2/userinfo": "openid profile",
+  "/v2/me": "r_basicprofile",
+  "/rest/organizationAcls": "rw_organization_admin",
+  "/v2/organizationalEntityAcls": "rw_organization_admin",
+  "/rest/organizations": "rw_organization_admin",
+  "/rest/networkSizes": "r_organization_followers",
+  "/v2/networkSizes": "r_organization_followers",
+  "/rest/organizationalEntityFollowerStatistics": "r_organization_followers",
+  "/rest/organizationPageStatistics": "r_organization_social",
+  "/rest/posts": "r_organization_social",
+  "/rest/organizationalEntityShareStatistics": "r_organization_social",
+  "/rest/socialActions": "r_organization_social",
+  "/rest/socialMetadata": "r_organization_social",
+};
+
+/** O prefixo do caminho, para casar com a tabela acima. */
+function escopoDe(endpoint: string): string | null {
+  const limpo = endpoint.split("?")[0];
+  for (const chave of Object.keys(ESCOPO_DO_ENDPOINT)) {
+    if (limpo === chave || limpo.startsWith(`${chave}/`)) return ESCOPO_DO_ENDPOINT[chave];
+  }
+  return null;
 }
 
-// ─── A sondagem ──────────────────────────────────────────────────────────────
+export interface ClienteLinkedIn {
+  medir: <T>(caminho: string, o: OpcoesChamada) => Promise<RespostaMedida<T>>;
+  versao: (token: string) => Promise<{ versao: string | null; tentativas: Array<{ versao: string; ok: boolean; detalhe: string }> }>;
+  introspectar: (token: string, clientId: string, clientSecret: string) => Promise<{
+    ativo: boolean; scopes: string[]; expiraEm: Date | null; autorizadoEm: Date | null; tipo: string | null;
+  }>;
+}
+
+const CLIENTE_REAL: ClienteLinkedIn = {
+  medir: medirLinkedIn,
+  versao: versaoQueResponde,
+  introspectar: introspectarToken,
+};
 
 export interface OpcoesSondagem {
   token: string;
-  /** Usados UMA VEZ para introspecção, e não gravados. */
+  /** Usados UMA VEZ para introspecção, e nunca gravados. */
   clientId?: string;
   clientSecret?: string;
-  /** Mede esta organização em vez da primeira descoberta. */
+  /** Força a medição desta organização, em vez da seleção automática. */
   organizationId?: string;
   agora?: Date;
+  /** Teto de páginas a sondar por atividade. Protege a cota. */
+  tetoDeCandidatas?: number;
 }
+
+/** Quantas páginas se olha procurando uma ATIVA, antes de desistir. */
+const TETO_DE_CANDIDATAS = 6;
+
+/**
+ * As janelas retroativas, da mais rasa à mais profunda.
+ *
+ * Sondar progressivamente é o que permite dizer o LIMITE em vez de "funcionou
+ * em 60 dias". Cada uma é um mês fechado, longe do dia corrente, para que um
+ * vazio signifique "a API não guarda" e não "o período ainda não fechou".
+ */
+const HORIZONTES = [
+  { rotulo: "30 a 60 dias atrás", de: 60, ate: 30 },
+  { rotulo: "90 a 120 dias atrás", de: 120, ate: 90 },
+  { rotulo: "180 a 210 dias atrás", de: 210, ate: 180 },
+  { rotulo: "365 a 395 dias atrás", de: 395, ate: 365 },
+  { rotulo: "730 a 760 dias atrás", de: 760, ate: 730 },
+] as const;
 
 export async function sondarLinkedIn(
   o: OpcoesSondagem, cliente: ClienteLinkedIn = CLIENTE_REAL,
 ): Promise<SondagemLinkedIn> {
   const agora = o.agora ?? new Date();
-  const linhas: LinhaLinkedIn[] = [];
-  const reg = (
-    grupo: GrupoLinkedIn, item: string, disponivel: boolean, detalhe: string, causa?: CausaDaFalha,
-  ) => linhas.push({ grupo, item, disponivel, detalhe, causa });
+  const medicoes: Medicao[] = [];
+  let scopes: string[] = [];
 
-  const falha = (grupo: GrupoLinkedIn, item: string, e: unknown) => {
-    const err = e as ErroLinkedIn;
-    reg(grupo, item, false, sanitizar(err.message ?? "erro sem mensagem", o.token), causaDe(err));
+  /** Registra uma medição a partir da resposta crua. */
+  const reg = (x: {
+    grupo: GrupoLinkedIn; item: string; endpoint: string;
+    r: RespostaMedida<unknown>; vazio?: boolean;
+    pagina?: string; papel?: string | null;
+    campos?: string[]; valores?: string[];
+    periodo?: string | null; granularidade?: string | null;
+    quantidade?: number | null; nota?: string;
+  }): Medicao => {
+    const necessario = escopoDe(x.endpoint);
+    const m: Medicao = {
+      grupo: x.grupo, item: x.item, pagina: x.pagina, papel: x.papel,
+      desfecho: classificar(x.r, x.vazio),
+      endpoint: x.endpoint, metodo: "GET",
+      status: x.r.status, codigo: x.r.codigo,
+      escopoNecessario: necessario,
+      // `null` quando não se sabe quais escopos o token tem — sem client
+      // secret, a introspecção não roda e afirmar concessão seria inventar.
+      escopoConcedido: necessario === null || scopes.length === 0
+        ? null
+        : necessario.split(" ").every((e) => scopes.includes(e)),
+      campos: x.campos ?? [],
+      valores: x.valores ?? [],
+      periodo: x.periodo ?? null,
+      granularidade: x.granularidade ?? null,
+      quantidade: x.quantidade ?? null,
+      paginado: paginacaoDe(x.r.dados),
+      limites: x.r.limites,
+      erro: x.r.erro,
+      nota: x.nota,
+    };
+    medicoes.push(m);
+    return m;
+  };
+
+  /** Uma medição que não veio de chamada — anotação estrutural. */
+  const anotar = (grupo: GrupoLinkedIn, item: string, desfecho: Desfecho, nota: string) => {
+    medicoes.push({
+      grupo, item, desfecho, endpoint: "—", metodo: "GET", status: null, codigo: null,
+      escopoNecessario: null, escopoConcedido: null, campos: [], valores: [],
+      periodo: null, granularidade: null, quantidade: null, paginado: null,
+      limites: {}, erro: null, nota,
+    });
   };
 
   // ── 1. ACESSO ─────────────────────────────────────────────────────────────
   const v = await cliente.versao(o.token);
-  reg("acesso", "versão da API", v.versao !== null,
+  anotar("acesso", "versão da API", v.versao ? "funciona" : "indisponivel",
     v.versao
       ? `${v.versao} aceita (tentadas ${v.tentativas.length})`
-      : `NENHUMA das ${v.tentativas.length} candidatas responde · ${v.tentativas.map((t) => `${t.versao}: ${t.detalhe}`).join(" ¦ ").slice(0, 300)}`);
+      : `NENHUMA das ${v.tentativas.length} candidatas responde`);
   const versao = v.versao ?? undefined;
 
-  let scopes: string[] = [];
   if (o.clientId && o.clientSecret) {
     try {
       const i = await cliente.introspectar(o.token, o.clientId, o.clientSecret);
       scopes = i.scopes;
-      reg("acesso", "introspecção do token", i.ativo,
-        `${i.ativo ? "ativo" : "INATIVO"} · tipo ${i.tipo ?? "?"} · expira ${i.expiraEm?.toISOString().slice(0, 16).replace("T", " ") ?? "?"} · ${i.scopes.length} escopo(s)`);
-      reg("acesso", "escopos concedidos", i.scopes.length > 0,
+      const dias = i.expiraEm
+        ? Math.round((i.expiraEm.getTime() - agora.getTime()) / 86_400_000) : null;
+      anotar("acesso", "introspecção do token", i.ativo ? "funciona" : "sem_permissao",
+        `${i.ativo ? "ativo" : "INATIVO"} · tipo ${i.tipo ?? "?"} · expira `
+        + `${i.expiraEm?.toISOString().slice(0, 16).replace("T", " ") ?? "?"}`
+        + (dias !== null ? ` (em ${dias} dia(s))` : "")
+        + ` · ${i.scopes.length} escopo(s)`);
+      anotar("acesso", "escopos concedidos", i.scopes.length ? "funciona" : "inconclusivo",
         i.scopes.length ? i.scopes.join(", ") : "nenhum escopo veio na introspecção");
     } catch (e) {
-      falha("acesso", "introspecção do token", e);
+      anotar("acesso", "introspecção do token", "inconclusivo",
+        sanitizar((e as Error).message ?? "erro", o.token));
     }
   } else {
-    // Não é falha: é uma medição que não foi pedida. Marcá-la como indisponível
-    // faria a contagem final acusar um problema que não existe.
-    reg("acesso", "introspecção do token", true,
-      "não solicitada — sem client_id/secret, os escopos só se deduzem do que falha abaixo");
+    anotar("acesso", "introspecção do token", "inconclusivo",
+      "não solicitada — sem client_id/secret. Sem ela, 'escopo concedido' fica "
+      + "indeterminado em todo o relatório, e um 403 não se separa de falta de cargo.");
   }
 
-  // Identidade: as duas formas, porque elas dependem de produtos diferentes e
-  // saber QUAL responde diz qual produto o app tem aprovado.
-  for (const [item, caminho, ver] of [
-    ["identidade (OpenID)", "/v2/userinfo", undefined],
-    ["identidade (legado)", "/v2/me", undefined],
+  for (const [item, caminho] of [
+    ["identidade (OpenID)", "/v2/userinfo"],
+    ["identidade (legado)", "/v2/me"],
   ] as const) {
-    try {
-      const r = await cliente.chamar<Record<string, unknown>>(caminho, { token: o.token, versao: ver });
-      const campos = Object.keys(r).filter((k) => !k.startsWith("_"));
-      reg("acesso", item, true, `respondeu · campos: ${campos.slice(0, 8).join(", ")}`);
-    } catch (e) {
-      falha("acesso", item, e);
-    }
+    const r = await cliente.medir<Record<string, unknown>>(caminho, { token: o.token });
+    reg({ grupo: "acesso", item, endpoint: caminho, r, campos: campoDe(r.dados) });
   }
 
   // ── 2. DESCOBERTA ─────────────────────────────────────────────────────────
   //
-  // O equivalente do `instagram_accounts` do Portfólio da Meta — mas com uma
-  // diferença estrutural que a sondagem tem que expor: no LinkedIn o alcance
-  // vem do CARGO de um membro em cada Página, e não de um portfólio da agência.
-  // Não existe System User. Cada Página de cliente precisa nomear alguém.
+  // No LinkedIn o alcance vem do CARGO de um membro em cada Página — não existe
+  // System User como na Meta. Cada Página de cliente precisa nomear alguém.
   const organizacoes: OrganizacaoDescoberta[] = [];
 
-  for (const [item, caminho, ver] of [
-    ["organizationAcls (versionada)", "/rest/organizationAcls", versao],
-    ["organizationalEntityAcls (legado)", "/v2/organizationalEntityAcls", undefined],
+  /**
+   * As duas formas, e elas divergem no nome do parâmetro de projeção.
+   *
+   * A primeira rodada mandava `projection` para as duas e o endpoint versionado
+   * respondeu `projection parameter is not allowed for this endpoint` — um 400
+   * que parecia limitação da API e era erro nosso. O versionado usa `fields`.
+   */
+  for (const [item, caminho, ver, chaveDeProjecao] of [
+    ["organizationAcls (versionada)", "/rest/organizationAcls", versao, "fields"],
+    ["organizationalEntityAcls (legado)", "/v2/organizationalEntityAcls", undefined, "projection"],
   ] as const) {
-    try {
-      const r = await cliente.chamar<{ elements?: Array<Record<string, unknown>> }>(caminho, {
-        token: o.token, versao: ver,
-        params: {
-          q: "roleAssignee", count: "50",
-          projection: "(elements*(*,organizationalTarget~(id,localizedName,vanityName)))",
-        },
+    const r = await cliente.medir<{ elements?: Array<Record<string, unknown>> }>(caminho, {
+      token: o.token, versao: ver,
+      params: {
+        q: "roleAssignee", count: "50",
+        [chaveDeProjecao]: "(elements*(*,organizationalTarget~(id,localizedName,vanityName)))",
+      },
+    });
+    const els = r.dados?.elements ?? [];
+    for (const el of els) {
+      const alvo = String(el.organizationalTarget ?? el.organization ?? "");
+      const id = alvo.split(":").pop() ?? "";
+      if (!id || organizacoes.some((x) => x.id === id)) continue;
+      const det = (el["organizationalTarget~"] ?? {}) as Record<string, unknown>;
+      organizacoes.push({
+        id, urn: alvo || `urn:li:organization:${id}`,
+        nome: det.localizedName ? String(det.localizedName) : null,
+        vanity: det.vanityName ? String(det.vanityName) : null,
+        papel: el.role ? String(el.role) : null,
+        estado: el.state ? String(el.state) : null,
       });
-      const els = r.elements ?? [];
-      for (const el of els) {
-        const alvo = String(el.organizationalTarget ?? el.organization ?? "");
-        const id = alvo.split(":").pop() ?? "";
-        if (!id || organizacoes.some((x) => x.id === id)) continue;
-        const det = (el["organizationalTarget~"] ?? {}) as Record<string, unknown>;
-        organizacoes.push({
-          id, urn: alvo || `urn:li:organization:${id}`,
-          nome: det.localizedName ? String(det.localizedName) : null,
-          vanity: det.vanityName ? String(det.vanityName) : null,
-          papel: el.role ? String(el.role) : null,
-          estado: el.state ? String(el.state) : null,
-        });
-      }
-      reg("descoberta", item, els.length > 0,
-        els.length ? `${els.length} vínculo(s) · papéis: ${Array.from(new Set(els.map((e) => String(e.role ?? "?")))).join(", ")}`
-          : "respondeu, sem nenhuma Página vinculada a este membro");
-    } catch (e) {
-      falha("descoberta", item, e);
     }
+    reg({
+      grupo: "descoberta", item, endpoint: caminho, r,
+      vazio: r.ok && els.length === 0,
+      quantidade: els.length,
+      campos: els.length ? campoDe(els[0]) : [],
+      valores: els.length
+        ? [`papéis: ${Array.from(new Set(els.map((e) => String(e.role ?? "?")))).join(", ")}`]
+        : [],
+      nota: `projeção via \`${chaveDeProjecao}\``,
+    });
   }
 
-  const alvo = o.organizationId
-    ? organizacoes.find((x) => x.id === o.organizationId)
-        ?? { id: o.organizationId, urn: `urn:li:organization:${o.organizationId}`, nome: null, vanity: null, papel: null, estado: null }
-    : organizacoes[0] ?? null;
+  const papeis = Array.from(new Set(organizacoes.map((x) => x.papel ?? "SEM_PAPEL")));
+  anotar("descoberta", "cargos encontrados", organizacoes.length ? "funciona" : "inconclusivo",
+    organizacoes.length
+      ? papeis.map((p) => `${p}: ${organizacoes.filter((x) => (x.papel ?? "SEM_PAPEL") === p).length}`).join(" · ")
+      : "nenhuma Página vinculada a este membro");
 
-  if (alvo) {
-    try {
-      const r = await cliente.chamar<Record<string, unknown>>(`/rest/organizations/${alvo.id}`, {
-        token: o.token, versao,
+  if (!organizacoes.length) {
+    anotar("cargo", "(todas)", "inconclusivo",
+      "sem organização alcançável — nada abaixo pôde ser medido");
+    return montar({ medicoes, versao: v.versao, scopes, organizacoes, medidas: [], agora });
+  }
+
+  // ── SELEÇÃO DAS PÁGINAS A MEDIR ───────────────────────────────────────────
+  //
+  // A primeira rodada mediu `organizacoes[0]` e caiu numa página quase dormente.
+  // Quatro itens de publicações vieram como "NÃO" quando eram inconclusivos.
+  //
+  // Aqui a escolha é por EVIDÊNCIA: pergunta-se a cada candidata quantos posts
+  // ela tem, e mede-se a que tiver. O teto protege a cota — sondar dezesseis
+  // páginas para escolher três seria gastar treze chamadas em nada.
+  const contarPosts = async (org: OrganizacaoDescoberta) => {
+    const r = await cliente.medir<{ elements?: unknown[] }>("/rest/posts", {
+      token: o.token, versao,
+      params: { q: "author", author: org.urn, count: "10", sortBy: "LAST_MODIFIED" },
+    });
+    return { r, n: r.dados?.elements?.length ?? 0 };
+  };
+
+  const admins = organizacoes.filter((x) => x.papel === "ADMINISTRATOR");
+  const conteudo = organizacoes.filter((x) => x.papel === "CONTENT_ADMINISTRATOR");
+  const outros = organizacoes.filter(
+    (x) => x.papel !== "ADMINISTRATOR" && x.papel !== "CONTENT_ADMINISTRATOR");
+
+  const medidas: OrganizacaoDescoberta[] = [];
+  const teto = o.tetoDeCandidatas ?? TETO_DE_CANDIDATAS;
+
+  if (o.organizationId) {
+    // Escolha manual: respeita e não gasta chamada procurando.
+    medidas.push(
+      organizacoes.find((x) => x.id === o.organizationId)
+      ?? { id: o.organizationId, urn: `urn:li:organization:${o.organizationId}`,
+           nome: null, vanity: null, papel: null, estado: null });
+  } else {
+    /** A primeira ADMINISTRATOR com post. Cai na primeira da lista se nenhuma tiver. */
+    let ativa: OrganizacaoDescoberta | null = null;
+    let tentadas = 0;
+    for (const cand of admins.slice(0, teto)) {
+      tentadas++;
+      const { n } = await contarPosts(cand);
+      if (n > 0) { ativa = cand; break; }
+    }
+    anotar("descoberta", "seleção da página ativa",
+      ativa ? "funciona" : "sem_atividade",
+      ativa
+        ? `${ativa.nome ?? ativa.id} tem publicações — medida como ADMINISTRATOR ativa `
+          + `(${tentadas} candidata(s) consultada(s))`
+        : `nenhuma das ${tentadas} ADMINISTRATOR consultadas tem publicação. `
+          + "As métricas de post abaixo medem uma página SEM posts, e um vazio ali "
+          + "é sobre a carteira, não sobre a API.");
+
+    if (ativa) medidas.push(ativa);
+    else if (admins.length) medidas.push(admins[0]);
+
+    // Uma CONTENT_ADMINISTRATOR: a pergunta que decide se cinco clientes entram.
+    if (conteudo.length) medidas.push(conteudo[0]);
+
+    // Uma segunda ADMINISTRATOR, para separar "é assim na API" de "é assim
+    // nesta organização". Sem ela, um resultado estranho fica sem contraprova.
+    const segunda = admins.find((x) => !medidas.some((m) => m.id === x.id));
+    if (segunda) medidas.push(segunda);
+
+    // Qualquer outro cargo que exista — LEAD_GEN_FORMS_MANAGER e afins. Medir um
+    // é o que transforma "não sabemos" em resposta.
+    if (outros.length) medidas.push(outros[0]);
+  }
+
+  if (!medidas.length) {
+    anotar("cargo", "(todas)", "inconclusivo", "nenhuma página elegível para medição");
+    return montar({ medicoes, versao: v.versao, scopes, organizacoes, medidas: [], agora });
+  }
+
+  // ── 3. MEDIÇÃO POR PÁGINA ─────────────────────────────────────────────────
+  //
+  // TODAS as páginas escolhidas passam pela MESMA bateria. É a repetição que
+  // permite separar "a API não dá" de "esta organização não tem" — e é ela que
+  // responde a pergunta de cargo.
+  for (const org of medidas) {
+    const urn = org.urn;
+    const rot = org.nome ?? org.id;
+    const papel = org.papel;
+    const porPagina = (x: Parameters<typeof reg>[0]) => reg({ ...x, pagina: rot, papel });
+
+    // — detalhes da organização —
+    {
+      const r = await cliente.medir<Record<string, unknown>>(`/rest/organizations/${org.id}`,
+        { token: o.token, versao });
+      org.nome ??= r.dados?.localizedName ? String(r.dados.localizedName) : null;
+      porPagina({ grupo: "descoberta", item: "detalhes da organização",
+        endpoint: "/rest/organizations", r, campos: campoDe(r.dados) });
+    }
+
+    // — seguidores atuais: TRÊS formas, porque a primeira rodada errou a forma —
+    //
+    // O 400 `Invalid param` veio com `r_organization_followers` concedido e com
+    // o endpoint de estatísticas (mesmo escopo) funcionando. Permissão daria
+    // 403. Então o problema era a forma — e a sondagem agora mede as variantes
+    // em vez de escolher uma e reportar o fracasso dela como limitação.
+    for (const [item, caminho, params] of [
+      ["seguidores atuais · /rest + edgeType",
+        `/rest/networkSizes/${encodeURIComponent(urn)}`, { edgeType: "CompanyFollowedByMember" }],
+      ["seguidores atuais · /v2 + edgeType",
+        `/v2/networkSizes/${encodeURIComponent(urn)}`, { edgeType: "CompanyFollowedByMember" }],
+      ["seguidores atuais · /rest sem edgeType",
+        `/rest/networkSizes/${encodeURIComponent(urn)}`, {}],
+    ] as const) {
+      const ehV2 = caminho.startsWith("/v2");
+      const r = await cliente.medir<{ firstDegreeSize?: number }>(caminho, {
+        token: o.token, versao: ehV2 ? undefined : versao,
+        params: params as Record<string, string>,
       });
-      alvo.nome ??= r.localizedName ? String(r.localizedName) : null;
-      alvo.vanity ??= r.vanityName ? String(r.vanityName) : null;
-      reg("descoberta", "detalhes da organização", true,
-        `campos: ${Object.keys(r).filter((k) => !k.startsWith("$")).slice(0, 10).join(", ")}`);
-    } catch (e) {
-      falha("descoberta", "detalhes da organização", e);
+      porPagina({
+        grupo: "crescimento", item, endpoint: caminho.split("/").slice(0, 3).join("/"), r,
+        valores: typeof r.dados?.firstDegreeSize === "number"
+          ? [`firstDegreeSize=${r.dados.firstDegreeSize}`] : [],
+        campos: campoDe(r.dados),
+        vazio: r.ok && typeof r.dados?.firstDegreeSize !== "number",
+      });
     }
-  }
 
-  // Sem organização, todo o resto mede o vazio. Dizer isso UMA vez é honesto;
-  // repetir "sem organização" em vinte linhas transformaria o relatório num
-  // muro de ruído que esconde o achado de cima.
-  if (!alvo) {
-    for (const g of ["crescimento", "pagina", "publicacoes"] as const) {
-      reg(g, "(todas)", false, "sem organização alcançável — a descoberta acima não devolveu nenhuma Página");
-    }
-    return montar({ linhas, versao: v.versao, scopes, organizacoes, alvo: null, retroatividade: null });
-  }
-
-  const urn = alvo.urn;
-
-  // ── 3a. CRESCIMENTO ───────────────────────────────────────────────────────
-  try {
-    const r = await cliente.chamar<{ firstDegreeSize?: number }>(
-      `/rest/networkSizes/${encodeURIComponent(urn)}`,
-      { token: o.token, versao, params: { edgeType: "CompanyFollowedByMember" } });
-    reg("crescimento", "seguidores atuais", typeof r.firstDegreeSize === "number",
-      typeof r.firstDegreeSize === "number" ? `${r.firstDegreeSize}` : "respondeu sem firstDegreeSize");
-  } catch (e) {
-    falha("crescimento", "seguidores atuais", e);
-  }
-
-  /** Uma leitura de estatística de seguidores, com ou sem janela. */
-  const seguidoresEm = async (item: string, cru?: string) => {
-    try {
-      const r = await cliente.chamar<{ elements?: Array<Record<string, unknown>> }>(
+    // — estatísticas de seguidores, vitalício e por janela —
+    const seguidoresEm = async (item: string, cru?: string, periodo?: string) => {
+      const r = await cliente.medir<{ elements?: Array<Record<string, unknown>> }>(
         "/rest/organizationalEntityFollowerStatistics", {
           token: o.token, versao,
           params: { q: "organizationalEntity", organizationalEntity: urn },
           cru: cru ? { timeIntervals: cru } : undefined,
         });
-      const els = r.elements ?? [];
-      if (!els.length) {
-        // Parâmetro aceito e resposta vazia — exatamente o caso do
-        // `online_followers` da Meta. NÃO é disponibilidade.
-        reg("crescimento", item, false, "respondeu com lista VAZIA (parâmetro aceito, dado ausente)");
-        return 0;
-      }
-      const segs = segmentacoesDe(els[0]);
-      const ganhos = numerosDe(els[0].followerGains);
-      reg("crescimento", item, true,
-        `${els.length} elemento(s)` +
-        (ganhos.length ? ` · ganhos: ${ganhos.join(", ")}` : "") +
-        (segs.length ? ` · segmentações: ${segs.join(", ")}` : ""));
+      const els = r.dados?.elements ?? [];
+      porPagina({
+        grupo: "crescimento", item,
+        endpoint: "/rest/organizationalEntityFollowerStatistics", r,
+        vazio: r.ok && els.length === 0,
+        quantidade: els.length,
+        campos: els.length ? campoDe(els[0]) : [],
+        valores: els.length
+          ? [...numerosDe(els[0].followerGains), ...segmentacoesDe(els[0]).map((s) => `seg:${s}`)]
+          : [],
+        periodo: periodo ?? "vitalício",
+        granularidade: cru ? "DAY" : "lifetime",
+      });
       return els.length;
-    } catch (e) {
-      falha("crescimento", item, e);
-      return -1;
-    }
-  };
+    };
 
-  await seguidoresEm("estatísticas vitalícias");
-  const recentes = await seguidoresEm("por dia · últimos 7 dias fechados", janelaRestli(agora, 8, 1));
-  // A janela decisiva: dois meses atrás, dias há muito fechados. Se responder,
-  // o histórico é buscável e o snapshot diário deixa de ser obrigatório.
-  const antigos = await seguidoresEm("por dia · janela de 60 a 30 dias atrás", janelaRestli(agora, 60, 30));
-  const retroatividade = antigos > 0 ? true : antigos === 0 ? false : null;
+    await seguidoresEm("seguidores · vitalício");
+    await seguidoresEm("seguidores · últimos 7 dias fechados",
+      janelaRestli(agora, 8, 1), "7 dias fechados");
 
-  // ── 3b. PÁGINA ────────────────────────────────────────────────────────────
-  const paginaEm = async (item: string, cru?: string) => {
-    try {
-      const r = await cliente.chamar<{ elements?: Array<Record<string, unknown>> }>(
+    // — página: visualizações —
+    const paginaEm = async (item: string, cru?: string, periodo?: string) => {
+      const r = await cliente.medir<{ elements?: Array<Record<string, unknown>> }>(
         "/rest/organizationPageStatistics", {
           token: o.token, versao,
           params: { q: "organization", organization: urn },
           cru: cru ? { timeIntervals: cru } : undefined,
         });
-      const els = r.elements ?? [];
-      if (!els.length) {
-        reg("pagina", item, false, "respondeu com lista VAZIA (parâmetro aceito, dado ausente)");
-        return;
-      }
-      const nums = numerosDe(els[0].totalPageStatistics ?? els[0]);
-      reg("pagina", item, nums.length > 0,
-        nums.length ? `${els.length} elemento(s) · ${nums.slice(0, 12).join(", ")}` : `${els.length} elemento(s), nenhum número`);
-    } catch (e) {
-      falha("pagina", item, e);
-    }
-  };
-
-  await paginaEm("visualizações · vitalício");
-  await paginaEm("visualizações · últimos 7 dias fechados", janelaRestli(agora, 8, 1));
-  await paginaEm("visualizações · janela de 60 a 30 dias atrás", janelaRestli(agora, 60, 30));
-
-  // ── 3c. PUBLICAÇÕES ───────────────────────────────────────────────────────
-  let urnDoPost: string | null = null;
-  let maisAntigo: string | null = null;
-  try {
-    const r = await cliente.chamar<{ elements?: Array<Record<string, unknown>> }>("/rest/posts", {
-      token: o.token, versao,
-      params: { q: "author", author: urn, count: "20", sortBy: "LAST_MODIFIED" },
-    });
-    const els = r.elements ?? [];
-    if (els.length) {
-      urnDoPost = String(els[0].id ?? "");
-      const datas = els
-        .map((e) => (typeof e.createdAt === "number" ? e.createdAt : null))
-        .filter((x): x is number => x !== null)
-        .sort((a, b) => a - b);
-      maisAntigo = datas.length ? new Date(datas[0]).toISOString().slice(0, 10) : null;
-    }
-    reg("publicacoes", "listar posts (q=author)", els.length > 0,
-      els.length
-        ? `${els.length} post(s) · mais antigo desta página: ${maisAntigo ?? "sem createdAt"} · campos: ${Object.keys(els[0]).slice(0, 10).join(", ")}`
-        : "respondeu, sem posts");
-  } catch (e) {
-    falha("publicacoes", "listar posts (q=author)", e);
-  }
-
-  reg("publicacoes", "timestamp de publicação", maisAntigo !== null,
-    maisAntigo !== null ? `createdAt em epoch ms · mais antigo lido: ${maisAntigo}` : "nenhum createdAt legível");
-
-  try {
-    const r = await cliente.chamar<{ elements?: Array<Record<string, unknown>> }>(
-      "/rest/organizationalEntityShareStatistics", {
-        token: o.token, versao,
-        params: { q: "organizationalEntity", organizationalEntity: urn },
+      const els = r.dados?.elements ?? [];
+      const nums = els.length ? numerosDe(els[0].totalPageStatistics ?? els[0]) : [];
+      porPagina({
+        grupo: "pagina", item, endpoint: "/rest/organizationPageStatistics", r,
+        vazio: r.ok && (els.length === 0 || nums.every((n) => n.endsWith("=0"))),
+        quantidade: els.length,
+        campos: els.length ? campoDe(els[0]) : [],
+        valores: nums,
+        periodo: periodo ?? "vitalício",
+        granularidade: cru ? "DAY" : "lifetime",
       });
-    const els = r.elements ?? [];
-    const nums = els.length ? numerosDe(els[0].totalShareStatistics ?? els[0]) : [];
-    reg("publicacoes", "estatísticas agregadas", nums.length > 0,
-      nums.length ? nums.slice(0, 14).join(", ") : "respondeu sem números");
-  } catch (e) {
-    falha("publicacoes", "estatísticas agregadas", e);
-  }
+    };
 
-  if (urnDoPost) {
-    // O parâmetro muda com o tipo de URN, e errar isso devolveria 400 — que
-    // pareceria "não dá para medir post individual" quando dá.
-    const chave = urnDoPost.includes(":ugcPost:") ? "ugcPosts" : "shares";
-    try {
-      const r = await cliente.chamar<{ elements?: Array<Record<string, unknown>> }>(
+    await paginaEm("visualizações · vitalício");
+    await paginaEm("visualizações · últimos 7 dias fechados",
+      janelaRestli(agora, 8, 1), "7 dias fechados");
+
+    // — publicações: DESCOBRIR primeiro, medir depois —
+    //
+    // "Sem posts" NUNCA é falha da API. A distinção entre `sem_atividade` e
+    // `sem_permissao` é a razão de esta rodada existir.
+    const rPosts = await cliente.medir<{ elements?: Array<Record<string, unknown>> }>(
+      "/rest/posts", {
+        token: o.token, versao,
+        params: { q: "author", author: urn, count: "20", sortBy: "LAST_MODIFIED" },
+      });
+    const posts = rPosts.dados?.elements ?? [];
+    const datas = posts
+      .map((e) => (typeof e.createdAt === "number" ? e.createdAt : null))
+      .filter((x): x is number => x !== null)
+      .sort((a, b) => a - b);
+    porPagina({
+      grupo: "publicacoes", item: "listar posts (q=author)", endpoint: "/rest/posts", r: rPosts,
+      vazio: rPosts.ok && posts.length === 0,
+      quantidade: posts.length,
+      campos: posts.length ? campoDe(posts[0]) : [],
+      valores: datas.length
+        ? [`mais antigo=${new Date(datas[0]).toISOString().slice(0, 10)}`,
+           `mais recente=${new Date(datas[datas.length - 1]).toISOString().slice(0, 10)}`]
+        : [],
+      nota: rPosts.ok && posts.length === 0
+        ? "a API respondeu 200 — esta página não publicou, e isso não é limitação"
+        : undefined,
+    });
+
+    // — estatísticas agregadas da página (todas as publicações somadas) —
+    {
+      const r = await cliente.medir<{ elements?: Array<Record<string, unknown>> }>(
         "/rest/organizationalEntityShareStatistics", {
           token: o.token, versao,
           params: { q: "organizationalEntity", organizationalEntity: urn },
-          cru: { [chave]: `List(${encodeURIComponent(urnDoPost)})` },
         });
-      const els = r.elements ?? [];
+      const els = r.dados?.elements ?? [];
       const nums = els.length ? numerosDe(els[0].totalShareStatistics ?? els[0]) : [];
-      reg("publicacoes", "estatísticas POR post", nums.length > 0,
-        nums.length ? `via ${chave} · ${nums.slice(0, 14).join(", ")}` : `via ${chave} · respondeu sem números`);
-    } catch (e) {
-      falha("publicacoes", "estatísticas POR post", e);
+      porPagina({
+        grupo: "publicacoes", item: "estatísticas agregadas de publicações",
+        endpoint: "/rest/organizationalEntityShareStatistics", r,
+        vazio: r.ok && (els.length === 0 || nums.every((n) => n.endsWith("=0"))),
+        quantidade: els.length, campos: els.length ? campoDe(els[0]) : [], valores: nums,
+        periodo: "vitalício",
+      });
     }
 
-    try {
-      const r = await cliente.chamar<Record<string, unknown>>(
-        `/rest/socialActions/${encodeURIComponent(urnDoPost)}`, { token: o.token, versao });
-      const likes = (r.likesSummary as { totalLikes?: unknown } | undefined)?.totalLikes;
-      const coment = (r.commentsSummary as { totalFirstLevelComments?: unknown } | undefined)?.totalFirstLevelComments;
-      reg("publicacoes", "curtidas e comentários do post", likes !== undefined || coment !== undefined,
-        `likes=${descrever(likes)} · comentários=${descrever(coment)}`);
-    } catch (e) {
-      falha("publicacoes", "curtidas e comentários do post", e);
+    // — métricas POR post: só faz sentido com post; sem post é inconclusivo —
+    if (!posts.length) {
+      for (const item of [
+        "métricas por post (impressões, cliques, reações)",
+        "reações e comentários do post",
+        "metadados sociais do post",
+      ]) {
+        medicoes.push({
+          grupo: "publicacoes", item, pagina: rot, papel, desfecho: "inconclusivo",
+          endpoint: "—", metodo: "GET", status: null, codigo: null,
+          escopoNecessario: null, escopoConcedido: null, campos: [], valores: [],
+          periodo: null, granularidade: null, quantidade: null, paginado: null, limites: {},
+          erro: null,
+          nota: "esta página não tem publicação — não dá para concluir nada sobre a API a partir daqui",
+        });
+      }
+    } else {
+      const urnDoPost = String(posts[0].id ?? "");
+      // O parâmetro muda com o tipo de URN, e errar isso devolveria 400 — que
+      // pareceria "não dá para medir post individual" quando dá.
+      const chave = urnDoPost.includes(":ugcPost:") ? "ugcPosts" : "shares";
+
+      {
+        const r = await cliente.medir<{ elements?: Array<Record<string, unknown>> }>(
+          "/rest/organizationalEntityShareStatistics", {
+            token: o.token, versao,
+            params: { q: "organizationalEntity", organizationalEntity: urn },
+            cru: { [chave]: `List(${encodeURIComponent(urnDoPost)})` },
+          });
+        const els = r.dados?.elements ?? [];
+        const nums = els.length ? numerosDe(els[0].totalShareStatistics ?? els[0]) : [];
+        porPagina({
+          grupo: "publicacoes", item: "métricas por post (impressões, cliques, reações)",
+          endpoint: "/rest/organizationalEntityShareStatistics", r,
+          vazio: r.ok && els.length === 0,
+          quantidade: els.length, campos: els.length ? campoDe(els[0]) : [], valores: nums,
+          nota: `via \`${chave}\` · 1 post medido de ${posts.length} listado(s)`,
+        });
+      }
+
+      {
+        const r = await cliente.medir<Record<string, unknown>>(
+          `/rest/socialActions/${encodeURIComponent(urnDoPost)}`, { token: o.token, versao });
+        const likes = (r.dados?.likesSummary as { totalLikes?: unknown } | undefined)?.totalLikes;
+        const com = (r.dados?.commentsSummary as { totalFirstLevelComments?: unknown } | undefined)
+          ?.totalFirstLevelComments;
+        porPagina({
+          grupo: "publicacoes", item: "reações e comentários do post",
+          endpoint: "/rest/socialActions", r,
+          vazio: r.ok && likes === undefined && com === undefined,
+          campos: campoDe(r.dados),
+          valores: [`likes=${likes ?? "—"}`, `comentários=${com ?? "—"}`],
+        });
+      }
+
+      {
+        // `socialMetadata` é a forma nova de reações por TIPO. Se responder,
+        // dá para distinguir LIKE de PRAISE, EMPATHY etc.
+        const r = await cliente.medir<Record<string, unknown>>(
+          `/rest/socialMetadata/${encodeURIComponent(urnDoPost)}`, { token: o.token, versao });
+        porPagina({
+          grupo: "publicacoes", item: "metadados sociais do post",
+          endpoint: "/rest/socialMetadata", r,
+          campos: campoDe(r.dados),
+          valores: numerosDe(r.dados?.reactionSummaries ?? r.dados),
+        });
+      }
     }
-  } else {
-    reg("publicacoes", "estatísticas POR post", false, "sem post para medir — a listagem acima não devolveu nenhum");
-    reg("publicacoes", "curtidas e comentários do post", false, "sem post para medir");
   }
 
-  void recentes;
-  return montar({ linhas, versao: v.versao, scopes, organizacoes, alvo, retroatividade });
+  // ── 4. PROFUNDIDADE DO HISTÓRICO ──────────────────────────────────────────
+  //
+  // A primeira rodada provou que 30-60 dias respondem. Isso decidiu a
+  // arquitetura, mas não disse o LIMITE — e o limite é o que define se dá para
+  // preencher um ano de uma vez ou só dois meses.
+  //
+  // Só na página ativa: repetir cinco janelas em quatro páginas gastaria vinte
+  // chamadas para responder uma pergunta que é da API, e não da organização.
+  const alvoHistorico = medidas[0];
+  let maisProfundo: number | null = null;
+  let limite: number | null = null;
+
+  for (const h of HORIZONTES) {
+    const r = await cliente.medir<{ elements?: Array<Record<string, unknown>> }>(
+      "/rest/organizationalEntityFollowerStatistics", {
+        token: o.token, versao,
+        params: { q: "organizationalEntity", organizationalEntity: alvoHistorico.urn },
+        cru: { timeIntervals: janelaRestli(agora, h.de, h.ate) },
+      });
+    const els = r.dados?.elements ?? [];
+    const vazio = r.ok && els.length === 0;
+    reg({
+      grupo: "historico", item: `seguidores · ${h.rotulo}`,
+      endpoint: "/rest/organizationalEntityFollowerStatistics", r,
+      pagina: alvoHistorico.nome ?? alvoHistorico.id, papel: alvoHistorico.papel,
+      vazio, quantidade: els.length, periodo: h.rotulo, granularidade: "DAY",
+      valores: els.length ? numerosDe(els[0].followerGains) : [],
+      nota: vazio
+        ? "200 com lista vazia — a API aceitou a janela e não tem dado nela"
+        : undefined,
+    });
+
+    if (r.ok && els.length > 0) maisProfundo = h.de;
+    else if (limite === null) {
+      // O primeiro horizonte que NÃO devolve. Registrado uma vez; os mais
+      // fundos continuam sendo medidos porque um vazio isolado pode ser
+      // ausência de atividade, e não teto da API.
+      limite = h.de;
+    }
+  }
+
+  // A mesma pergunta para visualizações de página: as duas fontes podem ter
+  // horizontes diferentes, e assumir que são iguais seria suposição.
+  {
+    const maisFundo = HORIZONTES[HORIZONTES.length - 1];
+    const r = await cliente.medir<{ elements?: Array<Record<string, unknown>> }>(
+      "/rest/organizationPageStatistics", {
+        token: o.token, versao,
+        params: { q: "organization", organization: alvoHistorico.urn },
+        cru: { timeIntervals: janelaRestli(agora, maisFundo.de, maisFundo.ate) },
+      });
+    const els = r.dados?.elements ?? [];
+    reg({
+      grupo: "historico", item: `visualizações · ${maisFundo.rotulo}`,
+      endpoint: "/rest/organizationPageStatistics", r,
+      pagina: alvoHistorico.nome ?? alvoHistorico.id,
+      vazio: r.ok && els.length === 0, quantidade: els.length,
+      periodo: maisFundo.rotulo, granularidade: "DAY",
+    });
+  }
+
+  return montar({ medicoes, versao: v.versao, scopes, organizacoes, medidas, agora,
+    maisProfundo, limite });
 }
 
 // ─── Relatório ───────────────────────────────────────────────────────────────
@@ -490,100 +829,278 @@ export async function sondarLinkedIn(
 const TITULO: Record<GrupoLinkedIn, string> = {
   acesso: "1. ACESSO E AUTENTICAÇÃO",
   descoberta: "2. DESCOBERTA DE CONTAS",
-  crescimento: "3a. CRESCIMENTO",
-  pagina: "3b. PÁGINA",
-  publicacoes: "3c. PUBLICAÇÕES",
+  cargo: "3. ACESSO POR CARGO",
+  crescimento: "4a. SEGUIDORES",
+  pagina: "4b. PÁGINA",
+  publicacoes: "4c. PUBLICAÇÕES",
+  historico: "5. PROFUNDIDADE DO HISTÓRICO",
 };
 
-function montar(x: {
-  linhas: LinhaLinkedIn[]; versao: string | null; scopes: string[];
-  organizacoes: OrganizacaoDescoberta[]; alvo: OrganizacaoDescoberta | null;
-  retroatividade: boolean | null;
-}): SondagemLinkedIn {
-  const disponiveis = x.linhas.filter((l) => l.disponivel).length;
-  return {
-    ok: disponiveis > 0,
-    versaoUsada: x.versao,
-    scopes: x.scopes,
-    organizacoes: x.organizacoes,
-    organizacaoMedida: x.alvo,
-    linhas: x.linhas,
-    disponiveis,
-    indisponiveis: x.linhas.length - disponiveis,
-    retroatividade: x.retroatividade,
-    texto: texto(x, disponiveis),
-  };
+/**
+ * O veredito de cada cargo — a pergunta que decide quantos clientes entram.
+ *
+ * Sai de MEDIÇÃO: para cada capacidade, o desfecho observado na página daquele
+ * cargo. Um cargo sem página medida não recebe veredito — fica de fora, e a
+ * seção final o lista como pendente.
+ */
+function vereditoDeCargos(
+  medicoes: Medicao[], organizacoes: OrganizacaoDescoberta[], medidas: OrganizacaoDescoberta[],
+): VeredictoDeCargo[] {
+  const CAPACIDADES: Array<[string, GrupoLinkedIn, string]> = [
+    ["seguidores", "crescimento", "seguidores · vitalício"],
+    ["crescimento diário", "crescimento", "seguidores · últimos 7 dias fechados"],
+    ["visualizações da página", "pagina", "visualizações · vitalício"],
+    ["listar publicações", "publicacoes", "listar posts (q=author)"],
+    ["métricas agregadas", "publicacoes", "estatísticas agregadas de publicações"],
+    ["métricas por post", "publicacoes", "métricas por post (impressões, cliques, reações)"],
+  ];
+  const papeis = Array.from(new Set(organizacoes.map((x) => x.papel ?? "SEM_PAPEL")));
+  return papeis.map((papel) => {
+    const medida = medidas.find((m) => (m.papel ?? "SEM_PAPEL") === papel) ?? null;
+    const alcanca: Record<string, Desfecho> = {};
+    for (const [rotulo, grupo, item] of CAPACIDADES) {
+      const m = medida
+        ? medicoes.find((x) => x.grupo === grupo && x.item === item
+            && x.pagina === (medida.nome ?? medida.id))
+        : undefined;
+      alcanca[rotulo] = m?.desfecho ?? "inconclusivo";
+    }
+    return {
+      papel,
+      paginasComEssePapel: organizacoes.filter((x) => (x.papel ?? "SEM_PAPEL") === papel).length,
+      medida: medida ? (medida.nome ?? medida.id) : null,
+      alcanca,
+    };
+  });
 }
 
-function texto(x: {
-  linhas: LinhaLinkedIn[]; versao: string | null; scopes: string[];
-  organizacoes: OrganizacaoDescoberta[]; alvo: OrganizacaoDescoberta | null;
-  retroatividade: boolean | null;
-}, disponiveis: number): string {
-  const out: string[] = [
-    `sondagem LinkedIn · Fase 0 · ${disponiveis}/${x.linhas.length} itens disponíveis`,
-    `versão da API: ${x.versao ?? "nenhuma respondeu"}`,
-    `escopos medidos: ${x.scopes.length ? x.scopes.join(", ") : "não medidos (sem client_id/secret)"}`,
-    `Páginas alcançadas: ${x.organizacoes.length}` +
-      (x.organizacoes.length ? ` — ${x.organizacoes.map((o) => `${o.nome ?? o.id} (${o.papel ?? "?"})`).join(", ")}` : ""),
-    `Página medida: ${x.alvo ? `${x.alvo.nome ?? "sem nome"} · id ${x.alvo.id}` : "nenhuma"}`,
-    "",
-  ];
+function montar(x: {
+  medicoes: Medicao[]; versao: string | null; scopes: string[];
+  organizacoes: OrganizacaoDescoberta[]; medidas: OrganizacaoDescoberta[];
+  agora: Date; maisProfundo?: number | null; limite?: number | null;
+}): SondagemLinkedIn {
+  const cargos = vereditoDeCargos(x.medicoes, x.organizacoes, x.medidas);
+  const s: SondagemLinkedIn = {
+    ok: x.medicoes.some((m) => m.desfecho === "funciona"),
+    versaoUsada: x.versao, scopes: x.scopes,
+    organizacoes: x.organizacoes, medidas: x.medidas,
+    medicoes: x.medicoes, cargos,
+    historicoMaisProfundoDias: x.maisProfundo ?? null,
+    historicoLimiteDias: x.limite ?? null,
+    disponiveis: x.medicoes.filter((m) => m.desfecho === "funciona").length,
+    indisponiveis: x.medicoes.filter((m) => m.desfecho !== "funciona").length,
+    texto: "",
+  };
+  s.texto = texto(s, x.agora);
+  return s;
+}
 
-  for (const grupo of Object.keys(TITULO) as GrupoLinkedIn[]) {
-    const doGrupo = x.linhas.filter((l) => l.grupo === grupo);
+const cont = (m: Medicao[], d: Desfecho) => m.filter((x) => x.desfecho === d).length;
+
+/** Uma linha detalhada — o que o pedido exige registrar de cada endpoint. */
+function linhaDetalhada(m: Medicao): string {
+  const partes: string[] = [];
+  if (m.status !== null) partes.push(`HTTP ${m.status}${m.codigo !== null ? `/${m.codigo}` : ""}`);
+  if (m.endpoint !== "—") partes.push(m.endpoint);
+  if (m.escopoNecessario) {
+    partes.push(`escopo ${m.escopoNecessario}${
+      m.escopoConcedido === null ? " (concessão indeterminada)"
+        : m.escopoConcedido ? " ✓concedido" : " ✗NÃO concedido"}`);
+  }
+  if (m.periodo) partes.push(`período ${m.periodo}`);
+  if (m.granularidade) partes.push(`granularidade ${m.granularidade}`);
+  if (m.quantidade !== null) partes.push(`${m.quantidade} elemento(s)`);
+  if (m.paginado !== null) partes.push(m.paginado ? "TEM próxima página" : "página única");
+  const limites = Object.entries(m.limites).map(([k, v]) => `${k}=${v}`);
+  if (limites.length) partes.push(limites.join(" "));
+
+  const linhas = [`       ${partes.join(" · ")}`];
+  if (m.campos.length) linhas.push(`       campos: ${m.campos.slice(0, 14).join(", ")}`);
+  if (m.valores.length) linhas.push(`       valores: ${m.valores.slice(0, 14).join(", ")}`);
+  if (m.erro) linhas.push(`       erro: ${m.erro}`);
+  if (m.nota) linhas.push(`       nota: ${m.nota}`);
+  return linhas.join("\n");
+}
+
+function texto(s: SondagemLinkedIn, agora: Date): string {
+  const L: string[] = [];
+  const total = s.medicoes.length;
+  L.push(`sondagem LinkedIn · Fase 0 · rodada 2 · ${agora.toISOString().slice(0, 10)}`);
+  L.push(`${cont(s.medicoes, "funciona")}/${total} medições com dado`);
+  L.push(`versão da API: ${s.versaoUsada ?? "NENHUMA respondeu"}`);
+  L.push(`escopos: ${s.scopes.length ? s.scopes.join(", ") : "não introspectados"}`);
+  L.push(`Páginas alcançadas: ${s.organizacoes.length}`);
+  L.push(`Páginas MEDIDAS: ${s.medidas.map((m) => `${m.nome ?? m.id} (${m.papel ?? "?"})`).join(" · ") || "nenhuma"}`);
+  L.push("");
+
+  for (const g of Object.keys(TITULO) as GrupoLinkedIn[]) {
+    const doGrupo = s.medicoes.filter((m) => m.grupo === g);
     if (!doGrupo.length) continue;
-    out.push(`── ${TITULO[grupo]} ──`);
-    for (const l of doGrupo) {
-      out.push(
-        `[${l.disponivel ? "SIM" : "NÃO"}] ${l.item.padEnd(34)} ${l.detalhe}` +
-        (l.causa ? `\n       → ${CORRECAO[l.causa]}` : ""),
-      );
+    L.push(`── ${TITULO[g]} ──`);
+    let paginaAtual: string | undefined;
+    for (const m of doGrupo) {
+      if (m.pagina && m.pagina !== paginaAtual) {
+        paginaAtual = m.pagina;
+        L.push(`  ▸ ${m.pagina}${m.papel ? ` · ${m.papel}` : ""}`);
+      }
+      L.push(`[${ROTULO_DESFECHO[m.desfecho]}] ${m.item}`);
+      L.push(linhaDetalhada(m));
     }
-    out.push("");
+    L.push("");
   }
 
-  // ── O veredito, CALCULADO ─────────────────────────────────────────────────
-  // Mesma disciplina do resumo da rodada da Meta: quem lê rápido não deve ter
-  // que reconstruir a conclusão a partir de trinta linhas.
-  out.push("── VEREDITO ──");
+  // ── RELATÓRIO CONSOLIDADO ───────────────────────────────────────────────
+  L.push("══ RELATÓRIO CONSOLIDADO ══");
+  L.push("");
 
-  if (!x.organizacoes.length) {
-    out.push("BLOQUEADO na descoberta: o token não alcança nenhuma Página.");
-    out.push("Nada abaixo disso pôde ser medido — não confundir com 'métrica indisponível'.");
+  const ok = s.medicoes.filter((m) => m.desfecho === "funciona");
+  L.push("1. ENDPOINTS QUE FUNCIONAM");
+  const porEndpoint = new Map<string, Medicao[]>();
+  for (const m of ok) {
+    if (m.endpoint === "—") continue;
+    porEndpoint.set(m.endpoint, [...(porEndpoint.get(m.endpoint) ?? []), m]);
   }
+  if (!porEndpoint.size) L.push("   nenhum");
+  for (const [ep, ms] of Array.from(porEndpoint)) {
+    L.push(`   ${ep} — ${ms.length} medição(ões) · escopo ${ms[0].escopoNecessario ?? "?"}`);
+  }
+  L.push("");
 
-  const porCausa = new Map<CausaDaFalha, string[]>();
-  for (const l of x.linhas) {
-    if (l.disponivel || !l.causa) continue;
-    porCausa.set(l.causa, [...(porCausa.get(l.causa) ?? []), l.item]);
+  L.push("2. MÉTRICAS QUE CONSEGUIMOS OBTER");
+  const metricas = Array.from(new Set(ok.flatMap((m) => m.valores)
+    .map((v) => v.split("=")[0]).filter((v) => !v.startsWith("seg:"))));
+  L.push(metricas.length ? metricas.map((m) => `   ${m}`).join("\n") : "   nenhuma");
+  const segs = Array.from(new Set(ok.flatMap((m) => m.valores)
+    .filter((v) => v.startsWith("seg:")).map((v) => v.slice(4))));
+  if (segs.length) L.push(`   segmentações: ${segs.join(", ")}`);
+  L.push("");
+
+  L.push("3. HISTÓRICO DISPONÍVEL");
+  L.push(s.historicoMaisProfundoDias !== null
+    ? `   Mais fundo COM dado: ${s.historicoMaisProfundoDias} dias atrás.`
+    : "   Nenhuma janela retroativa devolveu dado — INCONCLUSIVO se é limite da API "
+      + "ou ausência de atividade na página medida.");
+  if (s.historicoLimiteDias !== null) {
+    L.push(`   Primeira janela SEM dado: ${s.historicoLimiteDias} dias atrás.`);
+    L.push("   Atenção: vazio pode ser teto da API OU página sem atividade no período.");
   }
-  if (porCausa.size) {
-    out.push("");
-    out.push("O que falhou, agrupado pelo que RESOLVE:");
-    for (const [causa, itens] of Array.from(porCausa.entries())) {
-      out.push(`  ${CORRECAO[causa]}`);
-      out.push(`    ${itens.join(", ")}`);
+  L.push("");
+
+  L.push("4. DIFERENÇA DE ACESSO POR CARGO");
+  for (const c of s.cargos) {
+    L.push(`   ${c.papel} — ${c.paginasComEssePapel} página(s)`);
+    if (!c.medida) {
+      L.push("      NÃO MEDIDO nesta rodada — sem veredito");
+      continue;
+    }
+    L.push(`      medido em: ${c.medida}`);
+    for (const [cap, d] of Object.entries(c.alcanca)) {
+      L.push(`      ${ROTULO_DESFECHO[d]} ${cap}`);
     }
   }
+  L.push("");
 
-  out.push("");
-  out.push("Retroatividade (a medição que decide a arquitetura):");
-  if (x.retroatividade === true) {
-    out.push("  SIM — dias fechados de 30-60 dias atrás responderam com dado.");
-    out.push("  O histórico é buscável: dá para preencher o passado de uma vez na");
-    out.push("  conexão, e o cron vira conveniência em vez de obrigação. É o oposto");
-    out.push("  do Instagram, onde o snapshot diário é o ÚNICO registro do dia.");
-  } else if (x.retroatividade === false) {
-    out.push("  NÃO — a janela antiga respondeu vazia.");
-    out.push("  Mesmo modelo do Instagram: snapshot diário obrigatório, e o que não");
-    out.push("  for coletado naquele dia não volta.");
+  L.push("5. ESCOPOS NECESSÁRIOS");
+  const necessarios = Array.from(new Set(
+    s.medicoes.map((m) => m.escopoNecessario).filter((x): x is string => !!x)));
+  for (const e of necessarios) {
+    const usa = s.medicoes.filter((m) => m.escopoNecessario === e);
+    const concedido = usa[0]?.escopoConcedido;
+    L.push(`   ${e} — ${usa.length} endpoint(s) · ${
+      concedido === null ? "concessão indeterminada"
+        : concedido ? "concedido" : "NÃO concedido"}`);
+  }
+  L.push("");
+
+  L.push("6. LIMITAÇÕES DA API");
+  const perm = s.medicoes.filter((m) => m.desfecho === "sem_permissao");
+  const nd = s.medicoes.filter((m) => m.desfecho === "indisponivel");
+  const req = s.medicoes.filter((m) => m.desfecho === "request_invalido");
+  if (!perm.length && !nd.length && !req.length) L.push("   nenhuma observada");
+  for (const [rotulo, lista] of [
+    ["bloqueio de permissão/cargo/produto", perm],
+    ["endpoint indisponível nesta versão", nd],
+    ["requisição inválida — é erro NOSSO, tem conserto aqui", req],
+  ] as const) {
+    if (!lista.length) continue;
+    L.push(`   ${rotulo}:`);
+    for (const m of lista) {
+      L.push(`      ${m.item}${m.pagina ? ` · ${m.pagina}` : ""} — ${m.erro ?? "?"}`);
+    }
+  }
+  L.push("");
+
+  L.push("7. RATE LIMITS E PAGINAÇÃO");
+  const comLimite = s.medicoes.filter((m) => Object.keys(m.limites).length);
+  L.push(comLimite.length
+    ? `   cabeçalhos observados: ${Array.from(new Set(comLimite.flatMap((m) =>
+        Object.entries(m.limites).map(([k, v]) => `${k}=${v}`)))).slice(0, 8).join(" · ")}`
+    : "   INCONCLUSIVO — o LinkedIn não enviou cabeçalho de limite em nenhuma resposta. "
+      + "A cota existe (é diária, por app), mas não é observável por aqui.");
+  const paginados = s.medicoes.filter((m) => m.paginado === true);
+  L.push(paginados.length
+    ? `   com próxima página: ${paginados.map((m) => m.item).join(", ")}`
+    : "   nenhuma resposta indicou próxima página nas amostras pedidas");
+  L.push(`   total de chamadas desta sondagem: ${s.medicoes.filter((m) => m.status !== null).length}`);
+  L.push("");
+
+  L.push("8. O QUE DÁ PARA TRAZER PARA O SOCIAL DO SPACES");
+  const trazivel = Array.from(new Set(ok.filter((m) => m.grupo !== "acesso" && m.grupo !== "descoberta")
+    .map((m) => m.item)));
+  L.push(trazivel.length ? trazivel.map((x) => `   ${x}`).join("\n") : "   nada confirmado");
+  L.push("");
+
+  L.push("9. O QUE NÃO DÁ");
+  const naoDa = s.medicoes.filter(
+    (m) => m.desfecho === "sem_permissao" || m.desfecho === "indisponivel");
+  L.push(naoDa.length
+    ? Array.from(new Set(naoDa.map((m) => `   ${m.item} — ${CORRECAO[m.desfecho]}`))).join("\n")
+    : "   nada foi bloqueado por permissão ou indisponibilidade");
+  L.push("");
+
+  L.push("10. RECOMENDAÇÃO DE ARQUITETURA DE COLETA");
+  if (s.historicoMaisProfundoDias !== null) {
+    L.push(`   O histórico é BUSCÁVEL até ${s.historicoMaisProfundoDias} dias atrás.`);
+    L.push("   Preencher o passado de uma vez na conexão, e usar cron só como");
+    L.push("   conveniência de atualização. É o oposto do Instagram, onde o");
+    L.push("   snapshot diário é o ÚNICO registro do dia e um dia perdido some.");
+    L.push("   Consequência: nenhum dia se perde por falha de coleta, e recoletar");
+    L.push("   é sempre possível — o que dispensa a disciplina de snapshot.");
   } else {
-    out.push("  INDETERMINADO — a chamada falhou antes de responder. Ver a causa acima:");
-    out.push("  falha de escopo ou de produto não diz nada sobre retroatividade.");
+    L.push("   INCONCLUSIVO — sem confirmação de retroatividade, não dá para");
+    L.push("   escolher entre buscar o passado e depender de snapshot diário.");
+  }
+  L.push("");
+
+  // ── O QUE AINDA PRECISAMOS DESCOBRIR ────────────────────────────────────
+  //
+  // Só o que continuou inconclusivo DEPOIS desta rodada. Um item que a rodada
+  // resolveu não entra aqui — a seção existe para ser curta, e uma lista longa
+  // de coisas já respondidas faria ninguém ler as que importam.
+  L.push("══ O QUE AINDA PRECISAMOS DESCOBRIR ══");
+  const pendentes: string[] = [];
+
+  for (const m of s.medicoes.filter((x) => x.desfecho === "inconclusivo")) {
+    pendentes.push(`${m.item}${m.pagina ? ` · ${m.pagina}` : ""} — ${m.nota ?? "sem observação"}`);
+  }
+  for (const c of s.cargos.filter((x) => !x.medida)) {
+    pendentes.push(`cargo ${c.papel} (${c.paginasComEssePapel} página(s)) — nenhuma foi medida, `
+      + "o alcance dele continua desconhecido");
+  }
+  if (!s.scopes.length) {
+    pendentes.push("escopos concedidos — sem client_id/secret a introspecção não roda, e um 403 "
+      + "não se separa de falta de cargo");
+  }
+  if (s.historicoLimiteDias !== null && s.historicoMaisProfundoDias !== null) {
+    pendentes.push(`o teto real do histórico — a janela de ${s.historicoLimiteDias} dias veio vazia, `
+      + "e vazio pode ser teto da API OU página sem atividade no período. "
+      + "Repetir numa página antiga e ativa separaria os dois.");
   }
 
-  out.push("");
-  out.push("Nenhum token e nenhum conteúdo de publicação aparece acima.");
-  return out.join("\n");
+  L.push(pendentes.length
+    ? pendentes.map((p) => `   · ${p}`).join("\n")
+    : "   nada — todas as perguntas desta rodada foram respondidas por medição");
+  L.push("");
+  L.push("Nenhum token e nenhum conteúdo de publicação aparece acima.");
+  return L.join("\n");
 }

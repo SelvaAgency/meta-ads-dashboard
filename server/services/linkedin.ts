@@ -95,6 +95,88 @@ export interface OpcoesChamada {
  * os dois, porque parte das leituras de organização só existe no legado e parte
  * só na versionada, e qual é qual é justamente o que se está medindo.
  */
+/**
+ * O que uma chamada devolve quando se quer MEDIR, e não só usar.
+ *
+ * A sondagem precisa registrar HTTP status e cabeçalhos de limite mesmo quando
+ * a chamada dá certo — `chamarLinkedIn` devolve só o corpo, porque é o que um
+ * consumidor normal quer. Separar as duas evita encher o caminho de produção
+ * com dado que só o diagnóstico usa.
+ */
+export interface RespostaMedida<T> {
+  ok: boolean;
+  status: number | null;
+  /** `serviceErrorCode` do LinkedIn, quando vem. */
+  codigo: number | null;
+  dados: T | null;
+  /** Já sanitizada — nunca contém o token. */
+  erro: string | null;
+  /** Cabeçalhos de rate limit, quando o LinkedIn os envia. */
+  limites: Record<string, string>;
+}
+
+/** Os cabeçalhos de limite que o LinkedIn documenta. Ausentes, não se inventa. */
+const CABECALHOS_DE_LIMITE = [
+  "x-restli-ratelimit-limit", "x-restli-ratelimit-remaining",
+  "x-li-ratelimit-limit", "x-li-ratelimit-remaining", "retry-after",
+];
+
+/**
+ * A mesma chamada, medida. NUNCA lança: o erro vira dado.
+ *
+ * Numa sondagem, exceção é pior que retorno: ela interrompe a sequência e
+ * transforma "este endpoint falhou" em "o resto não foi medido".
+ */
+export async function medirLinkedIn<T>(
+  caminho: string, o: OpcoesChamada,
+): Promise<RespostaMedida<T>> {
+  const query = montarQuery(o.params, o.cru);
+  const url = `${API}${caminho}${query ? `?${query}` : ""}`;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${o.token}`,
+    "X-Restli-Protocol-Version": "2.0.0",
+    Accept: "application/json",
+  };
+  if (o.versao) headers["LinkedIn-Version"] = o.versao;
+
+  let resp: Response;
+  try {
+    resp = await fetch(url, { headers, signal: AbortSignal.timeout(25_000) });
+  } catch (e) {
+    return {
+      ok: false, status: null, codigo: null, dados: null,
+      erro: `rede: ${sanitizar((e as Error).message, o.token)}`, limites: {},
+    };
+  }
+
+  const limites: Record<string, string> = {};
+  for (const h of CABECALHOS_DE_LIMITE) {
+    const v = resp.headers.get(h);
+    if (v) limites[h] = v;
+  }
+
+  const texto = await resp.text();
+  let dados: Record<string, unknown> = {};
+  try {
+    dados = texto ? (JSON.parse(texto) as Record<string, unknown>) : {};
+  } catch {
+    return {
+      ok: false, status: resp.status, codigo: null, dados: null,
+      erro: `resposta não é JSON (HTTP ${resp.status})`, limites,
+    };
+  }
+
+  const codigo = typeof dados.serviceErrorCode === "number" ? dados.serviceErrorCode : null;
+  if (!resp.ok || codigo !== null) {
+    const msg = typeof dados.message === "string" ? dados.message : "erro sem mensagem";
+    return {
+      ok: false, status: resp.status, codigo, dados: null,
+      erro: sanitizar(msg, o.token), limites,
+    };
+  }
+  return { ok: true, status: resp.status, codigo: null, dados: dados as T, erro: null, limites };
+}
+
 export async function chamarLinkedIn<T>(caminho: string, o: OpcoesChamada): Promise<T> {
   const query = montarQuery(o.params, o.cru);
   const url = `${API}${caminho}${query ? `?${query}` : ""}`;
