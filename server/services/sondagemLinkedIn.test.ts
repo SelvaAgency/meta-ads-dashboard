@@ -208,7 +208,8 @@ describe("a profundidade do histórico é medida, não suposta", () => {
         const cru = String(o.cru?.timeIntervals ?? "");
         const inicio = Number(/start:(\d+)/.exec(cru)?.[1] ?? 0);
         const dias = inicio ? Math.round((AGORA.getTime() - inicio) / 86_400_000) : 0;
-        return resp({ elements: dias <= 211 ? [{ followerGains: { organicFollowerGain: 3 } }] : [] });
+        const baldes = Array.from({ length: 30 }, () => ({ followerGains: { organicFollowerGain: 3 } }));
+        return resp({ elements: dias <= 211 ? baldes : [] });
       }],
     ]);
     const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
@@ -368,7 +369,8 @@ describe("o histórico vai à página que RESPONDE", () => {
     [/FollowerStatistics/, (_c, o) =>
       String(o.params.organizationalEntity).endsWith(":100")
         ? erro(403, "Viewer has insufficient permissions")
-        : resp({ elements: [{ followerGains: { organicFollowerGain: 4 } }] })],
+        : resp({ elements: Array.from({ length: 30 },
+            () => ({ followerGains: { organicFollowerGain: 4 } })) })],
   ]);
 
   it("não repete cinco vezes o 403 da primeira página", async () => {
@@ -518,5 +520,97 @@ describe("o edgeType do networkSizes versionado", () => {
     const itens = s.medicoes.filter((m) => m.item.startsWith("seguidores atuais")).map((m) => m.item);
     expect(itens).toContain("seguidores atuais · /rest + CompanyFollowedByMember");
     expect(itens).toContain("seguidores atuais · /rest + COMPANY_FOLLOWED_BY_MEMBER");
+  });
+});
+
+describe("uma janela aceita não é uma janela honrada", () => {
+  it("30 dias pedidos com UM balde devolvido não vira profundidade", async () => {
+    // Foi o que a API fez em 730-760: 200, um elemento, e a rodada 3 leu como
+    // "buscável até 760 dias". Trinta baldes em janelas rasas e um na mais
+    // funda é sinal de colapso da série, não de profundidade.
+    const c = fake([
+      [/Acls/, () => aclDe([["ADMINISTRATOR", 100]])],
+      [/FollowerStatistics/, (_ca, o) => {
+        const cru = String(o.cru?.timeIntervals ?? "");
+        if (!cru) return resp({ elements: [{ followerGains: {} }] });
+        const inicio = Number(/start:(\d+)/.exec(cru)?.[1] ?? 0);
+        const dias = Math.round((AGORA.getTime() - inicio) / 86_400_000);
+        const n = dias > 400 ? 1 : 30;   // a mais funda colapsa
+        return resp({ elements: Array.from({ length: n },
+          () => ({ followerGains: { organicFollowerGain: 1 } })) });
+      }],
+    ]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(s.historicoMaisProfundoDias).toBe(395);
+    expect(s.texto).toContain("a série não veio dia a dia");
+  });
+});
+
+describe("o rótulo da página não muda depois de gravado", () => {
+  it("o nome vindo dos detalhes não desalinha as medições", async () => {
+    // O defeito da rodada 3: `rot` era o id, os detalhes preenchiam o nome, e
+    // tudo que procurava por nome depois não achava nada. A seção 4 saiu com
+    // "?" em tudo e o histórico anunciou que ninguém respondeu.
+    const c = fake([
+      [/Acls/, () => resp({ elements: [{
+        role: "ADMINISTRATOR", state: "APPROVED",
+        organizationalTarget: "urn:li:organization:100",
+      }] })],   // SEM decoração: entra sem nome
+      [/\/rest\/organizations/, () => resp({ localizedName: "Ultramalhas" })],
+      [/FollowerStatistics/, () => resp({ elements: Array.from({ length: 30 },
+        () => ({ followerGains: { organicFollowerGain: 1 } })) })],
+    ]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const paginas = new Set(s.medicoes.filter((m) => m.pagina).map((m) => m.pagina));
+    expect(paginas).toEqual(new Set(["Ultramalhas"]));
+    expect(s.cargos[0].alcanca["seguidores"]).toBe("funciona");
+    expect(s.historicoMedidoEm).toBe("Ultramalhas");
+    expect(s.texto).not.toContain("NENHUMA página medida respondeu");
+  });
+
+  it("um nome vindo da ACL legada preenche quem entrou sem nome", async () => {
+    let chamada = 0;
+    const c = fake([[/Acls/, () => {
+      chamada++;
+      return chamada === 1
+        ? resp({ elements: [{ role: "ADMINISTRATOR", state: "APPROVED",
+            organizationalTarget: "urn:li:organization:100" }] })
+        : aclDe([["ADMINISTRATOR", 100]]);
+    }]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(s.organizacoes[0].nome).toBe("Pagina 100");
+  });
+});
+
+describe("o lote não mistura tipos de URN", () => {
+  it("um acervo com share: e ugcPost: não gera lote misto", async () => {
+    // O 400 foi lido como "o lote não funciona"; era um ugcPost mandado no
+    // parâmetro `shares`.
+    const enviados: string[] = [];
+    const c = fake([
+      [/Acls/, () => aclDe([["ADMINISTRATOR", 100]])],
+      [/\/rest\/posts/, (_ca, o) => resp({
+        elements: Number(o.params.start ?? 0) > 0 ? [] : [
+          { id: "urn:li:share:1", createdAt: AGORA.getTime() - 86_400_000 },
+          { id: "urn:li:ugcPost:2", createdAt: AGORA.getTime() - 2 * 86_400_000 },
+          { id: "urn:li:share:3", createdAt: AGORA.getTime() - 3 * 86_400_000 },
+        ] })],
+      [/ShareStatistics/, (_ca, o) => {
+        if (o.cru?.shares) enviados.push(String(o.cru.shares));
+        return resp({ elements: [{ totalShareStatistics: { impressionCount: 5 } }] });
+      }],
+    ]);
+    await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const lote = enviados.find((x) => x.includes(","));
+    expect(lote).toBeDefined();
+    expect(lote).not.toContain("ugcPost");
+  });
+});
+
+describe("as atribuições são contadas uma vez", () => {
+  it("quatro tentativas lendo a MESMA ACL não viram quatro carteiras", async () => {
+    const c = fake([[/Acls/, () => aclDe([["ADMINISTRATOR", 100], ["ADMINISTRATOR", 101]])]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(s.texto).toContain("2 Página(s) para 2 atribuição(ões)");
   });
 });

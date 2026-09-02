@@ -180,6 +180,12 @@ export interface VeredictoDeCargo {
   alcanca: Record<string, Desfecho>;
   /** Capacidade → o que cada página respondeu, quando elas discordam. */
   divergentes: Record<string, string>;
+  /**
+   * `true` quando TODAS as páginas medidas deste cargo também têm outros
+   * cargos. Aí o resultado é da Página, não do cargo — e afirmar o contrário
+   * seria atribuir a um cargo o que pode vir de qualquer um dos outros.
+   */
+  ambiguo: boolean;
 }
 
 export interface SondagemLinkedIn {
@@ -334,6 +340,9 @@ export interface OpcoesSondagem {
 }
 
 /** Quantas páginas se olha procurando uma ATIVA, antes de desistir. */
+/** A rodada da sondagem. Fica no cabeçalho para não confundir dois relatórios. */
+const RODADA = 4;
+
 const TETO_DE_CANDIDATAS = 6;
 
 /** Até onde a sondagem desce na listagem de publicações. Protege a cota. */
@@ -488,14 +497,19 @@ export async function sondarLinkedIn(
       const id = alvo.split(":").pop() ?? "";
       if (!id) continue;
       const papel = el.role ? String(el.role) : null;
+      const det = (el["organizationalTarget~"] ?? {}) as Record<string, unknown>;
       const jaVista = organizacoes.find((x) => x.id === id);
       if (jaVista) {
         // Segundo cargo na MESMA Página. A rodada 2 descartava aqui, e com ele
         // ia embora a existência dos outros três cargos.
         if (papel && !jaVista.papeis.includes(papel)) jaVista.papeis.push(papel);
+        // A chamada SEM projeção passa antes da legada e vem sem decoração: as
+        // Páginas entravam sem nome e o relatório inteiro saía com números de
+        // organização no lugar dos clientes. Quem tiver o nome, preenche.
+        jaVista.nome ??= det.localizedName ? String(det.localizedName) : null;
+        jaVista.vanity ??= det.vanityName ? String(det.vanityName) : null;
         continue;
       }
-      const det = (el["organizationalTarget~"] ?? {}) as Record<string, unknown>;
       organizacoes.push({
         id, urn: alvo || `urn:li:organization:${id}`,
         nome: det.localizedName ? String(det.localizedName) : null,
@@ -506,7 +520,9 @@ export async function sondarLinkedIn(
         atribuidoA: el.roleAssignee ? String(el.roleAssignee) : null,
       });
     }
-    atribuicoes += els.length;
+    // MÁXIMO, não soma: quatro tentativas leem a MESMA ACL, e somar contava
+    // 22 atribuições duas vezes e reportava 44.
+    atribuicoes = Math.max(atribuicoes, els.length);
     reg({
       grupo: "descoberta", item, endpoint: caminho, r,
       vazio: r.ok && els.length === 0,
@@ -629,18 +645,38 @@ export async function sondarLinkedIn(
 
   for (const org of medidas) {
     const urn = org.urn;
-    const rot = org.nome ?? org.id;
     const papel = org.papel;
+
+    // — detalhes da organização, ANTES de qualquer rótulo —
+    //
+    // Aqui morava um defeito silencioso: o rótulo era `org.nome ?? org.id`
+    // calculado ANTES desta chamada, e a chamada preenchia `org.nome`. As
+    // medições ficavam gravadas sob o id enquanto tudo que as procurava depois
+    // usava o nome. Nada casava — e a consequência foi a seção 4 sair com "?"
+    // em todas as capacidades do ADMINISTRATOR, e o histórico anunciar que
+    // "nenhuma página respondeu" logo acima de cinco janelas com 200.
+    const rDetalhes = await cliente.medir<Record<string, unknown>>(
+      `/rest/organizations/${org.id}`, { token: o.token, versao });
+    org.nome ??= rDetalhes.dados?.localizedName
+      ? String(rDetalhes.dados.localizedName) : null;
+
+    // A partir daqui o rótulo é FIXO. Nada mais o altera.
+    const rot = org.nome ?? org.id;
     const porPagina = (x: Parameters<typeof reg>[0]) => reg({ ...x, pagina: rot, papel });
 
-    // — detalhes da organização —
-    {
-      const r = await cliente.medir<Record<string, unknown>>(`/rest/organizations/${org.id}`,
-        { token: o.token, versao });
-      org.nome ??= r.dados?.localizedName ? String(r.dados.localizedName) : null;
-      porPagina({ grupo: "descoberta", item: "detalhes da organização",
-        endpoint: "/rest/organizations", r, campos: campoDe(r.dados) });
-    }
+    porPagina({ grupo: "descoberta", item: "detalhes da organização",
+      endpoint: "/rest/organizations", r: rDetalhes, campos: campoDe(rDetalhes.dados) });
+
+    // O estado da atribuição, do lado do resultado dela. A ACL revelou
+    // atribuições REVOKED na carteira; ver o estado junto do 403 é o que
+    // transforma correlação em resposta.
+    anotar("cargo", `estado da atribuição · ${rot}`,
+      org.estado === "APPROVED" ? "funciona" : "inconclusivo",
+      `${org.papeis.join(" + ") || "sem cargo"} · state=${org.estado ?? "?"}`
+      + (org.papeis.length > 1
+        ? " — esta Página acumula VÁRIOS cargos, então nenhum resultado dela "
+          + "isola um cargo sozinho"
+        : ""));
 
     // — seguidores atuais: TRÊS formas, porque a primeira rodada errou a forma —
     //
@@ -893,14 +929,29 @@ export async function sondarLinkedIn(
       // Se o lote responde, um cliente com 300 posts custa 60 chamadas e não
       // 300. É a diferença entre caber na cota diária e não caber.
       if (ordenados.length >= 2) {
-        const lote = ordenados.slice(0, TAMANHO_DO_LOTE).map((x) => x.urn);
-        const res = await metricasDe(lote,
-          `métricas de ${lote.length} posts numa chamada (lote)`,
-          `pedidos ${lote.length} · decide se a coleta é 1 chamada por post ou por lote`);
-        if (res.ok && res.devolvidos < lote.length) {
+        // Só posts do MESMO tipo de URN. A chave (`ugcPosts` ou `shares`) é
+        // escolhida pelo post mais recente, e uma Página antiga mistura
+        // `share:` com `ugcPost:` — o lote misto voltou 400 dizendo que um
+        // ugcPost era inválido como `shares`, o que parecia "o lote não
+        // funciona" quando o lote funciona.
+        const mesmoTipo = (u: string) =>
+          (u.includes(":ugcPost:") ? "ugcPosts" : "shares") === chave;
+        const lote = ordenados.filter((x) => mesmoTipo(x.urn))
+          .slice(0, TAMANHO_DO_LOTE).map((x) => x.urn);
+        if (lote.length < 2) {
           anotar("publicacoes", `lote em ${rot}`, "inconclusivo",
-            `pedimos ${lote.length} e voltaram ${res.devolvidos} — o lote é aceito, `
-            + "mas nem todo post do lote tem estatística");
+            `menos de dois posts do tipo \`${chave}\` — o acervo mistura URNs `
+            + "e o lote não pôde ser medido nesta Página");
+        } else {
+          const res = await metricasDe(lote,
+            `métricas de ${lote.length} posts numa chamada (lote)`,
+            `pedidos ${lote.length} · todos do tipo \`${chave}\` · decide se a coleta `
+            + "é 1 chamada por post ou por lote");
+          if (res.ok && res.devolvidos < lote.length) {
+            anotar("publicacoes", `lote em ${rot}`, "inconclusivo",
+              `pedimos ${lote.length} e voltaram ${res.devolvidos} — o lote é aceito, `
+              + "mas nem todo post do lote tem estatística");
+          }
         }
       }
 
@@ -983,7 +1034,19 @@ export async function sondarLinkedIn(
         : undefined,
     });
 
-    if (r.ok && els.length > 0) maisProfundo = h.de;
+    // Trinta dias pedidos, trinta baldes devolvidos: a janela foi honrada.
+    // Trinta pedidos e UM devolvido é outra coisa — pode ser o teto da série
+    // sendo colapsado, e chamar isso de "funciona até aqui" seria afirmar
+    // profundidade que não foi medida.
+    const esperados = h.de - h.ate;
+    const completa = els.length >= esperados;
+    if (r.ok && els.length > 0 && completa) maisProfundo = h.de;
+    else if (r.ok && els.length > 0) {
+      anotar("historico", `granularidade em ${h.rotulo}`, "inconclusivo",
+        `pedimos ${esperados} dias em granularidade DAY e voltaram ${els.length} balde(s) — `
+        + "a janela foi aceita mas a série não veio dia a dia; não dá para contar "
+        + "esta profundidade como utilizável");
+    }
     else if (limite === null) {
       // O primeiro horizonte que NÃO devolve. Registrado uma vez; os mais
       // fundos continuam sendo medidos porque um vazio isolado pode ser
@@ -1093,6 +1156,7 @@ function vereditoDeCargos(
       medidas: doPapel.map((m) => m.nome ?? m.id),
       alcanca,
       divergentes,
+      ambiguo: doPapel.length > 0 && doPapel.every((m) => m.papeis.length > 1),
     };
   });
 }
@@ -1151,7 +1215,7 @@ function linhaDetalhada(m: Medicao): string {
 function texto(s: SondagemLinkedIn, agora: Date): string {
   const L: string[] = [];
   const total = s.medicoes.length;
-  L.push(`sondagem LinkedIn · Fase 0 · rodada 2 · ${agora.toISOString().slice(0, 10)}`);
+  L.push(`sondagem LinkedIn · Fase 0 · rodada ${RODADA} · ${agora.toISOString().slice(0, 10)}`);
   L.push(`${cont(s.medicoes, "funciona")}/${total} medições com dado`);
   L.push(`versão da API: ${s.versaoUsada ?? "NENHUMA respondeu"}`);
   L.push(`escopos: ${s.scopes.length ? s.scopes.join(", ") : "não introspectados"}`);
@@ -1193,8 +1257,13 @@ function texto(s: SondagemLinkedIn, agora: Date): string {
   L.push("");
 
   L.push("2. MÉTRICAS QUE CONSEGUIMOS OBTER");
+  // Só o que é métrica. `papéis:`, `estados:` e `66 post(s) em 4 página(s)`
+  // são observações da sondagem, e listá-las aqui faz a seção que responde
+  // "o que dá para mostrar no Spaces" começar com três linhas que não dão.
   const metricas = Array.from(new Set(ok.flatMap((m) => m.valores)
-    .map((v) => v.split("=")[0]).filter((v) => !v.startsWith("seg:"))));
+    .filter((v) => v.includes("=") && !v.startsWith("seg:"))
+    .map((v) => v.split("=")[0])
+    .filter((v) => !v.includes(":") && !/\d/.test(v))));
   L.push(metricas.length ? metricas.map((m) => `   ${m}`).join("\n") : "   nenhuma");
   const segs = Array.from(new Set(ok.flatMap((m) => m.valores)
     .filter((v) => v.startsWith("seg:")).map((v) => v.slice(4))));
@@ -1228,6 +1297,10 @@ function texto(s: SondagemLinkedIn, agora: Date): string {
       continue;
     }
     L.push(`      medido em: ${c.medidas.join(", ")}`);
+    if (c.ambiguo) {
+      L.push("      ATRIBUIÇÃO AMBÍGUA — as Páginas medidas acumulam outros cargos, "
+        + "então o que segue é o alcance DELAS, não deste cargo isoladamente.");
+    }
     for (const [cap, d] of Object.entries(c.alcanca)) {
       L.push(`      ${ROTULO_DESFECHO[d]} ${cap}`
         + (c.divergentes[cap] ? `  ← DIVERGEM: ${c.divergentes[cap]}` : ""));
