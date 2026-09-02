@@ -828,3 +828,25 @@ describe("a seção 8 promete só o que é dado de cliente", () => {
     expect(sec8).not.toContain("profundidade da listagem");
   });
 });
+
+describe("as seções 8 e 9 não se contradizem", () => {
+  it("o que funcionou numa Página sai de 'o que não dá'", async () => {
+    // A rodada 6 listou `seguidores · vitalício` como disponível E como
+    // indisponível, porque uma das quatro Páginas o recusou.
+    const c = fake([
+      [/Acls/, () => aclDe([["ADMINISTRATOR", 100], ["ADMINISTRATOR", 101]])],
+      [/FollowerStatistics/, (_ca, o) =>
+        String(o.params.organizationalEntity).endsWith(":101")
+          ? erro(403, "Viewer has insufficient permissions")
+          : resp({ elements: Array.from({ length: 30 },
+              () => ({ followerGains: { organicFollowerGain: 1 } })) })],
+    ]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const sec9 = s.texto.slice(s.texto.indexOf("9. O QUE NÃO DÁ"),
+      s.texto.indexOf("10. RECOMENDAÇÃO"));
+    expect(sec9).toContain("DEPENDE DA PÁGINA");
+    expect(sec9).toContain("recusado em: Pagina 101");
+    // e não como veredito seco de indisponibilidade
+    expect(sec9).not.toMatch(/^   seguidores · vitalício — /m);
+  });
+});

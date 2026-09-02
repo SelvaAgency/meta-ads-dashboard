@@ -361,7 +361,7 @@ export interface OpcoesSondagem {
 
 /** Quantas páginas se olha procurando uma ATIVA, antes de desistir. */
 /** A rodada da sondagem. Fica no cabeçalho para não confundir dois relatórios. */
-const RODADA = 6;
+const RODADA = 7;
 
 /**
  * Aquele cargo, naquela Página, está APPROVED?
@@ -1508,11 +1508,31 @@ function texto(s: SondagemLinkedIn, agora: Date): string {
   L.push("");
 
   L.push("9. O QUE NÃO DÁ");
-  const naoDa = s.medicoes.filter(
+  // Um item que FUNCIONOU em alguma Página não é "não dá". A rodada 6 listou
+  // `seguidores · vitalício` aqui e na seção 8 ao mesmo tempo, porque uma das
+  // quatro Páginas o recusou. Duas seções em contradição na mesma página do
+  // relatório é pior que uma lacuna.
+  const funcionouEmAlgum = new Set(ok.map((m) => m.item));
+  const bloqueados = s.medicoes.filter(
     (m) => m.desfecho === "sem_permissao" || m.desfecho === "indisponivel");
-  L.push(naoDa.length
-    ? Array.from(new Set(naoDa.map((m) => `   ${m.item} — ${CORRECAO[m.desfecho]}`))).join("\n")
-    : "   nada foi bloqueado por permissão ou indisponibilidade");
+  const nunca = bloqueados.filter((m) => !funcionouEmAlgum.has(m.item));
+  const depende = bloqueados.filter((m) => funcionouEmAlgum.has(m.item));
+
+  L.push(nunca.length
+    ? Array.from(new Set(nunca.map((m) => `   ${m.item} — ${CORRECAO[m.desfecho]}`))).join("\n")
+    : "   nada ficou inacessível em TODAS as Páginas medidas");
+
+  if (depende.length) {
+    L.push("");
+    L.push("   DEPENDE DA PÁGINA — funciona numas e é recusado noutras:");
+    for (const item of Array.from(new Set(depende.map((m) => m.item)))) {
+      const recusaram = Array.from(new Set(
+        depende.filter((m) => m.item === item).map((m) => m.pagina ?? "?")));
+      L.push(`      ${item} — recusado em: ${recusaram.join(", ")}`);
+    }
+    L.push("      Compare com o cargo VIVO de cada uma na seção 4: é ali que a");
+    L.push("      diferença aparece, e não no endpoint.");
+  }
   L.push("");
 
   L.push("10. RECOMENDAÇÃO DE ARQUITETURA DE COLETA");
