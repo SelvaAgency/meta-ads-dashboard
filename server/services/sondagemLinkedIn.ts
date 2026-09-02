@@ -361,7 +361,21 @@ export interface OpcoesSondagem {
 
 /** Quantas páginas se olha procurando uma ATIVA, antes de desistir. */
 /** A rodada da sondagem. Fica no cabeçalho para não confundir dois relatórios. */
-const RODADA = 5;
+const RODADA = 6;
+
+/**
+ * Aquele cargo, naquela Página, está APPROVED?
+ *
+ * Uma Página acumula cargos com estados diferentes: Musa é ADMINISTRATOR
+ * APPROVED e CONTENT_ADMINISTRATOR REVOKED. Perguntar só se a Página tem o
+ * cargo colocou Musa no veredito de CONTENT_ADMINISTRATOR por um cargo que ela
+ * perdeu — e, de quebra, marcou o ADMINISTRATOR como ambíguo por acumular um
+ * cargo morto.
+ */
+export function papelVivo(org: OrganizacaoDescoberta, papel: string): boolean {
+  const i = org.papeis.indexOf(papel);
+  return i !== -1 && org.estados[i] === "APPROVED";
+}
 
 const TETO_DE_CANDIDATAS = 6;
 
@@ -597,12 +611,14 @@ export async function sondarLinkedIn(
   // Estado da atribuição: a hipótese mais barata para "ADMINISTRATOR que não lê
   // estatística". Já vem na ACL — não custa chamada nenhuma, e afirmar sem
   // olhar seria a suposição que o pedido veta.
-  const estados = Array.from(new Set(organizacoes.map((x) => x.estado ?? "?")));
-  anotar("descoberta", "estado das atribuições",
-    estados.length === 1 && estados[0] === "APPROVED" ? "funciona" : "inconclusivo",
-    estados.length === 1 && estados[0] === "APPROVED"
-      ? "todas APPROVED — o estado da atribuição NÃO explica diferença de acesso entre Páginas"
-      : `estados distintos: ${estados.join(", ")} — comparar com quem falhou abaixo`);
+  const porEstado = new Map<string, number>();
+  for (const org of organizacoes) {
+    for (const e of org.estados) porEstado.set(e, (porEstado.get(e) ?? 0) + 1);
+  }
+  anotar("descoberta", "estado das atribuições", "funciona",
+    Array.from(porEstado).map(([e, n]) => `${e}: ${n}`).join(" · ")
+    + " — REVOKED significa que a SELVA foi removida daquela Página; "
+    + "medir ali dá 403 em tudo e não diz nada sobre a API");
 
   if (!organizacoes.length) {
     anotar("cargo", "(todas)", "inconclusivo",
@@ -646,14 +662,20 @@ export async function sondarLinkedIn(
       : "NENHUMA atribuição viva: tudo abaixo mede a carteira, não a API."));
 
   const candidatas = vivas.length ? vivas : organizacoes;
-  const admins = candidatas.filter((x) => x.papeis.includes("ADMINISTRATOR"));
-  const conteudo = candidatas.filter((x) => x.papeis.includes("CONTENT_ADMINISTRATOR"));
+  // Sem NENHUMA atribuição viva, exigir cargo vivo não deixaria nada para
+  // medir — e a sondagem sairia muda em vez de dizer que a carteira está
+  // vencida. Aí o filtro cai para "tem o cargo", e o relatório avisa.
+  const temCargo = (x: OrganizacaoDescoberta, pp: string) =>
+    vivas.length ? papelVivo(x, pp) : x.papeis.includes(pp);
+  const admins = candidatas.filter((x) => temCargo(x, "ADMINISTRATOR"));
+  const conteudo = candidatas.filter((x) => temCargo(x, "CONTENT_ADMINISTRATOR"));
   // Uma Página cujo cargo NÃO é nenhum dos dois principais. Com a dedupe da
   // rodada 2 este balde vinha sempre vazio, e os outros três cargos nunca
   // foram medidos.
-  const outros = candidatas.filter((x) =>
-    x.papeis.length > 0
-    && !x.papeis.includes("ADMINISTRATOR") && !x.papeis.includes("CONTENT_ADMINISTRATOR"));
+  /** Os cargos VIVOS de uma Página. */
+  const vivosDe = (x: OrganizacaoDescoberta) => x.papeis.filter((pp) => temCargo(x, pp));
+  const PRINCIPAIS = new Set(["ADMINISTRATOR", "CONTENT_ADMINISTRATOR"]);
+  const outros = candidatas.filter((x) => vivosDe(x).some((pp) => !PRINCIPAIS.has(pp)));
 
   const medidas: OrganizacaoDescoberta[] = [];
   const teto = o.tetoDeCandidatas ?? TETO_DE_CANDIDATAS;
@@ -694,9 +716,19 @@ export async function sondarLinkedIn(
     const segunda = admins.find((x) => !medidas.some((m) => m.id === x.id));
     if (segunda) medidas.push(segunda);
 
-    // Qualquer outro cargo que exista — LEAD_GEN_FORMS_MANAGER e afins. Medir um
-    // é o que transforma "não sabemos" em resposta.
-    if (outros.length) medidas.push(outros[0]);
+    // Qualquer outro cargo VIVO que ainda não tenha Página medida.
+    //
+    // A rodada 5 deixou três cargos sem veredito porque a única Página que os
+    // tem também é CONTENT_ADMINISTRATOR, e o balde "outros" a excluía por
+    // isso. Aqui a pergunta certa é qual CARGO ainda está descoberto.
+    const cobertos = new Set(medidas.flatMap(vivosDe));
+    for (const cand of outros) {
+      if (medidas.some((m) => m.id === cand.id)) continue;
+      if (!vivosDe(cand).some((pp) => !cobertos.has(pp))) continue;
+      medidas.push(cand);
+      for (const pp of vivosDe(cand)) cobertos.add(pp);
+      break;
+    }
   }
 
   if (!medidas.length) {
@@ -744,7 +776,7 @@ export async function sondarLinkedIn(
       org.papeis.map((pp, i) => `${pp}=${org.estados[i] ?? "?"}`).join(" · ")
       + (org.aprovado ? "" : " — REVOGADA: a SELVA não está mais nesta Página. "
         + "Todo 403 abaixo é sobre a carteira, NÃO sobre a API")
-      + (org.decoracaoFalhou
+      + (org.decoracaoFalhou && !org.nome
         ? " · a ACL nem devolveu o nome da Página (`organizationalTarget!`), "
           + "que é sinal de acesso perdido antes de qualquer chamada"
         : "")
@@ -957,16 +989,21 @@ export async function sondarLinkedIn(
       const maisAntigo = ordenados[ordenados.length - 1];
       const urnDoPost = maisNovo.urn;
       // O parâmetro muda com o tipo de URN, e errar isso devolveria 400 — que
-      // pareceria "não dá para medir post individual" quando dá.
-      const chave = urnDoPost.includes(":ugcPost:") ? "ugcPosts" : "shares";
+      // pareceria "não dá para medir post individual" quando dá. A chave sai de
+      // CADA post: a rodada 5 escolhia pelo mais recente e mandava o mais
+      // antigo (`urn:li:share:`) dentro de `ugcPosts`, o que devolveu 400 em
+      // duas Páginas e apagou justamente a medida de retroatividade.
+      const chaveDe = (u: string) => (u.includes(":ugcPost:") ? "ugcPosts" : "shares");
+      const chave = chaveDe(urnDoPost);
 
       /** Mede um LOTE de posts numa chamada. Um post é o lote de tamanho um. */
       const metricasDe = async (alvos: string[], item: string, nota: string) => {
+        const chaveDoLote = chaveDe(alvos[0]);
         const r = await cliente.medir<{ elements?: Array<Record<string, unknown>> }>(
           "/rest/organizationalEntityShareStatistics", {
             token: o.token, versao,
             params: { q: "organizationalEntity", organizationalEntity: urn },
-            cru: { [chave]: `List(${alvos.map(encodeURIComponent).join(",")})` },
+            cru: { [chaveDoLote]: `List(${alvos.map(encodeURIComponent).join(",")})` },
           });
         const els = r.dados?.elements ?? [];
         const nums = els.length ? numerosDe(els[0].totalShareStatistics ?? els[0]) : [];
@@ -994,7 +1031,8 @@ export async function sondarLinkedIn(
           ? Math.round((agora.getTime() - maisAntigo.em) / 86_400_000) : null;
         const res = await metricasDe([maisAntigo.urn],
           "métricas do post MAIS ANTIGO (retroatividade de conteúdo)",
-          `publicado ${maisAntigo.em ? new Date(maisAntigo.em).toISOString().slice(0, 10) : "?"}`
+          `via \`${chaveDe(maisAntigo.urn)}\` · publicado `
+          + `${maisAntigo.em ? new Date(maisAntigo.em).toISOString().slice(0, 10) : "?"}`
           + (dias !== null ? ` · ${dias} dias atrás` : ""));
         if (res.ok && dias !== null && dias > (retroConteudo ?? -1)) retroConteudo = dias;
       }
@@ -1023,9 +1061,13 @@ export async function sondarLinkedIn(
             `pedidos ${lote.length} · todos do tipo \`${chave}\` · decide se a coleta `
             + "é 1 chamada por post ou por lote");
           if (res.ok && res.devolvidos < lote.length) {
-            anotar("publicacoes", `lote em ${rot}`, "inconclusivo",
-              `pedimos ${lote.length} e voltaram ${res.devolvidos} — o lote é aceito, `
-              + "mas nem todo post do lote tem estatística");
+            // Não é pendência: é uma regra de implementação. O lote responde
+            // por posição variável, então o coletor não pode casar resposta com
+            // pedido por índice — tem de casar pelo `ugcPost` de cada elemento.
+            anotar("publicacoes", `lote parcial em ${rot}`, "funciona",
+              `pedimos ${lote.length} e voltaram ${res.devolvidos} — o lote é aceito e `
+              + "OMITE post sem estatística. O coletor tem de casar pelo URN devolvido, "
+              + "nunca pela ordem do pedido.");
           }
         }
       }
@@ -1186,7 +1228,7 @@ function vereditoDeCargos(
     ["métricas por post", "publicacoes", "métricas por post (impressões, cliques, reações)"],
   ];
   const temPapel = (x: OrganizacaoDescoberta, papel: string) =>
-    papel === "SEM_PAPEL" ? x.papeis.length === 0 : x.papeis.includes(papel);
+    papel === "SEM_PAPEL" ? x.papeis.length === 0 : papelVivo(x, papel);
   const papeis = Array.from(new Set(
     organizacoes.flatMap((x) => (x.papeis.length ? x.papeis : ["SEM_PAPEL"]))));
 
@@ -1234,7 +1276,10 @@ function vereditoDeCargos(
       medidas: doPapel.map((m) => m.nome ?? m.id),
       alcanca,
       divergentes,
-      ambiguo: doPapel.length > 0 && doPapel.every((m) => m.papeis.length > 1),
+      // Ambíguo só se a Página tiver mais de um cargo VIVO. Um cargo revogado
+      // não disputa a autoria do resultado.
+      ambiguo: doPapel.length > 0
+        && doPapel.every((m) => m.papeis.filter((pp) => papelVivo(m, pp)).length > 1),
     };
   });
 }
@@ -1449,7 +1494,15 @@ function texto(s: SondagemLinkedIn, agora: Date): string {
   L.push("");
 
   L.push("8. O QUE DÁ PARA TRAZER PARA O SOCIAL DO SPACES");
-  const trazivel = Array.from(new Set(ok.filter((m) => m.grupo !== "acesso" && m.grupo !== "descoberta")
+  // Só o que entrega DADO de cliente. `estado da atribuição`, `escolha da
+  // página do histórico` e `profundidade da listagem` são instrumentos da
+  // sondagem — listá-los aqui fez a seção que responde "o que aparece no
+  // Spaces" prometer diagnóstico interno.
+  const INSTRUMENTOS = ["estado da atribuição", "escolha da página do histórico",
+    "profundidade da listagem de posts", "granularidade em", "lote parcial em"];
+  const trazivel = Array.from(new Set(ok
+    .filter((m) => m.grupo !== "acesso" && m.grupo !== "descoberta" && m.grupo !== "cargo")
+    .filter((m) => !INSTRUMENTOS.some((i) => m.item.startsWith(i)))
     .map((m) => m.item)));
   L.push(trazivel.length ? trazivel.map((x) => `   ${x}`).join("\n") : "   nada confirmado");
   L.push("");

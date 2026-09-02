@@ -686,3 +686,145 @@ describe("atribuição REVOGADA não é resposta sobre a API", () => {
     expect(s.texto).toContain("nem devolveu o nome da Página");
   });
 });
+
+/**
+ * ─── Rodada 6 ────────────────────────────────────────────────────────────────
+ *  A rodada 5 mediu Páginas vivas e tudo funcionou. O que sobrou foi o relatório
+ *  atribuindo resultado a cargo REVOGADO — e era justamente a pergunta que a
+ *  frente inteira existe para responder.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/** Uma Página com dois cargos e estados diferentes. */
+const aclMista = () => resp({ elements: [
+  { role: "ADMINISTRATOR", state: "APPROVED", roleAssignee: "urn:li:person:me",
+    organizationalTarget: "urn:li:organization:100",
+    "organizationalTarget~": { localizedName: "Musa" } },
+  { role: "CONTENT_ADMINISTRATOR", state: "REVOKED", roleAssignee: "urn:li:person:me",
+    organizationalTarget: "urn:li:organization:100",
+    "organizationalTarget!": { status: 403 } },
+  { role: "CONTENT_ADMINISTRATOR", state: "APPROVED", roleAssignee: "urn:li:person:me",
+    organizationalTarget: "urn:li:organization:200",
+    "organizationalTarget~": { localizedName: "Surf" } },
+] });
+
+describe("o cargo REVOGADO não recebe crédito pelo que a Página entrega", () => {
+  it("uma Página cujo CONTENT_ADMINISTRATOR foi revogado sai do veredito desse cargo", async () => {
+    // A rodada 5 creditou a Musa ao CONTENT_ADMINISTRATOR por um cargo que ela
+    // perdeu — e esse veredito é o que decide se cinco clientes entram.
+    const c = fake([
+      [/Acls/, aclMista],
+      [/FollowerStatistics/, () => resp({ elements: Array.from({ length: 30 },
+        () => ({ followerGains: { organicFollowerGain: 1 } })) })],
+    ]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const conteudo = s.cargos.find((x) => x.papel === "CONTENT_ADMINISTRATOR")!;
+    expect(conteudo.medidas).toEqual(["Surf"]);
+    expect(conteudo.alcanca["seguidores"]).toBe("funciona");
+  });
+
+  it("um cargo morto não torna o cargo vivo ambíguo", async () => {
+    const c = fake([[/Acls/, aclMista]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const admin = s.cargos.find((x) => x.papel === "ADMINISTRATOR")!;
+    expect(admin.medidas).toContain("Musa");
+    expect(admin.ambiguo).toBe(false);
+  });
+
+  it("o aviso de nome ilegível não aparece quando o nome veio", async () => {
+    const c = fake([[/Acls/, aclMista]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const nota = s.medicoes.find((m) => m.item === "estado da atribuição · Musa")?.nota ?? "";
+    expect(nota).toContain("ADMINISTRATOR=APPROVED");
+    expect(nota).toContain("CONTENT_ADMINISTRATOR=REVOKED");
+    expect(nota).not.toContain("nem devolveu o nome");
+  });
+});
+
+describe("um cargo ainda descoberto ganha Página, mesmo compartilhando outra", () => {
+  it("mede a Página que tem o cargo raro, ainda que ela também seja CONTENT_ADMIN", async () => {
+    // A rodada 5 deixou três cargos sem veredito porque a única Página que os
+    // tinha também era CONTENT_ADMINISTRATOR, e o balde "outros" a excluía.
+    const c = fake([[/Acls/, () => resp({ elements: [
+      { role: "ADMINISTRATOR", state: "APPROVED",
+        organizationalTarget: "urn:li:organization:100",
+        "organizationalTarget~": { localizedName: "Musa" } },
+      { role: "CONTENT_ADMINISTRATOR", state: "APPROVED",
+        organizationalTarget: "urn:li:organization:200",
+        "organizationalTarget~": { localizedName: "Surf" } },
+      { role: "CONTENT_ADMINISTRATOR", state: "APPROVED",
+        organizationalTarget: "urn:li:organization:300",
+        "organizationalTarget~": { localizedName: "Rara" } },
+      { role: "LEAD_GEN_FORMS_MANAGER", state: "APPROVED",
+        organizationalTarget: "urn:li:organization:300",
+        "organizationalTarget~": { localizedName: "Rara" } },
+    ] })]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(s.medidas.map((m) => m.nome)).toContain("Rara");
+    expect(s.cargos.find((x) => x.papel === "LEAD_GEN_FORMS_MANAGER")!.medidas)
+      .toEqual(["Rara"]);
+  });
+});
+
+describe("a chave do post sai do PRÓPRIO post", () => {
+  it("um post antigo `share:` não é mandado dentro de `ugcPosts`", async () => {
+    // O 400 que apagou a retroatividade em duas Páginas: a chave vinha do post
+    // mais recente e valia para o mais antigo, de outro tipo.
+    const enviados: Array<Record<string, string>> = [];
+    const c = fake([
+      [/Acls/, () => aclDe([["ADMINISTRATOR", 100]])],
+      [/\/rest\/posts/, (_ca, o) => resp({
+        elements: Number(o.params.start ?? 0) > 0 ? [] : [
+          { id: "urn:li:ugcPost:novo", createdAt: AGORA.getTime() - 86_400_000 },
+          { id: "urn:li:share:velho", createdAt: AGORA.getTime() - 500 * 86_400_000 },
+        ] })],
+      [/ShareStatistics/, (_ca, o) => {
+        if (o.cru) enviados.push(o.cru);
+        return resp({ elements: [{ totalShareStatistics: { impressionCount: 8 } }] });
+      }],
+    ]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const doVelho = enviados.find((x) => JSON.stringify(x).includes("share%3Avelho"));
+    expect(doVelho).toHaveProperty("shares");
+    expect(doVelho).not.toHaveProperty("ugcPosts");
+    expect(s.retroatividadeDeConteudoDias).toBe(500);
+  });
+});
+
+describe("o lote parcial é regra de coleta, não pendência", () => {
+  it("dizer que voltaram menos vira instrução, e sai da lista de pendências", async () => {
+    const c = fake([
+      [/Acls/, () => aclDe([["ADMINISTRATOR", 100]])],
+      [/\/rest\/posts/, (_ca, o) => resp({
+        elements: Number(o.params.start ?? 0) > 0 ? [] : [
+          { id: "urn:li:ugcPost:a", createdAt: AGORA.getTime() - 86_400_000 },
+          { id: "urn:li:ugcPost:b", createdAt: AGORA.getTime() - 2 * 86_400_000 },
+          { id: "urn:li:ugcPost:c", createdAt: AGORA.getTime() - 3 * 86_400_000 },
+        ] })],
+      [/ShareStatistics/, () => resp({
+        elements: [{ ugcPost: "urn:li:ugcPost:a",
+          totalShareStatistics: { impressionCount: 4 } }] })],
+    ]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(s.texto).toContain("casar pelo URN devolvido");
+    const final = s.texto.slice(s.texto.indexOf("O QUE AINDA PRECISAMOS DESCOBRIR"));
+    expect(final).not.toContain("lote parcial");
+  });
+});
+
+describe("a seção 8 promete só o que é dado de cliente", () => {
+  it("instrumento da sondagem não entra em 'o que dá para trazer'", async () => {
+    const c = fake([
+      [/Acls/, () => aclDe([["ADMINISTRATOR", 100]])],
+      [/FollowerStatistics/, () => resp({ elements: Array.from({ length: 30 },
+        () => ({ followerGains: { organicFollowerGain: 1 } })) })],
+    ]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const sec8 = s.texto.slice(s.texto.indexOf("8. O QUE DÁ PARA TRAZER"),
+      s.texto.indexOf("9. O QUE NÃO DÁ"));
+    expect(sec8).toContain("seguidores · vitalício");
+    expect(sec8).not.toContain("estado da atribuição");
+    expect(sec8).not.toContain("escolha da página do histórico");
+    expect(sec8).not.toContain("profundidade da listagem");
+  });
+});
