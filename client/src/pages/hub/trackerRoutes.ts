@@ -47,6 +47,18 @@ export const ROTAS_INTERNAS = [
    * acesso trocaria um caminho quebrado por um buraco de segurança.
    */
   "/rascunho",
+  /**
+   * O Laboratório do LinkedIn — bancada da Fase 1, ao lado do Rascunho.
+   *
+   * Precisa estar AQUI pelo mesmo motivo que o Rascunho: ele mora na sidebar do
+   * Tracker, dentro da caixa "Oculto para colaboradores", e só navega dentro do
+   * iframe se a rota constar desta lista. Fora dela, quem clicasse no item da
+   * sidebar cairia no Tracker genérico, sem erro nenhum na tela.
+   *
+   * Ele NÃO é página do Administrador do Spaces — essa é a distinção com
+   * `/consumo-ia`, que saiu desta lista justamente por ser do portal.
+   */
+  "/linkedin-lab",
   /*
    * ── O que saiu daqui ──────────────────────────────────────────────────────
    * `/consumo-ia`. Ela era interna, e por isso a barra de endereço mostrava

@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { BarraMobile, FundoDaGaveta, BotaoFecharGaveta, classesDaGaveta, useMenuMobile, usePonteiroFino } from "@/components/MenuMobile";
-import { canAccessTrackerSettings, canManageContent } from "@shared/permissions";
+import { canAccessLaboratorio, canAccessTrackerSettings, canManageContent } from "@shared/permissions";
 import { type Fonte, type StatusFonte, type ChaveFonte } from "@shared/fontes";
 import { isEmbedded } from "@/pages/hub/embed";
 import { getLoginUrl } from "@/const";
@@ -15,6 +15,7 @@ import {
   FileText,
   FileSignature,
   FlaskConical,
+  PencilRuler,
   Home,
   LayoutDashboard,
   Link2,
@@ -158,6 +159,8 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
   // Visibilidade temporária: Alertas/Google Ads/Social ficam ocultos para
   // o colaborador. Também desliga as queries de alerta e o sino do topo.
   const isManager = canManageContent(user?.role);
+  /** A porta do laboratório é própria — ver o comentário no item da sidebar. */
+  const podeLaboratorio = canAccessLaboratorio(user?.role);
   const podeConfigurar = canAccessTrackerSettings(user?.role);
 
   const {
@@ -526,7 +529,10 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
             {baseNavItems.map(renderAccountItem)}
 
             {/* ── Oculto para colaboradores (admin/dev) — caixa ÚNICA ──────────
-                Gestão cross-client: Panorama e Alertas. */}
+                Duas naturezas, na mesma caixa: gestão cross-client (Panorama,
+                Alertas) e bancadas fora de produção (Rascunho, LinkedIn Lab).
+                O que as une é o público, e é isso que a caixa comunica — quem
+                está aqui dentro, o colaborador não vê. */}
             {isManager && (
               <HiddenForUsersGroup open={sidebarOpen}>
 
@@ -541,6 +547,46 @@ export function MetaDashboardLayout({ children, title }: MetaDashboardLayoutProp
                       >
                         <Globe className="w-4 h-4 flex-shrink-0" />
                         {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Panorama de Sites</span>}
+                      </div>
+                    </Link>
+                  );
+                })()}
+
+                {/* Rascunho — bancada de peças fora de produção */}
+                {(() => {
+                  const isActive = location === "/rascunho";
+                  return (
+                    <Link href="/rascunho">
+                      <div
+                        className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
+                        style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
+                      >
+                        <PencilRuler className="w-4 h-4 flex-shrink-0" />
+                        {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">Rascunho</span>}
+                      </div>
+                    </Link>
+                  );
+                })()}
+
+                {/*
+                  LinkedIn Lab — bancada de validação da Fase 1.
+
+                  A porta é `canAccessLaboratorio`, e não o `isManager` da
+                  caixa, embora hoje as duas devolvam admin+developer. Ter a
+                  própria é o que permite abrir o laboratório para coordenador
+                  — ou fechá-lo para developer — sem mexer no que Panorama e
+                  Alertas liberam.
+                */}
+                {podeLaboratorio && (() => {
+                  const isActive = location === "/linkedin-lab";
+                  return (
+                    <Link href="/linkedin-lab">
+                      <div
+                        className={`flex items-center ${sidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 rounded-lg cursor-pointer transition-all duration-150 ${!isActive ? HOVER_CLS : ""}`}
+                        style={isActive ? { background: ACTIVE_BG, color: ACTIVE_CLR } : { color: TEXT_NORMAL }}
+                      >
+                        <FlaskConical className="w-4 h-4 flex-shrink-0" />
+                        {sidebarOpen && <span className="text-sm font-medium flex-1 truncate">LinkedIn Lab</span>}
                       </div>
                     </Link>
                   );

@@ -42,7 +42,7 @@ import PeoplePage from "./pages/hub/PeoplePage";
 import JornalzinhoPreview from "./pages/hub/JornalzinhoPreview";
 import ChangePassword from "./pages/hub/ChangePassword";
 import TrelloCallback from "./pages/hub/TrelloCallback";
-import { AdminOnly, AdminOuDevOnly, LaboratorioOnly } from "./pages/hub/AdminOnly";
+import { AdminOnly, AdminOuDevOnly } from "./pages/hub/AdminOnly";
 import { isEmbedded } from "./pages/hub/embed";
 import { urlDoShellPara, destinoDeConexoes } from "./pages/hub/trackerRoutes";
 
@@ -147,18 +147,6 @@ function Router() {
       */}
       <Route path="/consumo-ia" component={() => <AdminOuDevOnly><ConsumoIA /></AdminOuDevOnly>} />
 
-      {/*
-        `/linkedin-lab` — bancada interna da Fase 1 do LinkedIn.
-
-        Primeiro nível, ao lado de `/consumo-ia` e pelo mesmo motivo: não é
-        página do Tracker, não tem conta ativa e não usa o seletor de cliente do
-        BIT. Fora de `ROTAS_INTERNAS` — entrar naquela lista faria a rota
-        redirecionar para o shell e abrir como `/tracker?rota=%2Flinkedin-lab`.
-
-        Invisível para colaborador: não está em menu nenhum, e o link direto
-        para em `LaboratorioOnly`. A proteção real é `laboratorioProcedure`.
-      */}
-      <Route path="/linkedin-lab" component={() => <LaboratorioOnly><LinkedinLab /></LaboratorioOnly>} />
       <Route path="/change-password" component={ChangePassword} />
       <Route path="/trello/callback" component={TrelloCallback} />
 
@@ -223,6 +211,16 @@ function Router() {
         sobre como a peça se comporta.
       */}
       <Route path="/rascunho" component={() => <Interna><Rascunho /></Interna>} />
+      {/*
+        `/linkedin-lab` — bancada da Fase 1 do LinkedIn, irmã do Rascunho.
+
+        `Interna` e não guarda de portal: ela mora na sidebar do Tracker, dentro
+        da caixa "Oculto para colaboradores", e renderiza com o chrome do BIT.
+        A permissão fica DENTRO da página (`canAccessLaboratorio`), como no
+        Rascunho — guarda de rota que desenha o shell do Spaces produziria duas
+        molduras, uma dentro da outra.
+      */}
+      <Route path="/linkedin-lab" component={() => <Interna><LinkedinLab /></Interna>} />
       <Route path="/experiments" component={() => <Interna><Experiments /></Interna>} />
       <Route path="/experiments/:id" component={() => <Interna><ExperimentDetail /></Interna>} />
 

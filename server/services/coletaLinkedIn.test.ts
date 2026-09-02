@@ -112,22 +112,45 @@ describe("a porta do laboratório", () => {
     expect(bloco.match(/laboratorioProcedure/g)?.length).toBeGreaterThanOrEqual(6);
   });
 
-  it("a rota tem guarda de UI própria, e não a de conteúdo", () => {
+  it("a rota renderiza DENTRO do Tracker, como o Rascunho", () => {
+    // Guarda de portal aqui desenharia o shell do Spaces em volta do chrome do
+    // BIT — duas molduras, uma dentro da outra. A permissão mora na página.
     const app = semComentarios(ler("client/src/App.tsx"));
-    expect(app).toMatch(/path="\/linkedin-lab"[\s\S]{0,120}LaboratorioOnly/);
+    expect(app).toMatch(/path="\/linkedin-lab"[\s\S]{0,120}<Interna>/);
+    expect(app).not.toContain("LaboratorioOnly");
   });
 
-  it("a rota NÃO está na allowlist interna do Tracker", () => {
-    // Entrar ali faria a rota redirecionar para o shell e abrir como
-    // `/tracker?rota=%2Flinkedin-lab` — o mesmo defeito que `/consumo-ia` teve.
-    expect(ler("client/src/pages/hub/trackerRoutes.ts")).not.toContain('"/linkedin-lab"');
+  it("a rota ESTÁ na allowlist interna do Tracker", () => {
+    // Sem isto, quem clicasse no item da sidebar cairia no Tracker genérico —
+    // sem erro nenhum na tela. É o oposto de `/consumo-ia`, que saiu da lista
+    // justamente por ser página do portal.
+    expect(ler("client/src/pages/hub/trackerRoutes.ts")).toContain('"/linkedin-lab"');
   });
 
-  it("a permissão é função própria, não `canManageContent` emprestada", () => {
-    const p = semComentarios(ler("shared/permissions.ts"));
-    expect(p).toContain("export function canAccessLaboratorio");
-    const sidebar = semComentarios(ler("client/src/pages/hub/HubSidebar.tsx"));
-    expect(sidebar).toMatch(/linkedin-lab[\s\S]{0,80}canAccessLaboratorio|canAccessLaboratorio[\s\S]{0,80}linkedin-lab/);
+  it("o lugar dele é o Tracker, e não o Administrador do Spaces", () => {
+    const sidebarDoPortal = semComentarios(ler("client/src/pages/hub/HubSidebar.tsx"));
+    expect(sidebarDoPortal).not.toContain("linkedin-lab");
+    // E `/consumo-ia` continua sendo do portal — a distinção é o ponto.
+    expect(sidebarDoPortal).toContain("/consumo-ia");
+
+    const tracker = semComentarios(ler("client/src/components/MetaDashboardLayout.tsx"));
+    expect(tracker).toContain('href="/linkedin-lab"');
+    expect(tracker).toContain('href="/rascunho"');
+  });
+
+  it("a permissão é função própria, e o coordenador fica de fora", () => {
+    const perms = semComentarios(ler("shared/permissions.ts"));
+    expect(perms).toContain("export function canAccessLaboratorio");
+    const corpo = perms.slice(perms.indexOf("export function canAccessLaboratorio"));
+    expect(corpo.slice(0, 200)).not.toContain("coordinator");
+
+    // A porta é a MESMA na sidebar e dentro da página. Dois critérios escritos
+    // separados divergem, e a divergência vira um item que existe e não abre.
+    const tracker = semComentarios(ler("client/src/components/MetaDashboardLayout.tsx"));
+    expect(tracker).toContain("canAccessLaboratorio");
+    const pagina = semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+    expect(pagina).toContain("canAccessLaboratorio");
+    expect(pagina).not.toContain("canManageContent");
   });
 });
 

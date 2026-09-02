@@ -37,6 +37,10 @@ import { trpc } from "@/lib/trpc";
 import type { AppRouter } from "../../../server/routers";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
+import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
+import { SemAcessoTracker } from "@/components/SemAcessoTracker";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { canAccessLaboratorio } from "@shared/permissions";
 import { Button } from "@/components/ui/button";
 import { CurvaHistorica, LeituraDoPonto, type PontoHistorico } from "@/components/redes/GraficosSociais";
 import { COR } from "@shared/coresSociais";
@@ -184,13 +188,26 @@ const ABAS: Array<{ id: Aba; nome: string }> = [
 ];
 
 export default function LinkedinLab() {
+  const { user } = useAuth();
   const [pageId, setPageId] = useState<number | null>(null);
   const [aba, setAba] = useState<Aba>("geral");
   const [dias, setDias] = useState(90);
   const [postAberto, setPostAberto] = useState<string | null>(null);
 
+  /**
+   * A porta, DENTRO da página — como no Rascunho.
+   *
+   * `canAccessLaboratorio` é escrita por extenso (admin + developer) e não
+   * `role !== "user"`: a forma negativa incluiria sozinha qualquer papel novo,
+   * e o coordenador entraria sem ninguém decidir isso.
+   *
+   * Isto é camada de UI. A proteção real é `laboratorioProcedure` no servidor —
+   * e é ela que faz o `enabled: pode` abaixo ser conveniência, e não segurança.
+   */
+  const pode = canAccessLaboratorio((user as { role?: string } | null)?.role);
+
   const vinculosQ = trpc.social.linkedinLab.vinculos.useQuery(undefined, {
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: false, enabled: pode,
   });
   const vinculos = vinculosQ.data ?? [];
   const ativo = pageId ?? vinculos[0]?.id ?? null;
@@ -201,7 +218,7 @@ export default function LinkedinLab() {
   // Sem polling, sem refetch no foco: abrir a página não pode custar chamada.
   const dadosQ = trpc.social.linkedinLab.pagina.useQuery(
     { pageId: ativo ?? 0, de, ate: hoje },
-    { enabled: !!ativo, refetchOnWindowFocus: false, refetchInterval: false },
+    { enabled: pode && !!ativo, refetchOnWindowFocus: false, refetchInterval: false },
   );
 
   const d = dadosQ.data;
@@ -210,8 +227,15 @@ export default function LinkedinLab() {
   const papeis = (pagina?.papeisJson ?? []) as Array<{ papel: string; estado: string }>;
   const status = (pagina?.capacidade ?? "nao_vinculada") as StatusDoVinculo;
 
+  if (!pode) {
+    return (
+      <SemAcessoTracker title="LinkedIn Lab"
+        message="A bancada de validação da integração do LinkedIn é restrita a administradores e desenvolvedores." />
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-background">
+    <MetaDashboardLayout title="LinkedIn Lab">
       <Cabecalho
         vinculos={vinculos}
         ativo={ativo}
@@ -265,7 +289,7 @@ export default function LinkedinLab() {
           aoFechar={() => setPostAberto(null)}
         />
       )}
-    </div>
+    </MetaDashboardLayout>
   );
 }
 
@@ -289,7 +313,7 @@ function Cabecalho({
 
   return (
     <header className="border-b border-border bg-card/40">
-      <div className="max-w-[1400px] mx-auto px-4 md:px-6 py-4 flex flex-col gap-3">
+      <div className="max-w-[1400px] mx-auto px-4 md:px-6 pt-6 pb-4 flex flex-col gap-3">
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-base font-bold tracking-tight flex items-center gap-2">
             <Layers className="w-4 h-4 text-primary" />
