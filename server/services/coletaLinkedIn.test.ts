@@ -488,3 +488,66 @@ describe("a reorganização de produto não escondeu dado", () => {
     expect(s.slice(i, i + 2500)).toContain("TabelaDeFacetas");
   });
 });
+
+describe("o Lab fala a língua do Tracker, não a de uma ferramenta paralela", () => {
+  const pagina = () => semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+
+  it("o cliente vem do Tracker, e não é deduzido pela Página", () => {
+    // A pessoa escolhe o cliente na barra lateral e espera que a tela siga.
+    const s = pagina();
+    expect(s).toContain("useSelectedAccount");
+    expect(s).toContain("v.accountId === selectedAccountId");
+    expect(s).toContain("paginaDeOutroCliente");
+  });
+
+  it("o filtro de período é o MESMO da Social", () => {
+    // Dois filtros de período diferentes no mesmo produto é o primeiro sinal
+    // de ferramenta paralela.
+    const s = pagina();
+    expect(s).toContain("usePeriodFilter");
+    expect(s).toContain("<PeriodFilter period={period} onChange={setPeriod} />");
+    // E o `<select>` de "90 dias" que existia aqui não voltou.
+    expect(s).not.toMatch(/\[7, 30, 90, 365\]\.map/);
+  });
+
+  it("o período vale para KPI, gráfico E publicações", () => {
+    // Um seletor que muda o gráfico e não muda a lista afirma um recorte que a
+    // tela não está aplicando.
+    const s = pagina();
+    expect(s).toContain("const posts = useMemo(() => d.posts.filter");
+    expect(s).toContain("dia >= periodo.de && dia <= periodo.ate");
+  });
+
+  it("as KPIs comparam com o período anterior como a Social", () => {
+    const s = pagina();
+    expect(s).toContain("compararComAnterior");
+    expect(s).toContain("variacao(ganho");
+  });
+
+  it("duas abas, no desenho da Social", () => {
+    const s = pagina();
+    expect(s).toContain("ABAS_DO_PRODUTO");
+    expect(s).toContain("border-accent text-accent font-medium");
+    const i = s.indexOf("const ABAS_DO_PRODUTO");
+    const bloco = s.slice(i, s.indexOf("];", i));
+    expect(bloco).toContain('nome: "Resumo"');
+    expect(bloco).toContain('nome: "Conteúdo"');
+    for (const modulo of ["Evolução", "Formatos", "Audiência"]) {
+      expect(bloco, modulo).not.toContain(`nome: "${modulo}"`);
+    }
+  });
+
+  it("URN e cargo saem da primeira camada", () => {
+    // Identificação técnica ocupava a linha do estado da conexão.
+    const s = pagina();
+    // O que importa é o que o cabeçalho RENDERIZA — o tipo da prop pode
+    // continuar carregando o campo sem que a tela o mostre.
+    const i = s.indexOf("function Cabecalho(");
+    const cabecalho = s.slice(i, s.indexOf("function BotoesDeColeta"));
+    expect(cabecalho).not.toContain("escolhida?.organizationUrn");
+    expect(cabecalho).not.toContain("cargoPrincipal");
+    expect(cabecalho).not.toContain("ADMINISTRATOR");
+    // E continuam inteiros na gaveta técnica.
+    expect(s).toContain('{ id: "identificacao", nome: "Identificação" }');
+  });
+});

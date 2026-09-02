@@ -30,8 +30,8 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle, ChevronDown, ChevronRight, Download, ExternalLink, Image as ImgIcon,
-  Layers, Link2, Linkedin, Loader2, RefreshCw, Search, TrendingDown, TrendingUp,
-  Unlink, Wrench, X,
+  Clapperboard, LayoutDashboard, Link2, Linkedin, Loader2, RefreshCw, Search,
+  TrendingDown, TrendingUp, Unlink, Wrench, X,
 } from "lucide-react";
 import type { inferRouterOutputs } from "@trpc/server";
 import { trpc } from "@/lib/trpc";
@@ -42,6 +42,9 @@ import { MetaDashboardLayout } from "@/components/MetaDashboardLayout";
 import { SemAcessoTracker } from "@/components/SemAcessoTracker";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { canAccessLaboratorio } from "@shared/permissions";
+import { useSelectedAccount } from "@/hooks/useSelectedAccount";
+import { PeriodFilter, getPeriodLabel, usePeriodFilter } from "@/components/PeriodFilter";
+import { compararComAnterior, variacao } from "@shared/periodoAnterior";
 import { Button } from "@/components/ui/button";
 import { CurvaHistorica, LeituraDoPonto, type PontoHistorico } from "@/components/redes/GraficosSociais";
 import { COR } from "@shared/coresSociais";
@@ -270,8 +273,30 @@ export default function LinkedinLab() {
   const [pageId, setPageId] = useState<number | null>(null);
   const [aba, setAba] = useState<Aba>("resumo");
   const [diagnostico, setDiagnostico] = useState(false);
-  const [dias, setDias] = useState(90);
   const [postAberto, setPostAberto] = useState<string | null>(null);
+  const [abaDoProduto, setAbaDoProduto] = useState<AbaDoProduto>("resumo");
+
+  /**
+   * O MESMO filtro da Social, e a mesma origem de período.
+   *
+   * O `<select>` de "90 dias" que estava aqui não era o filtro do Tracker — era
+   * um controle parecido, com outro vocabulário e outro comportamento. Numa
+   * fonte nova do mesmo produto, dois filtros de período diferentes é o
+   * primeiro sinal de ferramenta paralela.
+   */
+  const { period, setPeriod, dateRange } = usePeriodFilter("30d");
+
+  /**
+   * O cliente vem do Tracker, não da Página.
+   *
+   * A pessoa escolhe o cliente na barra lateral e espera que a tela siga. Fazer
+   * ela deduzir o cliente pelo nome da Página do LinkedIn é pedir para ela
+   * fazer a ligação que o produto deveria fazer.
+   */
+  const { selectedAccountId, accounts } = useSelectedAccount();
+  const cliente = useMemo(
+    () => (accounts ?? []).find((a: { id: number }) => a.id === selectedAccountId) ?? null,
+    [accounts, selectedAccountId]);
 
   /**
    * A porta, DENTRO da página — como no Rascunho.
@@ -289,10 +314,13 @@ export default function LinkedinLab() {
     refetchOnWindowFocus: false, enabled: pode,
   });
   const vinculos = vinculosQ.data ?? [];
-  const ativo = pageId ?? vinculos[0]?.id ?? null;
+  /** A Página deste cliente. Sem vínculo, cai na primeira — e a tela diz. */
+  const doCliente = vinculos.find((v) => v.accountId === selectedAccountId) ?? null;
+  const ativo = pageId ?? doCliente?.id ?? vinculos[0]?.id ?? null;
+  const paginaDeOutroCliente = !!ativo && !!selectedAccountId && !doCliente;
 
-  const hoje = new Date().toISOString().slice(0, 10);
-  const de = new Date(Date.now() - dias * 86_400_000).toISOString().slice(0, 10);
+  const de = dateRange.startDate;
+  const hoje = dateRange.endDate;
 
   // Sem polling, sem refetch no foco: abrir a página não pode custar chamada.
   const dadosQ = trpc.social.linkedinLab.pagina.useQuery(
@@ -331,21 +359,47 @@ export default function LinkedinLab() {
         vinculos={vinculos}
         ativo={ativo}
         aoTrocar={(id) => { setPageId(id); setPostAberto(null); }}
-        dias={dias}
-        aoTrocarPeriodo={setDias}
         status={status}
         papeis={papeis}
         carregando={vinculosQ.isLoading}
         onSincronizado={() => { void dadosQ.refetch(); void vinculosQ.refetch(); }}
         logoDaPagina={logoDaPagina}
         ultimaColeta={pagina?.ultimaColetaEm ? dataBr(pagina.ultimaColetaEm) : null}
+        cliente={cliente}
+        paginaDeOutroCliente={paginaDeOutroCliente}
       />
 
       <div className="max-w-[1320px] mx-auto px-6 pt-7 pb-24 flex flex-col gap-[34px]">
-        {/*
-          A camada técnica continua existindo, e continua sendo NOSSA. Ela é a
-          única navegação da página — o produto é uma leitura só, que rola.
-        */}
+        {/* ══ ABAS ══════════════════════════════════════════════════════
+            Mesmo desenho da Social: borda inferior, aba ativa em `accent`. Duas
+            perguntas separadas — "o que aconteceu" e "qual conteúdo explica". */}
+        <div className="flex gap-1 border-b border-border">
+          {ABAS_DO_PRODUTO.map((a) => (
+            <button key={a.id} type="button"
+              onClick={() => { setAbaDoProduto(a.id); setAba("resumo"); }}
+              aria-current={abaDoProduto === a.id && aba === "resumo" ? "page" : undefined}
+              className={`px-4 py-2 text-sm transition-colors duration-150 border-b-2 -mb-px
+                          flex items-center gap-1.5 ${
+                abaDoProduto === a.id && aba === "resumo"
+                  ? "border-accent text-accent font-medium"
+                  : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+              {a.id === "resumo" ? <LayoutDashboard className="w-3.5 h-3.5" />
+                                 : <Clapperboard className="w-3.5 h-3.5" />}
+              {a.nome}
+            </button>
+          ))}
+        </div>
+
+        {/* O filtro vale para as duas abas — KPIs, gráfico e publicações. */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-[11px] text-muted-foreground/60">
+            {abaDoProduto === "resumo"
+              ? "Dados gerais e publicações seguem o período selecionado."
+              : "As análises de conteúdo seguem o período selecionado."}
+          </p>
+          <PeriodFilter period={period} onChange={setPeriod} />
+        </div>
+
         <div className="flex justify-end -mb-[26px]">
           <button type="button" onClick={() => { setDiagnostico((x) => !x); setAba("resumo"); }}
             className={`flex items-center gap-1.5 text-[11px] px-2 py-1 rounded transition-colors ${
@@ -381,12 +435,13 @@ export default function LinkedinLab() {
         {ativo && d && (
           aba === "resumo"
             ? <Resumo d={d} capacidades={capacidades} papeis={papeis} status={status}
-                dias={dias} aoAbrir={setPostAberto} />
+                periodo={{ de, ate: hoje, rotulo: getPeriodLabel(period) }}
+                aba={abaDoProduto} aoAbrir={setPostAberto} />
             : (
               <>
                 {aba === "banco" && <AbaBanco d={d} capacidades={capacidades} />}
                 {aba === "cobertura" && <AbaCobertura d={d} capacidades={capacidades} />}
-                {aba === "serie" && <AbaEvolucao d={d} dias={dias} />}
+                {aba === "serie" && <AbaEvolucao d={d} />}
                 {aba === "publicacoes" && <AbaPublicacoes posts={d.posts} aoAbrir={setPostAberto} />}
                 {aba === "formatos" && <AbaConteudo d={d} aoAbrir={setPostAberto} />}
                 {aba === "segmentacoes" && <AbaAudiencia d={d} />}
@@ -418,8 +473,8 @@ export default function LinkedinLab() {
 /* ── Cabeçalho ─────────────────────────────────────────────────────────── */
 
 function Cabecalho({
-  vinculos, ativo, aoTrocar, dias, aoTrocarPeriodo, status, papeis, carregando, onSincronizado,
-  logoDaPagina, ultimaColeta,
+  vinculos, ativo, aoTrocar, status, papeis, carregando, onSincronizado,
+  logoDaPagina, ultimaColeta, cliente, paginaDeOutroCliente,
 }: {
   vinculos: Array<{
     id: number; nome: string | null; vanityName: string | null;
@@ -427,17 +482,15 @@ function Cabecalho({
   }>;
   ativo: number | null;
   aoTrocar: (id: number) => void;
-  dias: number;
-  aoTrocarPeriodo: (d: number) => void;
   status: StatusDoVinculo;
   papeis: Array<{ papel: string; estado: string }>;
   carregando: boolean;
   onSincronizado: () => void;
   logoDaPagina: string | null;
   ultimaColeta: string | null;
+  cliente: { accountName?: string | null; accountId?: string } | null;
+  paginaDeOutroCliente: boolean;
 }) {
-  const vivos = cargosVivos(papeis);
-  const principal = cargoPrincipal(papeis);
   const escolhida = vinculos.find((v) => v.id === ativo) ?? null;
 
   return (
@@ -453,16 +506,18 @@ function Cabecalho({
               : <Linkedin className="w-5 h-5" strokeWidth={2.2} />}
           </span>
           <div className="min-w-0 flex flex-col leading-tight">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              LinkedIn
-            </span>
+            {/* CLIENTE primeiro — é assim que a Social abre, e é o que a pessoa
+                escolheu na barra lateral. Fazê-la deduzir o cliente pelo nome
+                da Página é pedir a ligação que o produto deveria fazer. */}
             <h1 className="text-xl font-bold tracking-[-0.02em] truncate">
-              {escolhida ? rotuloDaPagina(escolhida) : "—"}
+              {cliente?.accountName ?? cliente?.accountId ?? "Nenhum cliente selecionado"}
             </h1>
-            <span className="text-[11.5px] text-muted-foreground">
-              {ultimaColeta
-                ? `Conectado · última sincronização em ${ultimaColeta}`
-                : "Ainda sem sincronização"}
+            <span className="text-[12px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
+              <span className="font-semibold text-[#0A66C2] dark:text-[#5FA8E8]">LinkedIn</span>
+              <span className="text-border">·</span>
+              <span>{escolhida ? rotuloDaPagina(escolhida) : "sem Página vinculada"}</span>
+              {ultimaColeta && <><span className="text-border">·</span>
+                <span>sincronizado em {ultimaColeta}</span></>}
             </span>
           </div>
           <span className="text-[9.5px] font-mono uppercase tracking-[0.12em] px-1.5 py-0.5 rounded border border-border text-muted-foreground/70 mt-0.5">
@@ -486,47 +541,26 @@ function Cabecalho({
             </select>
           </label>
 
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Período</span>
-            <select
-              className="h-8 rounded border border-border bg-background px-2 text-[13px]"
-              value={dias}
-              onChange={(e) => aoTrocarPeriodo(Number(e.target.value))}
-            >
-              {[7, 30, 90, 365].map((n) => (
-                <option key={n} value={n}>{n} dias</option>
-              ))}
-            </select>
-          </label>
-
-          {/* O URN fica logo abaixo do nome: técnico e importante, mas
-              secundário — a pessoa escolhe pelo nome e confere pelo URN. */}
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Identificação</span>
-            <div className="h-8 flex flex-col justify-center leading-tight">
-              <span className="text-[11px] font-mono text-muted-foreground break-all">
-                {escolhida?.organizationUrn ?? "—"}
-              </span>
-              {escolhida?.vanityName && (
-                <span className="text-[10px] text-muted-foreground/70">/{escolhida.vanityName}</span>
-              )}
-            </div>
-          </div>
-
+          {/*
+            URN e cargo saíram daqui. Eles são identificação técnica, e no topo
+            de um módulo do Tracker ocupavam a linha onde deveria estar o
+            estado da conexão. Continuam inteiros em Dados da integração.
+          */}
           <div className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Conexão</span>
             <div className="h-8 flex items-center gap-2 text-[13px]">
               <span className={`font-semibold ${TOM_VINCULO[status]}`}>
                 {ROTULO_VINCULO[status]}
               </span>
-              {principal && (
-                <span className="text-muted-foreground text-[12px]">
-                  · {principal}
-                  {vivos.length > 1 && ` +${vivos.length - 1}`}
-                </span>
-              )}
             </div>
           </div>
+
+          {paginaDeOutroCliente && (
+            <span className="text-[11px] text-amber-600 dark:text-amber-500 self-center"
+              title="Nenhuma Página do LinkedIn está vinculada ao cliente selecionado no Tracker">
+              Página de outro cliente
+            </span>
+          )}
 
           <div className="ml-auto">
             {ativo && <BotoesDeColeta pageId={ativo} onPronto={onSincronizado} />}
@@ -920,8 +954,9 @@ type Serie = Dados["serie"];
  */
 interface Metrica { id: string; nome: string; unidade: string; cor: string }
 
-function AbaEvolucao({ d, dias }: { d: Dados; dias: number }) {
+function AbaEvolucao({ d }: { d: Dados }) {
   const serie = d.serie;
+  const dias = serie.length;
 
   /** As métricas que EXISTEM nos dados — nenhuma inventada, nenhuma escondida. */
   const grupos = useMemo((): Array<{ grupo: string; metricas: Metrica[] }> => {
@@ -2658,8 +2693,8 @@ function KpiGrande({ rotulo, valor, unidade, nota, motivo, variacao, aoClicar }:
   );
 }
 
-function DadosGerais({ d, capacidades }: {
-  d: Dados; capacidades: MapaDeCapacidades;
+function DadosGerais({ d, capacidades, periodo }: {
+  d: Dados; capacidades: MapaDeCapacidades; periodo: Periodo;
 }) {
   const org = (d.lifetime?.organizacaoJson ?? null) as Record<string, unknown> | null;
   const agregado = (d.lifetime?.agregadoDePostsJson as
@@ -2685,9 +2720,23 @@ function DadosGerais({ d, capacidades }: {
   const melhor = [...comMetrica].sort((a, b) =>
     Number(b.metrica?.engagement ?? 0) - Number(a.metrica?.engagement ?? 0))[0] ?? null;
 
-  const dias = d.serie.length;
-  const periodo = d.serie.length
-    ? `${dataBr(d.serie[0].dia)} → ${dataBr(d.serie[d.serie.length - 1].dia)}` : null;
+  /**
+   * A comparação com o período anterior — o mesmo `compararComAnterior` que a
+   * Social usa, e pelo mesmo motivo: janela de calendário do mesmo tamanho,
+   * não "os N registros anteriores". Com buracos de coleta, contar registros
+   * esticaria a janela para trás sem ninguém notar.
+   */
+  const comp = (ler: (x: Serie[number]) => number | null) => {
+    const c = compararComAnterior(
+      d.serie.map((x) => ({ dia: x.dia })) as never,
+      { inicio: periodo.de, fim: periodo.ate },
+      (dia) => ler(d.serie.find((x) => x.dia === (dia as { dia: string }).dia)!),
+    );
+    return c;
+  };
+  const varGanho = ganho !== null ? variacao(ganho, comp((x) => x.ganhoOrganico)) : null;
+  const varViews = views !== null ? variacao(views, comp(
+    (x) => (x.viewsJson as Record<string, number> | null)?.["views.allPageViews.pageViews"] ?? null)) : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -2699,12 +2748,15 @@ function DadosGerais({ d, capacidades }: {
           nota={comSeguidores.length ? `medido em ${dataBr(comSeguidores[comSeguidores.length - 1].dia)}` : null} />
         <KpiGrande rotulo="Crescimento no período" valor={ganho} unidade="seguidores"
           motivo={capacidades.seguidores_serie?.motivo}
+          variacao={varGanho !== null ? Math.round(varGanho) : null}
           nota={`orgânico · ${d.serie.filter((x) => x.ganhoOrganico !== null).length} dia(s) medido(s)`} />
         <KpiGrande rotulo="Visualizações da Página" valor={views}
           motivo={capacidades.pagina_serie?.motivo}
-          nota="allPageViews no período" />
+          variacao={varViews !== null ? Math.round(varViews) : null}
+          nota={`no período · ${periodo.rotulo.toLowerCase()}`} />
         <KpiGrande rotulo="Publicações" valor={d.posts.length || null}
-          nota={`${comMetrica.length} com métricas` } />
+          nota={`${comMetrica.length} com métricas · ${periodo.rotulo.toLowerCase()}`}
+          motivo={d.posts.length ? null : "nenhuma publicação neste período"} />
         <KpiGrande rotulo="Impressões" valor={impressoes || null}
           nota={`somadas de ${comMetrica.length} publicação(ões)`}
           motivo={comMetrica.length ? null : "nenhuma publicação com métrica"} />
@@ -2820,19 +2872,62 @@ function Secao({ titulo, nota, acao, children, semPadding }: {
   );
 }
 
-function Resumo({ d, capacidades, papeis, status, dias, aoAbrir }: {
+export interface Periodo { de: string; ate: string; rotulo: string }
+
+/** Duas, e só duas — as mesmas perguntas que a Social separa. */
+export type AbaDoProduto = "resumo" | "conteudo";
+const ABAS_DO_PRODUTO: Array<{ id: AbaDoProduto; nome: string }> = [
+  { id: "resumo", nome: "Resumo" },
+  { id: "conteudo", nome: "Conteúdo" },
+];
+
+/**
+ * Duas abas, como a Social — e pelo mesmo motivo.
+ *
+ *   RESUMO    o que aconteceu com esta Página no período?
+ *   CONTEÚDO  qual conteúdo explica isso?
+ *
+ * A rolagem única misturava as duas perguntas. Blocos que respondem a segunda
+ * (formatos, publicações) empurravam para baixo da dobra os que respondem a
+ * primeira.
+ */
+function Resumo({ d, capacidades, papeis, status, periodo, aba, aoAbrir }: {
   d: Dados; capacidades: MapaDeCapacidades;
   papeis: Array<{ papel: string; estado: string }>;
-  status: StatusDoVinculo; dias: number; aoAbrir: (urn: string) => void;
+  status: StatusDoVinculo; periodo: Periodo; aba: AbaDoProduto;
+  aoAbrir: (urn: string) => void;
 }) {
+  /**
+   * As publicações DO PERÍODO.
+   *
+   * O filtro precisa valer para tudo — KPI, gráfico e publicação. Um seletor
+   * que muda o gráfico e não muda a lista é pior que nenhum seletor: ele
+   * afirma um recorte que a tela não está aplicando.
+   */
+  const posts = useMemo(() => d.posts.filter((p) => {
+    if (!p.publicadoEm) return false;
+    const dia = new Date(p.publicadoEm).toISOString().slice(0, 10);
+    return dia >= periodo.de && dia <= periodo.ate;
+  }), [d.posts, periodo]);
+
+  const noPeriodo = { ...d, posts };
+
+  if (aba === "conteudo") {
+    return (
+      <div className="flex flex-col gap-[34px]">
+        <ConteudoDoPeriodo d={noPeriodo} periodo={periodo} aoAbrir={aoAbrir} completo />
+        <ComoEstamosPublicando d={noPeriodo} periodo={periodo} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-[34px]">
-      <DadosGerais d={d} capacidades={capacidades} />
-      <MovimentoDaPagina d={d} dias={dias} />
-      <ConteudoDoPeriodo d={d} aoAbrir={aoAbrir} />
-      <ComoEstamosPublicando d={d} aoAbrir={aoAbrir} />
-      <QuemAcompanhaAMarca d={d} />
-      <SobreAPagina d={d} papeis={papeis} status={status} />
+      <DadosGerais d={noPeriodo} capacidades={capacidades} periodo={periodo} />
+      <MovimentoDaPagina d={noPeriodo} periodo={periodo} />
+      <ConteudoDoPeriodo d={noPeriodo} periodo={periodo} aoAbrir={aoAbrir} />
+      <QuemAcompanhaAMarca d={noPeriodo} />
+      <SobreAPagina d={noPeriodo} papeis={papeis} status={status} />
     </div>
   );
 }
@@ -2847,7 +2942,7 @@ function Resumo({ d, capacidades, papeis, status, dias, aoAbrir }: {
  * leitura. As quatro que importam ficam aqui; as outras 47 continuam inteiras
  * em Dados da integração, onde inventário é o que se procura.
  */
-function MovimentoDaPagina({ d, dias }: { d: Dados; dias: number }) {
+function MovimentoDaPagina({ d, periodo }: { d: Dados; periodo: Periodo }) {
   const serie = d.serie;
   const [metrica, setMetrica] = useState("ganhoOrganico");
   const [ativo, setAtivo] = useState<number | null>(null);
@@ -2892,8 +2987,8 @@ function MovimentoDaPagina({ d, dias }: { d: Dados; dias: number }) {
   return (
     <Secao titulo="Movimento da página"
       nota={pontos.length >= 2
-        ? `${pontos.length} dias medidos nos últimos ${dias}`
-        : "sem série suficiente no período"}
+        ? `${pontos.length} dia(s) medido(s) · ${periodo.rotulo.toLowerCase()}`
+        : `sem série suficiente em ${periodo.rotulo.toLowerCase()}`}
       acao={
         <div className="flex items-center gap-3 flex-wrap justify-end">
           {ativo !== null && pontos[ativo] && m && (
@@ -2938,24 +3033,41 @@ function MovimentoDaPagina({ d, dias }: { d: Dados; dias: number }) {
 
 type OrdemDoConteudo = "desempenho" | "recentes";
 
-function ConteudoDoPeriodo({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string) => void }) {
+function ConteudoDoPeriodo({ d, periodo, aoAbrir, completo = false }: {
+  d: Dados; periodo: Periodo; aoAbrir: (urn: string) => void;
+  /** Na aba Conteúdo a grade mostra tudo; no Resumo, os oito primeiros. */
+  completo?: boolean;
+}) {
   const [ordem, setOrdem] = useState<OrdemDoConteudo>("desempenho");
+  const [formato, setFormato] = useState("todos");
 
   const lista = useMemo(() => {
     const eng = (p: Publicacao) =>
       p.metrica?.engagement != null ? Number(p.metrica.engagement) : null;
     const quando = (p: Publicacao) => (p.publicadoEm ? new Date(p.publicadoEm).getTime() : 0);
-    return [...d.posts].sort((a, b) => ordem === "recentes"
+    const filtradas = formato === "todos" ? d.posts
+      : d.posts.filter((p) => lerConteudo(p.contentJson, !!p.commentary).tipo === formato);
+    const ordenada = [...filtradas].sort((a, b) => ordem === "recentes"
       ? quando(b) - quando(a)
-      : (eng(b) ?? -1) - (eng(a) ?? -1)).slice(0, 8);
-  }, [d.posts, ordem]);
+      : (eng(b) ?? -1) - (eng(a) ?? -1));
+    return completo ? ordenada : ordenada.slice(0, 8);
+  }, [d.posts, ordem, formato, completo]);
 
   const comMetrica = d.posts.filter((p) => typeof p.metrica?.impressions === "number").length;
 
   return (
     <Secao titulo="Conteúdo do período"
-      nota={`${d.posts.length} publicações · ${comMetrica} com métricas`}
+      nota={`${d.posts.length} publicação(ões) em ${periodo.rotulo.toLowerCase()} · ${comMetrica} com métricas`}
       acao={
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+        {completo && (
+          <select className="h-7 rounded-md border border-border bg-background px-2 text-[11px]"
+            value={formato} onChange={(e) => setFormato(e.target.value)}>
+            <option value="todos">Todos os formatos</option>
+            {Array.from(new Set(d.posts.map((p) => lerConteudo(p.contentJson, !!p.commentary).tipo)))
+              .map((t) => <option key={t} value={t}>{ROTULO_CONTEUDO[t]}</option>)}
+          </select>
+        )}
         <div className="flex gap-0.5 p-0.5 rounded-lg bg-muted/60">
           {([["desempenho", "Melhor desempenho"], ["recentes", "Mais recentes"]] as const).map(([id, nome]) => (
             <button key={id} type="button" onClick={() => setOrdem(id)}
@@ -2964,6 +3076,7 @@ function ConteudoDoPeriodo({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string) =>
               {nome}
             </button>
           ))}
+        </div>
         </div>
       }>
       {lista.length ? (
@@ -2974,8 +3087,13 @@ function ConteudoDoPeriodo({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string) =>
           ))}
         </div>
       ) : (
-        <div className="py-10 text-center text-[13px] text-muted-foreground">
-          Nenhuma publicação coletada nesta Página.
+        <div className="py-10 text-center flex flex-col gap-1">
+          <span className="text-[13px] font-medium">
+            Nenhuma publicação em {periodo.rotulo.toLowerCase()}
+          </span>
+          <span className="text-[11.5px] text-muted-foreground">
+            Amplie o período — a coleta guarda publicações desde 2020 nesta carteira.
+          </span>
         </div>
       )}
     </Secao>
@@ -2991,7 +3109,7 @@ function ConteudoDoPeriodo({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string) =>
  * que imagem funcione. Por isso o engajamento vem ao lado, com o denominador:
  * "25 publicações · 12 medidas · 4,2%" é honesto; "25 · 4,2%" não é.
  */
-function ComoEstamosPublicando({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string) => void }) {
+function ComoEstamosPublicando({ d, periodo }: { d: Dados; periodo: Periodo }) {
   const linhas = useMemo(() => {
     const por = new Map<string, Publicacao[]>();
     for (const p of d.posts) {
@@ -3011,14 +3129,7 @@ function ComoEstamosPublicando({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string
 
   return (
     <Secao titulo="Como estamos publicando"
-      nota="formato identificado no que o LinkedIn devolveu"
-      acao={
-        <Button size="sm" variant="ghost" className="h-6 text-[10.5px] px-2"
-          onClick={() => aoAbrir("")}>
-          {/* Sem ação destrutiva: só um atalho para o detalhe, e ele existe
-              porque a tabela é resumo, não a lista completa. */}
-        </Button>
-      }>
+      nota={`formato identificado · ${periodo.rotulo.toLowerCase()}`}>
       <div className="flex flex-col">
         {linhas.map((x) => (
           <div key={x.tipo}
