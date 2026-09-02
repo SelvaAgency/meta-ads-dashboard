@@ -339,3 +339,184 @@ describe("numerosDe expõe a estrutura real", () => {
     expect(numerosDe({ a: "x", b: null, c: [1, 2] })).toEqual([]);
   });
 });
+
+/**
+ * ─── Rodada 3 ────────────────────────────────────────────────────────────────
+ *  A rodada 2 mediu bem e concluiu mal. Três defeitos de LEITURA, não de coleta:
+ *  o histórico foi perguntado à única página que respondia 403 a tudo; o
+ *  veredito de cargo leu uma página e contradisse outra do mesmo cargo no mesmo
+ *  relatório; e a dedupe por Página apagou três dos cinco cargos existentes.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/** ACL com controle fino: cargo, página e estado por atribuição. */
+const aclDe = (linhas: Array<[string, number]>, estado = "APPROVED") => resp({
+  elements: linhas.map(([role, org]) => ({
+    role, state: estado, roleAssignee: "urn:li:person:me",
+    organizationalTarget: `urn:li:organization:${org}`,
+    "organizationalTarget~": { localizedName: `Pagina ${org}` },
+  })),
+});
+
+describe("o histórico vai à página que RESPONDE", () => {
+  /** 100 bloqueia estatística; 101 responde. 100 é a primeira medida. */
+  const carteira = () => fake([
+    [/Acls/, () => aclDe([["ADMINISTRATOR", 100], ["ADMINISTRATOR", 101]])],
+    [/\/rest\/posts/, (_c, o) => resp({
+      elements: String(o.params.author).endsWith(":100")
+        ? [{ id: "urn:li:ugcPost:1", createdAt: 1_780_000_000_000 }] : [] })],
+    [/FollowerStatistics/, (_c, o) =>
+      String(o.params.organizationalEntity).endsWith(":100")
+        ? erro(403, "Viewer has insufficient permissions")
+        : resp({ elements: [{ followerGains: { organicFollowerGain: 4 } }] })],
+  ]);
+
+  it("não repete cinco vezes o 403 da primeira página", async () => {
+    // O defeito exato: `medidas[0]` era a página bloqueada, e as cinco janelas
+    // mediram o bloqueio em vez do histórico.
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, carteira());
+    const janelas = s.medicoes.filter((m) => m.grupo === "historico" && m.item.startsWith("seguidores"));
+    expect(janelas).toHaveLength(5);
+    expect(janelas.every((m) => m.pagina === "Pagina 101")).toBe(true);
+    expect(s.historicoMedidoEm).toBe("Pagina 101");
+  });
+
+  it("com a página certa, a retroatividade deixa de ser INCONCLUSIVA", async () => {
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, carteira());
+    expect(s.historicoMaisProfundoDias).toBe(760);
+  });
+
+  it("se NENHUMA responde, diz isso em vez de fingir medição", async () => {
+    const c = fake([
+      [/Acls/, () => aclDe([["ADMINISTRATOR", 100]])],
+      [/FollowerStatistics/, () => erro(403, "Viewer has insufficient permissions")],
+    ]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(s.texto).toContain("NENHUMA página medida respondeu");
+    expect(s.historicoMaisProfundoDias).toBeNull();
+  });
+});
+
+describe("o veredito de cargo não escolhe um exemplo", () => {
+  it("páginas do MESMO cargo que discordam derrubam o veredito", async () => {
+    // A rodada 2 afirmou 'ADMINISTRATOR não lê seguidores' com uma
+    // ADMINISTRATOR lendo seguidores três seções acima.
+    const c = fake([
+      [/Acls/, () => aclDe([["ADMINISTRATOR", 100], ["ADMINISTRATOR", 101]])],
+      [/FollowerStatistics/, (_ca, o) =>
+        String(o.params.organizationalEntity).endsWith(":100")
+          ? erro(403, "Viewer has insufficient permissions")
+          : resp({ elements: [{ followerGains: { organicFollowerGain: 4 } }] })],
+    ]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const admin = s.cargos.find((x) => x.papel === "ADMINISTRATOR")!;
+    expect(admin.medidas).toHaveLength(2);
+    expect(admin.alcanca["seguidores"]).toBe("inconclusivo");
+    expect(admin.divergentes["seguidores"]).toContain("Pagina 100");
+    expect(s.texto).toContain("NÃO é dada pelo cargo");
+  });
+
+  it("concordância vira veredito de verdade", async () => {
+    const c = fake([
+      [/Acls/, () => aclDe([["ADMINISTRATOR", 100], ["ADMINISTRATOR", 101]])],
+      [/FollowerStatistics/, () => resp({ elements: [{ followerGains: { organicFollowerGain: 4 } }] })],
+    ]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const admin = s.cargos.find((x) => x.papel === "ADMINISTRATOR")!;
+    expect(admin.alcanca["seguidores"]).toBe("funciona");
+    expect(admin.divergentes).toEqual({});
+  });
+
+  it("uma página sem publicação não vira veredito sobre o cargo", async () => {
+    const c = fake([[/Acls/, () => aclDe([["ADMINISTRATOR", 100]])]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const admin = s.cargos.find((x) => x.papel === "ADMINISTRATOR")!;
+    expect(admin.alcanca["métricas por post"]).not.toBe("indisponivel");
+  });
+});
+
+describe("dois cargos na mesma Página", () => {
+  it("o segundo cargo não é descartado pela dedupe", async () => {
+    // 22 atribuições viraram 16 Páginas com 2 cargos, e três cargos sumiram.
+    const c = fake([[/Acls/, () => aclDe([
+      ["ADMINISTRATOR", 100], ["LEAD_GEN_FORMS_MANAGER", 100],
+      ["DIRECT_SPONSORED_CONTENT_POSTER", 100],
+    ])]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(s.organizacoes[0].papeis).toEqual([
+      "ADMINISTRATOR", "LEAD_GEN_FORMS_MANAGER", "DIRECT_SPONSORED_CONTENT_POSTER"]);
+    expect(s.cargos.map((x) => x.papel)).toContain("LEAD_GEN_FORMS_MANAGER");
+  });
+
+  it("uma Página só com outro cargo é medida", async () => {
+    const c = fake([[/Acls/, () => aclDe([
+      ["ADMINISTRATOR", 100], ["LEAD_GEN_FORMS_MANAGER", 200]])]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(s.medidas.map((m) => m.id)).toContain("200");
+  });
+
+  it("o estado das atribuições é reportado, não suposto", async () => {
+    const c = fake([[/Acls/, () => aclDe([["ADMINISTRATOR", 100]], "PENDING")]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(s.medicoes.find((m) => m.item === "estado das atribuições")?.nota)
+      .toContain("PENDING");
+  });
+});
+
+describe("as DUAS retroatividades", () => {
+  /** Vinte posts, o mais antigo de 400 dias atrás, com métrica. */
+  const comAcervo = () => fake([
+    [/Acls/, () => aclDe([["ADMINISTRATOR", 100]])],
+    [/\/rest\/posts/, (_c, o) => resp({
+      elements: Number(o.params.start ?? 0) > 0 ? [] : [
+        { id: "urn:li:ugcPost:novo", createdAt: AGORA.getTime() - 2 * 86_400_000 },
+        { id: "urn:li:ugcPost:velho", createdAt: AGORA.getTime() - 400 * 86_400_000 },
+      ] })],
+    [/ShareStatistics/, () => resp({
+      elements: [{ totalShareStatistics: { impressionCount: 90, clickCount: 3 } }] })],
+  ]);
+
+  it("o post mais antigo é medido, e vira a retroatividade de conteúdo", async () => {
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, comAcervo());
+    const antigo = s.medicoes.find((m) => m.item.includes("MAIS ANTIGO"))!;
+    expect(antigo.desfecho).toBe("funciona");
+    expect(s.retroatividadeDeConteudoDias).toBe(400);
+    expect(s.texto).toContain("AINDA devolve métricas");
+  });
+
+  it("o lote é medido — é ele que decide o custo da coleta", async () => {
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, comAcervo());
+    expect(s.medicoes.some((m) => m.item.includes("numa chamada (lote)"))).toBe(true);
+  });
+
+  it("a listagem desce até acabar, e diz onde acabou", async () => {
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, comAcervo());
+    const prof = s.medicoes.find((m) => m.item === "profundidade da listagem de posts");
+    expect(prof?.nota).toContain("a listagem ACABOU aqui");
+  });
+});
+
+describe("o 400 do organizationAcls é isolado, não deduzido", () => {
+  it("desce até a chamada sem projeção nenhuma", async () => {
+    const vistos: Array<Record<string, string>> = [];
+    const c = fake([[/organizationAcls/, (_ca, o) => {
+      vistos.push(o.params);
+      return o.params.fields ? erro(400, "Invalid projection parameter") : aclDe([["ADMINISTRATOR", 100]]);
+    }], [/organizationalEntityAcls/, () => aclDe([["ADMINISTRATOR", 100]])]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    expect(vistos.some((p) => p.fields?.includes("~"))).toBe(true);
+    expect(vistos.some((p) => p.fields === "(elements*(*))")).toBe(true);
+    expect(vistos.some((p) => !p.fields)).toBe(true);
+    expect(s.medicoes.find((m) => m.item.includes("sem projeção"))?.desfecho).toBe("funciona");
+  });
+});
+
+describe("o edgeType do networkSizes versionado", () => {
+  it("os dois valores do enum são medidos", async () => {
+    const c = fake([[/Acls/, () => aclDe([["ADMINISTRATOR", 100]])]]);
+    const s = await sondarLinkedIn({ token: "t", agora: AGORA }, c);
+    const itens = s.medicoes.filter((m) => m.item.startsWith("seguidores atuais")).map((m) => m.item);
+    expect(itens).toContain("seguidores atuais · /rest + CompanyFollowedByMember");
+    expect(itens).toContain("seguidores atuais · /rest + COMPANY_FOLLOWED_BY_MEMBER");
+  });
+});

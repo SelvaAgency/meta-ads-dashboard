@@ -145,18 +145,41 @@ export interface OrganizacaoDescoberta {
   urn: string;
   nome: string | null;
   vanity: string | null;
+  /** O cargo principal — o primeiro que a ACL devolveu para esta Página. */
   papel: string | null;
+  /**
+   * TODOS os cargos deste membro nesta Página.
+   *
+   * A rodada 2 deduplicava por Página e descartava o resto: a ACL devolveu 22
+   * atribuições com cinco cargos distintos, e a sondagem reportou dezesseis
+   * Páginas com dois cargos. Os três cargos que sumiram eram segundos cargos
+   * em Páginas já vistas — e por isso nenhuma Página de "outro cargo" foi
+   * medida.
+   */
+  papeis: string[];
   estado: string | null;
+  /** `roleAssignee` — a quem o cargo está atribuído. */
+  atribuidoA: string | null;
 }
 
 /** O que se descobriu sobre um cargo, medindo — e não lendo documentação. */
 export interface VeredictoDeCargo {
   papel: string;
   paginasComEssePapel: number;
-  /** A página usada para medir. `null` quando não havia nenhuma com o cargo. */
-  medida: string | null;
-  /** Por capacidade: o que esse cargo alcança de fato. */
+  /** TODAS as páginas medidas com esse cargo. Vazio quando não havia nenhuma. */
+  medidas: string[];
+  /**
+   * Por capacidade: o consenso entre as páginas medidas com esse cargo.
+   *
+   * `inconclusivo` quando elas DIVERGEM — porque aí a capacidade não é do
+   * cargo. A rodada 2 lia só a primeira página do cargo e afirmou que
+   * ADMINISTRATOR não lê seguidores, enquanto outra ADMINISTRATOR no mesmo
+   * relatório lia. Um veredito que contradiz o próprio relatório é pior que
+   * nenhum.
+   */
   alcanca: Record<string, Desfecho>;
+  /** Capacidade → o que cada página respondeu, quando elas discordam. */
+  divergentes: Record<string, string>;
 }
 
 export interface SondagemLinkedIn {
@@ -170,6 +193,14 @@ export interface SondagemLinkedIn {
   cargos: VeredictoDeCargo[];
   /** O horizonte retroativo mais profundo que devolveu dado, em dias. */
   historicoMaisProfundoDias: number | null;
+  /** A página em que o histórico foi medido, e por que ela foi escolhida. */
+  historicoMedidoEm: string | null;
+  /**
+   * Dias entre hoje e a publicação mais antiga cujas métricas foram medidas
+   * com sucesso. É a retroatividade de CONTEÚDO — independente da janela de
+   * estatísticas de seguidores, e pode ser a que decide a arquitetura.
+   */
+  retroatividadeDeConteudoDias: number | null;
   /** A primeira janela que NÃO devolveu — o limite real, quando encontrado. */
   historicoLimiteDias: number | null;
   /** Medições com dado. Para o resumo de uma linha na tela. */
@@ -305,6 +336,12 @@ export interface OpcoesSondagem {
 /** Quantas páginas se olha procurando uma ATIVA, antes de desistir. */
 const TETO_DE_CANDIDATAS = 6;
 
+/** Até onde a sondagem desce na listagem de publicações. Protege a cota. */
+const TETO_DE_PAGINAS_DE_POST = 4;
+
+/** Quantos posts se pede numa chamada só, para medir o custo de coleta. */
+const TAMANHO_DO_LOTE = 5;
+
 /**
  * As janelas retroativas, da mais rasa à mais profunda.
  *
@@ -416,6 +453,8 @@ export async function sondarLinkedIn(
   // No LinkedIn o alcance vem do CARGO de um membro em cada Página — não existe
   // System User como na Meta. Cada Página de cliente precisa nomear alguém.
   const organizacoes: OrganizacaoDescoberta[] = [];
+  /** Atribuições de cargo lidas — pode ser MAIOR que o número de Páginas. */
+  let atribuicoes = 0;
 
   /**
    * As duas formas, e elas divergem no nome do parâmetro de projeção.
@@ -424,48 +463,81 @@ export async function sondarLinkedIn(
    * respondeu `projection parameter is not allowed for this endpoint` — um 400
    * que parecia limitação da API e era erro nosso. O versionado usa `fields`.
    */
-  for (const [item, caminho, ver, chaveDeProjecao] of [
-    ["organizationAcls (versionada)", "/rest/organizationAcls", versao, "fields"],
-    ["organizationalEntityAcls (legado)", "/v2/organizationalEntityAcls", undefined, "projection"],
+  const DECORADA = "(elements*(*,organizationalTarget~(id,localizedName,vanityName)))";
+  for (const [item, caminho, ver, projecao, nota] of [
+    // A rodada 2 trocou `projection` por `fields` no versionado e recebeu o
+    // MESMO 400 — a mensagem chama de "projection" o que se manda em `fields`.
+    // Então o problema não é o nome do parâmetro: é a decoração `~`. Aqui se
+    // mede isso em vez de deduzir, descendo até a chamada sem projeção nenhuma.
+    ["organizationAcls versionada · fields decorado", "/rest/organizationAcls", versao,
+      { fields: DECORADA }, "`fields` com decoração `organizationalTarget~`"],
+    ["organizationAcls versionada · fields sem decoração", "/rest/organizationAcls", versao,
+      { fields: "(elements*(*))" }, "`fields` sem `~` — isola a decoração como causa"],
+    ["organizationAcls versionada · sem projeção", "/rest/organizationAcls", versao,
+      {}, "nenhuma projeção — se este passar, o endpoint serve e o problema era a forma"],
+    ["organizationalEntityAcls (legado)", "/v2/organizationalEntityAcls", undefined,
+      { projection: DECORADA }, "`projection` com decoração"],
   ] as const) {
     const r = await cliente.medir<{ elements?: Array<Record<string, unknown>> }>(caminho, {
       token: o.token, versao: ver,
-      params: {
-        q: "roleAssignee", count: "50",
-        [chaveDeProjecao]: "(elements*(*,organizationalTarget~(id,localizedName,vanityName)))",
-      },
+      params: { q: "roleAssignee", count: "50", ...projecao },
     });
     const els = r.dados?.elements ?? [];
     for (const el of els) {
       const alvo = String(el.organizationalTarget ?? el.organization ?? "");
       const id = alvo.split(":").pop() ?? "";
-      if (!id || organizacoes.some((x) => x.id === id)) continue;
+      if (!id) continue;
+      const papel = el.role ? String(el.role) : null;
+      const jaVista = organizacoes.find((x) => x.id === id);
+      if (jaVista) {
+        // Segundo cargo na MESMA Página. A rodada 2 descartava aqui, e com ele
+        // ia embora a existência dos outros três cargos.
+        if (papel && !jaVista.papeis.includes(papel)) jaVista.papeis.push(papel);
+        continue;
+      }
       const det = (el["organizationalTarget~"] ?? {}) as Record<string, unknown>;
       organizacoes.push({
         id, urn: alvo || `urn:li:organization:${id}`,
         nome: det.localizedName ? String(det.localizedName) : null,
         vanity: det.vanityName ? String(det.vanityName) : null,
-        papel: el.role ? String(el.role) : null,
+        papel,
+        papeis: papel ? [papel] : [],
         estado: el.state ? String(el.state) : null,
+        atribuidoA: el.roleAssignee ? String(el.roleAssignee) : null,
       });
     }
+    atribuicoes += els.length;
     reg({
       grupo: "descoberta", item, endpoint: caminho, r,
       vazio: r.ok && els.length === 0,
       quantidade: els.length,
       campos: els.length ? campoDe(els[0]) : [],
       valores: els.length
-        ? [`papéis: ${Array.from(new Set(els.map((e) => String(e.role ?? "?")))).join(", ")}`]
+        ? [`papéis: ${Array.from(new Set(els.map((e) => String(e.role ?? "?")))).join(", ")}`,
+           `estados: ${Array.from(new Set(els.map((e) => String(e.state ?? "?")))).join(", ")}`]
         : [],
-      nota: `projeção via \`${chaveDeProjecao}\``,
+      nota,
     });
   }
 
-  const papeis = Array.from(new Set(organizacoes.map((x) => x.papel ?? "SEM_PAPEL")));
+  const todosOsPapeis = Array.from(new Set(organizacoes.flatMap((x) => x.papeis)));
   anotar("descoberta", "cargos encontrados", organizacoes.length ? "funciona" : "inconclusivo",
     organizacoes.length
-      ? papeis.map((p) => `${p}: ${organizacoes.filter((x) => (x.papel ?? "SEM_PAPEL") === p).length}`).join(" · ")
+      ? todosOsPapeis
+          .map((p) => `${p}: ${organizacoes.filter((x) => x.papeis.includes(p)).length}`)
+          .join(" · ")
+        + ` · ${organizacoes.length} Página(s) para ${atribuicoes} atribuição(ões)`
       : "nenhuma Página vinculada a este membro");
+
+  // Estado da atribuição: a hipótese mais barata para "ADMINISTRATOR que não lê
+  // estatística". Já vem na ACL — não custa chamada nenhuma, e afirmar sem
+  // olhar seria a suposição que o pedido veta.
+  const estados = Array.from(new Set(organizacoes.map((x) => x.estado ?? "?")));
+  anotar("descoberta", "estado das atribuições",
+    estados.length === 1 && estados[0] === "APPROVED" ? "funciona" : "inconclusivo",
+    estados.length === 1 && estados[0] === "APPROVED"
+      ? "todas APPROVED — o estado da atribuição NÃO explica diferença de acesso entre Páginas"
+      : `estados distintos: ${estados.join(", ")} — comparar com quem falhou abaixo`);
 
   if (!organizacoes.length) {
     anotar("cargo", "(todas)", "inconclusivo",
@@ -489,10 +561,14 @@ export async function sondarLinkedIn(
     return { r, n: r.dados?.elements?.length ?? 0 };
   };
 
-  const admins = organizacoes.filter((x) => x.papel === "ADMINISTRATOR");
-  const conteudo = organizacoes.filter((x) => x.papel === "CONTENT_ADMINISTRATOR");
-  const outros = organizacoes.filter(
-    (x) => x.papel !== "ADMINISTRATOR" && x.papel !== "CONTENT_ADMINISTRATOR");
+  const admins = organizacoes.filter((x) => x.papeis.includes("ADMINISTRATOR"));
+  const conteudo = organizacoes.filter((x) => x.papeis.includes("CONTENT_ADMINISTRATOR"));
+  // Uma Página cujo cargo NÃO é nenhum dos dois principais. Com a dedupe da
+  // rodada 2 este balde vinha sempre vazio, e os outros três cargos nunca
+  // foram medidos.
+  const outros = organizacoes.filter((x) =>
+    x.papeis.length > 0
+    && !x.papeis.includes("ADMINISTRATOR") && !x.papeis.includes("CONTENT_ADMINISTRATOR"));
 
   const medidas: OrganizacaoDescoberta[] = [];
   const teto = o.tetoDeCandidatas ?? TETO_DE_CANDIDATAS;
@@ -502,7 +578,8 @@ export async function sondarLinkedIn(
     medidas.push(
       organizacoes.find((x) => x.id === o.organizationId)
       ?? { id: o.organizationId, urn: `urn:li:organization:${o.organizationId}`,
-           nome: null, vanity: null, papel: null, estado: null });
+           nome: null, vanity: null, papel: null, papeis: [], estado: null,
+           atribuidoA: null });
   } else {
     /** A primeira ADMINISTRATOR com post. Cai na primeira da lista se nenhuma tiver. */
     let ativa: OrganizacaoDescoberta | null = null;
@@ -547,6 +624,9 @@ export async function sondarLinkedIn(
   // TODAS as páginas escolhidas passam pela MESMA bateria. É a repetição que
   // permite separar "a API não dá" de "esta organização não tem" — e é ela que
   // responde a pergunta de cargo.
+  /** Retroatividade de CONTEÚDO: o post mais antigo que ainda deu métrica. */
+  let retroConteudo: number | null = null;
+
   for (const org of medidas) {
     const urn = org.urn;
     const rot = org.nome ?? org.id;
@@ -569,8 +649,15 @@ export async function sondarLinkedIn(
     // 403. Então o problema era a forma — e a sondagem agora mede as variantes
     // em vez de escolher uma e reportar o fracasso dela como limitação.
     for (const [item, caminho, params] of [
-      ["seguidores atuais · /rest + edgeType",
+      // O versionado respondeu `Invalid param` COM `edgeType`, e
+      // `Parameter 'edgeType' is required` SEM ele. Os dois juntos dizem que o
+      // parâmetro é obrigatório e que o VALOR é que não serve — a API
+      // versionada usa enums em maiúscula. Medir os dois valores fecha isso.
+      ["seguidores atuais · /rest + CompanyFollowedByMember",
         `/rest/networkSizes/${encodeURIComponent(urn)}`, { edgeType: "CompanyFollowedByMember" }],
+      ["seguidores atuais · /rest + COMPANY_FOLLOWED_BY_MEMBER",
+        `/rest/networkSizes/${encodeURIComponent(urn)}`,
+        { edgeType: "COMPANY_FOLLOWED_BY_MEMBER" }],
       ["seguidores atuais · /v2 + edgeType",
         `/v2/networkSizes/${encodeURIComponent(urn)}`, { edgeType: "CompanyFollowedByMember" }],
       ["seguidores atuais · /rest sem edgeType",
@@ -652,7 +739,49 @@ export async function sondarLinkedIn(
         token: o.token, versao,
         params: { q: "author", author: urn, count: "20", sortBy: "LAST_MODIFIED" },
       });
-    const posts = rPosts.dados?.elements ?? [];
+    const posts = [...(rPosts.dados?.elements ?? [])];
+
+    // — quantas páginas de publicação a API entrega —
+    //
+    // A rodada 2 parou na primeira página e reportou "mais antigo=2025-06-04"
+    // como se fosse o fundo do poço; era só o fim de vinte itens. Sem descer,
+    // não dá para dizer se existe conteúdo antigo recuperável — e é ele que
+    // decide se o Spaces preenche o passado ou só acumula daqui pra frente.
+    let paginasDePost = 1;
+    for (let inicio = posts.length; paginasDePost < TETO_DE_PAGINAS_DE_POST; inicio = posts.length) {
+      if (!posts.length) break;
+      const rMais = await cliente.medir<{ elements?: Array<Record<string, unknown>> }>(
+        "/rest/posts", {
+          token: o.token, versao,
+          params: { q: "author", author: urn, count: "20", start: String(inicio),
+                    sortBy: "LAST_MODIFIED" },
+        });
+      const mais = rMais.dados?.elements ?? [];
+      if (!rMais.ok || !mais.length) {
+        porPagina({
+          grupo: "publicacoes", item: "profundidade da listagem de posts",
+          endpoint: "/rest/posts", r: rMais, vazio: rMais.ok && !mais.length,
+          quantidade: posts.length,
+          valores: [`${posts.length} post(s) em ${paginasDePost} página(s)`],
+          nota: rMais.ok
+            ? "a listagem ACABOU aqui — este é o total que a API entrega para esta Página"
+            : undefined,
+        });
+        break;
+      }
+      posts.push(...mais);
+      paginasDePost++;
+      if (paginasDePost >= TETO_DE_PAGINAS_DE_POST) {
+        porPagina({
+          grupo: "publicacoes", item: "profundidade da listagem de posts",
+          endpoint: "/rest/posts", r: rMais, quantidade: posts.length,
+          valores: [`${posts.length} post(s) em ${paginasDePost} página(s)`],
+          nota: `teto da sondagem (${TETO_DE_PAGINAS_DE_POST} páginas) — AINDA HÁ MAIS, `
+            + "a listagem não terminou por limite da API",
+        });
+      }
+    }
+
     const datas = posts
       .map((e) => (typeof e.createdAt === "number" ? e.createdAt : null))
       .filter((x): x is number => x !== null)
@@ -706,27 +835,73 @@ export async function sondarLinkedIn(
         });
       }
     } else {
-      const urnDoPost = String(posts[0].id ?? "");
+      const ordenados = posts
+        .map((e) => ({
+          urn: String(e.id ?? ""),
+          em: typeof e.createdAt === "number" ? e.createdAt : null,
+        }))
+        .filter((x) => x.urn)
+        .sort((a, b) => (b.em ?? 0) - (a.em ?? 0));
+      const maisNovo = ordenados[0];
+      const maisAntigo = ordenados[ordenados.length - 1];
+      const urnDoPost = maisNovo.urn;
       // O parâmetro muda com o tipo de URN, e errar isso devolveria 400 — que
       // pareceria "não dá para medir post individual" quando dá.
       const chave = urnDoPost.includes(":ugcPost:") ? "ugcPosts" : "shares";
 
-      {
+      /** Mede um LOTE de posts numa chamada. Um post é o lote de tamanho um. */
+      const metricasDe = async (alvos: string[], item: string, nota: string) => {
         const r = await cliente.medir<{ elements?: Array<Record<string, unknown>> }>(
           "/rest/organizationalEntityShareStatistics", {
             token: o.token, versao,
             params: { q: "organizationalEntity", organizationalEntity: urn },
-            cru: { [chave]: `List(${encodeURIComponent(urnDoPost)})` },
+            cru: { [chave]: `List(${alvos.map(encodeURIComponent).join(",")})` },
           });
         const els = r.dados?.elements ?? [];
         const nums = els.length ? numerosDe(els[0].totalShareStatistics ?? els[0]) : [];
         porPagina({
-          grupo: "publicacoes", item: "métricas por post (impressões, cliques, reações)",
+          grupo: "publicacoes", item,
           endpoint: "/rest/organizationalEntityShareStatistics", r,
           vazio: r.ok && els.length === 0,
           quantidade: els.length, campos: els.length ? campoDe(els[0]) : [], valores: nums,
-          nota: `via \`${chave}\` · 1 post medido de ${posts.length} listado(s)`,
+          nota,
         });
+        return { ok: r.ok && els.length > 0, devolvidos: els.length };
+      };
+
+      await metricasDe([urnDoPost], "métricas por post (impressões, cliques, reações)",
+        `via \`${chave}\` · post mais RECENTE, de ${posts.length} listado(s)`);
+
+      // — a pergunta que a rodada 2 não fez —
+      //
+      // Se o post mais antigo ainda devolve métricas, a retroatividade de
+      // CONTEÚDO está resolvida, independente do que a janela de estatísticas
+      // de seguidores aceite. São duas retroatividades diferentes, e tratá-las
+      // como uma foi o que deixou a arquitetura sem resposta.
+      if (maisAntigo.urn !== urnDoPost) {
+        const dias = maisAntigo.em
+          ? Math.round((agora.getTime() - maisAntigo.em) / 86_400_000) : null;
+        const res = await metricasDe([maisAntigo.urn],
+          "métricas do post MAIS ANTIGO (retroatividade de conteúdo)",
+          `publicado ${maisAntigo.em ? new Date(maisAntigo.em).toISOString().slice(0, 10) : "?"}`
+          + (dias !== null ? ` · ${dias} dias atrás` : ""));
+        if (res.ok && dias !== null && dias > (retroConteudo ?? -1)) retroConteudo = dias;
+      }
+
+      // — o custo de coletar —
+      //
+      // Se o lote responde, um cliente com 300 posts custa 60 chamadas e não
+      // 300. É a diferença entre caber na cota diária e não caber.
+      if (ordenados.length >= 2) {
+        const lote = ordenados.slice(0, TAMANHO_DO_LOTE).map((x) => x.urn);
+        const res = await metricasDe(lote,
+          `métricas de ${lote.length} posts numa chamada (lote)`,
+          `pedidos ${lote.length} · decide se a coleta é 1 chamada por post ou por lote`);
+        if (res.ok && res.devolvidos < lote.length) {
+          anotar("publicacoes", `lote em ${rot}`, "inconclusivo",
+            `pedimos ${lote.length} e voltaram ${res.devolvidos} — o lote é aceito, `
+            + "mas nem todo post do lote tem estatística");
+        }
       }
 
       {
@@ -765,9 +940,26 @@ export async function sondarLinkedIn(
   // arquitetura, mas não disse o LIMITE — e o limite é o que define se dá para
   // preencher um ano de uma vez ou só dois meses.
   //
-  // Só na página ativa: repetir cinco janelas em quatro páginas gastaria vinte
-  // chamadas para responder uma pergunta que é da API, e não da organização.
-  const alvoHistorico = medidas[0];
+  // Só uma página: repetir cinco janelas em quatro gastaria vinte chamadas para
+  // responder uma pergunta que é da API, e não da organização.
+  //
+  // Mas ela precisa ser uma que RESPONDA. A rodada 2 usou `medidas[0]` — que
+  // calhou de ser a única cujas estatísticas voltavam 403 — e as cinco janelas
+  // devolveram cinco vezes o mesmo bloqueio. A pergunta que decide a
+  // arquitetura foi feita à única página incapaz de respondê-la.
+  //
+  // Aqui a escolha é pela evidência já colhida: a página cujas estatísticas de
+  // seguidores dos últimos 7 dias voltaram COM dado.
+  const respondeu = (org: OrganizacaoDescoberta) => medicoes.some(
+    (m) => m.pagina === (org.nome ?? org.id)
+      && m.item === "seguidores · últimos 7 dias fechados" && m.desfecho === "funciona");
+  const alvoHistorico = medidas.find(respondeu) ?? medidas[0];
+  const escolhaDoHistorico = medidas.find(respondeu)
+    ? `${alvoHistorico.nome ?? alvoHistorico.id} — estatísticas responderam com dado`
+    : `${alvoHistorico.nome ?? alvoHistorico.id} — NENHUMA página medida respondeu com `
+      + "estatísticas; o resultado abaixo mede o bloqueio, não o histórico";
+  anotar("historico", "escolha da página do histórico",
+    medidas.find(respondeu) ? "funciona" : "inconclusivo", escolhaDoHistorico);
   let maisProfundo: number | null = null;
   let limite: number | null = null;
 
@@ -821,7 +1013,8 @@ export async function sondarLinkedIn(
   }
 
   return montar({ medicoes, versao: v.versao, scopes, organizacoes, medidas, agora,
-    maisProfundo, limite });
+    maisProfundo, limite, retroConteudo,
+    historicoEm: alvoHistorico.nome ?? alvoHistorico.id });
 }
 
 // ─── Relatório ───────────────────────────────────────────────────────────────
@@ -854,22 +1047,52 @@ function vereditoDeCargos(
     ["métricas agregadas", "publicacoes", "estatísticas agregadas de publicações"],
     ["métricas por post", "publicacoes", "métricas por post (impressões, cliques, reações)"],
   ];
-  const papeis = Array.from(new Set(organizacoes.map((x) => x.papel ?? "SEM_PAPEL")));
+  const temPapel = (x: OrganizacaoDescoberta, papel: string) =>
+    papel === "SEM_PAPEL" ? x.papeis.length === 0 : x.papeis.includes(papel);
+  const papeis = Array.from(new Set(
+    organizacoes.flatMap((x) => (x.papeis.length ? x.papeis : ["SEM_PAPEL"]))));
+
   return papeis.map((papel) => {
-    const medida = medidas.find((m) => (m.papel ?? "SEM_PAPEL") === papel) ?? null;
+    // TODAS as páginas medidas com esse cargo — não a primeira.
+    const doPapel = medidas.filter((m) => temPapel(m, papel));
     const alcanca: Record<string, Desfecho> = {};
+    const divergentes: Record<string, string> = {};
+
     for (const [rotulo, grupo, item] of CAPACIDADES) {
-      const m = medida
-        ? medicoes.find((x) => x.grupo === grupo && x.item === item
-            && x.pagina === (medida.nome ?? medida.id))
-        : undefined;
-      alcanca[rotulo] = m?.desfecho ?? "inconclusivo";
+      const obtidos = doPapel
+        .map((med) => ({
+          pagina: med.nome ?? med.id,
+          d: medicoes.find((x) => x.grupo === grupo && x.item === item
+            && x.pagina === (med.nome ?? med.id))?.desfecho,
+        }))
+        .filter((x): x is { pagina: string; d: Desfecho } => x.d !== undefined);
+
+      // Um vazio ou um inconclusivo é da PÁGINA, não do cargo: uma página sem
+      // publicação não diz nada sobre o que o cargo alcança. Só os desfechos
+      // que falam da API entram no consenso.
+      const decisivos = obtidos.filter(
+        (x) => x.d !== "inconclusivo" && x.d !== "sem_atividade");
+      const distintos = Array.from(new Set(decisivos.map((x) => x.d)));
+
+      if (distintos.length === 1) {
+        alcanca[rotulo] = distintos[0];
+      } else if (distintos.length > 1) {
+        // Páginas do MESMO cargo discordando prova que a capacidade não é do
+        // cargo. Afirmar qualquer um dos dois lados seria escolher um exemplo.
+        alcanca[rotulo] = "inconclusivo";
+        divergentes[rotulo] = decisivos
+          .map((x) => `${x.pagina}: ${ROTULO_DESFECHO[x.d]}`).join(" · ");
+      } else {
+        alcanca[rotulo] = obtidos.length ? "sem_atividade" : "inconclusivo";
+      }
     }
+
     return {
       papel,
-      paginasComEssePapel: organizacoes.filter((x) => (x.papel ?? "SEM_PAPEL") === papel).length,
-      medida: medida ? (medida.nome ?? medida.id) : null,
+      paginasComEssePapel: organizacoes.filter((x) => temPapel(x, papel)).length,
+      medidas: doPapel.map((m) => m.nome ?? m.id),
       alcanca,
+      divergentes,
     };
   });
 }
@@ -878,6 +1101,7 @@ function montar(x: {
   medicoes: Medicao[]; versao: string | null; scopes: string[];
   organizacoes: OrganizacaoDescoberta[]; medidas: OrganizacaoDescoberta[];
   agora: Date; maisProfundo?: number | null; limite?: number | null;
+  retroConteudo?: number | null; historicoEm?: string | null;
 }): SondagemLinkedIn {
   const cargos = vereditoDeCargos(x.medicoes, x.organizacoes, x.medidas);
   const s: SondagemLinkedIn = {
@@ -886,6 +1110,8 @@ function montar(x: {
     organizacoes: x.organizacoes, medidas: x.medidas,
     medicoes: x.medicoes, cargos,
     historicoMaisProfundoDias: x.maisProfundo ?? null,
+    historicoMedidoEm: x.historicoEm ?? null,
+    retroatividadeDeConteudoDias: x.retroConteudo ?? null,
     historicoLimiteDias: x.limite ?? null,
     disponiveis: x.medicoes.filter((m) => m.desfecho === "funciona").length,
     indisponiveis: x.medicoes.filter((m) => m.desfecho !== "funciona").length,
@@ -980,22 +1206,35 @@ function texto(s: SondagemLinkedIn, agora: Date): string {
     ? `   Mais fundo COM dado: ${s.historicoMaisProfundoDias} dias atrás.`
     : "   Nenhuma janela retroativa devolveu dado — INCONCLUSIVO se é limite da API "
       + "ou ausência de atividade na página medida.");
+  if (s.historicoMedidoEm) L.push(`   Medido em: ${s.historicoMedidoEm}.`);
   if (s.historicoLimiteDias !== null) {
     L.push(`   Primeira janela SEM dado: ${s.historicoLimiteDias} dias atrás.`);
     L.push("   Atenção: vazio pode ser teto da API OU página sem atividade no período.");
   }
+  // São DUAS retroatividades, e a rodada 2 tratou como uma. A de seguidores é
+  // uma janela de série temporal; a de conteúdo é a idade do post mais antigo
+  // que ainda devolve métrica. Uma pode servir sem a outra.
+  L.push(s.retroatividadeDeConteudoDias !== null
+    ? `   Conteúdo: o post mais antigo medido tem ${s.retroatividadeDeConteudoDias} dias `
+      + "e AINDA devolve métricas — o passado de publicações é recuperável até aí."
+    : "   Conteúdo: não medido — nenhuma página teve dois posts com métricas legíveis.");
   L.push("");
 
   L.push("4. DIFERENÇA DE ACESSO POR CARGO");
   for (const c of s.cargos) {
     L.push(`   ${c.papel} — ${c.paginasComEssePapel} página(s)`);
-    if (!c.medida) {
+    if (!c.medidas.length) {
       L.push("      NÃO MEDIDO nesta rodada — sem veredito");
       continue;
     }
-    L.push(`      medido em: ${c.medida}`);
+    L.push(`      medido em: ${c.medidas.join(", ")}`);
     for (const [cap, d] of Object.entries(c.alcanca)) {
-      L.push(`      ${ROTULO_DESFECHO[d]} ${cap}`);
+      L.push(`      ${ROTULO_DESFECHO[d]} ${cap}`
+        + (c.divergentes[cap] ? `  ← DIVERGEM: ${c.divergentes[cap]}` : ""));
+    }
+    if (Object.keys(c.divergentes).length) {
+      L.push("      As páginas deste MESMO cargo discordam — logo a capacidade "
+        + "NÃO é dada pelo cargo.");
     }
   }
   L.push("");
@@ -1083,7 +1322,7 @@ function texto(s: SondagemLinkedIn, agora: Date): string {
   for (const m of s.medicoes.filter((x) => x.desfecho === "inconclusivo")) {
     pendentes.push(`${m.item}${m.pagina ? ` · ${m.pagina}` : ""} — ${m.nota ?? "sem observação"}`);
   }
-  for (const c of s.cargos.filter((x) => !x.medida)) {
+  for (const c of s.cargos.filter((x) => !x.medidas.length)) {
     pendentes.push(`cargo ${c.papel} (${c.paginasComEssePapel} página(s)) — nenhuma foi medida, `
       + "o alcance dele continua desconhecido");
   }
