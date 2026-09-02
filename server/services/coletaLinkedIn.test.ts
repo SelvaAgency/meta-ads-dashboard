@@ -551,3 +551,64 @@ describe("o Lab fala a língua do Tracker, não a de uma ferramenta paralela", (
     expect(s).toContain('{ id: "identificacao", nome: "Identificação" }');
   });
 });
+
+describe("a experiência é a do Tracker, e a Social não foi tocada", () => {
+  const pagina = () => semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
+
+  it("cada métrica tem gráfico e cor próprios — sem abas dentro do gráfico", () => {
+    // Com quatro métricas atrás de quatro botões, ver duas ao mesmo tempo
+    // exigia memória. Comparar por memória é o que um gráfico dispensa.
+    const s = pagina();
+    expect(s).toContain("SERIES_DO_LINKEDIN");
+    expect(s).toContain("function GraficoDoMovimento");
+    const i = s.indexOf("const SERIES_DO_LINKEDIN");
+    const bloco = s.slice(i, s.indexOf("];", i));
+    for (const cor of ["COR.visitas", "COR.entrada", "COR.seguidores", "COR.ativacoes"]) {
+      expect(bloco, cor).toContain(cor);
+    }
+    // E o seletor segmentado que trocava a métrica no mesmo gráfico saiu.
+    expect(s).not.toContain("setMetrica(x.id); setAtivo(null)");
+  });
+
+  it("todo gráfico dá contexto antes da curva", () => {
+    // Número (quanto), apoio (comparado a quê), curva (quando). Sem os dois
+    // primeiros é desenho, não leitura.
+    const s = pagina();
+    expect(s).toContain("média {fmt(Math.round(media))}/dia");
+    expect(s).toContain("pico {fmt(pico.valor)}");
+  });
+
+  it("os KPIs dizem de onde o número veio", () => {
+    const s = pagina();
+    expect(s).toContain("origem=");
+    expect(s).toContain("networkSizes · firstDegreeSize");
+    expect(s).toContain('cor={COR.engajamento}');
+  });
+
+  it("formatos mostram volume na barra e os destaques ao lado", () => {
+    // "Mais usado" e "melhor engajamento" quase nunca são o mesmo formato, e é
+    // essa distância que decide o que publicar na semana seguinte.
+    const s = pagina();
+    expect(s).toContain("Mais usado");
+    expect(s).toContain("Maior engajamento");
+    expect(s).toContain("Maior alcance médio");
+  });
+
+  it("carregamento e vazio seguem a Social", () => {
+    const s = pagina();
+    expect(s).toContain("Selecione um cliente");
+    expect(s).toContain('<Loader2 className="w-5 h-5 animate-spin" /> Carregando…');
+    expect(s).toContain("Não foi possível carregar");
+  });
+});
+
+describe("a tela Social continua intacta", () => {
+  it("nenhum arquivo da Social foi alterado por esta frente", () => {
+    // A Social é REFERÊNCIA, não fonte. O Lab reusa só o que não pertence a
+    // ela — PeriodFilter, useSelectedAccount, periodoAnterior, CurvaHistorica.
+    const social = ler("client/src/pages/RedesSociais.tsx");
+    expect(social).not.toContain("LinkedinLab");
+    expect(social).not.toContain("linkedinLab");
+    expect(social).not.toContain("linkedin-lab");
+  });
+});

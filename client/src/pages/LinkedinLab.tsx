@@ -422,13 +422,32 @@ export default function LinkedinLab() {
           </div>
         )}
 
-        {!ativo && !vinculosQ.isLoading && (
+        {!selectedAccountId && (
+          <div className="rounded-xl border border-border bg-card p-8 text-center">
+            <h2 className="text-lg font-semibold text-foreground">Selecione um cliente</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Escolha uma conta no menu para ver o LinkedIn dela.
+            </p>
+          </div>
+        )}
+
+        {selectedAccountId && !ativo && !vinculosQ.isLoading && (
           <GerenciarVinculos aoMudar={() => void vinculosQ.refetch()} />
         )}
 
+        {/* Mesma gramática da Social: um ícone girando e uma palavra. Barra de
+            progresso falsa e esqueleto de conteúdo prometem forma antes de
+            saber qual é. */}
         {ativo && dadosQ.isLoading && (
-          <div className="py-16 flex items-center justify-center text-sm text-muted-foreground gap-2">
-            <Loader2 className="w-4 h-4 animate-spin" /> Lendo o que já foi coletado…
+          <div className="flex items-center justify-center h-64 text-muted-foreground gap-2">
+            <Loader2 className="w-5 h-5 animate-spin" /> Carregando…
+          </div>
+        )}
+
+        {dadosQ.error && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-8 text-center">
+            <h2 className="text-lg font-semibold">Não foi possível carregar</h2>
+            <p className="text-sm text-muted-foreground mt-1">{dadosQ.error.message}</p>
           </div>
         )}
 
@@ -2662,18 +2681,22 @@ function AbaConteudo({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string) => void 
 /* ═══ Visão geral — a leitura executiva ═══════════════════════════════════ */
 
 /** O KPI de produto: número grande, estado discreto, motivo no hover. */
-function KpiGrande({ rotulo, valor, unidade, nota, motivo, variacao, aoClicar }: {
+function KpiGrande({ rotulo, valor, unidade, nota, motivo, variacao, cor, origem }: {
   rotulo: string; valor: number | string | null | undefined; unidade?: string;
   nota?: string | null; motivo?: string | null; variacao?: number | null;
-  aoClicar?: () => void;
+  /** A cor da família da métrica — a mesma do gráfico dela. */
+  cor?: string;
+  /** De onde o número veio, no tooltip. Origem é o que separa dado de opinião. */
+  origem?: string;
 }) {
-  const Tag = aoClicar ? "button" : "div";
   return (
-    <Tag type={aoClicar ? "button" : undefined} onClick={aoClicar}
-      className={`px-[18px] py-[15px] flex flex-col gap-1 min-w-0 text-left ${
-        aoClicar ? "hover:bg-muted/30 transition-colors cursor-pointer" : ""}`}>
-      <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/80">{rotulo}</span>
-      <span className="text-[26px] font-bold leading-none tracking-[-0.02em]">
+    <div className="px-[18px] py-[15px] flex flex-col gap-1 min-w-0 text-left">
+      <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/80 cursor-help"
+        title={origem}>
+        {rotulo}
+      </span>
+      <span className="text-[26px] font-bold leading-none tracking-[-0.02em]"
+        style={cor && valor !== null && valor !== undefined ? { color: cor } : undefined}>
         <Numero valor={valor} motivo={motivo} />
         {valor !== null && valor !== undefined && unidade && (
           <span className="text-[13px] font-medium text-muted-foreground ml-1">{unidade}</span>
@@ -2689,7 +2712,7 @@ function KpiGrande({ rotulo, valor, unidade, nota, motivo, variacao, aoClicar }:
         )}
         {nota}
       </span>
-    </Tag>
+    </div>
   );
 }
 
@@ -2743,33 +2766,42 @@ function DadosGerais({ d, capacidades, periodo }: {
       <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y divide-border
                       rounded-[20px] border border-border bg-card overflow-hidden
                       shadow-[0_1px_2px_rgba(10,10,10,.04)] [&>*]:border-0">
-        <KpiGrande rotulo="Seguidores" valor={seguidores}
+        <KpiGrande rotulo="Seguidores" valor={seguidores} cor={COR.seguidores}
+          origem="networkSizes · firstDegreeSize — o total do momento da coleta"
           motivo={capacidades.seguidores_atuais?.motivo}
           nota={comSeguidores.length ? `medido em ${dataBr(comSeguidores[comSeguidores.length - 1].dia)}` : null} />
         <KpiGrande rotulo="Crescimento no período" valor={ganho} unidade="seguidores"
+          cor={COR.entrada}
+          origem="organizationalEntityFollowerStatistics · soma de organicFollowerGain no período"
           motivo={capacidades.seguidores_serie?.motivo}
           variacao={varGanho !== null ? Math.round(varGanho) : null}
           nota={`orgânico · ${d.serie.filter((x) => x.ganhoOrganico !== null).length} dia(s) medido(s)`} />
-        <KpiGrande rotulo="Visualizações da Página" valor={views}
+        <KpiGrande rotulo="Visualizações da Página" valor={views} cor={COR.visitas}
+          origem="organizationPageStatistics · soma de views.allPageViews.pageViews no período"
           motivo={capacidades.pagina_serie?.motivo}
           variacao={varViews !== null ? Math.round(varViews) : null}
           nota={`no período · ${periodo.rotulo.toLowerCase()}`} />
         <KpiGrande rotulo="Publicações" valor={d.posts.length || null}
+          origem="/rest/posts — publicadas dentro do período selecionado"
           nota={`${comMetrica.length} com métricas · ${periodo.rotulo.toLowerCase()}`}
           motivo={d.posts.length ? null : "nenhuma publicação neste período"} />
-        <KpiGrande rotulo="Impressões" valor={impressoes || null}
+        <KpiGrande rotulo="Impressões" valor={impressoes || null} cor={COR.ativacoes}
+          origem="organizationalEntityShareStatistics · soma de impressionCount por publicação"
           nota={`somadas de ${comMetrica.length} publicação(ões)`}
           motivo={comMetrica.length ? null : "nenhuma publicação com métrica"} />
-        <KpiGrande rotulo="Engajamento médio"
+        <KpiGrande rotulo="Engajamento médio" cor={COR.engajamento}
+          origem="média aritmética do `engagement` que o LinkedIn mede por publicação"
           valor={engMedio !== null ? `${(engMedio * 100).toFixed(2)}%` : null}
           nota={`média de ${engajamentos.length} publicação(ões) medidas`}
           motivo={engajamentos.length ? null : "nenhuma publicação com engajamento medido"} />
-        <KpiGrande rotulo="Engajamento da Página"
+        <KpiGrande rotulo="Engajamento da Página" cor={COR.engajamento}
+          origem="organizationalEntityShareStatistics vitalício · engagement medido pelo LinkedIn"
           valor={typeof agregado?.engagement === "number"
             ? `${(agregado.engagement * 100).toFixed(2)}%` : null}
           nota="medido pelo LinkedIn, vitalício"
           motivo={agregado ? null : "o agregado vitalício não foi coletado"} />
-        <KpiGrande rotulo="Melhor publicação"
+        <KpiGrande rotulo="Melhor publicação" cor={COR.engajamento}
+          origem="a publicação de maior `engagement` medido, dentro do período"
           valor={melhor?.metrica?.engagement != null
             ? `${(Number(melhor.metrica.engagement) * 100).toFixed(2)}%` : null}
           nota={melhor ? `${dataBr(melhor.publicadoEm)} · por engajamento` : null}
@@ -2935,97 +2967,148 @@ function Resumo({ d, capacidades, papeis, status, periodo, aba, aoAbrir }: {
 /* ── Movimento da página ─────────────────────────────────────────────────── */
 
 /**
- * Um gráfico, um seletor curto.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  Movimento da página — um gráfico grande e quatro módulos, sem abas
+ * ─────────────────────────────────────────────────────────────────────────────
+ *  As abas dentro do gráfico eram o problema: com quatro métricas atrás de
+ *  quatro botões, ver duas ao mesmo tempo exigia memória. E comparar por
+ *  memória é exatamente o que um gráfico existe para dispensar.
  *
- * A versão anterior oferecia 51 métricas num `<select>` — inclusive
- * `views.mobileLifeAtPageViews.uniquePageViews`. Isso é inventário, não
- * leitura. As quatro que importam ficam aqui; as outras 47 continuam inteiras
- * em Dados da integração, onde inventário é o que se procura.
+ *  Cada métrica vira um módulo com cor própria. Verde para entrada orgânica,
+ *  rosa para paga, azul para visualização, roxo para visitante — a mesma
+ *  família de cores da Social, para que a leitura seja transferível entre as
+ *  duas telas.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
+
+interface Serie1 { id: string; nome: string; unidade: string; cor: string; explicacao: string }
+
+const SERIES_DO_LINKEDIN: Serie1[] = [
+  {
+    id: "views:views.allPageViews.pageViews", nome: "Visualizações da página",
+    unidade: "visualizações", cor: COR.visitas,
+    explicacao: "organizationPageStatistics · views.allPageViews.pageViews, por dia",
+  },
+  {
+    id: "ganhoOrganico", nome: "Crescimento de seguidores",
+    unidade: "novos seguidores", cor: COR.entrada,
+    explicacao: "organizationalEntityFollowerStatistics · organicFollowerGain, por dia",
+  },
+  {
+    id: "views:views.allPageViews.uniquePageViews", nome: "Visitantes únicos",
+    unidade: "visitantes", cor: COR.seguidores,
+    explicacao: "organizationPageStatistics · views.allPageViews.uniquePageViews, por dia",
+  },
+  {
+    id: "ganhoPago", nome: "Crescimento pago",
+    unidade: "novos seguidores", cor: COR.ativacoes,
+    explicacao: "organizationalEntityFollowerStatistics · paidFollowerGain, por dia",
+  },
+];
+
+/** Os pontos MEDIDOS de uma métrica. Dia sem medida não vira zero — some. */
+function pontosDaSerie(serie: Serie, id: string): PontoHistorico[] {
+  const saida: PontoHistorico[] = [];
+  let anterior: string | null = null;
+  for (const x of serie) {
+    const v = id.startsWith("views:")
+      ? ((x.viewsJson ?? {}) as Record<string, number>)[id.slice(6)]
+      : (x[id as "ganhoOrganico" | "ganhoPago"] as number | null);
+    if (typeof v !== "number") continue;
+    saida.push({ dia: x.dia, valor: v, vao: !!anterior && diasEntre(anterior, x.dia) > 1 });
+    anterior = x.dia;
+  }
+  return saida;
+}
+
 function MovimentoDaPagina({ d, periodo }: { d: Dados; periodo: Periodo }) {
-  const serie = d.serie;
-  const [metrica, setMetrica] = useState("ganhoOrganico");
-  const [ativo, setAtivo] = useState<number | null>(null);
+  const comDados = useMemo(
+    () => SERIES_DO_LINKEDIN.map((m) => ({ m, pontos: pontosDaSerie(d.serie, m.id) }))
+      .filter((x) => x.pontos.length >= 2),
+    [d.serie]);
 
-  const metricas: Metrica[] = useMemo(() => {
-    const tem = (f: (x: Serie[number]) => unknown) => serie.some((x) => typeof f(x) === "number");
-    const view = (k: string) => (x: Serie[number]) =>
-      ((x.viewsJson ?? {}) as Record<string, number>)[k];
-    const lista: Metrica[] = [];
-    if (tem((x) => x.ganhoOrganico)) {
-      lista.push({ id: "ganhoOrganico", nome: "Crescimento de seguidores", unidade: "novos seguidores", cor: COR.entrada });
-    }
-    if (tem((x) => x.ganhoPago)) {
-      lista.push({ id: "ganhoPago", nome: "Crescimento pago", unidade: "novos seguidores", cor: COR.ativacoes });
-    }
-    if (tem(view("views.allPageViews.pageViews"))) {
-      lista.push({ id: "views:views.allPageViews.pageViews", nome: "Visualizações da página", unidade: "visualizações", cor: COR.visitas });
-    }
-    if (tem(view("views.allPageViews.uniquePageViews"))) {
-      lista.push({ id: "views:views.allPageViews.uniquePageViews", nome: "Visitantes únicos", unidade: "visitantes", cor: COR.seguidores });
-    }
-    return lista;
-  }, [serie]);
-
-  const m = metricas.find((x) => x.id === metrica) ?? metricas[0];
-
-  const pontos: PontoHistorico[] = useMemo(() => {
-    if (!m) return [];
-    const saida: PontoHistorico[] = [];
-    let anterior: string | null = null;
-    for (const x of serie) {
-      const v = m.id.startsWith("views:")
-        ? ((x.viewsJson ?? {}) as Record<string, number>)[m.id.slice(6)]
-        : (x[m.id as "ganhoOrganico" | "ganhoPago"] as number | null);
-      if (typeof v !== "number") continue;
-      saida.push({ dia: x.dia, valor: v, vao: !!anterior && diasEntre(anterior, x.dia) > 1 });
-      anterior = x.dia;
-    }
-    return saida;
-  }, [serie, m]);
-
-  return (
-    <Secao titulo="Movimento da página"
-      nota={pontos.length >= 2
-        ? `${pontos.length} dia(s) medido(s) · ${periodo.rotulo.toLowerCase()}`
-        : `sem série suficiente em ${periodo.rotulo.toLowerCase()}`}
-      acao={
-        <div className="flex items-center gap-3 flex-wrap justify-end">
-          {ativo !== null && pontos[ativo] && m && (
-            <LeituraDoPonto dia={pontos[ativo].dia}
-              valores={[{ valor: fmt(pontos[ativo].valor), rotulo: m.unidade, cor: m.cor }]} />
-          )}
-          {metricas.length > 1 && (
-            <div className="flex gap-0.5 p-0.5 rounded-lg bg-muted/60">
-              {metricas.map((x) => (
-                <button key={x.id} type="button"
-                  onClick={() => { setMetrica(x.id); setAtivo(null); }}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                    m?.id === x.id ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-                  {x.nome}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      }>
-      {pontos.length >= 2 && m ? (
-        <div className="overflow-x-auto">
-          <CurvaHistorica id={`mov-${m.id}`} pontos={pontos} cor={m.cor}
-            altura={200} largura={Math.max(760, pontos.length * 8)}
-            ativo={ativo} aoEntrar={setAtivo} />
-        </div>
-      ) : (
+  if (!comDados.length) {
+    return (
+      <Secao titulo="Movimento da página" nota={periodo.rotulo.toLowerCase()}>
         <div className="h-[160px] flex flex-col items-center justify-center gap-1 text-center">
           <span className="text-[13px] font-medium">Dados insuficientes para gerar evolução</span>
           <span className="text-[11.5px] text-muted-foreground max-w-[46ch]">
-            {pontos.length === 1
-              ? "Há uma medição no período — uma série precisa de pelo menos duas."
-              : "Nenhuma medição desta métrica no período selecionado."}
+            Nenhuma métrica tem duas medições em {periodo.rotulo.toLowerCase()}.
           </span>
         </div>
+      </Secao>
+    );
+  }
+
+  const [principal, ...resto] = comDados;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <GraficoDoMovimento titulo="Movimento da página" m={principal.m}
+        pontos={principal.pontos} periodo={periodo} grande />
+
+      {resto.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {resto.map((x) => (
+            <GraficoDoMovimento key={x.m.id} titulo={x.m.nome} m={x.m}
+              pontos={x.pontos} periodo={periodo} />
+          ))}
+        </div>
       )}
-    </Secao>
+    </div>
+  );
+}
+
+/**
+ * Um módulo de gráfico — número, contexto e curva, nessa ordem.
+ *
+ * O número responde "quanto", a linha de apoio responde "comparado a quê", e a
+ * curva responde "quando". Um gráfico sem as duas primeiras é desenho; com as
+ * três, é leitura.
+ */
+function GraficoDoMovimento({ titulo, m, pontos, periodo, grande = false }: {
+  titulo: string; m: Serie1; pontos: PontoHistorico[]; periodo: Periodo; grande?: boolean;
+}) {
+  const [ativo, setAtivo] = useState<number | null>(null);
+  const total = pontos.reduce((t, p) => t + p.valor, 0);
+  const media = pontos.length ? total / pontos.length : 0;
+  const pico = pontos.reduce((a, b) => (b.valor > a.valor ? b : a), pontos[0]);
+
+  return (
+    <section className="rounded-[20px] border border-border bg-card overflow-hidden
+                        shadow-[0_1px_2px_rgba(10,10,10,.04)]">
+      <div className="px-[18px] pt-[18px] flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">{titulo}</h2>
+          <div className="flex items-baseline gap-2 mt-1.5">
+            <span className={`font-bold tabular-nums tracking-[-0.02em] leading-none ${
+              grande ? "text-[28px]" : "text-[22px]"}`} style={{ color: m.cor }}>
+              {fmt(total)}
+            </span>
+            <span className="text-[11px] text-muted-foreground">{m.unidade}</span>
+          </div>
+          <span className="block text-[10.5px] text-muted-foreground/70 mt-1"
+            title={m.explicacao}>
+            {pontos.length} dia(s) medido(s) · média {fmt(Math.round(media))}/dia ·
+            {" "}pico {fmt(pico.valor)} em {dataBr(pico.dia)}
+          </span>
+        </div>
+        {/* O hover escreve DATA em tom de texto e VALOR na cor da série — a
+            mesma gramática dos quatro gráficos da Social. */}
+        <div className="min-h-[18px]">
+          {ativo !== null && pontos[ativo] && (
+            <LeituraDoPonto dia={pontos[ativo].dia} miuda={!grande}
+              valores={[{ valor: fmt(pontos[ativo].valor), rotulo: m.unidade, cor: m.cor }]} />
+          )}
+        </div>
+      </div>
+      <div className="px-[10px] pb-3 pt-2 overflow-x-auto">
+        <CurvaHistorica id={`mov-${m.id}`} pontos={pontos} cor={m.cor}
+          altura={grande ? 210 : 128}
+          largura={Math.max(grande ? 700 : 420, pontos.length * (grande ? 8 : 5))}
+          ativo={ativo} aoEntrar={setAtivo} miuda={!grande} />
+      </div>
+    </section>
   );
 }
 
@@ -3125,22 +3208,48 @@ function ComoEstamosPublicando({ d, periodo }: { d: Dados; periodo: Periodo }) {
     }).sort((a, b) => b.total - a.total);
   }, [d.posts]);
 
-  const maiorEng = Math.max(...linhas.map((x) => x.eng ?? 0), 0.0001);
+  const maior = Math.max(...linhas.map((x) => x.total), 1);
+
+  /**
+   * Os três destaques que a barra sozinha não dá.
+   *
+   * "Mais usado" e "melhor engajamento" quase nunca são o mesmo formato — e é
+   * justamente essa distância que decide o que publicar na semana seguinte. A
+   * barra mostra volume; sem os destaques, ela vira ranking de esforço.
+   */
+  const maisUsado = linhas[0] ?? null;
+  const comEng = linhas.filter((x) => x.eng !== null && x.medidas > 0);
+  const melhorEng = [...comEng].sort((a, b) => (b.eng ?? 0) - (a.eng ?? 0))[0] ?? null;
+  const maiorAlcance = (() => {
+    const por = new Map<string, { soma: number; n: number }>();
+    for (const p of d.posts) {
+      if (typeof p.metrica?.impressions !== "number") continue;
+      const t = lerConteudo(p.contentJson, !!p.commentary).tipo;
+      const a = por.get(t) ?? { soma: 0, n: 0 };
+      por.set(t, { soma: a.soma + p.metrica.impressions, n: a.n + 1 });
+    }
+    const xs = Array.from(por.entries()).map(([t, a]) => ({ t, media: a.soma / a.n, n: a.n }));
+    return xs.sort((a, b) => b.media - a.media)[0] ?? null;
+  })();
 
   return (
     <Secao titulo="Como estamos publicando"
       nota={`formato identificado · ${periodo.rotulo.toLowerCase()}`}>
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_240px] gap-6">
       <div className="flex flex-col">
         {linhas.map((x) => (
           <div key={x.tipo}
             className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[130px_minmax(0,1fr)_120px]
                        items-center gap-3 py-2 border-b border-border/50 last:border-0">
             <span className="text-[12.5px] font-medium truncate">{ROTULO_CONTEUDO[x.tipo]}</span>
+            {/* A barra mede VOLUME — quantas publicações. O engajamento vem
+                em número ao lado, porque medir os dois na mesma barra
+                obrigaria a escolher qual delas é o comprimento. */}
             <span className="hidden sm:block h-1.5 rounded-full bg-muted overflow-hidden">
               <span className="block h-full rounded-full transition-all"
                 style={{
-                  width: `${Math.max(2, ((x.eng ?? 0) / maiorEng) * 100)}%`,
-                  background: x.tipo === "nao_identificado" ? "var(--muted-foreground)" : COR.engajamento,
+                  width: `${Math.max(2, (x.total / maior) * 100)}%`,
+                  background: x.tipo === "nao_identificado" ? "var(--muted-foreground)" : COR.ativacoes,
                 }} />
             </span>
             <span className="text-right text-[12px] tabular-nums whitespace-nowrap">
@@ -3158,7 +3267,46 @@ function ComoEstamosPublicando({ d, periodo }: { d: Dados; periodo: Periodo }) {
           </div>
         ))}
       </div>
+
+      <div className="flex flex-col gap-3 lg:border-l lg:border-border lg:pl-6">
+        <Destaque rotulo="Mais usado"
+          valor={maisUsado ? ROTULO_CONTEUDO[maisUsado.tipo] : null}
+          apoio={maisUsado ? `${fmt(maisUsado.total)} publicação(ões)` : null} />
+        <Destaque rotulo="Maior engajamento"
+          valor={melhorEng ? ROTULO_CONTEUDO[melhorEng.tipo] : null}
+          apoio={melhorEng
+            ? `${((melhorEng.eng ?? 0) * 100).toFixed(1)}% · média de ${melhorEng.medidas} medida(s)`
+            : null}
+          motivo={melhorEng ? null : "nenhuma publicação com engajamento medido no período"}
+          cor={COR.engajamento} />
+        <Destaque rotulo="Maior alcance médio"
+          valor={maiorAlcance ? ROTULO_CONTEUDO[maiorAlcance.t as keyof typeof ROTULO_CONTEUDO] : null}
+          apoio={maiorAlcance
+            ? `${fmt(Math.round(maiorAlcance.media))} impressões · ${maiorAlcance.n} medida(s)`
+            : null}
+          motivo={maiorAlcance ? null : "nenhuma publicação com impressões medidas no período"}
+          cor={COR.ativacoes} />
+      </div>
+      </div>
     </Secao>
+  );
+}
+
+/** Um destaque de leitura: o quê, e por quê. */
+function Destaque({ rotulo, valor, apoio, motivo, cor }: {
+  rotulo: string; valor: string | null; apoio: string | null;
+  motivo?: string | null; cor?: string;
+}) {
+  return (
+    <div className="flex flex-col leading-tight">
+      <span className="text-[9.5px] uppercase tracking-[0.12em] text-muted-foreground/70">{rotulo}</span>
+      <span className="text-[15px] font-bold tracking-[-0.01em] mt-0.5"
+        style={cor && valor ? { color: cor } : undefined}>
+        {valor ?? <span className="text-muted-foreground/40 text-[13px] font-normal"
+          title={motivo ?? undefined}>–</span>}
+      </span>
+      {apoio && <span className="text-[10.5px] text-muted-foreground/70">{apoio}</span>}
+    </div>
   );
 }
 
