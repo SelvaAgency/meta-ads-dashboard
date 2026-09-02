@@ -409,17 +409,41 @@ describe("o Lab virou protótipo de produto, sem virar mentira", () => {
     expect(s).toContain("comMetrica: comMetrica.length");
   });
 
-  it("as abas técnicas ficam atrás de UM item", () => {
+  it("o produto é UMA leitura que rola, e o técnico fica numa gaveta", () => {
+    // A versão anterior tinha seis abas de produto — Evolução, Formatos,
+    // Audiência, Página. Nomes de módulo de ferramenta analítica: ninguém abre
+    // "Formatos", a pessoa quer saber que conteúdo funciona.
     const s = pagina();
-    expect(s).toContain("ABAS_PRODUTO");
+    expect(s).not.toContain("ABAS_PRODUTO");
     expect(s).toContain("ABAS_DIAGNOSTICO");
     expect(s).toContain("Dados da integração");
-    // Consumo da API, JSON cru e cobertura saem da fileira principal.
-    const i = s.indexOf("const ABAS_PRODUTO");
-    const produto = s.slice(i, s.indexOf("const ABAS_DIAGNOSTICO"));
-    for (const tecnica of ["consumo", "cru", "banco", "paginas"]) {
-      expect(produto, tecnica).not.toContain(`id: "${tecnica}"`);
+    expect(s).toContain("function Resumo(");
+    for (const bloco of ["DadosGerais", "MovimentoDaPagina", "ConteudoDoPeriodo",
+                         "ComoEstamosPublicando", "QuemAcompanhaAMarca", "SobreAPagina"]) {
+      expect(s, bloco).toContain(`function ${bloco}(`);
     }
+  });
+
+  it("a virada para dashboard não apagou exploração — ela desceu para a gaveta", () => {
+    // Esconder dado medido foi o defeito que duas rodadas anteriores existiram
+    // para corrigir. As 51 métricas, as 390 publicações e as 7 segmentações
+    // continuam alcançáveis.
+    const s = pagina();
+    const i = s.indexOf("const ABAS_DIAGNOSTICO");
+    const gaveta = s.slice(i, s.indexOf("];", i));
+    for (const id of ["serie", "publicacoes", "formatos", "segmentacoes", "identificacao"]) {
+      expect(gaveta, id).toContain(`id: "${id}"`);
+    }
+  });
+
+  it("a leitura de produto segue a gramática visual da Social", () => {
+    const s = pagina();
+    // Seção de cantos 20 com sombra de 1px, cabeçalho de 11px em versalete,
+    // publicações em grade de quatro com cartão de cantos 14.
+    expect(s).toContain('rounded-[20px] border border-border bg-card');
+    expect(s).toContain('text-[11px] font-bold uppercase tracking-[0.13em]');
+    expect(s).toContain("sm:grid-cols-2 lg:grid-cols-4 gap-4");
+    expect(s).toContain('rounded-[14px] border bg-card');
   });
 
   it("o selo experimental continua, e o cabeçalho é do cliente", () => {

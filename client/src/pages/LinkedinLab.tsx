@@ -200,8 +200,18 @@ function baixarCsv(nome: string, linhas: Array<Record<string, unknown>>) {
    A página
    ═══════════════════════════════════════════════════════════════════════════ */
 
-type Aba = "geral" | "evolucao" | "conteudo" | "formatos" | "audiencia" | "identidade"
-  | "banco" | "cobertura" | "consumo" | "cru" | "paginas";
+/**
+ * Não há abas de produto — há UMA página que rola, como a Social.
+ *
+ * A versão anterior tinha seis: Evolução, Formatos, Audiência, Página… nomes de
+ * módulo de ferramenta analítica. Ninguém abre "Formatos": a pessoa quer saber
+ * que tipo de conteúdo funciona, e isso é um bloco da leitura, não um destino.
+ *
+ * `Aba` sobrou só para a camada técnica, que continua sendo navegação porque
+ * ali o público é outro — nós.
+ */
+type Aba = "resumo" | "banco" | "cobertura" | "serie" | "publicacoes" | "formatos"
+  | "segmentacoes" | "identificacao" | "consumo" | "cru" | "paginas";
 
 /**
  * Duas camadas, e a fronteira é quem lê.
@@ -211,22 +221,29 @@ type Aba = "geral" | "evolucao" | "conteudo" | "formatos" | "audiencia" | "ident
  * API, JSON cru, cobertura técnica. Misturá-las numa fileira só fazia a
  * ferramenta parecer o produto, e era isso que precisava mudar.
  */
-const ABAS_PRODUTO: Array<{ id: Aba; nome: string }> = [
-  { id: "geral", nome: "Visão geral" },
-  { id: "evolucao", nome: "Evolução" },
-  { id: "conteudo", nome: "Conteúdo" },
-  { id: "formatos", nome: "Formatos" },
-  { id: "audiencia", nome: "Audiência" },
-  { id: "identidade", nome: "Página" },
-];
-
+/**
+ * A gaveta técnica.
+ *
+ * A leitura de produto mostra o que RESPONDE uma pergunta; aqui fica o
+ * inventário — 51 métricas de série, as 390 publicações com filtros, as sete
+ * segmentações inteiras, o JSON cru. Nada foi apagado na virada para
+ * dashboard: o que saiu da primeira camada desceu para cá, porque esconder
+ * dado medido foi o defeito que duas rodadas anteriores existiram para
+ * corrigir.
+ */
 const ABAS_DIAGNOSTICO: Array<{ id: Aba; nome: string }> = [
   { id: "banco", nome: "Estado do banco" },
   { id: "cobertura", nome: "Cobertura" },
+  { id: "serie", nome: "Série completa" },
+  { id: "publicacoes", nome: "Todas as publicações" },
+  { id: "formatos", nome: "Desempenho por formato" },
+  { id: "segmentacoes", nome: "Segmentações completas" },
+  { id: "identificacao", nome: "Identificação" },
   { id: "consumo", nome: "Consumo da API" },
   { id: "cru", nome: "Dados brutos" },
   { id: "paginas", nome: "Páginas vinculadas" },
 ];
+
 
 /**
  * A URL de uma imagem, quando ela existe de verdade.
@@ -251,7 +268,7 @@ function urlDeImagem(o: unknown, nivel = 0): string | null {
 export default function LinkedinLab() {
   const { user } = useAuth();
   const [pageId, setPageId] = useState<number | null>(null);
-  const [aba, setAba] = useState<Aba>("geral");
+  const [aba, setAba] = useState<Aba>("resumo");
   const [diagnostico, setDiagnostico] = useState(false);
   const [dias, setDias] = useState(90);
   const [postAberto, setPostAberto] = useState<string | null>(null);
@@ -324,35 +341,23 @@ export default function LinkedinLab() {
         ultimaColeta={pagina?.ultimaColetaEm ? dataBr(pagina.ultimaColetaEm) : null}
       />
 
-      <div className="max-w-[1400px] mx-auto px-4 md:px-6 pb-16">
-        <nav className="flex items-center gap-1 flex-wrap border-b border-border mb-4">
-          {ABAS_PRODUTO.map((a) => (
-            <button key={a.id} type="button" onClick={() => setAba(a.id)}
-              className={`px-3 py-2 text-[13px] font-medium border-b-2 -mb-px transition-colors ${
-                aba === a.id
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-              {a.nome}
-            </button>
-          ))}
+      <div className="max-w-[1320px] mx-auto px-6 pt-7 pb-24 flex flex-col gap-[34px]">
+        {/*
+          A camada técnica continua existindo, e continua sendo NOSSA. Ela é a
+          única navegação da página — o produto é uma leitura só, que rola.
+        */}
+        <div className="flex justify-end -mb-[26px]">
+          <button type="button" onClick={() => { setDiagnostico((x) => !x); setAba("resumo"); }}
+            className={`flex items-center gap-1.5 text-[11px] px-2 py-1 rounded transition-colors ${
+              diagnostico ? "bg-muted text-foreground" : "text-muted-foreground/70 hover:text-foreground"}`}>
+            <Wrench className="w-3 h-3" />
+            Dados da integração
+            {diagnostico ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          </button>
+        </div>
 
-          {/* A camada técnica fica atrás de UM item, e só abre quando pedida.
-              O usuário final nunca deveria ver consumo de API nem JSON cru. */}
-          <div className="ml-auto flex items-center gap-1">
-            <button type="button" onClick={() => setDiagnostico((x) => !x)}
-              className={`px-3 py-2 text-[12px] font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${
-                diagnostico || ABAS_DIAGNOSTICO.some((x) => x.id === aba)
-                  ? "border-muted-foreground/40 text-foreground"
-                  : "border-transparent text-muted-foreground/70 hover:text-foreground"}`}>
-              <Wrench className="w-3.5 h-3.5" />
-              Dados da integração
-              {diagnostico ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            </button>
-          </div>
-        </nav>
-
-        {(diagnostico || ABAS_DIAGNOSTICO.some((x) => x.id === aba)) && (
-          <div className="flex gap-1 flex-wrap mb-4 -mt-2 pb-3 border-b border-dashed border-border">
+        {diagnostico && (
+          <div className="flex gap-1 flex-wrap pb-3 border-b border-dashed border-border">
             {ABAS_DIAGNOSTICO.map((a) => (
               <button key={a.id} type="button" onClick={() => setAba(a.id)}
                 className={`px-2.5 py-1.5 rounded text-[11.5px] font-medium transition-colors ${
@@ -363,37 +368,40 @@ export default function LinkedinLab() {
           </div>
         )}
 
-        {aba === "paginas" && (
-          <GerenciarVinculos aoMudar={() => { void vinculosQ.refetch(); void dadosQ.refetch(); }} />
-        )}
-
-        {/* Sem nenhuma Página, o gerenciador é a própria tela — não faz sentido
-            mostrar abas vazias antes de existir o que olhar. */}
-        {!ativo && !vinculosQ.isLoading && aba !== "paginas" && (
+        {!ativo && !vinculosQ.isLoading && (
           <GerenciarVinculos aoMudar={() => void vinculosQ.refetch()} />
         )}
 
-        {ativo && aba !== "paginas" && dadosQ.isLoading && (
+        {ativo && dadosQ.isLoading && (
           <div className="py-16 flex items-center justify-center text-sm text-muted-foreground gap-2">
             <Loader2 className="w-4 h-4 animate-spin" /> Lendo o que já foi coletado…
           </div>
         )}
 
-        {ativo && d && aba !== "paginas" && (
-          <>
-            {aba === "geral" && (
-              <AbaVisaoGeral d={d} capacidades={capacidades} aoIr={setAba} />
-            )}
-            {aba === "evolucao" && <AbaEvolucao d={d} dias={dias} />}
-            {aba === "conteudo" && <AbaPublicacoes posts={d.posts} aoAbrir={setPostAberto} />}
-            {aba === "formatos" && <AbaConteudo d={d} aoAbrir={setPostAberto} />}
-            {aba === "audiencia" && <AbaAudiencia d={d} />}
-            {aba === "identidade" && <AbaIdentidade d={d} papeis={papeis} status={status} />}
-            {aba === "banco" && <AbaBanco d={d} capacidades={capacidades} />}
-            {aba === "cobertura" && <AbaCobertura d={d} capacidades={capacidades} />}
-            {aba === "consumo" && <AbaConsumo d={d} totalDePaginas={vinculos.length} />}
-            {aba === "cru" && <AbaCru d={d} />}
-          </>
+        {ativo && d && (
+          aba === "resumo"
+            ? <Resumo d={d} capacidades={capacidades} papeis={papeis} status={status}
+                dias={dias} aoAbrir={setPostAberto} />
+            : (
+              <>
+                {aba === "banco" && <AbaBanco d={d} capacidades={capacidades} />}
+                {aba === "cobertura" && <AbaCobertura d={d} capacidades={capacidades} />}
+                {aba === "serie" && <AbaEvolucao d={d} dias={dias} />}
+                {aba === "publicacoes" && <AbaPublicacoes posts={d.posts} aoAbrir={setPostAberto} />}
+                {aba === "formatos" && <AbaConteudo d={d} aoAbrir={setPostAberto} />}
+                {aba === "segmentacoes" && <AbaAudiencia d={d} />}
+                {aba === "identificacao" && (
+                  <AbaIdentidade d={d} papeis={papeis} status={status} />
+                )}
+                {aba === "consumo" && <AbaConsumo d={d} totalDePaginas={vinculos.length} />}
+                {aba === "cru" && <AbaCru d={d} />}
+                {aba === "paginas" && (
+                  <GerenciarVinculos aoMudar={() => {
+                    void vinculosQ.refetch(); void dadosQ.refetch();
+                  }} />
+                )}
+              </>
+            )
         )}
       </div>
 
@@ -434,7 +442,7 @@ function Cabecalho({
 
   return (
     <header className="border-b border-border bg-card/40">
-      <div className="max-w-[1400px] mx-auto px-4 md:px-6 pt-6 pb-4 flex flex-col gap-3">
+      <div className="max-w-[1320px] mx-auto px-6 pt-7 pb-5 flex flex-col gap-4">
         {/* Cabeçalho de PRODUTO: quem lê precisa ver o cliente e a rede, não a
             ferramenta. O selo continua — pequeno, porque a regra de não
             confundir bancada com produto não some, só para de gritar. */}
@@ -1319,7 +1327,11 @@ function Filtro({ rotulo, valor, aoTrocar, opcoes }: {
   );
 }
 
-function CartaoDePublicacao({ p, aoAbrir }: { p: Publicacao; aoAbrir: (urn: string) => void }) {
+function CartaoDePublicacao({ p, aoAbrir, melhor = false }: {
+  p: Publicacao; aoAbrir: (urn: string) => void;
+  /** O melhor do período ganha ARO, não tamanho — como na Social. */
+  melhor?: boolean;
+}) {
   const img = midiaDe(p);
   const met = metricaDe(p);
   const conteudo = lerConteudo(p.contentJson, !!p.commentary);
@@ -1327,60 +1339,91 @@ function CartaoDePublicacao({ p, aoAbrir }: { p: Publicacao; aoAbrir: (urn: stri
   const reacoes = (m?.reacoesPorTipoJson ?? null) as Record<string, number> | null;
 
   return (
-    <Card className="p-0 overflow-hidden flex flex-col cursor-pointer hover:border-primary/50 transition-colors"
-      onClick={() => aoAbrir(p.postUrn)}
-      role="button" tabIndex={0}
-      onKeyDown={(e) => { if (e.key === "Enter") aoAbrir(p.postUrn); }}>
-      <div className="h-[150px] bg-muted/50 flex items-center justify-center overflow-hidden border-b border-border/60">
+    <div onClick={() => aoAbrir(p.postUrn)} role="button" tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter") aoAbrir(p.postUrn); }}
+      className={`group rounded-[14px] border bg-card overflow-hidden cursor-pointer
+        transition-all duration-200 hover:-translate-y-[3px] hover:shadow-[0_12px_32px_rgba(10,10,10,.10)]
+        ${melhor
+          ? "border-accent shadow-[0_0_0_2px_rgba(232,122,176,.22),0_4px_16px_rgba(10,10,10,.06)]"
+          : "border-border shadow-[0_1px_2px_rgba(10,10,10,.04)] hover:border-primary"}`}>
+      <div className="aspect-square relative overflow-hidden bg-muted flex items-center justify-center">
         {img.url ? (
-          <img src={img.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+          <img src={img.url} alt="" loading="lazy"
+            className="w-full h-full object-cover transition-transform duration-[400ms] group-hover:scale-[1.05]" />
         ) : (
           // Ausência NUNCA é silenciosa: a caixa diz que não houve imagem, e o
           // motivo técnico fica no hover.
-          <div className="flex flex-col items-center gap-1 text-muted-foreground/60"
+          <div className="flex flex-col items-center gap-1 text-muted-foreground/25"
             title={img.motivo ?? undefined}>
-            <ImgIcon className="w-5 h-5" />
-            <span className="text-[10.5px]">{ROTULO_MIDIA[img.estado]}</span>
-            {img.indeterminado && (
-              <span className="text-[9.5px] opacity-70">estado indeterminado</span>
-            )}
+            <ImgIcon className="w-8 h-8" />
           </div>
+        )}
+        <span className="absolute top-2.5 left-2.5 text-[9px] font-bold uppercase tracking-[0.08em]
+                         px-[7px] py-[3px] rounded-md bg-black/60 text-white backdrop-blur-[4px]">
+          {ROTULO_CONTEUDO[conteudo.tipo]}
+        </span>
+        {melhor && (
+          <span className="absolute top-2.5 right-2.5 text-[9px] font-bold uppercase tracking-[0.06em]
+                           px-[7px] py-[3px] rounded-md bg-primary text-primary-foreground">
+            melhor
+          </span>
         )}
       </div>
 
-      <div className="p-3 flex flex-col gap-2 flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap text-[10px] text-muted-foreground">
-          <span className="tabular-nums">{dataBr(p.publicadoEm)}</span>
-          <span className="font-mono px-1 rounded bg-muted">{p.tipoUrn}</span>
-          <Selo estado={conteudo.tipo === "nao_identificado" ? "nao_coletado" : "ok"}
-            titulo={conteudo.evidencia}>{ROTULO_CONTEUDO[conteudo.tipo]}</Selo>
-          {met.estado !== "coletada" && (
-            <Selo estado={TOM_METRICA[met.estado]} titulo={met.motivo ?? undefined}>
-              {ROTULO_METRICA[met.estado]}
-            </Selo>
-          )}
-        </div>
-
-        <p className="text-[12px] leading-snug line-clamp-3 min-h-[3.2em]">
-          {p.commentary || <span className="text-muted-foreground/60">sem texto</span>}
+      <div className="px-[13px] pt-3 pb-[13px]">
+        <span className="block text-[10px] uppercase tracking-[0.06em] text-muted-foreground/40 tabular-nums">
+          {dataBr(p.publicadoEm)}
+        </span>
+        <p className="text-[11.5px] leading-snug line-clamp-2 mt-1.5 min-h-[2.4em]">
+          {p.commentary || <span className="text-muted-foreground/50">sem texto</span>}
         </p>
 
-        <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-[11px] mt-auto pt-2 border-t border-border/50">
-          <Mini rotulo="impressões" valor={m?.impressions} motivo={met.motivo} />
-          <Mini rotulo="únicas" valor={m?.uniqueImpressions} motivo={met.motivo} />
-          <Mini rotulo="cliques" valor={m?.clicks} motivo={met.motivo} />
-          <Mini rotulo="reações" valor={reacoes ? Object.values(reacoes).reduce((t, x) => t + x, 0) : m?.likes} />
-          <Mini rotulo="comentários" valor={m?.comments} />
-          <Mini rotulo="compart." valor={m?.shares} />
+        <div className="grid grid-cols-3 gap-1.5 mt-2.5">
+          <MiniDaGrade rotulo="impressões" valor={m?.impressions} dica={met.motivo} />
+          <MiniDaGrade rotulo="cliques" valor={m?.clicks} dica={met.motivo} />
+          <MiniDaGrade rotulo="engaj." destaque dica={met.motivo}
+            valor={m?.engagement != null ? `${(Number(m.engagement) * 100).toFixed(1)}%` : null} />
         </div>
 
-        {m?.engagement !== null && m?.engagement !== undefined && (
-          <div className="text-[10.5px] text-muted-foreground">
-            engajamento <span className="tabular-nums text-foreground">{pct(Number(m.engagement))}</span>
-          </div>
-        )}
+        {/* A composição, no lugar do total — mesma decisão da Social: "22
+            reações · 1 comentário" diz o que "23 interações" escondia. */}
+        <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-2 text-[10px] text-muted-foreground">
+          {[["reações", reacoes ? Object.values(reacoes).reduce((t, x) => t + x, 0) : m?.likes],
+            ["comentários", m?.comments], ["compart.", m?.shares]]
+            .filter(([, v]) => typeof v === "number")
+            .map(([r, v]) => (
+              <span key={String(r)}>
+                <span className="tabular-nums text-foreground font-medium">{fmt(v as number)}</span> {r}
+              </span>
+            ))}
+          {met.estado !== "coletada" && (
+            <span title={met.motivo ?? undefined} className="italic">
+              {ROTULO_METRICA[met.estado].toLowerCase()}
+            </span>
+          )}
+        </div>
       </div>
-    </Card>
+    </div>
+  );
+}
+
+/** O número da grade do cartão — mesma proporção da Social. */
+function MiniDaGrade({ rotulo, valor, destaque, dica }: {
+  rotulo: string; valor: number | string | null | undefined;
+  destaque?: boolean; dica?: string | null;
+}) {
+  return (
+    <div className="min-w-0" title={dica ?? undefined}>
+      <span className={`block text-[13px] font-bold tabular-nums leading-none ${
+        destaque ? "text-primary" : ""}`}>
+        {valor === null || valor === undefined
+          ? <span className="text-muted-foreground/40">–</span>
+          : typeof valor === "number" ? fmt(valor) : valor}
+      </span>
+      <span className="block text-[9px] uppercase tracking-[0.06em] text-muted-foreground/50 mt-0.5 truncate">
+        {rotulo}
+      </span>
+    </div>
   );
 }
 
@@ -2592,8 +2635,8 @@ function KpiGrande({ rotulo, valor, unidade, nota, motivo, variacao, aoClicar }:
   const Tag = aoClicar ? "button" : "div";
   return (
     <Tag type={aoClicar ? "button" : undefined} onClick={aoClicar}
-      className={`rounded-lg border border-border bg-card px-4 py-3 flex flex-col gap-1 min-w-0 text-left ${
-        aoClicar ? "hover:border-primary/50 transition-colors cursor-pointer" : ""}`}>
+      className={`px-[18px] py-[15px] flex flex-col gap-1 min-w-0 text-left ${
+        aoClicar ? "hover:bg-muted/30 transition-colors cursor-pointer" : ""}`}>
       <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/80">{rotulo}</span>
       <span className="text-[26px] font-bold leading-none tracking-[-0.02em]">
         <Numero valor={valor} motivo={motivo} />
@@ -2615,8 +2658,8 @@ function KpiGrande({ rotulo, valor, unidade, nota, motivo, variacao, aoClicar }:
   );
 }
 
-function AbaVisaoGeral({ d, capacidades, aoIr }: {
-  d: Dados; capacidades: MapaDeCapacidades; aoIr: (a: Aba) => void;
+function DadosGerais({ d, capacidades }: {
+  d: Dados; capacidades: MapaDeCapacidades;
 }) {
   const org = (d.lifetime?.organizacaoJson ?? null) as Record<string, unknown> | null;
   const agregado = (d.lifetime?.agregadoDePostsJson as
@@ -2648,50 +2691,27 @@ function AbaVisaoGeral({ d, capacidades, aoIr }: {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* A ficha do cliente, do jeito que um módulo do Tracker abriria. */}
-      {org && (
-        <Card className="p-4 flex gap-4 items-start flex-wrap">
-          <div className="min-w-0 flex-1 flex flex-col gap-1">
-            <span className="text-[13px] font-semibold">{d.pagina?.nome ?? "—"}</span>
-            <p className="text-[12.5px] text-muted-foreground leading-relaxed max-w-[72ch] line-clamp-3">
-              {String(org.localizedDescription ?? org.description ?? "—")}
-            </p>
-            <div className="flex gap-x-4 gap-y-1 flex-wrap text-[11.5px] text-muted-foreground mt-1">
-              {typeof org.localizedWebsite === "string" || typeof org.website === "string" ? (
-                <a href={String(org.localizedWebsite ?? org.website)} target="_blank" rel="noreferrer"
-                  className="text-primary hover:underline flex items-center gap-1">
-                  {String(org.localizedWebsite ?? org.website)} <ExternalLink className="w-3 h-3" />
-                </a>
-              ) : null}
-              {typeof org.staffCountRange === "string" && <span>{org.staffCountRange}</span>}
-              {typeof org.organizationType === "string" && <span>{org.organizationType}</span>}
-              {periodo && <span>Período analisado: {periodo} · {dias} dia(s)</span>}
-            </div>
-          </div>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y divide-border
+                      rounded-[20px] border border-border bg-card overflow-hidden
+                      shadow-[0_1px_2px_rgba(10,10,10,.04)] [&>*]:border-0">
         <KpiGrande rotulo="Seguidores" valor={seguidores}
           motivo={capacidades.seguidores_atuais?.motivo}
           nota={comSeguidores.length ? `medido em ${dataBr(comSeguidores[comSeguidores.length - 1].dia)}` : null} />
         <KpiGrande rotulo="Crescimento no período" valor={ganho} unidade="seguidores"
           motivo={capacidades.seguidores_serie?.motivo}
-          nota={`orgânico · ${d.serie.filter((x) => x.ganhoOrganico !== null).length} dia(s) medido(s)`}
-          aoClicar={() => aoIr("evolucao")} />
+          nota={`orgânico · ${d.serie.filter((x) => x.ganhoOrganico !== null).length} dia(s) medido(s)`} />
         <KpiGrande rotulo="Visualizações da Página" valor={views}
           motivo={capacidades.pagina_serie?.motivo}
-          nota="allPageViews no período" aoClicar={() => aoIr("evolucao")} />
+          nota="allPageViews no período" />
         <KpiGrande rotulo="Publicações" valor={d.posts.length || null}
-          nota={`${comMetrica.length} com métricas` } aoClicar={() => aoIr("conteudo")} />
+          nota={`${comMetrica.length} com métricas` } />
         <KpiGrande rotulo="Impressões" valor={impressoes || null}
           nota={`somadas de ${comMetrica.length} publicação(ões)`}
           motivo={comMetrica.length ? null : "nenhuma publicação com métrica"} />
         <KpiGrande rotulo="Engajamento médio"
           valor={engMedio !== null ? `${(engMedio * 100).toFixed(2)}%` : null}
           nota={`média de ${engajamentos.length} publicação(ões) medidas`}
-          motivo={engajamentos.length ? null : "nenhuma publicação com engajamento medido"}
-          aoClicar={() => aoIr("formatos")} />
+          motivo={engajamentos.length ? null : "nenhuma publicação com engajamento medido"} />
         <KpiGrande rotulo="Engajamento da Página"
           valor={typeof agregado?.engagement === "number"
             ? `${(agregado.engagement * 100).toFixed(2)}%` : null}
@@ -2701,30 +2721,9 @@ function AbaVisaoGeral({ d, capacidades, aoIr }: {
           valor={melhor?.metrica?.engagement != null
             ? `${(Number(melhor.metrica.engagement) * 100).toFixed(2)}%` : null}
           nota={melhor ? `${dataBr(melhor.publicadoEm)} · por engajamento` : null}
-          motivo={melhor ? null : "nenhuma publicação com engajamento medido"}
-          aoClicar={() => aoIr("conteudo")} />
+          motivo={melhor ? null : "nenhuma publicação com engajamento medido"} />
       </div>
 
-      {melhor && (
-        <Bloco titulo="Publicação de maior engajamento"
-          nota={`${(Number(melhor.metrica!.engagement) * 100).toFixed(2)}% · ${dataBr(melhor.publicadoEm)}`}>
-          <div className="flex gap-4 items-start flex-wrap">
-            <div className="min-w-0 flex-1">
-              <p className="text-[13px] leading-relaxed line-clamp-4">
-                {melhor.commentary || <span className="text-muted-foreground/60">sem texto</span>}
-              </p>
-              <div className="flex gap-x-5 gap-y-1 flex-wrap mt-3 text-[12px]">
-                <Mini rotulo="impressões" valor={melhor.metrica?.impressions} />
-                <Mini rotulo="únicas" valor={melhor.metrica?.uniqueImpressions} />
-                <Mini rotulo="cliques" valor={melhor.metrica?.clicks} />
-                <Mini rotulo="reações" valor={melhor.metrica?.likes} />
-                <Mini rotulo="comentários" valor={melhor.metrica?.comments} />
-                <Mini rotulo="compart." valor={melhor.metrica?.shares} />
-              </div>
-            </div>
-          </div>
-        </Bloco>
-      )}
     </div>
   );
 }
@@ -2783,6 +2782,413 @@ function AbaAudiencia({ d }: { d: Dados }) {
           </div>
         </Bloco>
       )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESUMO — uma leitura só, no gabarito da Social
+   ═══════════════════════════════════════════════════════════════════════════
+   A versão anterior tinha seis abas de produto: Evolução, Formatos, Audiência,
+   Página. Nomes de módulo de ferramenta analítica. Ninguém abre "Formatos" —
+   a pergunta é "que tipo de conteúdo funciona", e a resposta é um bloco da
+   leitura, não um destino.
+
+   A gramática é a da Social, e de propósito: seção de cantos 20, cabeçalho de
+   11px em versalete, cartões divididos por 1px em vez de virarem caixas
+   soltas, publicações em grade de quatro. Se o LinkedIn entrar no Social, ele
+   precisa parecer que sempre esteve lá.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** A moldura de seção da Social: uma caixa, cabeçalho em versalete. */
+function Secao({ titulo, nota, acao, children, semPadding }: {
+  titulo: string; nota?: string | null; acao?: React.ReactNode;
+  children: React.ReactNode; semPadding?: boolean;
+}) {
+  return (
+    <section className="rounded-[20px] border border-border bg-card overflow-hidden
+                        shadow-[0_1px_2px_rgba(10,10,10,.04)]">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap px-[18px] pt-[18px]">
+        <div className="flex items-baseline gap-2.5 flex-wrap min-w-0">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">{titulo}</h2>
+          {nota && <span className="text-[10.5px] text-muted-foreground/50">{nota}</span>}
+        </div>
+        {acao}
+      </div>
+      <div className={semPadding ? "mt-3" : "px-[18px] pt-3 pb-[18px]"}>{children}</div>
+    </section>
+  );
+}
+
+function Resumo({ d, capacidades, papeis, status, dias, aoAbrir }: {
+  d: Dados; capacidades: MapaDeCapacidades;
+  papeis: Array<{ papel: string; estado: string }>;
+  status: StatusDoVinculo; dias: number; aoAbrir: (urn: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-[34px]">
+      <DadosGerais d={d} capacidades={capacidades} />
+      <MovimentoDaPagina d={d} dias={dias} />
+      <ConteudoDoPeriodo d={d} aoAbrir={aoAbrir} />
+      <ComoEstamosPublicando d={d} aoAbrir={aoAbrir} />
+      <QuemAcompanhaAMarca d={d} />
+      <SobreAPagina d={d} papeis={papeis} status={status} />
+    </div>
+  );
+}
+
+/* ── Movimento da página ─────────────────────────────────────────────────── */
+
+/**
+ * Um gráfico, um seletor curto.
+ *
+ * A versão anterior oferecia 51 métricas num `<select>` — inclusive
+ * `views.mobileLifeAtPageViews.uniquePageViews`. Isso é inventário, não
+ * leitura. As quatro que importam ficam aqui; as outras 47 continuam inteiras
+ * em Dados da integração, onde inventário é o que se procura.
+ */
+function MovimentoDaPagina({ d, dias }: { d: Dados; dias: number }) {
+  const serie = d.serie;
+  const [metrica, setMetrica] = useState("ganhoOrganico");
+  const [ativo, setAtivo] = useState<number | null>(null);
+
+  const metricas: Metrica[] = useMemo(() => {
+    const tem = (f: (x: Serie[number]) => unknown) => serie.some((x) => typeof f(x) === "number");
+    const view = (k: string) => (x: Serie[number]) =>
+      ((x.viewsJson ?? {}) as Record<string, number>)[k];
+    const lista: Metrica[] = [];
+    if (tem((x) => x.ganhoOrganico)) {
+      lista.push({ id: "ganhoOrganico", nome: "Crescimento de seguidores", unidade: "novos seguidores", cor: COR.entrada });
+    }
+    if (tem((x) => x.ganhoPago)) {
+      lista.push({ id: "ganhoPago", nome: "Crescimento pago", unidade: "novos seguidores", cor: COR.ativacoes });
+    }
+    if (tem(view("views.allPageViews.pageViews"))) {
+      lista.push({ id: "views:views.allPageViews.pageViews", nome: "Visualizações da página", unidade: "visualizações", cor: COR.visitas });
+    }
+    if (tem(view("views.allPageViews.uniquePageViews"))) {
+      lista.push({ id: "views:views.allPageViews.uniquePageViews", nome: "Visitantes únicos", unidade: "visitantes", cor: COR.seguidores });
+    }
+    return lista;
+  }, [serie]);
+
+  const m = metricas.find((x) => x.id === metrica) ?? metricas[0];
+
+  const pontos: PontoHistorico[] = useMemo(() => {
+    if (!m) return [];
+    const saida: PontoHistorico[] = [];
+    let anterior: string | null = null;
+    for (const x of serie) {
+      const v = m.id.startsWith("views:")
+        ? ((x.viewsJson ?? {}) as Record<string, number>)[m.id.slice(6)]
+        : (x[m.id as "ganhoOrganico" | "ganhoPago"] as number | null);
+      if (typeof v !== "number") continue;
+      saida.push({ dia: x.dia, valor: v, vao: !!anterior && diasEntre(anterior, x.dia) > 1 });
+      anterior = x.dia;
+    }
+    return saida;
+  }, [serie, m]);
+
+  return (
+    <Secao titulo="Movimento da página"
+      nota={pontos.length >= 2
+        ? `${pontos.length} dias medidos nos últimos ${dias}`
+        : "sem série suficiente no período"}
+      acao={
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+          {ativo !== null && pontos[ativo] && m && (
+            <LeituraDoPonto dia={pontos[ativo].dia}
+              valores={[{ valor: fmt(pontos[ativo].valor), rotulo: m.unidade, cor: m.cor }]} />
+          )}
+          {metricas.length > 1 && (
+            <div className="flex gap-0.5 p-0.5 rounded-lg bg-muted/60">
+              {metricas.map((x) => (
+                <button key={x.id} type="button"
+                  onClick={() => { setMetrica(x.id); setAtivo(null); }}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                    m?.id === x.id ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                  {x.nome}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      }>
+      {pontos.length >= 2 && m ? (
+        <div className="overflow-x-auto">
+          <CurvaHistorica id={`mov-${m.id}`} pontos={pontos} cor={m.cor}
+            altura={200} largura={Math.max(760, pontos.length * 8)}
+            ativo={ativo} aoEntrar={setAtivo} />
+        </div>
+      ) : (
+        <div className="h-[160px] flex flex-col items-center justify-center gap-1 text-center">
+          <span className="text-[13px] font-medium">Dados insuficientes para gerar evolução</span>
+          <span className="text-[11.5px] text-muted-foreground max-w-[46ch]">
+            {pontos.length === 1
+              ? "Há uma medição no período — uma série precisa de pelo menos duas."
+              : "Nenhuma medição desta métrica no período selecionado."}
+          </span>
+        </div>
+      )}
+    </Secao>
+  );
+}
+
+/* ── Conteúdo do período ─────────────────────────────────────────────────── */
+
+type OrdemDoConteudo = "desempenho" | "recentes";
+
+function ConteudoDoPeriodo({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string) => void }) {
+  const [ordem, setOrdem] = useState<OrdemDoConteudo>("desempenho");
+
+  const lista = useMemo(() => {
+    const eng = (p: Publicacao) =>
+      p.metrica?.engagement != null ? Number(p.metrica.engagement) : null;
+    const quando = (p: Publicacao) => (p.publicadoEm ? new Date(p.publicadoEm).getTime() : 0);
+    return [...d.posts].sort((a, b) => ordem === "recentes"
+      ? quando(b) - quando(a)
+      : (eng(b) ?? -1) - (eng(a) ?? -1)).slice(0, 8);
+  }, [d.posts, ordem]);
+
+  const comMetrica = d.posts.filter((p) => typeof p.metrica?.impressions === "number").length;
+
+  return (
+    <Secao titulo="Conteúdo do período"
+      nota={`${d.posts.length} publicações · ${comMetrica} com métricas`}
+      acao={
+        <div className="flex gap-0.5 p-0.5 rounded-lg bg-muted/60">
+          {([["desempenho", "Melhor desempenho"], ["recentes", "Mais recentes"]] as const).map(([id, nome]) => (
+            <button key={id} type="button" onClick={() => setOrdem(id)}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                ordem === id ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+              {nome}
+            </button>
+          ))}
+        </div>
+      }>
+      {lista.length ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {lista.map((p, i) => (
+            <CartaoDePublicacao key={p.postUrn} p={p} aoAbrir={aoAbrir}
+              melhor={ordem === "desempenho" && i === 0 && p.metrica?.engagement != null} />
+          ))}
+        </div>
+      ) : (
+        <div className="py-10 text-center text-[13px] text-muted-foreground">
+          Nenhuma publicação coletada nesta Página.
+        </div>
+      )}
+    </Secao>
+  );
+}
+
+/* ── Como estamos publicando ─────────────────────────────────────────────── */
+
+/**
+ * "Formatos" era uma aba. Virou a pergunta que a pessoa realmente faz.
+ *
+ * A quantidade sozinha não responde nada — publicar muita imagem não significa
+ * que imagem funcione. Por isso o engajamento vem ao lado, com o denominador:
+ * "25 publicações · 12 medidas · 4,2%" é honesto; "25 · 4,2%" não é.
+ */
+function ComoEstamosPublicando({ d, aoAbrir }: { d: Dados; aoAbrir: (urn: string) => void }) {
+  const linhas = useMemo(() => {
+    const por = new Map<string, Publicacao[]>();
+    for (const p of d.posts) {
+      const t = lerConteudo(p.contentJson, !!p.commentary).tipo;
+      por.set(t, [...(por.get(t) ?? []), p]);
+    }
+    return Array.from(por.entries()).map(([tipo, ps]) => {
+      const medidas = ps.filter((p) => p.metrica?.engagement != null);
+      const eng = medidas.length
+        ? medidas.reduce((t, p) => t + Number(p.metrica!.engagement), 0) / medidas.length
+        : null;
+      return { tipo: tipo as keyof typeof ROTULO_CONTEUDO, total: ps.length, medidas: medidas.length, eng };
+    }).sort((a, b) => b.total - a.total);
+  }, [d.posts]);
+
+  const maiorEng = Math.max(...linhas.map((x) => x.eng ?? 0), 0.0001);
+
+  return (
+    <Secao titulo="Como estamos publicando"
+      nota="formato identificado no que o LinkedIn devolveu"
+      acao={
+        <Button size="sm" variant="ghost" className="h-6 text-[10.5px] px-2"
+          onClick={() => aoAbrir("")}>
+          {/* Sem ação destrutiva: só um atalho para o detalhe, e ele existe
+              porque a tabela é resumo, não a lista completa. */}
+        </Button>
+      }>
+      <div className="flex flex-col">
+        {linhas.map((x) => (
+          <div key={x.tipo}
+            className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[130px_minmax(0,1fr)_120px]
+                       items-center gap-3 py-2 border-b border-border/50 last:border-0">
+            <span className="text-[12.5px] font-medium truncate">{ROTULO_CONTEUDO[x.tipo]}</span>
+            <span className="hidden sm:block h-1.5 rounded-full bg-muted overflow-hidden">
+              <span className="block h-full rounded-full transition-all"
+                style={{
+                  width: `${Math.max(2, ((x.eng ?? 0) / maiorEng) * 100)}%`,
+                  background: x.tipo === "nao_identificado" ? "var(--muted-foreground)" : COR.engajamento,
+                }} />
+            </span>
+            <span className="text-right text-[12px] tabular-nums whitespace-nowrap">
+              <span className="font-semibold">{fmt(x.total)}</span>
+              <span className="text-muted-foreground/60 text-[10.5px]"> posts</span>
+              <span className="mx-1.5 text-border">·</span>
+              {x.eng !== null ? (
+                <span className="font-semibold" title={`média de ${x.medidas} publicação(ões) medidas`}>
+                  {(x.eng * 100).toFixed(1)}%
+                </span>
+              ) : (
+                <span className="text-muted-foreground/50" title="nenhuma publicação deste formato tem métrica">–</span>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Secao>
+  );
+}
+
+/* ── Quem acompanha a marca ──────────────────────────────────────────────── */
+
+/**
+ * "Audiência" era uma aba com sete tabelas ordenáveis. Virou a pergunta.
+ *
+ * Quatro dimensões, cinco linhas cada, em barra — não tabela. As sete completas
+ * continuam em Dados da integração; aqui o que se quer é a forma da base, e
+ * uma tabela de 40 linhas não tem forma.
+ */
+function QuemAcompanhaAMarca({ d }: { d: Dados }) {
+  const seg = (d.lifetime?.segmentacoesJson ?? null) as Record<string, unknown> | null;
+  const fezCarga = (d.banco?.execucoes.cargas ?? 0) > 0;
+
+  const PRINCIPAIS = [
+    ["followerCountsByIndustry", "Setor"],
+    ["followerCountsBySeniority", "Senioridade"],
+    ["followerCountsByFunction", "Função"],
+    ["followerCountsByGeoCountry", "Localização"],
+  ] as const;
+
+  const dimensoes = PRINCIPAIS
+    .map(([campo, nome]) => ({ campo, nome, linhas: linhasDoSegmento(seg?.[campo]).slice(0, 5) }))
+    .filter((x) => x.linhas.length);
+
+  if (!dimensoes.length) {
+    return (
+      <Secao titulo="Quem acompanha a marca">
+        <div className="py-8 text-center flex flex-col gap-1">
+          <span className="text-[13px] font-medium">Perfil dos seguidores não disponível</span>
+          <span className="text-[11.5px] text-muted-foreground max-w-[52ch] mx-auto">
+            {fezCarga
+              ? "A coleta rodou e o LinkedIn não devolveu as segmentações desta Página."
+              : "Este dado vem da Carga histórica — a sincronização diária não o pede."}
+          </span>
+        </div>
+      </Secao>
+    );
+  }
+
+  return (
+    <Secao titulo="Quem acompanha a marca"
+      nota="perfil de quem segue a Página — não de quem visita o site">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6">
+        {dimensoes.map((dim) => {
+          const maior = Math.max(...dim.linhas.map((l) => l.total ?? 0), 1);
+          return (
+            <div key={dim.campo} className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground/70">
+                {dim.nome}
+              </span>
+              <div className="flex flex-col gap-1.5 mt-2">
+                {dim.linhas.map((l) => (
+                  <div key={l.chave} className="flex items-center gap-2.5">
+                    {/* O código do LinkedIn, sem tradução inventada. O nome da
+                        categoria depende de uma resolução de entidades que esta
+                        versão não conecta. */}
+                    <span className="w-[86px] flex-shrink-0 text-[11px] text-muted-foreground truncate"
+                      title={`${l.chave} — o nome desta categoria depende da resolução de entidades do LinkedIn, ainda não conectada`}>
+                      cód. {l.chave.split(":").pop()}
+                    </span>
+                    <span className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden min-w-[40px]">
+                      <span className="block h-full rounded-full"
+                        style={{ width: `${Math.max(3, ((l.total ?? 0) / maior) * 100)}%`, background: COR.seguidores }} />
+                    </span>
+                    <span className="w-[56px] flex-shrink-0 text-right text-[11.5px] tabular-nums font-semibold">
+                      {l.total === null ? "–" : fmt(l.total)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[10.5px] text-muted-foreground/60 mt-4">
+        Os códigos são o dado original do LinkedIn. O nome de cada categoria depende
+        da resolução de entidades, ainda não conectada nesta versão.
+      </p>
+    </Secao>
+  );
+}
+
+/* ── Sobre a página ──────────────────────────────────────────────────────── */
+
+/** A ficha do cliente, compacta. Era uma aba inteira; é um rodapé de leitura. */
+function SobreAPagina({ d, papeis, status }: {
+  d: Dados; papeis: Array<{ papel: string; estado: string }>; status: StatusDoVinculo;
+}) {
+  const org = (d.lifetime?.organizacaoJson ?? null) as Record<string, unknown> | null;
+  const texto = (...ks: string[]) => {
+    for (const k of ks) {
+      const v = org?.[k];
+      if (typeof v === "string" && v.trim()) return v;
+      if (Array.isArray(v) && v.length) return v.filter((x) => typeof x === "string").join(", ");
+    }
+    return null;
+  };
+  const vivos = cargosVivos(papeis);
+
+  return (
+    <Secao titulo="Sobre a página" nota={d.pagina?.organizationUrn ?? undefined}>
+      <div className="flex flex-col gap-3">
+        {texto("localizedDescription", "description") && (
+          <p className="text-[12.5px] leading-relaxed text-muted-foreground max-w-[80ch]">
+            {texto("localizedDescription", "description")}
+          </p>
+        )}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3">
+          <FichaItem k="Site" v={texto("localizedWebsite", "website")} link />
+          <FichaItem k="Porte" v={texto("staffCountRange")} />
+          <FichaItem k="Tipo" v={texto("organizationType", "primaryOrganizationType")} />
+          <FichaItem k="Especialidades" v={texto("localizedSpecialties", "specialties")} />
+          <FichaItem k="Acesso da SELVA" v={vivos.join(", ") || null} />
+          <FichaItem k="Status" v={ROTULO_VINCULO[status]} />
+          <FichaItem k="Última sincronização"
+            v={d.pagina?.ultimaColetaEm ? dataBr(d.pagina.ultimaColetaEm) : null} />
+          <FichaItem k="Carga histórica"
+            v={d.pagina?.cargaInicialEm ? dataBr(d.pagina.cargaInicialEm) : null} />
+        </div>
+        {!org && (
+          <p className="text-[11.5px] text-muted-foreground">
+            Os detalhes da organização vêm da Carga histórica — a sincronização diária não os pede.
+          </p>
+        )}
+      </div>
+    </Secao>
+  );
+}
+
+function FichaItem({ k, v, link }: { k: string; v: string | null; link?: boolean }) {
+  return (
+    <div className="flex flex-col leading-tight min-w-0">
+      <span className="text-[9.5px] uppercase tracking-[0.1em] text-muted-foreground/60">{k}</span>
+      <span className="text-[12px] truncate" title={v ?? undefined}>
+        {v === null ? <span className="text-muted-foreground/40">–</span>
+          : link ? <a href={v} target="_blank" rel="noreferrer" className="text-primary hover:underline">{v}</a>
+          : v}
+      </span>
     </div>
   );
 }
