@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  distribuicaoDeConteudo, estadoDaMetrica, estadoDaMidia, lerConteudo,
+  distribuicaoDeConteudo, estadoDaMetrica, estadoDaMidia, lerConteudo, urlNoConteudo,
 } from "./linkedinConteudo";
 
 describe("o formato sai do JSON, nunca da suposição", () => {
@@ -110,5 +110,41 @@ describe("métrica: 'sem retorno' não é 'não coletada', e nunca é zero", () 
   it("erro vence tudo", () => {
     expect(estadoDaMetrica({ temLinha: true, temValor: true, statusColeta: "erro", foiPedida: true }).estado)
       .toBe("erro");
+  });
+});
+
+describe("a imagem que já estava no `content`", () => {
+  it("acha `thumbnails[].resolvedUrl` do share legado", () => {
+    // O placeholder aparecia com a imagem no banco: a resolução por URN nunca
+    // respondeu, mas o `share:` legado traz a URL dentro do próprio content.
+    const content = {
+      contentEntities: [{ thumbnails: [{ resolvedUrl: "https://media.licdn.com/x.jpg" }] }],
+    };
+    expect(urlNoConteudo(content)).toBe("https://media.licdn.com/x.jpg");
+  });
+
+  it("NÃO usa o link da matéria como imagem", () => {
+    // `article.source` e `landingPage` são destino de clique. Um `<img>` neles
+    // quebra e parece erro nosso.
+    expect(urlNoConteudo({ article: { source: "https://site.com/materia" } })).toBeNull();
+    expect(urlNoConteudo({ landingPage: { url: "https://site.com/lp" } })).toBeNull();
+  });
+
+  it("URN continua não sendo URL", () => {
+    expect(urlNoConteudo({ media: { id: "urn:li:image:C1" } })).toBeNull();
+  });
+
+  it("a URL do content vale antes de qualquer veredito de ausência", () => {
+    const e = estadoDaMidia({
+      midias: [{ urn: "urn:li:image:A", dados: null, consultada: true }],
+      content: { image: { downloadUrl: "https://media.licdn.com/y.png" } },
+    });
+    expect(e.estado).toBe("resolvida");
+    expect(e.url).toBe("https://media.licdn.com/y.png");
+  });
+
+  it("sem mídia e sem URL no content continua sendo 'sem mídia'", () => {
+    expect(estadoDaMidia({ midias: [], content: { commentary: "só texto" } }).estado)
+      .toBe("sem_midia");
   });
 });

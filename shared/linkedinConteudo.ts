@@ -171,14 +171,47 @@ export interface EntradaDeMidia {
   consultada?: boolean;
 }
 
+/**
+ * Uma URL de imagem escondida DENTRO do `content` já salvo.
+ *
+ * O `share:` legado do LinkedIn às vezes traz `contentEntities[].thumbnails[]`
+ * com `resolvedUrl` — URL de verdade, não URN. Ela já está no banco desde a
+ * carga, e não custa chamada nenhuma; deixar de olhar ali era desenhar
+ * placeholder tendo a imagem em mãos.
+ *
+ * A busca é DIRIGIDA, não uma varredura por qualquer `http`: `article.source`
+ * é o link da matéria e `landingPage` é destino de clique — nenhum dos dois é
+ * imagem, e usá-los produziria um `<img>` quebrado com cara de erro nosso.
+ */
+export function urlNoConteudo(content: unknown, caminho = "", nivel = 0): string | null {
+  if (!content || typeof content !== "object" || nivel > 6) return null;
+  if (Array.isArray(content)) {
+    for (const item of content) {
+      const u = urlNoConteudo(item, caminho, nivel + 1);
+      if (u) return u;
+    }
+    return null;
+  }
+  for (const [k, v] of Object.entries(content as Record<string, unknown>)) {
+    const trilha = caminho ? `${caminho}.${k}` : k;
+    const pareceImagem = /thumbnail|image|picture|media|display/i.test(trilha)
+      && !/source|landingPage|linkedInUrl|permalink/i.test(trilha);
+    if (typeof v === "string" && /^https?:\/\//.test(v) && pareceImagem) return v;
+    if (v && typeof v === "object") {
+      const u = urlNoConteudo(v, trilha, nivel + 1);
+      if (u) return u;
+    }
+  }
+  return null;
+}
+
 export function estadoDaMidia(e: {
   midias: EntradaDeMidia[] | null | undefined;
   erro?: string | null;
+  /** O `content` cru — pode carregar uma URL que a resolução não precisou dar. */
+  content?: unknown;
 }): { estado: EstadoDaMidia; url: string | null; indeterminado: boolean; motivo: string | null } {
   const ms = e.midias ?? [];
-  if (!ms.length) {
-    return { estado: "sem_midia", url: null, indeterminado: false, motivo: null };
-  }
 
   for (const m of ms) {
     const d = m.dados as Record<string, unknown> | null;
@@ -186,6 +219,17 @@ export function estadoDaMidia(e: {
     if (typeof u === "string" && u.startsWith("http")) {
       return { estado: "resolvida", url: u, indeterminado: false, motivo: null };
     }
+  }
+
+  // A URL que já estava no `content`. Vem antes de qualquer veredito de
+  // ausência: dizer "não temos imagem" com a imagem no banco seria errado.
+  const doConteudo = urlNoConteudo(e.content);
+  if (doConteudo) {
+    return { estado: "resolvida", url: doConteudo, indeterminado: false, motivo: null };
+  }
+
+  if (!ms.length) {
+    return { estado: "sem_midia", url: null, indeterminado: false, motivo: null };
   }
 
   if (e.erro) return { estado: "erro", url: null, indeterminado: false, motivo: e.erro };

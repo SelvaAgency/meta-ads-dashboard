@@ -1212,6 +1212,9 @@ type Publicacao = Dados["posts"][number];
 function midiaDe(p: Publicacao) {
   return estadoDaMidia({
     midias: (p.midiasJson ?? []) as EntradaDeMidia[],
+    // O `content` já salvo pode carregar a URL que a resolução não deu — no
+    // `share:` legado o LinkedIn manda `thumbnails[].resolvedUrl`.
+    content: p.contentJson,
     erro: p.midiaIndisponivel && /erro|falh|HTTP/i.test(p.midiaIndisponivel)
       ? p.midiaIndisponivel : null,
   });
@@ -2968,43 +2971,45 @@ function Resumo({ d, capacidades, papeis, status, periodo, aba, aoAbrir }: {
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
- *  Movimento da página — um gráfico grande e quatro módulos, sem abas
+ *  Movimento da página — UMA caixa, duas colunas, como a Social
  * ─────────────────────────────────────────────────────────────────────────────
- *  As abas dentro do gráfico eram o problema: com quatro métricas atrás de
- *  quatro botões, ver duas ao mesmo tempo exigia memória. E comparar por
- *  memória é exatamente o que um gráfico existe para dispensar.
+ *  A versão anterior tinha quatro caixas, uma por métrica. A Social faz o
+ *  contrário: uma caixa, e as métricas dividem o espaço por uma borda de 1px.
+ *  Quatro caixas soltas dizem "quatro assuntos"; uma caixa dividida diz "um
+ *  assunto, quatro faces" — que é o que o movimento de uma Página é.
  *
- *  Cada métrica vira um módulo com cor própria. Verde para entrada orgânica,
- *  rosa para paga, azul para visualização, roxo para visitante — a mesma
- *  família de cores da Social, para que a leitura seja transferível entre as
- *  duas telas.
+ *  À esquerda o que a Página fez (visualizações, visitantes, crescimento pago);
+ *  à direita a base de seguidores, com saldo, curva e extremos. É o mesmo
+ *  arranjo de "Dados gerais + Movimento da base".
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-interface Serie1 { id: string; nome: string; unidade: string; cor: string; explicacao: string }
+interface MetricaDaSerie { id: string; nome: string; unidade: string; cor: string; origem: string }
 
-const SERIES_DO_LINKEDIN: Serie1[] = [
+const SERIES_DO_LINKEDIN: MetricaDaSerie[] = [
   {
     id: "views:views.allPageViews.pageViews", nome: "Visualizações da página",
     unidade: "visualizações", cor: COR.visitas,
-    explicacao: "organizationPageStatistics · views.allPageViews.pageViews, por dia",
-  },
-  {
-    id: "ganhoOrganico", nome: "Crescimento de seguidores",
-    unidade: "novos seguidores", cor: COR.entrada,
-    explicacao: "organizationalEntityFollowerStatistics · organicFollowerGain, por dia",
+    origem: "organizationPageStatistics · views.allPageViews.pageViews, por dia",
   },
   {
     id: "views:views.allPageViews.uniquePageViews", nome: "Visitantes únicos",
     unidade: "visitantes", cor: COR.seguidores,
-    explicacao: "organizationPageStatistics · views.allPageViews.uniquePageViews, por dia",
+    origem: "organizationPageStatistics · views.allPageViews.uniquePageViews, por dia",
   },
   {
     id: "ganhoPago", nome: "Crescimento pago",
     unidade: "novos seguidores", cor: COR.ativacoes,
-    explicacao: "organizationalEntityFollowerStatistics · paidFollowerGain, por dia",
+    origem: "organizationalEntityFollowerStatistics · paidFollowerGain, por dia",
   },
 ];
+
+/** A métrica da base, que fica na coluna da direita. */
+const CRESCIMENTO: MetricaDaSerie = {
+  id: "ganhoOrganico", nome: "Crescimento de seguidores",
+  unidade: "novos seguidores", cor: COR.entrada,
+  origem: "organizationalEntityFollowerStatistics · organicFollowerGain, por dia",
+};
 
 /** Os pontos MEDIDOS de uma métrica. Dia sem medida não vira zero — some. */
 function pontosDaSerie(serie: Serie, id: string): PontoHistorico[] {
@@ -3024,91 +3029,210 @@ function pontosDaSerie(serie: Serie, id: string): PontoHistorico[] {
 function MovimentoDaPagina({ d, periodo }: { d: Dados; periodo: Periodo }) {
   const comDados = useMemo(
     () => SERIES_DO_LINKEDIN.map((m) => ({ m, pontos: pontosDaSerie(d.serie, m.id) }))
-      .filter((x) => x.pontos.length >= 2),
+      .filter((x) => x.pontos.length >= 1),
     [d.serie]);
+  const crescimento = useMemo(() => pontosDaSerie(d.serie, CRESCIMENTO.id), [d.serie]);
 
-  if (!comDados.length) {
-    return (
-      <Secao titulo="Movimento da página" nota={periodo.rotulo.toLowerCase()}>
-        <div className="h-[160px] flex flex-col items-center justify-center gap-1 text-center">
-          <span className="text-[13px] font-medium">Dados insuficientes para gerar evolução</span>
-          <span className="text-[11.5px] text-muted-foreground max-w-[46ch]">
-            Nenhuma métrica tem duas medições em {periodo.rotulo.toLowerCase()}.
-          </span>
-        </div>
-      </Secao>
-    );
-  }
+  const comSeguidores = d.serie.filter((x) => x.seguidoresTotal !== null);
+  const saldoAtual = comSeguidores[comSeguidores.length - 1]?.seguidoresTotal ?? null;
+  const saldoDoPeriodo = crescimento.length
+    ? crescimento.reduce((t, p) => t + p.valor, 0) : null;
 
-  const [principal, ...resto] = comDados;
+  const alta = crescimento.filter((p) => p.valor > 0)
+    .sort((a, b) => b.valor - a.valor)[0] ?? null;
+  const queda = crescimento.filter((p) => p.valor < 0)
+    .sort((a, b) => a.valor - b.valor)[0] ?? null;
+  const media = crescimento.length ? saldoDoPeriodo! / crescimento.length : null;
 
   return (
-    <div className="flex flex-col gap-4">
-      <GraficoDoMovimento titulo="Movimento da página" m={principal.m}
-        pontos={principal.pontos} periodo={periodo} grande />
+    <section className="rounded-[20px] border border-border bg-card overflow-hidden
+                        shadow-[0_1px_2px_rgba(10,10,10,.04)]">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,376px)]
+                      divide-y lg:divide-y-0 lg:divide-x divide-border">
 
-      {resto.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {resto.map((x) => (
-            <GraficoDoMovimento key={x.m.id} titulo={x.m.nome} m={x.m}
-              pontos={x.pontos} periodo={periodo} />
-          ))}
+        {/* ── ESQUERDA · o que a Página fez ─────────────────────────────── */}
+        <div className="min-w-0 flex flex-col">
+          <div className="flex items-baseline gap-2.5 flex-wrap px-[18px] pt-[18px]">
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Movimento da página</h2>
+            <span className="text-[10.5px] text-muted-foreground/50">
+              {periodo.rotulo.toLowerCase()} · dia sem medição não vira zero
+            </span>
+          </div>
+
+          {comDados.length ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 mt-2 flex-1">
+              {comDados.map((x, i) => (
+                <CelulaDeMetrica key={x.m.id} m={x.m} pontos={x.pontos}
+                  /* Bordas explícitas em vez de `divide`: a última célula de
+                     uma grade ímpar ganharia um traço sem nada do outro lado. */
+                  className={i % 2 === 1 ? "sm:border-l border-border" : ""}
+                  comBordaSuperior={i >= 2} />
+              ))}
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center gap-1 py-12 px-4 text-center">
+              <span className="text-[13px] font-medium">Sem medição no período</span>
+              <span className="text-[11.5px] text-muted-foreground max-w-[40ch]">
+                Nenhuma métrica de página tem dado em {periodo.rotulo.toLowerCase()}.
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* ── DIREITA · a base de seguidores ────────────────────────────── */}
+        <div className="min-w-0 px-[18px] py-[18px] flex flex-col gap-3.5">
+          <div className="flex items-baseline justify-between gap-2 flex-wrap">
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">Movimento da base</h2>
+            <span className="text-[10.5px] text-muted-foreground/50">total e variação</span>
+          </div>
+
+          <div className="flex items-end justify-between gap-3 flex-wrap">
+            <div>
+              <span className="block text-[9.5px] font-bold uppercase tracking-[0.13em] text-muted-foreground/70">
+                Saldo atual
+              </span>
+              <span className="block text-[30px] font-bold tabular-nums leading-none tracking-tight mt-1">
+                <Numero valor={saldoAtual}
+                  motivo={saldoAtual === null ? "networkSizes não foi medido no período" : null} />
+              </span>
+            </div>
+            {saldoDoPeriodo !== null && (
+              <span className="text-[11px] text-muted-foreground pb-0.5">
+                <span className={saldoDoPeriodo >= 0 ? "text-emerald-600 font-bold" : "text-destructive font-bold"}>
+                  {saldoDoPeriodo > 0 ? "+" : ""}{fmt(saldoDoPeriodo)}
+                </span> no período
+              </span>
+            )}
+          </div>
+
+          <div className="pt-3 border-t border-border">
+            <CurvaDaBase pontos={crescimento} periodo={periodo} />
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 pt-3 border-t border-border">
+            <DestaqueDaBase rotulo="Maior alta" cor={COR.entrada}
+              valor={alta ? `+${fmt(alta.valor)}` : "–"}
+              nota={alta ? `${alta.dia.slice(8, 10)}/${alta.dia.slice(5, 7)}` : "sem alta no período"} />
+            <DestaqueDaBase rotulo="Maior queda" cor={COR.saida}
+              valor={queda ? `−${fmt(Math.abs(queda.valor))}` : "–"}
+              nota={queda ? `${queda.dia.slice(8, 10)}/${queda.dia.slice(5, 7)}` : "sem queda no período"} />
+            <DestaqueDaBase rotulo="Média diária"
+              cor={media == null ? undefined : media > 0 ? COR.entrada : media < 0 ? COR.saida : undefined}
+              valor={media == null ? "–"
+                : `${media > 0 ? "+" : media < 0 ? "−" : ""}${Math.abs(media).toFixed(1).replace(".", ",")}`}
+              nota={media == null ? "sem medição" : `em ${crescimento.length} dia(s)`} />
+          </div>
+
+          <span className="text-[10px] text-muted-foreground/50 mt-auto pt-2">
+            Calculado sobre <code className="font-mono">organicFollowerGain</code> medido por dia.
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Uma célula da grade — ícone, rótulo, número, mini-curva.
+ *
+ * É a estrutura do `CartaoGeral` da Social, reescrita aqui em vez de
+ * importada: aquele componente carrega parcelas, ressalva e o gatilho do painel
+ * de detalhamento, tudo amarrado ao vocabulário do Instagram. Copiar a forma é
+ * o pedido; herdar a semântica dele acoplaria as duas telas.
+ */
+function CelulaDeMetrica({ m, pontos, className = "", comBordaSuperior }: {
+  m: MetricaDaSerie; pontos: PontoHistorico[]; className?: string; comBordaSuperior?: boolean;
+}) {
+  const [ativo, setAtivo] = useState<number | null>(null);
+  const total = pontos.reduce((t, p) => t + p.valor, 0);
+  const pico = pontos.length ? pontos.reduce((a, b) => (b.valor > a.valor ? b : a)) : null;
+
+  return (
+    <div className={`flex flex-col px-4 py-4 min-w-0 ${className} ${
+      comBordaSuperior ? "border-t border-border" : ""}`}>
+      <div className="flex items-start justify-between gap-2">
+        <span className="w-8 h-8 rounded-[10px] grid place-items-center flex-shrink-0"
+          style={{ background: `${m.cor}1F` }}>
+          <span className="w-2.5 h-2.5 rounded-full" style={{ background: m.cor }} />
+        </span>
+        <div className="min-h-[18px] text-right">
+          {ativo !== null && pontos[ativo] && (
+            <LeituraDoPonto dia={pontos[ativo].dia} miuda
+              valores={[{ valor: fmt(pontos[ativo].valor), rotulo: m.unidade, cor: m.cor }]} />
+          )}
+        </div>
+      </div>
+
+      <span className="block text-[10px] font-bold uppercase tracking-[0.13em] text-muted-foreground/70 mt-3 cursor-help"
+        title={m.origem}>
+        {m.nome}
+      </span>
+      <span className="block text-[26px] font-bold tabular-nums leading-none tracking-[-0.02em] mt-1">
+        {fmt(total)}
+      </span>
+      <span className="block text-[10.5px] text-muted-foreground/60 mt-1">
+        {pontos.length} dia(s) medido(s)
+        {pico ? ` · pico ${fmt(pico.valor)} em ${pico.dia.slice(8, 10)}/${pico.dia.slice(5, 7)}` : ""}
+      </span>
+
+      <div className="mt-3">
+        {pontos.length >= 2 ? (
+          <CurvaHistorica id={`cel-${m.id}`} pontos={pontos} cor={m.cor}
+            altura={78} largura={300} ativo={ativo} aoEntrar={setAtivo} miuda />
+        ) : (
+          <div className="h-[78px] flex items-center text-[10.5px] text-muted-foreground/50">
+            {pontos.length === 1 ? "uma medição — sem série" : "sem série no período"}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A curva da base, na coluna estreita. */
+function CurvaDaBase({ pontos, periodo }: { pontos: PontoHistorico[]; periodo: Periodo }) {
+  const [ativo, setAtivo] = useState<number | null>(null);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap min-h-[18px]">
+        <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-muted-foreground/70">
+          Crescimento diário
+        </span>
+        {ativo !== null && pontos[ativo] ? (
+          <LeituraDoPonto dia={pontos[ativo].dia} miuda
+            valores={[{ valor: fmt(pontos[ativo].valor), rotulo: "novos seguidores", cor: COR.entrada }]} />
+        ) : (
+          <span className="text-[10.5px] text-muted-foreground/50">ganho orgânico por dia</span>
+        )}
+      </div>
+      {pontos.length >= 2 ? (
+        <CurvaHistorica id="base-linkedin" pontos={pontos} cor={COR.entrada}
+          altura={188} largura={352} ativo={ativo} aoEntrar={setAtivo} />
+      ) : (
+        <div style={{ height: 188 }} className="flex items-center justify-center text-center px-4">
+          <span className="text-[11.5px] text-muted-foreground">
+            Sem série de crescimento em {periodo.rotulo.toLowerCase()}.
+          </span>
         </div>
       )}
     </div>
   );
 }
 
-/**
- * Um módulo de gráfico — número, contexto e curva, nessa ordem.
- *
- * O número responde "quanto", a linha de apoio responde "comparado a quê", e a
- * curva responde "quando". Um gráfico sem as duas primeiras é desenho; com as
- * três, é leitura.
- */
-function GraficoDoMovimento({ titulo, m, pontos, periodo, grande = false }: {
-  titulo: string; m: Serie1; pontos: PontoHistorico[]; periodo: Periodo; grande?: boolean;
+function DestaqueDaBase({ rotulo, valor, nota, cor }: {
+  rotulo: string; valor: string; nota: string; cor?: string;
 }) {
-  const [ativo, setAtivo] = useState<number | null>(null);
-  const total = pontos.reduce((t, p) => t + p.valor, 0);
-  const media = pontos.length ? total / pontos.length : 0;
-  const pico = pontos.reduce((a, b) => (b.valor > a.valor ? b : a), pontos[0]);
-
   return (
-    <section className="rounded-[20px] border border-border bg-card overflow-hidden
-                        shadow-[0_1px_2px_rgba(10,10,10,.04)]">
-      <div className="px-[18px] pt-[18px] flex items-start justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <h2 className="text-[11px] font-bold uppercase tracking-[0.13em]">{titulo}</h2>
-          <div className="flex items-baseline gap-2 mt-1.5">
-            <span className={`font-bold tabular-nums tracking-[-0.02em] leading-none ${
-              grande ? "text-[28px]" : "text-[22px]"}`} style={{ color: m.cor }}>
-              {fmt(total)}
-            </span>
-            <span className="text-[11px] text-muted-foreground">{m.unidade}</span>
-          </div>
-          <span className="block text-[10.5px] text-muted-foreground/70 mt-1"
-            title={m.explicacao}>
-            {pontos.length} dia(s) medido(s) · média {fmt(Math.round(media))}/dia ·
-            {" "}pico {fmt(pico.valor)} em {dataBr(pico.dia)}
-          </span>
-        </div>
-        {/* O hover escreve DATA em tom de texto e VALOR na cor da série — a
-            mesma gramática dos quatro gráficos da Social. */}
-        <div className="min-h-[18px]">
-          {ativo !== null && pontos[ativo] && (
-            <LeituraDoPonto dia={pontos[ativo].dia} miuda={!grande}
-              valores={[{ valor: fmt(pontos[ativo].valor), rotulo: m.unidade, cor: m.cor }]} />
-          )}
-        </div>
-      </div>
-      <div className="px-[10px] pb-3 pt-2 overflow-x-auto">
-        <CurvaHistorica id={`mov-${m.id}`} pontos={pontos} cor={m.cor}
-          altura={grande ? 210 : 128}
-          largura={Math.max(grande ? 700 : 420, pontos.length * (grande ? 8 : 5))}
-          ativo={ativo} aoEntrar={setAtivo} miuda={!grande} />
-      </div>
-    </section>
+    <div className="flex flex-col min-w-0">
+      <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground/60">
+        {rotulo}
+      </span>
+      <span className="text-[15px] font-bold tabular-nums leading-none mt-1"
+        style={cor && valor !== "–" ? { color: cor } : undefined}>
+        {valor}
+      </span>
+      <span className="text-[10px] text-muted-foreground/60 mt-0.5 truncate">{nota}</span>
+    </div>
   );
 }
 

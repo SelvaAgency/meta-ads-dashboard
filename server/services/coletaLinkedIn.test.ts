@@ -555,27 +555,44 @@ describe("o Lab fala a língua do Tracker, não a de uma ferramenta paralela", (
 describe("a experiência é a do Tracker, e a Social não foi tocada", () => {
   const pagina = () => semComentarios(ler("client/src/pages/LinkedinLab.tsx"));
 
-  it("cada métrica tem gráfico e cor próprios — sem abas dentro do gráfico", () => {
-    // Com quatro métricas atrás de quatro botões, ver duas ao mesmo tempo
-    // exigia memória. Comparar por memória é o que um gráfico dispensa.
+  it("as métricas dividem UMA caixa, como a Social — não quatro soltas", () => {
+    // Quatro caixas dizem "quatro assuntos"; uma caixa dividida por 1px diz
+    // "um assunto, quatro faces" — que é o que o movimento de uma Página é.
     const s = pagina();
     expect(s).toContain("SERIES_DO_LINKEDIN");
-    expect(s).toContain("function GraficoDoMovimento");
+    expect(s).toContain("function CelulaDeMetrica");
+    expect(s).toContain("lg:grid-cols-[minmax(0,1fr)_minmax(0,376px)]");
+    expect(s).toContain("divide-y lg:divide-y-0 lg:divide-x divide-border");
+    // E a base ganha coluna própria, com saldo, curva e extremos.
+    expect(s).toContain("Movimento da base");
+    expect(s).toContain("Saldo atual");
+    expect(s).toContain("Maior alta");
+    // Cor por métrica: azul para visualização, roxo para visitante, rosa para
+    // pago — e verde para a entrada orgânica, que mora na coluna da base.
     const i = s.indexOf("const SERIES_DO_LINKEDIN");
     const bloco = s.slice(i, s.indexOf("];", i));
-    for (const cor of ["COR.visitas", "COR.entrada", "COR.seguidores", "COR.ativacoes"]) {
+    for (const cor of ["COR.visitas", "COR.seguidores", "COR.ativacoes"]) {
       expect(bloco, cor).toContain(cor);
     }
+    expect(s).toContain("const CRESCIMENTO: MetricaDaSerie");
+    expect(s.slice(s.indexOf("const CRESCIMENTO"), s.indexOf("const CRESCIMENTO") + 300))
+      .toContain("COR.entrada");
     // E o seletor segmentado que trocava a métrica no mesmo gráfico saiu.
     expect(s).not.toContain("setMetrica(x.id); setAtivo(null)");
   });
 
-  it("todo gráfico dá contexto antes da curva", () => {
-    // Número (quanto), apoio (comparado a quê), curva (quando). Sem os dois
-    // primeiros é desenho, não leitura.
+  it("toda célula dá contexto antes da curva", () => {
+    // Número (quanto), apoio (comparado a quê), curva (quando).
     const s = pagina();
-    expect(s).toContain("média {fmt(Math.round(media))}/dia");
-    expect(s).toContain("pico {fmt(pico.valor)}");
+    expect(s).toContain("dia(s) medido(s)");
+    expect(s).toContain("pico ${fmt(pico.valor)}");
+  });
+
+  it("a imagem sai do `content` quando a resolução por URN não deu", () => {
+    // O placeholder aparecia com a imagem no banco.
+    const s = pagina();
+    expect(s).toContain("content: p.contentJson");
+    expect(semComentarios(ler("shared/linkedinConteudo.ts"))).toContain("export function urlNoConteudo");
   });
 
   it("os KPIs dizem de onde o número veio", () => {
